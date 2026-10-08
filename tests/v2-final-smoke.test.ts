@@ -9649,27 +9649,44 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(insufficientQueueRejected).to.equal(true);
     trackV2Instruction("queueParameterProposal", this.test?.title);
 
-    const supportTx = await program.methods
-      .supportParameterProposal({
-        amount: new BN(additionalSupport.toString()),
-      })
-      .accounts({
-        supporter: proposer,
-        market: fixture.market,
-        proposal,
-        proposalSupport,
-        ylpMint: fixture.ylpMint,
-        supporterYlpAccount: fixture.ownerYlpAccount,
-        baseYieldAccount,
-        quoteYieldAccount,
-        baseHlpYlpVault: fixture.baseHlpYlpVault,
-        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
+    const supportParameterProposalTx = (digest: number[]) =>
+      program.methods
+        .supportParameterProposal({
+          amount: new BN(additionalSupport.toString()),
+          digest,
+        })
+        .accounts({
+          supporter: proposer,
+          market: fixture.market,
+          proposal,
+          proposalSupport,
+          ylpMint: fixture.ylpMint,
+          supporterYlpAccount: fixture.ownerYlpAccount,
+          baseYieldAccount,
+          quoteYieldAccount,
+          baseHlpYlpVault: fixture.baseHlpYlpVault,
+          quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+    // Support names the proposal it reviewed: once the account closes, its
+    // address can hold a different proposal.
+    const reviewedDigest = Array.from(created.digest as number[]);
+    let staleDigestRejection: unknown;
+    try {
+      await connection.sendTransaction(
+        await supportParameterProposalTx(reviewedDigest.map((byte, index) => (index === 0 ? byte ^ 1 : byte))),
+        [payer]
+      );
+    } catch (error) {
+      staleDigestRejection = error;
+    }
+    expect(String(staleDigestRejection)).to.include("ProposalDigestMismatch");
+
+    const supportTx = await supportParameterProposalTx(reviewedDigest);
     await connection.sendTransaction(supportTx, [payer]);
     expect(cpiEvent(supportTx, "parameterProposalSupported").proposal.toString()).to.equal(
       proposal.toString()
@@ -9737,12 +9754,16 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       market.parameter_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
     );
 
+    const proposalRent = BigInt(svm.getAccount(proposal)!.lamports);
+    const supportRent = BigInt(svm.getAccount(proposalSupport)!.lamports);
+    const proposerLamportsBefore = BigInt(svm.getAccount(proposer)!.lamports);
     const withdrawTx = await program.methods
       .withdrawParameterSupport()
       .accounts({
         supporter: proposer,
         market: fixture.market,
         proposal,
+        proposer,
         proposalSupport,
         ylpMint: fixture.ylpMint,
         supporterYlpAccount: fixture.ownerYlpAccount,
@@ -9754,10 +9775,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(withdrawTx, [payer]);
-    expect(cpiEvent(withdrawTx, "parameterProposalSupportWithdrawn").proposal.toString()).to.equal(
-      proposal.toString()
-    );
+    const withdrawn = cpiEvent(withdrawTx, "parameterProposalSupportWithdrawn");
+    expect(withdrawn.proposal.toString()).to.equal(proposal.toString());
     trackV2Instruction("withdrawParameterSupport", this.test?.title);
+    // The last supporter left an executed proposal: the account closes and
+    // the proposer, who also pays this transaction's one-signature fee,
+    // receives both rents.
+    expect(withdrawn.proposalClosed).to.equal(true);
+    expect(svm.getAccount(proposal)).to.equal(null);
+    expect(BigInt(svm.getAccount(proposer)!.lamports) - proposerLamportsBefore).to.equal(
+      proposalRent + supportRent - 5_000n
+    );
 
     const ownerYlpAfter = await getAccount(
       connection as any,

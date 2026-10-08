@@ -138,6 +138,11 @@ export interface SupportParameterProposalParams extends GovernanceHolderAccountO
   market: AddressLike;
   proposal: AddressLike;
   amount: GovernanceIntegerLike;
+  /**
+   * Digest of the proposal the supporter reviewed. The program rejects the
+   * support if the account at `proposal` holds a different proposal.
+   */
+  digest: Uint8Array | readonly number[];
 }
 
 export interface QueueParameterProposalParams extends GovernanceMarketAccountOverrides {
@@ -154,6 +159,8 @@ export interface WithdrawParameterSupportParams {
   supporter: AddressLike;
   market: AddressLike;
   proposal: AddressLike;
+  /** The proposal's creator; receives its rent when the last supporter withdraws. */
+  proposer: AddressLike;
   ylpMint?: AddressLike;
   supporterYlpAccount?: AddressLike;
   baseYieldAccount?: AddressLike;
@@ -932,7 +939,7 @@ export class DuskWrite {
     );
     const instruction = await this.instruction(
       "supportParameterProposal" as DuskInstructionName,
-      { amount: governanceIntegerBN(params.amount, "amount") },
+      { amount: governanceIntegerBN(params.amount, "amount"), digest: proposalDigestBytes(params.digest) },
       {
         accounts: {
           supporter,
@@ -1040,6 +1047,7 @@ export class DuskWrite {
           supporter,
           market,
           proposal,
+          proposer: address(params.proposer),
           proposalSupport,
           ylpMint,
           supporterYlpAccount,
@@ -2651,6 +2659,14 @@ function normalizeArgs(args: DuskInstructionArgs): unknown[] {
     return [];
   }
   return Array.isArray(args) ? args : [args];
+}
+
+function proposalDigestBytes(digest: Uint8Array | readonly number[]): number[] {
+  const bytes = Array.from(digest);
+  if (bytes.length !== 32 || bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+    throw new Error("proposal digest must be 32 bytes");
+  }
+  return bytes;
 }
 
 function cloneProposalMetadata(metadata: ProposalMetadataV1): ProposalMetadataV1 {

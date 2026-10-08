@@ -913,6 +913,9 @@ pub struct ParameterProposalSupportWithdrawn {
     pub amount: u64,
     pub total_locked: u64,
     pub status: u8,
+    /// The last supporter left, so the proposal account closed and its rent
+    /// returned to the proposer.
+    pub proposal_closed: bool,
 }
 
 #[cfg(test)]

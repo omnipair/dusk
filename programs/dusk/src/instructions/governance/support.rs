@@ -20,6 +20,11 @@ use super::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SupportParameterProposalArgs {
     pub amount: u64,
+    /// Digest of the proposal the supporter reviewed. A proposal account
+    /// closes once every supporter has withdrawn, which frees its address for
+    /// a new proposal; binding the digest keeps a pending support from landing
+    /// on different updates created at the same address.
+    pub digest: [u8; 32],
 }
 
 #[event_cpi]
@@ -105,6 +110,7 @@ impl<'info> SupportParameterProposal<'info> {
             ErrorCode::InsufficientBalance
         );
         self.proposal.assert_account(self.market.key(), self.proposal.key())?;
+        require!(self.proposal.digest == args.digest, ErrorCode::ProposalDigestMismatch);
         require!(
             self.proposal.status == ParameterProposalStatus::Collecting,
             ErrorCode::ProposalNotCollecting
@@ -248,6 +254,11 @@ pub struct WithdrawParameterSupport<'info> {
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
 
+    /// CHECK: The proposer who paid the proposal's rent. Only receives
+    /// lamports: the rent when the last supporter withdraws.
+    #[account(mut, address = proposal.proposer @ ErrorCode::InvalidParameterProposal)]
+    pub proposer: UncheckedAccount<'info>,
+
     #[account(
         mut,
         close = supporter,
@@ -383,13 +394,23 @@ impl<'info> WithdrawParameterSupport<'info> {
             amount,
             &[&market_seeds[..]],
         )?;
+        // Support only reaches zero once the proposal has ended: a collecting
+        // proposal below its sponsorship floor was cancelled above, and queued
+        // support cannot be withdrawn. Nothing reads the proposal after its
+        // last supporter leaves, so it closes and its rent returns to the
+        // proposer who paid it.
+        let proposal_closed = ctx.accounts.proposal.total_locked == 0;
         emit_cpi!(ParameterProposalSupportWithdrawn {
             proposal: ctx.accounts.proposal.key(),
             supporter: ctx.accounts.supporter.key(),
             amount,
             total_locked: ctx.accounts.proposal.total_locked,
             status: ctx.accounts.proposal.status.code(),
+            proposal_closed,
         });
+        if proposal_closed {
+            ctx.accounts.proposal.close(ctx.accounts.proposer.to_account_info())?;
+        }
         Ok(())
     }
 }

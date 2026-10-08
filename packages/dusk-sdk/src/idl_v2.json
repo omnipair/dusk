@@ -9689,6 +9689,13 @@
           "writable": true
         },
         {
+          "name": "proposer",
+          "docs": [
+            "lamports: the rent when the last supporter withdraws."
+          ],
+          "writable": true
+        },
+        {
           "name": "proposal_support",
           "writable": true,
           "pda": {
@@ -11543,6 +11550,11 @@
       "code": 6137,
       "name": "ParameterUpdatesNotCanonical",
       "msg": "Parameter updates must name one to seven families, each once, in ascending family order"
+    },
+    {
+      "code": 6138,
+      "name": "ProposalDigestMismatch",
+      "msg": "Parameter proposal does not match the digest the supporter reviewed"
     }
   ],
   "types": [
@@ -16524,6 +16536,14 @@
           {
             "name": "status",
             "type": "u8"
+          },
+          {
+            "name": "proposal_closed",
+            "docs": [
+              "The last supporter left, so the proposal account closed and its rent",
+              "returned to the proposer."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -18023,6 +18043,21 @@
           {
             "name": "amount",
             "type": "u64"
+          },
+          {
+            "name": "digest",
+            "docs": [
+              "Digest of the proposal the supporter reviewed. A proposal account",
+              "closes once every supporter has withdrawn, which frees its address for",
+              "a new proposal; binding the digest keeps a pending support from landing",
+              "on different updates created at the same address."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }

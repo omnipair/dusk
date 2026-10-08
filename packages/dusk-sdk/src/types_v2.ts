@@ -9695,6 +9695,13 @@ export type Dusk = {
           "writable": true
         },
         {
+          "name": "proposer",
+          "docs": [
+            "lamports: the rent when the last supporter withdraws."
+          ],
+          "writable": true
+        },
+        {
           "name": "proposalSupport",
           "writable": true,
           "pda": {
@@ -11549,6 +11556,11 @@ export type Dusk = {
       "code": 6137,
       "name": "parameterUpdatesNotCanonical",
       "msg": "Parameter updates must name one to seven families, each once, in ascending family order"
+    },
+    {
+      "code": 6138,
+      "name": "proposalDigestMismatch",
+      "msg": "Parameter proposal does not match the digest the supporter reviewed"
     }
   ],
   "types": [
@@ -16530,6 +16542,14 @@ export type Dusk = {
           {
             "name": "status",
             "type": "u8"
+          },
+          {
+            "name": "proposalClosed",
+            "docs": [
+              "The last supporter left, so the proposal account closed and its rent",
+              "returned to the proposer."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -18029,6 +18049,21 @@ export type Dusk = {
           {
             "name": "amount",
             "type": "u64"
+          },
+          {
+            "name": "digest",
+            "docs": [
+              "Digest of the proposal the supporter reviewed. A proposal account",
+              "closes once every supporter has withdrawn, which frees its address for",
+              "a new proposal; binding the digest keeps a pending support from landing",
+              "on different updates created at the same address."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           }
         ]
       }
