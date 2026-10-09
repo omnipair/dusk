@@ -11,7 +11,7 @@ use crate::{
     constants::MARKET_V2_SEED_PREFIX,
     errors::ErrorCode,
     instructions::accounts::{validate_lp_mint, validate_owner_lp_account},
-    state::{Market, ParameterFamily, YieldAccount, YieldTokenKind},
+    state::{Market, YieldAccount, YieldTokenKind},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,10 +20,6 @@ pub(crate) struct GovernanceYieldIndexes {
     pub base_interest_q64: u128,
     pub quote_swap_fee_q64: u128,
     pub quote_interest_q64: u128,
-}
-
-pub(crate) fn current_parameter_revision(market: &Market, family: ParameterFamily) -> u64 {
-    market.parameter_revisions[family.code() as usize]
 }
 
 /// Close all yield intervals under the current parameters before changing an

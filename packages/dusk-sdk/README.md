@@ -203,7 +203,9 @@ const { proposal, transaction } = await dusk.write.createParameterProposal({
   proposer: wallet.publicKey,
   market,
   nonce: 7,
-  update,
+  // One to seven updates, at most one per family, in any order. They are
+  // sent in family order and pass or fail together.
+  updates: [update],
   metadata,
   initialSupport,
   // holderYlpAccount is optional; the Token-2022 ATA is the default.
@@ -226,17 +228,14 @@ unverified replacement document. Rationale availability never controls
 execution. `verifyDecodedParameterProposalDigest(...)` additionally reproduces
 the program's canonical Borsh/SHA-256 digest for a fetched proposal account.
 
-The other typed update constructors currently implemented by the handwritten
-SDK are `feeParameterUpdate(...)`, `irmParameterUpdate(...)`,
-`emaHalfLivesParameterUpdate(...)`, `dailyBorrowLimitParameterUpdate(...)`, and
-`centerControllerParameterUpdate(...)`. Only concentration ramps; its duration
-must be 216,000–1,512,000 slots (approximately 24 hours–7 days).
-
-The generated IDL includes the seventh `insuranceDrawCaps` variant, but the
-handwritten `ParameterUpdate` union and constructor layer do not yet expose it.
-Treat Insurance proposal construction as an SDK release blocker; do not encode
-that variant by copying a discriminator or handwritten byte layout into an
-application.
+The other typed update constructors are `feeParameterUpdate(...)`,
+`irmParameterUpdate(...)`, `emaHalfLivesParameterUpdate(...)`,
+`dailyBorrowLimitParameterUpdate(...)`, `centerControllerParameterUpdate(...)`
+and `insuranceDrawCapsParameterUpdate(...)`. Only concentration ramps; its
+duration must be 216,000–1,512,000 slots (approximately 24 hours–7 days).
+`canonicalParameterUpdates(...)` returns a set in the order the program
+accepts and rejects a repeated family, and `updatedFamilyRevisions(...)` builds
+the revision list a new proposal binds.
 
 Support and lifecycle builders derive the proposal/support PDAs and all market
 governance accounts:
@@ -247,6 +246,9 @@ await dusk.write.supportParameterProposal({
   market,
   proposal,
   amount: additionalSupport,
+  // The digest of the proposal the supporter reviewed, from its creation
+  // event or account; support fails unless it matches the proposal.
+  digest: proposalDigest,
 });
 
 await dusk.write.queueParameterProposal({ market, proposal });
@@ -255,6 +257,9 @@ await dusk.write.withdrawParameterSupport({
   supporter: wallet.publicKey,
   market,
   proposal,
+  // Receives the proposal's rent, less its tombstone's, when the last
+  // supporter withdraws.
+  proposer,
 });
 ```
 
@@ -268,7 +273,10 @@ proposal-specific virtual claim, so it cannot back multiple proposals. The
 claim continues earning yLP yield. Withdrawal destroys that claim, merges its
 virtual-yield ledgers, and mints back exactly the locked yLP. Collecting support
 can be withdrawn; queued support stays frozen until the proposal executes,
-expires, or becomes stale.
+expires, or becomes stale. When the last supporter withdraws, the proposal
+becomes a tombstone: the account keeps only its discriminator, which stops the
+address from ever holding another proposal, and the rest of its rent returns
+to the proposer.
 
 hLP deposits and withdrawals use async composite builders because both
 asset-denominated `YieldAccount` PDAs must exist before the liquidity

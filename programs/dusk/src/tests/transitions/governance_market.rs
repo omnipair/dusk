@@ -1209,7 +1209,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     };
     let before_fee = market.config;
     market
-        .execute_parameter_update(&MarketParameterUpdate::Fee(fee), 1)
+        .execute_parameter_updates(&[MarketParameterUpdate::Fee(fee)], 1)
         .unwrap();
     assert_eq!(market.config.fee_profile(), fee);
     assert_eq!(market.config.max_daily_borrow_bps, before_fee.max_daily_borrow_bps);
@@ -1221,20 +1221,20 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         adjustment_speed_per_year: 12,
     };
     market
-        .execute_parameter_update(&MarketParameterUpdate::Irm(irm), 2)
+        .execute_parameter_updates(&[MarketParameterUpdate::Irm(irm)], 2)
         .unwrap();
     assert_eq!(market.config.irm, irm);
     assert_eq!(market.config.fee_profile(), fee);
     assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0, 0, 0]);
 
     market
-        .execute_parameter_update(
-            &MarketParameterUpdate::EmaHalfLives {
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::EmaHalfLives {
                 price_ms: 120_000,
                 directional_price_ms: 180_000,
                 curve_depth_ms: 240_000,
                 center_price_ms: 300_000,
-            },
+            }],
             3,
         )
         .unwrap();
@@ -1245,10 +1245,10 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0, 0]);
 
     market
-        .execute_parameter_update(
-            &MarketParameterUpdate::DailyBorrowLimit {
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::DailyBorrowLimit {
                 max_daily_borrow_bps: 3_000,
-            },
+            }],
             4,
         )
         .unwrap();
@@ -1256,12 +1256,12 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 0, 0]);
 
     market
-        .execute_parameter_update(
-            &MarketParameterUpdate::CenterController {
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::CenterController {
                 adjustment_threshold_nad: NAD / 100,
                 adjustment_step_nad: NAD / 1_000,
                 min_adjustment_interval_slots: 100,
-            },
+            }],
             5,
         )
         .unwrap();
@@ -1296,12 +1296,12 @@ fn concentration_execution_reconstructs_the_selected_shape() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.finalize_amm_transition_and_observe_risk(1).unwrap();
     market
-        .execute_parameter_update(
-            &MarketParameterUpdate::Concentration {
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::Concentration {
                 peak_amplification_nad: 4 * NAD,
                 core_half_width_bps: 100,
                 fade_width_bps: 400,
-            },
+            }],
             2,
         )
         .unwrap();
@@ -1318,22 +1318,22 @@ fn disabling_recenter_releases_retained_surcharge_to_lp_inventory() {
     for disable_by_shape in [false, true] {
         let mut market = invariant_market(1_000_000, 1_000_000);
         market
-            .execute_parameter_update(
-                &MarketParameterUpdate::CenterController {
+            .execute_parameter_updates(
+                &[MarketParameterUpdate::CenterController {
                     adjustment_threshold_nad: NAD / 100,
                     adjustment_step_nad: NAD / 1_000,
                     min_adjustment_interval_slots: 1,
-                },
+                }],
                 1,
             )
             .unwrap();
         market
-            .execute_parameter_update(
-                &MarketParameterUpdate::Concentration {
+            .execute_parameter_updates(
+                &[MarketParameterUpdate::Concentration {
                     peak_amplification_nad: 2 * NAD,
                     core_half_width_bps: 100,
                     fade_width_bps: 400,
-                },
+                }],
                 2,
             )
             .unwrap();
@@ -1357,7 +1357,7 @@ fn disabling_recenter_releases_retained_surcharge_to_lp_inventory() {
             }
         };
         market
-            .execute_parameter_update(&update, 3)
+            .execute_parameter_updates(core::slice::from_ref(&update), 3)
             .unwrap_or_else(|error| panic!("disable_by_shape={disable_by_shape}: {error:?}"));
         assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
         assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
@@ -1389,7 +1389,7 @@ fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
             residual
         },
     ] {
-        market.execute_parameter_update(&update, 1).unwrap();
+        market.execute_parameter_updates(core::slice::from_ref(&update), 1).unwrap();
         assert_eq!(market.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
     }
 }
@@ -1403,10 +1403,10 @@ fn utilization_rejection_rolls_back_old_parameter_checkpointing() {
     let before_market = market.try_to_vec().unwrap();
 
     let error = market
-        .execute_parameter_update(
-            &MarketParameterUpdate::DailyBorrowLimit {
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::DailyBorrowLimit {
                 max_daily_borrow_bps: 1_000,
-            },
+            }],
             MS_PER_YEAR / TARGET_MS_PER_SLOT,
         )
         .unwrap_err();
@@ -1424,10 +1424,10 @@ fn daily_borrow_rate_change_checkpoints_both_buckets_under_the_old_rate() {
     let half_day_slot = MS_PER_DAY / TARGET_MS_PER_SLOT / 2;
 
     market
-        .execute_parameter_update(
-            &MarketParameterUpdate::DailyBorrowLimit {
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::DailyBorrowLimit {
                 max_daily_borrow_bps: 3_000,
-            },
+            }],
             half_day_slot,
         )
         .unwrap();
@@ -1439,6 +1439,217 @@ fn daily_borrow_rate_change_checkpoints_both_buckets_under_the_old_rate() {
     assert_eq!(market.base_side.daily_borrow_bucket.last_decay_slot, half_day_slot);
     assert_eq!(market.quote_side.daily_borrow_bucket.last_decay_slot, half_day_slot);
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
+}
+
+#[test]
+fn one_proposal_applies_every_family_and_advances_each_revision() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    let irm = IrmConfig {
+        target_utilization_bps: 6_500,
+        curve_steepness_nad: 6 * NAD,
+        adjustment_speed_per_year: 12,
+    };
+    let updates = [
+        MarketParameterUpdate::Irm(irm),
+        MarketParameterUpdate::DailyBorrowLimit {
+            max_daily_borrow_bps: 3_000,
+        },
+        MarketParameterUpdate::InsuranceDrawCaps {
+            per_event_bps: 1_000,
+            per_day_bps: 3_000,
+        },
+    ];
+    let before = market.config;
+
+    market.execute_parameter_updates(&updates, 1).unwrap();
+
+    assert_eq!(market.config.irm, irm);
+    assert_eq!(market.config.max_daily_borrow_bps, 3_000);
+    assert_eq!(market.insurance.per_event_draw_bps, 1_000);
+    assert_eq!(market.insurance.per_day_draw_bps, 3_000);
+    assert_eq!(market.config.fee_profile(), before.fee_profile());
+    assert_eq!(market.config.amm, before.amm);
+    assert_eq!(market.parameter_revisions, [0, 0, 1, 0, 1, 0, 1]);
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn update_sets_reject_repeated_unordered_or_unchanged_families() {
+    let market = invariant_market(1_000_000, 1_000_000);
+    let borrow_limit = |bps| MarketParameterUpdate::DailyBorrowLimit {
+        max_daily_borrow_bps: bps,
+    };
+    let irm = MarketParameterUpdate::Irm(IrmConfig {
+        target_utilization_bps: 6_500,
+        curve_steepness_nad: 6 * NAD,
+        adjustment_speed_per_year: 12,
+    });
+    let not_canonical = anchor_lang::prelude::error!(ErrorCode::ParameterUpdatesNotCanonical);
+
+    assert_eq!(market.validate_parameter_updates(&[]).unwrap_err(), not_canonical);
+    assert_eq!(
+        market
+            .validate_parameter_updates(&[borrow_limit(3_000), borrow_limit(4_000)])
+            .unwrap_err(),
+        not_canonical
+    );
+    assert_eq!(
+        market
+            .validate_parameter_updates(&[borrow_limit(3_000), irm.clone()])
+            .unwrap_err(),
+        not_canonical
+    );
+    // Every family in a set must change its own values; one no-op family
+    // rejects the whole proposal.
+    assert_eq!(
+        market
+            .validate_parameter_updates(&[irm.clone(), borrow_limit(market.config.max_daily_borrow_bps)])
+            .unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::ParameterUpdateNotMeaningful)
+    );
+    // One out-of-bounds family rejects the whole proposal.
+    assert!(market
+        .validate_parameter_updates(&[irm.clone(), borrow_limit(MAX_DAILY_BORROW_BPS + 1)])
+        .is_err());
+    market
+        .validate_parameter_updates(&[irm, borrow_limit(3_000)])
+        .unwrap();
+}
+
+#[test]
+fn a_failing_multi_family_execution_leaves_every_family_untouched() {
+    let mut market = invariant_market(1_000, 1_000);
+    market.debt.fixed_base_shares = 800;
+    market.debt.fixed_base_principal = 800;
+    market.base_side.reserves.cash_reserve = 200;
+    let before_market = market.try_to_vec().unwrap();
+
+    let error = market
+        .execute_parameter_updates(
+            &[
+                MarketParameterUpdate::DailyBorrowLimit {
+                    max_daily_borrow_bps: 1_000,
+                },
+                MarketParameterUpdate::InsuranceDrawCaps {
+                    per_event_bps: 1_000,
+                    per_day_bps: 3_000,
+                },
+            ],
+            MS_PER_YEAR / TARGET_MS_PER_SLOT,
+        )
+        .unwrap_err();
+
+    assert_eq!(error, anchor_lang::prelude::error!(ErrorCode::UtilizationGuardExceeded));
+    assert_eq!(market.try_to_vec().unwrap(), before_market);
+}
+
+#[test]
+fn every_family_closes_its_windows_before_any_family_moves() {
+    let half_day_slot = MS_PER_DAY / TARGET_MS_PER_SLOT / 2;
+    let borrow_limit = MarketParameterUpdate::DailyBorrowLimit {
+        max_daily_borrow_bps: 3_000,
+    };
+    let reshaped = || {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        market.finalize_amm_transition_and_observe_risk(0).unwrap();
+        market.base_side.daily_borrow_bucket.borrowed_bucket = 200_000;
+        market.quote_side.daily_borrow_bucket.borrowed_bucket = 150_000;
+        market
+    };
+
+    let mut alone = reshaped();
+    alone
+        .execute_parameter_updates(core::slice::from_ref(&borrow_limit), half_day_slot)
+        .unwrap();
+
+    // The curve family runs first and rebuilds the risk depths, but the borrow
+    // buckets still refill at the old rate against the old depths.
+    let mut together = reshaped();
+    together
+        .execute_parameter_updates(
+            &[
+                MarketParameterUpdate::Concentration {
+                    peak_amplification_nad: 4 * NAD,
+                    core_half_width_bps: 100,
+                    fade_width_bps: 400,
+                },
+                borrow_limit,
+            ],
+            half_day_slot,
+        )
+        .unwrap();
+
+    for (together, alone) in [
+        (together.base_side.daily_borrow_bucket, alone.base_side.daily_borrow_bucket),
+        (together.quote_side.daily_borrow_bucket, alone.quote_side.daily_borrow_bucket),
+    ] {
+        assert_eq!(together.try_to_vec().unwrap(), alone.try_to_vec().unwrap());
+        assert!(together.borrowed_bucket > 0 && together.last_decay_slot == half_day_slot);
+    }
+    assert_eq!(together.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
+    assert_eq!(together.parameter_revisions, [0, 1, 0, 0, 1, 0, 0]);
+}
+
+#[test]
+fn curve_and_center_controller_settle_on_their_final_values_together() {
+    let controller_on = MarketParameterUpdate::CenterController {
+        adjustment_threshold_nad: NAD / 100,
+        adjustment_step_nad: NAD / 1_000,
+        min_adjustment_interval_slots: 1,
+    };
+
+    // Turning both on from a full-range curve in one proposal.
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market
+        .execute_parameter_updates(
+            &[
+                MarketParameterUpdate::Concentration {
+                    peak_amplification_nad: 2 * NAD,
+                    core_half_width_bps: 100,
+                    fade_width_bps: 400,
+                },
+                controller_on.clone(),
+            ],
+            1,
+        )
+        .unwrap();
+    assert_eq!(market.config.amm.peak_amplification_nad, 2 * NAD);
+    assert_eq!(market.config.amm.adjustment_step_nad, NAD / 1_000);
+    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 1, 0]);
+    market.assert_market_invariants().unwrap();
+
+    // Reshaping the curve while switching the controller off releases the
+    // retained surcharge once, under the final values.
+    let protected = 1_000_000;
+    market.credit_protected_recenter_reserve(MarketAsset::Base, protected).unwrap();
+    market.credit_protected_recenter_reserve(MarketAsset::Quote, protected).unwrap();
+    let base_live_before = market.base_side.reserves.live_reserve;
+    let quote_live_before = market.quote_side.reserves.live_reserve;
+    market
+        .execute_parameter_updates(
+            &[
+                MarketParameterUpdate::Concentration {
+                    peak_amplification_nad: 3 * NAD,
+                    core_half_width_bps: 100,
+                    fade_width_bps: 400,
+                },
+                MarketParameterUpdate::CenterController {
+                    adjustment_threshold_nad: 0,
+                    adjustment_step_nad: 0,
+                    min_adjustment_interval_slots: 0,
+                },
+            ],
+            2,
+        )
+        .unwrap();
+    assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+    assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
+    assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
+    assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
+    assert_eq!(market.config.amm.peak_amplification_nad, 3 * NAD);
+    assert_eq!(market.config.amm.adjustment_step_nad, 0);
+    assert_eq!(market.parameter_revisions, [0, 2, 0, 0, 0, 2, 0]);
+    market.assert_market_invariants().unwrap();
 }
 
 #[test]
@@ -1476,14 +1687,14 @@ fn insurance_governance_can_only_tighten_below_protocol_ceilings() {
         per_event_bps: MAX_INSURANCE_DRAW_PER_EVENT_BPS + 1,
         per_day_bps: MAX_INSURANCE_DRAW_PER_DAY_BPS,
     };
-    assert!(market.validate_parameter_update(&too_large).is_err());
+    assert!(market.validate_parameter_updates(core::slice::from_ref(&too_large)).is_err());
 
     market
-        .execute_parameter_update(
-            &MarketParameterUpdate::InsuranceDrawCaps {
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::InsuranceDrawCaps {
                 per_event_bps: 1_000,
                 per_day_bps: 3_000,
-            },
+            }],
             1,
         )
         .unwrap();

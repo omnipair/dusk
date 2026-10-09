@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -9574,11 +9575,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const createTx = await program.methods
       .createParameterProposal({
         nonce,
-        update: {
-          dailyBorrowLimit: {
-            maxDailyBorrowBps: 1_900,
+        // Two families under one sponsorship and one vote, in ascending
+        // family order.
+        updates: [
+          {
+            dailyBorrowLimit: {
+              maxDailyBorrowBps: 1_900,
+            },
           },
-        },
+          {
+            insuranceDrawCaps: {
+              perEventBps: 1_000,
+              perDayBps: 3_000,
+            },
+          },
+        ],
         metadata: {
           version: 1,
           title: "Lower daily borrow limit",
@@ -9609,10 +9620,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const created = cpiEvent(createTx, "parameterProposalCreated");
     expect(created.proposal.toString()).to.equal(proposal.toString());
     trackV2Instruction("createParameterProposal", this.test?.title);
-    // The creation event carries the update and metadata exactly as stored.
+    // The creation event carries the updates and metadata exactly as stored.
     const stored = accountCoder.decode("ParameterProposal", Buffer.from(svm.getAccount(proposal)!.data)) as any;
-    expect(created.update).to.deep.equal({ dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } });
-    expect(stored.update.DailyBorrowLimit.max_daily_borrow_bps).to.equal(1_900);
+    expect(created.updates).to.deep.equal([
+      { dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } },
+      { insuranceDrawCaps: { perEventBps: 1_000, perDayBps: 3_000 } },
+    ]);
+    expect(stored.updates).to.have.length(2);
+    expect(stored.updates[0].DailyBorrowLimit.max_daily_borrow_bps).to.equal(1_900);
+    expect(stored.updates[1].InsuranceDrawCaps.per_event_bps).to.equal(1_000);
+    expect(stored.updates[1].InsuranceDrawCaps.per_day_bps).to.equal(3_000);
+    expect(created.familyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
+      stored.family_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
+    );
     expect(created.metadata.version).to.equal(stored.metadata.version);
     expect(created.metadata.title).to.equal(stored.metadata.title);
     expect(created.metadata.descriptionUri).to.equal(stored.metadata.description_uri);
@@ -9663,27 +9683,44 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(insufficientQueueRejected).to.equal(true);
     trackV2Instruction("queueParameterProposal", this.test?.title);
 
-    const supportTx = await program.methods
-      .supportParameterProposal({
-        amount: new BN(additionalSupport.toString()),
-      })
-      .accounts({
-        supporter: proposer,
-        market: fixture.market,
-        proposal,
-        proposalSupport,
-        ylpMint: fixture.ylpMint,
-        supporterYlpAccount: fixture.ownerYlpAccount,
-        baseYieldAccount,
-        quoteYieldAccount,
-        baseHlpYlpVault: fixture.baseHlpYlpVault,
-        quoteHlpYlpVault: fixture.quoteHlpYlpVault,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
+    const supportParameterProposalTx = (digest: number[]) =>
+      program.methods
+        .supportParameterProposal({
+          amount: new BN(additionalSupport.toString()),
+          digest,
+        })
+        .accounts({
+          supporter: proposer,
+          market: fixture.market,
+          proposal,
+          proposalSupport,
+          ylpMint: fixture.ylpMint,
+          supporterYlpAccount: fixture.ownerYlpAccount,
+          baseYieldAccount,
+          quoteYieldAccount,
+          baseHlpYlpVault: fixture.baseHlpYlpVault,
+          quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+          token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+    // Support names the proposal it reviewed: once the account closes, its
+    // address can hold a different proposal.
+    const reviewedDigest = Array.from(created.digest as number[]);
+    let staleDigestRejection: unknown;
+    try {
+      await connection.sendTransaction(
+        await supportParameterProposalTx(reviewedDigest.map((byte, index) => (index === 0 ? byte ^ 1 : byte))),
+        [payer]
+      );
+    } catch (error) {
+      staleDigestRejection = error;
+    }
+    expect(String(staleDigestRejection)).to.include("ProposalDigestMismatch");
+
+    const supportTx = await supportParameterProposalTx(reviewedDigest);
     await connection.sendTransaction(supportTx, [payer]);
     expect(cpiEvent(supportTx, "parameterProposalSupported").proposal.toString()).to.equal(
       proposal.toString()
@@ -9734,23 +9771,34 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(maturedExecuteTx, [payer]);
-    expect(cpiEvent(maturedExecuteTx, "parameterProposalExecuted").proposal.toString()).to.equal(
-      proposal.toString()
-    );
+    const executed = cpiEvent(maturedExecuteTx, "parameterProposalExecuted");
+    expect(executed.proposal.toString()).to.equal(proposal.toString());
+    expect(Array.from(executed.families)).to.deep.equal([4, 6]);
     trackV2Instruction("executeParameterProposal", this.test?.title);
 
     marketAccount = svm.getAccount(fixture.market);
     expect(marketAccount).to.not.equal(null);
     market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
     expect(market.config.max_daily_borrow_bps).to.equal(1_900);
+    expect(market.insurance.per_event_draw_bps).to.equal(1_000);
+    expect(market.insurance.per_day_draw_bps).to.equal(3_000);
     expect(market.parameter_revisions[4].toNumber()).to.equal(1);
+    expect(market.parameter_revisions[6].toNumber()).to.equal(1);
+    expect(executed.newFamilyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
+      market.parameter_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
+    );
 
+    const proposalRent = BigInt(svm.getAccount(proposal)!.lamports);
+    const tombstoneRent = BigInt(svm.minimumBalanceForRentExemption(8n));
+    const supportRent = BigInt(svm.getAccount(proposalSupport)!.lamports);
+    const proposerLamportsBefore = BigInt(svm.getAccount(proposer)!.lamports);
     const withdrawTx = await program.methods
       .withdrawParameterSupport()
       .accounts({
         supporter: proposer,
         market: fixture.market,
         proposal,
+        proposer,
         proposalSupport,
         ylpMint: fixture.ylpMint,
         supporterYlpAccount: fixture.ownerYlpAccount,
@@ -9762,10 +9810,69 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       })
       .transaction();
     await connection.sendTransaction(withdrawTx, [payer]);
-    expect(cpiEvent(withdrawTx, "parameterProposalSupportWithdrawn").proposal.toString()).to.equal(
-      proposal.toString()
-    );
+    const withdrawn = cpiEvent(withdrawTx, "parameterProposalSupportWithdrawn");
+    expect(withdrawn.proposal.toString()).to.equal(proposal.toString());
     trackV2Instruction("withdrawParameterSupport", this.test?.title);
+    // The last supporter left an executed proposal: it becomes a tombstone
+    // holding only its discriminator, and the proposer, who also pays this
+    // transaction's one-signature fee, receives the rest of its rent and the
+    // support account's rent.
+    expect(withdrawn.proposalTombstoned).to.equal(true);
+    const tombstone = svm.getAccount(proposal)!;
+    expect(tombstone.owner.toString()).to.equal(DUSK_PROGRAM_ID.toString());
+    // No instruction takes the tombstone as a typed account, so the IDL omits
+    // it; its discriminator is Anchor's usual `account:<Name>` hash.
+    expect(
+      Buffer.from(tombstone.data).equals(
+        createHash("sha256").update("account:ParameterProposalTombstone").digest().subarray(0, 8)
+      )
+    ).to.equal(true);
+    expect(BigInt(tombstone.lamports)).to.equal(tombstoneRent);
+    expect(BigInt(svm.getAccount(proposer)!.lamports) - proposerLamportsBefore).to.equal(
+      proposalRent - tombstoneRent + supportRent - 5_000n
+    );
+    // The tombstone keeps the address: the same proposer and nonce cannot
+    // create a different proposal there.
+    let reusedAddressRejection: unknown;
+    try {
+      await connection.sendTransaction(
+        await program.methods
+          .createParameterProposal({
+            nonce,
+            updates: [{ dailyBorrowLimit: { maxDailyBorrowBps: 1_700 } }],
+            metadata: {
+              version: 1,
+              title: "Reuse a finished proposal address",
+              descriptionUri: "ipfs://dusk-litesvm-reused-proposal-address",
+              descriptionSha256: Array(32).fill(3),
+              descriptionLen: 1,
+            },
+            initialSupport: new BN(sponsorship.toString()),
+          })
+          .accounts({
+            proposer,
+            market: fixture.market,
+            proposal,
+            proposalSupport,
+            ylpMint: fixture.ylpMint,
+            proposerYlpAccount: fixture.ownerYlpAccount,
+            baseYieldAccount,
+            quoteYieldAccount,
+            baseHlpYlpVault: fixture.baseHlpYlpVault,
+            quoteHlpYlpVault: fixture.quoteHlpYlpVault,
+            token2022Program: TOKEN_2022_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            eventAuthority: eventAuthority(),
+            program: DUSK_PROGRAM_ID,
+          })
+          .transaction(),
+        [payer]
+      );
+    } catch (error) {
+      reusedAddressRejection = error;
+    }
+    expect(String(reusedAddressRejection)).to.include("already in use");
+    expect(Buffer.from(svm.getAccount(proposal)!.data).length).to.equal(8);
 
     const ownerYlpAfter = await getAccount(
       connection as any,
@@ -9798,11 +9905,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const queueCreateTx = await program.methods
       .createParameterProposal({
         nonce: queueNonce,
-        update: {
-          dailyBorrowLimit: {
-            maxDailyBorrowBps: 1_800,
+        updates: [
+          {
+            dailyBorrowLimit: {
+              maxDailyBorrowBps: 1_800,
+            },
           },
-        },
+        ],
         metadata: {
           version: 1,
           title: "Measure denominator-fall queue",

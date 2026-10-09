@@ -43,7 +43,13 @@ export const SWAP_FEE_COLLECT_INPUT_ASSET = 0;
 export const SWAP_FEE_COLLECT_BASE_ONLY = 1;
 export const SWAP_FEE_COLLECT_QUOTE_ONLY = 2;
 export const MAX_LAUNCH_MARKET_FEE_PERIODS = 64;
-export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V1";
+export const MAX_INSURANCE_DRAW_PER_EVENT_BPS = 2_000;
+export const MAX_INSURANCE_DRAW_PER_DAY_BPS = 5_000;
+/** Governed parameter families, and the length of a market's revision list. */
+export const PARAMETER_FAMILY_COUNT = 7;
+/** A proposal changes one to seven families, each at most once. */
+export const MAX_PARAMETER_UPDATES_PER_PROPOSAL = PARAMETER_FAMILY_COUNT;
+export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V2";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const PROPOSAL_DIGEST_DOMAIN = new TextEncoder().encode(PARAMETER_PROPOSAL_DIGEST_DOMAIN);
@@ -142,9 +148,11 @@ export type ParameterUpdate =
       adjustmentThresholdNad: BN;
       adjustmentStepNad: BN;
       minAdjustmentIntervalSlots: BN;
-    };
+    }
+  | { kind: "insuranceDrawCaps"; perEventBps: number; perDayBps: number };
 
 export type ParameterFamilyName = ParameterUpdate["kind"];
+export type ParameterFamilyCode = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface ProposalMetadataV1 {
   version: number;
@@ -210,8 +218,14 @@ export interface ParameterProposalDigestInput {
   market: AddressLike;
   proposer: AddressLike;
   nonce: GovernanceIntegerLike;
-  familyRevision: GovernanceIntegerLike;
-  update: ParameterUpdate;
+  /**
+   * One revision per family, as the proposal stores them: an updated family's
+   * market revision at creation, zero for every family left alone. Build it
+   * with `updatedFamilyRevisions`.
+   */
+  familyRevisions: readonly GovernanceIntegerLike[];
+  /** One to seven updates, at most one per family, in any order. */
+  updates: readonly ParameterUpdate[];
   metadata: ProposalMetadataV1;
 }
 
@@ -219,8 +233,8 @@ export interface DecodedParameterProposalForDigest {
   market: AddressLike;
   proposer: AddressLike;
   nonce: GovernanceIntegerLike;
-  familyRevision: GovernanceIntegerLike;
-  update: unknown;
+  familyRevisions: readonly GovernanceIntegerLike[];
+  updates: readonly unknown[];
   metadata: ProposalMetadataV1;
   digest?: Uint8Array | number[];
 }
@@ -588,6 +602,20 @@ export function centerControllerParameterUpdate(input: {
   };
 }
 
+/** Insurance loss-concentration caps; they may only tighten the protocol ceilings. */
+export function insuranceDrawCapsParameterUpdate(input: {
+  perEventBps: number;
+  perDayBps: number;
+}): ParameterUpdate {
+  assertBps(input.perEventBps, "perEventBps", MAX_INSURANCE_DRAW_PER_EVENT_BPS);
+  assertBps(input.perDayBps, "perDayBps", MAX_INSURANCE_DRAW_PER_DAY_BPS);
+  return {
+    kind: "insuranceDrawCaps",
+    perEventBps: input.perEventBps,
+    perDayBps: input.perDayBps,
+  };
+}
+
 export const parameterUpdate = {
   fee: feeParameterUpdate,
   concentration: concentrationParameterUpdate,
@@ -595,6 +623,7 @@ export const parameterUpdate = {
   emaHalfLives: emaHalfLivesParameterUpdate,
   dailyBorrowLimit: dailyBorrowLimitParameterUpdate,
   centerController: centerControllerParameterUpdate,
+  insuranceDrawCaps: insuranceDrawCapsParameterUpdate,
 } as const;
 
 export function assertParameterUpdate(update: ParameterUpdate): void {
@@ -617,10 +646,13 @@ export function assertParameterUpdate(update: ParameterUpdate): void {
     case "centerController":
       centerControllerParameterUpdate(update);
       return;
+    case "insuranceDrawCaps":
+      insuranceDrawCapsParameterUpdate(update);
+      return;
   }
 }
 
-export function parameterFamilyCode(update: ParameterUpdate): 0 | 1 | 2 | 3 | 4 | 5 {
+export function parameterFamilyCode(update: ParameterUpdate): ParameterFamilyCode {
   switch (update.kind) {
     case "fee":
       return 0;
@@ -634,7 +666,46 @@ export function parameterFamilyCode(update: ParameterUpdate): 0 | 1 | 2 | 3 | 4 
       return 4;
     case "centerController":
       return 5;
+    case "insuranceDrawCaps":
+      return 6;
   }
+}
+
+/**
+ * The one encoding a proposal accepts for a set of updates: one to seven,
+ * each family at most once, in ascending family order. Throws on an empty
+ * set or a repeated family.
+ */
+export function canonicalParameterUpdates(updates: readonly ParameterUpdate[]): ParameterUpdate[] {
+  if (updates.length === 0) throw new Error("a proposal must change at least one parameter family");
+  if (updates.length > MAX_PARAMETER_UPDATES_PER_PROPOSAL) {
+    throw new Error(`a proposal changes at most ${MAX_PARAMETER_UPDATES_PER_PROPOSAL} parameter families`);
+  }
+  const sorted = [...updates].sort((left, right) => parameterFamilyCode(left) - parameterFamilyCode(right));
+  for (let index = 1; index < sorted.length; index += 1) {
+    if (parameterFamilyCode(sorted[index - 1]!) === parameterFamilyCode(sorted[index]!)) {
+      throw new Error(`a proposal changes the ${sorted[index]!.kind} family more than once`);
+    }
+  }
+  sorted.forEach(assertParameterUpdate);
+  return sorted;
+}
+
+/**
+ * The revisions a new proposal binds: each updated family's current market
+ * revision, and zero for every family the proposal leaves alone.
+ */
+export function updatedFamilyRevisions(
+  updates: readonly ParameterUpdate[],
+  marketRevisions: readonly GovernanceIntegerLike[]
+): bigint[] {
+  assertFamilyRevisionCount(marketRevisions);
+  const revisions = new Array<bigint>(PARAMETER_FAMILY_COUNT).fill(0n);
+  for (const update of canonicalParameterUpdates(updates)) {
+    const code = parameterFamilyCode(update);
+    revisions[code] = toU64BigInt(marketRevisions[code]!, `marketRevisions[${code}]`);
+  }
+  return revisions;
 }
 
 /** Convert the readable SDK union to Anchor's generated Rust-enum object. */
@@ -672,6 +743,10 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
           adjustmentStepNad: update.adjustmentStepNad,
           minAdjustmentIntervalSlots: update.minAdjustmentIntervalSlots,
         },
+      };
+    case "insuranceDrawCaps":
+      return {
+        insuranceDrawCaps: { perEventBps: update.perEventBps, perDayBps: update.perDayBps },
       };
   }
 }
@@ -718,6 +793,13 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
       adjustmentThresholdNad: integerField(fields, "adjustmentThresholdNad"),
       adjustmentStepNad: integerField(fields, "adjustmentStepNad"),
       minAdjustmentIntervalSlots: integerField(fields, "minAdjustmentIntervalSlots"),
+    });
+  }
+  if (update.insuranceDrawCaps !== undefined) {
+    const fields = objectValue(update.insuranceDrawCaps, "insurance draw-caps update");
+    return insuranceDrawCapsParameterUpdate({
+      perEventBps: numberField(fields, "perEventBps"),
+      perDayBps: numberField(fields, "perDayBps"),
     });
   }
   throw new Error("unknown market parameter update variant");
@@ -882,6 +964,8 @@ export async function computeParameterProposalDigest(
   input: ParameterProposalDigestInput
 ): Promise<Uint8Array> {
   assertProposalMetadata(input.metadata);
+  assertFamilyRevisionCount(input.familyRevisions);
+  const updates = canonicalParameterUpdates(input.updates);
   return sha256(
     concatBytes(
       PROPOSAL_DIGEST_DOMAIN,
@@ -889,8 +973,11 @@ export async function computeParameterProposalDigest(
       address(input.market).toBytes(),
       address(input.proposer).toBytes(),
       encodeU64(input.nonce, "nonce"),
-      encodeU64(input.familyRevision, "familyRevision"),
-      encodeParameterUpdate(input.update),
+      ...input.familyRevisions.map((revision, family) =>
+        encodeU64(revision, `familyRevisions[${family}]`)
+      ),
+      encodeU32(updates.length),
+      ...updates.map(encodeParameterUpdate),
       encodeProposalMetadata(input.metadata)
     )
   );
@@ -912,8 +999,8 @@ export function computeDecodedParameterProposalDigest(
     market: proposal.market,
     proposer: proposal.proposer,
     nonce: proposal.nonce,
-    familyRevision: proposal.familyRevision,
-    update: parameterUpdateFromAnchor(proposal.update),
+    familyRevisions: proposal.familyRevisions,
+    updates: proposal.updates.map(parameterUpdateFromAnchor),
     metadata: proposal.metadata,
   });
 }
@@ -1118,6 +1205,14 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         encodeU64(update.adjustmentStepNad, "adjustmentStepNad"),
         encodeU64(update.minAdjustmentIntervalSlots, "minAdjustmentIntervalSlots")
       );
+    case "insuranceDrawCaps":
+      return concatBytes(Uint8Array.of(6), encodeU16(update.perEventBps), encodeU16(update.perDayBps));
+  }
+}
+
+function assertFamilyRevisionCount(revisions: readonly GovernanceIntegerLike[]): void {
+  if (revisions.length !== PARAMETER_FAMILY_COUNT) {
+    throw new Error(`expected ${PARAMETER_FAMILY_COUNT} family revisions, got ${revisions.length}`);
   }
 }
 
