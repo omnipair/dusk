@@ -219,6 +219,13 @@ impl<'info> DecreaseLeverage<'info> {
             current_unix_timestamp,
             leverage_collateral_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?,
         )?;
+        ctx.accounts.market.reset_leverage_distress_if_recovered(
+            &mut ctx.accounts.leverage_position,
+            crate::instructions::leverage_collateral_liquidation_fee(
+                &ctx.accounts.collateral_mint,
+                Clock::get()?.epoch,
+            )?,
+        )?;
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
             &ctx.accounts.futarchy_authority,

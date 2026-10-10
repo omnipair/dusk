@@ -27,7 +27,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Permissioned referral revenue sharing**: Futarchy-listed referrers can bind to new borrow or leverage debt and earn a configured share of the DAO's realized interest revenue without changing borrower debt or rates.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
-- **Permissionless liquidation waterfall**: external repay-and-seize bids run first; after five minutes, any caller can trigger an internal concentrated unwind with a 0.5% collateral bounty, capped insurance, and automatic residual LP loss absorption.
+- **Permissionless atomic liquidation**: buyers receive collateral and owe a fixed net payment in the same transaction. Useful partial fills come first, with a 0.5–5% health/time discount over a two-minute distress episode. At critical EMA health, partial-first internal AMM recovery uses a caller reward capped at 1%, principal-only insurance and residual LP loss absorption; there is no mandatory auction wait.
 
 ## How It Works
 
@@ -187,7 +187,7 @@ Dusk is designed around market-local risk accounting:
 - Lending is isolated by market.
 - Individual health and liquidation use all collateral held by the position and its stored liquidation CF.
 - Debt-capped global-health contributions improve new-borrow underwriting without locking collateral or changing existing terms.
-- Pessimistic depth is the lower of observed curve depth and its EMA. Public borrowing uses only the full-range CPMM tail at the lower of symmetric and directional price EMAs. Lending liquidatability is linear at the symmetric price EMA, the external-auction floor uses the complete concentrated curve rebuilt at pessimistic depth, and the expired-auction backstop executes on the live concentrated curve.
+- Pessimistic depth is the lower of observed curve depth and its EMA. Public borrowing uses only the full-range CPMM tail at the lower of symmetric and directional price EMAs. Borrowing and leverage liquidatability use linear symmetric-EMA value. Ordinary flash payment is fixed from that value and the bounded discount. Emergency AMM execution is separately gated at 70% of maintenance; its execution price does not make a reference-healthy position liquidatable.
 - Isolated leverage has its own position state and debt buckets.
 - Price and risk books use cached EMA state to reduce same-transaction spot manipulation.
 - hLP settlement uses cached settlement references and divergence guards.
@@ -234,9 +234,12 @@ configure_referral_partner
 initialize_referral_accrual
 set_referral_recipient
 claim_referral_interest
-start_liquidation_auction
-fill_liquidation_auction
-backstop_liquidation_auction
+observe_liquidation
+preview_flash_liquidation
+begin_flash_liquidation
+settle_flash_liquidation
+preview_emergency_liquidation
+emergency_liquidation
 deposit_single_sided
 withdraw_single_sided
 open_leverage
@@ -246,7 +249,6 @@ increase_leverage
 decrease_leverage
 add_leverage_margin
 remove_leverage_margin
-liquidate_leverage_position
 create_leverage_delegation
 update_leverage_delegation
 close_leverage_delegation
@@ -380,9 +382,9 @@ The core GAMM reserve/lending relationship is preserved, while the swap invarian
 - `core_half_width` sets the full-depth region around the sticky center and `fade_width` sets the half-depth shoulder before the tail. The tail/concentrated allocation is derived from these widths and `peak_amplification`; fee, EMA, and recenter controls remain separate.
 - Swaps and leverage use the live applied curve. Public borrowing uses a
   full-range-tail CPMM shadow; lending liquidatability is linear at the
-  symmetric price EMA; the external-auction floor uses the complete
-  depth-capped concentrated curve; expired public-liquidation backstops use a
-  live concentrated full unwind.
+  symmetric price EMA. Ordinary flash settlement binds a discounted EMA payment;
+  emergency settlement uses the live concentrated curve within explicit health
+  and partial/full-close permissions. See [the liquidation contract](docs/LIQUIDATION_DECISIONS.md).
 - Normal borrow and repay paths still preserve `R_live = R_cash + D_cash_backed`.
 - Cash constraints still matter: virtual depth can quote, but only cash can leave vaults or settle realized liabilities.
 - LP minting and burning still use the V1-style proportional reserve math with permanently locked minimum liquidity.

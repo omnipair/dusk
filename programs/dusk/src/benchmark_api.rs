@@ -1468,6 +1468,9 @@ impl BenchmarkBorrowPosition {
         require_keys_neq!(owner, Pubkey::default(), ErrorCode::InvalidSigner);
         require_keys_neq!(market, Pubkey::default(), ErrorCode::InvalidPositionMarket);
         let mut position = Box::new(BorrowPosition {
+            active_liquidation_session: Pubkey::default(),
+            base_distress: Default::default(),
+            quote_distress: Default::default(),
             owner: Pubkey::default(),
             market: Pubkey::default(),
             position_id: Pubkey::default(),
@@ -4445,6 +4448,8 @@ fn validate_referral_owned_state(
 
 fn empty_leverage_position() -> LeveragePosition {
     LeveragePosition {
+        active_liquidation_session: Pubkey::default(),
+        distress: Default::default(),
         owner: Pubkey::default(),
         market: Pubkey::default(),
         namespace_authority: Pubkey::default(),
@@ -5521,6 +5526,7 @@ mod tests {
 
     fn valid_config() -> MarketConfig {
         MarketConfig {
+            liquidation: Default::default(),
             swap_fee_bps: 30,
             divergence_fee_share_cap_bps: 0,
             volatility_fee_share_cap_bps: 0,
@@ -5635,6 +5641,9 @@ mod tests {
 
     fn borrow_position_with_collateral(collateral_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
         let mut position = BorrowPosition {
+            active_liquidation_session: Pubkey::default(),
+            base_distress: Default::default(),
+            quote_distress: Default::default(),
             owner: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             position_id: Pubkey::new_unique(),
@@ -7414,7 +7423,7 @@ mod tests {
         {
             let insurance = &mut benchmark.market_mut().insurance;
             insurance.base_available = 50_000;
-            insurance.per_event_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS;
+            insurance.principal_coverage_bps = crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS;
             insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
         }
         let trigger = benchmark

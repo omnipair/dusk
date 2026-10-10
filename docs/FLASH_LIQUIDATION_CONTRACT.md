@@ -11,7 +11,108 @@ requirements, not completed protections.
 
 Status: implementation specification for PR #45, updated 2026-10-05. The existing program does not yet implement this session or its guards. This document complements the [margin and liquidation plan](LEVERAGE_MARGIN_AND_LIQUIDATION_PLAN.md) and [current decisions](LIQUIDATION_DECISIONS.md).
 
-## Native execution and integration gates
+**2026-10-09 accepted design update:** ordinary purchase discount is the capped
+maximum of health-based and elapsed-time discounts, with immediate fills and no
+mandatory wait. The user selected 120 seconds to reach the 5% discount cap;
+linear interpolation from 0.5% is the implementation starting point. A committed distress observation must survive a failed fill;
+never rely on initializing the clock inside a transaction that then rolls back.
+Useful partial fills do not reset ongoing distress; verified recovery ends the
+episode. Bind the resulting payment at begin. A later time/health change cannot
+reduce that session's obligation. Prevent stale episode reuse after recovery or
+position recreation. Exact ramp/reset observation semantics still need tests.
+
+The internal AMM emergency path is now partial-first: quote actual costs and
+target the surviving position's MM +2 points, accepting useful smaller repairs.
+The user selected access at 70% of applicable MM (4.9% EMA equity at 7% MM).
+The emergency caller receives a progressive health/time reward capped at 1%
+of actual internal sale proceeds, including insolvent sales. Exact interpolation
+still needs specification and testing; this is separate from ordinary buyers'
+profit on purchased collateral and does not guarantee economic dust cleanup.
+Crossing the emergency boundary is not automatic full-close permission. Full
+liquidation within that boundary is now approved when symmetric-EMA equity is
+zero or negative, or the program verifies that no permitted partial liquidation
+improves health after all costs. Preserve useful smaller repairs even when no
+partial reaches the whole MM+2-point target. A keeper-selected failed quote,
+restrictive request or failed transaction does not prove infeasibility; verify
+the permitted sizes, including tier boundaries and integer rounding. The user
+selected per-market minimum residual debt, denominated in each debt token's raw
+units, and no fixed insurance-funded cleanup bonus. Configure amounts per debt
+side; 5 USDC was an example. Resize partials to avoid subminimum leftovers when
+health can still improve. Dust cannot independently bypass full-close or payment
+permissions, or manufacture infeasibility by excluding useful partials. See the
+current decision record for the proposed emergency reward interpolation, which
+is still awaiting approval. Target-based insurance funding was accepted for development.
+The user selected a provisional principal component of 5% of outstanding covered
+borrower/leverage principal per debt token. The user selected full insurance
+funding from the designated allocation through 75% of target, followed by a
+linear decrease to zero at the target. The user selected existing market LP
+yield distribution for the remainder, including hLP through its yLP holdings.
+Markets may launch with zero insurance and optional pre-funding; no minimum
+seed or insurance-funded launch gate is required. The user selected an
+additional H/15 (approximately 6.67%) of current indexed hLP funding debt
+in the same token, giving the combined target `ceil(P/20) + ceil(H/15)`.
+P excludes hLP debt; H includes accrued funding interest. Selected
+spending direction: up to 75% of eligible principal shortfall, capped by a shared
+50% fund budget refreshing every 24 hours against the remaining balance. The
+user confirmed preserving hLP's existing eligible-shortfall coverage, up to
+100%, under that same shared budget. The 75% coverage rate applies to borrower
+and leverage principal losses, not hLP's existing eligible funding shortfall.
+Do not duplicate or reset the fund budget when switching claimant types.
+Available cash and transfer-fee-adjusted credits still limit actual coverage;
+preserve the existing hLP eligibility checks and residual-loss accounting.
+The user also requires explicit protocol treasury revenue from solvent
+borrowing and leverage liquidations. The user selected a 1% charge on net debt
+repaid, split as 0.8% of repayment to insurance/LPs and 0.2% to protocol.
+The user confirmed that the 0.8% allocation supplies insurance under the
+target-based taper and sends its remainder to LPs; the protocol allocation is
+separate. The 5% principal target and 75%-to-100% linear taper are selected for
+calibration; the additional H/15 hLP target component is also selected. Optional top-ups
+use the existing `fortify_market` instruction and actual net vault credits.
+Credit the LP remainder under existing market yield ownership and checkpoint
+rules, including hLP through its yLP holdings. Do not take a second protocol
+share from the already allocated LP remainder or reapply an unrelated interest
+or swap-fee percentage. Account for liquidation revenue distinctly in receipts
+and events even if it reuses an existing yield-distribution mechanism.
+Draws that reduce the funding ratio increase subsequent insurance contributions
+under the same curve; no existing fund balance is paid out when the target falls.
+Apply the 80/20 split to actually collected fees after any applicable cap. Bind the
+charge and allocation at begin, include it in partial-recovery checks, cap full
+solvent collection by actual repayment surplus after applicable caller reward,
+and never fund the additional treasury fee through insurance or write-off.
+Historical full-emergency/health-only experiments do not validate these changes.
+
+**2026-10-10 fee-base decision:** quote net debt repayment R and a separate
+bounded liquidation fee F calculated on R. The borrower funds F through
+additional collateral; the buyer funds both R and F. The collateral quote must
+also account for the ordinary buyer discount. Earlier examples deducting a fee
+from the advertised debt repayment are superseded. Bind both component amounts
+and fee destinations at begin and verify their actual spendable credits at
+settlement, grossing up physical legs for transfer fees where needed. No fee
+credit may also count as repayment R. Include all collateral seized and actual
+costs in partial recovery; preserve the existing full-settlement surplus cap.
+The old 0.2% total rate is superseded by 1%; the charge's 80/20 allocation means
+R=1,000 requires 1,010 spendable payment, with 1,000 repaid, 8 to LPs/treasury
+and 2 to protocol, before transfer-fee gross-ups. The user explicitly retained
+the 0.5%-to-5% ordinary discount and emergency caller reward capped at 1% of
+actual proceeds. These incentives are separate from the new 1% repayment fee.
+
+**2026-10-07 routing clarification:** the user challenged the optional early
+solvent full-close shortcut because it could bypass better execution and partial
+repair. The 0–2% shortcut is withdrawn from the recommendation. Dusk remains an
+allowed ordinary flash route under the same bound payment. The description of
+the solvent candidate below is historical modeling context. The partial recovery
+target is now confirmed as the surviving position's MM +2 percentage points.
+
+## Implementation status, 2026-10-11
+
+The current implementation and verification boundary are recorded in
+[Liquidation decisions](LIQUIDATION_DECISIONS.md#current-implementation-checkpoint-2026-10-11).
+The requirements and historical observations below explain the design; statements
+that an instruction or policy remains unimplemented describe the earlier baseline.
+The old runtime auction APIs are now removed. Historical auction state and native
+replay routines remain for comparison, without public instruction entrypoints.
+
+## Native execution and integration gates (historical baseline)
 
 The [concentrated/hLP comparison](calibration/CONCENTRATED_CUSHION_RESULTS.md)
 executes the native economic primitives, including both solvent repayment and
@@ -31,7 +132,18 @@ withdrawal, not a blanket guard on every integrated swap or liquidation. Do not
 infer that all hLP activity must pause for liquidation. Conversely, hLP funding
 cash and reserve-identity constraints still apply to the native integrated path.
 
-Emergency permission uses critically low symmetric EMA equity, with its numeric threshold still to be calibrated. There is no mandatory waiting period or distress clock. The [older emergency policy](EMERGENCY_LIQUIDATION_POLICY.md) is historical calibration context. Internal price relaxation never permits an arbitrary external route to return less than its bound obligation.
+Same-market flash routing needs a separate cash-flow check: a spot swap must
+physically pay its full output before later repayment, whereas integrated
+close/liquidation can offset repaid principal. Do not promise identical capacity
+from a raw spot-swap-plus-repay transaction. Design and test a session-bound
+internal swap/repayment path with the same collateral authorization, ordinary
+price floor and partial-recovery rules. Its accounting must distinguish actual
+token credits from atomic swap/debt offsets, fund every physical interest,
+fee/reward and owner payment, and preserve hLP backing and active-session
+reservations. The generic spot cash guard remains enforced. This is an
+implementation requirement, not evidence that such a path already exists.
+
+Emergency permission uses symmetric EMA equity at or below 70% of applicable MM. This selected threshold still needs integrated calibration. There is no mandatory waiting period or time-only emergency unlock. The persistent distress clock affects the ordinary purchase incentive, reaching its cap after 120 seconds. The [older emergency policy](EMERGENCY_LIQUIDATION_POLICY.md) is historical calibration context. Internal price relaxation never permits an arbitrary external route to return less than its bound obligation.
 
 The user also approved modeling an earlier **solvent internal AMM close** when
 ordinary EMA eligibility holds and the full-sale repayment cushion is small but
@@ -63,7 +175,8 @@ Route output credit is not final reserve repayment credit for a transfer-fee deb
 
 The user explicitly confirmed full loss resolution: principal-first sale recovery, insurance for remaining principal within its limits, then principal write-off and cancellation of unpaid interest without generating fees on canceled interest. A completed full liquidation leaves zero shares/principal for the liquidated debt leg. A borrowing account with unrelated collateral or another debt leg remains open until its own closure conditions are met. A write-off is not cash yield. The phrase "authorized shortfall" must not mean that a finished full liquidation can strand outstanding debt.
 
-Ordinary flash purchases use a progressive collateral discount, including insolvent cleanup. For an internal emergency sale, pay the caller a bounded progressive share of actual proceeds before recovery. Competitive permissionless keepers racing for profitable fills are an accepted design assumption. Use this assumption in economic calibration; numeric incentive curves and caps remain unselected.
+Ordinary flash purchases use the selected progressive collateral discount, including insolvent cleanup under the bound-payment rule. For an internal emergency sale, pay the caller a progressive share of actual proceeds before recovery, capped at the selected 1%. Competitive permissionless keepers racing for profitable fills are an accepted design assumption. Use this assumption in economic calibration; the emergency reward uses the approved max(health, time) 0.30%–1% curve in
+[the current checkpoint](LIQUIDATION_DECISIONS.md#current-implementation-checkpoint-2026-10-11). Per-market dust minimums without a fixed insurance-funded bonus are selected; configure amounts per debt token.
 
 Any buyer-controlled released collateral can be exchanged against inventory or routed through accounts outside Dusk's observation. Dusk enforces the bound collateral release and net payment. The buyer may keep purchased collateral and repay with its own funds. Do not describe this as an on-chain guarantee of best execution or bounded total buyer profit.
 

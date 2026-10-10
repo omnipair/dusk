@@ -956,7 +956,7 @@ impl Market {
         })
     }
 
-    fn pessimistic_collateral_price_nad(
+    pub(crate) fn pessimistic_collateral_price_nad(
         &self,
         collateral_asset: MarketAsset,
         risk: &Risk,
@@ -1364,6 +1364,7 @@ impl Market {
         collateral_credit: u64,
         collateral_fee: LeverageCollateralFee,
     ) -> Result<CollateralReceipt> {
+        borrow_position.require_idle()?;
         require!(collateral_credit > 0, ErrorCode::AmountZero);
         let projected_collateral = borrow_position
             .collateral(market_asset)
@@ -1423,6 +1424,7 @@ impl Market {
         collateral_fee: LeverageCollateralFee,
         min_liquidation_cf_bps: u16,
     ) -> Result<CollateralReceipt> {
+        borrow_position.require_idle()?;
         require!(collateral_debit > 0, ErrorCode::AmountZero);
         let projected_collateral = borrow_position
             .collateral(market_asset)
@@ -1525,6 +1527,7 @@ impl Market {
         min_liquidation_cf_bps: u16,
         current_slot: u64,
     ) -> Result<DebtReceipt> {
+        borrow_position.require_idle()?;
         let collateral_fee = fees.for_asset(borrow_asset.opposite());
         require!(borrow_amount > 0, ErrorCode::AmountZero);
         let collateral_amount = borrow_position.collateral(borrow_asset.opposite());
@@ -1704,6 +1707,7 @@ impl Market {
         // the state boundary exact so no transferred atom can become an
         // unaccounted donation if state changed unexpectedly.
         require_eq!(repayment.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
+        borrow_position.require_idle()?;
         let (interest_paid, debt_reduction) = match repay_asset {
             MarketAsset::Base => {
                 let shares_to_burn = repayment.shares_to_burn;

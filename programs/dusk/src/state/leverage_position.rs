@@ -36,6 +36,8 @@ pub struct LeveragePosition {
     /// Market curve revision committed by this opening. A recreated PDA gets
     /// a new revision even if it reopens in the same slot.
     pub open_curve_revision: u64,
+    pub active_liquidation_session: Pubkey,
+    pub distress: crate::state::LiquidationDistress,
     pub bump: u8,
 }
 
@@ -76,6 +78,8 @@ impl LeveragePosition {
         self.multiplier_bps = multiplier_bps;
         self.opened_at = opened_at;
         self.opened_slot = opened_slot;
+        self.active_liquidation_session = Pubkey::default();
+        self.distress = crate::state::LiquidationDistress::default();
         self.bump = bump;
     }
 
@@ -104,12 +108,23 @@ impl LeveragePosition {
     }
 
     pub fn require_open(&self) -> Result<()> {
+        self.require_idle()?;
         require!(self.debt_shares > 0, ErrorCode::ZeroDebtAmount);
         require!(self.collateral_amount > 0, ErrorCode::InsufficientAmount);
         Ok(())
     }
 
+    pub fn require_idle(&self) -> Result<()> {
+        require_keys_eq!(
+            self.active_liquidation_session,
+            Pubkey::default(),
+            ErrorCode::LiquidationSessionActive
+        );
+        Ok(())
+    }
+
     pub fn credit_collateral(&mut self, amount: u64) -> Result<()> {
+        self.require_idle()?;
         require!(amount > 0, ErrorCode::AmountZero);
         self.collateral_amount = self
             .collateral_amount
@@ -119,6 +134,7 @@ impl LeveragePosition {
     }
 
     pub fn debit_collateral(&mut self, amount: u64) -> Result<()> {
+        self.require_idle()?;
         require!(amount > 0, ErrorCode::AmountZero);
         self.collateral_amount = self
             .collateral_amount

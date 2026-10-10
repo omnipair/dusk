@@ -44,6 +44,7 @@ pub struct WithdrawRepaidLeverage<'info> {
 impl<'info> WithdrawRepaidLeverage<'info> {
     pub fn handle(ctx: Context<'_, '_, '_, 'info, Self>, args: WithdrawRepaidLeverageArgs) -> Result<()> {
         ctx.accounts.market.assert_started()?;
+        ctx.accounts.leverage_position.require_idle()?;
         require!(
             ctx.accounts.leverage_position.debt_shares == 0 && ctx.accounts.leverage_position.debt_principal == 0,
             ErrorCode::InsufficientDebt

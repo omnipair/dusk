@@ -10,6 +10,7 @@ use proptest::prelude::*;
 
 fn valid_config() -> MarketConfig {
     MarketConfig {
+        liquidation: Default::default(),
         swap_fee_bps: 30,
         divergence_fee_share_cap_bps: 0,
         volatility_fee_share_cap_bps: 0,
@@ -87,6 +88,9 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
     let borrow_position = BorrowPosition {
+        active_liquidation_session: Pubkey::default(),
+        base_distress: Default::default(),
+        quote_distress: Default::default(),
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -149,6 +153,9 @@ fn market_with_cash_backed_debt(
     };
     let collateral_amount = u64::try_from(current_debt).unwrap().checked_mul(2).unwrap();
     let mut borrow_position = BorrowPosition {
+        active_liquidation_session: Pubkey::default(),
+        base_distress: Default::default(),
+        quote_distress: Default::default(),
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),

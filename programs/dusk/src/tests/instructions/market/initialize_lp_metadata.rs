@@ -14,6 +14,7 @@ fn valid_metadata() -> InitializeLpMetadataArgs {
 
 fn valid_config() -> MarketConfig {
     MarketConfig {
+        liquidation: Default::default(),
         swap_fee_bps: 30,
         divergence_fee_share_cap_bps: 0,
         volatility_fee_share_cap_bps: 0,

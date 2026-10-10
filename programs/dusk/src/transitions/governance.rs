@@ -425,6 +425,10 @@ impl MarketConfig {
 
     pub fn validate(&self) -> Result<()> {
         self.fee_profile().validate()?;
+        require!(
+            self.liquidation.minimum_base_debt > 0 && self.liquidation.minimum_quote_debt > 0,
+            ErrorCode::InvalidMarketConfig
+        );
         require_eq!(
             self.target_hlp_leverage_bps,
             BPS_DENOMINATOR.checked_mul(2).ok_or(ErrorCode::InvalidMarketConfig)?,
@@ -523,7 +527,7 @@ impl Market {
         self.insurance = Insurance {
             base_vault: base_insurance_vault,
             quote_vault: quote_insurance_vault,
-            per_event_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS,
+            principal_coverage_bps: crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS,
             per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
             ..Insurance::default()
         };
@@ -677,16 +681,16 @@ impl Market {
                     next.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
                 }
                 MarketParameterUpdate::InsuranceDrawCaps {
-                    per_event_bps,
+                    principal_coverage_bps,
                     per_day_bps,
                 } => {
                     require!(
-                        *per_event_bps <= MAX_INSURANCE_DRAW_PER_EVENT_BPS
+                        *principal_coverage_bps <= MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS
                             && *per_day_bps <= MAX_INSURANCE_DRAW_PER_DAY_BPS,
                         ErrorCode::InvalidParameterUpdate
                     );
                     require!(
-                        self.insurance.per_event_draw_bps != *per_event_bps
+                        self.insurance.principal_coverage_bps != *principal_coverage_bps
                             || self.insurance.per_day_draw_bps != *per_day_bps,
                         ErrorCode::ParameterUpdateNotMeaningful
                     );
@@ -747,7 +751,7 @@ impl Market {
                             .decay_to_slot(quote_limit, current_slot)?;
                     }
                     MarketParameterUpdate::InsuranceDrawCaps {
-                        per_event_bps,
+                        principal_coverage_bps,
                         per_day_bps,
                     } => {
                         // Open/checkpoint the current window under the old policy.
@@ -755,7 +759,7 @@ impl Market {
                         // it never retroactively restores already-spent allowance.
                         self.insurance.checkpoint_draw_window(MarketAsset::Base, current_slot);
                         self.insurance.checkpoint_draw_window(MarketAsset::Quote, current_slot);
-                        self.insurance.per_event_draw_bps = *per_event_bps;
+                        self.insurance.principal_coverage_bps = *principal_coverage_bps;
                         self.insurance.per_day_draw_bps = *per_day_bps;
                     }
                     _ => {}

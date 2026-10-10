@@ -17,6 +17,11 @@ mod settlement {
 }
 use settlement::*;
 
+mod emergency_thresholds {
+    use super::*;
+    include!("leverage_emergency_thresholds.rs");
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Case {
     amp: u64,
@@ -88,7 +93,7 @@ fn initialize(case: Case) -> Market {
         market.finalize_amm_transition_and_observe_risk(1).unwrap();
     }
     market.config.amm.validate().unwrap();
-    market.insurance.per_event_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS;
+    market.insurance.principal_coverage_bps = crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS;
     market.insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
     market
         .insurance

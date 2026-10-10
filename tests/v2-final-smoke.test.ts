@@ -25,6 +25,7 @@ import {
   createSetTransferFeeInstruction,
   createMint,
   createTransferCheckedWithTransferHookInstruction,
+  createTransferCheckedInstruction,
   ExtensionType,
   getAccount,
   getAssociatedTokenAddressSync,
@@ -84,6 +85,7 @@ import {
 import { DuskWrite } from "../packages/dusk-sdk/src/write.js";
 import { marketCreationLookupTablePlan, marketCreationV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
+import { grossLiquidationPayment } from "../packages/dusk-sdk/src/liquidation.js";
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
 import {
   assertRequiredSwapComputeScenarios,
@@ -227,6 +229,7 @@ function marketConfig() {
     maxDailyBorrowBps: 2_000,
     globalHealthContributionCapBps: 15_000,
     borrowMarketHealthFloorBps: 11_000,
+    liquidation: { minimumBaseDebt: new BN(1), minimumQuoteDebt: new BN(1) },
     amm: {
       peakAmplificationNad: new BN("1000000000"),
       coreHalfWidthBps: 0,
@@ -1505,19 +1508,20 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>,
     marginAmount = 1_000,
     remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [],
-    multiplierBps = 20_000
+    multiplierBps = 20_000,
+    debtAsset = 1
   ) {
     const positionId = Keypair.generate().publicKey;
     const leveragePosition = deriveLeveragePositionAddress(fixture.market, payer.publicKey, positionId)[0];
     const leverageCollateralVault = deriveLeverageCollateralVaultAddress(
       fixture.market,
-      fixture.baseMint
+      (debtAsset === 1 ? fixture.baseMint : fixture.quoteMint)
     )[0];
 
     let builder = program.methods
       .openLeverage({
         positionId,
-        debtAsset: 1,
+        debtAsset,
         marginAmount: new BN(marginAmount),
         multiplierBps: new BN(multiplierBps),
         minCollateralOut: new BN(1),
@@ -1531,12 +1535,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         owner: payer.publicKey,
         payer: payer.publicKey,
         leveragePosition,
-        debtMint: fixture.quoteMint,
-        collateralMint: fixture.baseMint,
-        debtReserveVault: fixture.quoteReserveVault,
-        collateralReserveVault: fixture.baseReserveVault,
+        debtMint: debtAsset === 1 ? fixture.quoteMint : fixture.baseMint,
+        collateralMint: debtAsset === 1 ? fixture.baseMint : fixture.quoteMint,
+        debtReserveVault: debtAsset === 1 ? fixture.quoteReserveVault : fixture.baseReserveVault,
+        collateralReserveVault: debtAsset === 1 ? fixture.baseReserveVault : fixture.quoteReserveVault,
         leverageCollateralVault,
-        ownerDebtAccount: fixture.ownerQuoteAccount,
+        ownerDebtAccount: debtAsset === 1 ? fixture.ownerQuoteAccount : fixture.ownerBaseAccount,
         referralPartner: null,
         referralAccrual: null,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -6727,7 +6731,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(positionPreview.baseDebt.fixedDebt.toNumber()).to.equal(0);
     expect(positionPreview.quoteDebt.fixedDebt.toNumber()).to.equal(5_000);
     expect(positionPreview.quoteDebt.isLiquidatable).to.equal(false);
-    expect(positionPreview.quoteDebt.maxRepayAmount.toNumber()).to.equal(0);
+    expect(positionPreview.quoteDebt.liquidationRates).to.equal(null);
 
     const repayTx = await program.methods
       .repay({
@@ -7488,6 +7492,64 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       accrual.amount.toString()
     );
   });
+  async function liquidationAccounts(f: Awaited<ReturnType<typeof addBalancedLiquidity>>, position: PublicKey,
+    leverage: boolean, collateralVault: PublicKey, rewardAccount = f.ownerQuoteAccount, debtAsset = 1) {
+    const debtTokenProgram = svm.getAccount(debtAsset === 1 ? f.quoteMint : f.baseMint)!.owner;
+    return { market: f.market, borrowPosition: leverage ? null : position, leveragePosition: leverage ? position : null,
+      collateralMint: debtAsset === 1 ? f.baseMint : f.quoteMint, debtMint: debtAsset === 1 ? f.quoteMint : f.baseMint, buyer: payer.publicKey, collateralVault,
+      reserveVault: debtAsset === 1 ? f.quoteReserveVault : f.baseReserveVault,
+      interestVault: debtAsset === 1 ? f.quoteInterestVault : f.baseInterestVault,
+      insuranceVault: debtAsset === 1 ? f.quoteInsuranceVault : f.baseInsuranceVault,
+      buyerCollateralAccount: debtAsset === 1 ? f.ownerBaseAccount : f.ownerQuoteAccount, buyerRefundAccount: rewardAccount,
+      ownerDebtAccount: debtAsset === 1 ? f.ownerQuoteAccount : f.ownerBaseAccount,
+      futarchyAuthority, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram };
+  }
+
+  async function executeEmergency(f: Awaited<ReturnType<typeof addBalancedLiquidity>>, position: PublicKey,
+    leverage: boolean, collateralVault: PublicKey, rewardAccount = f.ownerQuoteAccount, full = true, slice?: anchor.BN) {
+    const p = accountCoder.decode(leverage ? "LeveragePosition" : "BorrowPosition", Buffer.from(svm.getAccount(position)!.data)) as any;
+    const accounts = await liquidationAccounts(f, position, leverage, collateralVault, rewardAccount);
+    const tx = await program.methods.emergencyLiquidation({ debtAsset: 1,
+      collateralDebit: slice ?? (leverage ? p.collateral_amount : p.base_collateral), full,
+      minRewardCredit: new BN(0), minSwapOutput: new BN(0) }).accounts({ accounts,
+        collateralReserveVault: f.baseReserveVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).remainingAccounts(hlpSwapAccounts(f)).transaction();
+    tx.instructions.unshift(ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }));
+    await connection.sendTransaction(tx, [payer]);
+    return { tx, quote: cpiEvent(tx, "emergencyLiquidationSettled").quote };
+  }
+
+  async function executeFlash(f: Awaited<ReturnType<typeof addBalancedLiquidity>>, position: PublicKey,
+    leverage: boolean, collateralVault: PublicKey, repayment: number, full = false, paymentAdjustment = 0n, debtAsset = 1) {
+    const accounts = await liquidationAccounts(f, position, leverage, collateralVault, debtAsset === 1 ? f.ownerQuoteAccount : f.ownerBaseAccount, debtAsset);
+    const preview = await program.methods.previewFlashLiquidation({ debtAsset, maxRepayment: new BN(repayment), full })
+      .accounts(accounts).transaction();
+    preview.instructions.unshift(ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }));
+    const quote = program.coder.types.decode("flashLiquidationQuote", await simulateReturnData(preview)) as any;
+    const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), position.toBuffer()], DUSK_PROGRAM_ID)[0];
+    const repaymentVault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), position.toBuffer(), accounts.debtMint.toBuffer()], DUSK_PROGRAM_ID)[0];
+    const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
+    const begin = await program.methods.beginFlashLiquidation({ position, debtAsset, maxRepayment: new BN(repayment),
+      maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit, full, settleIndex: 3 })
+      .accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
+    const tokenFee = getTransferFeeConfig(await getMint(connection as any, accounts.debtMint, undefined, accounts.debtTokenProgram));
+    const net = BigInt(quote.payment.toString()) + paymentAdjustment;
+    const epochFee = tokenFee && (svm.getClock().epoch >= tokenFee.newerTransferFee.epoch
+      ? tokenFee.newerTransferFee : tokenFee.olderTransferFee);
+    const gross = epochFee ? grossLiquidationPayment(net, {
+      basisPoints: epochFee.transferFeeBasisPoints, maximumFee: epochFee.maximumFee,
+    }) : net;
+    const payment = createTransferCheckedInstruction(accounts.buyerRefundAccount, accounts.debtMint, repaymentVault,
+      payer.publicKey, gross, 6, [], accounts.debtTokenProgram);
+    const settle = await program.methods.settleFlashLiquidation().accounts({ ...common, collateralReserveVault: null }).instruction();
+    const tx = new Transaction().add(ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }), begin, payment, settle);
+    await connection.sendTransaction(tx, [payer]);
+    return { tx, quote, event: cpiEvent(tx, "flashLiquidationSettled") };
+  }
+
   it("liquidates unhealthy fixed quote debt after collateral price moves", async function () {
     const liquidationConfig = marketConfig();
     const fixture = await addBalancedLiquidity(54, liquidationConfig);
@@ -7541,113 +7603,22 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(borrowTx, [payer]);
 
-    await swapBaseForQuote(fixture, [], 40_000, 30_000);
+    await swapBaseForQuote(fixture, [], 10_000, 1);
     const clock = svm.getClock();
     clock.slot += 10_000n;
     clock.unixTimestamp += 1_000n;
     svm.setClock(clock);
 
-    const liquidationProbe = decodePreviewBorrowPositionReturnData(
-      await simulateReturnData(
-        await program.methods
-          .previewBorrowPosition()
-          .accounts({
-            market: fixture.market,
-            borrowPosition,
-            baseMint: fixture.baseMint,
-            quoteMint: fixture.quoteMint,
-          })
-          .transaction()
-      )
-    ) as any;
-    expect(liquidationProbe.quoteDebt.isLiquidatable).to.equal(true);
-    expect(liquidationProbe.quoteDebt.maxRepayAmount.gt(new BN(0))).to.equal(true);
-
-    const positionBeforeAccount = svm.getAccount(borrowPosition);
-    expect(positionBeforeAccount).to.not.equal(null);
-    const positionBefore = accountCoder.decode(
-      "BorrowPosition",
-      Buffer.from(positionBeforeAccount!.data)
-    ) as any;
-    const baseCollateralBefore = positionBefore.base_collateral.toNumber();
-    const quoteDebtSharesBefore = BigInt(positionBefore.fixed_quote_shares.toString());
-    const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
-    const triggerAuctionTx = await program.methods
-      .startLiquidationAuction()
-      .accounts({
-        market: fixture.market,
-        borrowPosition,
-        debtAssetMint: fixture.quoteMint,
-        collateralAssetMint: fixture.baseMint,
-      })
-      .transaction();
-    await connection.sendTransaction(triggerAuctionTx, [payer]);
-    trackV2Instruction("startLiquidationAuction", this.test?.title);
-    expect(expectAuctionStarted(triggerAuctionTx, borrowPosition).auctionDebtAsset).to.equal(1);
-
-    const bidTx = await program.methods
-      .fillLiquidationAuction({
-        repayAmount: new BN(1_000),
-        minCollateralOut: new BN(1),
-      })
-      .accounts({
-        market: fixture.market,
-        futarchyAuthority,
-        positionOwner: payer.publicKey,
-        liquidator: payer.publicKey,
-        debtAssetMint: fixture.quoteMint,
-        collateralAssetMint: fixture.baseMint,
-        reserveVault: fixture.quoteReserveVault,
-        interestVault: fixture.quoteInterestVault,
-        collateralVault: fixture.baseCollateralVault,
-        insuranceVault: fixture.quoteInsuranceVault,
-        collateralInsuranceVault: fixture.baseInsuranceVault,
-        liquidatorDebtAccount: fixture.ownerQuoteAccount,
-        liquidatorCollateralAccount: fixture.ownerBaseAccount,
-        borrowPosition,
-        referralPartner: null,
-        referralAccrual: null,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(bidTx, [payer]);
-    trackV2Instruction("fillLiquidationAuction", this.test?.title);
-    expect(expectPositionLiquidated(bidTx, borrowPosition).closed).to.equal(false);
-
-    const liquidationEvent = cpiEvent(bidTx, "borrowPositionLiquidated");
-    expect(liquidationEvent.market.toString()).to.equal(fixture.market.toString());
-    expect(liquidationEvent.borrowPosition.toString()).to.equal(borrowPosition.toString());
-    expect(liquidationEvent.borrower.toString()).to.equal(payer.publicKey.toString());
-    expect(liquidationEvent.liquidator.toString()).to.equal(payer.publicKey.toString());
-    expect(liquidationEvent.debtAssetSide).to.equal(1);
-    expect(liquidationEvent.repaidAmount.toString()).to.equal("1000");
-    expect(
-      BigInt(liquidationEvent.collateralSeized.toString()) >=
-        BigInt(liquidationEvent.collateralToLiquidator.toString())
-    ).to.equal(true);
-
-    const ownerBaseAfter = await getAccount(connection as any, fixture.ownerBaseAccount);
-    expect(ownerBaseAfter.amount > ownerBaseBefore.amount).to.equal(true);
-    expect(liquidationEvent.collateralCredit.toString()).to.equal(
-      (ownerBaseAfter.amount - ownerBaseBefore.amount).toString()
-    );
-
-    const positionAfterAccount = svm.getAccount(borrowPosition);
-    expect(positionAfterAccount).to.not.equal(null);
-    const positionAfter = accountCoder.decode(
-      "BorrowPosition",
-      Buffer.from(positionAfterAccount!.data)
-    ) as any;
-    expect(positionAfter.base_collateral.toNumber()).to.be.lessThan(baseCollateralBefore);
-    expect(BigInt(positionAfter.fixed_quote_shares.toString()) < quoteDebtSharesBefore).to.equal(
-      true
-    );
+    const before = (await getAccount(connection as any, fixture.ownerBaseAccount)).amount;
+    const { quote, event } = await executeFlash(fixture, borrowPosition, false, fixture.baseCollateralVault, 1_000);
+    expect(event.debtRepaid.toNumber()).to.be.within(999, 1000);
+    expect(event.remainingDebt.gt(new BN(0))).to.equal(true);
+    expect(event.fee.total.toNumber()).to.equal(Math.floor(event.debtRepaid.toNumber() / 100));
+    const after = (await getAccount(connection as any, fixture.ownerBaseAccount)).amount;
+    expect(after - before).to.equal(BigInt(quote.collateralCredit.toString()));
   });
 
-  it("reports liquidation auctions cleared by recovery through a fill attempt or a deposit", async function () {
+  it("resets the committed liquidation episode when a deposit restores health", async function () {
     const fixture = await addBalancedLiquidity(145, marketConfig());
     const borrowPositionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
@@ -7702,69 +7673,22 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       svm.setClock(clock);
       svm.expireBlockhash();
     };
-    const openAuction = async () => {
-      await swapBaseForQuote(fixture, [], 40_000, 1);
-      letPricesSettle();
-      const startTx = await program.methods
-        .startLiquidationAuction()
-        .accounts({ market: fixture.market, borrowPosition, debtAssetMint: fixture.quoteMint,
-          collateralAssetMint: fixture.baseMint })
-        .transaction();
-      await connection.sendTransaction(startTx, [payer]);
-      expect(expectAuctionStarted(startTx, borrowPosition).auctionDebtAsset).to.equal(1);
-    };
-
-    // A fill attempt after the price recovers cancels the auction and moves nothing.
-    await openAuction();
-    await swapQuoteForBase(fixture, [], 57_000, 1);
+    await swapBaseForQuote(fixture, [], 10_000, 1);
     letPricesSettle();
-    const positionBeforeFill = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-    const fillTx = await program.methods
-      .fillLiquidationAuction({ repayAmount: new BN(1_000), minCollateralOut: new BN(1) })
-      .accounts({
-        market: fixture.market,
-        futarchyAuthority,
-        positionOwner: payer.publicKey,
-        liquidator: payer.publicKey,
-        debtAssetMint: fixture.quoteMint,
-        collateralAssetMint: fixture.baseMint,
-        reserveVault: fixture.quoteReserveVault,
-        interestVault: fixture.quoteInterestVault,
-        collateralVault: fixture.baseCollateralVault,
-        insuranceVault: fixture.quoteInsuranceVault,
-        collateralInsuranceVault: fixture.baseInsuranceVault,
-        liquidatorDebtAccount: fixture.ownerQuoteAccount,
-        liquidatorCollateralAccount: fixture.ownerBaseAccount,
-        borrowPosition,
-        referralPartner: null,
-        referralAccrual: null,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(fillTx, [payer]);
-    trackV2Instruction("fillLiquidationAuction", this.test?.title);
-    expect(cpiEvents(fillTx).filter((event) => event.name === "borrowPositionLiquidated")).to.have.length(0);
-    const cancelled = cpiEvent(fillTx, "liquidationAuctionCancelled");
-    expect(cancelled.market.equals(fixture.market)).to.equal(true);
-    expect(cancelled.position.equals(borrowPosition)).to.equal(true);
-    expect(cancelled.owner.equals(payer.publicKey)).to.equal(true);
-    expect(cancelled.debtAssetSide).to.equal(1);
-    const positionAfterFill = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-    expect(positionAfterFill.auction_debt_asset).to.equal(255);
-    expect(positionAfterFill.auction_start_time.toString()).to.equal("0");
-    expect(positionAfterFill.base_collateral.toString()).to.equal(positionBeforeFill.base_collateral.toString());
-    expect(positionAfterFill.fixed_quote_shares.toString()).to.equal(positionBeforeFill.fixed_quote_shares.toString());
-
-    // A deposit that restores health cancels the auction inside the deposit.
-    await openAuction();
-    const recoveryDeposit = expectCollateralDeposited(await depositCollateral(20_000), borrowPosition);
-    expect(recoveryDeposit.auctionDebtAsset).to.equal(255);
+    const accounts = { market: fixture.market, borrowPosition, leveragePosition: null,
+      collateralMint: fixture.baseMint, debtMint: fixture.quoteMint };
+    await connection.sendTransaction(await program.methods.observeLiquidation(1).accounts(accounts).transaction(), [payer]);
+    const distressed = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
+    expect(distressed.quote_distress.active).to.equal(true);
+    await depositCollateral(50_000);
+    const recovered = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
+    expect(recovered.quote_distress.active).to.equal(false);
+    let rejected = false;
+    try { await executeFlash(fixture, borrowPosition, false, fixture.baseCollateralVault, 100); } catch { rejected = true; }
+    expect(rejected).to.equal(true);
   });
 
-  it("settles an expired liquidation auction through the internal AMM floor", async function () {
+  it("settles insolvent borrowing immediately through the emergency AMM waterfall", async function () {
     const fixture = await addBalancedLiquidity(81, marketConfig());
     const borrowPositionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
@@ -7822,68 +7746,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     triggerClock.unixTimestamp += 1_000n;
     svm.setClock(triggerClock);
 
-    const triggerTx = await program.methods
-      .startLiquidationAuction()
-      .accounts({
-        market: fixture.market,
-        borrowPosition,
-        debtAssetMint: fixture.quoteMint,
-        collateralAssetMint: fixture.baseMint,
-      })
-      .transaction();
-    await connection.sendTransaction(triggerTx, [payer]);
-
-    const beforeAccount = svm.getAccount(borrowPosition);
-    expect(beforeAccount).to.not.equal(null);
-    expectAuctionStarted(triggerTx, borrowPosition);
-
-    // Permissionless internal settlement becomes executable after the fixed
-    // five-minute external-bid window.
-    const expiredClock = svm.getClock();
-    expiredClock.slot += 10_000n;
-    expiredClock.unixTimestamp += 10_000n;
-    svm.setClock(expiredClock);
-
-    const settleTx = await program.methods
-      .backstopLiquidationAuction({
-        minCallerBountyOut: new BN(1),
-      })
-      .accounts({
-        market: fixture.market,
-        futarchyAuthority,
-        positionOwner: payer.publicKey,
-        liquidator: payer.publicKey,
-        debtAssetMint: fixture.quoteMint,
-        collateralAssetMint: fixture.baseMint,
-        debtReserveVault: fixture.quoteReserveVault,
-        collateralReserveVault: fixture.baseReserveVault,
-        interestVault: fixture.quoteInterestVault,
-        collateralVault: fixture.baseCollateralVault,
-        insuranceVault: fixture.quoteInsuranceVault,
-        liquidatorCollateralAccount: fixture.ownerBaseAccount,
-        ownerDebtAccount: fixture.ownerQuoteAccount,
-        borrowPosition,
-        referralPartner: null,
-        referralAccrual: null,
-        instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(settleTx, [payer]);
-    trackV2Instruction("backstopLiquidationAuction", this.test?.title);
-    // The backstop consumes all collateral and debt, so it closes the position.
-    expect(expectPositionLiquidated(settleTx, borrowPosition).closed).to.equal(true);
-    const backstopSwap = cpiEvent(settleTx, "swapExecuted");
-    await expectSwapMarketState(backstopSwap, fixture.market);
-    expect(backstopSwap.origin).to.deep.equal({ creditLiquidation: {} });
-    expect(backstopSwap.position.equals(borrowPosition)).to.equal(true);
-    expect(backstopSwap.amountIn.gt(new BN(0))).to.equal(true);
-
-    const afterAccount = svm.getAccount(borrowPosition);
-    expect(afterAccount).to.equal(null);
+    const { tx, quote } = await executeEmergency(fixture, borrowPosition, false, fixture.baseCollateralVault);
+    expect(quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
+    const swap = cpiEvent(tx, "swapExecuted");
+    expect(swap.origin).to.deep.equal({ creditLiquidation: {} });
+    const after = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
+    expect(after.fixed_quote_shares.toString()).to.equal("0");
+    expect(after.base_collateral.toString()).to.equal("0");
   });
 
   for (const debtAsset of [0, 1]) for (const concentrated of [false, true]) for (const assetProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) for (const transferFeeBps of assetProgram.equals(TOKEN_2022_PROGRAM_ID) ? [0, 50] : [0]) {
@@ -8821,23 +8690,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const liquidatorDebtAccount = await createAccount(
       connection as any, payer, quoteMint, payer.publicKey, Keypair.generate(), undefined, TOKEN_2022_PROGRAM_ID
     );
-    const tx = await program.methods.liquidateLeveragePosition({ debtAsset: 1, minLiquidatorAmountOut: new BN(0) })
-      .accounts({
-        market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
-        leveragePosition, debtMint: quoteMint, collateralMint: baseMint,
-        debtReserveVault: fixture.quoteReserveVault, collateralReserveVault: fixture.baseReserveVault,
-        debtInterestVault: fixture.quoteInterestVault, insuranceVault: fixture.quoteInsuranceVault,
-        leverageCollateralVault,
-        liquidatorDebtAccount, ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralPartner: null, referralAccrual: null, liquidator: payer.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-      }).transaction();
-    await connection.sendTransaction(tx, [payer]);
-    const liquidated = cpiEvent(tx, "leveragePositionLiquidated");
-    expect(liquidated.closeoutValue.toNumber()).to.be.greaterThan(0);
-    expect(liquidated.socializedLoss.toNumber()).to.equal(0);
-    expect(svm.getAccount(leveragePosition)).to.equal(null);
+    const { tx, quote: liquidated } = await executeEmergency(fixture, leveragePosition, true, leverageCollateralVault, liquidatorDebtAccount);
+    expect(liquidated.swapOutput.toNumber()).to.be.greaterThan(0);
+    expect(liquidated.loss.principalWrittenOff.toNumber()).to.equal(0);
+    expect((accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any).debt_shares.toString()).to.equal("0");
   });
 
   it("socializes leverage debt when a mutable fee leaves zero liquidation credit", async function () {
@@ -8876,28 +8732,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const liquidatorDebtAccount = await createAccount(
       connection as any, payer, quoteMint, payer.publicKey, Keypair.generate(), undefined, TOKEN_2022_PROGRAM_ID
     );
-    const tx = await program.methods.liquidateLeveragePosition({ debtAsset: 1, minLiquidatorAmountOut: new BN(0) })
-      .accounts({
-        market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
-        leveragePosition, debtMint: quoteMint, collateralMint: baseMint,
-        debtReserveVault: fixture.quoteReserveVault, collateralReserveVault: fixture.baseReserveVault,
-        debtInterestVault: fixture.quoteInterestVault, insuranceVault: fixture.quoteInsuranceVault,
-        leverageCollateralVault,
-        liquidatorDebtAccount, ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralPartner: null, referralAccrual: null, liquidator: payer.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-      }).transaction();
-    await connection.sendTransaction(tx, [payer]);
-    const liquidated = cpiEvent(tx, "leveragePositionLiquidated");
-    expect(liquidated.closeoutValue.toNumber()).to.equal(0);
-    expect(liquidated.insuranceDrawn.toNumber()).to.be.greaterThan(0);
-    expect(liquidated.socializedLoss.toNumber()).to.be.greaterThan(0);
-    expect(liquidated.principalWrittenOff.toNumber()).to.be.greaterThan(0);
+    const { tx, quote: liquidated } = await executeEmergency(fixture, leveragePosition, true, leverageCollateralVault, liquidatorDebtAccount);
+    expect(liquidated.swapOutput.toNumber()).to.equal(0);
+    expect(liquidated.insuranceDebit.toNumber()).to.be.greaterThan(0);
+    expect(liquidated.loss.principalWrittenOff.toNumber()).to.be.greaterThan(0);
+    expect(liquidated.loss.principalWrittenOff.toNumber()).to.be.greaterThan(0);
     const insuranceAfter = await getAccount(connection as any, fixture.quoteInsuranceVault, undefined, TOKEN_2022_PROGRAM_ID);
-    expect(insuranceBefore.amount - insuranceAfter.amount).to.equal(BigInt(liquidated.insuranceDrawn.toString()));
+    expect(insuranceBefore.amount - insuranceAfter.amount).to.equal(BigInt(liquidated.insuranceDebit.toString()));
     expect(cpiEvents(tx).filter((event) => event.name === "swapExecuted")).to.have.length(0);
-    expect(svm.getAccount(leveragePosition)).to.equal(null);
+    expect((accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any).debt_shares.toString()).to.equal("0");
   });
 
   it("borrows against the net collateral credited from a transfer-fee mint", async function () {
@@ -8972,63 +8815,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const afterRepay = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
     expect(afterRepay.global_health_base_contribution_for_quote_debt.toNumber()).to.be.greaterThan(0);
 
-    await connection.sendTransaction(await program.methods.startLiquidationAuction().accounts({
-      market: fixture.market, borrowPosition,
-      debtAssetMint: fixture.quoteMint, collateralAssetMint: fixture.baseMint,
-      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-    }).transaction(), [payer]);
-    const liquidating = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-    expect(liquidating.auction_debt_asset).to.equal(1);
-
-    const fillTx = await program.methods.fillLiquidationAuction({
-      repayAmount: new BN(100), minCollateralOut: new BN(0),
-    }).accounts({
-      market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
-      liquidator: payer.publicKey, debtAssetMint: fixture.quoteMint,
-      collateralAssetMint: fixture.baseMint, reserveVault: fixture.quoteReserveVault,
-      interestVault: fixture.quoteInterestVault, collateralVault: fixture.baseCollateralVault,
-      insuranceVault: fixture.quoteInsuranceVault, collateralInsuranceVault: fixture.baseInsuranceVault,
-      liquidatorDebtAccount: fixture.ownerQuoteAccount, liquidatorCollateralAccount: fixture.ownerBaseAccount,
-      borrowPosition, referralPartner: null, referralAccrual: null,
-      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-    }).transaction();
-    // A 100% collateral fee delivers the bidder nothing, so the partial
-    // repayment cap is zero and the auction must expire into the backstop.
-    let fillError: unknown;
-    try { await connection.sendTransaction(fillTx, [payer]); } catch (error) { fillError = error; }
-    const repayCapError = idl.errors?.find((error: any) => error.name === "LiquidationRepayTooLarge");
-    expect(repayCapError).to.not.equal(undefined);
-    expect(String(fillError)).to.include(`code: ${repayCapError!.code}`);
-    const afterFill = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-    expect(afterFill.auction_debt_asset).to.equal(1);
-
-    const expiredClock = svm.getClock();
-    expiredClock.slot += 10_000n;
-    expiredClock.unixTimestamp += 10_000n;
-    svm.setClock(expiredClock);
-    svm.expireBlockhash();
-    const backstopTx = await program.methods.backstopLiquidationAuction({
-      minCallerBountyOut: new BN(0),
-    }).accounts({
-      market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
-      liquidator: payer.publicKey, debtAssetMint: fixture.quoteMint,
-      collateralAssetMint: fixture.baseMint, debtReserveVault: fixture.quoteReserveVault,
-      collateralReserveVault: fixture.baseReserveVault, interestVault: fixture.quoteInterestVault,
-      collateralVault: fixture.baseCollateralVault, insuranceVault: fixture.quoteInsuranceVault,
-      liquidatorCollateralAccount: fixture.ownerBaseAccount, ownerDebtAccount: fixture.ownerQuoteAccount,
-      borrowPosition, referralPartner: null, referralAccrual: null,
-      instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
-      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-    }).transaction();
-    await connection.sendTransaction(backstopTx, [payer]);
-    const backstop = cpiEvent(backstopTx, "borrowPositionLiquidated");
-    expect(backstop.socializedLoss.toNumber()).to.be.greaterThan(0);
-    expect(svm.getAccount(borrowPosition)).to.equal(null);
+    const { quote } = await executeEmergency(fixture, borrowPosition, false, fixture.baseCollateralVault);
+    expect(quote.swapOutput.toString()).to.equal("0");
+    expect(quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
+    expect((accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any).fixed_quote_shares.toString()).to.equal("0");
   });
 
-  it("pays a capped-fee auction bidder the net collateral on a partial fill", async function () {
+  it("pays a capped-fee flash buyer the net collateral on a partial fill", async function () {
     const baseMint = await createTransferFeeMint(payer.publicKey, 6, 0, 10n);
     const quoteMint = await createMint(
       connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID
@@ -9066,41 +8859,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     clock.unixTimestamp += 2_000n;
     svm.setClock(clock);
     svm.expireBlockhash();
-    await swapBaseForQuote(fixture, [], 40_000, 1);
+    await swapBaseForQuote(fixture, [], 10_000, 1);
     const settleClock = svm.getClock();
     settleClock.slot += 10_000n;
     settleClock.unixTimestamp += 1_000n;
     svm.setClock(settleClock);
     svm.expireBlockhash();
 
-    await connection.sendTransaction(await program.methods.startLiquidationAuction().accounts({
-      market: fixture.market, borrowPosition, debtAssetMint: quoteMint,
-      collateralAssetMint: baseMint, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-    }).transaction(), [payer]);
     const bidderBefore = await getAccount(connection as any, fixture.ownerBaseAccount, undefined, TOKEN_2022_PROGRAM_ID);
-    const tx = await program.methods.fillLiquidationAuction({
-      repayAmount: new BN(1_000), minCollateralOut: new BN(1),
-    }).accounts({
-      market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
-      liquidator: payer.publicKey, debtAssetMint: quoteMint, collateralAssetMint: baseMint,
-      reserveVault: fixture.quoteReserveVault, interestVault: fixture.quoteInterestVault,
-      collateralVault: fixture.baseCollateralVault, insuranceVault: fixture.quoteInsuranceVault,
-      collateralInsuranceVault: fixture.baseInsuranceVault,
-      liquidatorDebtAccount: fixture.ownerQuoteAccount, liquidatorCollateralAccount: fixture.ownerBaseAccount,
-      borrowPosition, referralPartner: null, referralAccrual: null,
-      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-    }).transaction();
-    await connection.sendTransaction(tx, [payer]);
-    const event = cpiEvent(tx, "borrowPositionLiquidated");
+    const { quote, event } = await executeFlash(fixture, borrowPosition, false, fixture.baseCollateralVault, 1_000);
     const bidderAfter = await getAccount(connection as any, fixture.ownerBaseAccount, undefined, TOKEN_2022_PROGRAM_ID);
-    const gross = BigInt(event.collateralToLiquidator.toString());
-    const uncappedFee = (gross * 2_000n + 9_999n) / 10_000n;
-    const expectedFee = uncappedFee < 10n ? uncappedFee : 10n;
-    expect(gross > 10n).to.equal(true);
-    expect(BigInt(event.collateralCredit.toString())).to.equal(gross - expectedFee);
-    expect(bidderAfter.amount - bidderBefore.amount).to.equal(gross - expectedFee);
-    expect(event.repaidAmount.toNumber()).to.equal(1_000);
+    const gross = BigInt(quote.collateralDebit.toString());
+    expect(gross > 50n).to.equal(true);
+    expect(BigInt(quote.collateralCredit.toString())).to.equal(gross - 10n);
+    expect(bidderAfter.amount - bidderBefore.amount).to.equal(gross - 10n);
+    expect(event.debtRepaid.toNumber()).to.be.within(999, 1000);
   });
 
   for (const mode of ["legacy", "grouped", "transfer-fee", "partial"]) {
@@ -9553,61 +9326,311 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
   }
 
-  it("liquidates an unhealthy leverage position", async function () {
-    const config = marketConfig();
-    const fixture = await addBalancedLiquidity(64, config);
-    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
-    trackV2Instruction("openLeverage", this.test?.title);
-
-    await swapBaseForQuote(fixture, [], 80_000, 1);
-    // Symmetric-EMA equity determines eligibility at stored maintenance.
-    // Let the EMA absorb the adverse spot move.
-    svm.warpToSlot(svm.getClock().slot + 600n);
+  it("flash liquidation binds the pair, rolls back underpayment, and settles only the isolated payment", async function () {
+    const f = await addBalancedLiquidity(241);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
+    const other = await openQuoteDebtLeverage(f);
+    await swapBaseForQuote(f, [], 80_000, 1);
+    const clock = svm.getClock();
+    clock.slot += 600n;
+    clock.unixTimestamp += 300n;
+    svm.setClock(clock);
     svm.expireBlockhash();
+    const readAccounts = { market: f.market, borrowPosition: null, leveragePosition,
+      collateralMint: f.baseMint, debtMint: f.quoteMint };
+    await connection.sendTransaction(await program.methods.observeLiquidation(1).accounts(readAccounts).transaction(), [payer]);
+    trackV2Instruction("observeLiquidation", this.test?.title);
+    const quote = program.coder.types.decode("flashLiquidationQuote", await simulateReturnData(
+      await program.methods.previewFlashLiquidation({ debtAsset: 1, maxRepayment: new BN(0), full: true })
+        .accounts(readAccounts).transaction())) as any;
+    trackV2Instruction("previewFlashLiquidation", this.test?.title);
+    const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), leveragePosition.toBuffer()], DUSK_PROGRAM_ID)[0];
+    const repaymentVault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), leveragePosition.toBuffer(), f.quoteMint.toBuffer()], DUSK_PROGRAM_ID)[0];
+    const accounts = { ...readAccounts, buyer: payer.publicKey, collateralVault: leverageCollateralVault,
+      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault, insuranceVault: f.quoteInsuranceVault,
+      buyerCollateralAccount: f.ownerBaseAccount, buyerRefundAccount: f.ownerQuoteAccount, ownerDebtAccount: f.ownerQuoteAccount,
+      futarchyAuthority, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram: TOKEN_PROGRAM_ID };
+    const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
+    const begin = await program.methods.beginFlashLiquidation({ position: leveragePosition, debtAsset: 1,
+      maxRepayment: new BN(0), maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit,
+      full: true, settleIndex: 3 }).accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
+    const settle = await program.methods.settleFlashLiquidation().accounts({ ...common, collateralReserveVault: null }).instruction();
+    const prefix = ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 });
+    const payment = (amount: bigint) => createTransferCheckedInstruction(f.ownerQuoteAccount, f.quoteMint,
+      repaymentVault, payer.publicKey, amount, 6);
+    const repayInstruction = (position: PublicKey) => program.methods.repayLeverage({ debtAsset: 1, amount: new BN(1) }).accounts({
+      market: f.market, futarchyAuthority, positionOwner: payer.publicKey, leveragePosition: position,
+      debtMint: f.quoteMint, collateralMint: f.baseMint, debtReserveVault: f.quoteReserveVault,
+      debtInterestVault: f.quoteInterestVault, ownerDebtAccount: f.ownerQuoteAccount,
+      referralPartner: null, referralAccrual: null, owner: payer.publicKey,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).instruction();
+    const snapshot = () => [f.market, leveragePosition, leverageCollateralVault, f.ownerBaseAccount,
+      f.quoteReserveVault, f.quoteInsuranceVault].map(key => Buffer.from(svm.getAccount(key)!.data).toString("hex"));
+    const before = snapshot();
+    let rejected = false;
+    try { await connection.sendTransaction(new Transaction().add(prefix, begin), [payer]); } catch { rejected = true; }
+    expect(rejected).to.equal(true);
+    expect(snapshot()).to.deep.equal(before);
+    expect(svm.getAccount(session)).to.equal(null);
+    svm.expireBlockhash();
+    rejected = false;
+    try { await connection.sendTransaction(new Transaction().add(prefix, begin,
+      payment(BigInt(quote.payment.toString()) - 1n), settle), [payer]); } catch { rejected = true; }
+    expect(rejected).to.equal(true);
+    expect(snapshot()).to.deep.equal(before);
+    expect(svm.getAccount(session)).to.equal(null);
+    svm.expireBlockhash();
+    let lockedError: unknown;
+    try { await connection.sendTransaction(new Transaction().add(prefix, begin,
+      await repayInstruction(leveragePosition), settle), [payer]); } catch (error) { lockedError = error; }
+    expect(String(lockedError)).to.include("LiquidationSessionActive");
+    expect(snapshot()).to.deep.equal(before);
+    svm.expireBlockhash();
+    const paired = await program.methods.beginFlashLiquidation({ position: leveragePosition, debtAsset: 1,
+      maxRepayment: new BN(0), maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit,
+      full: true, settleIndex: 5 }).accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
+    const withdraw = await program.methods.removeLiquidity({ ylpAmount: new BN(1_000),
+      minBaseAmountOut: new BN(0), minQuoteAmountOut: new BN(0) }).accounts({
+      market: f.market, owner: payer.publicKey, baseMint: f.baseMint, quoteMint: f.quoteMint,
+      ylpMint: f.ylpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,
+      ownerBaseAccount: f.ownerBaseAccount, ownerQuoteAccount: f.ownerQuoteAccount, ownerYlpAccount: f.ownerYlpAccount,
+      baseYieldAccount: deriveYieldAccountAddress(f.market, payer.publicKey, f.ylpMint, f.baseMint, "ylp")[0],
+      quoteYieldAccount: deriveYieldAccountAddress(f.market, payer.publicKey, f.ylpMint, f.quoteMint, "ylp")[0],
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).instruction();
+    const lpBefore = (await getAccount(connection as any, f.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    const otherBefore = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(other.leveragePosition)!.data)) as any;
+    const tx = new Transaction().add(prefix, paired, withdraw, await repayInstruction(other.leveragePosition),
+      payment(BigInt(quote.payment.toString()) + 123n), settle);
+    await connection.sendTransaction(tx, [payer]);
+    expect((await getAccount(connection as any, f.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(lpBefore - 1_000n);
+    trackV2Instruction("beginFlashLiquidation", this.test?.title);
+    trackV2Instruction("settleFlashLiquidation", this.test?.title);
+    const otherAfter = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(other.leveragePosition)!.data)) as any;
+    expect(otherAfter.debt_shares.lt(otherBefore.debt_shares)).to.equal(true);
+    expect(svm.getAccount(session)).to.equal(null);
+    expect((await getAccount(connection as any, repaymentVault)).amount).to.equal(0n);
+    const position = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(position.debt_shares.toString()).to.equal("0");
+    expect(position.collateral_amount.toString()).to.equal("0");
+    expect(position.active_liquidation_session.equals(PublicKey.default)).to.equal(true);
+    const event = cpiEvent(tx, "flashLiquidationSettled");
+    expect(event.loss.interestCanceled.gte(new BN(0))).to.equal(true);
+  });
 
-    const liquidatorQuoteAccount = await createAccount(
-      connection as any,
-      payer,
-      fixture.quoteMint,
-      payer.publicKey,
-      Keypair.generate()
-    );
-    const liquidatorBefore = await getAccount(connection as any, liquidatorQuoteAccount);
-    const liquidateTx = await program.methods
-      .liquidateLeveragePosition({
-        debtAsset: 1,
-        minLiquidatorAmountOut: new BN(0),
-      })
-      .accounts({
-        market: fixture.market,
-        futarchyAuthority,
-        positionOwner: payer.publicKey,
-        leveragePosition,
-        debtMint: fixture.quoteMint,
-        collateralMint: fixture.baseMint,
-        debtReserveVault: fixture.quoteReserveVault,
-        collateralReserveVault: fixture.baseReserveVault,
-        debtInterestVault: fixture.quoteInterestVault,
-        insuranceVault: fixture.quoteInsuranceVault,
-        leverageCollateralVault,
-        liquidatorDebtAccount: liquidatorQuoteAccount,
-        ownerDebtAccount: fixture.ownerQuoteAccount,
-        referralPartner: null,
-        referralAccrual: null,
-        liquidator: payer.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(liquidateTx, [payer]);
-    await expectLeverageSwap(liquidateTx, "leveragePositionLiquidated", "leverageLiquidation");
-    trackV2Instruction("liquidateLeveragePosition", this.test?.title);
+  it("flash liquidation can repay through Dusk without withdrawing and returning principal cash", async function () {
+    const f = await addBalancedLiquidity(243);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
+    await swapBaseForQuote(f, [], 80_000, 1);
+    const clock = svm.getClock(); clock.slot += 2_000n; clock.unixTimestamp += 1_000n;
+    svm.setClock(clock); svm.expireBlockhash();
+    const readAccounts = { market: f.market, borrowPosition: null, leveragePosition, collateralMint: f.baseMint, debtMint: f.quoteMint };
+    const quote = program.coder.types.decode("flashLiquidationQuote", await simulateReturnData(
+      await program.methods.previewFlashLiquidation({ debtAsset: 1, maxRepayment: new BN(0), full: true }).accounts(readAccounts).transaction())) as any;
+    const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), leveragePosition.toBuffer()], DUSK_PROGRAM_ID)[0];
+    const repaymentVault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), leveragePosition.toBuffer(), f.quoteMint.toBuffer()], DUSK_PROGRAM_ID)[0];
+    const accounts = { ...readAccounts, buyer: payer.publicKey, collateralVault: leverageCollateralVault,
+      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault, insuranceVault: f.quoteInsuranceVault,
+      buyerCollateralAccount: f.ownerBaseAccount, buyerRefundAccount: f.ownerQuoteAccount, ownerDebtAccount: f.ownerQuoteAccount,
+      futarchyAuthority, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram: TOKEN_PROGRAM_ID };
+    const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
+    const begin = await program.methods.beginFlashLiquidation({ position: leveragePosition, debtAsset: 1,
+      maxRepayment: new BN(0), maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit, full: true, settleIndex: 2 })
+      .accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
+    const settle = await program.methods.settleFlashLiquidation().accounts({ ...common, collateralReserveVault: f.baseReserveVault }).instruction();
+    const before = (await getAccount(connection as any, f.ownerQuoteAccount)).amount;
+    const collateralBefore = (await getAccount(connection as any, f.ownerBaseAccount)).amount;
+    const tx = new Transaction().add(ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }), begin, settle);
+    await connection.sendTransaction(tx, [payer]);
+    const after = (await getAccount(connection as any, f.ownerQuoteAccount)).amount;
+    expect(after > before).to.equal(true);
+    expect((await getAccount(connection as any, f.ownerBaseAccount)).amount).to.equal(collateralBefore);
+    expect((await getAccount(connection as any, repaymentVault)).amount).to.equal(0n);
+    expect(svm.getAccount(session)).to.equal(null);
+    expect(cpiEvents(tx).filter(event => event.name === "swapExecuted")).to.have.length(1);
+    expect(cpiEvent(tx, "flashLiquidationSettled").remainingDebt.toString()).to.equal("0");
+  });
 
-    const liquidatorAfter = await getAccount(connection as any, liquidatorQuoteAccount);
-    expect(liquidatorAfter.amount >= liquidatorBefore.amount).to.equal(true);
-    expect(svm.getAccount(leveragePosition)).to.equal(null);
+  it("emergency AMM liquidation pays the progressive reward and writes off only uncovered principal", async function () {
+    const f = await addBalancedLiquidity(242);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
+    await swapBaseForQuote(f, [], 80_000, 1);
+    const clock = svm.getClock();
+    clock.slot += 600n; clock.unixTimestamp += 300n;
+    svm.setClock(clock); svm.expireBlockhash();
+    const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    const readAccounts = { market: f.market, borrowPosition: null, leveragePosition, collateralMint: f.baseMint, debtMint: f.quoteMint };
+    const previewTx = await program.methods.previewEmergencyLiquidation({ debtAsset: 1, collateralDebit: p.collateral_amount, full: true })
+      .accounts({ preview: readAccounts, futarchyAuthority }).transaction();
+    previewTx.instructions.unshift(ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }));
+    const quote = program.coder.types.decode("emergencyLiquidationQuote", await simulateReturnData(previewTx)) as any;
+    trackV2Instruction("previewEmergencyLiquidation", this.test?.title);
+    expect(quote.rates.emergencyRewardBps).to.equal(100);
+    expect(quote.fee.total.toString()).to.equal("0");
+    const callerAccount = await createAccount(connection as any, payer, f.quoteMint, payer.publicKey, Keypair.generate());
+    const accounts = { ...readAccounts, buyer: payer.publicKey, collateralVault: leverageCollateralVault,
+      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault, insuranceVault: f.quoteInsuranceVault,
+      buyerCollateralAccount: f.ownerBaseAccount, buyerRefundAccount: callerAccount, ownerDebtAccount: f.ownerQuoteAccount,
+      futarchyAuthority, referralPartner: null, referralAccrual: null,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram: TOKEN_PROGRAM_ID };
+    const tx = await program.methods.emergencyLiquidation({ debtAsset: 1, collateralDebit: p.collateral_amount, full: true,
+      minRewardCredit: quote.rewardCredit, minSwapOutput: quote.swapOutput })
+      .accounts({ accounts, collateralReserveVault: f.baseReserveVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).transaction();
+    tx.instructions.unshift(ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }));
+    await connection.sendTransaction(tx, [payer]);
+    trackV2Instruction("emergencyLiquidation", this.test?.title);
+    const event = cpiEvent(tx, "emergencyLiquidationSettled");
+    expect(event.quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
+    expect(event.quote.loss.insuranceCredit.toString()).to.equal("0");
+    expect((await getAccount(connection as any, callerAccount)).amount).to.equal(BigInt(quote.rewardCredit.toString()));
+    const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(after.debt_shares.toString()).to.equal("0");
+    expect(after.collateral_amount.toString()).to.equal("0");
+    expect(cpiEvents(tx).filter(event => event.name === "swapExecuted")).to.have.length(1);
+  });
+
+  it("concentrated flash fees reach both hLP holders and emergency partials preserve the live position", async function () {
+    const config = marketConfig();
+    config.amm.peakAmplificationNad = new BN(4_000_000_000);
+    config.amm.coreHalfWidthBps = 100; config.amm.fadeWidthBps = 400;
+    const f = await addBalancedLiquidity(245, config, { baseDeposit: 1_000_000_000, quoteDeposit: 2_000_000_000,
+      minYlp: 1, baseMint: 5_000_000_000, quoteMint: 5_000_000_000 });
+    await openBaseHedge(f, 100_000_000);
+    await openQuoteHedge(f, 200_000_000);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f, 1_000_000, hlpSwapAccounts(f));
+    await connection.sendTransaction(await program.methods.fortifyMarket({ asset: 1, amount: new BN(50_000_000) })
+      .accounts({ market: f.market, donor: payer.publicKey, assetMint: f.quoteMint, donorAssetAccount: f.ownerQuoteAccount,
+        insuranceVault: f.quoteInsuranceVault, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).transaction(), [payer]);
+    const seedValue = async (value: bigint) => {
+      const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      const account = svm.getAccount(f.market)!;
+      const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+      const price = (value * 1_000_000_000n + BigInt(p.collateral_amount.toString()) - 1n) / BigInt(p.collateral_amount.toString());
+      market.risk.base_price_ema_nad = new BN(price.toString());
+      market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n / price).toString());
+      market.risk.last_snapshot_slot = new BN(svm.getClock().slot.toString());
+      market.last_update_slot = new BN(svm.getClock().slot.toString()); market.risk_revision = market.curve_revision;
+      const body = Buffer.alloc(account.data.length - 8);
+      const layout = (accountCoder as any).accountLayouts.get("Market");
+      const length = layout.layout.encode(market, body);
+      svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+        (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, length)])) });
+      svm.expireBlockhash();
+      return market;
+    };
+    const before = await seedValue(1_064_000n);
+    const { event } = await executeFlash(f, leveragePosition, true, leverageCollateralVault, 100_000);
+    expect(event.fee.lp.gt(new BN(0))).to.equal(true);
+    expect(event.fee.insurance.toString()).to.equal("0");
+    const after = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+    for (const vault of ["base_hlp_vault", "quote_hlp_vault"]) {
+      expect(after[vault].quote_interest_growth_index_q64.gt(before[vault].quote_interest_growth_index_q64)).to.equal(true);
+    }
+    await seedValue(938_000n); // approximately 4% equity on the remaining 900k debt
+    const { quote } = await executeEmergency(f, leveragePosition, true, leverageCollateralVault, f.ownerQuoteAccount, false, new BN(10_000));
+    expect(quote.full).to.equal(false);
+    expect(quote.loss.principalWrittenOff.toString()).to.equal("0");
+    const remaining = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(remaining.debt_shares.gt(new BN(0))).to.equal(true);
+    expect(remaining.collateral_amount.gt(new BN(0))).to.equal(true);
+  });
+
+  it("flash settlement clears a base-debt short position after an adverse price rise", async function () {
+    const f = await addBalancedLiquidity(247);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f, 1_000, [], 20_000, 0);
+    await swapQuoteForBase(f, [], 160_000, 1);
+    const clock = svm.getClock(); clock.slot += 2_000n; clock.unixTimestamp += 1_000n;
+    svm.setClock(clock); svm.expireBlockhash();
+    const { event } = await executeFlash(f, leveragePosition, true, leverageCollateralVault, 0, true, 0n, 0);
+    expect(event.debtAsset).to.equal(0);
+    expect(event.remainingDebt.toString()).to.equal("0");
+    expect(event.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
+    const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(after.debt_principal.toString()).to.equal("0");
+    expect(after.collateral_amount.toString()).to.equal("0");
+  });
+
+  it("flash debt transfer fees use net credits and prior donations cannot satisfy a new payment", async function () {
+    const base = await createMint(connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID);
+    const quoteMint = await createTransferFeeMint(payer.publicKey, 6, 50, 1_000n);
+    const f = await addBalancedLiquidity(246, marketConfig(), {
+      baseDeposit: 1_000_000_000, quoteDeposit: 2_000_000_000, minYlp: 1,
+      baseMint: 5_000_000_000, quoteMint: 5_000_000_000,
+    }, 6, TOKEN_2022_PROGRAM_ID, { base, quote: quoteMint });
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f, 1_000_000);
+    const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    const account = svm.getAccount(f.market)!;
+    const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+    const price = (1_063_000n * 1_000_000_000n + BigInt(p.collateral_amount.toString()) - 1n) / BigInt(p.collateral_amount.toString());
+    market.risk.base_price_ema_nad = new BN(price.toString());
+    market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n / price).toString());
+    market.risk.last_snapshot_slot = new BN(svm.getClock().slot.toString());
+    market.last_update_slot = new BN(svm.getClock().slot.toString()); market.risk_revision = market.curve_revision;
+    const body = Buffer.alloc(account.data.length - 8);
+    const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market, body);
+    svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, length)])) });
+    svm.expireBlockhash();
+    const reserveBefore = (await getAccount(connection as any, f.quoteReserveVault, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    const first = await executeFlash(f, leveragePosition, true, leverageCollateralVault, 10_000);
+    expect(first.quote.payment.gt(first.quote.repayment.add(first.quote.fee.total))).to.equal(true);
+    expect((await getAccount(connection as any, f.quoteReserveVault, undefined, TOKEN_2022_PROGRAM_ID)).amount - reserveBefore)
+      .to.equal(BigInt(first.event.debtRepaid.toString()));
+    const repaymentVault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), leveragePosition.toBuffer(), f.quoteMint.toBuffer()], DUSK_PROGRAM_ID)[0];
+    await connection.sendTransaction(new Transaction().add(createTransferCheckedInstruction(
+      f.ownerQuoteAccount, f.quoteMint, repaymentVault, payer.publicKey, 123n, 6, [], TOKEN_2022_PROGRAM_ID)), [payer]);
+    const donated = (await getAccount(connection as any, repaymentVault, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    const positionBefore = Buffer.from(svm.getAccount(leveragePosition)!.data);
+    let rejected: unknown;
+    try { await executeFlash(f, leveragePosition, true, leverageCollateralVault, 10_000, false, -1n); }
+    catch (error) { rejected = error; }
+    expect(String(rejected)).to.include("InsufficientAmount");
+    expect(Buffer.from(svm.getAccount(leveragePosition)!.data).equals(positionBefore)).to.equal(true);
+    svm.expireBlockhash();
+    await executeFlash(f, leveragePosition, true, leverageCollateralVault, 10_000);
+    expect((await getAccount(connection as any, repaymentVault, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(donated);
+    const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), leveragePosition.toBuffer()], DUSK_PROGRAM_ID)[0];
+    expect(svm.getAccount(session)).to.equal(null);
+  });
+
+  it("full emergency liquidation proves partial infeasibility while EMA equity remains positive", async function () {
+    const f = await addBalancedLiquidity(244);
+    const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
+    await swapBaseForQuote(f, [], 80_000, 1);
+    const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    const setEmaValue = async (value: bigint) => {
+      const account = svm.getAccount(f.market)!;
+      const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+      const price = (value * 1_000_000_000n + BigInt(p.collateral_amount.toString()) - 1n) / BigInt(p.collateral_amount.toString());
+      market.risk.base_price_ema_nad = new BN(price.toString());
+      market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n / price).toString());
+      market.risk.last_snapshot_slot = new BN(svm.getClock().slot.toString());
+      market.last_update_slot = new BN(svm.getClock().slot.toString());
+      market.risk_revision = market.curve_revision;
+      const layout = (accountCoder as any).accountLayouts.get("Market");
+      const body = Buffer.alloc(account.data.length - 8);
+      const len = layout.layout.encode(market, body);
+      svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+        (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, len)])) });
+      svm.expireBlockhash();
+    };
+    // At 4.76% equity a smaller fixed-price fill can help; poor AMM output
+    // must not let the caller force a full sale instead.
+    await setEmaValue(1_050n);
+    let rejected = false;
+    try { await executeEmergency(f, leveragePosition, true, leverageCollateralVault); } catch { rejected = true; }
+    expect(rejected).to.equal(true);
+    await setEmaValue(1_006n);
+    const { quote } = await executeEmergency(f, leveragePosition, true, leverageCollateralVault);
+    expect(quote.healthBefore.collateralValue.gt(quote.healthBefore.debt)).to.equal(true);
+    expect(quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
   });
 
   it("runs the direct-yLP parameter proposal lifecycle", async function () {
@@ -9673,7 +9696,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           },
           {
             insuranceDrawCaps: {
-              perEventBps: 1_000,
+              principalCoverageBps: 1_000,
               perDayBps: 3_000,
             },
           },
@@ -9712,11 +9735,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const stored = accountCoder.decode("ParameterProposal", Buffer.from(svm.getAccount(proposal)!.data)) as any;
     expect(created.updates).to.deep.equal([
       { dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } },
-      { insuranceDrawCaps: { perEventBps: 1_000, perDayBps: 3_000 } },
+      { insuranceDrawCaps: { principalCoverageBps: 1_000, perDayBps: 3_000 } },
     ]);
     expect(stored.updates).to.have.length(2);
     expect(stored.updates[0].DailyBorrowLimit.max_daily_borrow_bps).to.equal(1_900);
-    expect(stored.updates[1].InsuranceDrawCaps.per_event_bps).to.equal(1_000);
+    expect(stored.updates[1].InsuranceDrawCaps.principal_coverage_bps).to.equal(1_000);
     expect(stored.updates[1].InsuranceDrawCaps.per_day_bps).to.equal(3_000);
     expect(created.familyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
       stored.family_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
@@ -9868,7 +9891,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(marketAccount).to.not.equal(null);
     market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
     expect(market.config.max_daily_borrow_bps).to.equal(1_900);
-    expect(market.insurance.per_event_draw_bps).to.equal(1_000);
+    expect(market.insurance.principal_coverage_bps).to.equal(1_000);
     expect(market.insurance.per_day_draw_bps).to.equal(3_000);
     expect(market.parameter_revisions[4].toNumber()).to.equal(1);
     expect(market.parameter_revisions[6].toNumber()).to.equal(1);

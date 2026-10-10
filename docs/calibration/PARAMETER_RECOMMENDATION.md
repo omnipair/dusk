@@ -2,6 +2,44 @@
 
 2026-10-07 · PR #45 · **Proposal awaiting the remaining product decisions.**
 
+**Historical calibration package.** The current stored-margin implementation
+and the 2026-10-10 fee-base decision supersede applicable formulas below: fees
+are added to a quoted net debt repayment and funded through additional collateral,
+rather than deducted from that repayment. The user subsequently selected a
+1% total charge: 0.8% of repayment to insurance/LPs through the accepted funding
+taper and 0.2% to protocol separately. The user selected a provisional insurance
+target of 5% of outstanding covered borrower/leverage principal per debt token;
+full insurance funding continues through 75% of target, then decreases linearly
+to zero at the target. Zero-insurance launches and optional pre-funding are
+approved; there is no mandatory minimum seed. The user selected an additional
+H/15 (approximately 6.67%) of current indexed hLP funding debt in the same
+token; the combined target is `ceil(P/20) + ceil(H/15)`, with P excluding H.
+The user selected existing market LP yield distribution for the post-insurance
+remainder, including hLP through its yLP holdings, with no second protocol cut.
+The user also confirmed preserving hLP's existing eligible-shortfall insurance
+coverage, up to 100% under the same shared fund budget. Borrower/leverage
+principal losses instead use the selected 75% coverage rate. The selected H/15
+funding allowance remains distinct from claim eligibility and does not reserve
+a separate spending budget for hLP.
+The user subsequently approved full emergency liquidation, within the selected
+70%-of-MM access boundary, when symmetric-EMA equity is zero or negative or
+the program verifies that no permitted partial improves health after costs.
+Failure to reach the entire MM+2-point target is insufficient if a useful partial
+exists. This supersedes earlier automatic full-sale modeling. The user selected
+per-market minimum residual debt in debt-token raw units and no fixed insurance
+cleanup bonus. Per-market amounts require configuration; the emergency reward's
+exact interpolation remains pending in the current decision record.
+The older 0.2% cases below are
+historical evidence and do not validate the selected charge or revised incentives.
+The current stored-margin implementation
+replaces the endpoint-crowding formula below, and the user has dropped the
+separate 0–2% solvent full-close shortcut. See the
+[2026-10-08 emergency comparison](EMERGENCY_THRESHOLD_RESULTS.md) for the
+75% / two-thirds / 50% experiment and the
+[2026-10-09 recovery follow-up](EMERGENCY_HEADROOM_RESULTS.md) for the latest
+75%-of-MM recommendation, pending selection. The
+[decision record](../LIQUIDATION_DECISIONS.md) controls implementation.
+
 The [current decision record](../LIQUIDATION_DECISIONS.md) remains authoritative.
 This recommendation adds concrete starting numbers; it does not claim the
 redesign is implemented or ready for deployment. Evidence: the corrected native
@@ -115,16 +153,18 @@ The protocol also lacks a universal dollar conversion for arbitrary debt mints.
 Do not silently treat 0.05 debt tokens as a $0.05 on-chain minimum or promise
 that keeper competition resolves negative-profit fills.
 
-**Recommended initial scope:** prevent avoidable dust from partial fills with
+**Selected initial scope:** prevent avoidable dust from partial fills with
 an explicit per-market residual-size rule, allow a full fill under the applicable
 payment/loss permissions, and retain percentage-based rewards without an
 automatic insurance subsidy. Document that naturally occurring tiny balances
 can remain economically unattractive. Full closure must not bypass the price
-obligation or loss permission merely because the position is small. Exact
-residual-size units/threshold still require selection; a stored-depth percentage
-alone is not a network-cost estimate.
+obligation or loss permission merely because the position is small. The user
+selected debt-token raw units per market/debt side; numeric thresholds require
+configuration and the earlier 5-USDC example is not a universal default. Do not
+manufacture full-close permission solely by excluding useful partials under the
+dust rule. A stored-depth percentage alone is not a network-cost estimate.
 
-**Alternative:** fund a small bounded cleanup reward from insurance. This requires
+**Not selected:** fund a small bounded cleanup reward from insurance. This would require
 an explicit denomination, budget, lifetime cap and splitting/reopening abuse
 analysis before implementation. Merely increasing the percentage cannot give
 the same guarantee. A bounded budget can also be exhausted; even this choice
@@ -139,8 +179,9 @@ allocation with accrued interest, token fees, borrowing positions, atomic
 session instructions, arbitrary routes, account aliasing, same-transaction
 shared mutations or deployment compute cost.
 
-1. Record approval or revisions to the margin and liquidation package; settle
-   dust funding and denomination. Do not silently make these runtime defaults.
+1. Follow the current decision record for approved margin/liquidation settings;
+   finalize the emergency reward curve and configure per-market dust amounts.
+   Do not silently make historical proposals runtime defaults.
 2. Implement bound sessions, token-net-payment quotes, position locks and
    shared reservations for borrowing/leverage; preserve permitted retail and
    LP/parameter composition with current-state settlement checks.

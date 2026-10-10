@@ -2851,6 +2851,26 @@
             "type": "u128"
           },
           {
+            "name": "active_liquidation_session",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_distress",
+            "type": {
+              "defined": {
+                "name": "LiquidationDistress"
+              }
+            }
+          },
+          {
+            "name": "quote_distress",
+            "type": {
+              "defined": {
+                "name": "LiquidationDistress"
+              }
+            }
+          },
+          {
             "name": "auction_debt_asset",
             "type": "u8"
           },
@@ -3826,7 +3846,11 @@
             }
           },
           {
-            "name": "per_event_draw_bps",
+            "name": "principal_coverage_bps",
+            "docs": [
+              "Maximum share of a borrower/leverage principal shortfall covered by",
+              "insurance. hLP funding claims use their own eligible-loss definition."
+            ],
             "type": "u16"
           },
           {
@@ -4290,8 +4314,66 @@
             "type": "u64"
           },
           {
+            "name": "active_liquidation_session",
+            "type": "pubkey"
+          },
+          {
+            "name": "distress",
+            "type": {
+              "defined": {
+                "name": "LiquidationDistress"
+              }
+            }
+          },
+          {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidationConfig",
+      "docs": [
+        "Per-market atom amounts, independently denominated in Base and Quote.",
+        "One atom is a neutral initialization default, not an economic cleanup",
+        "promise. Market creation clients must expose the chosen amounts explicitly."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minimum_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "minimum_quote_debt",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidationDistress",
+      "docs": [
+        "A committed observation is separate from an atomic flash transaction: a",
+        "reverted route must not erase the incentive clock. Each debt leg owns its",
+        "episode. Recovery ends it; a useful partial while still unhealthy does not."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "started_at",
+            "type": "i64"
+          },
+          {
+            "name": "observed_slot",
+            "type": "u64"
           }
         ]
       }
@@ -4512,6 +4594,14 @@
           {
             "name": "borrow_market_health_floor_bps",
             "type": "u16"
+          },
+          {
+            "name": "liquidation",
+            "type": {
+              "defined": {
+                "name": "LiquidationConfig"
+              }
+            }
           },
           {
             "name": "amm",

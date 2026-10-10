@@ -218,6 +218,10 @@ impl<'info> AddLeverageMargin<'info> {
                 before_accrual,
             )?
         };
+        ctx.accounts.market.reset_leverage_distress_if_recovered(
+            &mut ctx.accounts.leverage_position,
+            crate::instructions::leverage_collateral_liquidation_fee(&ctx.accounts.collateral_mint, current_epoch)?,
+        )?;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,

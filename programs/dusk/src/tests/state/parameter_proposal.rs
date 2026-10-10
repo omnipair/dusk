@@ -44,7 +44,7 @@ fn every_family_update() -> Vec<MarketParameterUpdate> {
             min_adjustment_interval_slots: 0,
         },
         MarketParameterUpdate::InsuranceDrawCaps {
-            per_event_bps: 0,
+            principal_coverage_bps: 0,
             per_day_bps: 0,
         },
     ]
@@ -119,7 +119,7 @@ fn digest_binds_nonce_revisions_updates_and_metadata() {
         max_daily_borrow_bps: 1_000,
     };
     let caps = MarketParameterUpdate::InsuranceDrawCaps {
-        per_event_bps: 100,
+        principal_coverage_bps: 100,
         per_day_bps: 200,
     };
     let updates = vec![borrow_limit.clone(), caps.clone()];
@@ -275,7 +275,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
 
     proposal.updates = created.clone();
     proposal.updates.push(MarketParameterUpdate::InsuranceDrawCaps {
-        per_event_bps: 100,
+        principal_coverage_bps: 100,
         per_day_bps: 200,
     });
     assert_eq!(

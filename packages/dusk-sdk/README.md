@@ -44,6 +44,77 @@ The package exports the generated Anchor IDL/types, PDA helpers, typed preview
 decoders, a small write/read facade over the Dusk program, and an indexer client
 for historical API data.
 
+## Flash and emergency liquidations
+
+The auction start/fill/backstop and old full leverage-liquidation instructions
+have been replaced. Use `dusk.liquidations` for either borrowing or leverage:
+
+```typescript
+const position = { market, position: positionAddress, kind: "leverage" as const,
+  debtAsset: "quote" as const };
+// Send this separately to commit the incentive clock even if execution fails.
+const observe = await dusk.liquidations.observeInstruction(position);
+const quote = await dusk.liquidations.preview({ ...position, maxRepayment: 1_000_000n });
+const plan = await dusk.liquidations.buildFlash({
+  ...position, buyer, maxRepayment: 1_000_000n,
+  route: async (ctx) => {
+    // Return instructions that sell collateral or pay from buyer inventory.
+    // Deliver ctx.requiredPaymentCredit NET into ctx.repaymentVault.
+    // grossLiquidationPayment() handles the incoming token transfer fee.
+    return buildPaymentRoute(ctx);
+  },
+});
+// Compile plan.instructions unchanged, using flashLiquidationV0Transaction()
+// with the necessary address lookup tables, then simulate, sign and submit.
+```
+
+`settlement: "duskAmm"` instead sells the flashed collateral in the paired settle,
+with debt principal netted internally and no escrow-payment instruction. The
+buyer must retain the flashed collateral until settle. Its return transfer can
+incur another collateral token fee. Settlement rejects an AMM quote that cannot
+fund the fixed obligation; it never silently debits the owner's wallet.
+If the route changes active hLP accounts, pass the complete final-state account
+list through `settleRemainingAccounts`; the default resolves the current market.
+
+`previewEmergency()` and `buildEmergency()` accept `collateralDebit` and `full`.
+They enforce the emergency EMA-health gate. A full sale also needs nonpositive
+EMA equity or the program's conservative proof that no useful partial exists.
+Failure to certify, including proof-budget exhaustion, rejects full closure.
+Smaller useful fills can succeed without reaching the full MM +2-point target.
+Preview and simulate each proposed slice; a failed slice is not a full-close
+permission. Configured residual minima are debt-token atoms, separately per side.
+
+Builders return unsigned instructions and owner-owned payout accounts. Prefix
+instructions belong in the builder request: inserting instructions afterwards
+invalidates the bound settle index. Helpers include ATA setup, a 256 KiB heap,
+a 1.4M compute-unit limit and required hLP accounts. A compute-unit limit supplied
+in the prefix overrides the default; set the priority price there as needed.
+The session closes at settle. Its payment token account persists for reuse,
+including withheld Token-2022 fees; preexisting token donations do not count as
+payment and are not refunded to the next buyer.
+
+Partial `maxRepayment` requests are capped for the configured minimum residual
+debt. A request beyond the first MM+2 recovery crossing rejects; request a
+smaller amount. Emergency collateral slices must also respect the residual
+minimum and a conservative recovery cap. Its optimistic bound can reject a
+target-crossing slice even if the exact smaller sale would pay less after costs;
+useful below-target slices remain permitted. Preview acceptance does not reserve
+liquidity or guarantee keeper profitability. Simulate the complete transaction.
+
+`liquidationHealth`, `liquidationIncentives`, `liquidationFeeAllocation`,
+`liquidationInsuranceTarget`, and `liquidationLossAllocation` use integer atoms
+and mirror the policy arithmetic. They do not replace the on-chain execution
+preview. Time raises incentives over 120 seconds but never grants emergency
+access. A verified healthy position ends its distress episode.
+
+Indexers should consume `FlashLiquidationBegun`, `FlashLiquidationSettled`,
+`EmergencyLiquidationSettled` and `LiquidationObserved`. AMM settlement also emits
+`SwapExecuted`; external purchases do not generate Dusk swap volume. Collected
+interest retains `BorrowInterestPaid`/referral events. A terminal settlement
+clears the debt leg but leaves position rent to the existing owner cleanup path.
+`previewBorrowPosition` reports `liquidationHealth`, `liquidationRates` and
+`liquidationDistress`; obsolete auction penalty and repayment-cap fields are gone.
+
 ## Install
 
 ```bash
@@ -160,6 +231,31 @@ event authority the hook needs; Token-2022 ignores it for mints initialized
 with the earlier seven-entry list, which transfer without a receipt.
 `buildLpTransferHookValidationAccountData({ ..., legacyLayout: true })`
 encodes that earlier list.
+
+### Optional insurance funding
+
+Markets can start with zero insurance. A voluntary top-up uses the existing
+`fortify_market` instruction; it is a donation and does not mint LP shares or
+give the donor a withdrawal claim.
+
+```typescript
+const topUp = await dusk.write.fortifyMarketInstruction({
+  donor: wallet.publicKey,
+  market,
+  asset: "quote",
+  assetMint: quoteMint,
+  amount: 1_000_000n, // Gross raw token atoms, not a USD amount.
+  // Optional: assetTokenProgram avoids the mint-owner RPC read.
+  // Optional: donorAssetAccount overrides the donor's default ATA.
+});
+```
+
+The builder does not fetch the market, so it can be appended after market
+initialization, subject to the transaction's account, size and compute limits.
+The donor's source token account must already exist. SPL Token and Token-2022
+are supported; insurance accounting records the net amount actually received
+after any transfer fee. `fortifyMarketTransaction(...)` wraps the same
+instruction in a transaction without signing or sending it.
 
 ### Direct-yLP Parameter Governance
 

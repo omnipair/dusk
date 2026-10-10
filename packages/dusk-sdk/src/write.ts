@@ -71,6 +71,19 @@ export interface SwapBuildOptions extends DuskBuildOptions {
   market: AddressLike;
 }
 
+export interface FortifyMarketParams {
+  donor: AddressLike;
+  market: AddressLike;
+  asset: "base" | "quote";
+  assetMint: AddressLike;
+  /** Gross donation in raw token atoms; transfer fees reduce insurance credit. */
+  amount: GovernanceIntegerLike;
+  /** Defaults to the donor's ATA for the asset's token program. */
+  donorAssetAccount?: AddressLike;
+  /** Supply the mint owner to avoid an RPC read when building the instruction. */
+  assetTokenProgram?: AddressLike;
+}
+
 export type ReferredActionName = "borrow" | "openLeverage";
 
 export interface ReferredActionOptions extends DuskBuildOptions {
@@ -274,7 +287,7 @@ export class DuskWrite {
    * prefix, which names neither leverage nor hLP and reads as a malformed
    * call.
    */
-  private async hlpRemainingAccounts(
+  async hlpRemainingAccounts(
     marketAddress: AddressLike,
     marketSnapshot?: Market
   ): Promise<AccountMeta[]> {
@@ -840,6 +853,46 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeMarketInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeMarketInstruction(params));
+  }
+
+  /**
+   * Donate to a market's insurance vault without receiving an LP claim.
+   * Does not fetch the market, so it can follow initialization in the same
+   * transaction. The program validates the selected side, mint and donor account.
+   */
+  async fortifyMarketInstruction(params: FortifyMarketParams): Promise<TransactionInstruction> {
+    if (params.asset !== "base" && params.asset !== "quote") {
+      throw new Error('asset must be "base" or "quote"');
+    }
+    const amount = governanceIntegerBN(params.amount, "amount");
+    if (amount.isZero()) throw new Error("amount must be positive");
+    const donor = address(params.donor);
+    const market = address(params.market);
+    const assetMint = address(params.assetMint);
+    const assetTokenProgram = params.assetTokenProgram
+      ? address(params.assetTokenProgram)
+      : await tokenProgramForMint(this.program.provider.connection, assetMint);
+    if (!assetTokenProgram.equals(TOKEN_PROGRAM_ID) && !assetTokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+      throw new Error("assetTokenProgram must be SPL Token or Token-2022");
+    }
+    const donorAssetAccount = params.donorAssetAccount
+      ? address(params.donorAssetAccount)
+      : getAssociatedTokenAddressSync(assetMint, donor, true, assetTokenProgram);
+    return this.instruction("fortifyMarket", { asset: params.asset === "base" ? 0 : 1, amount }, {
+      accounts: {
+        market,
+        donor,
+        assetMint,
+        donorAssetAccount,
+        insuranceVault: deriveInsuranceAddress(market, assetMint, this.program.programId)[0],
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      },
+    });
+  }
+
+  async fortifyMarketTransaction(params: FortifyMarketParams): Promise<Transaction> {
+    return new Transaction().add(await this.fortifyMarketInstruction(params));
   }
 
   /** Burn-lock initial direct-yLP support and create one immutable proposal over one or more families. */
@@ -1612,277 +1665,6 @@ export class DuskWrite {
   }
 
   /**
-   * Open the liquidation auction on an unhealthy position.
-   *
-   * Permissionless and free of token accounts: it only snapshots the
-   * liquidation reference price and starts the decay from a 5% premium down
-   * to that floor. Nothing is repaid here, so a keeper that wins the race to
-   * start an auction gains nothing over one that arrives later — the
-   * incentive is in the fill.
-   *
-   * The program rejects a position that is healthy, and rejects a second
-   * start while an auction is live, so a caller racing another keeper sees
-   * `PositionNotLiquidatable` rather than a duplicate auction.
-   */
-  async startLiquidationAuctionInstruction(
-    params: StartLiquidationAuctionParams
-  ): Promise<TransactionInstruction> {
-    const market = address(params.market);
-    const positionId = address(params.positionId);
-    return this.instruction(
-      "startLiquidationAuction" as DuskInstructionName,
-      undefined,
-      {
-        accounts: {
-          market,
-          borrowPosition: address(
-            params.borrowPosition ??
-              deriveBorrowPositionAddress(market, address(params.positionOwner), positionId)[0]
-          ),
-          debtAssetMint: address(params.debtAssetMint),
-          collateralAssetMint: address(params.collateralAssetMint),
-        },
-      }
-    );
-  }
-
-  async startLiquidationAuctionTransaction(
-    params: StartLiquidationAuctionParams
-  ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.startLiquidationAuctionInstruction(params)
-    );
-  }
-
-  /**
-   * Repay someone else's debt at the running auction price and take their
-   * collateral.
-   *
-   * `minCollateralOut` is the liquidator's protection, and it is not
-   * optional in practice: the auction price decays every slot and the
-   * collateral mint's transfer fee can move, so a fill submitted without a
-   * floor can land at a materially worse price than the one quoted.
-   *
-   * Both insurance vaults are here because a fill can touch either side —
-   * the debt side absorbs a shortfall, the collateral side receives the
-   * insurance cut of the penalty — so passing only the debt vault would fail
-   * validation rather than skip the credit.
-   */
-  async fillLiquidationAuctionInstruction(
-    params: FillLiquidationAuctionParams
-  ): Promise<TransactionInstruction> {
-    const market = address(params.market);
-    const liquidator = address(params.liquidator);
-    const debtAssetMint = address(params.debtAssetMint);
-    const collateralAssetMint = address(params.collateralAssetMint);
-    const positionId = address(params.positionId);
-    const referralPartner = params.referralPartner
-      ? address(params.referralPartner)
-      : null;
-    const [debtTokenProgram, collateralTokenProgram] = await Promise.all([
-      tokenProgramForMint(this.program.provider.connection, debtAssetMint),
-      tokenProgramForMint(
-        this.program.provider.connection,
-        collateralAssetMint
-      ),
-    ]);
-    return this.instruction(
-      "fillLiquidationAuction" as DuskInstructionName,
-      {
-        repayAmount: governanceIntegerBN(params.repayAmount, "repayAmount"),
-        minCollateralOut: governanceIntegerBN(
-          params.minCollateralOut,
-          "minCollateralOut"
-        ),
-      },
-      {
-        accounts: {
-          market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
-          positionOwner: address(params.positionOwner),
-          liquidator,
-          debtAssetMint,
-          collateralAssetMint,
-          reserveVault: address(
-            params.reserveVault ??
-              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
-          ),
-          interestVault: address(
-            params.interestVault ??
-              deriveMarketInterestVaultAddress(market, debtAssetMint)[0]
-          ),
-          collateralVault: address(
-            params.collateralVault ??
-              deriveMarketCollateralVaultAddress(market, collateralAssetMint)[0]
-          ),
-          insuranceVault: address(
-            params.insuranceVault ??
-              deriveInsuranceAddress(market, debtAssetMint)[0]
-          ),
-          collateralInsuranceVault: address(
-            params.collateralInsuranceVault ??
-              deriveInsuranceAddress(market, collateralAssetMint)[0]
-          ),
-          liquidatorDebtAccount: address(
-            params.liquidatorDebtAccount ??
-              getAssociatedTokenAddressSync(
-                debtAssetMint,
-                liquidator,
-                true,
-                debtTokenProgram
-              )
-          ),
-          liquidatorCollateralAccount: address(
-            params.liquidatorCollateralAccount ??
-              getAssociatedTokenAddressSync(
-                collateralAssetMint,
-                liquidator,
-                true,
-                collateralTokenProgram
-              )
-          ),
-          borrowPosition: address(
-            params.borrowPosition ??
-              deriveBorrowPositionAddress(market, address(params.positionOwner), positionId)[0]
-          ),
-          referralPartner,
-          referralAccrual: referralPartner
-            ? deriveReferralAccrualAddress(
-                referralPartner,
-                market,
-                debtAssetMint
-              )[0]
-            : null,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-        },
-        remainingAccounts: params.remainingAccounts,
-      }
-    );
-  }
-
-  async fillLiquidationAuctionTransaction(
-    params: FillLiquidationAuctionParams
-  ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.fillLiquidationAuctionInstruction(params)
-    );
-  }
-
-  /**
-   * Close out an auction nobody filled, using the market's own reserves.
-   *
-   * This is the backstop, not a cheaper fill: the market buys the collateral
-   * itself and the caller is paid a bounty, so it settles inline against the
-   * hLP vaults and needs their five-account prefix ahead of any transfer-hook
-   * accounts. The prefix is omitted when both hLP vaults are empty, matching
-   * what the program accepts.
-   */
-  async backstopLiquidationAuctionInstruction(
-    params: BackstopLiquidationAuctionParams
-  ): Promise<TransactionInstruction> {
-    const market = address(params.market);
-    const debtAssetMint = address(params.debtAssetMint);
-    const collateralAssetMint = address(params.collateralAssetMint);
-    const positionOwner = address(params.positionOwner);
-    const positionId = address(params.positionId);
-    const referralPartner = params.referralPartner
-      ? address(params.referralPartner)
-      : null;
-    const debtTokenProgram = await tokenProgramForMint(
-      this.program.provider.connection,
-      debtAssetMint
-    );
-    return this.instruction(
-      "backstopLiquidationAuction" as DuskInstructionName,
-      {
-        minCallerBountyOut: governanceIntegerBN(
-          params.minCallerBountyOut ?? 0,
-          "minCallerBountyOut"
-        ),
-      },
-      {
-        accounts: {
-          market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
-          positionOwner,
-          liquidator: address(params.liquidator),
-          debtAssetMint,
-          collateralAssetMint,
-          debtReserveVault: address(
-            params.debtReserveVault ??
-              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
-          ),
-          collateralReserveVault: address(
-            params.collateralReserveVault ??
-              deriveMarketReserveVaultAddress(market, collateralAssetMint)[0]
-          ),
-          interestVault: address(
-            params.interestVault ??
-              deriveMarketInterestVaultAddress(market, debtAssetMint)[0]
-          ),
-          collateralVault: address(
-            params.collateralVault ??
-              deriveMarketCollateralVaultAddress(market, collateralAssetMint)[0]
-          ),
-          insuranceVault: address(
-            params.insuranceVault ??
-              deriveInsuranceAddress(market, debtAssetMint)[0]
-          ),
-          liquidatorCollateralAccount: address(
-            params.liquidatorCollateralAccount ??
-              getAssociatedTokenAddressSync(
-                collateralAssetMint,
-                address(params.liquidator),
-                true,
-                await tokenProgramForMint(
-                  this.program.provider.connection,
-                  collateralAssetMint
-                )
-              )
-          ),
-          ownerDebtAccount: address(
-            params.ownerDebtAccount ??
-              getAssociatedTokenAddressSync(
-                debtAssetMint,
-                positionOwner,
-                true,
-                debtTokenProgram
-              )
-          ),
-          borrowPosition: address(
-            params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionOwner, positionId)[0]
-          ),
-          referralPartner,
-          referralAccrual: referralPartner
-            ? deriveReferralAccrualAddress(
-                referralPartner,
-                market,
-                debtAssetMint
-              )[0]
-            : null,
-          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-        },
-        remainingAccounts: [
-          ...(await this.hlpRemainingAccounts(market)),
-          ...(params.remainingAccounts ?? []),
-        ],
-      }
-    );
-  }
-
-  async backstopLiquidationAuctionTransaction(
-    params: BackstopLiquidationAuctionParams
-  ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.backstopLiquidationAuctionInstruction(params)
-    );
-  }
-
-  /**
    * Add balanced yLP liquidity. `minYlpAmount` is the caller's slippage floor;
    * the program rejects the deposit rather than minting fewer shares.
    */
@@ -2502,70 +2284,6 @@ export interface BorrowParams {
   remainingAccounts?: AccountMeta[];
 }
 
-/**
- * Opening an auction needs only the position and which side it owes.
- *
- * No token accounts and no signer of consequence: the caller pays the fee
- * and nothing else moves.
- */
-export interface StartLiquidationAuctionParams {
-  market: AddressLike;
-  positionOwner: AddressLike;
-  /** Position discriminator; the borrow position PDA derives from it. */
-  positionId: AddressLike;
-  debtAssetMint: AddressLike;
-  collateralAssetMint: AddressLike;
-  borrowPosition?: AddressLike;
-}
-
-export interface FillLiquidationAuctionParams {
-  market: AddressLike;
-  liquidator: AddressLike;
-  /** The borrower, who receives the position rent on a terminal fill. */
-  positionOwner: AddressLike;
-  /** Position discriminator; the borrow position PDA derives from it. */
-  positionId: AddressLike;
-  debtAssetMint: AddressLike;
-  collateralAssetMint: AddressLike;
-  repayAmount: RawAmount;
-  /** Slippage floor on the collateral received; zero accepts any price. */
-  minCollateralOut: RawAmount;
-  liquidatorDebtAccount?: AddressLike;
-  liquidatorCollateralAccount?: AddressLike;
-  reserveVault?: AddressLike;
-  interestVault?: AddressLike;
-  collateralVault?: AddressLike;
-  insuranceVault?: AddressLike;
-  collateralInsuranceVault?: AddressLike;
-  borrowPosition?: AddressLike;
-  /** Omit when the position has no referrer. */
-  referralPartner?: AddressLike;
-  remainingAccounts?: AccountMeta[];
-}
-
-export interface BackstopLiquidationAuctionParams {
-  market: AddressLike;
-  /** The keeper calling it, who is paid the bounty. */
-  liquidator: AddressLike;
-  positionOwner: AddressLike;
-  /** Position discriminator; the borrow position PDA derives from it. */
-  positionId: AddressLike;
-  debtAssetMint: AddressLike;
-  collateralAssetMint: AddressLike;
-  /** Floor on the keeper's bounty; zero accepts whatever the program pays. */
-  minCallerBountyOut?: RawAmount;
-  liquidatorCollateralAccount?: AddressLike;
-  ownerDebtAccount?: AddressLike;
-  debtReserveVault?: AddressLike;
-  collateralReserveVault?: AddressLike;
-  interestVault?: AddressLike;
-  collateralVault?: AddressLike;
-  insuranceVault?: AddressLike;
-  borrowPosition?: AddressLike;
-  referralPartner?: AddressLike;
-  remainingAccounts?: AccountMeta[];
-}
-
 /** A swap described by its market and mints rather than by an account map. */
 export interface SwapParams {
   market: AddressLike;
@@ -2618,6 +2336,10 @@ function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown>
     maxDailyBorrowBps: config.maxDailyBorrowBps,
     globalHealthContributionCapBps: config.globalHealthContributionCapBps,
     borrowMarketHealthFloorBps: config.borrowMarketHealthFloorBps,
+    liquidation: {
+      minimumBaseDebt: bn(config.liquidation.minimumBaseDebt, "minimumBaseDebt"),
+      minimumQuoteDebt: bn(config.liquidation.minimumQuoteDebt, "minimumQuoteDebt"),
+    },
     amm: anchorIntegerFields(config.amm, AMM_U64_FIELDS),
     irm: anchorIntegerFields(config.irm, IRM_U64_FIELDS),
     startTime: bn(config.startTime, "startTime"),

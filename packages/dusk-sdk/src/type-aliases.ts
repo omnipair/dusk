@@ -1,4 +1,4 @@
-import type { IdlAccounts, IdlEvents } from "@coral-xyz/anchor";
+import type { IdlTypes } from "@coral-xyz/anchor";
 import type { Dusk } from "./types_v2.js";
 
 // Restrict Anchor's recursive type decoding to the definitions reachable from
@@ -9,6 +9,13 @@ type TypeNamed<N extends Dusk["types"][number]["name"]> = Extract<
   { name: N }
 >;
 type DuskAccountTypes = [
+  TypeNamed<"liquidationConfig">,
+  TypeNamed<"liquidationDistress">,
+  TypeNamed<"liquidationSession">,
+  TypeNamed<"liquidationHealth">,
+  TypeNamed<"liquidationRates">,
+  TypeNamed<"liquidationFeeAllocation">,
+  TypeNamed<"flashLiquidationQuote">,
   TypeNamed<"ammConfig">,
   TypeNamed<"ammState">,
   TypeNamed<"borrowPosition">,
@@ -51,6 +58,18 @@ type DuskAccountTypes = [
   TypeNamed<"yieldAccount">,
 ];
 type DuskEventTypes = [
+  TypeNamed<"liquidationConfig">,
+  TypeNamed<"liquidationDistress">,
+  TypeNamed<"liquidationHealth">,
+  TypeNamed<"liquidationRates">,
+  TypeNamed<"liquidationFeeAllocation">,
+  TypeNamed<"liquidationLossAllocation">,
+  TypeNamed<"flashLiquidationQuote">,
+  TypeNamed<"emergencyLiquidationQuote">,
+  TypeNamed<"flashLiquidationBegun">,
+  TypeNamed<"flashLiquidationSettled">,
+  TypeNamed<"emergencyLiquidationSettled">,
+  TypeNamed<"liquidationObserved">,
   TypeNamed<"ammConfig">,
   TypeNamed<"borrowInterestAccrued">,
   TypeNamed<"borrowInterestPaid">,
@@ -125,53 +144,59 @@ type DuskEventIdl = {
   types: DuskEventTypes;
 };
 
-export type Market = IdlAccounts<DuskAccountIdl>["market"];
-export type BorrowPosition = IdlAccounts<DuskAccountIdl>["borrowPosition"];
-export type LeveragePosition = IdlAccounts<DuskAccountIdl>["leveragePosition"];
-export type LeverageDelegation = IdlAccounts<DuskAccountIdl>["leverageDelegation"];
-export type YieldAccount = IdlAccounts<DuskAccountIdl>["yieldAccount"];
-export type FutarchyAuthority = IdlAccounts<DuskAccountIdl>["futarchyAuthority"];
-export type ReferralPartner = IdlAccounts<DuskAccountIdl>["referralPartner"];
-export type ReferralAccrual = IdlAccounts<DuskAccountIdl>["referralAccrual"];
-export type ParameterProposal = IdlAccounts<DuskAccountIdl>["parameterProposal"];
-export type ProposalSupport = IdlAccounts<DuskAccountIdl>["proposalSupport"];
+export type Market = IdlTypes<DuskAccountIdl>["market"];
+export type BorrowPosition = IdlTypes<DuskAccountIdl>["borrowPosition"];
+export type LeveragePosition = IdlTypes<DuskAccountIdl>["leveragePosition"];
+export type LeverageDelegation = IdlTypes<DuskAccountIdl>["leverageDelegation"];
+export type YieldAccount = IdlTypes<DuskAccountIdl>["yieldAccount"];
+export type FutarchyAuthority = IdlTypes<DuskAccountIdl>["futarchyAuthority"];
+export type ReferralPartner = IdlTypes<DuskAccountIdl>["referralPartner"];
+export type ReferralAccrual = IdlTypes<DuskAccountIdl>["referralAccrual"];
+export type ParameterProposal = IdlTypes<DuskAccountIdl>["parameterProposal"];
+export type ProposalSupport = IdlTypes<DuskAccountIdl>["proposalSupport"];
 
-export type HlpClosed = IdlEvents<DuskEventIdl>["hlpClosed"];
-export type HlpOpened = IdlEvents<DuskEventIdl>["hlpOpened"];
-export type LiquidationAuctionCancelled = IdlEvents<DuskEventIdl>["liquidationAuctionCancelled"];
-export type LiquidationAuctionStarted = IdlEvents<DuskEventIdl>["liquidationAuctionStarted"];
-export type LiquidityAdded = IdlEvents<DuskEventIdl>["liquidityAdded"];
-export type LiquidityRemoved = IdlEvents<DuskEventIdl>["liquidityRemoved"];
-export type LpTransferred = IdlEvents<DuskEventIdl>["lpTransferred"];
-export type MarketCollateralDeposited = IdlEvents<DuskEventIdl>["marketCollateralDeposited"];
-export type MarketCollateralWithdrawn = IdlEvents<DuskEventIdl>["marketCollateralWithdrawn"];
-export type MarketCreated = IdlEvents<DuskEventIdl>["marketCreated"];
-export type MarketDebtUpdated = IdlEvents<DuskEventIdl>["marketDebtUpdated"];
-export type MarketHealthUpdated = IdlEvents<DuskEventIdl>["marketHealthUpdated"];
-export type MarketReduceOnlyUpdated = IdlEvents<DuskEventIdl>["marketReduceOnlyUpdated"];
-export type ParameterProposalCreated = IdlEvents<DuskEventIdl>["parameterProposalCreated"];
-export type ParameterProposalExecuted = IdlEvents<DuskEventIdl>["parameterProposalExecuted"];
-export type ParameterProposalQueued = IdlEvents<DuskEventIdl>["parameterProposalQueued"];
-export type ParameterProposalSupported = IdlEvents<DuskEventIdl>["parameterProposalSupported"];
+export type HlpClosed = IdlTypes<DuskEventIdl>["hlpClosed"];
+export type HlpOpened = IdlTypes<DuskEventIdl>["hlpOpened"];
+export type LiquidationAuctionCancelled = IdlTypes<DuskEventIdl>["liquidationAuctionCancelled"];
+export type LiquidationAuctionStarted = IdlTypes<DuskEventIdl>["liquidationAuctionStarted"];
+export type LiquidityAdded = IdlTypes<DuskEventIdl>["liquidityAdded"];
+export type LiquidityRemoved = IdlTypes<DuskEventIdl>["liquidityRemoved"];
+export type LpTransferred = IdlTypes<DuskEventIdl>["lpTransferred"];
+export type MarketCollateralDeposited = IdlTypes<DuskEventIdl>["marketCollateralDeposited"];
+export type MarketCollateralWithdrawn = IdlTypes<DuskEventIdl>["marketCollateralWithdrawn"];
+export type MarketCreated = IdlTypes<DuskEventIdl>["marketCreated"];
+export type MarketDebtUpdated = IdlTypes<DuskEventIdl>["marketDebtUpdated"];
+export type MarketHealthUpdated = IdlTypes<DuskEventIdl>["marketHealthUpdated"];
+export type MarketReduceOnlyUpdated = IdlTypes<DuskEventIdl>["marketReduceOnlyUpdated"];
+export type ParameterProposalCreated = IdlTypes<DuskEventIdl>["parameterProposalCreated"];
+export type ParameterProposalExecuted = IdlTypes<DuskEventIdl>["parameterProposalExecuted"];
+export type ParameterProposalQueued = IdlTypes<DuskEventIdl>["parameterProposalQueued"];
+export type ParameterProposalSupported = IdlTypes<DuskEventIdl>["parameterProposalSupported"];
 export type ParameterProposalSupportWithdrawn =
-  IdlEvents<DuskEventIdl>["parameterProposalSupportWithdrawn"];
-export type BorrowPositionLiquidated = IdlEvents<DuskEventIdl>["borrowPositionLiquidated"];
-export type BorrowInterestAccrued = IdlEvents<DuskEventIdl>["borrowInterestAccrued"];
-export type BorrowInterestPaid = IdlEvents<DuskEventIdl>["borrowInterestPaid"];
+  IdlTypes<DuskEventIdl>["parameterProposalSupportWithdrawn"];
+export type BorrowPositionLiquidated = IdlTypes<DuskEventIdl>["borrowPositionLiquidated"];
+export type BorrowInterestAccrued = IdlTypes<DuskEventIdl>["borrowInterestAccrued"];
+export type BorrowInterestPaid = IdlTypes<DuskEventIdl>["borrowInterestPaid"];
 export type DebtSource = BorrowInterestPaid["source"];
-export type LeveragePositionOpened = IdlEvents<DuskEventIdl>["leveragePositionOpened"];
-export type LeveragePositionUpdated = IdlEvents<DuskEventIdl>["leveragePositionUpdated"];
-export type LeveragePositionClosed = IdlEvents<DuskEventIdl>["leveragePositionClosed"];
-export type LeveragePositionLiquidated = IdlEvents<DuskEventIdl>["leveragePositionLiquidated"];
-export type ProtocolAuctionSettled = IdlEvents<DuskEventIdl>["protocolAuctionSettled"];
-export type ReferralBound = IdlEvents<DuskEventIdl>["referralBound"];
-export type ReferralPartnerConfigured = IdlEvents<DuskEventIdl>["referralPartnerConfigured"];
-export type ReferralInterestAccrued = IdlEvents<DuskEventIdl>["referralInterestAccrued"];
-export type ReferralInterestClaimed = IdlEvents<DuskEventIdl>["referralInterestClaimed"];
-export type ReferralInterestShareCapUpdated = IdlEvents<DuskEventIdl>["referralInterestShareCapUpdated"];
-export type ReferralRecipientUpdated = IdlEvents<DuskEventIdl>["referralRecipientUpdated"];
-export type SwapExecuted = IdlEvents<DuskEventIdl>["swapExecuted"];
+export type LeveragePositionOpened = IdlTypes<DuskEventIdl>["leveragePositionOpened"];
+export type LeveragePositionUpdated = IdlTypes<DuskEventIdl>["leveragePositionUpdated"];
+export type LeveragePositionClosed = IdlTypes<DuskEventIdl>["leveragePositionClosed"];
+export type LeveragePositionLiquidated = IdlTypes<DuskEventIdl>["leveragePositionLiquidated"];
+export type ProtocolAuctionSettled = IdlTypes<DuskEventIdl>["protocolAuctionSettled"];
+export type ReferralBound = IdlTypes<DuskEventIdl>["referralBound"];
+export type ReferralPartnerConfigured = IdlTypes<DuskEventIdl>["referralPartnerConfigured"];
+export type ReferralInterestAccrued = IdlTypes<DuskEventIdl>["referralInterestAccrued"];
+export type ReferralInterestClaimed = IdlTypes<DuskEventIdl>["referralInterestClaimed"];
+export type ReferralInterestShareCapUpdated = IdlTypes<DuskEventIdl>["referralInterestShareCapUpdated"];
+export type ReferralRecipientUpdated = IdlTypes<DuskEventIdl>["referralRecipientUpdated"];
+export type SwapExecuted = IdlTypes<DuskEventIdl>["swapExecuted"];
 export type SwapOrigin = SwapExecuted["origin"];
 export type MarketSideSnapshot = SwapExecuted["base"];
-export type YieldClaimed = IdlEvents<DuskEventIdl>["yieldClaimed"];
-export type YieldRecipientUpdated = IdlEvents<DuskEventIdl>["yieldRecipientUpdated"];
+export type YieldClaimed = IdlTypes<DuskEventIdl>["yieldClaimed"];
+export type YieldRecipientUpdated = IdlTypes<DuskEventIdl>["yieldRecipientUpdated"];
+
+export type LiquidationSession = IdlTypes<DuskAccountIdl>["liquidationSession"];
+export type FlashLiquidationBegun = IdlTypes<DuskEventIdl>["flashLiquidationBegun"];
+export type FlashLiquidationSettled = IdlTypes<DuskEventIdl>["flashLiquidationSettled"];
+export type EmergencyLiquidationSettled = IdlTypes<DuskEventIdl>["emergencyLiquidationSettled"];
+export type LiquidationObserved = IdlTypes<DuskEventIdl>["liquidationObserved"];

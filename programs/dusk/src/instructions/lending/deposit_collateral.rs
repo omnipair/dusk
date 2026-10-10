@@ -147,6 +147,11 @@ impl<'info> DepositCollateral<'info> {
                 collateral_credit,
                 leverage_collateral_fee(&accounts.asset_mint, Clock::get()?.epoch)?,
             )?;
+            accounts.market.reset_borrow_distress_if_recovered(
+                &mut accounts.borrow_position,
+                market_asset.opposite(),
+                crate::instructions::leverage_collateral_liquidation_fee(&accounts.asset_mint, Clock::get()?.epoch)?,
+            )?;
             (market_key, owner_key, asset_mint_key, collateral_receipt)
         };
 

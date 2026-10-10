@@ -11,6 +11,10 @@ mod margin_calibration {
     include!("leverage_margin_calibration.rs");
 }
 
+mod flash_liquidation {
+    include!("flash_liquidation.rs");
+}
+
 use crate::transitions::amm::SwapRequest;
 use crate::transitions::liquidity::prepare_concentrated_hlp_transition_at_current_state;
 use crate::transitions::HlpYieldEligibility;
@@ -89,6 +93,8 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
 
 fn empty_position() -> LeveragePosition {
     LeveragePosition {
+        active_liquidation_session: Pubkey::default(),
+        distress: Default::default(),
         owner: Pubkey::default(),
         market: Pubkey::default(),
         namespace_authority: Pubkey::default(),
@@ -282,6 +288,7 @@ fn apply_leverage_lifecycle_transition_reference(
     let mut debt_curve_reserve_before_share_removal = None;
 
     match policy {
+        SwapCashPolicy::LiquidationQuote | SwapCashPolicy::SettleLiquidation { .. } => panic!("new liquidation policy has separate conservation tests"),
         SwapCashPolicy::Spot => {}
         SwapCashPolicy::Borrow { asset, amount } => {
             require!(asset == asset_in, ErrorCode::BrokenInvariant);
@@ -592,6 +599,7 @@ fn leverage_lifecycle_plan_matches_legacy_for_every_policy_and_asset() {
             let transition =
                 assert_lifecycle_plan_matches_reference(market, policy, asset_in, amount_in_after_fee, amount_out);
             match policy {
+                SwapCashPolicy::LiquidationQuote | SwapCashPolicy::SettleLiquidation { .. } => panic!("not a legacy lifecycle case"),
                 SwapCashPolicy::Spot => assert_eq!(transition, LeverageLifecycleTransition::default()),
                 SwapCashPolicy::Borrow { .. } => assert!(transition.added_debt_shares > 0),
                 SwapCashPolicy::Decrease { .. } => {
@@ -1531,7 +1539,7 @@ fn insolvent_leverage_swap_draws_measured_insurance_credit() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 500);
     market.insurance.base_available = 1_500;
-    market.insurance.per_event_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS;
+    market.insurance.principal_coverage_bps = crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS;
     market.insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
     let quote = market.quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 1).unwrap();
     let prepared = prepared_leverage_swap(
@@ -1594,7 +1602,7 @@ fn zero_credit_leverage_liquidation_draws_insurance_before_socializing() {
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000, 500);
     let cash_before = market.base_side.reserves.cash_reserve;
     market.insurance.base_available = 3_000;
-    market.insurance.per_event_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS;
+    market.insurance.principal_coverage_bps = crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS;
     market.insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
 
     // The instruction must measure this pair from an actual vault transfer.

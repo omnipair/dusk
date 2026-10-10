@@ -73,6 +73,7 @@ fn make(c: &Value) -> R<Sim> {
     let amp = f(c, "amplification", 5.) as u64;
     let dynamic = text(c, "fee_profile", "mild") == "mild";
     let config = MarketConfig {
+        liquidation: Default::default(),
         swap_fee_bps: 3,
         divergence_fee_share_cap_bps: if dynamic { 20 } else { 0 },
         volatility_fee_share_cap_bps: if dynamic { 20 } else { 0 },

@@ -128,6 +128,7 @@ impl Liquidation {
     }
 
     pub fn apply(self, market: &mut Market, borrow_position: &mut BorrowPosition) -> Result<LiquidationReceipt> {
+        borrow_position.require_idle()?;
         let debt_before = position_debt(market, borrow_position, self.debt_asset)?;
         require_gte!(debt_before, self.repay_credit as u128, ErrorCode::InsufficientDebt);
         require_gte!(
@@ -807,6 +808,7 @@ impl Market {
         caller_bounty: u64,
         current_slot: u64,
     ) -> Result<InternalLiquidationReceipt> {
+        borrow_position.require_idle()?;
         require_gte!(insurance_spent, insurance_credit, ErrorCode::BrokenInvariant);
         let collateral_before = position_collateral(borrow_position, debt_asset);
         require_eq!(collateral_consumed, collateral_before, ErrorCode::BrokenInvariant);

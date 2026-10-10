@@ -38,8 +38,18 @@ fixture.result.value.accounts[0].data[0] = Buffer.concat([
 // The immutable network capture also predates leverage exposure counters.
 const carriedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
 const debtEnd = borrowIndexEnd + 32 + 128;
-const currentMarketBytes = Buffer.concat([
+const exposureMarketBytes = Buffer.concat([
   carriedMarketBytes.subarray(0, debtEnd), Buffer.alloc(16), carriedMarketBytes.subarray(debtEnd),
+]);
+// The capture also predates per-market minimum residual debt. Insert the two
+// one-atom defaults before MarketConfig.amm; no captured price data changes.
+const liquidationConfigOffset = 1091;
+const liquidationConfig = Buffer.alloc(16);
+liquidationConfig.writeBigUInt64LE(1n, 0);
+liquidationConfig.writeBigUInt64LE(1n, 8);
+const currentMarketBytes = Buffer.concat([
+  exposureMarketBytes.subarray(0, liquidationConfigOffset), liquidationConfig,
+  exposureMarketBytes.subarray(liquidationConfigOffset),
 ]);
 currentMarketBytes[8] = 2;
 fixture.result.value.accounts[0].data[0] = currentMarketBytes.toString("base64");

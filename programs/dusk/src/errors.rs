@@ -418,4 +418,19 @@ pub enum ErrorCode {
 
     #[msg("Parameter proposal does not match the digest the supporter reviewed")]
     ProposalDigestMismatch,
+
+    #[msg("Liquidation observation clock moved backwards")]
+    InvalidLiquidationClock,
+
+    #[msg("Position has an active liquidation session")]
+    LiquidationSessionActive,
+
+    #[msg("Invalid atomic liquidation session or instruction pairing")]
+    InvalidLiquidationSession,
+
+    #[msg("Partial liquidation does not improve health after costs")]
+    LiquidationDoesNotImproveHealth,
+
+    #[msg("Partial liquidation would leave avoidable debt below the market minimum")]
+    LiquidationResidualTooSmall,
 }

@@ -1,6 +1,6 @@
 mod swap;
 pub use swap::PreparedSwap;
-pub(crate) use swap::{split_claimable_fee_credit, LendingSwapSettlement, SwapRequest};
+pub(crate) use swap::{split_claimable_fee_credit, FinalizedSwapState, SwapRequest};
 
 pub(crate) mod curve;
 pub(crate) mod fees;
@@ -2164,3 +2164,6 @@ pub struct RetentionTarget {
     pub hard_cap_nad: u128,
     pub saturated: bool,
 }
+
+#[cfg(feature = "benchmark")]
+pub(crate) use swap::LendingSwapSettlement;

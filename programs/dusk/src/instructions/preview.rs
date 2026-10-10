@@ -408,10 +408,9 @@ pub struct PositionDebtSidePreview {
     pub liquidation_reference_price_nad: u64,
     pub liquidation_health_bps: u64,
     pub is_liquidatable: bool,
-    pub liquidation_incentive_bps: u16,
-    pub insurance_funding_bps: u16,
-    pub total_penalty_bps: u16,
-    pub max_repay_amount: u64,
+    pub liquidation_health: crate::state::LiquidationHealth,
+    pub liquidation_rates: Option<crate::state::LiquidationRates>,
+    pub liquidation_distress: crate::state::LiquidationDistress,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -873,7 +872,8 @@ impl<'info> PreviewBorrowCapacity<'info> {
 impl<'info> PreviewBorrowPosition<'info> {
     pub fn handle_preview(ctx: Context<Self>) -> Result<BorrowPositionPreview> {
         ctx.accounts.market.update()?;
-        let epoch = Clock::get()?.epoch;
+        let clock = Clock::get()?;
+        let epoch = clock.epoch;
         let market: &Market = &ctx.accounts.market;
         let borrow_position = &ctx.accounts.borrow_position;
 
@@ -896,12 +896,14 @@ impl<'info> PreviewBorrowPosition<'info> {
                 borrow_position,
                 MarketAsset::Base,
                 crate::instructions::leverage_collateral_liquidation_fee(&ctx.accounts.quote_mint, epoch)?,
+                clock.unix_timestamp,
             )?,
             quote_debt: preview_position_debt_side(
                 market,
                 borrow_position,
                 MarketAsset::Quote,
                 crate::instructions::leverage_collateral_liquidation_fee(&ctx.accounts.base_mint, epoch)?,
+                clock.unix_timestamp,
             )?,
         })
     }
@@ -964,9 +966,17 @@ fn preview_position_debt_side(
     borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
     collateral_fee: crate::transitions::LeverageCollateralFee,
+    now: i64,
 ) -> Result<PositionDebtSidePreview> {
     let quote = market.position_debt_side_quote(borrow_position, debt_asset, collateral_fee)?;
 
+    let health = market.flash_liquidation_health(
+        &crate::transitions::flash_liquidation::LiquidationPositionRef::Borrow(borrow_position),
+        debt_asset,
+        collateral_fee,
+    )?;
+    let distress = borrow_position.distress(debt_asset);
+    let eligible = health.eligible()?;
     Ok(PositionDebtSidePreview {
         debt_asset: quote.debt_asset,
         collateral_asset: quote.collateral_asset,
@@ -979,11 +989,14 @@ fn preview_position_debt_side(
         liquidation_cf_bps: quote.liquidation_cf_bps,
         liquidation_reference_price_nad: quote.liquidation_reference_price_nad,
         liquidation_health_bps: quote.liquidation_health_bps,
-        is_liquidatable: quote.is_liquidatable,
-        liquidation_incentive_bps: quote.liquidation_incentive_bps,
-        insurance_funding_bps: quote.insurance_funding_bps,
-        total_penalty_bps: quote.total_penalty_bps,
-        max_repay_amount: quote.max_repay_amount,
+        is_liquidatable: eligible,
+        liquidation_health: health,
+        liquidation_rates: if eligible {
+            Some(health.rates(distress.age(now)?)?)
+        } else {
+            None
+        },
+        liquidation_distress: distress,
     })
 }
 

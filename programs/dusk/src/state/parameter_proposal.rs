@@ -73,7 +73,7 @@ pub enum MarketParameterUpdate {
     /// Insurance loss-concentration limits. These governed values can only
     /// select a stricter policy than the protocol-level hard ceilings.
     InsuranceDrawCaps {
-        per_event_bps: u16,
+        principal_coverage_bps: u16,
         per_day_bps: u16,
     },
 }

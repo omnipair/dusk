@@ -43,7 +43,7 @@ export const SWAP_FEE_COLLECT_INPUT_ASSET = 0;
 export const SWAP_FEE_COLLECT_BASE_ONLY = 1;
 export const SWAP_FEE_COLLECT_QUOTE_ONLY = 2;
 export const MAX_LAUNCH_MARKET_FEE_PERIODS = 64;
-export const MAX_INSURANCE_DRAW_PER_EVENT_BPS = 2_000;
+export const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS = 7_500;
 export const MAX_INSURANCE_DRAW_PER_DAY_BPS = 5_000;
 /** Governed parameter families, and the length of a market's revision list. */
 export const PARAMETER_FAMILY_COUNT = 7;
@@ -149,7 +149,7 @@ export type ParameterUpdate =
       adjustmentStepNad: BN;
       minAdjustmentIntervalSlots: BN;
     }
-  | { kind: "insuranceDrawCaps"; perEventBps: number; perDayBps: number };
+  | { kind: "insuranceDrawCaps"; principalCoverageBps: number; perDayBps: number };
 
 export type ParameterFamilyName = ParameterUpdate["kind"];
 export type ParameterFamilyCode = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -604,14 +604,14 @@ export function centerControllerParameterUpdate(input: {
 
 /** Insurance loss-concentration caps; they may only tighten the protocol ceilings. */
 export function insuranceDrawCapsParameterUpdate(input: {
-  perEventBps: number;
+  principalCoverageBps: number;
   perDayBps: number;
 }): ParameterUpdate {
-  assertBps(input.perEventBps, "perEventBps", MAX_INSURANCE_DRAW_PER_EVENT_BPS);
+  assertBps(input.principalCoverageBps, "principalCoverageBps", MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS);
   assertBps(input.perDayBps, "perDayBps", MAX_INSURANCE_DRAW_PER_DAY_BPS);
   return {
     kind: "insuranceDrawCaps",
-    perEventBps: input.perEventBps,
+    principalCoverageBps: input.principalCoverageBps,
     perDayBps: input.perDayBps,
   };
 }
@@ -746,7 +746,7 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
       };
     case "insuranceDrawCaps":
       return {
-        insuranceDrawCaps: { perEventBps: update.perEventBps, perDayBps: update.perDayBps },
+        insuranceDrawCaps: { principalCoverageBps: update.principalCoverageBps, perDayBps: update.perDayBps },
       };
   }
 }
@@ -798,7 +798,7 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
   if (update.insuranceDrawCaps !== undefined) {
     const fields = objectValue(update.insuranceDrawCaps, "insurance draw-caps update");
     return insuranceDrawCapsParameterUpdate({
-      perEventBps: numberField(fields, "perEventBps"),
+      principalCoverageBps: numberField(fields, "principalCoverageBps"),
       perDayBps: numberField(fields, "perDayBps"),
     });
   }
@@ -1206,7 +1206,7 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         encodeU64(update.minAdjustmentIntervalSlots, "minAdjustmentIntervalSlots")
       );
     case "insuranceDrawCaps":
-      return concatBytes(Uint8Array.of(6), encodeU16(update.perEventBps), encodeU16(update.perDayBps));
+      return concatBytes(Uint8Array.of(6), encodeU16(update.principalCoverageBps), encodeU16(update.perDayBps));
   }
 }
 

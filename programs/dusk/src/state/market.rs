@@ -309,6 +309,7 @@ pub struct MarketConfig {
     pub max_daily_borrow_bps: u16,
     pub global_health_contribution_cap_bps: u16,
     pub borrow_market_health_floor_bps: u16,
+    pub liquidation: crate::state::LiquidationConfig,
     pub amm: AmmConfig,
     pub irm: IrmConfig,
     pub start_time: i64,
@@ -491,7 +492,9 @@ pub struct Insurance {
     pub quote_available: u64,
     pub base_draw_window: InsuranceDrawWindow,
     pub quote_draw_window: InsuranceDrawWindow,
-    pub per_event_draw_bps: u16,
+    /// Maximum share of a borrower/leverage principal shortfall covered by
+    /// insurance. hLP funding claims use their own eligible-loss definition.
+    pub principal_coverage_bps: u16,
     pub per_day_draw_bps: u16,
 }
 
@@ -504,7 +507,7 @@ impl Default for Insurance {
             quote_available: 0,
             base_draw_window: InsuranceDrawWindow::default(),
             quote_draw_window: InsuranceDrawWindow::default(),
-            per_event_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS,
+            principal_coverage_bps: crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS,
             per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
         }
     }

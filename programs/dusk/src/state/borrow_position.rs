@@ -39,6 +39,9 @@ pub struct BorrowPosition {
     pub quote_referral_interest_share_bps: u16,
     pub fixed_base_shares: u128,
     pub fixed_quote_shares: u128,
+    pub active_liquidation_session: Pubkey,
+    pub base_distress: crate::state::LiquidationDistress,
+    pub quote_distress: crate::state::LiquidationDistress,
     pub auction_debt_asset: u8,
     pub auction_start_time: i64,
     pub auction_start_price_nad: u64,
@@ -51,6 +54,9 @@ impl BorrowPosition {
         self.owner = owner;
         self.market = market;
         self.position_id = position_id;
+        self.active_liquidation_session = Pubkey::default();
+        self.base_distress = crate::state::LiquidationDistress::default();
+        self.quote_distress = crate::state::LiquidationDistress::default();
         self.clear_liquidation_auction();
         self.base_liquidation_cf_bps = 0;
         self.quote_liquidation_cf_bps = 0;
@@ -82,6 +88,7 @@ impl BorrowPosition {
             && self.quote_referral_interest_share_bps == 0
             && self.fixed_base_shares == 0
             && self.fixed_quote_shares == 0
+            && self.active_liquidation_session == Pubkey::default()
             && !self.has_active_liquidation_auction()
             && self.auction_start_time == 0
             && self.auction_start_price_nad == 0
@@ -96,6 +103,36 @@ impl BorrowPosition {
 
     pub fn fixed_base_debt(&self, debt: &Debt) -> Result<u128> {
         Debt::shares_to_debt(self.fixed_base_shares, debt.base_borrow_index_nad)
+    }
+
+    pub fn require_idle(&self) -> Result<()> {
+        require_keys_eq!(
+            self.active_liquidation_session,
+            Pubkey::default(),
+            ErrorCode::LiquidationSessionActive
+        );
+        Ok(())
+    }
+
+    pub fn debt_shares(&self, asset: MarketAsset) -> u128 {
+        match asset {
+            MarketAsset::Base => self.fixed_base_shares,
+            MarketAsset::Quote => self.fixed_quote_shares,
+        }
+    }
+
+    pub fn distress(&self, asset: MarketAsset) -> crate::state::LiquidationDistress {
+        match asset {
+            MarketAsset::Base => self.base_distress,
+            MarketAsset::Quote => self.quote_distress,
+        }
+    }
+
+    pub fn distress_mut(&mut self, asset: MarketAsset) -> &mut crate::state::LiquidationDistress {
+        match asset {
+            MarketAsset::Base => &mut self.base_distress,
+            MarketAsset::Quote => &mut self.quote_distress,
+        }
     }
 
     pub fn fixed_quote_debt(&self, debt: &Debt) -> Result<u128> {

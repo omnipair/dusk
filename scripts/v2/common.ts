@@ -639,6 +639,10 @@ export function defaultMarketConfig() {
     borrowMarketHealthFloorBps: Number(
       duskEnv("BORROW_MARKET_HEALTH_FLOOR_BPS", "11000")
     ),
+    liquidation: {
+      minimumBaseDebt: new anchor.BN(duskEnv("LIQUIDATION_MINIMUM_BASE_DEBT", "1")),
+      minimumQuoteDebt: new anchor.BN(duskEnv("LIQUIDATION_MINIMUM_QUOTE_DEBT", "1")),
+    },
     amm: defaultAmmConfig(),
     irm: {
       targetUtilizationBps: Number(

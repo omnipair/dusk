@@ -202,6 +202,14 @@ impl<'info> Borrow<'info> {
                 current_slot,
             )?;
 
+            accounts.market.reset_borrow_distress_if_recovered(
+                &mut accounts.borrow_position,
+                borrow_asset,
+                crate::instructions::leverage_collateral_liquidation_fee(
+                    &accounts.collateral_asset_mint,
+                    Clock::get()?.epoch,
+                )?,
+            )?;
             let debt_token_program = token_program_for_mint(
                 &accounts.debt_asset_mint,
                 &accounts.token_program,

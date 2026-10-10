@@ -15,6 +15,7 @@ pub mod transitions;
 
 pub use instructions::*;
 pub use state::*;
+use transitions::amm_liquidation::EmergencyLiquidationQuote;
 
 #[cfg(not(feature = "no-entrypoint"))]
 use solana_security_txt::security_txt;
@@ -268,6 +269,44 @@ pub mod dusk {
         CloseInsolventHlp::handle(ctx, args, current_slot)
     }
 
+    pub fn begin_flash_liquidation<'info>(
+        ctx: Context<'_, '_, '_, 'info, BeginFlashLiquidation<'info>>,
+        args: BeginFlashLiquidationArgs,
+    ) -> Result<()> {
+        BeginFlashLiquidation::handle(ctx, args)
+    }
+
+    pub fn preview_flash_liquidation(
+        ctx: Context<PreviewFlashLiquidation>,
+        args: PreviewFlashLiquidationArgs,
+    ) -> Result<FlashLiquidationQuote> {
+        PreviewFlashLiquidation::handle(ctx, args)
+    }
+
+    pub fn emergency_liquidation<'info>(
+        ctx: Context<'_, '_, '_, 'info, EmergencyLiquidation<'info>>,
+        args: EmergencyLiquidationArgs,
+    ) -> Result<()> {
+        EmergencyLiquidation::handle(ctx, args)
+    }
+
+    pub fn preview_emergency_liquidation(
+        ctx: Context<PreviewEmergencyLiquidation>,
+        args: PreviewEmergencyLiquidationArgs,
+    ) -> Result<EmergencyLiquidationQuote> {
+        PreviewEmergencyLiquidation::handle(ctx, args)
+    }
+
+    pub fn observe_liquidation(ctx: Context<ObserveLiquidation>, debt_asset: u8) -> Result<LiquidationHealth> {
+        ObserveLiquidation::handle(ctx, debt_asset)
+    }
+
+    pub fn settle_flash_liquidation<'info>(
+        ctx: Context<'_, '_, '_, 'info, SettleFlashLiquidation<'info>>,
+    ) -> Result<()> {
+        SettleFlashLiquidation::handle(ctx)
+    }
+
     // Lending instructions
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn deposit_collateral<'info>(
@@ -431,15 +470,6 @@ pub mod dusk {
         RemoveLeverageMargin::handle_remove_margin(ctx, args, clock.slot, clock.unix_timestamp)
     }
 
-    pub fn liquidate_leverage_position<'info>(
-        ctx: Context<'_, '_, '_, 'info, LiquidateLeveragePosition<'info>>,
-        args: LiquidateLeveragePositionArgs,
-    ) -> Result<()> {
-        let clock = Clock::get()?;
-        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        LiquidateLeveragePosition::handle_liquidate_position(ctx, args, clock.slot, clock.unix_timestamp)
-    }
-
     #[access_control(ctx.accounts.validate(&args))]
     pub fn create_leverage_delegation(
         ctx: Context<CreateLeverageDelegation>,
@@ -461,12 +491,6 @@ pub mod dusk {
         args: CloseLeverageDelegationArgs,
     ) -> Result<()> {
         CloseLeverageDelegation::handle_close(ctx, args)
-    }
-
-    // Liquidation auction start
-    #[access_control(ctx.accounts.update_and_validate())]
-    pub fn start_liquidation_auction(ctx: Context<StartLiquidationAuction>) -> Result<()> {
-        StartLiquidationAuction::handle_start(ctx)
     }
 
     // Preview instructions
@@ -512,23 +536,6 @@ pub mod dusk {
 
     pub fn preview_borrow_position(ctx: Context<PreviewBorrowPosition>) -> Result<BorrowPositionPreview> {
         PreviewBorrowPosition::handle_preview(ctx)
-    }
-
-    // Liquidation auction fills and backstop execution
-    #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn fill_liquidation_auction<'info>(
-        ctx: Context<'_, '_, '_, 'info, FillLiquidationAuction<'info>>,
-        args: FillLiquidationAuctionArgs,
-    ) -> Result<()> {
-        FillLiquidationAuction::handle_fill(ctx, args)
-    }
-
-    #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn backstop_liquidation_auction<'info>(
-        ctx: Context<'_, '_, '_, 'info, BackstopLiquidationAuction<'info>>,
-        args: BackstopLiquidationAuctionArgs,
-    ) -> Result<()> {
-        BackstopLiquidationAuction::handle_backstop(ctx, args)
     }
 
     // HLP instructions

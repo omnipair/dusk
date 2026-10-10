@@ -50,7 +50,7 @@ pub const LIQUIDATION_AUCTION_DURATION_SECONDS: i64 = 5 * 60;
 /// governance may lower either limit, including to zero, but may never raise
 /// them above these values.
 #[constant]
-pub const MAX_INSURANCE_DRAW_PER_EVENT_BPS: u16 = 2_000;
+pub const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS: u16 = 7_500;
 #[constant]
 pub const MAX_INSURANCE_DRAW_PER_DAY_BPS: u16 = 5_000;
 pub const INSURANCE_DRAW_WINDOW_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;

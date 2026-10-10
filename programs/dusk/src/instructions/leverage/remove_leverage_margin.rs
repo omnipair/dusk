@@ -124,6 +124,13 @@ impl<'info> RemoveLeverageMargin<'info> {
             current_unix_timestamp,
             leverage_collateral_admission_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?,
         )?;
+        ctx.accounts.market.reset_leverage_distress_if_recovered(
+            &mut ctx.accounts.leverage_position,
+            crate::instructions::leverage_collateral_liquidation_fee(
+                &ctx.accounts.collateral_mint,
+                Clock::get()?.epoch,
+            )?,
+        )?;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,
             &ctx.accounts.token_program,

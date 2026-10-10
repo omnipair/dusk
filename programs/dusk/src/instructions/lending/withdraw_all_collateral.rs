@@ -49,6 +49,7 @@ pub struct WithdrawAllCollateral<'info> {
 impl<'info> WithdrawAllCollateral<'info> {
     pub fn handle(ctx: Context<'_, '_, '_, 'info, Self>, args: WithdrawAllCollateralArgs) -> Result<()> {
         ctx.accounts.market.assert_started()?;
+        ctx.accounts.borrow_position.require_idle()?;
         require!(
             ctx.accounts.borrow_position.fixed_base_shares == 0 && ctx.accounts.borrow_position.fixed_quote_shares == 0,
             ErrorCode::InsufficientDebt

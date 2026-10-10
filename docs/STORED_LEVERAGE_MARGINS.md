@@ -1,8 +1,9 @@
 # Stored leverage margins
 
 Implementation in consolidated PR #45. This implements the agreed margin
-lifecycle; the flash-liquidation and loss-waterfall redesign remains separate
-unfinished work in that same PR. No deployment is performed by this change.
+lifecycle. The same PR now implements flash liquidation and the loss waterfall;
+see [the liquidation contract](LIQUIDATION_DECISIONS.md) for its current status.
+No deployment is performed by this change.
 
 ## Existing positions keep their terms
 
@@ -86,10 +87,10 @@ EMA-healthy position. The scheduled transfer-fee remedy remains in place.
 Protection-order health uses that same reference and maintenance requirement,
 with the existing conservative one-basis-point rounding buffer.
 
-This commit does not replace leverage's full-sale implementation with partial
-flash liquidation, nor does it resolve manipulation finding #287652. Those are
-tracked in the remaining redesign. Actual execution still has existing cash and
-accounting constraints; stored margin rates are not a guarantee of liquidity.
+The subsequent flash implementation replaces the public full-sale entrypoint
+with partial-first flash and emergency paths. Actual execution still has cash
+and accounting constraints; stored margin rates are not a guarantee of liquidity
+or protection against all emergency execution-price risk.
 
 ## Interfaces and verification
 

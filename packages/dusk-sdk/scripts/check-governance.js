@@ -187,7 +187,7 @@ assert.throws(() =>
 // One update per family, deliberately out of order: the SDK sends them in
 // ascending family order, the only order the program accepts.
 const everyFamily = [
-  insuranceDrawCapsParameterUpdate({ perEventBps: 1_000, perDayBps: 3_000 }),
+  insuranceDrawCapsParameterUpdate({ principalCoverageBps: 1_000, perDayBps: 3_000 }),
   centerControllerParameterUpdate({
     adjustmentThresholdNad: NAD / 100n,
     adjustmentStepNad: NAD / 1_000n,
@@ -223,7 +223,7 @@ assert.throws(
   () => canonicalParameterUpdates([dailyBorrowLimitParameterUpdate(1_000), dailyBorrowLimitParameterUpdate(2_000)]),
   /more than once/
 );
-assert.throws(() => insuranceDrawCapsParameterUpdate({ perEventBps: 2_001, perDayBps: 5_000 }));
+assert.throws(() => insuranceDrawCapsParameterUpdate({ principalCoverageBps: 7_501, perDayBps: 5_000 }));
 
 const marketRevisions = [11, 12, 13, 14, 15, 16, 17];
 assert.deepEqual(

@@ -163,6 +163,11 @@ impl<'info> WithdrawCollateral<'info> {
                 collateral_fee,
                 args.min_liquidation_cf_bps,
             )?;
+            accounts.market.reset_borrow_distress_if_recovered(
+                &mut accounts.borrow_position,
+                market_asset.opposite(),
+                crate::instructions::leverage_collateral_liquidation_fee(&accounts.asset_mint, Clock::get()?.epoch)?,
+            )?;
             (market_key, owner_key, asset_mint_key, asset_credit, collateral_receipt)
         };
 

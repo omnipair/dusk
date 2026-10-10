@@ -2857,6 +2857,26 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
+            "name": "activeLiquidationSession",
+            "type": "pubkey"
+          },
+          {
+            "name": "baseDistress",
+            "type": {
+              "defined": {
+                "name": "liquidationDistress"
+              }
+            }
+          },
+          {
+            "name": "quoteDistress",
+            "type": {
+              "defined": {
+                "name": "liquidationDistress"
+              }
+            }
+          },
+          {
             "name": "auctionDebtAsset",
             "type": "u8"
           },
@@ -3832,7 +3852,11 @@ export type LeverageDelegate = {
             }
           },
           {
-            "name": "perEventDrawBps",
+            "name": "principalCoverageBps",
+            "docs": [
+              "Maximum share of a borrower/leverage principal shortfall covered by",
+              "insurance. hLP funding claims use their own eligible-loss definition."
+            ],
             "type": "u16"
           },
           {
@@ -4296,8 +4320,66 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
+            "name": "activeLiquidationSession",
+            "type": "pubkey"
+          },
+          {
+            "name": "distress",
+            "type": {
+              "defined": {
+                "name": "liquidationDistress"
+              }
+            }
+          },
+          {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "liquidationConfig",
+      "docs": [
+        "Per-market atom amounts, independently denominated in Base and Quote.",
+        "One atom is a neutral initialization default, not an economic cleanup",
+        "promise. Market creation clients must expose the chosen amounts explicitly."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minimumBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "minimumQuoteDebt",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "liquidationDistress",
+      "docs": [
+        "A committed observation is separate from an atomic flash transaction: a",
+        "reverted route must not erase the incentive clock. Each debt leg owns its",
+        "episode. Recovery ends it; a useful partial while still unhealthy does not."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "startedAt",
+            "type": "i64"
+          },
+          {
+            "name": "observedSlot",
+            "type": "u64"
           }
         ]
       }
@@ -4518,6 +4600,14 @@ export type LeverageDelegate = {
           {
             "name": "borrowMarketHealthFloorBps",
             "type": "u16"
+          },
+          {
+            "name": "liquidation",
+            "type": {
+              "defined": {
+                "name": "liquidationConfig"
+              }
+            }
           },
           {
             "name": "amm",

@@ -14,6 +14,9 @@ type DuskPreviewIdl = {
   metadata: Dusk["metadata"];
   instructions: [];
   types: [
+    PreviewTypeNamed<"liquidationDistress">,
+    PreviewTypeNamed<"liquidationHealth">,
+    PreviewTypeNamed<"liquidationRates">,
     PreviewTypeNamed<"addLiquidityPreview">,
     PreviewTypeNamed<"borrowCapacityPreview">,
     PreviewTypeNamed<"borrowPositionCapacityPreview">,

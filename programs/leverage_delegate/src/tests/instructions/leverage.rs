@@ -42,6 +42,8 @@ fn leverage_order() -> LeverageOrder {
 fn recreated_position_requires_owner_to_reauthorize_order() {
     let mut order = leverage_order();
     let mut position = dusk::state::LeveragePosition {
+        active_liquidation_session: Pubkey::default(),
+        distress: Default::default(),
         owner: order.owner,
         market: order.market,
         namespace_authority: order.owner,

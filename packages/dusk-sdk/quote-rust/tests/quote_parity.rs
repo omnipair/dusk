@@ -46,6 +46,8 @@ fn wasm_boundary_uses_serialized_program_state() {
     let shares = market.debt.add_isolated_debt(MarketAsset::Base, debt).unwrap();
     market.base_side.reserves.cash_reserve -= debt;
     let position = LeveragePosition {
+        active_liquidation_session: Pubkey::default(),
+        distress: Default::default(),
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),

@@ -18,6 +18,16 @@ fn snapshot() -> (Market, Clock) {
         .unwrap()
         + marker.len();
     let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
+    // The capture also predates per-market liquidation dust amounts. Insert
+    // neutral one-atom settings before applying offsets in the current layout.
+    let mut dust_layout = Market::default();
+    dust_layout.config.liquidation.minimum_base_debt = 0x1357_2468_ace0_bdf1;
+    dust_layout.config.liquidation.minimum_quote_debt = 0x2468_1357_bdf1_ace0;
+    let mut dust_bytes = Vec::new();
+    dust_layout.try_serialize(&mut dust_bytes).unwrap();
+    let dust_marker = dust_layout.config.liquidation.try_to_vec().unwrap();
+    let dust_offset = dust_bytes.windows(dust_marker.len()).position(|window| window == dust_marker).unwrap();
+    bytes.splice(dust_offset..dust_offset, crate::state::LiquidationConfig::default().try_to_vec().unwrap());
     bytes.splice(insertion_offset..insertion_offset, [0u8; 32]);
     // The immutable capture also predates aggregate leverage collateral.
     layout.debt.leverage_base_collateral = 0x1357_9bdf_2468_ace0;

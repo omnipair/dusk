@@ -6,6 +6,7 @@ use proptest::prelude::*;
 
 fn valid_config() -> MarketConfig {
     MarketConfig {
+        liquidation: Default::default(),
         swap_fee_bps: 0,
         divergence_fee_share_cap_bps: 0,
         volatility_fee_share_cap_bps: 0,
@@ -182,6 +183,9 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
 
 fn borrow_position_for_debt(debt_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
     let mut position = BorrowPosition {
+        active_liquidation_session: Pubkey::default(),
+        base_distress: Default::default(),
+        quote_distress: Default::default(),
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -241,6 +245,9 @@ fn add_accrued_cash_backed_interest_to_live_reserve(
 fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     let mut borrow_position = BorrowPosition {
+        active_liquidation_session: Pubkey::default(),
+        base_distress: Default::default(),
+        quote_distress: Default::default(),
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -1124,6 +1131,9 @@ fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
     market.debt.fixed_base_shares = 100;
     market.debt.fixed_base_principal = 100;
     let mut borrow_position = BorrowPosition {
+        active_liquidation_session: Pubkey::default(),
+        base_distress: Default::default(),
+        quote_distress: Default::default(),
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -1455,7 +1465,7 @@ fn one_proposal_applies_every_family_and_advances_each_revision() {
             max_daily_borrow_bps: 3_000,
         },
         MarketParameterUpdate::InsuranceDrawCaps {
-            per_event_bps: 1_000,
+            principal_coverage_bps: 1_000,
             per_day_bps: 3_000,
         },
     ];
@@ -1465,7 +1475,7 @@ fn one_proposal_applies_every_family_and_advances_each_revision() {
 
     assert_eq!(market.config.irm, irm);
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
-    assert_eq!(market.insurance.per_event_draw_bps, 1_000);
+    assert_eq!(market.insurance.principal_coverage_bps, 1_000);
     assert_eq!(market.insurance.per_day_draw_bps, 3_000);
     assert_eq!(market.config.fee_profile(), before.fee_profile());
     assert_eq!(market.config.amm, before.amm);
@@ -1531,7 +1541,7 @@ fn a_failing_multi_family_execution_leaves_every_family_untouched() {
                     max_daily_borrow_bps: 1_000,
                 },
                 MarketParameterUpdate::InsuranceDrawCaps {
-                    per_event_bps: 1_000,
+                    principal_coverage_bps: 1_000,
                     per_day_bps: 3_000,
                 },
             ],
@@ -1653,20 +1663,19 @@ fn curve_and_center_controller_settle_on_their_final_values_together() {
 }
 
 #[test]
-fn insurance_draws_share_hard_event_and_daily_budgets() {
+fn insurance_draws_share_one_daily_budget_across_claims() {
     let mut insurance = Insurance {
         base_available: 1_000,
         ..Insurance::default()
     };
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 1).unwrap(), 200);
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 1).unwrap(), 500);
     insurance.consume_draw(MarketAsset::Base, 200, 1).unwrap();
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 2).unwrap(), 160);
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 2).unwrap(), 300);
     insurance.consume_draw(MarketAsset::Base, 160, 2).unwrap();
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 3).unwrap(), 128);
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 3).unwrap(), 140);
     insurance.consume_draw(MarketAsset::Base, 128, 3).unwrap();
 
-    // The event cap would now permit 102, but only 12 remains under the
-    // 50%-of-opening-backing daily ceiling.
+    // Claims share the 50%-of-opening-backing daily ceiling.
     assert_eq!(insurance.draw_capacity(MarketAsset::Base, 4).unwrap(), 12);
     insurance.consume_draw(MarketAsset::Base, 12, 4).unwrap();
     assert_eq!(insurance.draw_capacity(MarketAsset::Base, 5).unwrap(), 0);
@@ -1677,14 +1686,14 @@ fn insurance_draws_share_hard_event_and_daily_budgets() {
     assert_eq!(insurance.draw_capacity(MarketAsset::Base, 6).unwrap(), 50);
 
     let next_window = 1 + INSURANCE_DRAW_WINDOW_SLOTS;
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, next_window).unwrap(), 120);
+    assert_eq!(insurance.draw_capacity(MarketAsset::Base, next_window).unwrap(), 300);
 }
 
 #[test]
 fn insurance_governance_can_only_tighten_below_protocol_ceilings() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     let too_large = MarketParameterUpdate::InsuranceDrawCaps {
-        per_event_bps: MAX_INSURANCE_DRAW_PER_EVENT_BPS + 1,
+        principal_coverage_bps: MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS + 1,
         per_day_bps: MAX_INSURANCE_DRAW_PER_DAY_BPS,
     };
     assert!(market.validate_parameter_updates(core::slice::from_ref(&too_large)).is_err());
@@ -1692,13 +1701,13 @@ fn insurance_governance_can_only_tighten_below_protocol_ceilings() {
     market
         .execute_parameter_updates(
             &[MarketParameterUpdate::InsuranceDrawCaps {
-                per_event_bps: 1_000,
+                principal_coverage_bps: 1_000,
                 per_day_bps: 3_000,
             }],
             1,
         )
         .unwrap();
-    assert_eq!(market.insurance.per_event_draw_bps, 1_000);
+    assert_eq!(market.insurance.principal_coverage_bps, 1_000);
     assert_eq!(market.insurance.per_day_draw_bps, 3_000);
     assert_eq!(market.parameter_revisions, [0, 0, 0, 0, 0, 0, 1]);
 }
