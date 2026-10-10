@@ -25,6 +25,8 @@ export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
   "controller_due_recenter",
   "concentrated_hlp_active",
   "concentrated_hlp_funding_interest",
+  "joint_shock_hlp_same_slot",
+  "joint_shock_hlp_one_day",
   "hlp_active",
   "token_2022_swap",
 ] as const;
@@ -73,6 +75,8 @@ const COMPUTE_SCENARIO_BASELINES: Partial<
   controller_due_recenter: { measuredMaximum: 631_338n, ceiling: 662_905n },
   concentrated_hlp_active: { measuredMaximum: 355_721n, ceiling: 373_508n },
   concentrated_hlp_funding_interest: { measuredMaximum: 355_721n, ceiling: 373_508n },
+  joint_shock_hlp_same_slot: { measuredMaximum: 449_203n, ceiling: 471_664n },
+  joint_shock_hlp_one_day: { measuredMaximum: 558_895n, ceiling: 586_840n },
   hlp_active: { measuredMaximum: 120_929n, ceiling: 126_976n },
   token_2022_swap: { measuredMaximum: 107_182n, ceiling: 112_542n },
 };

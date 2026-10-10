@@ -3,6 +3,10 @@ use super::*;
 const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1000;
 const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700;
 
+mod hlp_joint_shock {
+    include!("hlp_joint_shock.rs");
+}
+
 mod margin_calibration {
     include!("leverage_margin_calibration.rs");
 }

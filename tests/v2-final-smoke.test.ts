@@ -4485,6 +4485,94 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("swap", this.test?.title);
   });
 
+  for (const ageSeconds of [0, 86_400]) {
+    it(`settles the SOL/USDC joint shock hLP fixture after ${ageSeconds} seconds`, async function () {
+      this.timeout(120_000);
+      const raw = (value: any) => BigInt(value.toString());
+      const abs = (value: bigint) => value < 0n ? -value : value;
+      for (const assetIn of ["base", "quote"] as const) {
+        const config = marketConfig();
+        config.swapFeeBps = 3;
+        config.divergenceFeeShareCapBps = 20;
+        config.volatilityFeeShareCapBps = 20;
+        config.settlementDivergenceBps = 10_000;
+        config.amm.peakAmplificationNad = new BN("5000000000");
+        config.amm.coreHalfWidthBps = 100;
+        config.amm.fadeWidthBps = 400;
+        config.amm.adjustmentThresholdNad = new BN("10000000");
+        config.amm.adjustmentStepNad = new BN("1000000");
+        config.amm.minAdjustmentIntervalSlots = new BN(150);
+        config.amm.volatilityShockCapNad = new BN("50000000");
+        config.amm.volatilityCapNad = new BN("100000000");
+        config.amm.divergenceFeeCoefficientNad = new BN("100000000");
+        config.amm.volatilityFeeCoefficientNad = new BN("100000000");
+        // $800k ordinary equity at SOL $200, plus $100k in each hLP.
+        // Real 9/6-decimal token accounts reproduce the native rounding case.
+        const fixture = await addBalancedLiquidity(190, config, {
+          baseDeposit: 2_000_000_000_000n,
+          quoteDeposit: 400_000_000_000n,
+          minYlp: 1,
+          baseMint: 4_000_000_000_000n,
+          quoteMint: 800_000_000_000n,
+        }, { base: 9, quote: 6 });
+        const baseHedge = await openBaseHedge(fixture, 500_000_000_000);
+        const quoteHedge = await openQuoteHedge(fixture, 100_000_000_000);
+        const readMarket = () => accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+        const before = readMarket();
+        const readBalances = async () => Promise.all([
+          fixture.ownerBaseAccount, fixture.baseReserveVault, fixture.baseInterestVault,
+          fixture.ownerQuoteAccount, fixture.quoteReserveVault, fixture.quoteInterestVault,
+        ].map(async address => (await getAccount(connection as any, address)).amount));
+        const balancesBefore = await readBalances();
+        // Exercise actual slot-based accrual, without editing debt indexes or balances.
+        if (ageSeconds > 0) svm.warpToSlot(svm.getClock().slot + BigInt(ageSeconds * 5 / 2));
+        const exactAssetIn = assetIn === "base" ? 500_000_000 : 100_000_000;
+        const preview = decodePreviewSwapReturnData(await simulateReturnData(
+          await program.methods.previewSwap({ exactAssetIn: new BN(exactAssetIn) }).accounts({
+            market: fixture.market, futarchyAuthority,
+            assetInMint: assetIn === "base" ? fixture.baseMint : fixture.quoteMint,
+            assetOutMint: assetIn === "base" ? fixture.quoteMint : fixture.baseMint,
+          }).transaction()
+        )) as any;
+        const measurement = assetIn === "base"
+          ? await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), exactAssetIn, 1)
+          : await swapQuoteForBase(fixture, hlpSwapAccounts(fixture), exactAssetIn, 1);
+        recordSwapComputeScenario(ageSeconds === 0 ? "joint_shock_hlp_same_slot" : "joint_shock_hlp_one_day", measurement);
+        trackV2Instruction("swap", this.test?.title);
+        trackV2Instruction("previewSwap", this.test?.title);
+        const event = cpiEvent(measurement.transaction, "swapExecuted");
+        expect(event.amountOut.toString()).to.equal(preview.amountOut.toString());
+        await expectSwapMarketState(event, fixture.market);
+        const after = readMarket();
+        const balancesAfter = await readBalances();
+        const supply = raw(after.base_side.shares.ylp_supply);
+        for (const [sideIndex, side, oppositeVault, beforeVault, index] of [
+          [0, after.base_side, after.quote_hlp_vault, before.quote_hlp_vault, after.debt.base_borrow_index_nad],
+          [1, after.quote_side, after.base_hlp_vault, before.base_hlp_vault, after.debt.quote_borrow_index_nad],
+        ] as const) {
+          const offset = sideIndex * 3;
+          // All physical tokens remain with the trader, reserve, or interest vault.
+          expect(balancesAfter.slice(offset, offset + 3).reduce((a, b) => a + b, 0n))
+            .to.equal(balancesBefore.slice(offset, offset + 3).reduce((a, b) => a + b, 0n));
+          const interest = raw(beforeVault.debt_shares) * raw(index) / 1_000_000_000n - raw(beforeVault.debt_principal);
+          expect(balancesAfter[offset + 2] - balancesBefore[offset + 2]).to.equal(interest);
+          expect(ageSeconds === 0 ? interest === 0n : interest > 3n).to.equal(true);
+          const debt = raw(oppositeVault.debt_shares) * raw(index) / 1_000_000_000n;
+          const claim = raw(side.reserves.live_reserve) * raw(oppositeVault.ylp_shares) / supply;
+          expect(abs(claim - debt) <= 3n).to.equal(true);
+          expect(raw(oppositeVault.debt_principal)).to.equal(debt);
+        }
+        for (const [vault, address] of [
+          [after.base_hlp_vault, baseHedge.hlpYlpAccount],
+          [after.quote_hlp_vault, quoteHedge.hlpYlpAccount],
+        ] as const) {
+          expect((await getAccount(connection as any, address, undefined, TOKEN_2022_PROGRAM_ID)).amount)
+            .to.equal(raw(vault.ylp_shares));
+        }
+      }
+    });
+  }
+
   it("executes active concentrated hLP spot swaps in both directions", async function () {
     this.timeout(120_000);
 
