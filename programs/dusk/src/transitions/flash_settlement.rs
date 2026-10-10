@@ -270,7 +270,6 @@ impl Market {
                 if full {
                     require_eq!(p.debt_principal, 0, ErrorCode::BrokenInvariant);
                     p.margin_amount = 0;
-                    p.funded_collateral_amount = 0;
                     p.open_notional = 0;
                     p.multiplier_bps = 0;
                     p.referral_partner = Pubkey::default();

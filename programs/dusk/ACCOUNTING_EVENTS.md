@@ -56,6 +56,12 @@ activity comes from leverage lifecycle events under an explicit notional
 convention; it must not be inferred from the amount swapped. These product
 metrics overlap and must not be added into an unlabeled total volume.
 
+The 2026-10-11 funding simplification removes `funded_collateral_amount` from
+`LeveragePosition` and `LeveragePositionOpened`, and `collateral_returned` from
+`LeveragePositionClosed`. Ordinary closes return the net debt-token `residual`.
+Consumers must decode the regenerated account/event layouts together with the
+matching program; the optional collateral-funded entry/close APIs are removed.
+
 ## Interest accrued
 
 `BorrowInterestAccrued` records one asset's actual borrow-index checkpoint:

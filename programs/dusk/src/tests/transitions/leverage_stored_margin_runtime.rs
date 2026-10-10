@@ -179,9 +179,9 @@ fn runtime_large_solvent_position_is_no_longer_rejected_by_two_percent_unwind() 
     let quote = market
         .quote_leverage_swap(MarketAsset::Base, position.collateral_amount, 2)
         .unwrap();
-    let spot = market
-        .leverage_collateral_entry_value(MarketAsset::Quote, position.collateral_amount)
-        .unwrap();
+    // This fixture uses equal decimals on both sides.
+    let spot = (u128::from(position.collateral_amount)
+        * u128::from(market.current_base_price_nad().unwrap()) / u128::from(NAD)) as u64;
     assert!(u128::from(spot - quote.amount_out) * 10_000 / u128::from(spot) > 200);
     assert_eq!(position.margin_terms.maintenance_rates_bps, [700, 1200, 1700]);
     assert!(

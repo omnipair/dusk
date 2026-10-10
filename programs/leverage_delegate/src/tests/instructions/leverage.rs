@@ -54,7 +54,6 @@ fn recreated_position_requires_owner_to_reauthorize_order() {
         collateral_amount: 1,
         margin_terms: dusk::state::LeverageMarginTerms::at_entry(100).unwrap(),
         margin_amount: 1,
-        funded_collateral_amount: 0,
         open_notional: 1,
         debt_principal: 1,
         debt_shares: 1,

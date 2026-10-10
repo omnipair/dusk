@@ -54,11 +54,10 @@
   "scripts": {
     "prepare-idl": "node scripts/prepare.js",
     "check-idl-current": "node scripts/check-idl-current.js",
-    "build": "npm run prepare-idl && tsc && node scripts/build-native-close-quote.js",
+    "build": "npm run prepare-idl && tsc",
     "typecheck": "tsc --noEmit",
-    "test:quote-rust": "cargo fmt --manifest-path quote-rust/Cargo.toml -- --check && cargo test --locked -p dusk-native-close-quote --test quote_parity",
     "test:governance": "npm run build && node scripts/check-governance.js",
-    "test:previews": "npm run test:quote-rust && npm run build && node --test scripts/check-previews.js scripts/check-virtual-book.js scripts/check-lp-tokens.js scripts/check-native-close.js scripts/check-leverage-margins.js scripts/check-insurance.js scripts/check-liquidation.js",
+    "test:previews": "npm run build && node --test scripts/check-previews.js scripts/check-virtual-book.js scripts/check-lp-tokens.js scripts/check-leverage-margins.js scripts/check-leverage-funding.js scripts/check-insurance.js scripts/check-liquidation.js",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },

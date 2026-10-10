@@ -4460,7 +4460,6 @@ fn empty_leverage_position() -> LeveragePosition {
         collateral_amount: 0,
         margin_terms: crate::state::LeverageMarginTerms::default(),
         margin_amount: 0,
-        funded_collateral_amount: 0,
         open_notional: 0,
         debt_principal: 0,
         debt_shares: 0,

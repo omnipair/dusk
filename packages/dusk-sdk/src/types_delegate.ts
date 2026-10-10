@@ -4281,13 +4281,6 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "fundedCollateralAmount",
-            "docs": [
-              "Initial collateral-token deposit. Zero denotes debt-token funding."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "openNotional",
             "type": "u64"
           },

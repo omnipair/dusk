@@ -1051,241 +1051,6 @@
       "args": []
     },
     {
-      "name": "close_collateral_leverage",
-      "docs": [
-        "Close native collateral funding and pay the remaining collateral back to its owner."
-      ],
-      "discriminator": [
-        197,
-        210,
-        47,
-        138,
-        27,
-        103,
-        116,
-        59
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true
-        },
-        {
-          "name": "futarchy_authority"
-        },
-        {
-          "name": "position_owner",
-          "writable": true
-        },
-        {
-          "name": "leverage_position",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  108,
-                  101,
-                  118,
-                  101,
-                  114,
-                  97,
-                  103,
-                  101,
-                  95,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.owner",
-                "account": "LeveragePosition"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.namespace_authority",
-                "account": "LeveragePosition"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "debt_mint"
-        },
-        {
-          "name": "collateral_mint"
-        },
-        {
-          "name": "debt_reserve_vault",
-          "writable": true
-        },
-        {
-          "name": "collateral_reserve_vault",
-          "writable": true
-        },
-        {
-          "name": "debt_interest_vault",
-          "writable": true
-        },
-        {
-          "name": "leverage_collateral_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  108,
-                  101,
-                  118,
-                  101,
-                  114,
-                  97,
-                  103,
-                  101,
-                  95,
-                  99,
-                  111,
-                  108,
-                  108,
-                  97,
-                  116,
-                  101,
-                  114,
-                  97,
-                  108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "collateral_mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "owner_debt_account",
-          "writable": true
-        },
-        {
-          "name": "delegate_fee_recipient",
-          "docs": [
-            "Protocol treasury token account for delegated close order fees."
-          ],
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "delegate_executor_account",
-          "docs": [
-            "Executor-owned token account for delegated close incentives."
-          ],
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "referral_partner",
-          "optional": true
-        },
-        {
-          "name": "referral_accrual",
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "leverage_delegation",
-          "optional": true
-        },
-        {
-          "name": "delegated_program",
-          "optional": true
-        },
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "instructions_sysvar",
-          "address": "Sysvar1nstructions1111111111111111111111111"
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "CloseCollateralLeverageArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "close_insolvent_hlp",
       "docs": [
         "Permissionlessly closes an hLP after passive funding has exhausted its",
@@ -5347,140 +5112,6 @@
           "name": "LiquidationHealth"
         }
       }
-    },
-    {
-      "name": "open_collateral_leverage",
-      "docs": [
-        "Deposit the bought asset directly and swap only the borrowed asset."
-      ],
-      "discriminator": [
-        107,
-        156,
-        1,
-        59,
-        143,
-        64,
-        254,
-        149
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true
-        },
-        {
-          "name": "futarchy_authority"
-        },
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "payer",
-          "docs": [
-            "Pays account rent. Ordinary opens pass `owner` again; delegated opens",
-            "use the keeper without transferring position ownership to it."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "leverage_position",
-          "docs": [
-            "validated before any economic mutation."
-          ],
-          "writable": true
-        },
-        {
-          "name": "debt_mint"
-        },
-        {
-          "name": "collateral_mint"
-        },
-        {
-          "name": "debt_reserve_vault",
-          "writable": true
-        },
-        {
-          "name": "collateral_reserve_vault",
-          "writable": true
-        },
-        {
-          "name": "leverage_collateral_vault",
-          "writable": true
-        },
-        {
-          "name": "owner_debt_account",
-          "writable": true
-        },
-        {
-          "name": "referral_partner",
-          "optional": true
-        },
-        {
-          "name": "referral_accrual",
-          "optional": true
-        },
-        {
-          "name": "instructions_sysvar",
-          "address": "Sysvar1nstructions1111111111111111111111111"
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "OpenCollateralLeverageArgs"
-            }
-          }
-        }
-      ]
     },
     {
       "name": "open_leverage",
@@ -13039,31 +12670,6 @@
       }
     },
     {
-      "name": "CloseCollateralLeverageArgs",
-      "docs": [
-        "Sell the owner's specified collateral amount to repay all debt, returning",
-        "unsold collateral. The swap must cover debt and the minimum collateral",
-        "payout or the close reverts. Any excess debt-token output is refunded."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "debt_asset",
-            "type": "u8"
-          },
-          {
-            "name": "collateral_in",
-            "type": "u64"
-          },
-          {
-            "name": "min_collateral_out",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "CloseInsolventHlpArgs",
       "type": {
         "kind": "struct",
@@ -15312,13 +14918,6 @@
             "type": "u64"
           },
           {
-            "name": "funded_collateral_amount",
-            "docs": [
-              "Initial collateral-token deposit. Zero denotes debt-token funding."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "open_notional",
             "type": "u64"
           },
@@ -15412,13 +15011,6 @@
           },
           {
             "name": "residual",
-            "type": "u64"
-          },
-          {
-            "name": "collateral_returned",
-            "docs": [
-              "Unsold collateral paid to the owner by a collateral-funded close."
-            ],
             "type": "u64"
           },
           {
@@ -15551,10 +15143,6 @@
           },
           {
             "name": "margin_amount",
-            "type": "u64"
-          },
-          {
-            "name": "funded_collateral_amount",
             "type": "u64"
           },
           {
@@ -17307,29 +16895,6 @@
               "Per-yLP-share interest growth, scaled by 2^64."
             ],
             "type": "u128"
-          }
-        ]
-      }
-    },
-    {
-      "name": "OpenCollateralLeverageArgs",
-      "docs": [
-        "Native collateral deposit; max debt bounds valuation changes between preview and execution."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "open",
-            "type": {
-              "defined": {
-                "name": "OpenLeverageArgs"
-              }
-            }
-          },
-          {
-            "name": "max_debt_amount",
-            "type": "u64"
           }
         ]
       }

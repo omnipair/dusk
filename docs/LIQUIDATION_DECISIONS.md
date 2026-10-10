@@ -6,6 +6,22 @@ pricing, eligibility, reward, clock and composability proposals in the earlier
 handoff, flash contract and calibration documents. The implementation checkpoint below distinguishes current code and tests from
 historical calibration evidence.
 
+## Leverage funding simplification, 2026-10-11
+
+The user reversed optional collateral-funded leverage from commit `65a948fd`.
+Openings accept only the debt asset: USDC for a META long, META for a META short.
+Margin plus borrowing is swapped into the opposite asset held in custody.
+A UI zap may convert another wallet token before the opening instruction.
+The optional native entry/close instructions, funding marker, extra event fields,
+and dedicated SDK close solver are removed. This supersedes the earlier #48
+feature-retention decision. Audit remedies, stored margins and flash liquidations
+remain part of #45.
+
+The requested next discussion covers size-only adjustments, debt-repayment margin
+increases, removing standalone margin withdrawal, combined add/remove actions,
+and user-selected leverage below the permitted maximum. This funding reversal
+does not change the selected IM/MM formulas or implement that next action redesign.
+
 ## Latest design steering, 2026-10-10
 
 This section takes precedence over earlier conflicting proposals below. The
@@ -155,7 +171,7 @@ principal-first loss accounting while resolving these changes.
 | Insurance funding | The user selected the combined target `ceil(P / 20) + ceil(H / 15)` per debt token: 5% of outstanding borrower/leverage principal P, plus one-fifteenth (approximately 6.67%) of that token's current indexed hLP funding debt H. P excludes H; H includes accrued funding interest. Markets may launch with zero insurance; pre-funding is optional, with no required seed or launch gate. All of the 0.8% insurance/LP allocation goes to insurance through 75% of the combined target; its insurance share then decreases linearly to zero at 100% of target. Existing market LP yield recipients receive the remainder, including all of the allocation at or above target; hLP participates through its underlying yLP holdings. Lower balances after draws increase future funding under the same curve. The 0.2% protocol allocation is separate. Do not distribute existing insurance when the target falls or create a full-settlement shortfall to collect fees. The 75%-loss / shared 50%-fund / 24-hour draw direction remains selected. |
 | Composability | Lock the liquidated position and its bound obligation. Allow other-position swaps, borrowing, leverage and independent liquidations. Also allow LP withdrawals and relevant parameter changes with additional accounting checks; do not introduce a blanket same-market ban. |
 | Ordinary leverage execution | Preserve ordinary Dusk AMM execution. General external owner open/close routing is outside the agreed implementation scope. |
-| PR coordination | Incorporate all of #48's native-collateral feature and fixes into #45. Preserve the audit remedies already in #45. |
+| PR coordination | Keep consolidated work in #45. The 2026-10-11 funding simplification supersedes retaining #48's optional collateral-funded feature; preserve unrelated audit remedies. |
 
 ## Settlement invariant
 
@@ -563,10 +579,10 @@ of 24 hours. No independent hLP spending allowance is added.
 The complete required local CI sequence passed on this implementation:
 
 - Formatting, staged-file hygiene, code shape and required Clippy checks.
-- 491 Dusk tests in each default/production profile; production library check; 16 delegate tests and 1 faucet test.
+- 489 Dusk tests in each default/production profile; production library check; 16 delegate tests and 1 faucet test.
 - Full Anchor/SBF builds (Dusk, delegate, faucet and fixtures), clean build identity, all four regenerated SDK interfaces and TypeScript checking.
-- 68 SDK tests plus serialized Rust/WASM quote parity.
-- Strict LiteSVM: 131 passing, no pending tests, all 69 instructions exercised and the complete compute baseline required.
+- 56 SDK tests, including debt-token funding/payout builders and rejection of removed funding-mode flags.
+- Strict LiteSVM: 131 passing, no pending tests, all 67 instructions exercised and the complete compute baseline required.
 
 The benchmark feature also compiles. These are implementation/accounting regressions, not an independent security audit or evidence of economic optimality. No historical exploit PoC was executed.
 

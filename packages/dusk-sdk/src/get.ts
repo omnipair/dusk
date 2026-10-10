@@ -1,6 +1,5 @@
 import type { BN, Program } from "@coral-xyz/anchor";
-import { PublicKey, SYSVAR_CLOCK_PUBKEY, TransactionInstruction, type AccountInfo, type Commitment } from "@solana/web3.js";
-import { getEpochFee, getTransferFeeConfig, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, unpackMint } from "@solana/spl-token";
+import { PublicKey, TransactionInstruction, type Commitment } from "@solana/web3.js";
 import {
   simulatePreviewWithContext,
   type PreviewSimulationOptions,
@@ -42,11 +41,6 @@ import {
   type U64SeedLike,
 } from "./constants.js";
 import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type AddressLike } from "./address.js";
-import { governanceIntegerBN } from "./governance.js";
-import { findMinimumNativeCloseCollateralIn, nativeCloseCredit, nativeCloseGrossForCredit,
-  type NativeCloseTransferFee } from "./native-close.js";
-import { createNativeCloseQuote } from "./native-close-quote.js";
-import { DuskWrite, type CloseLeverageParams, type RawAmount } from "./write.js";
 import { getStoredLeverageMargins } from "./leverage-margins.js";
 import {
   decodePreviewAddLiquidityReturnData,
@@ -146,32 +140,6 @@ export interface PreviewBorrowPositionParams extends SimulateOptions {
   quoteMint: AddressLike;
 }
 
-export interface FindCollateralLeverageCloseInputParams
-  extends Omit<CloseLeverageParams, "collateralFunded" | "collateralIn"> {
-  /** Optional sale cap; the minimum payout also caps how much can be sold. */
-  maxCollateralIn?: RawAmount;
-  simulation?: Omit<PreviewSimulationOptions, "accounts" | "requireReturnData">;
-}
-
-export interface CollateralLeverageCloseInput {
-  collateralIn: bigint;
-  /** Net collateral payout after its transfer fee, at the final simulation bank. */
-  collateralReturned: bigint;
-  /** Slot of the final successful simulation, not a guarantee for a later bank. */
-  observedSlot: number;
-}
-
-function nativeCloseFeeFromAccounts(
-  mintKey: PublicKey, mint: AccountInfo<Buffer> | null, clock: AccountInfo<Buffer> | null
-): NativeCloseTransferFee | undefined {
-  if (!mint || !clock || mint.executable || clock.executable ||
-    (!mint.owner.equals(TOKEN_PROGRAM_ID) && !mint.owner.equals(TOKEN_2022_PROGRAM_ID)) ||
-    clock.owner.toBase58() !== "Sysvar1111111111111111111111111111111111111" || clock.data.length !== 40)
-    throw new Error("Invalid native close mint/clock snapshot");
-  const config = getTransferFeeConfig(unpackMint(mintKey, mint, mint.owner));
-  return config ? getEpochFee(config, clock.data.readBigUInt64LE(16)) : undefined;
-}
-
 export class DuskGet {
   readonly pda = pda;
 
@@ -221,114 +189,6 @@ export class DuskGet {
   /** Fetch saved margin terms; does not quote an opening or an increase. */
   async leverageMargins(account: AddressLike) {
     return getStoredLeverageMargins(await this.leveragePosition(account));
-  }
-
-  /**
-   * Price candidate sales locally with the program's Rust transition math and
-   * effective collateral transfer fee. Simulate only the selected close to
-   * validate account constraints and current market state before submission.
-   */
-  async findCollateralLeverageCloseInput(
-    params: FindCollateralLeverageCloseInputParams
-  ): Promise<CollateralLeverageCloseInput> {
-    const { maxCollateralIn, simulation, ...closeParams } = params;
-    const marketKey = address(closeParams.market);
-    const positionKey = address(closeParams.leveragePosition ??
-      deriveLeveragePositionAddress(marketKey, address(closeParams.positionOwner),
-        address(closeParams.positionId), address(closeParams.namespaceAuthority ?? closeParams.positionOwner))[0]);
-    const collateralMintKey = address(closeParams.collateralMint);
-    simulation?.signal?.throwIfAborted();
-    const snapshot = await this.program.provider.connection.getMultipleAccountsInfoAndContext(
-      [marketKey, positionKey, collateralMintKey, SYSVAR_CLOCK_PUBKEY],
-      {
-        ...(simulation?.commitment === undefined ? {} : { commitment: simulation.commitment }),
-        ...(simulation?.minContextSlot === undefined ? {} : { minContextSlot: simulation.minContextSlot }),
-      }
-    );
-    simulation?.signal?.throwIfAborted();
-    const [marketAccount, positionAccount, mintAccount, clockAccount] = snapshot.value;
-    if (!marketAccount || !positionAccount || !clockAccount ||
-      !marketAccount.owner.equals(this.program.programId) ||
-      !positionAccount.owner.equals(this.program.programId) ||
-      clockAccount.data.length < 40 ||
-      clockAccount.data.readBigUInt64LE(0) !== BigInt(snapshot.context.slot))
-      throw new Error("Native-close account snapshot is incomplete or inconsistent");
-    const market = this.program.coder.accounts.decode("market", marketAccount.data) as Market;
-    const position = this.program.coder.accounts.decode("leveragePosition", positionAccount.data) as LeveragePosition;
-    const debtAsset = closeParams.debtAsset === "base" ? 0 : closeParams.debtAsset === "quote" ? 1 : -1;
-    if (debtAsset < 0 || position.debtAsset !== debtAsset ||
-      !position.owner.equals(address(closeParams.positionOwner)) ||
-      !position.market.equals(marketKey) ||
-      !position.positionId.equals(address(closeParams.positionId)) ||
-      BigInt(position.fundedCollateralAmount.toString()) === 0n)
-      throw new Error("The requested position is not a matching native collateral position");
-    const total = BigInt(position.collateralAmount.toString());
-    const transferFee = nativeCloseFeeFromAccounts(collateralMintKey, mintAccount, clockAccount);
-    const minimumReturned = BigInt(governanceIntegerBN(closeParams.minAmountOut, "minAmountOut").toString());
-    const minimumGrossReturned = nativeCloseGrossForCredit(minimumReturned, transferFee);
-    if (minimumGrossReturned >= total)
-      throw new Error("Minimum collateral payout leaves no amount available for repayment");
-    const available = total - minimumGrossReturned;
-    const requestedCap = maxCollateralIn === undefined
-      ? available
-      : BigInt(governanceIntegerBN(maxCollateralIn, "maxCollateralIn").toString());
-    const maximum = requestedCap < available ? requestedCap : available;
-    if (maximum === 0n) throw new Error("No collateral is available for repayment");
-
-    const quote = await createNativeCloseQuote(
-      marketAccount.data,
-      positionAccount.data,
-      BigInt(snapshot.context.slot),
-      clockAccount.data.readBigInt64LE(32)
-    );
-    const amm = market.config.amm;
-    const feeTiers = amm.launchRateLimitAsset === debtAsset + 1 &&
-      amm.launchRateLimitMaxFeeBps > 0
-      ? {
-          referenceNad: BigInt(amm.launchRateLimitReferenceNad.toString()),
-          incrementBps: amm.launchRateLimitIncrementBps,
-          maxFeeBps: amm.launchRateLimitMaxFeeBps,
-          collateralDecimals: debtAsset === 0
-            ? market.quoteSide.assetDecimals : market.baseSide.assetDecimals,
-        }
-      : undefined;
-    const collateralIn = await findMinimumNativeCloseCollateralIn({
-      maxCollateralIn: maximum,
-      feeTiers,
-      transferFee,
-      canClose: async (amount) => {
-        const output = quote.amountOut(nativeCloseCredit(amount, transferFee));
-        return output === "liquidity-limited" ? output :
-          output === "insufficient" ? false : output >= quote.debtAmount;
-      },
-      signal: simulation?.signal,
-    });
-    const closeInstruction = await new DuskWrite(this.program).closeLeverageInstruction({
-      ...closeParams,
-      collateralFunded: true,
-      collateralIn,
-    }, market);
-    const final = await this.simulateWithContext([closeInstruction], {
-      ...simulation,
-      minContextSlot: Math.max(snapshot.context.slot, simulation?.minContextSlot ?? 0),
-      feePayer: simulation?.feePayer ?? closeParams.authority ?? closeParams.positionOwner,
-      requireReturnData: false,
-      accounts: [collateralMintKey, SYSVAR_CLOCK_PUBKEY],
-    });
-    const finalAccounts = final.value.accounts?.map((info) => info && ({
-      ...info, owner: new PublicKey(info.owner), data: Buffer.from(info.data[0], "base64"),
-    }));
-    const finalFee = nativeCloseFeeFromAccounts(
-      collateralMintKey, finalAccounts?.[0] ?? null, finalAccounts?.[1] ?? null
-    );
-    if ((finalFee?.transferFeeBasisPoints ?? 0) !== (transferFee?.transferFeeBasisPoints ?? 0) ||
-      (finalFee?.maximumFee ?? 0n) !== (transferFee?.maximumFee ?? 0n))
-      throw new Error("Collateral transfer fee changed during the close quote; retry");
-    return {
-      collateralIn,
-      collateralReturned: nativeCloseCredit(total - collateralIn, finalFee),
-      observedSlot: final.context.slot,
-    };
   }
 
   leverageDelegation(account: AddressLike): Promise<LeverageDelegation> {

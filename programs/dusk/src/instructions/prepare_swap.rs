@@ -38,12 +38,10 @@ pub(crate) fn enforce_launch_same_transaction_guard(
         };
         discriminator == crate::instruction::Swap::DISCRIMINATOR
             || discriminator == crate::instruction::OpenLeverage::DISCRIMINATOR
-            || discriminator == crate::instruction::OpenCollateralLeverage::DISCRIMINATOR
             || discriminator == crate::instruction::IncreaseLeverage::DISCRIMINATOR
             || discriminator == crate::instruction::DecreaseLeverage::DISCRIMINATOR
             || discriminator == crate::instruction::CloseLeverage::DISCRIMINATOR
             || discriminator == crate::instruction::DelegatedCloseLeverage::DISCRIMINATOR
-            || discriminator == crate::instruction::CloseCollateralLeverage::DISCRIMINATOR
             || discriminator == crate::instruction::EmergencyLiquidation::DISCRIMINATOR
             || discriminator == crate::instruction::RescueHlp::DISCRIMINATOR
             || (ix.data.get(..8) == Some(crate::instruction::SettleFlashLiquidation::DISCRIMINATOR)

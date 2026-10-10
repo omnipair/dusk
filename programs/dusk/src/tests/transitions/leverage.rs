@@ -105,7 +105,6 @@ fn empty_position() -> LeveragePosition {
         collateral_amount: 0,
         margin_terms: crate::state::LeverageMarginTerms::default(),
         margin_amount: 0,
-        funded_collateral_amount: 0,
         open_notional: 0,
         debt_principal: 0,
         debt_shares: 0,
@@ -2459,73 +2458,5 @@ fn protection_closeout_matches_full_swap_quote_across_fee_modes() {
                 }
             }
         }
-    }
-}
-
-#[test]
-fn native_collateral_entry_and_partial_sale_close_conserve_both_sides() {
-    for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
-        for concentrated in [false, true] {
-          for fee_mode in [crate::state::SWAP_FEE_COLLECT_INPUT_ASSET,
-              crate::state::SWAP_FEE_COLLECT_BASE_ONLY, crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY] {
-           for compounding in [0, 5_000, 10_000] {
-            for collateral_deposit in [100, 1_000] {
-            let mut market = if concentrated { concentrated_market() } else { test_market(10_000_000, 10_000_000) };
-            market.config.swap_fee_bps = 30;
-            market.config.amm.swap_fee_collect_mode = fee_mode;
-            market.config.amm.compounding_fee_bps = compounding;
-            let margin_value = market.leverage_collateral_entry_value(debt_asset, collateral_deposit).unwrap();
-            let borrowed = leverage_debt_from_margin(margin_value, 20_000).unwrap();
-            let mut position = empty_position();
-            let prepared = prepare_leverage_swap_with_policy(&mut market, debt_asset, borrowed, 1,
-                SwapCashPolicy::Borrow { asset: debt_asset, amount: borrowed });
-            let quote = prepared.leverage_quote();
-            let receipt = market.open_leverage_funded(&mut position, Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(),
-                Pubkey::new_unique(), Pubkey::default(), 0, debt_asset, margin_value, 20_000,
-                collateral_deposit + quote.amount_out, prepared, full_fee_credit(&quote), 0, 1, 255,
-                0, ProtocolAuctionSplit::default(), LeverageCollateralFee::default(), collateral_deposit).unwrap();
-            assert_eq!(receipt.swap.amount_in, borrowed);
-            assert_eq!(position.collateral_amount, collateral_deposit + quote.amount_out);
-            assert_eq!(position.funded_collateral_amount, collateral_deposit);
-            assert_eq!(position.margin_amount, margin_value);
-            assert_eq!(position.open_notional, margin_value + borrowed);
-            market.assert_market_invariants().unwrap();
-
-            let debt = market.debt.isolated_repayment_for_max(debt_asset, position.debt_shares, u64::MAX).unwrap().cash_repaid;
-            let collateral_asset = debt_asset.opposite();
-            let lo = position.collateral_amount - collateral_deposit / 2;
-            let unsold = position.collateral_amount - lo;
-            assert!(unsold > 0);
-            let policy = SwapCashPolicy::Close { debt_asset, debt_shares: position.debt_shares, debt_principal: position.debt_principal };
-            let prepared = prepare_leverage_swap_with_policy(&mut market, collateral_asset, lo, 1, policy);
-            let quote = prepared.leverage_quote();
-            assert!(quote.amount_out >= debt);
-            let close = market.close_leverage(&mut position, 0, prepared, full_fee_credit(&quote),
-                0, ProtocolAuctionSplit::default(), 1, LeverageCollateralFee::default()).unwrap();
-            assert_eq!(close.debt_repaid, debt);
-            assert_eq!(position.debt_shares, 0);
-            assert_eq!(position.debt_principal, 0);
-            assert_eq!(position.collateral_amount, 0);
-            assert_eq!(close.swap.amount_in, lo);
-            market.assert_market_invariants().unwrap();
-        }
-    }
-      }
-     }
-    }
-}
-
-#[test]
-fn native_collateral_entry_value_respects_high_and_asymmetric_decimals() {
-    for (base_decimals, quote_decimals) in [(6, 9), (9, 6), (12, 9), (9, 12)] {
-        let base_unit = 10u64.pow(base_decimals.into());
-        let quote_unit = 10u64.pow(quote_decimals.into());
-        let mut market = test_market(base_unit * 10, quote_unit * 10);
-        market.base_side.asset_decimals = base_decimals;
-        market.quote_side.asset_decimals = quote_decimals;
-        market.amm = AmmState::default();
-        market.prepare_amm_for_swap(0).unwrap();
-        assert_eq!(market.leverage_collateral_entry_value(MarketAsset::Quote, base_unit).unwrap(), quote_unit);
-        assert_eq!(market.leverage_collateral_entry_value(MarketAsset::Base, quote_unit).unwrap(), base_unit);
     }
 }

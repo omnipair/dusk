@@ -103,13 +103,6 @@ impl<'info> AddLeverageMargin<'info> {
             ErrorCode::InsufficientBalance
         );
         self.leverage_position.require_open()?;
-        // Native collateral MVP preserves its deposit denomination. Debt-token
-        // margin transfers would mix the cost basis and settlement assets.
-        require_eq!(
-            self.leverage_position.funded_collateral_amount,
-            0,
-            ErrorCode::InvalidArgument
-        );
         validate_referral_binding(
             None,
             self.leverage_position.referral_partner,

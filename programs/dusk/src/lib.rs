@@ -371,24 +371,6 @@ pub mod dusk {
         OpenLeverage::handle_open(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
-    /// Deposit the bought asset directly and swap only the borrowed asset.
-    pub fn open_collateral_leverage<'info>(
-        ctx: Context<'_, '_, '_, 'info, OpenLeverage<'info>>,
-        args: OpenCollateralLeverageArgs,
-    ) -> Result<()> {
-        let clock = Clock::get()?;
-        ctx.accounts
-            .validate_funding_at(&args.open, clock.unix_timestamp, true)?;
-        OpenLeverage::handle_funded_open(
-            ctx,
-            args.open,
-            clock.slot,
-            clock.epoch,
-            clock.unix_timestamp,
-            Some(args.max_debt_amount),
-        )
-    }
-
     pub fn close_leverage<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
         args: CloseLeverageArgs,
@@ -396,22 +378,6 @@ pub mod dusk {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
         CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
-    }
-
-    /// Close native collateral funding and pay the remaining collateral back to its owner.
-    pub fn close_collateral_leverage<'info>(
-        ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
-        args: CloseCollateralLeverageArgs,
-    ) -> Result<()> {
-        let clock = Clock::get()?;
-        ctx.accounts.validate_at(
-            &CloseLeverageArgs {
-                debt_asset: args.debt_asset,
-                min_amount_out: 0,
-            },
-            clock.unix_timestamp,
-        )?;
-        CloseLeverage::handle_collateral_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
     pub fn delegated_close_leverage<'info>(

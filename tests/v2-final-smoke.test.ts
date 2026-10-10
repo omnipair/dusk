@@ -7756,7 +7756,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
 
   for (const debtAsset of [0, 1]) for (const concentrated of [false, true]) for (const assetProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) for (const transferFeeBps of assetProgram.equals(TOKEN_2022_PROGRAM_ID) ? [0, 50] : [0]) {
-    it(`native collateral market entry and same-asset close: side ${debtAsset}, concentrated ${concentrated}, token2022 ${assetProgram.equals(TOKEN_2022_PROGRAM_ID)}, transfer fee ${transferFeeBps}`, async function () {
+    it(`debt-funded leverage open, repay and close: side ${debtAsset}, concentrated ${concentrated}, token2022 ${assetProgram.equals(TOKEN_2022_PROGRAM_ID)}, transfer fee ${transferFeeBps}`, async function () {
       this.timeout(120_000);
       const config = marketConfig();
       if (concentrated) {
@@ -7764,7 +7764,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config.amm.coreHalfWidthBps = 100;
         config.amm.fadeWidthBps = 400;
       }
-      // The protected debt asset makes native close exercise active launch fee tiers.
       if (debtAsset === 1 && assetProgram.equals(TOKEN_PROGRAM_ID)) {
         config.startTime = new BN(svm.getClock().unixTimestamp.toString());
         config.amm.launchRateLimitAsset = 2;
@@ -7800,134 +7799,69 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
       };
-      const initial = (await getAccount(connection as any, ownerCollateralAccount, undefined, assetProgram)).amount;
-      const initialDebt = (await getAccount(connection as any, ownerDebtAccount, undefined, assetProgram)).amount;
-      const collateralFee = getTransferFeeConfig(await getMint(connection as any, collateralMint, undefined, assetProgram));
-      const netCollateral = (gross: bigint) => gross - (collateralFee ? calculateEpochFee(collateralFee, svm.getClock().epoch, gross) : 0n);
-      const openArgs = { open: { positionId, debtAsset, marginAmount: new BN(1_000_000),
+      const balance = async (key: PublicKey) => (await getAccount(connection as any, key, undefined, assetProgram)).amount;
+      const collateralBefore = await balance(ownerCollateralAccount);
+      const debtBefore = await balance(ownerDebtAccount);
+      const fee = getTransferFeeConfig(await getMint(connection as any, debtMint, undefined, assetProgram));
+      const netDebt = (gross: bigint) => gross - (fee ? calculateEpochFee(fee, svm.getClock().epoch, gross) : 0n);
+      const openArgs = { positionId, debtAsset, marginAmount: new BN(1_000_000),
         multiplierBps: new BN(20_000), minCollateralOut: new BN(1), referrer: null,
-        positionOwner: null, limitPriceNad: new BN(0) }, maxDebtAmount: new BN(3_000_000) };
-      const openTx = (args: typeof openArgs) => program.methods.openCollateralLeverage(args)
-        .accounts({ ...common, owner: payer.publicKey, payer: payer.publicKey, ownerDebtAccount: ownerCollateralAccount })
+        positionOwner: null, limitPriceNad: new BN(0) };
+      const openTx = (funding: PublicKey) => program.methods.openLeverage(openArgs)
+        .accounts({ ...common, owner: payer.publicKey, payer: payer.publicKey, ownerDebtAccount: funding })
         .remainingAccounts(remaining).transaction();
       let rejected = false;
-      try { await connection.sendTransaction(await openTx({ ...openArgs, maxDebtAmount: new BN(1) }), [payer]); }
+      try { await connection.sendTransaction(await openTx(ownerCollateralAccount), [payer]); }
       catch { rejected = true; }
-      expect(rejected).to.equal(true);
-      expect((await getAccount(connection as any, ownerCollateralAccount, undefined, assetProgram)).amount).to.equal(initial);
+      expect(rejected, "funding must use the debt mint").to.equal(true);
+      expect(await balance(ownerCollateralAccount)).to.equal(collateralBefore);
+      expect(await balance(ownerDebtAccount)).to.equal(debtBefore);
       expect(svm.getAccount(leveragePosition)).to.equal(null);
-      const opened = await connection.sendTransactionMeasured(await openTx(openArgs), [payer]);
-      trackV2Instruction("openCollateralLeverage", this.test?.title);
+
+      const opened = await connection.sendTransactionMeasured(await openTx(ownerDebtAccount), [payer]);
+      trackV2Instruction("openLeverage", this.test?.title);
       const open = cpiEvent(opened.transaction, "leveragePositionOpened");
-      expect(open.fundedCollateralAmount.toString()).to.equal(netCollateral(1_000_000n).toString());
-      expect(open.swap.amountIn.toString()).to.equal(open.borrowedAmount.toString());
-      expect((await getAccount(connection as any, ownerCollateralAccount, undefined, assetProgram)).amount).to.equal(initial - 1_000_000n);
-      expect((await getAccount(connection as any, ownerDebtAccount, undefined, assetProgram)).amount).to.equal(initialDebt);
-      const total = BigInt(open.collateralAmount.toString());
-      let collateralToSell = (total * 3n) / 4n;
-      expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(total);
+      expect(BigInt(open.marginAmount.toString())).to.equal(netDebt(1_000_000n));
+      expect(BigInt(open.swap.amountIn.toString())).to.equal(netDebt(1_000_000n) + BigInt(open.borrowedAmount.toString()));
+      expect(await balance(ownerCollateralAccount)).to.equal(collateralBefore);
+      expect(await balance(ownerDebtAccount)).to.equal(debtBefore - 1_000_000n);
+      const collateral = BigInt(open.collateralAmount.toString());
+      expect(await balance(leverageCollateralVault)).to.equal(collateral);
+      const before = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      const repayment = await program.methods.repayLeverage({ debtAsset, amount: new BN(100_000) })
+        .accounts({ ...common, positionOwner: payer.publicKey, owner: payer.publicKey, ownerDebtAccount,
+          debtInterestVault: debtAsset === 1 ? fixture.quoteInterestVault : fixture.baseInterestVault })
+        .transaction();
+      await connection.sendTransaction(repayment, [payer]);
+      trackV2Instruction("repayLeverage", this.test?.title);
+      const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      expect(BigInt(after.debt_shares.toString()) < BigInt(before.debt_shares.toString())).to.equal(true);
+      expect(after.collateral_amount.toString()).to.equal(before.collateral_amount.toString());
+      expect(after.margin_terms).to.deep.equal(before.margin_terms);
+      expect(await balance(leverageCollateralVault)).to.equal(collateral);
+      expect(cpiEvents(repayment).filter((event) => event.name === "swapExecuted")).to.have.length(0);
+
       const closeAccounts = { ...common, positionOwner: payer.publicKey, authority: payer.publicKey,
         ownerDebtAccount, debtInterestVault: debtAsset === 1 ? fixture.quoteInterestVault : fixture.baseInterestVault,
         delegateFeeRecipient: null, delegateExecutorAccount: null,
         leverageDelegation: null, delegatedProgram: null };
-      let searchedMinimum = false;
-      if (debtAsset === 1 && concentrated) {
-        // The SDK prices candidates locally and simulates only the selected
-        // close against this fixture's bank.
-        const originalSimulate = connection.simulateTransaction;
-        const originalMultipleContext = (connection as any).getMultipleAccountsInfoAndContext;
-        (connection as any).getMultipleAccountsInfoAndContext = async (keys: PublicKey[]) => ({
-          context: { slot: Number(svm.getClock().slot) },
-          value: await Promise.all(keys.map((key) => connection.getAccountInfo(key))),
-        });
-        let simulations = 0;
-        (connection as any).simulateTransaction = async (transaction: any, options: any) => {
-          simulations++;
-          const result = svm.simulateTransaction(transaction);
-          const failure: any = "err" in result ? result.err() : null;
-          const cause = failure && typeof failure.index === "number" && typeof failure.err === "function"
-            ? { InstructionError: [failure.index, { Custom: failure.err().code }] }
-            : failure?.toString() ?? null;
-          return { context: { slot: Number(svm.getClock().slot) },
-            value: { err: cause, logs: result.meta().logs(), accounts: options?.accounts
-              ? await Promise.all(options.accounts.addresses.map(async (key: string) => {
-                  const info = await connection.getAccountInfo(new PublicKey(key));
-                  return info && { ...info, owner: info.owner.toBase58(), data: [Buffer.from(info.data).toString("base64"), "base64"] };
-                })) : undefined } };
-        };
-        svm.withSigverify(false).withBlockhashCheck(false);
-        try {
-          const sdkProgram = new Program(idl as any, program.provider as any);
-          const quote = await new DuskGet(sdkProgram as any).findCollateralLeverageCloseInput({
-            market: fixture.market, positionOwner: payer.publicKey, positionId,
-            debtAsset: "quote", debtMint, collateralMint,
-            ownerDebtAccount, ownerCollateralAccount, minAmountOut: 1n,
-          });
-          collateralToSell = quote.collateralIn;
-          searchedMinimum = true;
-          expect(quote.collateralReturned).to.equal(netCollateral(total - collateralToSell));
-          expect(quote.observedSlot).to.equal(Number(svm.getClock().slot));
-          expect(simulations).to.equal(1);
-        } finally {
-          svm.withSigverify(true).withBlockhashCheck(true);
-          (connection as any).simulateTransaction = originalSimulate;
-          (connection as any).getMultipleAccountsInfoAndContext = originalMultipleContext;
-        }
+      const closeTx = (minimum: anchor.BN, payout = ownerDebtAccount) => program.methods.closeLeverage({ debtAsset, minAmountOut: minimum })
+        .accounts({ ...closeAccounts, ownerDebtAccount: payout }).remainingAccounts(remaining).transaction();
+      for (const tx of [await closeTx(new BN(0), ownerCollateralAccount), await closeTx(new BN("18446744073709551615"))]) {
+        rejected = false;
+        try { await connection.sendTransaction(tx, [payer]); } catch { rejected = true; }
+        expect(rejected, "wrong payout mint or impossible minimum must revert").to.equal(true);
+        expect(await balance(leverageCollateralVault)).to.equal(collateral);
+        expect(svm.getAccount(leveragePosition)).to.not.equal(null);
       }
-      if (searchedMinimum) {
-        const oneLess = await program.methods.closeCollateralLeverage({ debtAsset,
-          collateralIn: new BN((collateralToSell - 1n).toString()), minCollateralOut: new BN(1) })
-          .accounts(closeAccounts)
-          .remainingAccounts([{ pubkey: ownerCollateralAccount, isSigner: false, isWritable: true }, ...remaining])
-          .transaction();
-        let insufficientByOne = false;
-        try { await connection.sendTransaction(oneLess, [payer]); }
-        catch { insufficientByOne = true; }
-        expect(insufficientByOne, "the previous collateral atom must not repay debt").to.equal(true);
-      }
-      // Native positions must not fall through to the debt-token payout path.
-      const legacyClose = await program.methods.closeLeverage({ debtAsset, minAmountOut: new BN(0) })
-        .accounts(closeAccounts).remainingAccounts(remaining).transaction();
-      rejected = false;
-      try { await connection.sendTransaction(legacyClose, [payer]); }
-      catch { rejected = true; }
-      expect(rejected).to.equal(true);
-      // An incorrect payout mint must fail before it can move collateral.
-      const wrongRecipientClose = await program.methods.closeCollateralLeverage({ debtAsset,
-        collateralIn: new BN(collateralToSell.toString()), minCollateralOut: new BN(0) })
-        .accounts(closeAccounts).remainingAccounts([{ pubkey: ownerDebtAccount, isSigner: false, isWritable: true }, ...remaining]).transaction();
-      rejected = false;
-      try { await connection.sendTransaction(wrongRecipientClose, [payer]); }
-      catch { rejected = true; }
-      expect(rejected).to.equal(true);
-      expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(total);
-      const insufficientClose = await program.methods.closeCollateralLeverage({ debtAsset,
-        collateralIn: new BN(1), minCollateralOut: new BN(0) })
-        .accounts(closeAccounts).remainingAccounts([{ pubkey: ownerCollateralAccount, isSigner: false, isWritable: true }, ...remaining]).transaction();
-      rejected = false;
-      try { await connection.sendTransaction(insufficientClose, [payer]); }
-      catch { rejected = true; }
-      expect(rejected).to.equal(true);
-      expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(total);
-      const closeTx = (minimum: anchor.BN) => program.methods.closeCollateralLeverage({ debtAsset,
-        collateralIn: new BN(collateralToSell.toString()), minCollateralOut: minimum })
-        .accounts(closeAccounts).remainingAccounts([{ pubkey: ownerCollateralAccount, isSigner: false, isWritable: true }, ...remaining]).transaction();
-      rejected = false;
-      try { await connection.sendTransaction(await closeTx(new BN(total.toString())), [payer]); }
-      catch { rejected = true; }
-      expect(rejected).to.equal(true);
-      expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(total);
-      expect(svm.getAccount(leveragePosition)).to.not.equal(null);
+      const debtBeforeClose = await balance(ownerDebtAccount);
       const closed = await connection.sendTransactionMeasured(await closeTx(new BN(1)), [payer]);
-      trackV2Instruction("closeCollateralLeverage", this.test?.title);
+      trackV2Instruction("closeLeverage", this.test?.title);
       const close = cpiEvent(closed.transaction, "leveragePositionClosed");
-      const returned = BigInt(close.collateralReturned.toString());
-      expect(returned > 0n).to.equal(true);
-      expect(BigInt(close.collateralSold.toString())).to.equal(collateralToSell);
-      expect(returned).to.equal(netCollateral(total - BigInt(close.collateralSold.toString())));
-      expect((await getAccount(connection as any, ownerCollateralAccount, undefined, assetProgram)).amount).to.equal(initial - 1_000_000n + returned);
-      expect((await getAccount(connection as any, ownerDebtAccount, undefined, assetProgram)).amount - initialDebt).to.equal(BigInt(close.residual.toString()));
-      expect((await getAccount(connection as any, leverageCollateralVault, undefined, assetProgram)).amount).to.equal(0n);
+      expect(BigInt(close.collateralSold.toString())).to.equal(collateral);
+      expect(await balance(ownerDebtAccount) - debtBeforeClose).to.equal(BigInt(close.residual.toString()));
+      expect(await balance(ownerCollateralAccount)).to.equal(collateralBefore);
+      expect(await balance(leverageCollateralVault)).to.equal(0n);
       expect(svm.getAccount(leveragePosition)).to.equal(null);
       expect(closed.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
     });

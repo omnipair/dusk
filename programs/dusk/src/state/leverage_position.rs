@@ -25,8 +25,6 @@ pub struct LeveragePosition {
     pub margin_terms: LeverageMarginTerms,
     /// Entry equity valued in debt-token atoms.
     pub margin_amount: u64,
-    /// Initial collateral-token deposit. Zero denotes debt-token funding.
-    pub funded_collateral_amount: u64,
     pub open_notional: u64,
     pub debt_principal: u128,
     pub debt_shares: u128,
@@ -71,7 +69,6 @@ impl LeveragePosition {
         self.collateral_amount = collateral_amount;
         self.margin_terms = LeverageMarginTerms::default();
         self.margin_amount = margin_amount;
-        self.funded_collateral_amount = 0;
         self.open_notional = open_notional;
         self.debt_principal = debt_principal as u128;
         self.debt_shares = debt_shares;

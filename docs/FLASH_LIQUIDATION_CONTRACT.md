@@ -232,7 +232,7 @@ Read-only previews may remain available, but should expose an active session as 
 | `swap`, other positions' borrowing/leverage/repayment/liquidation | Remain composable with ordinary health and accounting checks. Outstanding shares/exposure/custody reservations stay in force; a separate liquidation cannot consume this position's collateral or insurance reservation. No general flash health waiver. |
 | `remove_liquidity`, `withdraw_single_sided`, `harvest` | Remain composable with additional accounting checks. Do not count in-flight collateral or unpaid obligations as free backing; preserve required physical cash and reservations. Test actual withdrawal/fee accounting, including full LP exit during a session. |
 | `rescue_hlp`, `close_insolvent_hlp`, `settle_protocol_auction` | Account for shared reserve, debt, fee and hLP effects. Bound reference terms do not permit using stale physical cash or skipping post-state invariants. |
-| PR #48 native collateral entry/close and margin paths | Reconcile its new instruction/state variants with the same lock, exposure and debt-free cleanup inventory before combining runtime implementations. |
+| Leverage funding | Optional collateral-funded entry/close removed on 2026-10-11. Debt-funded entry, margin paths and debt-free cleanup retain the same session guards. |
 
 Each path needs instruction-level coverage with the session active, including failed transaction rollback. A complete inventory is a requirement, not evidence that the tests already exist.
 

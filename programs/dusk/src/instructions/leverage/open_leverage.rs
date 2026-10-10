@@ -44,13 +44,6 @@ pub struct OpenLeverageArgs {
     pub limit_price_nad: u64,
 }
 
-/// Native collateral deposit; max debt bounds valuation changes between preview and execution.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct OpenCollateralLeverageArgs {
-    pub open: OpenLeverageArgs,
-    pub max_debt_amount: u64,
-}
-
 #[event_cpi]
 #[derive(Accounts)]
 pub struct OpenLeverage<'info> {
@@ -101,10 +94,6 @@ pub struct OpenLeverage<'info> {
 
 impl<'info> OpenLeverage<'info> {
     pub fn validate_at(&self, args: &OpenLeverageArgs, unix_timestamp: i64) -> Result<()> {
-        self.validate_funding_at(args, unix_timestamp, false)
-    }
-
-    pub fn validate_funding_at(&self, args: &OpenLeverageArgs, unix_timestamp: i64, native: bool) -> Result<()> {
         validate_leverage_market_pda(&self.market, self.market.key())?;
         validate_leverage_futarchy_pda(self.futarchy_authority.bump, self.futarchy_authority.key())?;
         self.market
@@ -147,11 +136,7 @@ impl<'info> OpenLeverage<'info> {
             &self.debt_reserve_vault,
             &self.collateral_reserve_vault,
         )?;
-        validate_owner_debt_account(
-            self.owner.key(),
-            if native { &self.collateral_mint } else { &self.debt_mint },
-            &self.owner_debt_account,
-        )?;
+        validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
         require_gte!(
             self.owner_debt_account.amount,
             args.margin_amount,
@@ -177,17 +162,6 @@ impl<'info> OpenLeverage<'info> {
         current_slot: u64,
         current_epoch: u64,
         unix_timestamp: i64,
-    ) -> Result<()> {
-        Self::handle_funded_open(ctx, args, current_slot, current_epoch, unix_timestamp, None)
-    }
-
-    pub fn handle_funded_open(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: OpenLeverageArgs,
-        current_slot: u64,
-        current_epoch: u64,
-        unix_timestamp: i64,
-        max_native_debt: Option<u64>,
     ) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let h_lp_accounts = {
@@ -251,17 +225,8 @@ impl<'info> OpenLeverage<'info> {
             ],
         )?;
 
-        let native = max_native_debt.is_some();
-        let funding_mint = if native {
-            &ctx.accounts.collateral_mint
-        } else {
-            &ctx.accounts.debt_mint
-        };
-        let funding_vault = if native {
-            ctx.accounts.leverage_collateral_vault.to_account_info()
-        } else {
-            ctx.accounts.debt_reserve_vault.to_account_info()
-        };
+        let funding_vault = ctx.accounts.debt_reserve_vault.to_account_info();
+        let funding_mint = &ctx.accounts.debt_mint;
         let before = crate::instructions::accounts::token_account_info_amount(&funding_vault)?;
         transfer_checked_with_remaining_accounts(
             ctx.accounts.owner.to_account_info(),
@@ -288,24 +253,10 @@ impl<'info> OpenLeverage<'info> {
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        if native {
-            ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
-            ctx.accounts.market.advance_one_amm_controller_target(current_slot)?;
-        }
-        let funded_collateral_amount = if native { deposit_credit } else { 0 };
-        let margin_credit = if native {
-            ctx.accounts
-                .market
-                .leverage_collateral_entry_value(debt_asset, deposit_credit)?
-        } else {
-            deposit_credit
-        };
+        let margin_credit = deposit_credit;
 
         // Quote the leveraged purchase against margin plus borrowed debt.
         let debt_amount = leverage_debt_from_margin(margin_credit, args.multiplier_bps)?;
-        if let Some(max_debt) = max_native_debt {
-            require_gte!(max_debt, debt_amount, ErrorCode::SlippageExceeded);
-        }
         let referral = validate_referral_binding(
             args.referrer,
             Pubkey::default(),
@@ -325,20 +276,14 @@ impl<'info> OpenLeverage<'info> {
             current_slot,
             current_unix_timestamp: unix_timestamp,
             asset_in: debt_asset,
-            reserve_credit: if native { debt_amount } else { notional },
+            reserve_credit: notional,
             protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
         };
         let policy = SwapCashPolicy::Borrow {
             asset: debt_asset,
             amount: debt_amount,
         };
-        let prepared_swap = if native {
-            let prepared = request.prepare_with_cash_policy_on_curve(&mut ctx.accounts.market, policy, true)?;
-            ctx.accounts.market.observe_current_risk(current_slot)?;
-            prepared
-        } else {
-            prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?
-        };
+        let prepared_swap = prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?;
 
         let interest_eligibility = prepared_swap.interest_eligibility;
         let collateral_credit = leverage_collateral_credit(
@@ -350,7 +295,7 @@ impl<'info> OpenLeverage<'info> {
         require_leverage_entry_limit(
             &ctx.accounts.market,
             debt_asset,
-            if native { debt_amount } else { notional },
+            notional,
             collateral_credit,
             args.limit_price_nad,
         )?;
@@ -369,7 +314,7 @@ impl<'info> OpenLeverage<'info> {
         )?;
 
         // Commit position accounting and settle the resulting hLP exposure.
-        let receipt = ctx.accounts.market.open_leverage_funded(
+        let receipt = ctx.accounts.market.open_leverage(
             &mut leverage_position,
             position_owner_key,
             market_key,
@@ -380,9 +325,7 @@ impl<'info> OpenLeverage<'info> {
             debt_asset,
             margin_credit,
             args.multiplier_bps,
-            collateral_credit
-                .checked_add(funded_collateral_amount)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
+            collateral_credit,
             prepared_swap,
             swap_fee_credit,
             unix_timestamp,
@@ -391,7 +334,6 @@ impl<'info> OpenLeverage<'info> {
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
             leverage_collateral_admission_fee(&ctx.accounts.collateral_mint, current_epoch)?,
-            funded_collateral_amount,
         )?;
         {
             let mut data = ctx.accounts.leverage_position.try_borrow_mut_data()?;
@@ -455,7 +397,6 @@ impl<'info> OpenLeverage<'info> {
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
             margin_amount: margin_credit,
-            funded_collateral_amount,
             borrowed_amount: receipt.borrowed_amount,
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,

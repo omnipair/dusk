@@ -5,7 +5,7 @@ Status: implementation plan; economic parameters require calibration.
 **2026-10-05 update:** read [the current decision record](LIQUIDATION_DECISIONS.md)
 first. All eight product questions are answered there. It supersedes the older
 timer, program-paid reward, surplus-return, eligibility and margin alternatives
-below. Implementation belongs in #45, including #48's native-collateral feature.
+below. Implementation belongs in #45. The 2026-10-11 decision record supersedes inclusion of #48's optional collateral-funded feature.
 The remainder retains the design history and calibration requirements; conflicting
 proposals are not authorization to implement the previous policy.
 

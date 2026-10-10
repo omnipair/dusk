@@ -1,3 +1,13 @@
+# Superseded: optional collateral-funded leverage
+
+2026-10-11: the user reversed this feature in PR #45. Openings now accept only
+the debt token, swap margin plus borrowing into the opposite token, and close
+back into the debt token. The native open/close instructions, funding marker,
+extra event fields and dedicated SDK/WASM close solver have been removed.
+Applications may zap wallet assets into the required funding token before entry.
+
+The following is historical context, not a supported interface or rollout plan.
+
 # Native collateral leverage — local candidate
 
 Implemented on 2026-10-02 in `dusk`, `dusk-webapp`, and `dusk-indexer`.

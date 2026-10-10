@@ -365,17 +365,6 @@ impl SwapRequest {
         market: &mut Market,
         cash_policy: SwapCashPolicy,
     ) -> Result<Box<PreparedSwap>> {
-        self.prepare_with_cash_policy_on_curve(market, cash_policy, false)
-    }
-
-    /// `curve_prepared` is used when the leverage instruction has already frozen
-    /// the curve to value native funding or solve its repayment input.
-    pub(crate) fn prepare_with_cash_policy_on_curve(
-        self,
-        market: &mut Market,
-        cash_policy: SwapCashPolicy,
-        curve_prepared: bool,
-    ) -> Result<Box<PreparedSwap>> {
         market.accrue_interest_to_slot(self.current_slot)?;
         require_eq!(
             market.base_side.shares.ylp_supply,
@@ -387,8 +376,7 @@ impl SwapRequest {
             base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
             quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
         };
-        if !curve_prepared && market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0
-        {
+        if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
             market.prepare_amm_for_swap(self.current_slot)?;
         }
 
@@ -397,9 +385,7 @@ impl SwapRequest {
         // before freezing this swap's fee/curve state. The observation made by
         // this swap can only schedule a target for a later operation.
         market.config.amm.concentrated_curve_parameters()?;
-        if !curve_prepared {
-            market.advance_one_amm_controller_target(self.current_slot)?;
-        }
+        market.advance_one_amm_controller_target(self.current_slot)?;
         let pre_state = market.dynamic_fee_pre_state(self.current_slot)?;
         let preliminary = market.preliminary_swap_inputs_for_state_at_time(
             self.asset_in,

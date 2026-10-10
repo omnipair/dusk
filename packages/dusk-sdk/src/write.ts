@@ -493,11 +493,12 @@ export class DuskWrite {
       throw new Error("Leverage debt and collateral mints must differ");
     }
 
+    if ("fundingAsset" in params && params.fundingAsset !== undefined && params.fundingAsset !== "debt")
+      throw new Error("Leverage funding must use the debt asset; swap other tokens before opening");
     const positionId = address(params.positionId);
-    const fundingMint = params.fundingAsset === "collateral" ? collateralMint : debtMint;
     const debtTokenProgram = await tokenProgramForMint(
       this.program.provider.connection,
-      fundingMint
+      debtMint
     );
 
     const openArgs = {
@@ -519,11 +520,9 @@ export class DuskWrite {
           "limitPriceNad"
         ),
       };
-    const native = params.fundingAsset === "collateral";
-    if (native && params.maxDebtAmount === undefined) throw new Error("Native entry requires a maximum debt amount");
     return this.instruction(
-      (native ? "openCollateralLeverage" : "openLeverage") as DuskInstructionName,
-      native ? { open: openArgs, maxDebtAmount: governanceIntegerBN(params.maxDebtAmount!, "maxDebtAmount") } : openArgs,
+      "openLeverage",
+      openArgs,
       {
         accounts: {
           market,
@@ -551,7 +550,7 @@ export class DuskWrite {
           ownerDebtAccount: address(
             params.ownerDebtAccount ??
               getAssociatedTokenAddressSync(
-                fundingMint,
+                debtMint,
                 owner,
                 true,
                 debtTokenProgram
@@ -1932,17 +1931,12 @@ export class DuskWrite {
     params: CloseLeverageParams,
     marketSnapshot?: Market
   ): Promise<TransactionInstruction> {
+    if ("collateralFunded" in params && params.collateralFunded === true)
+      throw new Error("Collateral-funded leverage closes are no longer supported");
     const core = await this.resolveLeverageAccounts(params);
-    const native = params.collateralFunded === true;
-    if (native && (!params.ownerCollateralAccount || params.collateralIn === undefined))
-      throw new Error("Native close requires a collateral recipient and exact sale amount");
     return this.instruction(
-      (native ? "closeCollateralLeverage" : "closeLeverage") as DuskInstructionName,
-      native ? {
-        debtAsset: marketAssetIndex(params.debtAsset),
-        collateralIn: governanceIntegerBN(params.collateralIn!, "collateralIn"),
-        minCollateralOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
-      } : {
+      "closeLeverage",
+      {
         debtAsset: marketAssetIndex(params.debtAsset),
         minAmountOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
       },
@@ -1979,7 +1973,6 @@ export class DuskWrite {
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
         remainingAccounts: [
-          ...(native ? [{ pubkey: address(params.ownerCollateralAccount!), isSigner: false, isWritable: true }] : []),
           ...(await this.hlpRemainingAccounts(core.market, marketSnapshot)),
           ...(params.remainingAccounts ?? []),
         ],
@@ -2189,11 +2182,6 @@ export interface RemoveLeverageMarginParams extends LeverageMarginParams {
 }
 
 export interface CloseLeverageParams extends LeverageAccounts {
-  /** Return unsold native collateral; debt-token rounding surplus is refunded separately. */
-  collateralFunded?: boolean;
-  ownerCollateralAccount?: AddressLike;
-  /** Exact raw collateral amount to sell; the program verifies debt coverage. */
-  collateralIn?: RawAmount;
   minAmountOut: RawAmount;
   /** Payout account owned by the position owner. */
   ownerDebtAccount: AddressLike;
@@ -2225,11 +2213,8 @@ interface YlpLiquidityAccounts {
 /** Which side of the market a leverage position borrows. */
 export type LeverageDebtAsset = "base" | "quote";
 
-/** Opening leverage, described by the market, position and mints. */
+/** Opening leverage funded in the debt asset; margin plus borrowing buys collateral. */
 export interface OpenLeverageParams {
-  fundingAsset?: "debt" | "collateral";
-  /** Required for collateral funding; bounds spot-valued borrowing at execution. */
-  maxDebtAmount?: RawAmount;
   market: AddressLike;
   owner: AddressLike;
   positionId: AddressLike;

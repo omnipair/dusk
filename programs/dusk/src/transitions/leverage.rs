@@ -1190,65 +1190,7 @@ impl Market {
         Ok(())
     }
 
-    pub fn leverage_collateral_entry_value(&self, debt_asset: MarketAsset, amount: u64) -> Result<u64> {
-        let collateral_asset = debt_asset.opposite();
-        let normalized = self.normalize_amount(amount as u128, self.side(collateral_asset).asset_decimals)?;
-        let price = self.current_base_price_nad()?;
-        require_gt!(price, 0, ErrorCode::InsufficientLiquidity);
-        let value = match collateral_asset {
-            MarketAsset::Base => mul_div_u128(normalized, price as u128, NAD as u128)?,
-            MarketAsset::Quote => mul_div_u128(normalized, NAD as u128, price as u128)?,
-        };
-        self.denormalize_amount_floor(value, self.side(debt_asset).asset_decimals)
-    }
-
     pub fn open_leverage(
-        &mut self,
-        position: &mut LeveragePosition,
-        owner: Pubkey,
-        market: Pubkey,
-        namespace_authority: Pubkey,
-        position_id: Pubkey,
-        referral_partner: Pubkey,
-        referral_interest_share_bps: u16,
-        debt_asset: MarketAsset,
-        margin_credit: u64,
-        multiplier_bps: u64,
-        collateral_credit: u64,
-        prepared_swap: PreparedLeverageSwap,
-        swap_fee_credit: LeverageSwapFeeCredit,
-        opened_at: i64,
-        opened_slot: u64,
-        bump: u8,
-        protocol_fee_bps: u16,
-        protocol_auction_split: ProtocolAuctionSplit,
-        collateral_fee: LeverageCollateralFee,
-    ) -> Result<LeverageOpenReceipt> {
-        self.open_leverage_funded(
-            position,
-            owner,
-            market,
-            namespace_authority,
-            position_id,
-            referral_partner,
-            referral_interest_share_bps,
-            debt_asset,
-            margin_credit,
-            multiplier_bps,
-            collateral_credit,
-            prepared_swap,
-            swap_fee_credit,
-            opened_at,
-            opened_slot,
-            bump,
-            protocol_fee_bps,
-            protocol_auction_split,
-            collateral_fee,
-            0,
-        )
-    }
-
-    pub fn open_leverage_funded(
         &mut self,
         position: &mut LeveragePosition,
         owner: Pubkey,
@@ -1269,7 +1211,6 @@ impl Market {
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         collateral_fee: LeverageCollateralFee,
-        funded_collateral_amount: u64,
     ) -> Result<LeverageOpenReceipt> {
         let swap = prepared_swap.leverage_quote();
         require!(margin_credit > 0, ErrorCode::AmountZero);
@@ -1283,16 +1224,8 @@ impl Market {
             .checked_add(borrowed_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.ensure_amm_initialized(opened_slot)?;
-        let swap_input = if funded_collateral_amount == 0 {
-            notional
-        } else {
-            borrowed_amount
-        };
-        let purchased_collateral = collateral_credit
-            .checked_sub(funded_collateral_amount)
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        require_eq!(swap.amount_in, swap_input, ErrorCode::BrokenInvariant);
-        require_gte!(swap.amount_out, purchased_collateral, ErrorCode::SlippageExceeded);
+        require_eq!(swap.amount_in, notional, ErrorCode::BrokenInvariant);
+        require_gte!(swap.amount_out, collateral_credit, ErrorCode::SlippageExceeded);
         require!(collateral_credit > 0, ErrorCode::InsufficientOutputAmount);
 
         let margin_potential_before = self.leverage_admission_potential(debt_asset.opposite())?;
@@ -1333,7 +1266,6 @@ impl Market {
             bump,
         );
         position.open_curve_revision = self.curve_revision;
-        position.funded_collateral_amount = funded_collateral_amount;
         self.retain_leverage_admission(position, collateral_credit, margin_potential_before, true)?;
         let closeout_value =
             self.require_position_initial_leverage_health(position, opened_slot, opened_at, collateral_fee)?;

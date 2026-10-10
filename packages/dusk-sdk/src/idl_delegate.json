@@ -4275,13 +4275,6 @@
             "type": "u64"
           },
           {
-            "name": "funded_collateral_amount",
-            "docs": [
-              "Initial collateral-token deposit. Zero denotes debt-token funding."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "open_notional",
             "type": "u64"
           },
