@@ -1,6 +1,6 @@
 {
   "name": "@omnipair/dusk-sdk",
-  "version": "2.10.2-devnet.20260927",
+  "version": "2.13.0-devnet.20261001",
   "description": "Dusk SDK for Omnipair V2 program writes, RPC reads, parameter governance, previews, and indexer data",
   "license": "MIT",
   "author": "Omnipair <security@omnipair.fi>",
@@ -57,7 +57,7 @@
     "build": "npm run prepare-idl && tsc",
     "typecheck": "tsc --noEmit",
     "test:governance": "npm run build && node scripts/check-governance.js",
-    "test:previews": "tsc && node --test scripts/check-previews.js scripts/check-virtual-book.js scripts/check-lp-tokens.js",
+    "test:previews": "npm run build && node --test scripts/check-previews.js scripts/check-virtual-book.js scripts/check-lp-tokens.js scripts/check-leverage-margins.js scripts/check-leverage-funding.js scripts/check-insurance.js scripts/check-liquidation.js",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },

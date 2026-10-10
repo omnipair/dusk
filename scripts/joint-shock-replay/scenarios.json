@@ -1,0 +1,1029 @@
+[
+  {
+    "id": "h0-s0-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s0-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s0-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s0-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s0-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s0-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.1-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.1-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.1-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.1-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.1-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.1-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.3-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.3-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.3-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.3-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.3-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.3-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.5-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.5-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.5-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.5-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.5-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.5-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.7-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.7-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.7-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.7-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.7-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h0-s-0.7-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s0-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s0-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s0-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s0-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s0-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s0-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.1-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.1-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.1-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.1-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.1-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.1-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.3-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.3-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.3-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.3-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.3-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.3-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.5-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.5-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.5-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.5-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.5-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.5-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.7-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.7-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.7-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.7-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.7-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h25000-s-0.7-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 25000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s0-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s0-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s0-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s0-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s0-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s0-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": 0,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.1-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.1-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.1-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.1-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.1-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.1-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.1,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.3-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.3-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.3-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.3-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.3-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.3-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.5-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.5-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.5-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.5-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.5-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.5-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.7-w0-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.7-w0-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.7-w0.25-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.7-w0.25-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.25,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.7-w0.5-k0",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 0,
+    "horizon_s": 3600
+  },
+  {
+    "id": "h100000-s-0.7-w0.5-k900",
+    "group": "primary",
+    "hlp_each_usd": 100000,
+    "shock": -0.7,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "up-h0-s0.5",
+    "group": "upside",
+    "hlp_each_usd": 0,
+    "shock": 0.5,
+    "debt_asset": "base",
+    "borrow_usd": 75000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "up-h0-s1.0",
+    "group": "upside",
+    "hlp_each_usd": 0,
+    "shock": 1.0,
+    "debt_asset": "base",
+    "borrow_usd": 75000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "continuation-h0",
+    "group": "continuation",
+    "hlp_each_usd": 0,
+    "shock": -0.3,
+    "continuation": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "up-h25000-s0.5",
+    "group": "upside",
+    "hlp_each_usd": 25000,
+    "shock": 0.5,
+    "debt_asset": "base",
+    "borrow_usd": 75000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "up-h25000-s1.0",
+    "group": "upside",
+    "hlp_each_usd": 25000,
+    "shock": 1.0,
+    "debt_asset": "base",
+    "borrow_usd": 75000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "continuation-h25000",
+    "group": "continuation",
+    "hlp_each_usd": 25000,
+    "shock": -0.3,
+    "continuation": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "up-h100000-s0.5",
+    "group": "upside",
+    "hlp_each_usd": 100000,
+    "shock": 0.5,
+    "debt_asset": "base",
+    "borrow_usd": 75000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "up-h100000-s1.0",
+    "group": "upside",
+    "hlp_each_usd": 100000,
+    "shock": 1.0,
+    "debt_asset": "base",
+    "borrow_usd": 75000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "continuation-h100000",
+    "group": "continuation",
+    "hlp_each_usd": 100000,
+    "shock": -0.3,
+    "continuation": -0.3,
+    "borrow_usd": 75000,
+    "withdraw_fraction": 0.5,
+    "keeper_delay_s": 900,
+    "horizon_s": 3600
+  },
+  {
+    "id": "admission-25000",
+    "group": "admission",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 25000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "admission-50000",
+    "group": "admission",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 50000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "admission-100000",
+    "group": "admission",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 100000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "admission-150000",
+    "group": "admission",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 150000,
+    "horizon_s": 3600
+  },
+  {
+    "id": "admission-200000",
+    "group": "admission",
+    "hlp_each_usd": 100000,
+    "shock": -0.5,
+    "borrow_usd": 200000,
+    "horizon_s": 3600
+  }
+]

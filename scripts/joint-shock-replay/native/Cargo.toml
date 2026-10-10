@@ -1,0 +1,17 @@
+[package]
+name = "dusk-joint-shock"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+anchor-lang = "0.31.1"
+serde_json = "1"
+dusk = { path = "../engine-snapshot/programs/dusk", features = ["benchmark"] }
+
+[profile.dev.package.dusk]
+opt-level = 2
+
+[profile.dev.package.dusk-joint-shock]
+opt-level = 2

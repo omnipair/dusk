@@ -56,6 +56,12 @@ activity comes from leverage lifecycle events under an explicit notional
 convention; it must not be inferred from the amount swapped. These product
 metrics overlap and must not be added into an unlabeled total volume.
 
+The 2026-10-11 funding simplification removes `funded_collateral_amount` from
+`LeveragePosition` and `LeveragePositionOpened`, and `collateral_returned` from
+`LeveragePositionClosed`. Ordinary closes return the net debt-token `residual`.
+Consumers must decode the regenerated account/event layouts together with the
+matching program; the optional collateral-funded entry/close APIs are removed.
+
 ## Interest accrued
 
 `BorrowInterestAccrued` records one asset's actual borrow-index checkpoint:
@@ -115,10 +121,33 @@ Accrual and payment events are separate reporting bases. Maintain both series;
 never sum them into one fees/revenue series. Convert raw mint atoms to a common
 currency off-chain with explicit pricing and reporting-period conventions.
 
+## Flash liquidation consumers
+
+Liquidation auction start/fill/backstop and the old full leverage liquidation
+entrypoint are removed. `LiquidationObserved` records a committed distress
+observation, `FlashLiquidationBegun` the fixed economic obligation, and
+`FlashLiquidationSettled` the actual debt reduction, fee split, owner surplus,
+principal/insurance loss allocation and remaining debt/collateral. Internal
+emergency execution reports `EmergencyLiquidationSettled` with the complete
+quote and the remaining position. Fetch the position after settlement if your
+index needs exact debt shares, retained margin obligations or the other debt leg.
+
+Only routes that execute in Dusk emit `SwapExecuted`. External liquidation
+payment is not Dusk swap volume. Collected interest still emits
+`BorrowInterestPaid` and applicable `ReferralInterestAccrued`. Canceled unpaid
+interest earns neither fees nor referral claims. The 1% liquidation contribution
+is reported separately in the liquidation event; do not count it twice as
+interest or swap revenue.
+
+A terminal liquidation clears the selected debt leg without closing position
+rent. The owner can use the existing debt-free cleanup instructions. The old
+auction fields remain inactive in the development layout for historical native
+replay; they must not be used to schedule or price current liquidation.
+
 ## Borrow positions
 
-Every instruction that writes a `BorrowPosition` reports the fields it can
-change, as the position's state after the instruction:
+The following ordinary position instructions retain their existing events.
+The auction rows below describe historical data only:
 
 | Instruction | Event | Position state carried |
 |---|---|---|
@@ -132,10 +161,10 @@ change, as the position's state after the instruction:
 
 The first deposit creates the position with no debt, zero liquidation CFs, no
 referral binding, and no auction. `auction_debt_asset` is `255` when no auction
-is active; the auction start time and prices are then zero, and otherwise keep
-the values from `LiquidationAuctionStarted`. Deposits and repayments that
-restore health cancel an active auction, so their events carry the resulting
-auction side. A side's referral binding is set by `ReferralBound` and clears
+is active; current positions retain this inactive sentinel and zero auction
+prices. Earlier deployments emitted the historical auction lifecycle above.
+Current deposits and repayments that restore health clear the appropriate
+`LiquidationDistress` episode; fetch the position for its current clock state. A side's referral binding is set by `ReferralBound` and clears
 whenever that side's fixed debt shares reach zero. `MarketDebtUpdated`'s
 `fixed_base_debt` and `fixed_quote_debt` are market-wide totals, not the
 position's debt. A position whose `closed` flag is set, or whose
@@ -196,9 +225,14 @@ A direct Token-2022 burn bypasses the hook and emits no Dusk event.
 
 ## Interface changes
 
-`initialize_yield_accounts` and `start_liquidation_auction` now require Anchor's
-event authority and program accounts so their real accruals can be emitted by
-self-CPI. SDK instruction construction resolves those accounts from the new
-IDL. `LeveragePositionUpdated` also exposes `interest_paid`, including decreases,
-partial closes, and margin repayments. Persistent account layouts, borrow
-rates, repayment allocation, and lending economics are unchanged.
+The liquidation redesign changes persistent Market, BorrowPosition and
+LeveragePosition layouts and adds LiquidationSession. It also changes
+MarketConfig, insurance governance fields and borrowing preview return data.
+Regenerate clients from the vendored Dusk and leverage-delegate IDLs together.
+This development revision has no production-account migration contract.
+
+The old auction instructions and `liquidate_leverage_position` are removed.
+Use observe/preview/begin/settle or emergency liquidation. Event CPI accounts
+are resolved by the SDK. `LeveragePositionUpdated` continues to expose collected
+interest for voluntary position operations. Indexers should implement the new
+liquidation events above before consuming this program revision.

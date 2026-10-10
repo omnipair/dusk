@@ -2,6 +2,52 @@ use super::*;
 use proptest::prelude::*;
 
 #[test]
+fn extreme_forward_price_values_both_hlp_numeraires_without_a_rounded_reciprocal() {
+    let mut market = Market::default();
+    market.base_side.asset_decimals = 0;
+    market.quote_side.asset_decimals = 0;
+    let price = (NAD as u128) * (NAD as u128) + NAD as u128;
+    let prices = hlp_curve_prices_from_base_price_nad(price).unwrap();
+
+    assert_eq!(
+        asset_value_in_target_nad_with_prices(&market, prices, MarketAsset::Base, 1, MarketAsset::Quote).unwrap(),
+        price,
+    );
+    assert_eq!(
+        asset_value_in_target_nad_with_prices(&market, prices, MarketAsset::Quote, NAD + 1, MarketAsset::Base,)
+            .unwrap(),
+        NAD as u128,
+    );
+    assert_eq!(
+        raw_amount_from_target_value_nad_with_prices(
+            &market,
+            prices,
+            MarketAsset::Quote,
+            MarketAsset::Base,
+            NAD as u128,
+        )
+        .unwrap(),
+        NAD + 1,
+    );
+}
+
+#[test]
+fn quote_hlp_settlement_divergence_uses_inverse_relative_change() {
+    let mut market = Market::default();
+    market.base_side.asset_decimals = 0;
+    market.quote_side.asset_decimals = 0;
+    market.add_liquidity(10_000, 20_000).unwrap();
+    market.config.settlement_divergence_bps = 500;
+    market.quote_hlp_vault.hlp_supply = 1;
+    market.quote_hlp_vault.cached_settlement_price_nad = 1_900_000_000;
+    market.base_hlp_vault.hlp_supply = 1;
+    market.base_hlp_vault.cached_settlement_price_nad = 1_900_000_000;
+
+    assert!(require_hlp_settlement_available(&market, MarketAsset::Quote).is_ok());
+    assert!(require_hlp_settlement_available(&market, MarketAsset::Base).is_err());
+}
+
+#[test]
 fn proportional_debt_checks_adjacent_shares_after_interest_accrual() {
     let index = 6_989_199_360;
     // All five old raw candidates (6,990..=6,994) round up to 1,001
@@ -122,33 +168,59 @@ proptest! {
 }
 
 #[cfg(feature = "benchmark")]
+fn captured_vob_market() -> Market {
+    // The captured account predates the two fractional debt-index carry
+    // fields. Insert zero carry at their Borsh position before replaying the
+    // otherwise unchanged devnet snapshot against the current Market layout.
+    let mut layout = Market::default();
+    layout.debt.quote_borrow_index_nad = u128::MAX;
+    let mut encoded_layout = Vec::new();
+    layout.try_serialize(&mut encoded_layout).unwrap();
+    let marker = u128::MAX.to_le_bytes();
+    let marker_offset = encoded_layout
+        .windows(marker.len())
+        .position(|window| window == marker)
+        .unwrap();
+    let carry_offset = marker_offset + marker.len();
+
+    let mut captured = include_bytes!("../fixtures/vob-market-20260929.bin").to_vec();
+    captured.splice(carry_offset..carry_offset, [0; 32]);
+    Market::try_deserialize(&mut captured.as_slice()).unwrap()
+}
+
+#[cfg(feature = "benchmark")]
 #[test]
 fn captured_vob_bids_survive_fractional_output_rounding() {
     use crate::benchmark_api::{BenchmarkClock, BenchmarkMarket, BenchmarkSwapRequest};
     use crate::state::FutarchyAuthority;
 
-    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
-        .unwrap();
-    let clock = BenchmarkClock { slot: 505_496_119, unix_timestamp: 1_790_677_156 };
+    let authority =
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+            .unwrap();
+    let clock = BenchmarkClock {
+        slot: 505_496_119,
+        unix_timestamp: 1_790_677_156,
+    };
     // These are the twelve candidate bid levels for the captured devnet
     // market. Before the carry certificate, six failed BrokenInvariant;
     // the quote-side raw reconciliation was four atoms instead of three.
+    // Using recorded start debt changes the fractional ordinary coordinate;
+    // all twelve bids now require exactly one certified output atom.
     for (amount, expected_carry) in [
-        (540_606, 0),
+        (540_606, 1),
         (1_082_025, 1),
-        (1_624_259, 0),
+        (1_624_259, 1),
         (2_167_308, 1),
-        (2_711_176, 0),
+        (2_711_176, 1),
         (3_255_864, 1),
-        (3_801_374, 0),
-        (4_347_710, 0),
+        (3_801_374, 1),
+        (4_347_710, 1),
         (4_894_872, 1),
-        (5_442_864, 0),
+        (5_442_864, 1),
         (5_991_686, 1),
         (6_541_340, 1),
     ] {
-        let market = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
-            .unwrap();
+        let market = captured_vob_market();
         let benchmark = BenchmarkMarket::from_market_state(market, clock).unwrap();
         let request = BenchmarkSwapRequest {
             asset_in: MarketAsset::Base,
@@ -156,10 +228,11 @@ fn captured_vob_bids_survive_fractional_output_rounding() {
             protocol_fee_bps: authority.revenue_share.swap_bps,
             protocol_auction_split: authority.protocol_auction_split,
         };
-        let result = benchmark.preview_swap(request).unwrap_or_else(|error| panic!("bid {amount}: {error:?}"));
+        let result = benchmark
+            .preview_swap(request)
+            .unwrap_or_else(|error| panic!("bid {amount}: {error:?}"));
         assert!(result.quote.amount_out > 0, "bid {amount}");
-        let mut before = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
-            .unwrap();
+        let mut before = captured_vob_market();
         let prepared = crate::transitions::amm::SwapRequest {
             current_slot: clock.slot,
             current_unix_timestamp: clock.unix_timestamp,
@@ -180,10 +253,10 @@ fn captured_vob_bids_survive_fractional_output_rounding() {
 fn captured_vob_bid_rejects_unexplained_reserve_drift() {
     use crate::state::FutarchyAuthority;
 
-    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
-        .unwrap();
-    let mut market = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
-        .unwrap();
+    let authority =
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+            .unwrap();
+    let mut market = captured_vob_market();
     let mut prepared = crate::transitions::amm::SwapRequest {
         current_slot: 505_496_119,
         current_unix_timestamp: 1_790_677_156,
@@ -197,7 +270,12 @@ fn captured_vob_bid_rejects_unexplained_reserve_drift() {
     // must still fail the original three-atom reconciliation bound.
     market.quote_side.reserves.live_reserve += 4;
     let error = prepared
-        .finalize_state(&mut market, 505_496_119, authority.revenue_share.swap_bps, authority.protocol_auction_split)
+        .finalize_state(
+            &mut market,
+            505_496_119,
+            authority.revenue_share.swap_bps,
+            authority.protocol_auction_split,
+        )
         .unwrap_err();
     assert_eq!(error, error!(ErrorCode::BrokenInvariant));
 }
@@ -208,12 +286,15 @@ fn captured_vob_asks_certify_only_base_output_rounding() {
     use crate::benchmark_api::{BenchmarkClock, BenchmarkMarket, BenchmarkSwapRequest};
     use crate::state::FutarchyAuthority;
 
-    let authority = FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
-        .unwrap();
-    let clock = BenchmarkClock { slot: 505_496_119, unix_timestamp: 1_790_677_156 };
-    for amount in [500_000, 1_000_000, 2_000_000, 4_000_000] {
-        let market = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
+    let authority =
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
             .unwrap();
+    let clock = BenchmarkClock {
+        slot: 505_496_119,
+        unix_timestamp: 1_790_677_156,
+    };
+    for amount in [500_000, 1_000_000, 2_000_000, 4_000_000] {
+        let market = captured_vob_market();
         let benchmark = BenchmarkMarket::from_market_state(market, clock).unwrap();
         let request = BenchmarkSwapRequest {
             asset_in: MarketAsset::Quote,
@@ -221,10 +302,11 @@ fn captured_vob_asks_certify_only_base_output_rounding() {
             protocol_fee_bps: authority.revenue_share.swap_bps,
             protocol_auction_split: authority.protocol_auction_split,
         };
-        let result = benchmark.preview_swap(request).unwrap_or_else(|error| panic!("ask {amount}: {error:?}"));
+        let result = benchmark
+            .preview_swap(request)
+            .unwrap_or_else(|error| panic!("ask {amount}: {error:?}"));
         assert!(result.quote.amount_out > 0, "ask {amount}");
-        let mut before = Market::try_deserialize(&mut include_bytes!("../fixtures/vob-market-20260929.bin").as_slice())
-            .unwrap();
+        let mut before = captured_vob_market();
         let prepared = crate::transitions::amm::SwapRequest {
             current_slot: clock.slot,
             current_unix_timestamp: clock.unix_timestamp,

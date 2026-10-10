@@ -13,10 +13,12 @@ use crate::{
     transitions::HlpYieldEligibility,
 };
 
-use super::settlement::{record_leverage_interest, validate_leverage_interest_account, validate_owner_debt_account};
+use super::settlement::{
+    leverage_collateral_fee, record_leverage_interest, validate_leverage_interest_account, validate_leverage_mints,
+    validate_owner_debt_account,
+};
 use crate::instructions::accounts::{
-    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
-    validate_side_vault_accounts,
+    require_reserve_custody, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
 };
 use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
 
@@ -54,6 +56,8 @@ pub struct AddLeverageMargin<'info> {
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            leverage_position.owner.as_ref(),
+            leverage_position.namespace_authority.as_ref(),
             leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
@@ -63,6 +67,7 @@ pub struct AddLeverageMargin<'info> {
     pub leverage_position: Box<Account<'info, LeveragePosition>>,
 
     pub debt_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
     pub debt_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -91,7 +96,7 @@ impl<'info> AddLeverageMargin<'info> {
         validate_side_vault_accounts(&self.market, debt_asset, &self.debt_mint, &self.debt_reserve_vault)?;
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
-        require_supported_asset_mint(&self.debt_mint)?;
+        validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         require_gte!(
             self.owner_debt_account.amount,
             args.amount,
@@ -170,6 +175,11 @@ impl<'info> AddLeverageMargin<'info> {
             )?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(args.amount, repay_gross, ErrorCode::BrokenInvariant);
+        require_gte!(
+            ctx.accounts.owner_debt_account.amount,
+            repay_gross,
+            ErrorCode::InsufficientBalance
+        );
         transfer_checked_with_remaining_accounts(
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),
@@ -187,9 +197,12 @@ impl<'info> AddLeverageMargin<'info> {
 
         // Apply the repayment, route interest, and verify reserve custody.
         let receipt = if quote_closeout {
-            ctx.accounts
-                .market
-                .add_leverage_margin(&mut ctx.accounts.leverage_position, repay_credit, current_slot)?
+            ctx.accounts.market.add_leverage_margin(
+                &mut ctx.accounts.leverage_position,
+                repay_credit,
+                current_slot,
+                leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
+            )?
         } else {
             ctx.accounts.market.repay_leverage_debt_from_curve(
                 &mut ctx.accounts.leverage_position,
@@ -198,6 +211,10 @@ impl<'info> AddLeverageMargin<'info> {
                 before_accrual,
             )?
         };
+        ctx.accounts.market.reset_leverage_distress_if_recovered(
+            &mut ctx.accounts.leverage_position,
+            crate::instructions::leverage_collateral_liquidation_fee(&ctx.accounts.collateral_mint, current_epoch)?,
+        )?;
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
             debt_asset,
@@ -255,6 +272,7 @@ impl<'info> AddLeverageMargin<'info> {
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
+            margin_terms: ctx.accounts.leverage_position.margin_terms,
             closeout_value: receipt.closeout_value,
             owner_credit: 0,
             interest_paid: receipt.interest_paid,

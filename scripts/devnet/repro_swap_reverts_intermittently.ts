@@ -184,6 +184,7 @@ async function main() {
       await send([
         await dusk.write.repayInstruction({
           debtAssetMint: quoteMint,
+          collateralAssetMint: baseMint,
           market,
           owner: keypair.publicKey,
           ownerDebtAccount: getAssociatedTokenAddressSync(

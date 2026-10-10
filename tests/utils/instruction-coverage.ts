@@ -25,6 +25,8 @@ export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
   "controller_due_recenter",
   "concentrated_hlp_active",
   "concentrated_hlp_funding_interest",
+  "joint_shock_hlp_same_slot",
+  "joint_shock_hlp_one_day",
   "hlp_active",
   "token_2022_swap",
 ] as const;
@@ -61,20 +63,22 @@ export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
 const COMPUTE_SCENARIO_BASELINES: Partial<
   Record<SwapComputeScenario, ComputeScenarioBaseline>
 > = {
-  cpmm_same_slot: { measuredMaximum: 91_324n, ceiling: 95_891n },
-  cpmm_advanced_slot: { measuredMaximum: 126_441n, ceiling: 132_764n },
-  cpmm_active_debt: { measuredMaximum: 134_517n, ceiling: 141_243n },
-  concentrated_centered: { measuredMaximum: 264_331n, ceiling: 277_548n },
-  concentrated_transition: { measuredMaximum: 265_500n, ceiling: 278_775n },
-  concentrated_tail: { measuredMaximum: 263_187n, ceiling: 276_347n },
-  dynamic_fee_divergence_stress: { measuredMaximum: 272_411n, ceiling: 286_032n },
-  dynamic_fee_volatility_stress: { measuredMaximum: 138_134n, ceiling: 145_041n },
-  retained_surcharge: { measuredMaximum: 271_030n, ceiling: 284_582n },
-  controller_due_recenter: { measuredMaximum: 629_047n, ceiling: 660_500n },
-  concentrated_hlp_active: { measuredMaximum: 352_928n, ceiling: 370_575n },
-  concentrated_hlp_funding_interest: { measuredMaximum: 352_928n, ceiling: 370_575n },
-  hlp_active: { measuredMaximum: 117_417n, ceiling: 123_288n },
-  token_2022_swap: { measuredMaximum: 104_920n, ceiling: 110_166n },
+  cpmm_same_slot: { measuredMaximum: 93_586n, ceiling: 98_266n },
+  cpmm_advanced_slot: { measuredMaximum: 128_732n, ceiling: 135_169n },
+  cpmm_active_debt: { measuredMaximum: 136_947n, ceiling: 143_795n },
+  concentrated_centered: { measuredMaximum: 266_593n, ceiling: 279_923n },
+  concentrated_transition: { measuredMaximum: 267_346n, ceiling: 280_714n },
+  concentrated_tail: { measuredMaximum: 265_033n, ceiling: 278_285n },
+  dynamic_fee_divergence_stress: { measuredMaximum: 368_650n, ceiling: 387_083n },
+  dynamic_fee_volatility_stress: { measuredMaximum: 140_425n, ceiling: 147_447n },
+  retained_surcharge: { measuredMaximum: 369_889n, ceiling: 388_384n },
+  controller_due_recenter: { measuredMaximum: 631_338n, ceiling: 662_905n },
+  concentrated_hlp_active: { measuredMaximum: 355_721n, ceiling: 373_508n },
+  concentrated_hlp_funding_interest: { measuredMaximum: 355_721n, ceiling: 373_508n },
+  joint_shock_hlp_same_slot: { measuredMaximum: 449_203n, ceiling: 471_664n },
+  joint_shock_hlp_one_day: { measuredMaximum: 558_895n, ceiling: 586_840n },
+  hlp_active: { measuredMaximum: 120_929n, ceiling: 126_976n },
+  token_2022_swap: { measuredMaximum: 107_182n, ceiling: 112_542n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {
@@ -101,10 +105,10 @@ let measuredTransactionMax = 0n;
 let lastPrintedReportSignature: string | undefined;
 
 export const LITESVM_COMPUTE_UNIT_LIMIT = BigInt(
-  // Keep a 50k-CU repository release guard below Solana's 1.4M transaction
-  // ceiling. The exact retained-surcharge concentrated path is the measured
+  // Keep a 45k-CU repository release guard below Solana's 1.4M transaction
+  // ceiling. Protection execution after interest accrual is the measured
   // high-water mark; bounded wide-domain u128 fee paths are gated separately.
-  process.env.DUSK_TEST_COMPUTE_UNIT_LIMIT ?? "1350000"
+  process.env.DUSK_TEST_COMPUTE_UNIT_LIMIT ?? "1355000"
 );
 
 const DUSK_INSTRUCTIONS = [
@@ -123,7 +127,6 @@ const DUSK_INSTRUCTIONS = [
   "claimReferralInterest",
   "settleProtocolAuction",
   "initializeMarket",
-  "initializeLpMetadata",
   "initializeYieldAccounts",
   "initializeLpTransferHook",
   "setMarketReduceOnly",
@@ -157,13 +160,15 @@ const DUSK_INSTRUCTIONS = [
   "addLeverageMargin",
   "repayLeverage",
   "removeLeverageMargin",
-  "liquidateLeveragePosition",
+  "beginFlashLiquidation",
+  "settleFlashLiquidation",
+  "previewFlashLiquidation",
+  "observeLiquidation",
+  "emergencyLiquidation",
+  "previewEmergencyLiquidation",
   "createLeverageDelegation",
   "updateLeverageDelegation",
   "closeLeverageDelegation",
-  "startLiquidationAuction",
-  "fillLiquidationAuction",
-  "backstopLiquidationAuction",
   "previewMarket",
   "previewHlpOrderTrigger",
   "previewHlpDepositCapacity",

@@ -360,10 +360,13 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // Off-chain historical auction replay; compiled only with feature benchmark.
+  ["programs/dusk/src/transitions/amm/swap.rs", new Set(["settle_backstop_swap"])],
   // Keep the pure, clock-bound hLP admission and fee-boundary calculations
   // independently testable from Anchor account deserialization and sysvars.
   ["programs/dusk/src/instructions/hlp_deposit_preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
-  ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation"])],
+  // CPI metadata isolation is a security boundary and has a focused test.
+  ["programs/dusk/src/instructions/leverage/settlement.rs", new Set(["delegated_callback_metas"])],
   [
     "programs/dusk/src/instructions/prepare_swap.rs",
     new Set(["rebalance_executes_token_changes"]),
@@ -406,7 +409,12 @@ const acceptedOneUseHelpers = new Map([
   ],
   [
     "programs/dusk/src/transitions/lending/preview.rs",
-    new Set(["lending_side_preview", "borrow_capacity_quote", "position_debt_side_quote", "position_capacity_quote"]),
+    new Set([
+      "lending_side_preview",
+      "borrow_capacity_quote_with_market_fees",
+      "position_debt_side_quote",
+      "position_capacity_quote_with_market_fees",
+    ]),
   ],
   [
     "programs/dusk/src/transitions/leverage.rs",
@@ -464,6 +472,8 @@ const acceptedOneUseHelpers = new Map([
     "programs/leverage_delegate/src/instructions/entry/common.rs",
     new Set(["verify_opened_position", "escrow_margin_after_bounty"]),
   ],
+  // Keep unit-scale trigger math testable without Anchor account fixtures.
+  ["programs/leverage_delegate/src/instructions/leverage/before_close.rs", new Set(["closeout_price_nad"])],
   [
     "programs/leverage_delegate/src/instructions/hlp/common.rs",
     new Set(["withdraw_hlp_order_position", "validate_hlp_order_kind", "hlp_order_trigger_met"]),
@@ -472,6 +482,18 @@ const acceptedOneUseHelpers = new Map([
 // Dedicated CPI frames keep the protection executor within the SBF stack limit.
 acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/payment.rs", new Set(["make_payment"]));
 acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/redeem.rs", new Set(["redeem_lp"]));
+// Alternate flash settlement has its own CPI frame; merging it into the
+// external settle handler would overlap two large SBF settlement frames.
+acceptedOneUseHelpers.set("programs/dusk/src/instructions/flash_amm_settlement.rs", new Set(["settle_with_amm"]));
+// Keep the complete emergency market/position mutation directly testable
+// without Anchor custody accounts, using the same transition as execution.
+// Candidate construction is a separate SBF frame from the recovery proof.
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm_liquidation.rs", new Set(["apply_emergency_liquidation", "prepare_emergency_candidate"]));
+// Market cloning and curve preparation must not share the interval proof's
+// SBF frame. The combined version exceeded the 4 KiB stack limit.
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/liquidation_sizing.rs", new Set(["executable_liquidation_market"]));
+// Separate SBF frame for the all-smaller-share recovery certificate.
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/flash_liquidation.rs", new Set(["require_first_flash_recovery"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
 );

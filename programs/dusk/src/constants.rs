@@ -50,7 +50,7 @@ pub const LIQUIDATION_AUCTION_DURATION_SECONDS: i64 = 5 * 60;
 /// governance may lower either limit, including to zero, but may never raise
 /// them above these values.
 #[constant]
-pub const MAX_INSURANCE_DRAW_PER_EVENT_BPS: u16 = 2_000;
+pub const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS: u16 = 7_500;
 #[constant]
 pub const MAX_INSURANCE_DRAW_PER_DAY_BPS: u16 = 5_000;
 pub const INSURANCE_DRAW_WINDOW_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
@@ -67,6 +67,8 @@ pub const PARAMETER_PROPOSAL_SUPPORT_BPS: u16 = 5_000; // strict >50%
 pub const PARAMETER_PROPOSAL_TIMELOCK_SECONDS: i64 = 7 * 24 * 60 * 60;
 #[constant]
 pub const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
+/// A proposal changes one to this many families, at most one update each.
+pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 7;
 #[constant]
 pub const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS: u64 = 8_000;
 
@@ -105,8 +107,8 @@ pub const INTEREST_INITIAL_RATE_AT_TARGET_NAD: u128 = (NAD as u128) * 4 / 100; /
 /// Cap on the per-accrual exponent (NAD), bounding the anchor's move in a single
 /// step so a stale market can't jump violently (clamped further by min/max).
 pub const INTEREST_MAX_ADAPTATION_STEP_NAD: i128 = (NAD as i128) / 2;
-/// Upper bound on the elapsed time charged in a single accrual, to bound
-/// index growth (and therefore overflow / abuse) for very stale markets.
+/// Upper bound on the elapsed time used for one adaptive-rate anchor update.
+/// Borrow-index growth charges the full elapsed interval.
 pub const MAX_INTEREST_ACCRUAL_MS: u64 = MS_PER_YEAR;
 
 #[constant]
@@ -146,19 +148,12 @@ pub const LEVERAGE_DELEGATION_SEED_PREFIX: &[u8] = b"leverage_delegation_v2";
 pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 #[constant]
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
-#[constant]
-pub const LEVERAGE_MAX_UNWIND_IMPACT_BPS: u16 = 200; // 2%
-#[constant]
-pub const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1_000; // 10%
-#[constant]
-pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 /// Serialized `Market` account layout discriminator.
 ///
-/// Dusk is still pre-launch, so CONCENTRATED ships in the first deployable layout.
-/// Increment this only for an incompatible account-layout change after
-/// deployment, never for ordinary feature work or product naming.
+/// Layout 2 adds aggregate leverage collateral to Debt. It must not decode
+/// existing layout-1 bytes as the expanded structure.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 1;
+pub const MARKET_LAYOUT_VERSION: u8 = 2;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

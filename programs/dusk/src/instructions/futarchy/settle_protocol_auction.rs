@@ -10,7 +10,7 @@ use crate::{
     events::{MarketEventMetadata, ProtocolAuctionSettled},
     generate_market_seeds,
     state::{FutarchyAuthority, Market, ProtocolAuctionLane, ProtocolRevenueSource},
-    token::{is_fee_free_mint, transfer_checked_with_remaining_accounts},
+    token::{get_transfer_fee_for_epoch, is_fee_free_mint, transfer_checked_with_remaining_accounts},
     transitions::revenue::quote_protocol_auction_settlement,
 };
 
@@ -141,7 +141,8 @@ impl<'info> SettleProtocolAuction<'info> {
 
     pub fn handle_settle(ctx: Context<'_, '_, '_, 'info, Self>, args: SettleProtocolAuctionArgs) -> Result<()> {
         // Freeze the epoch and configured pricing terms for this settlement.
-        let current_slot = Clock::get()?.slot;
+        let clock = Clock::get()?;
+        let current_slot = clock.slot;
         let sold_mint = ctx.accounts.sold_mint.key();
         let accepted_mint = ctx.accounts.accepted_mint.key();
         let sold_side = ctx.accounts.market.asset_for_mint(sold_mint)?;
@@ -204,8 +205,19 @@ impl<'info> SettleProtocolAuction<'info> {
         };
         require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
 
+        // The bidder pays for atoms actually received. The auction liability
+        // and custody debit remain denominated in the gross sold amount.
+        let sold_net_amount = args
+            .sold_amount
+            .checked_sub(get_transfer_fee_for_epoch(
+                &ctx.accounts.sold_mint.to_account_info(),
+                args.sold_amount,
+                clock.epoch,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(sold_net_amount > 0, ErrorCode::InsufficientAmount);
         let quote = quote_protocol_auction_settlement(
-            args.sold_amount,
+            sold_net_amount,
             ctx.accounts.sold_mint.decimals,
             ctx.accounts.accepted_mint.decimals,
             reference_price_nad,
@@ -265,6 +277,7 @@ impl<'info> SettleProtocolAuction<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
+        let bidder_receive_before = ctx.accounts.bidder_receive_account.amount;
         transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.sold_vault.to_account_info(),
@@ -276,6 +289,16 @@ impl<'info> SettleProtocolAuction<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
             ctx.remaining_accounts,
         )?;
+        ctx.accounts.bidder_receive_account.reload()?;
+        require_eq!(
+            ctx.accounts
+                .bidder_receive_account
+                .amount
+                .checked_sub(bidder_receive_before)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            sold_net_amount,
+            ErrorCode::BrokenInvariant
+        );
 
         // Retire the liability only after every token transfer succeeds.
         ctx.accounts.sold_vault.reload()?;

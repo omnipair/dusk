@@ -1,6 +1,6 @@
 mod swap;
 pub use swap::PreparedSwap;
-pub(crate) use swap::{split_claimable_fee_credit, LendingSwapSettlement, SwapRequest};
+pub(crate) use swap::{split_claimable_fee_credit, FinalizedSwapState, SwapRequest};
 
 pub(crate) mod curve;
 pub(crate) mod fees;
@@ -92,6 +92,25 @@ impl Market {
         let protected = &mut self.side_mut(asset).reserves.protected_recenter_reserve;
         *protected = protected.checked_add(amount).ok_or(ErrorCode::ReserveOverflow)?;
         self.amm.mark_retention_target_stale();
+        Ok(())
+    }
+
+    /// Return retained surcharge to executable, LP-owned inventory when a
+    /// governed parameter change removes the controller that can deploy it.
+    pub(crate) fn release_protected_recenter_reserves(&mut self) -> Result<()> {
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let reserves = &mut self.side_mut(asset).reserves;
+            let amount = reserves.protected_recenter_reserve;
+            reserves.live_reserve = reserves
+                .live_reserve
+                .checked_add(amount)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+            reserves.cash_reserve = reserves
+                .cash_reserve
+                .checked_add(amount)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+            reserves.protected_recenter_reserve = 0;
+        }
         Ok(())
     }
 
@@ -330,6 +349,7 @@ impl Market {
                 ErrorCode::InsufficientLiquidity
             );
             self.amm.concentrated_curve_cache = Default::default();
+            self.amm.initialized = false;
             self.amm.curve_depth_per_share_nad = 0;
             self.amm.protected_floor_per_share_nad = 0;
             self.amm.retention_required_nad = 0;
@@ -376,8 +396,8 @@ impl Market {
         Ok(())
     }
 
-    /// Initializes clock-driven AMM state. Parameter ramps and center moves are
-    /// evaluated lazily by genuine user operations.
+    /// Initializes clock-driven AMM state. Deferred center moves are evaluated
+    /// lazily by genuine user operations.
     pub(crate) fn advance_amm_clock(&mut self, current_slot: u64) -> Result<()> {
         self.ensure_amm_initialized(current_slot)?;
         if self.amm.initialized {
@@ -395,8 +415,8 @@ impl Market {
         self.advance_amm_clock(current_slot)
     }
 
-    /// Lazily advances at most one already-authorized parameter-ramp or center
-    /// target. No transition depends on a keeper or auxiliary instruction.
+    /// Lazily advances at most one already-authorized center target. No
+    /// transition depends on a keeper or auxiliary instruction.
     pub(crate) fn advance_one_amm_controller_target(&mut self, current_slot: u64) -> Result<bool> {
         if !self.amm.initialized {
             return Ok(false);
@@ -499,17 +519,20 @@ impl Market {
         let protected_base = self.base_side.reserves.protected_recenter_reserve;
         let protected_quote = self.quote_side.reserves.protected_recenter_reserve;
         let deploying_protected = protected_base > 0 || protected_quote > 0;
-        let mut candidate_point = ordinary;
-        if deploying_protected {
-            candidate_point.ordinary_base = candidate_point
-                .ordinary_base
+        let candidate_point = if deploying_protected {
+            let mut reserves = self.curve_reserves_nad()?;
+            reserves.base = reserves
+                .base
                 .checked_add(self.normalize_amount(protected_base as u128, self.base_side.asset_decimals)?)
                 .ok_or(ErrorCode::ReserveOverflow)?;
-            candidate_point.ordinary_quote = candidate_point
-                .ordinary_quote
+            reserves.quote = reserves
+                .quote
                 .checked_add(self.normalize_amount(protected_quote as u128, self.quote_side.asset_decimals)?)
                 .ok_or(ErrorCode::ReserveOverflow)?;
-        }
+            self.integrated_curve_state_from_reserves_nad(reserves)?
+        } else {
+            ordinary
+        };
         let candidate_cache = prepare_concentrated_cache_at_point(
             candidate_point.ordinary_base,
             candidate_point.ordinary_quote,
@@ -768,7 +791,10 @@ impl Market {
     }
 
     pub(crate) fn integrated_curve_state_nad(&self) -> Result<IntegratedCurveState> {
-        let reserves = self.curve_reserves_nad()?;
+        self.integrated_curve_state_from_reserves_nad(self.curve_reserves_nad()?)
+    }
+
+    fn integrated_curve_state_from_reserves_nad(&self, reserves: CurveReservesNad) -> Result<IntegratedCurveState> {
         let supply = self.base_side.shares.ylp_supply;
         require_eq!(supply, self.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
         require!(supply > 0, ErrorCode::SupplyUnderflow);
@@ -838,20 +864,39 @@ impl Market {
             base_hlp_equity >= 0 && quote_hlp_equity >= 0,
             ErrorCode::HlpSettlementUnavailable
         );
-        IntegratedCurveState::from_total_reserves(
-            reserves.base,
-            reserves.quote,
-            if self.base_hlp_vault.hlp_supply == 0 {
-                0
-            } else {
-                base_hlp_equity as u128
-            },
-            if self.quote_hlp_vault.hlp_supply == 0 {
-                0
-            } else {
-                quote_hlp_equity as u128
-            },
-        )
+        // First entry records backing before minting receipt shares. Include
+        // that backing in its price checkpoint even while receipt supply is
+        // zero; an actually empty vault already has zero claims and debt.
+        let base_hlp_equity = base_hlp_equity as u128;
+        let quote_hlp_equity = quote_hlp_equity as u128;
+        // Reserve/share mutations can leave the opposite claim different from
+        // recorded debt. Replacing that debt with a freshly hedged claim here
+        // would invent a reserve movement before the quoted swap. Keep indexed
+        // debt until the identity-bound transition actually refinances it.
+        // Indexed funding interest is reserved in this subtraction and paid
+        // once by consume; it must not also be removed from the quoted end.
+        let ordinary_base = reserves
+            .base
+            .checked_sub(base_hlp_equity)
+            .and_then(|value| value.checked_sub(quote_hlp_base_debt))
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        let ordinary_quote = reserves
+            .quote
+            .checked_sub(quote_hlp_equity)
+            .and_then(|value| value.checked_sub(base_hlp_quote_debt))
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        require!(
+            ordinary_base > 0 && ordinary_quote > 0,
+            ErrorCode::InsufficientLiquidity
+        );
+        Ok(IntegratedCurveState {
+            ordinary_base,
+            ordinary_quote,
+            base_hlp_equity,
+            quote_hlp_equity,
+            base_hlp_quote_debt,
+            quote_hlp_base_debt,
+        })
     }
 
     pub(crate) fn current_concentrated_curve_geometry(&self) -> Result<Option<ConcentratedCurveGeometry>> {
@@ -2119,3 +2164,6 @@ pub struct RetentionTarget {
     pub hard_cap_nad: u128,
     pub saturated: bool,
 }
+
+#[cfg(feature = "benchmark")]
+pub(crate) use swap::LendingSwapSettlement;

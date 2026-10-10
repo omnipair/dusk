@@ -16,9 +16,9 @@ use crate::{
 };
 
 use super::settlement::{
-    leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest, settle_inline_leverage_hlp,
-    validate_leverage_futarchy_pda, validate_leverage_interest_account, validate_leverage_market_pda,
-    validate_leverage_mints, validate_leverage_reserve_accounts,
+    leverage_collateral_fee, leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest,
+    settle_inline_leverage_hlp, validate_leverage_futarchy_pda, validate_leverage_interest_account,
+    validate_leverage_market_pda, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
@@ -51,6 +51,8 @@ pub struct DecreaseLeverage<'info> {
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            leverage_position.owner.as_ref(),
+            leverage_position.namespace_authority.as_ref(),
             leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
@@ -215,6 +217,14 @@ impl<'info> DecreaseLeverage<'info> {
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
             current_unix_timestamp,
+            leverage_collateral_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?,
+        )?;
+        ctx.accounts.market.reset_leverage_distress_if_recovered(
+            &mut ctx.accounts.leverage_position,
+            crate::instructions::leverage_collateral_liquidation_fee(
+                &ctx.accounts.collateral_mint,
+                Clock::get()?.epoch,
+            )?,
         )?;
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
@@ -315,6 +325,7 @@ impl<'info> DecreaseLeverage<'info> {
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
+            margin_terms: ctx.accounts.leverage_position.margin_terms,
             closeout_value: receipt.closeout_value,
             owner_credit: 0,
             interest_paid: receipt.interest_paid,

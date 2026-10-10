@@ -74,6 +74,11 @@ export interface MarketLaunchConfig {
   maxDailyBorrowBps: number;
   globalHealthContributionCapBps: number;
   borrowMarketHealthFloorBps: number;
+  /** Minimum residual debt in each debt mint's raw atoms, not dollars. */
+  liquidation: {
+    minimumBaseDebt: bigint | number | string;
+    minimumQuoteDebt: bigint | number | string;
+  };
   amm: Record<string, unknown>;
   irm: Record<string, unknown>;
   startTime: bigint | number | string;
@@ -100,6 +105,7 @@ export function defaultMarketLaunchConfig(
     maxDailyBorrowBps: 2_000,
     globalHealthContributionCapBps: 15_000,
     borrowMarketHealthFloorBps: 11_000,
+    liquidation: { minimumBaseDebt: 1n, minimumQuoteDebt: 1n },
     amm: {
       peakAmplificationNad: 1_000_000_000,
       coreHalfWidthBps: 0,

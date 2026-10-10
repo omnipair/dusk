@@ -45,7 +45,17 @@ fn launch_guard_allows_one_market_action_and_rejects_same_transaction_splits() {
     let market = guarded_market();
     let market_key = Pubkey::new_unique();
     let swap = crate::instruction::Swap::DISCRIMINATOR;
+    let delegated_close = crate::instruction::DelegatedCloseLeverage::DISCRIMINATOR;
     assert!(run_guard(&market, market_key, &[(crate::ID, market_key, swap)], 0, 100).is_ok());
+    assert!(run_guard(&market, market_key, &[(crate::ID, market_key, delegated_close)], 0, 100).is_ok());
+    assert!(run_guard(
+        &market,
+        market_key,
+        &[(crate::ID, market_key, swap), (crate::ID, market_key, delegated_close)],
+        1,
+        100,
+    )
+    .is_err());
     assert!(run_guard(
         &market,
         market_key,
@@ -79,4 +89,25 @@ fn launch_guard_rejects_aggregator_cpi_but_is_inert_after_expiry() {
         200,
     )
     .is_ok());
+}
+
+#[test]
+fn launch_guard_classifies_leverage_open_and_close() {
+    let market = guarded_market();
+    let market_key = Pubkey::new_unique();
+    let swap = crate::instruction::Swap::DISCRIMINATOR;
+    for native in [
+        crate::instruction::OpenLeverage::DISCRIMINATOR,
+        crate::instruction::CloseLeverage::DISCRIMINATOR,
+    ] {
+        assert!(run_guard(&market, market_key, &[(crate::ID, market_key, native)], 0, 100).is_ok());
+        assert!(run_guard(
+            &market,
+            market_key,
+            &[(crate::ID, market_key, native), (crate::ID, market_key, swap)],
+            1,
+            100,
+        )
+        .is_err());
+    }
 }

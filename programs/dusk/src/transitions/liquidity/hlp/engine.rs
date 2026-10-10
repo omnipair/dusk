@@ -671,7 +671,7 @@ fn prepare_concentrated_hlp_transition_from_end(
     let base_interest_paid = current_base_debt.saturating_sub(market.base_hlp_vault.debt_principal);
     let quote_interest_paid = current_quote_debt.saturating_sub(market.quote_hlp_vault.debt_principal);
 
-    let (mut base_non_debt_reserve, mut quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
+    let (base_non_debt_reserve, quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
         // Changing hLP ownership/debt around an already materialized reserve
         // point must not create or destroy ordinary curve reserves. Remove
         // public lending interest from the raw live identity just as
@@ -702,27 +702,12 @@ fn prepare_concentrated_hlp_transition_from_end(
         (
             ordinary_base
                 .checked_add(base_equity)
-                .and_then(|value| value.checked_sub(quote_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
             ordinary_quote
                 .checked_add(quote_equity)
-                .and_then(|value| value.checked_sub(base_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
         )
     };
-    if !preserve_current_ordinary_reserves {
-        // The quoted endpoint includes the trader-funded interest tranche in
-        // the input-side live reserve. `consume` transfers that tranche out of
-        // cash before replacing hLP ownership/debt, so both the proportional
-        // claim certificate and terminal live reserve use the post-payment
-        // ordinary reserve.
-        base_non_debt_reserve = base_non_debt_reserve
-            .checked_sub(quote_interest_paid)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
-        quote_non_debt_reserve = quote_non_debt_reserve
-            .checked_sub(base_interest_paid)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
-    }
     // Integer yLP ownership can move the opposite-asset claim by more than
     // one token atom, especially when the mints have different decimals.
     // Keep the quoted debt only when it still matches the materialized claim;
@@ -1181,7 +1166,7 @@ impl Market {
         vault.last_nav_nad = post_entry.nav_nad;
         vault.residual_exposure = post_entry.residual_exposure;
         vault.cached_settlement_price_nad = if hlp_supply_before == 0 || post_entry.residual_exposure == 0 {
-            post_prices.for_asset(target_asset)
+            post_prices.base_in_quote_nad()
         } else {
             settlement_reference_before
         };
@@ -1330,11 +1315,11 @@ impl Market {
                     market.base_hlp_vault.cached_settlement_price_nad = 0;
                 } else {
                     let current_prices = current_hlp_curve_prices(market)?;
-                    final_price_nad = Some(current_prices.for_asset(MarketAsset::Base) as u64);
+                    final_price_nad = Some(current_prices.base_in_quote_nad() as u64);
                     market.base_hlp_vault.last_nav_nad =
                         hlp_nav_nad_with_prices(market, MarketAsset::Base, current_prices)?;
                     if residual_exposure == 0 {
-                        market.base_hlp_vault.cached_settlement_price_nad = current_prices.for_asset(MarketAsset::Base);
+                        market.base_hlp_vault.cached_settlement_price_nad = current_prices.base_in_quote_nad();
                     } else {
                         market.base_hlp_vault.cached_settlement_price_nad = settlement_reference_before;
                     }
@@ -1397,12 +1382,11 @@ impl Market {
                     market.quote_hlp_vault.cached_settlement_price_nad = 0;
                 } else {
                     let current_prices = current_hlp_curve_prices(market)?;
-                    final_price_nad = Some(current_prices.for_asset(MarketAsset::Base) as u64);
+                    final_price_nad = Some(current_prices.base_in_quote_nad() as u64);
                     market.quote_hlp_vault.last_nav_nad =
                         hlp_nav_nad_with_prices(market, MarketAsset::Quote, current_prices)?;
                     if residual_exposure == 0 {
-                        market.quote_hlp_vault.cached_settlement_price_nad =
-                            current_prices.for_asset(MarketAsset::Quote);
+                        market.quote_hlp_vault.cached_settlement_price_nad = current_prices.base_in_quote_nad();
                     } else {
                         market.quote_hlp_vault.cached_settlement_price_nad = settlement_reference_before;
                     }
@@ -1554,15 +1538,11 @@ fn settled_close_target_amount(
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct HlpCurvePrices {
     base_in_quote_nad: u128,
-    quote_in_base_nad: u128,
 }
 
 impl HlpCurvePrices {
-    pub(super) const fn for_asset(self, asset: MarketAsset) -> u128 {
-        match asset {
-            MarketAsset::Base => self.base_in_quote_nad,
-            MarketAsset::Quote => self.quote_in_base_nad,
-        }
+    pub(super) const fn base_in_quote_nad(self) -> u128 {
+        self.base_in_quote_nad
     }
 }
 
@@ -1930,7 +1910,7 @@ pub(crate) fn require_hlp_settlement_available(market: &Market, target_asset: Ma
     if vault.hlp_supply == 0 || vault.cached_settlement_price_nad == 0 {
         return Ok(());
     }
-    let current_price = prices.for_asset(target_asset);
+    let current_price = prices.base_in_quote_nad();
     let reference_price = vault.cached_settlement_price_nad;
     let divergence = if current_price >= reference_price {
         current_price
@@ -1941,7 +1921,13 @@ pub(crate) fn require_hlp_settlement_available(market: &Market, target_asset: Ma
             .checked_sub(current_price)
             .ok_or(ErrorCode::MarketMathOverflow)?
     };
-    let max_divergence = reference_price
+    // Quote-target vaults previously compared reciprocal prices. Their
+    // relative divergence is |reference - current| / current in forward units.
+    let divergence_denominator = match target_asset {
+        MarketAsset::Base => reference_price,
+        MarketAsset::Quote => current_price,
+    };
+    let max_divergence = divergence_denominator
         .checked_mul(market.config.settlement_divergence_bps as u128)
         .and_then(|value| value.checked_div(crate::constants::BPS_DENOMINATOR as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -1949,10 +1935,9 @@ pub(crate) fn require_hlp_settlement_available(market: &Market, target_asset: Ma
     Ok(())
 }
 
-/// One executable marginal-price evaluation supplies both reciprocal
-/// numeraires used by a single hLP accounting snapshot. Re-evaluating the
-/// identical curve for every inventory/debt leg is semantically redundant and
-/// exhausts Solana's non-freeing 32 KiB program heap on composite swaps.
+/// One executable forward price supplies both hLP valuation directions through
+/// multiplication or division. Re-evaluating the curve for every inventory and
+/// debt leg would exhaust Solana's non-freeing 32 KiB heap on composite swaps.
 pub(crate) fn current_hlp_curve_prices(market: &Market) -> Result<HlpCurvePrices> {
     let price_nad = market
         .current_concentrated_spot_price_nad()?
@@ -1963,16 +1948,7 @@ pub(crate) fn current_hlp_curve_prices(market: &Market) -> Result<HlpCurvePrices
 pub(crate) fn hlp_curve_prices_from_base_price_nad(base_in_quote_nad: u128) -> Result<HlpCurvePrices> {
     require!(base_in_quote_nad > 0, ErrorCode::InvalidSettlementPrice);
     let base_in_quote_nad = u64::try_from(base_in_quote_nad).map_err(|_| ErrorCode::MarketMathOverflow)? as u128;
-    let quote_in_base_nad = (NAD as u128)
-        .checked_mul(NAD as u128)
-        .and_then(|value| value.checked_div(base_in_quote_nad))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let quote_in_base_nad = u64::try_from(quote_in_base_nad).map_err(|_| ErrorCode::MarketMathOverflow)? as u128;
-    require!(quote_in_base_nad > 0, ErrorCode::InvalidSettlementPrice);
-    Ok(HlpCurvePrices {
-        base_in_quote_nad,
-        quote_in_base_nad,
-    })
+    Ok(HlpCurvePrices { base_in_quote_nad })
 }
 
 fn hlp_nav_nad(market: &Market, target_asset: MarketAsset) -> Result<u128> {
@@ -2036,8 +2012,10 @@ fn asset_value_in_target_nad_with_prices(
     if asset == target_asset {
         return Ok(amount_nad);
     }
-    let price_nad = prices.for_asset(asset);
-    mul_div_u128(amount_nad, price_nad, NAD as u128)
+    match asset {
+        MarketAsset::Base => mul_div_u128(amount_nad, prices.base_in_quote_nad(), NAD as u128),
+        MarketAsset::Quote => mul_div_u128(amount_nad, NAD as u128, prices.base_in_quote_nad()),
+    }
 }
 
 fn current_hlp_inventory_values_nad_with_prices(
@@ -2233,9 +2211,10 @@ fn raw_amount_from_target_value_nad_with_prices(
     let amount_nad = if asset == target_asset {
         value_nad
     } else {
-        let price_nad = prices.for_asset(asset);
-        require!(price_nad > 0, ErrorCode::InvalidSettlementPrice);
-        mul_div_u128(value_nad, NAD as u128, price_nad)?
+        match asset {
+            MarketAsset::Base => mul_div_u128(value_nad, NAD as u128, prices.base_in_quote_nad())?,
+            MarketAsset::Quote => mul_div_u128(value_nad, prices.base_in_quote_nad(), NAD as u128)?,
+        }
     };
     market.denormalize_amount_floor(amount_nad, market.side(asset).asset_decimals)
 }

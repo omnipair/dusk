@@ -309,6 +309,7 @@ pub struct MarketConfig {
     pub max_daily_borrow_bps: u16,
     pub global_health_contribution_cap_bps: u16,
     pub borrow_market_health_floor_bps: u16,
+    pub liquidation: crate::state::LiquidationConfig,
     pub amm: AmmConfig,
     pub irm: IrmConfig,
     pub start_time: i64,
@@ -320,6 +321,10 @@ pub struct Debt {
     pub fixed_quote_shares: u128,
     pub base_borrow_index_nad: u128,
     pub quote_borrow_index_nad: u128,
+    /// Fractional index growth carried across checkpoints. Denominator is
+    /// `NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest.
+    pub base_borrow_index_remainder: u128,
+    pub quote_borrow_index_remainder: u128,
     pub base_rate_at_target_nad: u128,
     pub quote_rate_at_target_nad: u128,
     pub global_health_base_contribution_for_quote_debt: u64,
@@ -343,6 +348,10 @@ pub struct Debt {
     pub isolated_quote_shares: u128,
     pub isolated_base_principal: u64,
     pub isolated_quote_principal: u64,
+    /// Gross collateral atoms in debt-bearing leverage positions. Counts all
+    /// owners and namespaces; custody donations cannot create exposure credit.
+    pub leverage_base_collateral: u64,
+    pub leverage_quote_collateral: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
@@ -439,6 +448,7 @@ pub struct HlpVault {
     pub unallocated_quote_swap_fee_amount: u64,
     pub unallocated_quote_interest_amount: u64,
     pub last_nav_nad: u128,
+    /// Base quoted in quote NAD units for either target asset; zero means unset.
     pub cached_settlement_price_nad: u128,
     /// Smoothed APR of the opposite asset borrowed by this target-asset hLP.
     /// The fixed twelve-hour half-life gives Stop Rate orders stable semantics.
@@ -482,7 +492,9 @@ pub struct Insurance {
     pub quote_available: u64,
     pub base_draw_window: InsuranceDrawWindow,
     pub quote_draw_window: InsuranceDrawWindow,
-    pub per_event_draw_bps: u16,
+    /// Maximum share of a borrower/leverage principal shortfall covered by
+    /// insurance. hLP funding claims use their own eligible-loss definition.
+    pub principal_coverage_bps: u16,
     pub per_day_draw_bps: u16,
 }
 
@@ -495,7 +507,7 @@ impl Default for Insurance {
             quote_available: 0,
             base_draw_window: InsuranceDrawWindow::default(),
             quote_draw_window: InsuranceDrawWindow::default(),
-            per_event_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS,
+            principal_coverage_bps: crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS,
             per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
         }
     }

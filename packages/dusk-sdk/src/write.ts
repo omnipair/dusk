@@ -16,6 +16,7 @@ import {
 
 import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
 import { type MarketLaunchConfig } from "./market-bootstrap.js";
+import type { Market } from "./type-aliases.js";
 import {
   deriveBorrowPositionAddress,
   deriveEventAuthorityAddress,
@@ -41,6 +42,7 @@ import {
 import {
   anchorParameterUpdate,
   assertProposalMetadata,
+  canonicalParameterUpdates,
   governanceIntegerBN,
   type GovernanceIntegerLike,
   type ParameterUpdate,
@@ -67,6 +69,19 @@ export interface DuskBuildOptions {
 export interface SwapBuildOptions extends DuskBuildOptions {
   accounts: DuskAccounts;
   market: AddressLike;
+}
+
+export interface FortifyMarketParams {
+  donor: AddressLike;
+  market: AddressLike;
+  asset: "base" | "quote";
+  assetMint: AddressLike;
+  /** Gross donation in raw token atoms; transfer fees reduce insurance credit. */
+  amount: GovernanceIntegerLike;
+  /** Defaults to the donor's ATA for the asset's token program. */
+  donorAssetAccount?: AddressLike;
+  /** Supply the mint owner to avoid an RPC read when building the instruction. */
+  assetTokenProgram?: AddressLike;
 }
 
 export type ReferredActionName = "borrow" | "openLeverage";
@@ -122,7 +137,11 @@ export interface CreateParameterProposalParams extends GovernanceHolderAccountOv
   proposer: AddressLike;
   market: AddressLike;
   nonce: GovernanceIntegerLike;
-  update: ParameterUpdate;
+  /**
+   * One to seven updates, at most one per family. They are sent in ascending
+   * family order and execute together under one sponsorship and one vote.
+   */
+  updates: readonly ParameterUpdate[];
   metadata: ProposalMetadataV1;
   initialSupport: GovernanceIntegerLike;
 }
@@ -132,6 +151,11 @@ export interface SupportParameterProposalParams extends GovernanceHolderAccountO
   market: AddressLike;
   proposal: AddressLike;
   amount: GovernanceIntegerLike;
+  /**
+   * Digest of the proposal the supporter reviewed. The program rejects the
+   * support if the account at `proposal` holds a different proposal.
+   */
+  digest: Uint8Array | readonly number[];
 }
 
 export interface QueueParameterProposalParams extends GovernanceMarketAccountOverrides {
@@ -148,6 +172,8 @@ export interface WithdrawParameterSupportParams {
   supporter: AddressLike;
   market: AddressLike;
   proposal: AddressLike;
+  /** The proposal's creator; receives its rent when the last supporter withdraws. */
+  proposer: AddressLike;
   ylpMint?: AddressLike;
   supporterYlpAccount?: AddressLike;
   baseYieldAccount?: AddressLike;
@@ -181,6 +207,12 @@ type AnchorMethods = Record<string, (...args: unknown[]) => AnchorMethodBuilder>
 
 export class DuskWrite {
   constructor(readonly program: Program<Dusk>) {}
+
+  private fetchMarketAccount(market: PublicKey): Promise<unknown> {
+    return (this.program as unknown as {
+      account: { market: { fetch(address: PublicKey): Promise<unknown> } };
+    }).account.market.fetch(market);
+  }
 
   method(name: DuskInstructionName, args?: DuskInstructionArgs): AnchorMethodBuilder {
     const method = (this.program.methods as unknown as AnchorMethods)[name];
@@ -255,11 +287,12 @@ export class DuskWrite {
    * prefix, which names neither leverage nor hLP and reads as a malformed
    * call.
    */
-  private async hlpRemainingAccounts(
-    marketAddress: AddressLike
+  async hlpRemainingAccounts(
+    marketAddress: AddressLike,
+    marketSnapshot?: Market
   ): Promise<AccountMeta[]> {
     const market = address(marketAddress);
-    const state = (await this.program.account.market.fetch(market)) as unknown as {
+    const state = (marketSnapshot ?? await this.fetchMarketAccount(market)) as {
       ylpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"] };
@@ -294,7 +327,7 @@ export class DuskWrite {
     options: SwapBuildOptions
   ): Promise<AnchorMethodBuilder> {
     const market = address(options.market);
-    const state = (await this.program.account.market.fetch(market)) as unknown as {
+    const state = (await this.fetchMarketAccount(market)) as {
       ylpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"] };
@@ -425,7 +458,7 @@ export class DuskWrite {
           ),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, address(params.positionId))[0]
+              deriveBorrowPositionAddress(market, owner, address(params.positionId))[0]
           ),
           referralPartner: null,
           referralAccrual: null,
@@ -460,15 +493,15 @@ export class DuskWrite {
       throw new Error("Leverage debt and collateral mints must differ");
     }
 
+    if ("fundingAsset" in params && params.fundingAsset !== undefined && params.fundingAsset !== "debt")
+      throw new Error("Leverage funding must use the debt asset; swap other tokens before opening");
     const positionId = address(params.positionId);
     const debtTokenProgram = await tokenProgramForMint(
       this.program.provider.connection,
       debtMint
     );
 
-    return this.instruction(
-      "openLeverage" as DuskInstructionName,
-      {
+    const openArgs = {
         positionId,
         debtAsset: params.debtAsset === "quote" ? 1 : 0,
         marginAmount: governanceIntegerBN(params.marginAmount, "marginAmount"),
@@ -486,7 +519,10 @@ export class DuskWrite {
           params.limitPriceNad ?? 0,
           "limitPriceNad"
         ),
-      },
+      };
+    return this.instruction(
+      "openLeverage",
+      openArgs,
       {
         accounts: {
           market,
@@ -495,7 +531,7 @@ export class DuskWrite {
           payer: address(params.payer ?? owner),
           leveragePosition: address(
             params.leveragePosition ??
-              deriveLeveragePositionAddress(market, positionId)[0]
+              deriveLeveragePositionAddress(market, owner, positionId)[0]
           ),
           debtMint,
           collateralMint,
@@ -553,7 +589,7 @@ export class DuskWrite {
     const market = address(params.market);
     const leveragePosition = address(
       params.leveragePosition ??
-        deriveLeveragePositionAddress(market, address(params.positionId))[0]
+        deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]
     );
 
     return this.instruction(
@@ -752,6 +788,11 @@ export class DuskWrite {
     /** Opening price in NAD. Zero lets the first deposit set it. */
     bootstrapPriceNad?: GovernanceIntegerLike;
     launchFeeProgressOffset?: number;
+    lpMetadata: {
+      ylp: { name: string; symbol: string; uri: string };
+      baseHlp: { name: string; symbol: string; uri: string };
+      quoteHlp: { name: string; symbol: string; uri: string };
+    };
   }): Promise<TransactionInstruction> {
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
@@ -770,6 +811,9 @@ export class DuskWrite {
           "bootstrapPriceNad"
         ),
         launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
+        ylpMetadata: params.lpMetadata.ylp,
+        baseHlpMetadata: params.lpMetadata.baseHlp,
+        quoteHlpMetadata: params.lpMetadata.quoteHlp,
       },
       {
         accounts: {
@@ -779,6 +823,9 @@ export class DuskWrite {
           ylpMint: address(params.ylpMint),
           baseHlpMint: address(params.baseHlpMint),
           quoteHlpMint: address(params.quoteHlpMint),
+          ylpTokenMetadata: deriveTokenMetadataAddress(address(params.ylpMint))[0],
+          baseHlpTokenMetadata: deriveTokenMetadataAddress(address(params.baseHlpMint))[0],
+          quoteHlpTokenMetadata: deriveTokenMetadataAddress(address(params.quoteHlpMint))[0],
           market,
           futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
           baseReserveVault: deriveMarketReserveVaultAddress(market, baseMint)[0],
@@ -794,6 +841,8 @@ export class DuskWrite {
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
+          sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
         },
       }
     );
@@ -805,41 +854,47 @@ export class DuskWrite {
     return new Transaction().add(await this.initializeMarketInstruction(params));
   }
 
-  /** Name, symbol and image for one of a market's LP mints. */
-  async initializeLpMetadataInstruction(params: {
-    payer: AddressLike;
-    market: AddressLike;
-    lpMint: AddressLike;
-    name: string;
-    symbol: string;
-    uri: string;
-  }): Promise<TransactionInstruction> {
-    const lpMint = address(params.lpMint);
-    return this.instruction(
-      "initializeLpMetadata" as DuskInstructionName,
-      { name: params.name, symbol: params.symbol, uri: params.uri },
-      {
-        accounts: {
-          payer: address(params.payer),
-          market: address(params.market),
-          lpMint,
-          lpTokenMetadata: deriveTokenMetadataAddress(lpMint)[0],
-          systemProgram: SystemProgram.programId,
-          sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
-        },
-      }
-    );
+  /**
+   * Donate to a market's insurance vault without receiving an LP claim.
+   * Does not fetch the market, so it can follow initialization in the same
+   * transaction. The program validates the selected side, mint and donor account.
+   */
+  async fortifyMarketInstruction(params: FortifyMarketParams): Promise<TransactionInstruction> {
+    if (params.asset !== "base" && params.asset !== "quote") {
+      throw new Error('asset must be "base" or "quote"');
+    }
+    const amount = governanceIntegerBN(params.amount, "amount");
+    if (amount.isZero()) throw new Error("amount must be positive");
+    const donor = address(params.donor);
+    const market = address(params.market);
+    const assetMint = address(params.assetMint);
+    const assetTokenProgram = params.assetTokenProgram
+      ? address(params.assetTokenProgram)
+      : await tokenProgramForMint(this.program.provider.connection, assetMint);
+    if (!assetTokenProgram.equals(TOKEN_PROGRAM_ID) && !assetTokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
+      throw new Error("assetTokenProgram must be SPL Token or Token-2022");
+    }
+    const donorAssetAccount = params.donorAssetAccount
+      ? address(params.donorAssetAccount)
+      : getAssociatedTokenAddressSync(assetMint, donor, true, assetTokenProgram);
+    return this.instruction("fortifyMarket", { asset: params.asset === "base" ? 0 : 1, amount }, {
+      accounts: {
+        market,
+        donor,
+        assetMint,
+        donorAssetAccount,
+        insuranceVault: deriveInsuranceAddress(market, assetMint, this.program.programId)[0],
+        tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      },
+    });
   }
 
-  async initializeLpMetadataTransaction(
-    params: Parameters<DuskWrite["initializeLpMetadataInstruction"]>[0]
-  ): Promise<Transaction> {
-    return new Transaction().add(await this.initializeLpMetadataInstruction(params));
+  async fortifyMarketTransaction(params: FortifyMarketParams): Promise<Transaction> {
+    return new Transaction().add(await this.fortifyMarketInstruction(params));
   }
 
-  /** Burn-lock initial direct-yLP support and create one immutable typed proposal. */
+  /** Burn-lock initial direct-yLP support and create one immutable proposal over one or more families. */
   async createParameterProposal(
     params: CreateParameterProposalParams
   ): Promise<ParameterGovernanceBuild> {
@@ -867,7 +922,7 @@ export class DuskWrite {
       "createParameterProposal" as DuskInstructionName,
       {
         nonce: governanceIntegerBN(params.nonce, "nonce"),
-        update: anchorParameterUpdate(params.update),
+        updates: canonicalParameterUpdates(params.updates).map(anchorParameterUpdate),
         metadata: cloneProposalMetadata(params.metadata),
         initialSupport: governanceIntegerBN(params.initialSupport, "initialSupport"),
       },
@@ -936,7 +991,7 @@ export class DuskWrite {
     );
     const instruction = await this.instruction(
       "supportParameterProposal" as DuskInstructionName,
-      { amount: governanceIntegerBN(params.amount, "amount") },
+      { amount: governanceIntegerBN(params.amount, "amount"), digest: proposalDigestBytes(params.digest) },
       {
         accounts: {
           supporter,
@@ -1044,6 +1099,7 @@ export class DuskWrite {
           supporter,
           market,
           proposal,
+          proposer: address(params.proposer),
           proposalSupport,
           ylpMint,
           supporterYlpAccount,
@@ -1082,7 +1138,7 @@ export class DuskWrite {
   }
 
   private async governanceMarketState(market: PublicKey): Promise<GovernanceMarketState> {
-    return (await this.program.account.market.fetch(market)) as unknown as GovernanceMarketState;
+    return (await this.fetchMarketAccount(market)) as GovernanceMarketState;
   }
 
   async hlpLiquidityAction(
@@ -1341,8 +1397,15 @@ export class DuskWrite {
       this.program.provider.connection,
       mintKey
     );
+    const referralAccrual = (this.program as unknown as {
+      account: {
+        referralAccrual: {
+          fetch(address: PublicKey): Promise<{ amount: { toString(): string } }>;
+        };
+      };
+    }).account.referralAccrual;
     const [accrual, mint] = await Promise.all([
-      this.program.account.referralAccrual.fetch(referral.referralAccrual),
+      referralAccrual.fetch(referral.referralAccrual),
       getMint(
         this.program.provider.connection,
         mintKey,
@@ -1418,7 +1481,7 @@ export class DuskWrite {
           ownerAssetAccount: address(params.ownerAssetAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, owner, positionId)[0]
           ),
           tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1438,7 +1501,7 @@ export class DuskWrite {
           market, owner: address(params.owner), assetMint,
           collateralVault: address(params.collateralVault ?? deriveMarketCollateralVaultAddress(market, assetMint)[0]),
           ownerAssetAccount: address(params.ownerAssetAccount),
-          borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionId))[0]),
+          borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionOwner ?? params.owner), address(params.positionId))[0]),
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
         }, remainingAccounts: params.remainingAccounts,
       });
@@ -1454,7 +1517,7 @@ export class DuskWrite {
       minQuoteOut: governanceIntegerBN(params.minQuoteOut, "minQuoteOut"),
     }, { accounts: {
       market, owner: address(params.owner), baseMint, quoteMint,
-      borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionId))[0]),
+      borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.owner), address(params.positionId))[0]),
       baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint)[0],
       quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint)[0],
       ownerBaseAccount: address(params.ownerBaseAccount), ownerQuoteAccount: address(params.ownerQuoteAccount),
@@ -1470,7 +1533,7 @@ export class DuskWrite {
       { minCollateralOut: governanceIntegerBN(params.minCollateralOut, "minCollateralOut") }, {
         accounts: {
           market, owner: address(params.owner), collateralMint,
-          leveragePosition: address(params.leveragePosition ?? deriveLeveragePositionAddress(market, address(params.positionId))[0]),
+          leveragePosition: address(params.leveragePosition ?? deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]),
           collateralVault: deriveLeverageCollateralVaultAddress(market, collateralMint)[0],
           ownerCollateralAccount: address(params.ownerCollateralAccount),
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1522,7 +1585,7 @@ export class DuskWrite {
           ownerAssetAccount: address(params.ownerAssetAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, owner, positionId)[0]
           ),
           tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1566,6 +1629,7 @@ export class DuskWrite {
           futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
           owner,
           debtAssetMint,
+          collateralAssetMint: address(params.collateralAssetMint),
           reserveVault: address(
             params.reserveVault ??
               deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
@@ -1577,7 +1641,7 @@ export class DuskWrite {
           ownerDebtAccount: address(params.ownerDebtAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
+              deriveBorrowPositionAddress(market, address(params.positionOwner ?? params.owner), positionId)[0]
           ),
           referralPartner,
           referralAccrual: referralPartner
@@ -1597,276 +1661,6 @@ export class DuskWrite {
 
   async repayTransaction(params: RepayParams): Promise<Transaction> {
     return new Transaction().add(await this.repayInstruction(params));
-  }
-
-  /**
-   * Open the liquidation auction on an unhealthy position.
-   *
-   * Permissionless and free of token accounts: it only snapshots the
-   * liquidation reference price and starts the decay from a 5% premium down
-   * to that floor. Nothing is repaid here, so a keeper that wins the race to
-   * start an auction gains nothing over one that arrives later — the
-   * incentive is in the fill.
-   *
-   * The program rejects a position that is healthy, and rejects a second
-   * start while an auction is live, so a caller racing another keeper sees
-   * `PositionNotLiquidatable` rather than a duplicate auction.
-   */
-  async startLiquidationAuctionInstruction(
-    params: StartLiquidationAuctionParams
-  ): Promise<TransactionInstruction> {
-    const market = address(params.market);
-    const positionId = address(params.positionId);
-    return this.instruction(
-      "startLiquidationAuction" as DuskInstructionName,
-      undefined,
-      {
-        accounts: {
-          market,
-          borrowPosition: address(
-            params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
-          ),
-          debtAssetMint: address(params.debtAssetMint),
-        },
-      }
-    );
-  }
-
-  async startLiquidationAuctionTransaction(
-    params: StartLiquidationAuctionParams
-  ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.startLiquidationAuctionInstruction(params)
-    );
-  }
-
-  /**
-   * Repay someone else's debt at the running auction price and take their
-   * collateral.
-   *
-   * `minCollateralOut` is the liquidator's protection, and it is not
-   * optional in practice: the auction price decays every slot and the
-   * collateral mint's transfer fee can move, so a fill submitted without a
-   * floor can land at a materially worse price than the one quoted.
-   *
-   * Both insurance vaults are here because a fill can touch either side —
-   * the debt side absorbs a shortfall, the collateral side receives the
-   * insurance cut of the penalty — so passing only the debt vault would fail
-   * validation rather than skip the credit.
-   */
-  async fillLiquidationAuctionInstruction(
-    params: FillLiquidationAuctionParams
-  ): Promise<TransactionInstruction> {
-    const market = address(params.market);
-    const liquidator = address(params.liquidator);
-    const debtAssetMint = address(params.debtAssetMint);
-    const collateralAssetMint = address(params.collateralAssetMint);
-    const positionId = address(params.positionId);
-    const referralPartner = params.referralPartner
-      ? address(params.referralPartner)
-      : null;
-    const [debtTokenProgram, collateralTokenProgram] = await Promise.all([
-      tokenProgramForMint(this.program.provider.connection, debtAssetMint),
-      tokenProgramForMint(
-        this.program.provider.connection,
-        collateralAssetMint
-      ),
-    ]);
-    return this.instruction(
-      "fillLiquidationAuction" as DuskInstructionName,
-      {
-        repayAmount: governanceIntegerBN(params.repayAmount, "repayAmount"),
-        minCollateralOut: governanceIntegerBN(
-          params.minCollateralOut,
-          "minCollateralOut"
-        ),
-      },
-      {
-        accounts: {
-          market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
-          positionOwner: address(params.positionOwner),
-          liquidator,
-          debtAssetMint,
-          collateralAssetMint,
-          reserveVault: address(
-            params.reserveVault ??
-              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
-          ),
-          interestVault: address(
-            params.interestVault ??
-              deriveMarketInterestVaultAddress(market, debtAssetMint)[0]
-          ),
-          collateralVault: address(
-            params.collateralVault ??
-              deriveMarketCollateralVaultAddress(market, collateralAssetMint)[0]
-          ),
-          insuranceVault: address(
-            params.insuranceVault ??
-              deriveInsuranceAddress(market, debtAssetMint)[0]
-          ),
-          collateralInsuranceVault: address(
-            params.collateralInsuranceVault ??
-              deriveInsuranceAddress(market, collateralAssetMint)[0]
-          ),
-          liquidatorDebtAccount: address(
-            params.liquidatorDebtAccount ??
-              getAssociatedTokenAddressSync(
-                debtAssetMint,
-                liquidator,
-                true,
-                debtTokenProgram
-              )
-          ),
-          liquidatorCollateralAccount: address(
-            params.liquidatorCollateralAccount ??
-              getAssociatedTokenAddressSync(
-                collateralAssetMint,
-                liquidator,
-                true,
-                collateralTokenProgram
-              )
-          ),
-          borrowPosition: address(
-            params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
-          ),
-          referralPartner,
-          referralAccrual: referralPartner
-            ? deriveReferralAccrualAddress(
-                referralPartner,
-                market,
-                debtAssetMint
-              )[0]
-            : null,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-        },
-        remainingAccounts: params.remainingAccounts,
-      }
-    );
-  }
-
-  async fillLiquidationAuctionTransaction(
-    params: FillLiquidationAuctionParams
-  ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.fillLiquidationAuctionInstruction(params)
-    );
-  }
-
-  /**
-   * Close out an auction nobody filled, using the market's own reserves.
-   *
-   * This is the backstop, not a cheaper fill: the market buys the collateral
-   * itself and the caller is paid a bounty, so it settles inline against the
-   * hLP vaults and needs their five-account prefix ahead of any transfer-hook
-   * accounts. The prefix is omitted when both hLP vaults are empty, matching
-   * what the program accepts.
-   */
-  async backstopLiquidationAuctionInstruction(
-    params: BackstopLiquidationAuctionParams
-  ): Promise<TransactionInstruction> {
-    const market = address(params.market);
-    const debtAssetMint = address(params.debtAssetMint);
-    const collateralAssetMint = address(params.collateralAssetMint);
-    const positionOwner = address(params.positionOwner);
-    const positionId = address(params.positionId);
-    const referralPartner = params.referralPartner
-      ? address(params.referralPartner)
-      : null;
-    const debtTokenProgram = await tokenProgramForMint(
-      this.program.provider.connection,
-      debtAssetMint
-    );
-    return this.instruction(
-      "backstopLiquidationAuction" as DuskInstructionName,
-      {
-        minCallerBountyOut: governanceIntegerBN(
-          params.minCallerBountyOut ?? 0,
-          "minCallerBountyOut"
-        ),
-      },
-      {
-        accounts: {
-          market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
-          positionOwner,
-          liquidator: address(params.liquidator),
-          debtAssetMint,
-          collateralAssetMint,
-          debtReserveVault: address(
-            params.debtReserveVault ??
-              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
-          ),
-          collateralReserveVault: address(
-            params.collateralReserveVault ??
-              deriveMarketReserveVaultAddress(market, collateralAssetMint)[0]
-          ),
-          interestVault: address(
-            params.interestVault ??
-              deriveMarketInterestVaultAddress(market, debtAssetMint)[0]
-          ),
-          collateralVault: address(
-            params.collateralVault ??
-              deriveMarketCollateralVaultAddress(market, collateralAssetMint)[0]
-          ),
-          insuranceVault: address(
-            params.insuranceVault ??
-              deriveInsuranceAddress(market, debtAssetMint)[0]
-          ),
-          liquidatorCollateralAccount: address(
-            params.liquidatorCollateralAccount ??
-              getAssociatedTokenAddressSync(
-                collateralAssetMint,
-                address(params.liquidator),
-                true,
-                await tokenProgramForMint(
-                  this.program.provider.connection,
-                  collateralAssetMint
-                )
-              )
-          ),
-          ownerDebtAccount: address(
-            params.ownerDebtAccount ??
-              getAssociatedTokenAddressSync(
-                debtAssetMint,
-                positionOwner,
-                true,
-                debtTokenProgram
-              )
-          ),
-          borrowPosition: address(
-            params.borrowPosition ??
-              deriveBorrowPositionAddress(market, positionId)[0]
-          ),
-          referralPartner,
-          referralAccrual: referralPartner
-            ? deriveReferralAccrualAddress(
-                referralPartner,
-                market,
-                debtAssetMint
-              )[0]
-            : null,
-          instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-        },
-        remainingAccounts: [
-          ...(await this.hlpRemainingAccounts(market)),
-          ...(params.remainingAccounts ?? []),
-        ],
-      }
-    );
-  }
-
-  async backstopLiquidationAuctionTransaction(
-    params: BackstopLiquidationAuctionParams
-  ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.backstopLiquidationAuctionInstruction(params)
-    );
   }
 
   /**
@@ -2067,6 +1861,7 @@ export class DuskWrite {
           positionOwner: core.positionOwner,
           leveragePosition: core.leveragePosition,
           debtMint: core.debtMint,
+          ...(method === "addLeverageMargin" ? { collateralMint: core.collateralMint } : {}),
           debtReserveVault: core.debtReserveVault,
           debtInterestVault: core.debtInterestVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
@@ -2133,11 +1928,14 @@ export class DuskWrite {
    * settle through `leverage_delegate` instead.
    */
   async closeLeverageInstruction(
-    params: CloseLeverageParams
+    params: CloseLeverageParams,
+    marketSnapshot?: Market
   ): Promise<TransactionInstruction> {
+    if ("collateralFunded" in params && params.collateralFunded === true)
+      throw new Error("Collateral-funded leverage closes are no longer supported");
     const core = await this.resolveLeverageAccounts(params);
     return this.instruction(
-      "closeLeverage" as DuskInstructionName,
+      "closeLeverage",
       {
         debtAsset: marketAssetIndex(params.debtAsset),
         minAmountOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
@@ -2155,6 +1953,12 @@ export class DuskWrite {
           debtInterestVault: core.debtInterestVault,
           leverageCollateralVault: core.leverageCollateralVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
+          delegateFeeRecipient: params.delegateFeeRecipient
+            ? address(params.delegateFeeRecipient)
+            : null,
+          delegateExecutorAccount: params.delegateExecutorAccount
+            ? address(params.delegateExecutorAccount)
+            : null,
           referralPartner: core.referralPartner,
           referralAccrual: core.referralAccrual,
           leverageDelegation: params.leverageDelegation
@@ -2169,7 +1973,7 @@ export class DuskWrite {
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
         remainingAccounts: [
-          ...(await this.hlpRemainingAccounts(core.market)),
+          ...(await this.hlpRemainingAccounts(core.market, marketSnapshot)),
           ...(params.remainingAccounts ?? []),
         ],
       }
@@ -2195,10 +1999,6 @@ export class DuskWrite {
     const referralPartner = params.referralPartner
       ? address(params.referralPartner)
       : null;
-    const tokenProgram = await tokenProgramForMint(
-      this.program.provider.connection,
-      debtMint
-    );
     return {
       market,
       futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
@@ -2206,7 +2006,7 @@ export class DuskWrite {
       owner: address(params.owner ?? params.positionOwner),
       leveragePosition: address(
         params.leveragePosition ??
-          deriveLeveragePositionAddress(market, positionId)[0]
+          deriveLeveragePositionAddress(market, positionOwner, positionId, address(params.namespaceAuthority ?? params.positionOwner))[0]
       ),
       debtMint,
       collateralMint,
@@ -2230,7 +2030,7 @@ export class DuskWrite {
       referralAccrual: referralPartner
         ? deriveReferralAccrualAddress(referralPartner, market, debtMint)[0]
         : null,
-      tokenProgram,
+      tokenProgram: TOKEN_PROGRAM_ID,
     };
   }
 
@@ -2295,6 +2095,8 @@ export type RawAmount = bigint | number | string;
 interface LendingPositionAccounts {
   market: AddressLike;
   owner: AddressLike;
+  /** Beneficiary when a different wallet pays for this position. */
+  positionOwner?: AddressLike;
   /** Position discriminator; the borrow position PDA derives from it. */
   positionId: AddressLike;
   borrowPosition?: AddressLike;
@@ -2320,6 +2122,7 @@ export interface WithdrawCollateralParams extends LendingPositionAccounts {
 
 export interface RepayParams extends LendingPositionAccounts {
   debtAssetMint: AddressLike;
+  collateralAssetMint: AddressLike;
   ownerDebtAccount: AddressLike;
   repayAmount: RawAmount;
   /** Omit when the position has no referrer. */
@@ -2348,6 +2151,8 @@ interface LeverageAccounts {
   debtAsset: MarketAssetSide;
   /** Signer when it differs from the position owner. */
   owner?: AddressLike;
+  /** Signer that originally funded the position, if different from its owner. */
+  namespaceAuthority?: AddressLike;
   leveragePosition?: AddressLike;
   debtReserveVault?: AddressLike;
   collateralReserveVault?: AddressLike;
@@ -2378,8 +2183,12 @@ export interface RemoveLeverageMarginParams extends LeverageMarginParams {
 
 export interface CloseLeverageParams extends LeverageAccounts {
   minAmountOut: RawAmount;
+  /** Payout account owned by the position owner. */
   ownerDebtAccount: AddressLike;
-  /** Delegated settlement; omit all three for an owner-signed close. */
+  /** Required for delegated closes; the two accounts receive bounded fees. */
+  delegateFeeRecipient?: AddressLike | null;
+  delegateExecutorAccount?: AddressLike | null;
+  /** Delegated settlement; omit these for an owner-signed close. */
   leverageDelegation?: AddressLike | null;
   delegatedProgram?: AddressLike | null;
   authority?: AddressLike;
@@ -2404,7 +2213,7 @@ interface YlpLiquidityAccounts {
 /** Which side of the market a leverage position borrows. */
 export type LeverageDebtAsset = "base" | "quote";
 
-/** Opening leverage, described by the market, position and mints. */
+/** Opening leverage funded in the debt asset; margin plus borrowing buys collateral. */
 export interface OpenLeverageParams {
   market: AddressLike;
   owner: AddressLike;
@@ -2431,6 +2240,7 @@ export interface OpenLeverageParams {
 export interface CreateLeverageDelegationParams {
   market: AddressLike;
   owner: AddressLike;
+  namespaceAuthority?: AddressLike;
   positionId: AddressLike;
   debtAsset: LeverageDebtAsset;
   delegatedProgram: AddressLike;
@@ -2456,68 +2266,6 @@ export interface BorrowParams {
   ownerDebtAccount?: AddressLike;
   reserveVault?: AddressLike;
   borrowPosition?: AddressLike;
-  remainingAccounts?: AccountMeta[];
-}
-
-/**
- * Opening an auction needs only the position and which side it owes.
- *
- * No token accounts and no signer of consequence: the caller pays the fee
- * and nothing else moves.
- */
-export interface StartLiquidationAuctionParams {
-  market: AddressLike;
-  /** Position discriminator; the borrow position PDA derives from it. */
-  positionId: AddressLike;
-  debtAssetMint: AddressLike;
-  borrowPosition?: AddressLike;
-}
-
-export interface FillLiquidationAuctionParams {
-  market: AddressLike;
-  liquidator: AddressLike;
-  /** The borrower, who receives the position rent on a terminal fill. */
-  positionOwner: AddressLike;
-  /** Position discriminator; the borrow position PDA derives from it. */
-  positionId: AddressLike;
-  debtAssetMint: AddressLike;
-  collateralAssetMint: AddressLike;
-  repayAmount: RawAmount;
-  /** Slippage floor on the collateral received; zero accepts any price. */
-  minCollateralOut: RawAmount;
-  liquidatorDebtAccount?: AddressLike;
-  liquidatorCollateralAccount?: AddressLike;
-  reserveVault?: AddressLike;
-  interestVault?: AddressLike;
-  collateralVault?: AddressLike;
-  insuranceVault?: AddressLike;
-  collateralInsuranceVault?: AddressLike;
-  borrowPosition?: AddressLike;
-  /** Omit when the position has no referrer. */
-  referralPartner?: AddressLike;
-  remainingAccounts?: AccountMeta[];
-}
-
-export interface BackstopLiquidationAuctionParams {
-  market: AddressLike;
-  /** The keeper calling it, who is paid the bounty. */
-  liquidator: AddressLike;
-  positionOwner: AddressLike;
-  /** Position discriminator; the borrow position PDA derives from it. */
-  positionId: AddressLike;
-  debtAssetMint: AddressLike;
-  collateralAssetMint: AddressLike;
-  /** Floor on the keeper's bounty; zero accepts whatever the program pays. */
-  minCallerBountyOut?: RawAmount;
-  liquidatorCollateralAccount?: AddressLike;
-  ownerDebtAccount?: AddressLike;
-  debtReserveVault?: AddressLike;
-  collateralReserveVault?: AddressLike;
-  interestVault?: AddressLike;
-  collateralVault?: AddressLike;
-  insuranceVault?: AddressLike;
-  borrowPosition?: AddressLike;
-  referralPartner?: AddressLike;
   remainingAccounts?: AccountMeta[];
 }
 
@@ -2573,6 +2321,10 @@ function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown>
     maxDailyBorrowBps: config.maxDailyBorrowBps,
     globalHealthContributionCapBps: config.globalHealthContributionCapBps,
     borrowMarketHealthFloorBps: config.borrowMarketHealthFloorBps,
+    liquidation: {
+      minimumBaseDebt: bn(config.liquidation.minimumBaseDebt, "minimumBaseDebt"),
+      minimumQuoteDebt: bn(config.liquidation.minimumQuoteDebt, "minimumQuoteDebt"),
+    },
     amm: anchorIntegerFields(config.amm, AMM_U64_FIELDS),
     irm: anchorIntegerFields(config.irm, IRM_U64_FIELDS),
     startTime: bn(config.startTime, "startTime"),
@@ -2616,6 +2368,14 @@ function normalizeArgs(args: DuskInstructionArgs): unknown[] {
   return Array.isArray(args) ? args : [args];
 }
 
+function proposalDigestBytes(digest: Uint8Array | readonly number[]): number[] {
+  const bytes = Array.from(digest);
+  if (bytes.length !== 32 || bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
+    throw new Error("proposal digest must be 32 bytes");
+  }
+  return bytes;
+}
+
 function cloneProposalMetadata(metadata: ProposalMetadataV1): ProposalMetadataV1 {
   return {
     version: metadata.version,
@@ -2654,6 +2414,7 @@ export interface WithdrawAllCollateralParams extends LendingPositionAccounts {
 export interface WithdrawRepaidLeverageParams {
   market: AddressLike;
   owner: AddressLike;
+  namespaceAuthority?: AddressLike;
   positionId: AddressLike;
   leveragePosition?: AddressLike;
   collateralMint: AddressLike;

@@ -24,6 +24,35 @@ const BN = Reflect.get(anchor, "BN") ?? Reflect.get(anchor, "default").BN;
 const fixture = JSON.parse(
   readFileSync(new URL("./fixtures/virtual-book-batch-devnet-20260920.json", import.meta.url))
 );
+// This saved account predates the two fractional borrow-index carries in Debt.
+// Add zero-valued carries at the fixed fixture's Debt offset for current IDL
+// decoding; the network response and its original observations stay the same.
+const savedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
+assert.equal(savedMarketBytes.length, 2917);
+const borrowIndexEnd = 1623;
+fixture.result.value.accounts[0].data[0] = Buffer.concat([
+  savedMarketBytes.subarray(0, borrowIndexEnd),
+  Buffer.alloc(32),
+  savedMarketBytes.subarray(borrowIndexEnd),
+]).toString("base64");
+// The immutable network capture also predates leverage exposure counters.
+const carriedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
+const debtEnd = borrowIndexEnd + 32 + 128;
+const exposureMarketBytes = Buffer.concat([
+  carriedMarketBytes.subarray(0, debtEnd), Buffer.alloc(16), carriedMarketBytes.subarray(debtEnd),
+]);
+// The capture also predates per-market minimum residual debt. Insert the two
+// one-atom defaults before MarketConfig.amm; no captured price data changes.
+const liquidationConfigOffset = 1091;
+const liquidationConfig = Buffer.alloc(16);
+liquidationConfig.writeBigUInt64LE(1n, 0);
+liquidationConfig.writeBigUInt64LE(1n, 8);
+const currentMarketBytes = Buffer.concat([
+  exposureMarketBytes.subarray(0, liquidationConfigOffset), liquidationConfig,
+  exposureMarketBytes.subarray(liquidationConfigOffset),
+]);
+currentMarketBytes[8] = 2;
+fixture.result.value.accounts[0].data[0] = currentMarketBytes.toString("base64");
 const slot = fixture.result.context.slot;
 const prefix = `Program return: ${fixture.programId} `;
 // The saved devnet snapshot predates the two trailing output-fee fields.

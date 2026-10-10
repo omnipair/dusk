@@ -9,7 +9,31 @@ collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
 
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
-targets Dusk market layout v1.
+targets Dusk market layout v2, including aggregate leverage exposure and stored
+position margin terms. Regenerate clients and use matching account layouts.
+
+## Stored leverage margins
+
+```typescript
+import { getStoredLeverageMargins } from "@omnipair/dusk-sdk";
+
+const position = await dusk.get.leveragePosition(positionAddress);
+const { initialMarginBps, maintenanceMarginBps } = getStoredLeverageMargins(position);
+// Or fetch and decode in one call:
+const margins = await dusk.get.leverageMargins(positionAddress);
+```
+
+The helper reads the saved terms and applies the same conservative rate rounding
+as Rust. It does not recalculate an existing position from live market crowding.
+`admissionEquityCollateralNad` is collateral atoms times 1e9, not dollars or
+debt-token atoms. These are required margin rates, not actual equity or an
+executable leverage quote. Price and interest still change health. Simulate the
+complete proposed transaction for openings, increases and withdrawals; executable
+equity, cash and Token-2022 fees can impose tighter constraints.
+
+`LeveragePositionOpened` and `LeveragePositionUpdated` include `marginTerms`.
+Indexers should retain those fields per position and replace them on subsequent
+position updates, rather than deriving old-position terms from current liquidity.
 
 A `Dusk` instance is an enriched Anchor program facade. It exposes the raw
 Anchor program through `dusk.program`, alongside typed on-chain reads and
@@ -19,6 +43,77 @@ indexed historical data through `dusk.fetch`.
 The package exports the generated Anchor IDL/types, PDA helpers, typed preview
 decoders, a small write/read facade over the Dusk program, and an indexer client
 for historical API data.
+
+## Flash and emergency liquidations
+
+The auction start/fill/backstop and old full leverage-liquidation instructions
+have been replaced. Use `dusk.liquidations` for either borrowing or leverage:
+
+```typescript
+const position = { market, position: positionAddress, kind: "leverage" as const,
+  debtAsset: "quote" as const };
+// Send this separately to commit the incentive clock even if execution fails.
+const observe = await dusk.liquidations.observeInstruction(position);
+const quote = await dusk.liquidations.preview({ ...position, maxRepayment: 1_000_000n });
+const plan = await dusk.liquidations.buildFlash({
+  ...position, buyer, maxRepayment: 1_000_000n,
+  route: async (ctx) => {
+    // Return instructions that sell collateral or pay from buyer inventory.
+    // Deliver ctx.requiredPaymentCredit NET into ctx.repaymentVault.
+    // grossLiquidationPayment() handles the incoming token transfer fee.
+    return buildPaymentRoute(ctx);
+  },
+});
+// Compile plan.instructions unchanged, using flashLiquidationV0Transaction()
+// with the necessary address lookup tables, then simulate, sign and submit.
+```
+
+`settlement: "duskAmm"` instead sells the flashed collateral in the paired settle,
+with debt principal netted internally and no escrow-payment instruction. The
+buyer must retain the flashed collateral until settle. Its return transfer can
+incur another collateral token fee. Settlement rejects an AMM quote that cannot
+fund the fixed obligation; it never silently debits the owner's wallet.
+If the route changes active hLP accounts, pass the complete final-state account
+list through `settleRemainingAccounts`; the default resolves the current market.
+
+`previewEmergency()` and `buildEmergency()` accept `collateralDebit` and `full`.
+They enforce the emergency EMA-health gate. A full sale also needs nonpositive
+EMA equity or the program's conservative proof that no useful partial exists.
+Failure to certify, including proof-budget exhaustion, rejects full closure.
+Smaller useful fills can succeed without reaching the full MM +2-point target.
+Preview and simulate each proposed slice; a failed slice is not a full-close
+permission. Configured residual minima are debt-token atoms, separately per side.
+
+Builders return unsigned instructions and owner-owned payout accounts. Prefix
+instructions belong in the builder request: inserting instructions afterwards
+invalidates the bound settle index. Helpers include ATA setup, a 256 KiB heap,
+a 1.4M compute-unit limit and required hLP accounts. A compute-unit limit supplied
+in the prefix overrides the default; set the priority price there as needed.
+The session closes at settle. Its payment token account persists for reuse,
+including withheld Token-2022 fees; preexisting token donations do not count as
+payment and are not refunded to the next buyer.
+
+Partial `maxRepayment` requests are capped for the configured minimum residual
+debt. A request beyond the first MM+2 recovery crossing rejects; request a
+smaller amount. Emergency collateral slices must also respect the residual
+minimum and a conservative recovery cap. Its optimistic bound can reject a
+target-crossing slice even if the exact smaller sale would pay less after costs;
+useful below-target slices remain permitted. Preview acceptance does not reserve
+liquidity or guarantee keeper profitability. Simulate the complete transaction.
+
+`liquidationHealth`, `liquidationIncentives`, `liquidationFeeAllocation`,
+`liquidationInsuranceTarget`, and `liquidationLossAllocation` use integer atoms
+and mirror the policy arithmetic. They do not replace the on-chain execution
+preview. Time raises incentives over 120 seconds but never grants emergency
+access. A verified healthy position ends its distress episode.
+
+Indexers should consume `FlashLiquidationBegun`, `FlashLiquidationSettled`,
+`EmergencyLiquidationSettled` and `LiquidationObserved`. AMM settlement also emits
+`SwapExecuted`; external purchases do not generate Dusk swap volume. Collected
+interest retains `BorrowInterestPaid`/referral events. A terminal settlement
+clears the debt leg but leaves position rent to the existing owner cleanup path.
+`previewBorrowPosition` reports `liquidationHealth`, `liquidationRates` and
+`liquidationDistress`; obsolete auction penalty and repayment-cap fields are gone.
 
 ## Install
 
@@ -73,9 +168,6 @@ const ix = await dusk.write.swapInstruction(
       tokenProgram,
       token2022Program,
     },
-    remainingAccounts: [
-      // Token-2022 transfer-hook extras only. The SDK preserves this tail.
-    ],
   }
 );
 ```
@@ -84,14 +176,23 @@ const ix = await dusk.write.swapInstruction(
 `swapRpc(...)` fetch the market before building the swap. Whenever either hLP
 side has nonzero supply or residual exposure, they prepend the canonical
 five-account prefix exactly once: `[yLP mint, base hLP yLP vault, quote hLP yLP
-vault, base interest vault, quote interest vault]`. Caller-provided Token-2022
-transfer-hook extras remain after that prefix.
+vault, base interest vault, quote interest vault]`. Caller-provided remaining
+accounts remain after that prefix.
 
 The write client supplies the canonical event-CPI authority and Dusk program
 accounts for instructions that emit CPI events.
 
 `write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
 same generic path for every Dusk instruction in the IDL.
+
+### Leverage funding
+
+Leverage positions accept margin only in the debt token: USDC for a META long,
+META for a META short. `buildOpenLeverageInstruction` swaps the credited margin
+plus borrowing into the opposite token held as collateral. `closeLeverageInstruction`
+sells exposure, repays the debt and returns the residual in the debt token.
+An application can swap a different wallet token into the required funding token
+before opening; the protocol has no optional collateral-funded mode.
 
 ### Swap and LP Transfer Events
 
@@ -112,9 +213,34 @@ with the earlier seven-entry list, which transfer without a receipt.
 `buildLpTransferHookValidationAccountData({ ..., legacyLayout: true })`
 encodes that earlier list.
 
+### Optional insurance funding
+
+Markets can start with zero insurance. A voluntary top-up uses the existing
+`fortify_market` instruction; it is a donation and does not mint LP shares or
+give the donor a withdrawal claim.
+
+```typescript
+const topUp = await dusk.write.fortifyMarketInstruction({
+  donor: wallet.publicKey,
+  market,
+  asset: "quote",
+  assetMint: quoteMint,
+  amount: 1_000_000n, // Gross raw token atoms, not a USD amount.
+  // Optional: assetTokenProgram avoids the mint-owner RPC read.
+  // Optional: donorAssetAccount overrides the donor's default ATA.
+});
+```
+
+The builder does not fetch the market, so it can be appended after market
+initialization, subject to the transaction's account, size and compute limits.
+The donor's source token account must already exist. SPL Token and Token-2022
+are supported; insurance accounting records the net amount actually received
+after any transfer fee. `fortifyMarketTransaction(...)` wraps the same
+instruction in a transaction without signing or sending it.
+
 ### Direct-yLP Parameter Governance
 
-Market layout v1 has no market manager. The program exposes seven independent
+Market layout v2 has no market manager. The program exposes seven independent
 parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
 Limit, Center Controller, and Insurance. A direct yLP holder burn-locks at least
 1% of eligible direct yLP to create a typed proposal. Strictly more than 50%
@@ -154,7 +280,9 @@ const { proposal, transaction } = await dusk.write.createParameterProposal({
   proposer: wallet.publicKey,
   market,
   nonce: 7,
-  update,
+  // One to seven updates, at most one per family, in any order. They are
+  // sent in family order and pass or fail together.
+  updates: [update],
   metadata,
   initialSupport,
   // holderYlpAccount is optional; the Token-2022 ATA is the default.
@@ -177,17 +305,14 @@ unverified replacement document. Rationale availability never controls
 execution. `verifyDecodedParameterProposalDigest(...)` additionally reproduces
 the program's canonical Borsh/SHA-256 digest for a fetched proposal account.
 
-The other typed update constructors currently implemented by the handwritten
-SDK are `feeParameterUpdate(...)`, `irmParameterUpdate(...)`,
-`emaHalfLivesParameterUpdate(...)`, `dailyBorrowLimitParameterUpdate(...)`, and
-`centerControllerParameterUpdate(...)`. Only concentration ramps; its duration
-must be 216,000–1,512,000 slots (approximately 24 hours–7 days).
-
-The generated IDL includes the seventh `insuranceDrawCaps` variant, but the
-handwritten `ParameterUpdate` union and constructor layer do not yet expose it.
-Treat Insurance proposal construction as an SDK release blocker; do not encode
-that variant by copying a discriminator or handwritten byte layout into an
-application.
+The other typed update constructors are `feeParameterUpdate(...)`,
+`irmParameterUpdate(...)`, `emaHalfLivesParameterUpdate(...)`,
+`dailyBorrowLimitParameterUpdate(...)`, `centerControllerParameterUpdate(...)`
+and `insuranceDrawCapsParameterUpdate(...)`. Only concentration ramps; its
+duration must be 216,000–1,512,000 slots (approximately 24 hours–7 days).
+`canonicalParameterUpdates(...)` returns a set in the order the program
+accepts and rejects a repeated family, and `updatedFamilyRevisions(...)` builds
+the revision list a new proposal binds.
 
 Support and lifecycle builders derive the proposal/support PDAs and all market
 governance accounts:
@@ -198,6 +323,9 @@ await dusk.write.supportParameterProposal({
   market,
   proposal,
   amount: additionalSupport,
+  // The digest of the proposal the supporter reviewed, from its creation
+  // event or account; support fails unless it matches the proposal.
+  digest: proposalDigest,
 });
 
 await dusk.write.queueParameterProposal({ market, proposal });
@@ -206,6 +334,9 @@ await dusk.write.withdrawParameterSupport({
   supporter: wallet.publicKey,
   market,
   proposal,
+  // Receives the proposal's rent, less its tombstone's, when the last
+  // supporter withdraws.
+  proposer,
 });
 ```
 
@@ -219,7 +350,10 @@ proposal-specific virtual claim, so it cannot back multiple proposals. The
 claim continues earning yLP yield. Withdrawal destroys that claim, merges its
 virtual-yield ledgers, and mints back exactly the locked yLP. Collecting support
 can be withdrawn; queued support stays frozen until the proposal executes,
-expires, or becomes stale.
+expires, or becomes stale. When the last supporter withdraws, the proposal
+becomes a tombstone: the account keeps only its discriminator, which stops the
+address from ever holding another proposal, and the rest of its rent returns
+to the proposer.
 
 hLP deposits and withdrawals use async composite builders because both
 asset-denominated `YieldAccount` PDAs must exist before the liquidity
@@ -344,7 +478,7 @@ principal, position debt, interest, health, or liquidation terms.
 
 When interest is realized, the partner accrues a governed share of the DAO's
 interest revenue. Claims always pay a token account owned by the partner's
-current recipient, and the SDK resolves Token-2022 transfer-hook accounts:
+current recipient:
 
 ```typescript
 const claimTx = await dusk.write.claimReferralInterestTransaction({
@@ -385,7 +519,7 @@ Available typed previews:
   epoch, and `netAmountOut` is the recipient credit used by the swap's
   `minAssetOut` check. `grossAmountOut` is before Dusk trading fees.
 - `previewBorrowCapacity({ market, collateralAssetMint, debtAssetMint, collateralAmount, projectedBorrowAmount })`.
-- `previewBorrowPosition({ market, borrowPosition })`.
+- `previewBorrowPosition({ market, borrowPosition, baseMint, quoteMint })`.
 - `previewBorrowPositionCapacity({ capacityKind, market, borrowPosition, collateralAssetMint, debtAssetMint, collateralChange, projectedBorrowAmount })`.
 
 `previewBorrowCapacity` exposes both the health-limited result of the on-chain
@@ -529,8 +663,11 @@ const naming = marketLpTokenNaming({ baseSymbol: "META", quoteSymbol: "USDC" });
 `grindLpMintSeed` asks the vanity server for a seed with `owner` set to
 Token-2022 and re-derives the address locally before returning it; a server
 that ground the wrong suffix or owner is rejected. Names are written once by
-`initialize_lp_metadata` and cannot be changed afterwards, so use
-`lpTokenNaming` rather than ad-hoc strings. The metadata JSON and images that
+`initialize_market` and cannot be changed afterwards, so use `lpTokenNaming`
+rather than ad-hoc strings. Pass the three names, symbols, and URIs through
+`initializeMarketInstruction`; `marketCreationLookupTablePlan` and
+`marketCreationV0Transaction` build the v0 transaction once the lookup table is
+active. The metadata JSON and images that
 the URIs point to are produced by `scripts/lp-metadata/` in the dusk
 repository.
 

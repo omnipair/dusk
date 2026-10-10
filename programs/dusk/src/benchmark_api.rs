@@ -9,10 +9,9 @@ use anchor_lang::{prelude::*, AccountDeserialize, AccountSerialize};
 
 use crate::{
     constants::{
-        BPS_DENOMINATOR, LEVERAGE_INITIAL_MARGIN_BPS, LEVERAGE_MAINTENANCE_BUFFER_BPS, LEVERAGE_MAX_UNWIND_IMPACT_BPS,
-        LIQUIDATION_AUCTION_DURATION_SECONDS, LIQUIDATION_BACKSTOP_CALLER_BPS, MAX_COLLATERAL_FACTOR_BPS,
-        MAX_REFERRAL_INTEREST_SHARE_BPS, NAD, REFERRAL_ACCRUAL_SEED_PREFIX, REFERRAL_PARTNER_SEED_PREFIX,
-        YIELD_ACCOUNT_SEED_PREFIX,
+        BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS, LIQUIDATION_BACKSTOP_CALLER_BPS,
+        MAX_COLLATERAL_FACTOR_BPS, MAX_REFERRAL_INTEREST_SHARE_BPS, NAD, REFERRAL_ACCRUAL_SEED_PREFIX,
+        REFERRAL_PARTNER_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX,
     },
     errors::ErrorCode,
     instructions::{
@@ -28,12 +27,15 @@ use crate::{
     transitions::{
         leverage_debt_from_margin, leverage_entry_limit_satisfied, leverage_entry_price_nad,
         liquidity::{SingleSidedLiquidityReceipt, SwapCashPolicy},
-        AmmSwapQuote, DebtReceipt, DynamicBorrowTerms, HlpRebalanceReceipt, HlpYieldEligibility, LeverageCloseReceipt,
-        LeverageOpenReceipt, LeverageSwapFeeCredit, LeverageSwapQuote, PreparedLeverageSwap,
+        AmmSwapQuote, DebtReceipt, DynamicBorrowTerms, HlpRebalanceReceipt, HlpYieldEligibility, LendingCollateralFees,
+        LeverageCloseReceipt, LeverageCollateralFee, LeverageOpenReceipt, LeverageSwapFeeCredit, LeverageSwapQuote,
+        PreparedLeverageSwap,
     },
 };
 
+use crate::transitions::lending::fee_discounted_contribution;
 use crate::transitions::{LiquidationPricing, LiquidationReceipt, LiquidationTerms};
+use spl_token_2022::extension::transfer_fee::TransferFee;
 
 /// Canonical clock inputs frozen for one replay operation.
 ///
@@ -192,6 +194,7 @@ pub struct BenchmarkHlpCheckpoint {
     pub quote_hlp_live_reserve: u64,
     pub residual_exposure: i128,
     pub last_nav_nad: u128,
+    /// Base quoted in quote NAD units for either target asset; zero means unset.
     pub cached_settlement_price_nad: u128,
 }
 
@@ -602,7 +605,6 @@ pub struct BenchmarkRepayRequest {
 
 const BENCHMARK_LIQUIDATION_START_PREMIUM_NUMERATOR: u64 = 105;
 const BENCHMARK_LIQUIDATION_START_PREMIUM_DENOMINATOR: u64 = 100;
-const BENCHMARK_LIQUIDATION_RESERVATION_FEE_BPS: u64 = 20;
 
 /// The two executable branches of Dusk's native borrow-position auction.
 ///
@@ -806,12 +808,12 @@ pub struct BenchmarkLeverageOwnedCheckpoint {
     pub referral: Option<BenchmarkReferralCheckpoint>,
 }
 
-/// Exact current-position health in debt-token atoms.
+/// Current executable metrics alongside stored margin requirements.
 ///
-/// `minimum_healthy_closeout_value` is the first integer closeout value that
-/// satisfies Dusk's strict maintenance predicate. It is deliberately not
-/// presented as an oracle price: concentrated-curve unwind impact makes that
-/// conversion state- and size-dependent.
+/// `minimum_healthy_closeout_value` and `maintenance_shortfall` describe a
+/// hypothetical executable equity comparison. `liquidatable` instead uses
+/// symmetric-EMA equity, independently of that execution quote. A null maximum
+/// unwind impact means there is no fixed percentage admission guard.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BenchmarkLeverageMetrics {
     pub debt_asset: MarketAsset,
@@ -826,7 +828,7 @@ pub struct BenchmarkLeverageMetrics {
     pub maintenance_shortfall: u64,
     pub spot_value: u64,
     pub unwind_impact_bps: u128,
-    pub maximum_open_unwind_impact_bps: u16,
+    pub maximum_open_unwind_impact_bps: Option<u16>,
     pub liquidatable: bool,
 }
 
@@ -987,6 +989,49 @@ pub struct BenchmarkMarket {
     market: Box<Market>,
     market_key: Option<Pubkey>,
     clock: BenchmarkClock,
+    transfer_fees: [BenchmarkMintTransferFee; 2],
+}
+
+/// Token-2022 transfer-fee schedule of one market mint, as the native
+/// instructions read it from the mint account.
+///
+/// Token movements stay caller-measured through [`BenchmarkTokenTransferOutcome`];
+/// this schedule only drives the valuation the program performs. Borrowing,
+/// withdrawal, and opening or increasing leverage value collateral at the
+/// worse of `effective` and `pending`. Liquidation eligibility uses `pending`
+/// only during its final notice epoch; actual transfers always use `effective`.
+/// The default is fee-free.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BenchmarkMintTransferFee {
+    /// Fee a transfer pays at the benchmark's current epoch.
+    pub effective: Option<TransferFee>,
+    /// Change the mint has already scheduled for a later epoch.
+    pub pending: Option<TransferFee>,
+    /// True only when `pending` activates in the next epoch. The benchmark
+    /// clock has no epoch, so the caller supplies this mint-schedule fact.
+    pub pending_liquidation_eligible: bool,
+}
+
+impl BenchmarkMintTransferFee {
+    fn exit(self) -> LeverageCollateralFee {
+        LeverageCollateralFee::new(self.effective)
+    }
+
+    fn admission(self) -> LeverageCollateralFee {
+        self.exit().with_pending(self.pending)
+    }
+
+    fn liquidation_eligibility(self) -> LeverageCollateralFee {
+        self.exit()
+            .with_pending(self.pending.filter(|_| self.pending_liquidation_eligible))
+    }
+}
+
+fn transfer_fee_index(asset: MarketAsset) -> usize {
+    match asset {
+        MarketAsset::Base => 0,
+        MarketAsset::Quote => 1,
+    }
 }
 
 /// An owned native borrow-position account. Market/position operations clone
@@ -1279,6 +1324,29 @@ impl BenchmarkReferralOwnedState {
         Ok(state)
     }
 
+    /// Imports decoded partner and accrual accounts for historical replay.
+    pub fn from_account_state(
+        market: &BenchmarkMarket,
+        debt_asset: MarketAsset,
+        partner_key: Pubkey,
+        partner: ReferralPartner,
+        accrual_key: Pubkey,
+        accrual: ReferralAccrual,
+    ) -> Result<Self> {
+        let state = Self {
+            partner_key,
+            partner: Box::new(partner),
+            accrual_key,
+            accrual: Box::new(accrual),
+        };
+        validate_referral_owned_state(
+            &state,
+            market.require_market_key()?,
+            market.market.side(debt_asset).asset_mint,
+        )?;
+        Ok(state)
+    }
+
     pub fn checkpoint(&self) -> BenchmarkReferralCheckpoint {
         BenchmarkReferralCheckpoint {
             partner_key: self.partner_key,
@@ -1325,7 +1393,7 @@ impl BenchmarkLeverageOwnedState {
         require_keys_neq!(funding_owner, Pubkey::default(), ErrorCode::InvalidSigner);
         require_keys_neq!(position_owner, Pubkey::default(), ErrorCode::InvalidSigner);
         let market_key = market.require_market_key()?;
-        let (position_key, _) = leverage_position_pda(market_key, position_id)?;
+        let (position_key, _) = leverage_position_pda(market_key, position_owner, funding_owner, position_id)?;
         let state = Self {
             funding_owner,
             position_owner,
@@ -1396,8 +1464,13 @@ impl BenchmarkLeverageOwnedState {
 }
 
 impl BenchmarkBorrowPosition {
-    pub fn initialize(owner: Pubkey, market: Pubkey, position_id: Pubkey, bump: u8) -> Self {
+    pub fn initialize(owner: Pubkey, market: Pubkey, position_id: Pubkey, bump: u8) -> Result<Self> {
+        require_keys_neq!(owner, Pubkey::default(), ErrorCode::InvalidSigner);
+        require_keys_neq!(market, Pubkey::default(), ErrorCode::InvalidPositionMarket);
         let mut position = Box::new(BorrowPosition {
+            active_liquidation_session: Pubkey::default(),
+            base_distress: Default::default(),
+            quote_distress: Default::default(),
             owner: Pubkey::default(),
             market: Pubkey::default(),
             position_id: Pubkey::default(),
@@ -1420,7 +1493,7 @@ impl BenchmarkBorrowPosition {
             bump: 0,
         });
         position.initialize(owner, market, position_id, bump);
-        Self { position }
+        Ok(Self { position })
     }
 
     pub fn from_position_state(position: BorrowPosition) -> Result<Self> {
@@ -1446,6 +1519,7 @@ impl BenchmarkBorrowPosition {
 
     pub fn checkpoint(&self, market: &BenchmarkMarket) -> Result<BenchmarkBorrowPositionCheckpoint> {
         let market_key = market.require_market_key()?;
+        require!(self.position.is_initialized(), ErrorCode::InvalidPositionMarket);
         self.position.assert_position(self.position.owner, market_key)?;
         borrow_position_checkpoint(&self.position, &market.market.debt)
     }
@@ -1497,6 +1571,7 @@ impl BenchmarkMarket {
             market,
             market_key,
             clock,
+            transfer_fees: Default::default(),
         })
     }
 
@@ -1523,11 +1598,28 @@ impl BenchmarkMarket {
             market: Box::new(market),
             market_key,
             clock,
+            transfer_fees: Default::default(),
         })
     }
 
     pub const fn clock(&self) -> BenchmarkClock {
         self.clock
+    }
+
+    /// Sets the transfer-fee schedule of `asset`'s mint. Fee-free by default.
+    pub fn set_mint_transfer_fee(&mut self, asset: MarketAsset, fee: BenchmarkMintTransferFee) {
+        self.transfer_fees[transfer_fee_index(asset)] = fee;
+    }
+
+    pub fn mint_transfer_fee(&self, asset: MarketAsset) -> BenchmarkMintTransferFee {
+        self.transfer_fees[transfer_fee_index(asset)]
+    }
+
+    fn admission_market_fees(&self) -> LendingCollateralFees {
+        LendingCollateralFees {
+            base: self.mint_transfer_fee(MarketAsset::Base).admission(),
+            quote: self.mint_transfer_fee(MarketAsset::Quote).admission(),
+        }
     }
 
     pub fn market(&self) -> &Market {
@@ -1555,6 +1647,7 @@ impl BenchmarkMarket {
             market: Box::new(clone_market(&self.market)?),
             market_key: self.market_key,
             clock: self.clock,
+            transfer_fees: self.transfer_fees,
         })
     }
 
@@ -1682,7 +1775,10 @@ impl BenchmarkMarket {
         let collateral_side = preview.side(collateral_asset);
         let debt_side = preview.side(debt_asset);
         let risk = preview.risk;
-        let collateral_value_nad = preview.collateral_value_nad(collateral_asset, collateral_amount, &risk)?;
+        let collateral_fee = self.mint_transfer_fee(collateral_asset).admission();
+        let market_fees = self.admission_market_fees();
+        let collateral_exit_credit = collateral_fee.unwind_credit(collateral_amount)?;
+        let collateral_value_nad = preview.collateral_value_nad(collateral_asset, collateral_exit_credit, &risk)?;
         let max_debt_by_cash = debt_side.reserves.cash_reserve;
         let daily_limit = preview.daily_limit_for_side(debt_asset, preview.config.max_daily_borrow_bps)?;
         let max_debt_by_daily_limit = debt_side.daily_borrow_bucket.remaining(daily_limit, self.clock.slot)?;
@@ -1690,6 +1786,7 @@ impl BenchmarkMarket {
             market: &preview,
             debt_asset,
             collateral_amount,
+            collateral_fee,
             risk: &risk,
             existing_total_debt_nad: preview.total_fixed_debt_nad(debt_asset)?,
             current_aggregate_contribution: match debt_asset {
@@ -1698,8 +1795,8 @@ impl BenchmarkMarket {
             },
         };
         let max_debt_by_health = {
-            let current_health = preview.market_health_from_risk(&risk)?;
-            if preview.assert_market_health_snapshot(&current_health).is_err() {
+            let current_health = preview.market_health_from_risk_with_fees(&risk, market_fees)?;
+            if collateral_exit_credit == 0 || preview.assert_market_health_snapshot(&current_health).is_err() {
                 0
             } else {
                 let mut low = 0_u64;
@@ -1720,32 +1817,36 @@ impl BenchmarkMarket {
         };
         let max_debt = max_debt_by_health.min(max_debt_by_cash).min(max_debt_by_daily_limit);
         let projected_borrow_amount = projected_borrow_amount.unwrap_or(max_debt);
-        let (projected_terms, projected_global_health_contribution) = preview_context.terms(projected_borrow_amount)?;
+        let (projected_terms, projected_global_health_contribution) = if collateral_exit_credit == 0 {
+            (DynamicBorrowTerms::default(), 0)
+        } else {
+            preview_context.terms(projected_borrow_amount)?
+        };
         let projected_debt_nad = preview.normalize_amount(projected_borrow_amount as u128, debt_side.asset_decimals)?;
         let projected_health_bps = if projected_debt_nad == 0 {
             u64::MAX
         } else {
             health_bps(collateral_value_nad, projected_debt_nad)?
         };
-        let liquidation_debt_per_collateral_price_nad = if projected_borrow_amount == 0
-            || projected_terms.liquidation_cf_bps == 0
-        {
-            0
-        } else {
-            let collateral_nad = preview.normalize_amount(collateral_amount as u128, collateral_side.asset_decimals)?;
-            let debt_nad = preview.normalize_amount(projected_borrow_amount as u128, debt_side.asset_decimals)?;
-            let price = ceil_div(
-                debt_nad
-                    .checked_mul(BPS_DENOMINATOR as u128)
-                    .and_then(|value| value.checked_mul(NAD as u128))
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-                collateral_nad
-                    .checked_mul(projected_terms.liquidation_cf_bps as u128)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-            u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
-        };
+        let liquidation_debt_per_collateral_price_nad =
+            if collateral_exit_credit == 0 || projected_borrow_amount == 0 || projected_terms.liquidation_cf_bps == 0 {
+                0
+            } else {
+                let collateral_nad =
+                    preview.normalize_amount(collateral_exit_credit as u128, collateral_side.asset_decimals)?;
+                let debt_nad = preview.normalize_amount(projected_borrow_amount as u128, debt_side.asset_decimals)?;
+                let price = ceil_div(
+                    debt_nad
+                        .checked_mul(BPS_DENOMINATOR as u128)
+                        .and_then(|value| value.checked_mul(NAD as u128))
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    collateral_nad
+                        .checked_mul(projected_terms.liquidation_cf_bps as u128)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+                u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
+            };
 
         Ok(BorrowCapacityPreview {
             collateral_asset,
@@ -1785,7 +1886,14 @@ impl BenchmarkMarket {
         let mut preview = clone_market(&self.market)?;
         advance_market_to_slot(&mut preview, clock.slot)?;
         preview.assert_started_at(clock.unix_timestamp)?;
-        existing_borrow_capacity_preview(&preview, &position.position, debt_asset, clock.slot, global_reduce_only)
+        existing_borrow_capacity_preview(
+            &preview,
+            &position.position,
+            debt_asset,
+            self.admission_market_fees(),
+            clock.slot,
+            global_reduce_only,
+        )
     }
 
     /// Solves the largest raw request whose share-rounded post-debt is no
@@ -1804,8 +1912,16 @@ impl BenchmarkMarket {
         let mut preview = clone_market(&self.market)?;
         advance_market_to_slot(&mut preview, clock.slot)?;
         preview.assert_started_at(clock.unix_timestamp)?;
-        let capacity =
-            existing_borrow_capacity_preview(&preview, &position.position, debt_asset, clock.slot, global_reduce_only)?;
+        let market_fees = self.admission_market_fees();
+        let collateral_fee = market_fees.for_asset(debt_asset.opposite());
+        let capacity = existing_borrow_capacity_preview(
+            &preview,
+            &position.position,
+            debt_asset,
+            market_fees,
+            clock.slot,
+            global_reduce_only,
+        )?;
         require_gte!(
             capacity.gross_admissible_max_debt,
             target_debt,
@@ -1816,6 +1932,7 @@ impl BenchmarkMarket {
             market: &preview,
             position: &position.position,
             debt_asset,
+            collateral_fee,
             risk: &risk,
             external_debt_nad: preview.external_fixed_debt_nad(&position.position, debt_asset)?,
         };
@@ -1924,7 +2041,12 @@ impl BenchmarkMarket {
         require!(!leverage.position_exists, ErrorCode::InvalidLeveragePosition);
         require!(!leverage.position.is_initialized(), ErrorCode::InvalidLeveragePosition);
         let market_key = self.require_market_key()?;
-        let (position_key, _) = leverage_position_pda(market_key, leverage.position_id)?;
+        let (position_key, _) = leverage_position_pda(
+            market_key,
+            leverage.position_owner,
+            leverage.funding_owner,
+            leverage.position_id,
+        )?;
         require_keys_eq!(leverage.position_key, position_key, ErrorCode::InvalidLeveragePosition);
         validate_leverage_token_custody(&self.market, &leverage.token_balances)?;
         if let Some(referral) = leverage.referral.as_ref() {
@@ -1991,11 +2113,17 @@ impl BenchmarkMarket {
         // execution will independently reproduce these receipts.
         let mut settlement_market = clone_market(&prepared_market)?;
         let mut settlement_position = empty_leverage_position();
-        let (_, position_bump) = leverage_position_pda(self.require_market_key()?, leverage.position_id)?;
+        let (_, position_bump) = leverage_position_pda(
+            self.require_market_key()?,
+            leverage.position_owner,
+            leverage.funding_owner,
+            leverage.position_id,
+        )?;
         let settlement_preview = settlement_market.open_leverage(
             &mut settlement_position,
             leverage.position_owner,
             self.require_market_key()?,
+            leverage.funding_owner,
             leverage.position_id,
             referral_partner,
             referral_interest_share_bps,
@@ -2010,6 +2138,7 @@ impl BenchmarkMarket {
             position_bump,
             request.policy.protocol_swap_fee_bps,
             request.policy.protocol_auction_split,
+            self.mint_transfer_fee(request.debt_asset.opposite()).admission(),
         )?;
         let quote = BenchmarkLeverageOpenQuote {
             borrowed_amount,
@@ -2117,11 +2246,17 @@ impl BenchmarkMarket {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         let fee_credit = full_leverage_swap_fee_credit(prepared.quote.swap)?;
         let interest_eligibility = prepared.prepared_swap.interest_eligibility;
-        let (_, position_bump) = leverage_position_pda(self.require_market_key()?, next_leverage.position_id)?;
+        let (_, position_bump) = leverage_position_pda(
+            self.require_market_key()?,
+            next_leverage.position_owner,
+            next_leverage.funding_owner,
+            next_leverage.position_id,
+        )?;
         let native = next_market.open_leverage(
             &mut next_leverage.position,
             next_leverage.position_owner,
             self.require_market_key()?,
+            next_leverage.funding_owner,
             next_leverage.position_id,
             prepared.quote.referral_partner,
             prepared.quote.referral_interest_share_bps,
@@ -2136,6 +2271,7 @@ impl BenchmarkMarket {
             position_bump,
             prepared.request.policy.protocol_swap_fee_bps,
             prepared.request.policy.protocol_auction_split,
+            self.mint_transfer_fee(collateral_asset).admission(),
         )?;
         require_eq!(
             native.base_hlp_rebalance.interest_paid,
@@ -2331,6 +2467,7 @@ impl BenchmarkMarket {
             request.policy.protocol_swap_fee_bps,
             request.policy.protocol_auction_split,
             request.clock.slot,
+            self.mint_transfer_fee(leverage.position.collateral_asset()?).exit(),
         )?;
         require_eq!(
             settlement_preview.residual,
@@ -2405,6 +2542,7 @@ impl BenchmarkMarket {
             prepared.request.policy.protocol_swap_fee_bps,
             prepared.request.policy.protocol_auction_split,
             prepared.request.clock.slot,
+            self.mint_transfer_fee(close_collateral_asset).exit(),
         )?;
         require_eq!(
             native.base_hlp_rebalance.interest_paid,
@@ -2859,7 +2997,7 @@ impl BenchmarkMarket {
             )?;
         }
         next_market.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
-        next_market.assert_market_health()?;
+        next_market.assert_market_health_with_fees(self.admission_market_fees())?;
 
         next_external.hlp_vault_ylp_balance = next_external
             .hlp_vault_ylp_balance
@@ -2957,7 +3095,7 @@ impl BenchmarkMarket {
             ErrorCode::SlippageExceeded
         );
         next.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
-        next.assert_market_health()?;
+        next.assert_market_health_with_fees(self.admission_market_fees())?;
 
         let mut cash = BenchmarkCashFlow::default();
         cash.base.reserve_vault_debit = receipt.base_amount_out;
@@ -2985,8 +3123,12 @@ impl BenchmarkMarket {
         let mut next_position = clone_borrow_position(&position.position)?;
         advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
-        let receipt =
-            next_market.deposit_collateral(&mut next_position, request.collateral_asset, request.collateral_credit)?;
+        let receipt = next_market.deposit_collateral_with_fee(
+            &mut next_position,
+            request.collateral_asset,
+            request.collateral_credit,
+            self.mint_transfer_fee(request.collateral_asset).exit(),
+        )?;
         let mut cash = BenchmarkCashFlow::default();
         cash.side_mut(request.collateral_asset).collateral_vault_credit = request.collateral_credit;
         self.commit_position_execution(
@@ -3029,10 +3171,11 @@ impl BenchmarkMarket {
             request.min_recipient_credit,
             ErrorCode::SlippageExceeded
         );
-        let receipt = next_market.withdraw_collateral(
+        let receipt = next_market.withdraw_collateral_with_fee(
             &mut next_position,
             request.collateral_asset,
             request.collateral_debit,
+            self.mint_transfer_fee(request.collateral_asset).admission(),
             request.min_liquidation_cf_bps,
         )?;
         let mut cash = BenchmarkCashFlow::default();
@@ -3116,10 +3259,11 @@ impl BenchmarkMarket {
                 ErrorCode::InvalidReferralInterestShareBps
             );
         }
-        let receipt = next_market.borrow(
+        let receipt = next_market.borrow_with_market_fees(
             &mut next_position,
             request.debt_asset,
             request.borrow_amount,
+            self.admission_market_fees(),
             request.min_liquidation_cf_bps,
             request.clock.slot,
         )?;
@@ -3141,9 +3285,11 @@ impl BenchmarkMarket {
         )
     }
 
+    /// Replays a repay with its validated referral claim ledger in the same rollback boundary.
     pub fn execute_repay(
         &mut self,
         position: &mut BenchmarkBorrowPosition,
+        referral: Option<&mut BenchmarkReferralOwnedState>,
         request: BenchmarkRepayRequest,
     ) -> Result<BenchmarkPositionExecution<DebtReceipt>> {
         self.require_monotonic_clock(request.clock)?;
@@ -3155,20 +3301,30 @@ impl BenchmarkMarket {
         let revenue_before = self.revenue_checkpoint();
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
+        let mut next_referral = referral.as_ref().map(|state| state.try_fork()).transpose()?;
         advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         let referral_binding = referral_binding(&next_position, request.debt_asset);
         let repayment =
             next_market.fixed_repayment_for_max(&next_position, request.debt_asset, request.max_repay_credit)?;
-        let receipt = next_market.repay(&mut next_position, request.debt_asset, repayment.cash_repaid)?;
+        let receipt = next_market.repay_with_finalization_and_fee(
+            &mut next_position,
+            request.debt_asset,
+            repayment.cash_repaid,
+            self.mint_transfer_fee(request.debt_asset.opposite()).exit(),
+            None,
+        )?;
         require_eq!(receipt.cash_repaid, repayment.cash_repaid, ErrorCode::BrokenInvariant);
         require_gte!(
             receipt.interest_paid,
             request.interest_vault_credit,
             ErrorCode::FeeMathOverflow
         );
-        let expected_referral = referral_interest_amount(
+        let expected_referral = accrue_benchmark_referral_interest(
             referral_binding,
+            next_referral.as_mut(),
+            self.require_market_key()?,
+            next_market.side(request.debt_asset).asset_mint,
             receipt.interest_paid,
             request.interest_vault_credit,
             request.protocol_interest_fee_bps,
@@ -3196,7 +3352,7 @@ impl BenchmarkMarket {
         side.reserve_vault_credit = receipt.cash_repaid;
         side.reserve_vault_debit = receipt.interest_paid;
         side.interest_vault_credit = request.interest_vault_credit;
-        self.commit_position_execution(
+        let result = self.commit_position_execution(
             position,
             next_market,
             next_position,
@@ -3204,7 +3360,11 @@ impl BenchmarkMarket {
             revenue_before,
             cash,
             receipt,
-        )
+        )?;
+        if let Some((current, next)) = referral.zip(next_referral) {
+            *current = next;
+        }
+        Ok(result)
     }
 
     /// Opens the native liquidation auction and atomically owns both account
@@ -3223,8 +3383,16 @@ impl BenchmarkMarket {
         advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         let reference_price_nad = next_market.liquidation_reference_price_nad(&next_position, request.debt_asset)?;
+        let collateral_exit_credit = self
+            .mint_transfer_fee(request.debt_asset.opposite())
+            .liquidation_eligibility()
+            .unwind_credit(next_position.collateral(request.debt_asset.opposite()))?;
         require!(
-            next_market.is_position_liquidatable(&next_position, request.debt_asset)?,
+            next_market.is_position_liquidatable_with_credit(
+                &next_position,
+                request.debt_asset,
+                collateral_exit_credit,
+            )?,
             ErrorCode::PositionNotLiquidatable
         );
         require!(
@@ -3278,7 +3446,7 @@ impl BenchmarkMarket {
         let mut next_position = clone_borrow_position(&position.position)?;
         advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
-        liquidation_plan(&mut next_market, &mut next_position, request)
+        liquidation_plan(&mut next_market, &mut next_position, request, self.transfer_fees)
     }
 
     /// Constructs the exact minimum token-account state consistent with the
@@ -3321,17 +3489,18 @@ impl BenchmarkMarket {
         let mut next_position = clone_borrow_position(&position.position)?;
         advance_market_to_slot(&mut next_market, request.plan.clock.slot)?;
         next_market.assert_started_at(request.plan.clock.unix_timestamp)?;
-        preview_liquidation_on_state(&mut next_market, &mut next_position, request)
+        preview_liquidation_on_state(&mut next_market, &mut next_position, request, self.transfer_fees)
     }
 
     /// Executes bid or floor settlement with the same account-wide rollback
     /// boundary as the instruction: Market, BorrowPosition, and every touched
-    /// token balance are forked first and committed only after custody, fee,
-    /// slippage, and finalization checks all succeed.
+    /// token balance and referral claim ledger are forked first and committed
+    /// only after custody, fee, slippage, and finalization checks all succeed.
     pub fn execute_liquidation(
         &mut self,
         position: &mut BenchmarkBorrowPosition,
         token_balances: &mut BenchmarkLiquidationTokenBalances,
+        referral: Option<&mut BenchmarkReferralOwnedState>,
         request: BenchmarkLiquidationExecuteRequest,
     ) -> Result<BenchmarkLiquidationExecution> {
         self.require_monotonic_clock(request.preview.plan.clock)?;
@@ -3344,10 +3513,16 @@ impl BenchmarkMarket {
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
         let mut next_balances = *token_balances;
+        let mut next_referral = referral.as_ref().map(|state| state.try_fork()).transpose()?;
         let clock = request.preview.plan.clock;
         advance_market_to_slot(&mut next_market, clock.slot)?;
         next_market.assert_started_at(clock.unix_timestamp)?;
-        let preview = preview_liquidation_on_state(&mut next_market, &mut next_position, request.preview)?;
+        let preview = preview_liquidation_on_state(
+            &mut next_market,
+            &mut next_position,
+            request.preview,
+            self.transfer_fees,
+        )?;
         match preview.plan.phase {
             BenchmarkLiquidationPhase::Bid => {
                 require!(request.max_repay_source_debit > 0, ErrorCode::AmountZero);
@@ -3511,8 +3686,11 @@ impl BenchmarkMarket {
         // to the staged account pair. Reconcile token-program outcomes and
         // revenue ownership exactly as the instruction does afterward.
         let referral_binding = referral_binding(&position.position, preview.plan.debt_asset);
-        let expected_referral = referral_interest_amount(
+        let expected_referral = accrue_benchmark_referral_interest(
             referral_binding,
+            next_referral.as_mut(),
+            self.require_market_key()?,
+            next_market.side(preview.plan.debt_asset).asset_mint,
             preview.native.interest_paid,
             request.interest_transfer.destination_credit,
             request.protocol_interest_fee_bps,
@@ -3652,6 +3830,9 @@ impl BenchmarkMarket {
         let market = self.commit_market_execution(next_market, clock, revenue_before, cash, receipt)?;
         *position.position = next_position;
         *token_balances = next_balances;
+        if let Some((current, next)) = referral.zip(next_referral) {
+            *current = next;
+        }
         Ok(BenchmarkLiquidationExecution {
             market,
             position_after,
@@ -3669,6 +3850,7 @@ impl BenchmarkMarket {
     }
 
     fn assert_position_market(&self, position: &BenchmarkBorrowPosition) -> Result<()> {
+        require!(position.position.is_initialized(), ErrorCode::InvalidPositionMarket);
         position
             .position
             .assert_position(position.position.owner, self.require_market_key()?)
@@ -3728,30 +3910,34 @@ fn liquidation_plan(
     market: &mut Market,
     position: &mut BorrowPosition,
     request: BenchmarkLiquidationPlanRequest,
+    transfer_fees: [BenchmarkMintTransferFee; 2],
 ) -> Result<BenchmarkLiquidationPlan> {
     if request.phase == BenchmarkLiquidationPhase::Floor {
-        return prepare_floor_liquidation_plan(market, position, request).map(|(plan, _)| plan);
+        return prepare_floor_liquidation_plan(market, position, request, transfer_fees).map(|(plan, _)| plan);
     }
     require!(request.max_repay_credit > 0, ErrorCode::AmountZero);
     require_eq!(request.collateral_reserve_credit, 0, ErrorCode::InvalidArgument);
-    market.reconcile_liquidation_auction(position)?;
+    let collateral_exit_credit = transfer_fees[transfer_fee_index(request.debt_asset.opposite())]
+        .liquidation_eligibility()
+        .unwind_credit(position.collateral(request.debt_asset.opposite()))?;
+    market.reconcile_liquidation_auction_with_credit(position, collateral_exit_credit)?;
     position.assert_liquidation_auction(request.debt_asset)?;
     require!(
         !position.liquidation_auction_expired(request.clock.unix_timestamp)?,
         ErrorCode::PositionNotLiquidatable
     );
-    let price_before_fee = position.liquidation_auction_price_nad(request.clock.unix_timestamp)?;
-    let reservation_fee = price_before_fee
-        .checked_mul(BENCHMARK_LIQUIDATION_RESERVATION_FEE_BPS)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u64))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let auction_price_nad = price_before_fee
-        .checked_add(reservation_fee)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let current_reference_price_nad = market.liquidation_reference_price_nad(position, request.debt_asset)?;
+    let auction_price_nad =
+        position.liquidation_auction_bid_price_nad(request.clock.unix_timestamp, current_reference_price_nad)?;
     let pricing = LiquidationPricing::ReferencePrice {
         debt_per_collateral_price_nad: auction_price_nad,
     };
-    let terms = market.liquidation_terms_with_pricing(position, request.debt_asset, pricing)?;
+    let terms = market.liquidation_terms_with_pricing_and_credit(
+        position,
+        request.debt_asset,
+        collateral_exit_credit,
+        pricing,
+    )?;
     let repay_credit = market
         .fixed_repayment_for_max(position, request.debt_asset, request.max_repay_credit)?
         .cash_repaid;
@@ -3784,6 +3970,7 @@ fn prepare_floor_liquidation_plan(
     market: &mut Market,
     position: &mut BorrowPosition,
     request: BenchmarkLiquidationPlanRequest,
+    transfer_fees: [BenchmarkMintTransferFee; 2],
 ) -> Result<(BenchmarkLiquidationPlan, Option<Box<PreparedSwap>>)> {
     require!(
         request.phase == BenchmarkLiquidationPhase::Floor,
@@ -3794,7 +3981,10 @@ fn prepare_floor_liquidation_plan(
         request.protocol_auction_split.is_valid(),
         ErrorCode::InvalidAuctionConfig
     );
-    market.reconcile_liquidation_auction(position)?;
+    let collateral_exit_credit = transfer_fees[transfer_fee_index(request.debt_asset.opposite())]
+        .liquidation_eligibility()
+        .unwind_credit(position.collateral(request.debt_asset.opposite()))?;
+    market.reconcile_liquidation_auction_with_credit(position, collateral_exit_credit)?;
     position.assert_liquidation_auction(request.debt_asset)?;
     require!(
         position.liquidation_auction_expired(request.clock.unix_timestamp)?,
@@ -3834,6 +4024,7 @@ fn prepare_floor_liquidation_plan(
                     debt_asset: request.debt_asset,
                     debt_shares: 0,
                     debt_principal: 0,
+                    insurance_credit: 0,
                 },
             )?,
         )
@@ -3855,6 +4046,14 @@ fn prepare_floor_liquidation_plan(
             .insurance
             .draw_capacity(request.debt_asset, request.clock.slot)?
             .min(remaining_debt)
+    };
+    // A 100% debt-mint fee credits the reserve nothing; the instruction skips
+    // the draw and socializes the loss.
+    let debt_fee = transfer_fees[transfer_fee_index(request.debt_asset)].exit();
+    let insurance_draw_debit = if insurance_draw_debit > 0 && debt_fee.unwind_credit(insurance_draw_debit)? == 0 {
+        0
+    } else {
+        insurance_draw_debit
     };
     let plan = BenchmarkLiquidationPlan {
         phase: BenchmarkLiquidationPhase::Floor,
@@ -3886,9 +4085,10 @@ fn preview_liquidation_on_state(
     market: &mut Market,
     position: &mut BorrowPosition,
     request: BenchmarkLiquidationPreviewRequest,
+    transfer_fees: [BenchmarkMintTransferFee; 2],
 ) -> Result<BenchmarkLiquidationPreview> {
     if request.plan.phase == BenchmarkLiquidationPhase::Floor {
-        let (plan, mut prepared) = prepare_floor_liquidation_plan(market, position, request.plan)?;
+        let (plan, mut prepared) = prepare_floor_liquidation_plan(market, position, request.plan, transfer_fees)?;
         require_gte!(
             plan.insurance_draw_debit,
             request.insurance_draw_credit,
@@ -3921,24 +4121,20 @@ fn preview_liquidation_on_state(
             owner_residual: internal.owner_residual,
         });
     }
-    let plan = liquidation_plan(market, position, request.plan)?;
-    require_gte!(
-        plan.insurance_draw_debit,
-        request.insurance_draw_credit,
-        ErrorCode::MarketMathOverflow
-    );
+    let plan = liquidation_plan(market, position, request.plan, transfer_fees)?;
+    require_eq!(plan.insurance_draw_debit, 0, ErrorCode::BrokenInvariant);
     require_eq!(request.insurance_draw_credit, 0, ErrorCode::InvalidArgument);
-    let native = market.settle_liquidation(
+    let fee_schedule = transfer_fees[transfer_fee_index(plan.debt_asset.opposite())];
+    let native = market.settle_auction_liquidation_with_fees(
         position,
         plan.debt_asset,
         plan.repay_credit,
-        plan.insurance_draw_debit,
-        request.insurance_draw_credit,
-        0,
         plan.terms,
         LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: plan.auction_price_nad,
         },
+        fee_schedule.exit(),
+        fee_schedule.liquidation_eligibility(),
     )?;
     Ok(BenchmarkLiquidationPreview {
         plan,
@@ -4252,13 +4448,17 @@ fn validate_referral_owned_state(
 
 fn empty_leverage_position() -> LeveragePosition {
     LeveragePosition {
+        active_liquidation_session: Pubkey::default(),
+        distress: Default::default(),
         owner: Pubkey::default(),
         market: Pubkey::default(),
+        namespace_authority: Pubkey::default(),
         position_id: Pubkey::default(),
         referral_partner: Pubkey::default(),
         referral_interest_share_bps: 0,
         debt_asset: 0,
         collateral_amount: 0,
+        margin_terms: crate::state::LeverageMarginTerms::default(),
         margin_amount: 0,
         open_notional: 0,
         debt_principal: 0,
@@ -4266,6 +4466,7 @@ fn empty_leverage_position() -> LeveragePosition {
         multiplier_bps: 0,
         opened_at: 0,
         opened_slot: 0,
+        open_curve_revision: 0,
         bump: 0,
     }
 }
@@ -4557,7 +4758,7 @@ fn leverage_metrics(
             .checked_mul(BPS_DENOMINATOR as u128)
             .and_then(|value| value.checked_div(candidate as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(bps > LEVERAGE_MAINTENANCE_BUFFER_BPS as u128)
+        Ok(bps > u128::from(position.margin_terms.maintenance_bps(position.collateral_amount)?))
     };
     require!(healthy(u64::MAX)?, ErrorCode::DebtMathOverflow);
     let mut low = debt_amount.saturating_add(1);
@@ -4578,14 +4779,15 @@ fn leverage_metrics(
         closeout_value,
         equity,
         equity_bps,
-        initial_margin_bps: LEVERAGE_INITIAL_MARGIN_BPS,
-        maintenance_margin_bps: LEVERAGE_MAINTENANCE_BUFFER_BPS,
+        initial_margin_bps: position.margin_terms.initial_bps(position.collateral_amount)?,
+        maintenance_margin_bps: position.margin_terms.maintenance_bps(position.collateral_amount)?,
         minimum_healthy_closeout_value,
         maintenance_shortfall: minimum_healthy_closeout_value.saturating_sub(closeout_value),
         spot_value,
         unwind_impact_bps,
-        maximum_open_unwind_impact_bps: LEVERAGE_MAX_UNWIND_IMPACT_BPS,
-        liquidatable: closeout_value <= debt_amount || equity_bps <= LEVERAGE_MAINTENANCE_BUFFER_BPS as u128,
+        maximum_open_unwind_impact_bps: None,
+        liquidatable: market.leverage_reference_equity_bps(position, position.collateral_amount)?
+            <= u128::from(position.margin_terms.maintenance_bps(position.collateral_amount)?),
     })
 }
 
@@ -4684,25 +4886,38 @@ fn referral_binding(position: &BorrowPosition, debt_asset: MarketAsset) -> (Pubk
     )
 }
 
-fn referral_interest_amount(
+fn accrue_benchmark_referral_interest(
     binding: (Pubkey, u16),
+    referral: Option<&mut BenchmarkReferralOwnedState>,
+    market_key: Pubkey,
+    asset_mint: Pubkey,
     interest_paid: u64,
     interest_vault_credit: u64,
     protocol_interest_fee_bps: u16,
 ) -> Result<u64> {
     let interest_share_bps = if binding.0 == Pubkey::default() {
         require_eq!(binding.1, 0, ErrorCode::BrokenInvariant);
+        require!(referral.is_none(), ErrorCode::InvalidReferralPartner);
         None
     } else {
+        let referral = referral.as_ref().ok_or(ErrorCode::InvalidReferralPartner)?;
+        validate_referral_owned_state(referral, market_key, asset_mint)?;
+        require_keys_eq!(referral.partner_key, binding.0, ErrorCode::InvalidReferralPartner);
         Some(binding.1)
     };
-    Ok(ReferralInterestQuote::new(
+    let quote = ReferralInterestQuote::new(
         interest_paid,
         interest_vault_credit,
         protocol_interest_fee_bps,
         interest_share_bps,
-    )?
-    .referral_amount)
+    )?;
+    if quote.referral_amount > 0 {
+        referral
+            .ok_or(ErrorCode::InvalidReferralAccrual)?
+            .accrual
+            .accrue(quote.referral_amount)?;
+    }
+    Ok(quote.referral_amount)
 }
 
 fn revenue_side_checkpoint(side: &MarketSide) -> BenchmarkRevenueSideCheckpoint {
@@ -5044,6 +5259,7 @@ struct ExistingPositionCapacityContext<'a> {
     market: &'a Market,
     position: &'a BorrowPosition,
     debt_asset: MarketAsset,
+    collateral_fee: LeverageCollateralFee,
     risk: &'a Risk,
     external_debt_nad: u128,
 }
@@ -5091,17 +5307,20 @@ impl ExistingPositionCapacityContext<'_> {
             collateral_amount,
             self.risk,
         )?;
-        let projected_aggregate = self.market.projected_aggregate_global_health_contribution(
-            self.position,
-            self.debt_asset,
-            target_contribution,
-        )?;
+        let projected_aggregate = fee_discounted_contribution(
+            self.market.projected_aggregate_global_health_contribution(
+                self.position,
+                self.debt_asset,
+                target_contribution,
+            )?,
+            self.collateral_fee.haircut_bps(),
+        );
         let projected_total_debt_nad = self
             .market
             .normalize_amount(projected_total_debt, self.market.side(self.debt_asset).asset_decimals)?;
         let terms = self.market.dynamic_borrow_terms(
             self.debt_asset,
-            collateral_amount,
+            self.collateral_fee.unwind_credit(collateral_amount)?,
             self.external_debt_nad,
             projected_total_debt_nad,
             projected_aggregate,
@@ -5118,14 +5337,17 @@ fn existing_borrow_capacity_preview(
     market: &Market,
     position: &BorrowPosition,
     debt_asset: MarketAsset,
+    market_fees: LendingCollateralFees,
     current_slot: u64,
     global_reduce_only: bool,
 ) -> Result<BenchmarkExistingBorrowCapacity> {
     let risk = market.risk;
+    let collateral_fee = market_fees.for_asset(debt_asset.opposite());
     let context = ExistingPositionCapacityContext {
         market,
         position,
         debt_asset,
+        collateral_fee,
         risk: &risk,
         external_debt_nad: market.external_fixed_debt_nad(position, debt_asset)?,
     };
@@ -5135,8 +5357,11 @@ fn existing_borrow_capacity_preview(
     };
     let baseline = context.project(0)?;
     let current_underwriting_satisfied = baseline.terms.max_debt as u128 >= debt_before;
-    let collateral_value_nad =
-        market.collateral_value_nad(debt_asset.opposite(), position.collateral(debt_asset.opposite()), &risk)?;
+    let collateral_value_nad = market.collateral_value_nad(
+        debt_asset.opposite(),
+        collateral_fee.unwind_credit(position.collateral(debt_asset.opposite()))?,
+        &risk,
+    )?;
     let maximum_underwriting_debt_nad = collateral_value_nad
         .checked_mul(MAX_COLLATERAL_FACTOR_BPS as u128)
         .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
@@ -5156,7 +5381,7 @@ fn existing_borrow_capacity_preview(
         0
     };
 
-    let current_health = market.market_health_from_risk(&risk)?;
+    let current_health = market.market_health_from_risk_with_fees(&risk, market_fees)?;
     let current_global_health_floor_satisfied = market.assert_market_health_snapshot(&current_health).is_ok();
     let global_health_floor_max_additional = if current_global_health_floor_satisfied {
         maximum_monotone_capacity(search_upper, |amount| {
@@ -5250,6 +5475,7 @@ struct NewPositionCapacityContext<'a> {
     market: &'a Market,
     debt_asset: MarketAsset,
     collateral_amount: u64,
+    collateral_fee: LeverageCollateralFee,
     risk: &'a Risk,
     existing_total_debt_nad: u128,
     current_aggregate_contribution: u64,
@@ -5271,13 +5497,15 @@ impl NewPositionCapacityContext<'_> {
             self.collateral_amount,
             self.risk,
         )?;
-        let projected_aggregate = self
-            .current_aggregate_contribution
-            .checked_add(contribution)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let projected_aggregate = fee_discounted_contribution(
+            self.current_aggregate_contribution
+                .checked_add(contribution)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            self.collateral_fee.haircut_bps(),
+        );
         let terms = self.market.dynamic_borrow_terms(
             self.debt_asset,
-            self.collateral_amount,
+            self.collateral_fee.unwind_credit(self.collateral_amount)?,
             self.existing_total_debt_nad,
             projected_total_debt_nad,
             projected_aggregate,
@@ -5297,6 +5525,7 @@ mod tests {
 
     fn valid_config() -> MarketConfig {
         MarketConfig {
+            liquidation: Default::default(),
             swap_fee_bps: 30,
             divergence_fee_share_cap_bps: 0,
             volatility_fee_share_cap_bps: 0,
@@ -5391,8 +5620,29 @@ mod tests {
         (keyed, market_key)
     }
 
+    #[test]
+    fn borrow_position_replay_rejects_default_owner_and_market() {
+        let (market, market_key) = initialized_keyed_market();
+        let position_id = Pubkey::new_unique();
+        assert!(BenchmarkBorrowPosition::initialize(Pubkey::default(), market_key, position_id, 1).is_err());
+        assert!(BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), Pubkey::default(), position_id, 1).is_err());
+
+        let mut decoded = BorrowPosition::default();
+        decoded.initialize(Pubkey::default(), market_key, position_id, 1);
+        assert!(BenchmarkBorrowPosition::from_position_state(decoded.clone()).is_err());
+        let invalid = BenchmarkBorrowPosition {
+            position: Box::new(decoded),
+        };
+        assert!(invalid.checkpoint(&market).is_err());
+
+        assert!(BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, position_id, 1).is_ok());
+    }
+
     fn borrow_position_with_collateral(collateral_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
         let mut position = BorrowPosition {
+            active_liquidation_session: Pubkey::default(),
+            base_distress: Default::default(),
+            quote_distress: Default::default(),
             owner: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             position_id: Pubkey::new_unique(),
@@ -5424,7 +5674,7 @@ mod tests {
     fn borrowed_liquidation_fixture(collateral_after: u64) -> (BenchmarkMarket, BenchmarkBorrowPosition, u64) {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let mut position =
-            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 251);
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 251).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -5591,11 +5841,195 @@ mod tests {
         assert_eq!(market_bytes(rejected.market()), market_bytes(benchmark.market()));
     }
 
+    fn transfer_fee(bps: u16) -> TransferFee {
+        TransferFee {
+            epoch: 0_u64.into(),
+            maximum_fee: u64::MAX.into(),
+            transfer_fee_basis_points: bps.into(),
+        }
+    }
+
+    #[test]
+    fn borrow_capacity_values_collateral_at_the_worse_scheduled_fee() {
+        let fee_free = initialized_market();
+        let mut benchmark = initialized_market();
+        benchmark.set_mint_transfer_fee(
+            MarketAsset::Quote,
+            BenchmarkMintTransferFee {
+                effective: Some(transfer_fee(1_000)),
+                pending: Some(transfer_fee(3_000)),
+                pending_liquidation_eligible: false,
+            },
+        );
+        let collateral_amount = 200_000;
+        let capacity = benchmark
+            .preview_borrow_capacity(MarketAsset::Quote, collateral_amount, None)
+            .unwrap();
+        let fee_free_capacity = fee_free
+            .preview_borrow_capacity(MarketAsset::Quote, collateral_amount, None)
+            .unwrap();
+        assert!(capacity.max_borrow_amount > 0);
+        assert!(capacity.max_borrow_amount < fee_free_capacity.max_borrow_amount);
+
+        let admission = benchmark.mint_transfer_fee(MarketAsset::Quote).admission();
+        let mut accepted = benchmark.try_fork().unwrap();
+        let mut accepted_position = borrow_position_with_collateral(MarketAsset::Quote, collateral_amount);
+        accepted
+            .transact(|market, clock| {
+                market.borrow_with_collateral_fee(
+                    &mut accepted_position,
+                    MarketAsset::Base,
+                    capacity.max_borrow_amount,
+                    admission,
+                    0,
+                    clock.slot,
+                )
+            })
+            .unwrap();
+        let mut rejected = benchmark.try_fork().unwrap();
+        let mut rejected_position = borrow_position_with_collateral(MarketAsset::Quote, collateral_amount);
+        assert!(rejected
+            .transact(|market, clock| {
+                market.borrow_with_collateral_fee(
+                    &mut rejected_position,
+                    MarketAsset::Base,
+                    capacity.max_borrow_amount + 1,
+                    admission,
+                    0,
+                    clock.slot,
+                )
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn confiscatory_fee_returns_zero_borrow_capacity_instead_of_error() {
+        let mut benchmark = initialized_market();
+        benchmark.set_mint_transfer_fee(
+            MarketAsset::Quote,
+            BenchmarkMintTransferFee {
+                effective: Some(transfer_fee(10_000)),
+                pending: None,
+                pending_liquidation_eligible: false,
+            },
+        );
+        let capacity = benchmark
+            .preview_borrow_capacity(MarketAsset::Quote, 200_000, None)
+            .unwrap();
+        assert_eq!(capacity.collateral_value_nad, 0);
+        assert_eq!(capacity.max_borrow_amount, 0);
+        assert_eq!(capacity.projected_borrow_amount, 0);
+        let requested = benchmark
+            .preview_borrow_capacity(MarketAsset::Quote, 200_000, Some(100))
+            .unwrap();
+        assert_eq!(requested.max_borrow_amount, 0);
+        assert_eq!(requested.projected_borrow_amount, 100);
+        assert_eq!(requested.projected_health_bps, 0);
+    }
+
+    #[test]
+    fn effective_collateral_fee_makes_a_healthy_position_liquidatable() {
+        let (mut benchmark, market_key) = initialized_keyed_market();
+        let mut position =
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 249).unwrap();
+        benchmark
+            .execute_deposit_collateral(
+                &mut position,
+                BenchmarkDepositCollateralRequest {
+                    clock: BenchmarkClock {
+                        slot: 2,
+                        unix_timestamp: 2,
+                    },
+                    collateral_asset: MarketAsset::Quote,
+                    collateral_credit: 300_000,
+                },
+            )
+            .unwrap();
+        let borrowed = benchmark
+            .preview_borrow_capacity(MarketAsset::Quote, 300_000, None)
+            .unwrap()
+            .max_borrow_amount
+            / 2;
+        benchmark
+            .execute_borrow(
+                &mut position,
+                BenchmarkBorrowRequest {
+                    clock: BenchmarkClock {
+                        slot: 3,
+                        unix_timestamp: 3,
+                    },
+                    debt_asset: MarketAsset::Base,
+                    borrow_amount: borrowed,
+                    recipient_credit: borrowed,
+                    min_recipient_credit: 0,
+                    min_liquidation_cf_bps: 0,
+                    global_reduce_only: false,
+                    referral_partner: Pubkey::default(),
+                    referral_interest_share_bps: 0,
+                    referral_interest_share_cap_bps: 0,
+                },
+            )
+            .unwrap();
+        let start = BenchmarkStartLiquidationAuctionRequest {
+            clock: BenchmarkClock {
+                slot: 4,
+                unix_timestamp: 4,
+            },
+            debt_asset: MarketAsset::Base,
+        };
+        assert!(benchmark
+            .try_fork()
+            .unwrap()
+            .execute_start_liquidation_auction(&mut position.try_fork().unwrap(), start)
+            .is_err());
+
+        // The first notice epoch remains a borrower repayment window.
+        benchmark.set_mint_transfer_fee(
+            MarketAsset::Quote,
+            BenchmarkMintTransferFee {
+                effective: None,
+                pending: Some(transfer_fee(10_000)),
+                pending_liquidation_eligible: false,
+            },
+        );
+        assert!(benchmark
+            .try_fork()
+            .unwrap()
+            .execute_start_liquidation_auction(&mut position.try_fork().unwrap(), start)
+            .is_err());
+
+        benchmark.set_mint_transfer_fee(
+            MarketAsset::Quote,
+            BenchmarkMintTransferFee {
+                effective: None,
+                pending: Some(transfer_fee(10_000)),
+                pending_liquidation_eligible: true,
+            },
+        );
+        benchmark
+            .try_fork()
+            .unwrap()
+            .execute_start_liquidation_auction(&mut position.try_fork().unwrap(), start)
+            .unwrap();
+
+        benchmark.set_mint_transfer_fee(
+            MarketAsset::Quote,
+            BenchmarkMintTransferFee {
+                effective: Some(transfer_fee(10_000)),
+                pending: None,
+                pending_liquidation_eligible: false,
+            },
+        );
+        benchmark
+            .execute_start_liquidation_auction(&mut position, start)
+            .unwrap();
+    }
+
     #[test]
     fn existing_position_capacity_decomposes_native_bounds_without_mutation() {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let mut position =
-            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 250);
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 250).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -5718,7 +6152,7 @@ mod tests {
     fn existing_position_capacity_reduce_only_is_exact_zero_actionable() {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let mut position =
-            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 249);
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 249).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -5755,7 +6189,7 @@ mod tests {
     fn existing_position_target_solver_preserves_post_debt_atoms_across_share_rounding() {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let mut position =
-            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 248);
+            BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 248).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -5917,10 +6351,21 @@ mod tests {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let owner = Pubkey::new_unique();
         let position_id = Pubkey::new_unique();
-        let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254);
+        let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254).unwrap();
+        let mut referral = BenchmarkReferralOwnedState::initialize(
+            &benchmark,
+            MarketAsset::Base,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            5_000,
+            true,
+        )
+        .unwrap();
+        let referral_partner = referral.partner_key;
         let mut native_market = clone_market(benchmark.market()).unwrap();
-        let mut native_position =
-            BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254).into_position();
+        let mut native_position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254)
+            .unwrap()
+            .into_position();
 
         let deposit_clock = BenchmarkClock {
             slot: 2,
@@ -5957,7 +6402,7 @@ mod tests {
         };
         advance_market_to_slot(&mut native_market, borrow_clock.slot).unwrap();
         native_market.assert_started_at(borrow_clock.unix_timestamp).unwrap();
-        native_position.set_referral_binding(MarketAsset::Base, Pubkey::default(), 0);
+        native_position.set_referral_binding(MarketAsset::Base, referral_partner, 5_000);
         let native_borrow = native_market
             .borrow(
                 &mut native_position,
@@ -5980,8 +6425,8 @@ mod tests {
                     min_recipient_credit: borrow_amount,
                     min_liquidation_cf_bps: 0,
                     global_reduce_only: false,
-                    referral_partner: Pubkey::default(),
-                    referral_interest_share_bps: 0,
+                    referral_partner,
+                    referral_interest_share_bps: 5_000,
                     referral_interest_share_cap_bps: BPS_DENOMINATOR,
                 },
             )
@@ -5993,8 +6438,8 @@ mod tests {
         assert_eq!(position_bytes(position.position()), position_bytes(&native_position));
 
         let repay_clock = BenchmarkClock {
-            slot: 100_003,
-            unix_timestamp: 100_003,
+            slot: 10_000_003,
+            unix_timestamp: 10_000_003,
         };
         advance_market_to_slot(&mut native_market, repay_clock.slot).unwrap();
         native_market.assert_started_at(repay_clock.unix_timestamp).unwrap();
@@ -6004,28 +6449,72 @@ mod tests {
         let native_repay = native_market
             .repay(&mut native_position, MarketAsset::Base, repayment.cash_repaid)
             .unwrap();
+        let expected_referral = ReferralInterestQuote::new(
+            native_repay.interest_paid,
+            native_repay.interest_paid,
+            2_000,
+            Some(5_000),
+        )
+        .unwrap()
+        .referral_amount;
+        assert!(expected_referral > 0);
         if native_repay.interest_paid > 0 {
             native_market
                 .base_side
-                .record_interest_credit(native_repay.interest_paid, 2_000, ProtocolAuctionSplit::default(), 0)
+                .record_interest_credit(
+                    native_repay.interest_paid,
+                    2_000,
+                    ProtocolAuctionSplit::default(),
+                    expected_referral,
+                )
                 .unwrap();
         }
         native_market.finalize_amm_transition(repay_clock.slot).unwrap();
         native_market.refresh_risk_at_slot(repay_clock.slot).unwrap();
 
-        let repay = benchmark
+        let market_before = market_bytes(benchmark.market());
+        let position_before = position_bytes(position.position());
+        let clock_before = benchmark.clock();
+        let repay_request = BenchmarkRepayRequest {
+            clock: repay_clock,
+            max_repay_credit: u64::MAX,
+            interest_vault_credit: native_repay.interest_paid,
+            protocol_interest_fee_bps: 2_000,
+            protocol_auction_split: ProtocolAuctionSplit::default(),
+            referral_interest_amount: expected_referral,
+            debt_asset: MarketAsset::Base,
+        };
+        assert!(benchmark.execute_repay(&mut position, None, repay_request).is_err());
+        let mut wrong_referral = BenchmarkReferralOwnedState::initialize(
+            &benchmark,
+            MarketAsset::Base,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            5_000,
+            true,
+        )
+        .unwrap();
+        assert!(benchmark
+            .execute_repay(&mut position, Some(&mut wrong_referral), repay_request)
+            .is_err());
+        assert_eq!(wrong_referral.checkpoint().accrued_amount, 0);
+        assert!(benchmark
             .execute_repay(
                 &mut position,
+                Some(&mut referral),
                 BenchmarkRepayRequest {
-                    clock: repay_clock,
-                    max_repay_credit: u64::MAX,
-                    interest_vault_credit: native_repay.interest_paid,
-                    protocol_interest_fee_bps: 2_000,
-                    protocol_auction_split: ProtocolAuctionSplit::default(),
-                    referral_interest_amount: 0,
-                    debt_asset: MarketAsset::Base,
+                    referral_interest_amount: expected_referral + 1,
+                    ..repay_request
                 },
             )
+            .is_err());
+        assert_eq!(referral.checkpoint().accrued_amount, 0);
+        assert_eq!(market_bytes(benchmark.market()), market_before);
+        assert_eq!(position_bytes(position.position()), position_before);
+        assert_eq!(benchmark.clock(), clock_before);
+
+        let repay = benchmark
+            .execute_repay(&mut position, Some(&mut referral), repay_request)
             .unwrap();
         assert_eq!(repay.market.receipt, native_repay);
         assert_eq!(repay.market.cash.base.reserve_vault_credit, native_repay.cash_repaid);
@@ -6034,13 +6523,25 @@ mod tests {
         assert_eq!(market_bytes(benchmark.market()), market_bytes(&native_market));
         assert_eq!(position_bytes(position.position()), position_bytes(&native_position));
         assert_eq!(repay.position_after, position.checkpoint(&benchmark).unwrap());
+        assert_eq!(referral.checkpoint().accrued_amount, expected_referral);
+        let snapshot = referral.try_fork().unwrap();
+        let restored = BenchmarkReferralOwnedState::from_account_state(
+            &benchmark,
+            MarketAsset::Base,
+            snapshot.partner_key,
+            *snapshot.partner,
+            snapshot.accrual_key,
+            *snapshot.accrual,
+        )
+        .unwrap();
+        assert_eq!(restored.checkpoint(), referral.checkpoint());
     }
 
     #[test]
     fn failed_position_transition_rolls_back_market_position_and_clock() {
         let (mut benchmark, market_key) = initialized_keyed_market();
         let owner = Pubkey::new_unique();
-        let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, Pubkey::new_unique(), 253);
+        let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, Pubkey::new_unique(), 253).unwrap();
         benchmark
             .execute_deposit_collateral(
                 &mut position,
@@ -6441,12 +6942,13 @@ mod tests {
         let open_quote = prepared.quote();
         let mut expected_market = clone_market(&prepared.prepared_market).unwrap();
         let mut expected_position = empty_leverage_position();
-        let (_, position_bump) = leverage_position_pda(market_key, position_id).unwrap();
+        let (_, position_bump) = leverage_position_pda(market_key, owner, owner, position_id).unwrap();
         let expected_open = expected_market
             .open_leverage(
                 &mut expected_position,
                 owner,
                 market_key,
+                owner,
                 position_id,
                 open_quote.referral_partner,
                 open_quote.referral_interest_share_bps,
@@ -6461,6 +6963,7 @@ mod tests {
                 position_bump,
                 0,
                 ProtocolAuctionSplit::default(),
+                LeverageCollateralFee::default(),
             )
             .unwrap();
         let open = benchmark
@@ -6517,6 +7020,7 @@ mod tests {
                 0,
                 ProtocolAuctionSplit::default(),
                 close_request.clock.slot,
+                LeverageCollateralFee::default(),
             )
             .unwrap();
         assert_eq!(expected_close.interest_paid, 0);
@@ -6644,6 +7148,25 @@ mod tests {
                 },
             )
             .unwrap();
+        let opening_reference = position.position().auction_floor_price_nad;
+        benchmark
+            .execute_swap(BenchmarkSwapRequest {
+                asset_in: MarketAsset::Quote,
+                reserve_credit: 100_000,
+                protocol_fee_bps: 0,
+                protocol_auction_split: ProtocolAuctionSplit::default(),
+            })
+            .unwrap();
+        let clock = BenchmarkClock {
+            slot: 100,
+            unix_timestamp: 44,
+        };
+        benchmark.advance_to(clock).unwrap();
+        let current_reference = benchmark
+            .market()
+            .liquidation_reference_price_nad(position.position(), MarketAsset::Base)
+            .unwrap();
+        assert_ne!(current_reference, opening_reference);
         let plan_request = BenchmarkLiquidationPlanRequest {
             clock,
             debt_asset: MarketAsset::Base,
@@ -6658,13 +7181,26 @@ mod tests {
             insurance_draw_credit: 0,
         };
         let preview = benchmark.preview_liquidation(&position, preview_request).unwrap();
+        assert_eq!(
+            preview.plan.auction_price_nad,
+            position
+                .position()
+                .liquidation_auction_bid_price_nad(clock.unix_timestamp, current_reference)
+                .unwrap()
+        );
         assert_eq!(preview.native.socialized_loss, 0);
         assert!(preview.native.collateral_seized < 50_000);
 
         let mut native_market = clone_market(benchmark.market()).unwrap();
         let mut native_position = clone_borrow_position(position.position()).unwrap();
         advance_market_to_slot(&mut native_market, clock.slot).unwrap();
-        let native_plan = liquidation_plan(&mut native_market, &mut native_position, plan_request).unwrap();
+        let native_plan = liquidation_plan(
+            &mut native_market,
+            &mut native_position,
+            plan_request,
+            Default::default(),
+        )
+        .unwrap();
         let native_receipt = native_market
             .settle_liquidation(
                 &mut native_position,
@@ -6695,6 +7231,7 @@ mod tests {
             .execute_liquidation(
                 &mut position,
                 &mut balances,
+                None,
                 BenchmarkLiquidationExecuteRequest {
                     preview: preview_request,
                     max_repay_source_debit: 1_000,
@@ -6780,6 +7317,7 @@ mod tests {
             .execute_liquidation(
                 &mut position,
                 &mut balances,
+                None,
                 BenchmarkLiquidationExecuteRequest {
                     min_collateral_recipient_credit: preview.plan.caller_bounty.saturating_add(1),
                     ..valid_request
@@ -6791,7 +7329,7 @@ mod tests {
         assert_eq!(balances, balances_before);
 
         let execution = benchmark
-            .execute_liquidation(&mut position, &mut balances, valid_request)
+            .execute_liquidation(&mut position, &mut balances, None, valid_request)
             .unwrap();
         assert_eq!(
             execution.market.receipt.native.socialized_loss,
@@ -6852,6 +7390,7 @@ mod tests {
             .execute_liquidation(
                 &mut position,
                 &mut balances,
+                None,
                 BenchmarkLiquidationExecuteRequest {
                     preview: preview_request,
                     max_repay_source_debit: 0,
@@ -6875,6 +7414,54 @@ mod tests {
         assert_eq!(execution.market.receipt.native.remaining_debt, 0);
         assert_eq!(execution.position_after.quote_collateral, 0);
         assert_eq!(execution.position_after.auction_debt_asset, u8::MAX);
+    }
+
+    #[test]
+    fn floor_skips_insurance_when_the_debt_fee_would_take_the_whole_draw() {
+        let (mut benchmark, mut position, _) = borrowed_liquidation_fixture(1);
+        {
+            let insurance = &mut benchmark.market_mut().insurance;
+            insurance.base_available = 50_000;
+            insurance.principal_coverage_bps = crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS;
+            insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
+        }
+        let trigger = benchmark
+            .execute_start_liquidation_auction(
+                &mut position,
+                BenchmarkStartLiquidationAuctionRequest {
+                    clock: BenchmarkClock {
+                        slot: 4,
+                        unix_timestamp: 4,
+                    },
+                    debt_asset: MarketAsset::Base,
+                },
+            )
+            .unwrap();
+        let plan_request = BenchmarkLiquidationPlanRequest {
+            clock: BenchmarkClock {
+                slot: 100,
+                unix_timestamp: trigger.market.receipt.first_floor_unix_timestamp,
+            },
+            debt_asset: MarketAsset::Base,
+            phase: BenchmarkLiquidationPhase::Floor,
+            max_repay_credit: 0,
+            collateral_reserve_credit: 0,
+            protocol_swap_fee_bps: 0,
+            protocol_auction_split: ProtocolAuctionSplit::default(),
+        };
+        let fee_free = benchmark.preview_liquidation_plan(&position, plan_request).unwrap();
+        assert!(fee_free.insurance_draw_debit > 0);
+
+        benchmark.set_mint_transfer_fee(
+            MarketAsset::Base,
+            BenchmarkMintTransferFee {
+                effective: Some(transfer_fee(10_000)),
+                pending: None,
+                pending_liquidation_eligible: false,
+            },
+        );
+        let confiscatory = benchmark.preview_liquidation_plan(&position, plan_request).unwrap();
+        assert_eq!(confiscatory.insurance_draw_debit, 0);
     }
 
     #[test]

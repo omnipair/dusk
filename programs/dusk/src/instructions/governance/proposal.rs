@@ -15,14 +15,16 @@ use crate::{
 };
 
 use super::{
-    carry_forward_governance_yield, checkpoint_supporter_yield, current_parameter_revision, direct_ylp_eligible_supply,
+    carry_forward_governance_yield, checkpoint_supporter_yield, direct_ylp_eligible_supply,
     validate_governance_token_accounts, validate_market_pda, validate_supporter_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct CreateParameterProposalArgs {
     pub nonce: u64,
-    pub update: MarketParameterUpdate,
+    /// One to seven updates, at most one per family, in ascending family
+    /// order. One sponsorship and one vote cover all of them.
+    pub updates: Vec<MarketParameterUpdate>,
     pub metadata: ProposalMetadataV1,
     pub initial_support: u64,
 }
@@ -152,7 +154,7 @@ impl<'info> CreateParameterProposal<'info> {
             ErrorCode::InsufficientBalance
         );
         args.metadata.validate()?;
-        self.market.validate_parameter_update(&args.update)?;
+        self.market.validate_parameter_updates(&args.updates)?;
         validate_market_pda(&self.market, self.market.key())?;
         require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)?;
@@ -199,7 +201,7 @@ impl<'info> CreateParameterProposal<'info> {
         let market_key = ctx.accounts.market.key();
         let proposer_key = ctx.accounts.proposer.key();
         let proposal_key = ctx.accounts.proposal.key();
-        let family_revision = current_parameter_revision(&ctx.accounts.market, args.update.family());
+        let market_revisions = ctx.accounts.market.parameter_revisions;
 
         create_token_account(
             &ctx.accounts.market.to_account_info(),
@@ -242,8 +244,8 @@ impl<'info> CreateParameterProposal<'info> {
             market_key,
             proposer_key,
             args.nonce,
-            family_revision,
-            args.update,
+            &market_revisions,
+            args.updates,
             args.metadata,
             eligible_supply,
             clock.unix_timestamp,
@@ -297,13 +299,12 @@ impl<'info> CreateParameterProposal<'info> {
             market: market_key,
             proposer: proposer_key,
             nonce: ctx.accounts.proposal.nonce,
-            family: ctx.accounts.proposal.family.code(),
-            family_revision: ctx.accounts.proposal.family_revision,
+            family_revisions: ctx.accounts.proposal.family_revisions,
             digest: ctx.accounts.proposal.digest,
             sponsorship_floor: ctx.accounts.proposal.sponsorship_floor,
             initial_support: args.initial_support,
             status: ctx.accounts.proposal.status.code(),
-            update: ctx.accounts.proposal.update.clone(),
+            updates: ctx.accounts.proposal.updates.clone(),
             metadata: ctx.accounts.proposal.metadata.clone(),
         });
         if queued {
@@ -390,8 +391,8 @@ impl<'info> QueueParameterProposal<'info> {
 
     pub fn handle_queue(ctx: Context<Self>) -> Result<()> {
         let eligible_supply = ctx.accounts.validate()?;
-        let current_revision = current_parameter_revision(&ctx.accounts.market, ctx.accounts.proposal.family);
-        if ctx.accounts.proposal.mark_stale_if_revision_changed(current_revision) {
+        let market_revisions = ctx.accounts.market.parameter_revisions;
+        if ctx.accounts.proposal.mark_stale_if_revision_changed(&market_revisions) {
             return Ok(());
         }
         require!(
@@ -427,6 +428,11 @@ pub struct ExecuteParameterProposal<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    #[account(address = market.base_side.asset_mint @ ErrorCode::InvalidMint)]
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = market.quote_side.asset_mint @ ErrorCode::InvalidMint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
 }
@@ -443,8 +449,8 @@ impl<'info> ExecuteParameterProposal<'info> {
 
     pub fn handle_execute(ctx: Context<Self>) -> Result<()> {
         ctx.accounts.validate()?;
-        let current_revision = current_parameter_revision(&ctx.accounts.market, ctx.accounts.proposal.family);
-        if ctx.accounts.proposal.mark_stale_if_revision_changed(current_revision) {
+        let market_revisions = ctx.accounts.market.parameter_revisions;
+        if ctx.accounts.proposal.mark_stale_if_revision_changed(&market_revisions) {
             return Ok(());
         }
 
@@ -466,13 +472,20 @@ impl<'info> ExecuteParameterProposal<'info> {
         )?;
         ctx.accounts
             .market
-            .execute_parameter_update(&ctx.accounts.proposal.update, clock.slot)?;
+            .execute_parameter_updates(&ctx.accounts.proposal.updates, clock.slot)?;
+        let fees = crate::instructions::lending_market_admission_fees(
+            &ctx.accounts.market,
+            &ctx.accounts.base_mint,
+            &ctx.accounts.quote_mint,
+            clock.epoch,
+        )?;
+        ctx.accounts.market.assert_market_health_with_fees(fees)?;
         ctx.accounts.proposal.status = ParameterProposalStatus::Executed;
         emit_cpi!(ParameterProposalExecuted {
             proposal: ctx.accounts.proposal.key(),
             market: ctx.accounts.market.key(),
-            family: ctx.accounts.proposal.family.code(),
-            new_family_revision: current_parameter_revision(&ctx.accounts.market, ctx.accounts.proposal.family,),
+            families: ctx.accounts.proposal.families().map(|family| family.code()).collect(),
+            new_family_revisions: ctx.accounts.market.parameter_revisions,
             executed_at: clock.unix_timestamp,
         });
         Ok(())

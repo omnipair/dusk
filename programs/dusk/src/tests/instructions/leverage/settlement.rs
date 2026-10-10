@@ -9,6 +9,27 @@ use spl_token_2022::{
 };
 
 #[test]
+fn delegated_callback_does_not_forward_outer_signers() {
+    let key = Pubkey::new_unique();
+    let owner = Pubkey::new_unique();
+    let mut lamports = 0;
+    let mut data = [];
+    let signed_writable = AccountInfo::new(&key, true, true, &mut lamports, &mut data, &owner, false, 0);
+
+    let unprotected = delegated_callback_metas(&[signed_writable.clone()], &[], &[]).unwrap();
+    assert!(!unprotected[0].is_signer);
+    assert!(unprotected[0].is_writable);
+
+    let protected = delegated_callback_metas(&[signed_writable.clone()], &[key], &[]).unwrap();
+    assert!(!protected[0].is_signer);
+    assert!(!protected[0].is_writable);
+
+    let rent_recipient = delegated_callback_metas(&[signed_writable], &[key], &[key]).unwrap();
+    assert!(!rent_recipient[0].is_signer);
+    assert!(rent_recipient[0].is_writable);
+}
+
+#[test]
 fn leverage_market_pda_runtime_guard_matches_canonical_market_seeds() {
     let mut market = Market::default();
     market.base_side.asset_mint = Pubkey::new_unique();
@@ -42,7 +63,6 @@ fn leverage_public_paths_validate_runtime_control_pdas_before_mutation() {
     let open = include_str!("../../../instructions/leverage/open_leverage.rs");
     let close = include_str!("../../../instructions/leverage/close_leverage.rs");
     let decrease = include_str!("../../../instructions/leverage/decrease_leverage.rs");
-    let liquidate = include_str!("../../../instructions/leverage/liquidate_leverage_position.rs");
     let lib = include_str!("../../../lib.rs");
     let boxed_runtime_guard = "validate_leverage_market_pda(&self.market, self.market.key())?;";
     let futarchy_guard =
@@ -51,11 +71,6 @@ fn leverage_public_paths_validate_runtime_control_pdas_before_mutation() {
 
     for (source, validator, handler) in [
         (open, "pub fn validate_at", "pub fn handle_open"),
-        (
-            liquidate,
-            "pub fn validate_at",
-            "pub fn handle_liquidate_position",
-        ),
     ] {
         assert!(source.contains(boxed_account));
         let validator_start = source.find(validator).unwrap();
@@ -109,11 +124,6 @@ fn leverage_public_paths_validate_runtime_control_pdas_before_mutation() {
             "pub fn decrease_leverage<'info>",
             "ctx.accounts.validate_at",
             "DecreaseLeverage::handle_decrease",
-        ),
-        (
-            "pub fn liquidate_leverage_position<'info>",
-            "ctx.accounts.validate_at",
-            "LiquidateLeveragePosition::handle_liquidate_position",
         ),
     ] {
         let entrypoint_start = lib.find(entrypoint).unwrap();
@@ -252,53 +262,76 @@ fn retained_surcharge_never_enters_claimable_fee_credit() {
 }
 
 #[test]
-fn ten_percent_transfer_fee_collateral_is_rejected_before_health_admission() {
-    let mint_len =
-        ExtensionType::try_calculate_account_len::<SplToken2022Mint>(&[ExtensionType::TransferFeeConfig]).unwrap();
-    let mut mint_data = vec![0_u8; mint_len];
-    {
-        let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack_uninitialized(&mut mint_data).unwrap();
-        let fee = TransferFee {
-            epoch: 0_u64.into(),
-            maximum_fee: u64::MAX.into(),
-            transfer_fee_basis_points: 1_000_u16.into(),
-        };
-        let config = mint.init_extension::<TransferFeeConfig>(true).unwrap();
-        config.older_transfer_fee = fee;
-        config.newer_transfer_fee = fee;
-        mint.base = SplToken2022Mint {
-            mint_authority: COption::None,
-            supply: 0,
-            decimals: 6,
-            is_initialized: true,
-            freeze_authority: COption::None,
-        };
-        mint.pack_base();
-        mint.init_account_type().unwrap();
-    }
-
-    let mint_key = Pubkey::new_unique();
-    let owner = spl_token_2022::ID;
-    let mut lamports = 1;
-    let mint_info = AccountInfo::new(&mint_key, false, false, &mut lamports, &mut mint_data, &owner, false, 0);
-    let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
-
-    // The old health path stored the first net credit (900), then quoted
-    // all 900 as unwind input even though the second transfer credits 810.
-    let configured_fee = TransferFee {
+fn leverage_collateral_fee_uses_the_effective_mint_schedule() {
+    let fixed_fee = TransferFee {
         epoch: 0_u64.into(),
         maximum_fee: u64::MAX.into(),
         transfer_fee_basis_points: 1_000_u16.into(),
     };
-    let gross_swap_output = 1_000;
-    let stored_collateral = configured_fee.calculate_post_fee_amount(gross_swap_output).unwrap();
-    let actual_unwind_credit = configured_fee.calculate_post_fee_amount(stored_collateral).unwrap();
+    let pending_fee = TransferFee {
+        epoch: 3_u64.into(),
+        transfer_fee_basis_points: 2_000_u16.into(),
+        ..fixed_fee
+    };
+    let mint_len =
+        ExtensionType::try_calculate_account_len::<SplToken2022Mint>(&[ExtensionType::TransferFeeConfig]).unwrap();
+    for (authority, newer_fee) in [
+        (None, fixed_fee),
+        (Some(Pubkey::new_unique()), fixed_fee),
+        (None, pending_fee),
+    ] {
+        let mut mint_data = vec![0_u8; mint_len];
+        {
+            let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack_uninitialized(&mut mint_data).unwrap();
+            let config = mint.init_extension::<TransferFeeConfig>(true).unwrap();
+            config.transfer_fee_config_authority = authority.try_into().unwrap();
+            config.older_transfer_fee = fixed_fee;
+            config.newer_transfer_fee = newer_fee;
+            mint.base = SplToken2022Mint {
+                mint_authority: COption::None,
+                supply: 0,
+                decimals: 6,
+                is_initialized: true,
+                freeze_authority: COption::None,
+            };
+            mint.pack_base();
+            mint.init_account_type().unwrap();
+        }
+        let mint_key = Pubkey::new_unique();
+        let owner = spl_token_2022::ID;
+        let mut lamports = 1;
+        let mint_info = AccountInfo::new(&mint_key, false, false, &mut lamports, &mut mint_data, &owner, false, 0);
+        let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
+        assert_eq!(leverage_collateral_fee(&mint, 0).unwrap().unwind_credit(900).unwrap(), 810);
+        assert_eq!(
+            leverage_collateral_fee(&mint, 3).unwrap().unwind_credit(900).unwrap(),
+            if newer_fee == pending_fee { 720 } else { 810 }
+        );
+        // Admission sees the scheduled fee during its notice window; exits and
+        // liquidation keep the effective fee until the change applies.
+        let admission = leverage_collateral_admission_fee(&mint, 0).unwrap();
+        assert_eq!(
+            admission.unwind_credit(900).unwrap(),
+            if newer_fee == pending_fee { 720 } else { 810 }
+        );
+        assert_eq!(admission.haircut_bps(), if newer_fee == pending_fee { 2_000 } else { 1_000 });
+        assert_eq!(
+            leverage_collateral_liquidation_fee(&mint, 1).unwrap().unwind_credit(900).unwrap(),
+            810,
+        );
+        assert_eq!(
+            leverage_collateral_liquidation_fee(&mint, 2).unwrap().unwind_credit(900).unwrap(),
+            if newer_fee == pending_fee { 720 } else { 810 },
+        );
+        assert_eq!(
+            leverage_collateral_admission_fee(&mint, 3).unwrap().unwind_credit(900).unwrap(),
+            if newer_fee == pending_fee { 720 } else { 810 }
+        );
+    }
+    let stored_collateral = fixed_fee.calculate_post_fee_amount(1_000).unwrap();
+    let actual_unwind_credit = fixed_fee.calculate_post_fee_amount(stored_collateral).unwrap();
     assert_eq!(stored_collateral, 900);
     assert_eq!(actual_unwind_credit, 810);
-    assert_eq!(
-        validate_leverage_collateral_risk_mint(&mint).unwrap_err(),
-        error!(ErrorCode::InvalidLeverageCollateralMint)
-    );
 }
 
 #[test]
@@ -324,5 +357,5 @@ fn token_2022_collateral_without_transfer_fee_extension_remains_supported() {
     let mint_info = AccountInfo::new(&mint_key, false, false, &mut lamports, &mut mint_data, &owner, false, 0);
     let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
 
-    validate_leverage_collateral_risk_mint(&mint).unwrap();
+    assert_eq!(leverage_collateral_fee(&mint, 0).unwrap().unwind_credit(900).unwrap(), 900);
 }

@@ -27,11 +27,23 @@ impl SwapCashFloors {
     pub(crate) fn available(self, market: &Market) -> bool {
         market.base_side.reserves.cash_reserve >= self.base && market.quote_side.reserves.cash_reserve >= self.quote
     }
+
+    pub(crate) fn available_with_credit(self, market: &Market, asset: MarketAsset, credit: u64) -> bool {
+        u128::from(market.base_side.reserves.cash_reserve)
+            + u128::from(if asset == MarketAsset::Base { credit } else { 0 })
+            >= u128::from(self.base)
+            && u128::from(market.quote_side.reserves.cash_reserve)
+                + u128::from(if asset == MarketAsset::Quote { credit } else { 0 })
+                >= u128::from(self.quote)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SwapCashPolicy {
     Spot,
+    /// Quote preparation only. Cannot be applied until bound to an exact
+    /// liquidation debt allocation and checked against physical cash floors.
+    LiquidationQuote,
     Borrow {
         asset: MarketAsset,
         amount: u64,
@@ -50,6 +62,21 @@ pub(crate) enum SwapCashPolicy {
         debt_asset: MarketAsset,
         debt_shares: u128,
         debt_principal: u128,
+        /// Measured debt-reserve credit from the insurance vault.
+        insurance_credit: u64,
+    },
+    /// Exact debt clearance bound to one ordinary or emergency liquidation.
+    /// Principal repaid by this swap stays in the debt reserve as an internal
+    /// offset; only fees, interest, rewards and surplus need physical cash.
+    SettleLiquidation {
+        debt_asset: MarketAsset,
+        isolated: bool,
+        full: bool,
+        shares: u128,
+        principal_removed: u64,
+        debt_reduced: u64,
+        repayment: u64,
+        insurance_credit: u64,
     },
 }
 

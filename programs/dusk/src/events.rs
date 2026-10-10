@@ -595,6 +595,7 @@ pub struct LeveragePositionOpened {
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
+    pub margin_terms: crate::state::LeverageMarginTerms,
     pub closeout_value: u64,
     pub equity: u64,
     pub multiplier_bps: u64,
@@ -631,6 +632,7 @@ pub struct LeveragePositionUpdated {
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
+    pub margin_terms: crate::state::LeverageMarginTerms,
     /// Executable closeout quote, or zero when unquoted by repay_leverage or
     /// when add_leverage_margin fully clears the debt. Collateral remains owned.
     pub closeout_value: u64,
@@ -651,6 +653,8 @@ pub struct LeveragePositionLiquidated {
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
     pub debt_repaid: u64,
+    pub insurance_drawn: u64,
+    pub socialized_loss: u64,
     pub interest_paid: u64,
     pub principal_written_off: u64,
     pub collateral_sold: u64,
@@ -858,14 +862,15 @@ pub struct ParameterProposalCreated {
     pub market: Pubkey,
     pub proposer: Pubkey,
     pub nonce: u64,
-    pub family: u8,
-    pub family_revision: u64,
+    /// Each updated family's revision at creation; untouched families read
+    /// zero. The family of every update is its variant.
+    pub family_revisions: [u64; 7],
     pub digest: [u8; 32],
     pub sponsorship_floor: u64,
     pub initial_support: u64,
     pub status: u8,
-    /// The proposed update and metadata exactly as stored on the proposal.
-    pub update: MarketParameterUpdate,
+    /// The proposed updates and metadata exactly as stored on the proposal.
+    pub updates: Vec<MarketParameterUpdate>,
     pub metadata: ProposalMetadataV1,
 }
 
@@ -893,8 +898,10 @@ pub struct ParameterProposalQueued {
 pub struct ParameterProposalExecuted {
     pub proposal: Pubkey,
     pub market: Pubkey,
-    pub family: u8,
-    pub new_family_revision: u64,
+    /// Family codes of every update applied, ascending.
+    pub families: Vec<u8>,
+    /// The market's revision of every family after execution.
+    pub new_family_revisions: [u64; 7],
     pub executed_at: i64,
 }
 
@@ -905,6 +912,10 @@ pub struct ParameterProposalSupportWithdrawn {
     pub amount: u64,
     pub total_locked: u64,
     pub status: u8,
+    /// The last supporter left, so the proposal account became a
+    /// `ParameterProposalTombstone` and the rest of its rent returned to the
+    /// proposer.
+    pub proposal_tombstoned: bool,
 }
 
 #[cfg(test)]

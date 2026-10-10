@@ -79,6 +79,43 @@ impl LendingSwapSettlement<'_> {
 }
 
 impl PreparedSwap {
+    pub(crate) fn bind_liquidation(&mut self, market: &Market, policy: SwapCashPolicy) -> Result<()> {
+        require!(
+            self.cash_policy == SwapCashPolicy::LiquidationQuote,
+            ErrorCode::InvalidLiquidationSession
+        );
+        let SwapCashPolicy::SettleLiquidation {
+            debt_asset,
+            principal_removed,
+            repayment,
+            insurance_credit,
+            shares,
+            ..
+        } = policy
+        else {
+            return err!(ErrorCode::InvalidLiquidationSession);
+        };
+        require!(
+            shares > 0 && debt_asset == self.quote.asset_in.opposite(),
+            ErrorCode::InvalidLiquidationSession
+        );
+        let cash_out = self
+            .quote
+            .gross_amount_out
+            .checked_sub(repayment.min(principal_removed))
+            .ok_or(ErrorCode::InsufficientAmount)?;
+        require!(
+            self.concentrated_transition
+                .as_ref()
+                .ok_or(ErrorCode::BrokenInvariant)?
+                .interest_cash_floors(self.quote.asset_in, cash_out)
+                .available_with_credit(market, debt_asset, insurance_credit),
+            ErrorCode::InsufficientLiquidity
+        );
+        self.cash_policy = policy;
+        Ok(())
+    }
+
     #[inline(always)]
     pub(crate) fn leverage_quote(&self) -> LeverageSwapQuote {
         LeverageSwapQuote::from_amm(self.quote, self.quoted_slot)
@@ -138,6 +175,7 @@ impl PreparedSwap {
                         debt_asset: settlement.debt_asset,
                         debt_shares: 0,
                         debt_principal: 0,
+                        insurance_credit: 0,
                     },
                 ErrorCode::BrokenInvariant
             );
@@ -182,6 +220,12 @@ impl PreparedSwap {
         market.base_side.assert_share_backing()?;
         market.quote_side.assert_share_backing()?;
         market.side(fee_asset).fees.assert_backed()?;
+        // The fee index belongs to the shares held at the start of this swap.
+        // Settle that interval before the hLP transition replaces ownership.
+        market
+            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, self.interest_eligibility.base_hlp_ylp_shares)?;
+        market
+            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, self.interest_eligibility.quote_hlp_ylp_shares)?;
         let debt_asset = quote.asset_in.opposite();
         consume_hlp_tracking_unrealized_interest(
             &mut self.base_pre_rebalance,
@@ -267,7 +311,8 @@ impl PreparedSwap {
 }
 
 impl Market {
-    /// Complete floor-liquidation state transition, also used by predictive execution.
+    /// Historical auction replay only. Runtime liquidation uses the flash policy.
+    #[cfg(feature = "benchmark")]
     pub(crate) fn settle_backstop_swap(
         &mut self,
         prepared: Option<&mut PreparedSwap>,
@@ -281,6 +326,7 @@ impl Market {
                 debt_asset: settlement.debt_asset,
                 debt_shares: 0,
                 debt_principal: 0,
+                insurance_credit: 0,
             };
             let credit = LeverageSwapFeeCredit::from_total_actual_credit(
                 &prepared.leverage_quote(),
@@ -367,12 +413,29 @@ impl SwapRequest {
             )?;
         }
         let transition = prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
-        require!(
-            transition
+        let cash_available = match cash_policy {
+            SwapCashPolicy::LiquidationQuote => true,
+            SwapCashPolicy::SettleLiquidation {
+                debt_asset,
+                principal_removed,
+                repayment,
+                insurance_credit,
+                ..
+            } => {
+                require!(debt_asset == self.asset_in.opposite(), ErrorCode::BrokenInvariant);
+                let cash_out = concentrated
+                    .gross_amount_out
+                    .checked_sub(repayment.min(principal_removed))
+                    .ok_or(ErrorCode::InsufficientAmount)?;
+                transition
+                    .interest_cash_floors(self.asset_in, cash_out)
+                    .available_with_credit(market, debt_asset, insurance_credit)
+            }
+            _ => transition
                 .interest_cash_floors(self.asset_in, concentrated.gross_amount_out)
                 .available(market),
-            ErrorCode::InsufficientLiquidity
-        );
+        };
+        require!(cash_available, ErrorCode::InsufficientLiquidity);
         let post_fee_curve_cache = concentrated.post_fee_curve_cache.map(Box::new);
         let quote = concentrated.as_swap_quote(self.asset_in);
         Ok(Box::new(PreparedSwap {

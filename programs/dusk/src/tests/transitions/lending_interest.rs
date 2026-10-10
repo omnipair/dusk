@@ -99,6 +99,23 @@ fn accrual_receipt_separates_credit_margin_and_hlp_at_the_shared_index() {
 }
 
 #[test]
+fn short_checkpoints_preserve_fractional_borrow_interest() {
+    let mut frequent = test_market(300, 1_000);
+    configure_active_base_side(&mut frequent);
+    frequent.debt.base_rate_at_target_nad = INTEREST_MIN_RATE_AT_TARGET_NAD;
+    let mut single = frequent.clone();
+
+    for slot in 1..=100 {
+        accrue_side::<false>(&mut frequent, MarketAsset::Base, slot).unwrap();
+    }
+    accrue_side::<false>(&mut single, MarketAsset::Base, 100).unwrap();
+
+    assert!(frequent.debt.base_borrow_index_nad > NAD as u128);
+    assert_eq!(frequent.debt.base_borrow_index_nad, single.debt.base_borrow_index_nad);
+    assert!(frequent.debt.base_borrow_index_remainder > 0);
+}
+
+#[test]
 fn accrual_receipts_preserve_each_buckets_rounding_boundary() {
     let mut market = test_market(3, 1_000);
     market.debt.fixed_base_shares = 3;
@@ -299,23 +316,21 @@ fn debt_free_sides_skip_all_debt_and_index_work() {
 }
 
 #[test]
-fn long_slot_gap_saturates_elapsed_time_without_extra_conversions() {
+fn long_slot_gap_charges_the_full_elapsed_interval() {
     let mut market = test_market(300, 1_000);
     configure_active_base_side(&mut market);
-    market.debt.base_last_accrual_slot = 7;
-    market.debt.quote_last_accrual_slot = 11;
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
 
     Debt::reset_shares_to_debt_call_count();
-    market.accrue_interest_to_slot(u64::MAX).unwrap();
+    let current_slot = slots_for_ms(2 * MS_PER_YEAR);
+    market.accrue_interest_to_slot(current_slot).unwrap();
 
-    // Slot-to-millisecond conversion saturates, then the interest model's
-    // established one-year cap applies. At target utilization, this is one
-    // year at the 4% initial rate.
+    // At target utilization, two years at the 4% initial rate grow the index
+    // by 8% even when no other operation checkpoints the market in between.
     assert_eq!(Debt::shares_to_debt_call_count(), 3);
-    assert_eq!(market.debt.base_borrow_index_nad, (NAD as u128) * 104 / 100);
-    assert_eq!(market.base_side.reserves.live_reserve, 1_020);
-    assert_eq!(market.debt.base_last_accrual_slot, u64::MAX);
-    assert_eq!(market.debt.quote_last_accrual_slot, u64::MAX);
+    assert_eq!(market.debt.base_borrow_index_nad, (NAD as u128) * 108 / 100);
+    assert_eq!(market.base_side.reserves.live_reserve, 1_040);
+    assert_eq!(market.debt.base_last_accrual_slot, current_slot);
+    assert_eq!(market.debt.quote_last_accrual_slot, current_slot);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
 }

@@ -72,43 +72,25 @@
           "name": "leverage_delegation"
         },
         {
-          "name": "custody_token_account",
-          "writable": true
+          "name": "owner_token_account"
         },
         {
-          "name": "executor_token_account",
-          "writable": true
+          "name": "executor_token_account"
         },
         {
-          "name": "owner_token_account",
-          "writable": true
+          "name": "fee_recipient"
         },
         {
           "name": "token_mint"
         },
         {
           "name": "executor",
-          "signer": true
-        },
-        {
-          "name": "futarchy_authority"
-        },
-        {
-          "name": "protocol_fee",
-          "accounts": [
-            {
-              "name": "fee_recipient",
-              "writable": true
-            }
+          "docs": [
+            "across the delegated callback boundary."
           ]
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          "name": "futarchy_authority"
         }
       ],
       "args": [
@@ -185,7 +167,16 @@
           "name": "leverage_delegation"
         },
         {
-          "name": "custody_token_account"
+          "name": "owner_token_account"
+        },
+        {
+          "name": "fee_recipient"
+        },
+        {
+          "name": "executor_token_account"
+        },
+        {
+          "name": "futarchy_authority"
         },
         {
           "name": "collateral_mint",
@@ -199,7 +190,9 @@
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -276,7 +269,16 @@
           "name": "leverage_delegation"
         },
         {
-          "name": "custody_token_account"
+          "name": "owner_token_account"
+        },
+        {
+          "name": "fee_recipient"
+        },
+        {
+          "name": "executor_token_account"
+        },
+        {
+          "name": "futarchy_authority"
         },
         {
           "name": "collateral_mint",
@@ -290,7 +292,9 @@
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -448,7 +452,8 @@
           }
         },
         {
-          "name": "debt_mint"
+          "name": "debt_mint",
+          "writable": true
         },
         {
           "name": "funding_vault",
@@ -1225,10 +1230,12 @@
           "name": "futarchy_authority"
         },
         {
-          "name": "base_mint"
+          "name": "base_mint",
+          "writable": true
         },
         {
-          "name": "quote_mint"
+          "name": "quote_mint",
+          "writable": true
         },
         {
           "name": "ylp_mint",
@@ -1460,7 +1467,8 @@
           "writable": true
         },
         {
-          "name": "debt_mint"
+          "name": "debt_mint",
+          "writable": true
         },
         {
           "name": "collateral_mint"
@@ -1981,6 +1989,9 @@
         {
           "name": "leverage_position",
           "optional": true
+        },
+        {
+          "name": "collateral_mint"
         }
       ],
       "args": [],
@@ -2840,6 +2851,26 @@
             "type": "u128"
           },
           {
+            "name": "active_liquidation_session",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_distress",
+            "type": {
+              "defined": {
+                "name": "LiquidationDistress"
+              }
+            }
+          },
+          {
+            "name": "quote_distress",
+            "type": {
+              "defined": {
+                "name": "LiquidationDistress"
+              }
+            }
+          },
+          {
             "name": "auction_debt_asset",
             "type": "u8"
           },
@@ -3162,6 +3193,18 @@
             "type": "u128"
           },
           {
+            "name": "base_borrow_index_remainder",
+            "docs": [
+              "Fractional index growth carried across checkpoints. Denominator is",
+              "`NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "quote_borrow_index_remainder",
+            "type": "u128"
+          },
+          {
             "name": "base_rate_at_target_nad",
             "type": "u128"
           },
@@ -3221,6 +3264,18 @@
           },
           {
             "name": "isolated_quote_principal",
+            "type": "u64"
+          },
+          {
+            "name": "leverage_base_collateral",
+            "docs": [
+              "Gross collateral atoms in debt-bearing leverage positions. Counts all",
+              "owners and namespaces; custody donations cannot create exposure credit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "leverage_quote_collateral",
             "type": "u64"
           }
         ]
@@ -3733,6 +3788,9 @@
           },
           {
             "name": "cached_settlement_price_nad",
+            "docs": [
+              "Base quoted in quote NAD units for either target asset; zero means unset."
+            ],
             "type": "u128"
           },
           {
@@ -3788,7 +3846,11 @@
             }
           },
           {
-            "name": "per_event_draw_bps",
+            "name": "principal_coverage_bps",
+            "docs": [
+              "Maximum share of a borrower/leverage principal shortfall covered by",
+              "insurance. hLP funding claims use their own eligible-loss definition."
+            ],
             "type": "u16"
           },
           {
@@ -3885,6 +3947,10 @@
             "type": "u32"
           },
           {
+            "name": "open_curve_revision",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -3938,7 +4004,7 @@
           {
             "name": "executor_bounty",
             "docs": [
-              "Gross vault debit paid to the successful executor."
+              "Minimum net credit paid to the successful executor."
             ],
             "type": "u64"
           },
@@ -3979,6 +4045,60 @@
           {
             "name": "order_id",
             "type": "u64"
+          },
+          {
+            "name": "min_owner_refund_out",
+            "docs": [
+              "Minimum amount actually credited to the owner on cancel or execution.",
+              "Zero keeps cancellation available when transfer fees consume escrow."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LeverageMarginTerms",
+      "docs": [
+        "Entry terms are snapshotted in collateral units. Price, LP activity and",
+        "another trader's position cannot passively rebase an existing position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "reference_collateral",
+            "type": "u64"
+          },
+          {
+            "name": "maintenance_boundaries_bps",
+            "type": {
+              "array": [
+                "u16",
+                2
+              ]
+            }
+          },
+          {
+            "name": "maintenance_rates_bps",
+            "type": {
+              "array": [
+                "u16",
+                3
+              ]
+            }
+          },
+          {
+            "name": "entry_buffer_bps",
+            "type": "u16"
+          },
+          {
+            "name": "admission_equity_collateral_nad",
+            "docs": [
+              "Collateral atoms times NAD, not a fixed debt-token or dollar amount.",
+              "Retained on equity extraction; released proportionally on size reduction."
+            ],
+            "type": "u128"
           }
         ]
       }
@@ -3999,6 +4119,10 @@
           {
             "name": "position",
             "type": "pubkey"
+          },
+          {
+            "name": "open_curve_revision",
+            "type": "u64"
           },
           {
             "name": "order_id",
@@ -4037,8 +4161,28 @@
             "type": "u128"
           },
           {
-            "name": "staged_custody_token_account",
+            "name": "staged_owner_token_account",
             "type": "pubkey"
+          },
+          {
+            "name": "staged_owner_balance",
+            "type": "u64"
+          },
+          {
+            "name": "staged_fee_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "staged_fee_balance",
+            "type": "u64"
+          },
+          {
+            "name": "staged_executor_token_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "staged_executor_balance",
+            "type": "u64"
           },
           {
             "name": "staged_output_mint",
@@ -4046,6 +4190,18 @@
           },
           {
             "name": "staged_output_amount",
+            "type": "u64"
+          },
+          {
+            "name": "staged_protocol_fee_debit",
+            "type": "u64"
+          },
+          {
+            "name": "staged_protocol_fee_credit",
+            "type": "u64"
+          },
+          {
+            "name": "staged_executor_credit",
             "type": "u64"
           },
           {
@@ -4076,6 +4232,14 @@
             "type": "pubkey"
           },
           {
+            "name": "namespace_authority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "position_id",
             "type": "pubkey"
           },
@@ -4096,7 +4260,18 @@
             "type": "u64"
           },
           {
+            "name": "margin_terms",
+            "type": {
+              "defined": {
+                "name": "LeverageMarginTerms"
+              }
+            }
+          },
+          {
             "name": "margin_amount",
+            "docs": [
+              "Entry equity valued in debt-token atoms."
+            ],
             "type": "u64"
           },
           {
@@ -4124,8 +4299,74 @@
             "type": "u64"
           },
           {
+            "name": "open_curve_revision",
+            "docs": [
+              "Market curve revision committed by this opening. A recreated PDA gets",
+              "a new revision even if it reopens in the same slot."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "active_liquidation_session",
+            "type": "pubkey"
+          },
+          {
+            "name": "distress",
+            "type": {
+              "defined": {
+                "name": "LiquidationDistress"
+              }
+            }
+          },
+          {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidationConfig",
+      "docs": [
+        "Per-market atom amounts, independently denominated in Base and Quote.",
+        "One atom is a neutral initialization default, not an economic cleanup",
+        "promise. Market creation clients must expose the chosen amounts explicitly."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minimum_base_debt",
+            "type": "u64"
+          },
+          {
+            "name": "minimum_quote_debt",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LiquidationDistress",
+      "docs": [
+        "A committed observation is separate from an atomic flash transaction: a",
+        "reverted route must not erase the incentive clock. Each debt leg owns its",
+        "episode. Recovery ends it; a useful partial while still unhealthy does not."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "started_at",
+            "type": "i64"
+          },
+          {
+            "name": "observed_slot",
+            "type": "u64"
           }
         ]
       }
@@ -4346,6 +4587,14 @@
           {
             "name": "borrow_market_health_floor_bps",
             "type": "u16"
+          },
+          {
+            "name": "liquidation",
+            "type": {
+              "defined": {
+                "name": "LiquidationConfig"
+              }
+            }
           },
           {
             "name": "amm",

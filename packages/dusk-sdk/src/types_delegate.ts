@@ -78,43 +78,25 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount",
-          "writable": true
+          "name": "ownerTokenAccount"
         },
         {
-          "name": "executorTokenAccount",
-          "writable": true
+          "name": "executorTokenAccount"
         },
         {
-          "name": "ownerTokenAccount",
-          "writable": true
+          "name": "feeRecipient"
         },
         {
           "name": "tokenMint"
         },
         {
           "name": "executor",
-          "signer": true
-        },
-        {
-          "name": "futarchyAuthority"
-        },
-        {
-          "name": "protocolFee",
-          "accounts": [
-            {
-              "name": "feeRecipient",
-              "writable": true
-            }
+          "docs": [
+            "across the delegated callback boundary."
           ]
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+          "name": "futarchyAuthority"
         }
       ],
       "args": [
@@ -191,7 +173,16 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount"
+          "name": "ownerTokenAccount"
+        },
+        {
+          "name": "feeRecipient"
+        },
+        {
+          "name": "executorTokenAccount"
+        },
+        {
+          "name": "futarchyAuthority"
         },
         {
           "name": "collateralMint",
@@ -205,7 +196,9 @@ export type LeverageDelegate = {
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -282,7 +275,16 @@ export type LeverageDelegate = {
           "name": "leverageDelegation"
         },
         {
-          "name": "custodyTokenAccount"
+          "name": "ownerTokenAccount"
+        },
+        {
+          "name": "feeRecipient"
+        },
+        {
+          "name": "executorTokenAccount"
+        },
+        {
+          "name": "futarchyAuthority"
         },
         {
           "name": "collateralMint",
@@ -296,7 +298,9 @@ export type LeverageDelegate = {
         },
         {
           "name": "executor",
-          "signer": true
+          "docs": [
+            "across the delegated callback boundary."
+          ]
         }
       ],
       "args": [
@@ -454,7 +458,8 @@ export type LeverageDelegate = {
           }
         },
         {
-          "name": "debtMint"
+          "name": "debtMint",
+          "writable": true
         },
         {
           "name": "fundingVault",
@@ -1231,10 +1236,12 @@ export type LeverageDelegate = {
           "name": "futarchyAuthority"
         },
         {
-          "name": "baseMint"
+          "name": "baseMint",
+          "writable": true
         },
         {
-          "name": "quoteMint"
+          "name": "quoteMint",
+          "writable": true
         },
         {
           "name": "ylpMint",
@@ -1466,7 +1473,8 @@ export type LeverageDelegate = {
           "writable": true
         },
         {
-          "name": "debtMint"
+          "name": "debtMint",
+          "writable": true
         },
         {
           "name": "collateralMint"
@@ -1987,6 +1995,9 @@ export type LeverageDelegate = {
         {
           "name": "leveragePosition",
           "optional": true
+        },
+        {
+          "name": "collateralMint"
         }
       ],
       "args": [],
@@ -2846,6 +2857,26 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
+            "name": "activeLiquidationSession",
+            "type": "pubkey"
+          },
+          {
+            "name": "baseDistress",
+            "type": {
+              "defined": {
+                "name": "liquidationDistress"
+              }
+            }
+          },
+          {
+            "name": "quoteDistress",
+            "type": {
+              "defined": {
+                "name": "liquidationDistress"
+              }
+            }
+          },
+          {
             "name": "auctionDebtAsset",
             "type": "u8"
           },
@@ -3168,6 +3199,18 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
+            "name": "baseBorrowIndexRemainder",
+            "docs": [
+              "Fractional index growth carried across checkpoints. Denominator is",
+              "`NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "quoteBorrowIndexRemainder",
+            "type": "u128"
+          },
+          {
             "name": "baseRateAtTargetNad",
             "type": "u128"
           },
@@ -3227,6 +3270,18 @@ export type LeverageDelegate = {
           },
           {
             "name": "isolatedQuotePrincipal",
+            "type": "u64"
+          },
+          {
+            "name": "leverageBaseCollateral",
+            "docs": [
+              "Gross collateral atoms in debt-bearing leverage positions. Counts all",
+              "owners and namespaces; custody donations cannot create exposure credit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "leverageQuoteCollateral",
             "type": "u64"
           }
         ]
@@ -3739,6 +3794,9 @@ export type LeverageDelegate = {
           },
           {
             "name": "cachedSettlementPriceNad",
+            "docs": [
+              "Base quoted in quote NAD units for either target asset; zero means unset."
+            ],
             "type": "u128"
           },
           {
@@ -3794,7 +3852,11 @@ export type LeverageDelegate = {
             }
           },
           {
-            "name": "perEventDrawBps",
+            "name": "principalCoverageBps",
+            "docs": [
+              "Maximum share of a borrower/leverage principal shortfall covered by",
+              "insurance. hLP funding claims use their own eligible-loss definition."
+            ],
             "type": "u16"
           },
           {
@@ -3891,6 +3953,10 @@ export type LeverageDelegate = {
             "type": "u32"
           },
           {
+            "name": "openCurveRevision",
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -3944,7 +4010,7 @@ export type LeverageDelegate = {
           {
             "name": "executorBounty",
             "docs": [
-              "Gross vault debit paid to the successful executor."
+              "Minimum net credit paid to the successful executor."
             ],
             "type": "u64"
           },
@@ -3985,6 +4051,60 @@ export type LeverageDelegate = {
           {
             "name": "orderId",
             "type": "u64"
+          },
+          {
+            "name": "minOwnerRefundOut",
+            "docs": [
+              "Minimum amount actually credited to the owner on cancel or execution.",
+              "Zero keeps cancellation available when transfer fees consume escrow."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "leverageMarginTerms",
+      "docs": [
+        "Entry terms are snapshotted in collateral units. Price, LP activity and",
+        "another trader's position cannot passively rebase an existing position."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "referenceCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "maintenanceBoundariesBps",
+            "type": {
+              "array": [
+                "u16",
+                2
+              ]
+            }
+          },
+          {
+            "name": "maintenanceRatesBps",
+            "type": {
+              "array": [
+                "u16",
+                3
+              ]
+            }
+          },
+          {
+            "name": "entryBufferBps",
+            "type": "u16"
+          },
+          {
+            "name": "admissionEquityCollateralNad",
+            "docs": [
+              "Collateral atoms times NAD, not a fixed debt-token or dollar amount.",
+              "Retained on equity extraction; released proportionally on size reduction."
+            ],
+            "type": "u128"
           }
         ]
       }
@@ -4005,6 +4125,10 @@ export type LeverageDelegate = {
           {
             "name": "position",
             "type": "pubkey"
+          },
+          {
+            "name": "openCurveRevision",
+            "type": "u64"
           },
           {
             "name": "orderId",
@@ -4043,8 +4167,28 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
-            "name": "stagedCustodyTokenAccount",
+            "name": "stagedOwnerTokenAccount",
             "type": "pubkey"
+          },
+          {
+            "name": "stagedOwnerBalance",
+            "type": "u64"
+          },
+          {
+            "name": "stagedFeeRecipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "stagedFeeBalance",
+            "type": "u64"
+          },
+          {
+            "name": "stagedExecutorTokenAccount",
+            "type": "pubkey"
+          },
+          {
+            "name": "stagedExecutorBalance",
+            "type": "u64"
           },
           {
             "name": "stagedOutputMint",
@@ -4052,6 +4196,18 @@ export type LeverageDelegate = {
           },
           {
             "name": "stagedOutputAmount",
+            "type": "u64"
+          },
+          {
+            "name": "stagedProtocolFeeDebit",
+            "type": "u64"
+          },
+          {
+            "name": "stagedProtocolFeeCredit",
+            "type": "u64"
+          },
+          {
+            "name": "stagedExecutorCredit",
             "type": "u64"
           },
           {
@@ -4082,6 +4238,14 @@ export type LeverageDelegate = {
             "type": "pubkey"
           },
           {
+            "name": "namespaceAuthority",
+            "docs": [
+              "Funding signer that established this position. Ordinary opens use the",
+              "owner; sponsored entry orders use their owner-created order PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "positionId",
             "type": "pubkey"
           },
@@ -4102,7 +4266,18 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
+            "name": "marginTerms",
+            "type": {
+              "defined": {
+                "name": "leverageMarginTerms"
+              }
+            }
+          },
+          {
             "name": "marginAmount",
+            "docs": [
+              "Entry equity valued in debt-token atoms."
+            ],
             "type": "u64"
           },
           {
@@ -4130,8 +4305,74 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
+            "name": "openCurveRevision",
+            "docs": [
+              "Market curve revision committed by this opening. A recreated PDA gets",
+              "a new revision even if it reopens in the same slot."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "activeLiquidationSession",
+            "type": "pubkey"
+          },
+          {
+            "name": "distress",
+            "type": {
+              "defined": {
+                "name": "liquidationDistress"
+              }
+            }
+          },
+          {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "liquidationConfig",
+      "docs": [
+        "Per-market atom amounts, independently denominated in Base and Quote.",
+        "One atom is a neutral initialization default, not an economic cleanup",
+        "promise. Market creation clients must expose the chosen amounts explicitly."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minimumBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "minimumQuoteDebt",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "liquidationDistress",
+      "docs": [
+        "A committed observation is separate from an atomic flash transaction: a",
+        "reverted route must not erase the incentive clock. Each debt leg owns its",
+        "episode. Recovery ends it; a useful partial while still unhealthy does not."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "startedAt",
+            "type": "i64"
+          },
+          {
+            "name": "observedSlot",
+            "type": "u64"
           }
         ]
       }
@@ -4352,6 +4593,14 @@ export type LeverageDelegate = {
           {
             "name": "borrowMarketHealthFloorBps",
             "type": "u16"
+          },
+          {
+            "name": "liquidation",
+            "type": {
+              "defined": {
+                "name": "liquidationConfig"
+              }
+            }
           },
           {
             "name": "amm",

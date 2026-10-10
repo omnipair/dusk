@@ -10,6 +10,7 @@ use proptest::prelude::*;
 
 fn valid_config() -> MarketConfig {
     MarketConfig {
+        liquidation: Default::default(),
         swap_fee_bps: 30,
         divergence_fee_share_cap_bps: 0,
         volatility_fee_share_cap_bps: 0,
@@ -87,6 +88,9 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
     let borrow_position = BorrowPosition {
+        active_liquidation_session: Pubkey::default(),
+        base_distress: Default::default(),
+        quote_distress: Default::default(),
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -149,6 +153,9 @@ fn market_with_cash_backed_debt(
     };
     let collateral_amount = u64::try_from(current_debt).unwrap().checked_mul(2).unwrap();
     let mut borrow_position = BorrowPosition {
+        active_liquidation_session: Pubkey::default(),
+        base_distress: Default::default(),
+        quote_distress: Default::default(),
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -819,10 +826,10 @@ fn liquidation_auction_reaches_floor_only_at_explicit_expiry() {
     let start_time = 10;
     borrow_position.start_liquidation_auction(MarketAsset::Quote, start_time, 105, 100);
 
-    assert_eq!(borrow_position.liquidation_auction_price_nad(start_time).unwrap(), 105);
+    assert_eq!(borrow_position.liquidation_auction_price_nad(start_time, 100).unwrap(), 105);
     assert_eq!(
         borrow_position
-            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS - 1)
+            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS - 1, 100)
             .unwrap(),
         101
     );
@@ -831,13 +838,30 @@ fn liquidation_auction_reaches_floor_only_at_explicit_expiry() {
         .unwrap());
     assert_eq!(
         borrow_position
-            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS)
+            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS, 100)
             .unwrap(),
         100
     );
     assert!(borrow_position
         .liquidation_auction_expired(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS)
         .unwrap());
+
+    let midpoint = start_time + LIQUIDATION_AUCTION_DURATION_SECONDS / 2;
+    assert_eq!(borrow_position.liquidation_auction_price_nad(midpoint, 130).unwrap(), 134);
+    assert_eq!(borrow_position.liquidation_auction_price_nad(midpoint, 70).unwrap(), 72);
+    assert_eq!(borrow_position.liquidation_auction_price_nad(start_time, 130).unwrap(), 137);
+    assert_eq!(
+        borrow_position
+            .liquidation_auction_price_nad(start_time + LIQUIDATION_AUCTION_DURATION_SECONDS, 130)
+            .unwrap(),
+        130
+    );
+    assert_eq!(
+        borrow_position
+            .liquidation_auction_bid_price_nad(start_time, u64::MAX)
+            .unwrap(),
+        u64::MAX
+    );
 }
 
 #[test]
@@ -852,7 +876,9 @@ fn recovered_position_cancels_active_auction_before_settlement() {
     assert!(!market
         .is_position_liquidatable(&borrow_position, MarketAsset::Quote)
         .unwrap());
-    market.reconcile_liquidation_auction(&mut borrow_position).unwrap();
+    market
+        .reconcile_liquidation_auction_with_credit(&mut borrow_position, 1_000)
+        .unwrap();
 
     assert!(!borrow_position.has_active_liquidation_auction());
     assert_eq!(
@@ -861,6 +887,102 @@ fn recovered_position_cancels_active_auction_before_settlement() {
             .unwrap_err(),
         error!(ErrorCode::PositionNotLiquidatable)
     );
+}
+
+#[test]
+fn fee_increase_keeps_auction_active_until_net_collateral_recovers() {
+    let (market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.base_collateral = 1_000;
+    assert!(!market
+        .is_position_liquidatable(&borrow_position, MarketAsset::Quote)
+        .unwrap());
+    assert!(market
+        .is_position_liquidatable_with_credit(&borrow_position, MarketAsset::Quote, 0)
+        .unwrap());
+
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD, NAD);
+    market.reconcile_liquidation_auction(&mut borrow_position).unwrap();
+    assert!(borrow_position.has_active_liquidation_auction());
+    market
+        .reconcile_liquidation_auction_with_credit(&mut borrow_position, 0)
+        .unwrap();
+    assert!(borrow_position.has_active_liquidation_auction());
+    market
+        .reconcile_liquidation_auction_with_credit(&mut borrow_position, 1_000)
+        .unwrap();
+    assert!(!borrow_position.has_active_liquidation_auction());
+}
+
+#[test]
+fn fee_driven_auction_has_repay_capacity_even_when_gross_collateral_looks_healthy() {
+    let (market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.base_collateral = 1_000;
+    let pricing = LiquidationPricing::ReferencePrice {
+        debt_per_collateral_price_nad: NAD,
+    };
+    let gross_terms = market
+        .liquidation_terms_with_pricing(&borrow_position, MarketAsset::Quote, pricing)
+        .unwrap();
+    assert_eq!(gross_terms.max_repay_amount, 0);
+    let net_terms = market
+        .liquidation_terms_with_pricing_and_credit(&borrow_position, MarketAsset::Quote, 0, pricing)
+        .unwrap();
+    assert!(net_terms.max_repay_amount > 0);
+}
+
+#[test]
+fn position_preview_matches_fee_aware_liquidation_eligibility() {
+    let (market, mut borrow_position) = liquidatable_quote_debt_position();
+    borrow_position.base_collateral = 1_000;
+    let confiscatory_fee = crate::transitions::LeverageCollateralFee::new(Some(
+        spl_token_2022::extension::transfer_fee::TransferFee {
+            epoch: 0_u64.into(),
+            maximum_fee: u64::MAX.into(),
+            transfer_fee_basis_points: 10_000_u16.into(),
+        },
+    ));
+    let gross = market
+        .position_debt_side_quote(&borrow_position, MarketAsset::Quote, Default::default())
+        .unwrap();
+    assert!(!gross.is_liquidatable);
+    let net = market
+        .position_debt_side_quote(&borrow_position, MarketAsset::Quote, confiscatory_fee)
+        .unwrap();
+    assert!(net.is_liquidatable);
+    assert!(net.max_repay_amount > 0);
+    assert_eq!(net.collateral_value_nad, 0);
+}
+
+#[test]
+fn auction_fill_delivers_the_quoted_net_collateral_with_capped_or_uncapped_fees() {
+    for maximum_fee in [u64::MAX, 10] {
+        let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
+        market.quote_side.reserves.live_reserve += 100;
+        let fee = crate::transitions::LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
+            epoch: 0_u64.into(),
+            maximum_fee: maximum_fee.into(),
+            transfer_fee_basis_points: 2_000_u16.into(),
+        }));
+        let credit = fee.unwind_credit(borrow_position.base_collateral).unwrap();
+        let pricing = LiquidationPricing::ReferencePrice { debt_per_collateral_price_nad: NAD };
+        let terms = market
+            .liquidation_terms_with_pricing_and_credit(&borrow_position, MarketAsset::Quote, credit, pricing)
+            .unwrap();
+        let repay = terms.max_repay_amount.min(10);
+        assert!(repay > 0);
+        let receipt = market
+            .settle_auction_liquidation_with_fees(
+                &mut borrow_position, MarketAsset::Quote, repay, terms, pricing, fee, fee,
+            )
+            .unwrap();
+        let quoted_net = crate::math::ceil_div(
+            repay as u128 * (BPS_DENOMINATOR as u128 + terms.liquidation_incentive_bps as u128),
+            BPS_DENOMINATOR as u128,
+        )
+        .unwrap();
+        let bidder_net = fee.unwind_credit(receipt.collateral_to_liquidator).unwrap() as u128;
+        assert!(bidder_net >= quoted_net, "max fee {maximum_fee}: bidder net {bidder_net} < quoted {quoted_net}");
+    }
 }
 
 #[test]

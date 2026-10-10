@@ -8,6 +8,7 @@ import {
   type AccountInfo,
   type RpcResponseAndContext,
   type SimulatedTransactionResponse,
+  type TransactionInstruction,
 } from "@solana/web3.js";
 import {
   calculateEpochFee,
@@ -99,7 +100,7 @@ export function decodeDuskVirtualBookBatch(
     market.paramsHash
   );
   if (
-    market.version !== 1 ||
+    market.version !== 2 ||
     market.bump !== bump ||
     address.toBase58() !== snapshot.market ||
     !market.baseSide.assetMint.equals(snapshot.account.baseSide.assetMint) ||
@@ -174,13 +175,24 @@ export async function previewVirtualBookBatch(
     throw new Error("Depth batches require one to four requests");
   const { account, market } = snapshot;
   const floor = Math.max(snapshot.slot, options.minContextSlot ?? 0);
+  const previewSwap = (program as unknown as {
+    methods: {
+      previewSwap(args: { exactAssetIn: anchor.BN }): {
+        accountsPartial(accounts: {
+          market: PublicKey;
+          futarchyAuthority: PublicKey;
+          assetInMint: PublicKey;
+          assetOutMint: PublicKey;
+        }): { instruction(): Promise<TransactionInstruction> };
+      };
+    };
+  }).methods.previewSwap;
   const instructions = await Promise.all(
     requests.map(({ side, amount }) => {
       if (side !== "bids" && side !== "asks") throw new Error("Invalid depth side");
       if (raw(amount) === 0n) throw new Error("Invalid depth amount");
       const fromBase = side === "bids";
-      return program.methods
-        .previewSwap({ exactAssetIn: new BN(amount.toString()) })
+      return previewSwap({ exactAssetIn: new BN(amount.toString()) })
         .accountsPartial({
           market: new PublicKey(market),
           futarchyAuthority: deriveFutarchyAuthorityAddress()[0],

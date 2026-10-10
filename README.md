@@ -18,7 +18,7 @@ Omnipair's GAMM (Generalized Automated Market Maker) combines an AMM with an int
 Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native account model:
 
 - **Oracle-less markets**: pricing and risk use in-protocol reserve state, EMA books, and conservative settlement references instead of external oracle feeds.
-- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center, recenters only through its funded bounded controller during genuine user operations, and can ramp to or from exact CPMM without changing invariant families elsewhere in the protocol.
+- **Optional autonomous concentration**: the Dusk Concentrated AMM concentrates depth around an internal center and recenters only through its funded bounded controller during genuine user operations. Governance can switch the curve shape to or from exact CPMM.
 - **Path-aware bounded fees**: an outward divergence surcharge targets trending inventory stress while a separate volatility surcharge prices repeated chop. Each component has an explicit gross-input budget, and aggregate fees can never exceed 50% of the trader's input.
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
 - **Standalone Dusk program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
@@ -27,7 +27,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Permissioned referral revenue sharing**: Futarchy-listed referrers can bind to new borrow or leverage debt and earn a configured share of the DAO's realized interest revenue without changing borrower debt or rates.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
-- **Permissionless liquidation waterfall**: external repay-and-seize bids run first; after five minutes, any caller can trigger an internal concentrated unwind with a 0.5% collateral bounty, capped insurance, and automatic residual LP loss absorption.
+- **Permissionless atomic liquidation**: buyers receive collateral and owe a fixed net payment in the same transaction. Useful partial fills come first, with a 0.5–5% health/time discount over a two-minute distress episode. At critical EMA health, partial-first internal AMM recovery uses a caller reward capped at 1%, principal-only insurance and residual LP loss absorption; there is no mandatory auction wait.
 
 ## How It Works
 
@@ -102,9 +102,17 @@ user margin + isolated borrow
   -> debt tracked in isolated debt buckets
 ```
 
-Users can increase or decrease exposure, add or remove margin, close the position, or be liquidated if the closeout value falls below maintenance requirements. Isolated debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and hLP vault debt.
+Users can increase or decrease exposure, add or remove margin, close the position, or be liquidated if symmetric-EMA equity falls below the position's stored maintenance requirement. Isolated debt contributes to utilization and interest accrual, but it is kept separate from normal borrower debt and hLP vault debt.
 
-Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute bounded partial or full take-profit and stop-loss closes into a custody PDA without receiving unchecked control over the position.
+Leverage stores liquidity-scaled maintenance bands and an entry-equity obligation
+per position. Other traders and LP activity do not passively change those terms.
+New risk uses progressive size margins and aggregate same-side exposure across
+all owners; margin extraction retains the admission obligation. Partial closure
+releases it proportionally. The former fixed 2% unwind-impact admission guard is
+removed; executable and reference equity checks still apply. See the
+[stored-margin contract](docs/STORED_LEVERAGE_MARGINS.md).
+
+Owners can also approve a leverage delegate program for a position. The delegate flow uses a before-hook approval and after-hook settlement approval, so keepers can execute bounded partial or full take-profit and stop-loss closes. Dusk pays a bounded protocol fee and executor incentive from the realized residual, then sends the remainder directly to a token account owned by the position owner. A delegate cannot redirect the owner's payout to its own custody.
 
 ## Permissioned Referral Revenue Sharing
 
@@ -120,7 +128,7 @@ referral_accrual          = floor(protocol_interest_revenue * bound_referral_sha
 
 Later partner, cap, or active-status changes apply only to new bindings. The referral amount is carved only from the DAO's configured share of realized interest; LP allocations are unchanged. Using actual vault credit keeps Token-2022 transfer fees from creating an unbacked claim.
 
-Each `ReferralAccrual` is scoped to one partner, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The partner authority may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program and transfer hooks.
+Each `ReferralAccrual` is scoped to one partner, market, and asset mint. Funds remain in the market interest vault while the account records the claimable liability. The partner authority may rotate its designated recipient, and `claim_referral_interest` pays that recipient using the asset mint's SPL Token or Token-2022 program.
 
 ## hLP Vaults
 
@@ -179,7 +187,7 @@ Dusk is designed around market-local risk accounting:
 - Lending is isolated by market.
 - Individual health and liquidation use all collateral held by the position and its stored liquidation CF.
 - Debt-capped global-health contributions improve new-borrow underwriting without locking collateral or changing existing terms.
-- Pessimistic depth is the lower of observed curve depth and its EMA. Public borrowing uses only the full-range CPMM tail at the lower of symmetric and directional price EMAs. Lending liquidatability is linear at the symmetric price EMA, the external-auction floor uses the complete concentrated curve rebuilt at pessimistic depth, and the expired-auction backstop executes on the live concentrated curve.
+- Pessimistic depth is the lower of observed curve depth and its EMA. Public borrowing uses only the full-range CPMM tail at the lower of symmetric and directional price EMAs. Borrowing and leverage liquidatability use linear symmetric-EMA value. Ordinary flash payment is fixed from that value and the bounded discount. Emergency AMM execution is separately gated at 70% of maintenance; its execution price does not make a reference-healthy position liquidatable.
 - Isolated leverage has its own position state and debt buckets.
 - Price and risk books use cached EMA state to reduce same-transaction spot manipulation.
 - hLP settlement uses cached settlement references and divergence guards.
@@ -200,7 +208,6 @@ Dusk exposes simple market actions:
 
 ```text
 initialize_market
-initialize_lp_metadata
 initialize_yield_accounts
 initialize_lp_transfer_hook
 set_market_reduce_only
@@ -227,9 +234,12 @@ configure_referral_partner
 initialize_referral_accrual
 set_referral_recipient
 claim_referral_interest
-start_liquidation_auction
-fill_liquidation_auction
-backstop_liquidation_auction
+observe_liquidation
+preview_flash_liquidation
+begin_flash_liquidation
+settle_flash_liquidation
+preview_emergency_liquidation
+emergency_liquidation
 deposit_single_sided
 withdraw_single_sided
 open_leverage
@@ -239,7 +249,6 @@ increase_leverage
 decrease_leverage
 add_leverage_margin
 remove_leverage_margin
-liquidate_leverage_position
 create_leverage_delegation
 update_leverage_delegation
 close_leverage_delegation
@@ -266,7 +275,7 @@ settle_protocol_auction
 ```
 
 Market parameters are deliberately split into seven typed proposal families:
-fees, concentration shape and ramp duration, IRM, EMA half-lives, the daily
+fees, concentration shape, IRM, EMA half-lives, the daily
 borrow limit, the center controller, and insurance draw caps. A proposal snapshots that family's revision, so execution becomes
 stale if another proposal changes the same family first. Execution is blocked
 at 80% utilization, while repayments, liquidations, collateral additions, and
@@ -293,7 +302,7 @@ Dusk is a standalone program and should be integrated through its own IDL, progr
 - Use the Dusk IDL and market PDAs for markets.
 - Do not sort Dusk market mints client-side. The creator's `base_mint` and `quote_mint` order defines the market and its price direction.
 - Treat yLP and hLP mints as distinct Token-2022 token concepts. yLP is the two-sided normal LP token; hLP tokens are aggregate leveraged LP vault shares.
-- Use the referral builders for referred debt actions so the partner and accrual PDAs plus any Token-2022 transfer-hook accounts are included atomically.
+- Use the referral builders for referred debt actions so the partner and accrual PDAs are included atomically.
 - Use the parameter-proposal builders so sponsorship/support burns, virtual-yield checkpoints, proposal/support PDAs, and terminal remints remain atomic.
 - Consume Dusk events from the standalone IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, leverage, leverage-delegation, and referral events.
 
@@ -373,9 +382,9 @@ The core GAMM reserve/lending relationship is preserved, while the swap invarian
 - `core_half_width` sets the full-depth region around the sticky center and `fade_width` sets the half-depth shoulder before the tail. The tail/concentrated allocation is derived from these widths and `peak_amplification`; fee, EMA, and recenter controls remain separate.
 - Swaps and leverage use the live applied curve. Public borrowing uses a
   full-range-tail CPMM shadow; lending liquidatability is linear at the
-  symmetric price EMA; the external-auction floor uses the complete
-  depth-capped concentrated curve; expired public-liquidation backstops use a
-  live concentrated full unwind.
+  symmetric price EMA. Ordinary flash settlement binds a discounted EMA payment;
+  emergency settlement uses the live concentrated curve within explicit health
+  and partial/full-close permissions. See [the liquidation contract](docs/LIQUIDATION_DECISIONS.md).
 - Normal borrow and repay paths still preserve `R_live = R_cash + D_cash_backed`.
 - Cash constraints still matter: virtual depth can quote, but only cash can leave vaults or settle realized liabilities.
 - LP minting and burning still use the V1-style proportional reserve math with permanently locked minimum liquidity.

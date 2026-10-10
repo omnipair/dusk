@@ -74,8 +74,8 @@ function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer
 /**
  * Derive Futarchy Authority PDA address
  */
-export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], DUSK_PROGRAM_ID);
+export function deriveFutarchyAuthorityAddress(programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], programId);
 }
 
 /** Derive the protocol-wide referral partner for a referrer authority. */
@@ -90,7 +90,8 @@ export function deriveReferralPartnerAddress(authority: PublicKey): [PublicKey, 
 export function deriveReferralAccrualAddress(
   referralPartner: PublicKey,
   market: PublicKey,
-  assetMint: PublicKey
+  assetMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
@@ -99,7 +100,7 @@ export function deriveReferralAccrualAddress(
       market.toBuffer(),
       assetMint.toBuffer(),
     ],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -196,11 +197,12 @@ export function deriveMarketReserveVaultAddress(
 /** Per-market collateral custody for leverage positions. */
 export function deriveLeverageCollateralVaultAddress(
   market: PublicKey,
-  collateralMint: PublicKey
+  collateralMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.LEVERAGE_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -232,10 +234,11 @@ export function deriveMarketInterestVaultAddress(
  */
 export function deriveBorrowPositionAddress(
   market: PublicKey,
+  owner: PublicKey,
   positionId: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.BORROW_POSITION, market.toBuffer(), positionId.toBuffer()],
+    [SEEDS.BORROW_POSITION, market.toBuffer(), owner.toBuffer(), positionId.toBuffer()],
     DUSK_PROGRAM_ID
   );
 }
@@ -255,10 +258,18 @@ export function deriveLeverageDelegationAddress(
 
 export function deriveLeveragePositionAddress(
   market: PublicKey,
-  positionId: PublicKey
+  positionOwner: PublicKey,
+  positionId: PublicKey,
+  namespaceAuthority: PublicKey = positionOwner
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.LEVERAGE_POSITION, market.toBuffer(), positionId.toBuffer()],
+    [
+      SEEDS.LEVERAGE_POSITION,
+      market.toBuffer(),
+      positionOwner.toBuffer(),
+      namespaceAuthority.toBuffer(),
+      positionId.toBuffer(),
+    ],
     DUSK_PROGRAM_ID
   );
 }
@@ -635,10 +646,11 @@ export function deriveHlpYlpVaultAddress(
  */
 export function deriveInsuranceAddress(
   market: PublicKey,
-  assetMint: PublicKey
+  assetMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.INSURANCE, market.toBuffer(), assetMint.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }

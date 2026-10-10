@@ -97,6 +97,7 @@ export function deriveLeverageOrderAddress(
 export interface CreateLeverageOrderParams {
   market: AddressLike;
   owner: AddressLike;
+  namespaceAuthority?: AddressLike;
   /** Identifies the leverage position the order acts on. */
   positionId: AddressLike;
   orderId: bigint | number | string;
@@ -112,6 +113,7 @@ export interface CreateLeverageOrderParams {
 
 export interface CancelLeverageOrderParams {
   owner: AddressLike;
+  namespaceAuthority?: AddressLike;
   orderId: bigint | number | string;
   /** Identifies the leverage position the order acts on. */
   positionId?: AddressLike;
@@ -140,7 +142,7 @@ export class DuskLeverageOrders {
     const owner = address(params.owner);
     const leveragePosition = address(
       params.leveragePosition ??
-        deriveLeveragePositionAddress(market, address(params.positionId))[0]
+        deriveLeveragePositionAddress(market, owner, address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]
     );
 
     if (!Number.isInteger(params.closeBps) || params.closeBps <= 0 || params.closeBps > 10_000) {
@@ -221,7 +223,9 @@ export class DuskLeverageOrders {
           }
           return deriveLeveragePositionAddress(
             address(params.market),
-            address(params.positionId)
+            address(params.owner),
+            address(params.positionId),
+            address(params.namespaceAuthority ?? params.owner)
           )[0];
         })();
     return deriveLeverageOrderAddress(
