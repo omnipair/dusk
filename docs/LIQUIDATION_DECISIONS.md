@@ -1,10 +1,41 @@
 # Margin and flash liquidation decisions
 
-Updated 2026-10-11. This is the current decision record for implementation in
+Updated 2026-10-12. This is the current decision record for implementation in
 [PR #45](https://github.com/omnipair/dusk/pull/45). It supersedes conflicting
 pricing, eligibility, reward, clock and composability proposals in the earlier
 handoff, flash contract and calibration documents. The implementation checkpoint below distinguishes current code and tests from
 historical calibration evidence.
+
+## Emergency AMM recovery fallback, 2026-10-12
+
+The user approved a new full-sale permission for the emergency AMM path after
+reviewing the unfilled-position replay. **Keep all normal swap fees**, including
+dynamic surcharges. The symmetric-EMA emergency boundary remains equity at or
+below 70% of applicable MM. Within it, a full AMM sale is allowed when:
+
+1. EMA equity is nonpositive; or
+2. The program certifies that no smaller AMM sale can restore the surviving
+   position to MM + 2 percentage points after costs.
+
+An improving below-target partial, or a hypothetical/actual external flash
+opportunity, no longer vetoes this AMM fallback. Such partials remain allowed.
+The certificate covers every integer collateral slice, with conservative bounds
+and actual fee/reward/allocation checks at remaining singletons. Proof-budget
+exhaustion, uncertainty, and a failed keeper-selected slice never authorize it.
+
+Ordinary flash full-close permission remains stricter: inside the emergency
+boundary it requires EMA insolvency or proof that no improving flash/AMM partial
+exists. A full AMM fallback quote does not authorize an external full flash fill.
+The SDK's `previewEmergency` / `buildEmergency` use the new on-chain rule;
+`preview` / `buildFlash` retain ordinary flash semantics.
+
+This is an explicit execution tradeoff: a keeper can choose full AMM closure
+while a better external partial route exists. The example reviewed by the user
+had 7,500 principal, 5,198.254 full swap output, 51.982 reward, 500 insurance,
+and 1,853.728 principal write-off. The decision does not prove the AMM route is
+best execution or close original finding #287652. No new timer, configurable
+minimum debt, fixed reward subsidy, or waiver of the normal fees is introduced.
+See [implementation and validation](calibration/EMERGENCY_AMM_RECOVERY_FALLBACK.md).
 
 ## Remove the remaining-debt minimum, 2026-10-11
 
@@ -18,8 +49,8 @@ This supersedes the earlier per-market dust-minimum choice below.
 Both ordinary flash purchases and emergency AMM partials may leave any positive
 remaining debt that satisfies the existing health-improvement and recovery rules.
 A partial retains at least one debt share; it cannot silently turn into a full
-close. Full liquidation still requires the emergency boundary and either EMA
-insolvency or proof that no useful partial is possible. The 1% charge, affordable
+close. Full liquidation requires the emergency boundary and the route-specific
+certificate described above, or EMA insolvency. The 1% charge, affordable
 discount, caller reward and loss waterfall are unchanged. No fixed insurance
 cleanup bonus is added. Tiny residuals can be uneconomic for keepers; removing
 this restriction is not a guarantee of execution or profit.
@@ -40,8 +71,9 @@ If no rate in that range works, reject the partial; do not remove the health gua
 The quote/session reports the applied discount. The standalone SDK incentive
 helper and position-health previews report a ceiling, not an executable price.
 
-The full-close and first-recovery certificates consider the newly affordable
-flash prices. AMM bounds include base swap fees, and surviving individual AMM
+The ordinary flash full-close and first-recovery certificates consider the newly
+affordable flash prices. The later emergency AMM fallback uses only AMM recovery
+feasibility, as specified above. AMM bounds include base swap fees, and surviving individual AMM
 inputs use the same fee-aware repayment calculation as execution. Optimistic
 bounds, including unmodeled cash constraints, and a work-limit failure still
 refuse permission. A failed keeper-selected amount never proves infeasibility.
@@ -76,7 +108,8 @@ SDK helpers are implemented as described in that contract.
 
 ## Latest design steering, 2026-10-10
 
-This section takes precedence over earlier conflicting proposals below. The
+This historical steering is subject to the later decisions above and takes
+precedence over earlier conflicting proposals below. The
 user accepted combining health and elapsed-time incentives, partial-first AMM
 recovery and target-based insurance funding, and requested a small insurance
 number analysis. These design choices are authorized for implementation; the
@@ -97,20 +130,13 @@ unselected numeric examples below are not runtime defaults.
   observation, not state created only inside a reverted flash transaction.
   Useful partial fills do not reset continuing distress; verified recovery ends
   the episode. Prevent stale episode reuse after recovery or position reopening.
-- **Emergency sizing:** the user accepted partial-first AMM recovery after
-  challenging automatic full liquidation. Develop partial-first sizing after actual costs;
-  distinguish failure to reach the entire recovery target from failure to make
-  useful progress. The user subsequently approved full liquidation within the
-  emergency boundary when symmetric-EMA equity is zero or negative, or when
-  the program verifies that no permitted partial liquidation improves health
-  after all costs. Failure to reach the entire MM+2-point target is not enough:
-  retain useful partial recovery. The infeasibility check must evaluate the
-  protocol-permitted sizes, not infer impossibility from a keeper's chosen size,
-  restrictive request or failed transaction. The later 2026-10-11 decision
-  removes per-market minimum residual debt; useful partials are not restricted
-  by the size of their remaining debt. No fixed insurance-funded cleanup bonus
-  is added. A poor spot quote alone
-  must not become a new permission to liquidate a healthy EMA position.
+- **Emergency sizing:** retain improving partial fills and cap them at the
+  first MM+2 recovery crossing. The later 2026-10-12 AMM fallback supersedes the
+  earlier rule that any improving partial vetoed full AMM closure: the AMM proof
+  now asks whether a smaller internal sale can restore the recovery target.
+  Ordinary flash full closure retains the earlier protection. A failed request
+  never proves infeasibility, and poor execution cannot liquidate a healthy EMA
+  position. No configurable minimum debt or fixed cleanup bonus is added.
   The user selected emergency access at **70% of applicable maintenance**:
   at 7% MM, permit access at or below 4.9% symmetric-EMA equity. This selects
   access, not automatic full closure or evidence that execution is solvent.
@@ -213,7 +239,7 @@ principal-first loss accounting while resolving these changes.
 | Incentive | User approved the greater of health-based and elapsed-time discounts, bounded by a 5% cap. Preserve 0.5% at MM to 5% at zero-equity health; the user selected 120 seconds for the time component to reach 5%. Use linear 0.5%-to-5% interpolation as the implementation starting point. Keep immediate eligible fills and competitive keeper racing; a capped incentive does not guarantee profitable execution. Buyer retains purchased-slice upside. The affordability rule above can reduce the actual partial discount below this ceiling. |
 | Timing | Immediate eligible fills; no mandatory auction wait, expiry or time-only emergency unlock. A persistent confirmed-distress clock now increases the incentive. Useful partial fills do not reset ongoing distress; verified recovery ends it. |
 | Earlier solvent AMM close | Previously approved for modeling only. The user subsequently objected that this separate full-close permission could undermine better execution and partial repair through flash liquidation, then confirmed dropping the proposed 0–2% shortcut. Dusk AMM execution remains a permitted ordinary flash route under the same bound payment and partial-fill rules, with session-bound debt netting where needed. Emergency access instead uses the selected 70%-of-MM boundary. |
-| Loss-taking emergency | Permit Dusk-AMM recovery below the ordinary flash-payment floor when symmetric-EMA equity is at or below 70% of applicable MM, partial-first after costs. At 7% MM this is 4.9% equity. Within that boundary, the user approved full liquidation if symmetric-EMA equity is zero or negative, or the program verifies that no permitted partial improves health after all costs. A partial need not reach the whole MM+2-point target to take precedence. A keeper's failed or restricted request is not proof of infeasibility. There is no configurable minimum residual debt or separate dust-based full-close permission. A poor AMM quote alone does not authorize loss-taking, and an external buyer cannot reduce the bound payment after release. |
+| Loss-taking emergency | Permit Dusk-AMM recovery below the ordinary flash-payment floor when symmetric-EMA equity is at or below 70% of applicable MM (4.9% at 7% MM). The 2026-10-12 decision allows a full AMM sale when EMA equity is nonpositive or no smaller AMM sale can restore MM+2 after costs. Below-target improving partials and external flash opportunities do not veto this fallback. Ordinary flash full closure retains the stricter no-improving-partial proof. A failed keeper request, proof uncertainty, or work-limit exhaustion never grants permission. All normal swap fees, transfer costs, incentives and the principal-first loss waterfall apply. |
 | Emergency caller | User approved a progressive reward capped at 1% of actual internal sale proceeds, including insolvent sales, increasing with deteriorating health or elapsed distress time. Use the approved health/time curve in the current implementation checkpoint below. This compensates the caller when Dusk performs the sale itself; it is not an extra payment to ordinary flash buyers. No fixed insurance-funded cleanup bonus. |
 | Economic dust | The 2026-10-11 decision removes the configurable residual-debt minimum. Useful partials may leave any positive debt, subject to share rounding, health improvement and the recovery cap. No fixed insurance-funded bonus or separate dust-based full-close permission. Percentage rewards do not guarantee profitable cleanup of tiny positions. |
 | Loss waterfall | Full-liquidation recovery protects principal first. Insurance covers remaining principal only within applicable limits. Remaining principal is written off, unpaid interest is canceled, and canceled interest generates no protocol/referral fees. Finish with zero debt on the fully settled leg. |
@@ -559,9 +585,9 @@ Implemented on the #45 branch, with no deployment:
   distress observations, explicit position locks, net token accounting and an
   optional internally netted Dusk AMM route. The old public auction and full
   leverage liquidation entrypoints are removed.
-- Emergency AMM settlement is partial-first at 70% of MM. Full closure requires
-  nonpositive EMA equity or a conservative proof across integer partial sizes.
-  A failed quote, a dust threshold or inability to reach MM+2 does not grant it.
+- Emergency AMM settlement uses the 70%-of-MM gate. The 2026-10-12 update permits
+  full closure on nonpositive EMA equity or a conservative proof that no smaller
+  AMM sale restores MM+2. A failed quote or dust threshold never grants it.
 - Principal-first recovery, unpaid-interest cancellation, 75% principal coverage,
   the shared 50% insurance window, P/20+H/15 target, tapered funding and the
   1% solvent fee are wired through actual custody and LP/hLP accounting.
@@ -619,8 +645,9 @@ bound rules out unaffordable flat-tier flash ranges efficiently at large raw
 token scales. Otherwise, the interval search remains conservative.
 
 No economic dust restriction excludes a partial or grants full-close permission.
-Unmodeled constraints, a potentially useful partial, or proof-budget
-exhaustion refuse permission. A useful below-target fill remains allowed when
+Unmodeled constraints and proof-budget exhaustion refuse permission. A potentially
+recovering AMM partial vetoes a full AMM sale; any potentially improving flash or
+AMM partial still vetoes ordinary flash full closure. A useful below-target fill remains allowed when
 executable. These certificates protect against excessive liquidation; they do
 not guarantee every eligible position has a profitable route or a certifiable
 full close.

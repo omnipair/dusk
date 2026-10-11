@@ -174,6 +174,13 @@ fn final_economic_policy_paths() {
             for (position_index, p) in ps.iter().enumerate() { let h=m.flash_liquidation_health(&Ref::Leverage(p),side,f).unwrap();t.remaining+=h.debt;
                 if h.eligible().unwrap(){
                     t.eligible+=1;t.eligible_debt+=h.debt;
+                    // Regression for the original 19 critical terminal stalls.
+                    // In these completed stress paths, the AMM recovery fallback
+                    // must clear every emergency-eligible residual. This is not
+                    // a guarantee for arbitrary liquidity or keeper economics.
+                    if t.path_error.is_empty() {
+                        assert!(!h.emergency_allowed().unwrap(), "critical residual: {case:?}, fee={fee_bps}, wallet={wallet_bps}, external={external}");
+                    }
                     if t.path_error.is_empty() && std::env::var_os("DUSK_LIQUIDATION_DIAGNOSTICS").is_some() {
                         diagnose_unfilled(&m,p,case,fee_bps,wallet_bps,external,position_index);
                     }

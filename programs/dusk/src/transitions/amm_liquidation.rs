@@ -126,14 +126,18 @@ impl Market {
             require_eq!(collateral_debit, available, ErrorCode::LiquidationRepayTooLarge);
             require!(
                 health_before.debt >= health_before.collateral_value
-                    || self.proves_no_useful_partial(
+                    // Full AMM fallback depends on whether a smaller AMM sale
+                    // can restore MM + buffer, not whether an external buyer or
+                    // a tiny below-target partial could improve health.
+                    || self.proves_partial_bound(
                         position,
                         asset,
                         collateral_fee,
                         eligibility_fee,
                         debt_fee,
                         now,
-                        slot
+                        slot,
+                        Some(available)
                     )?,
                 ErrorCode::LiquidationRepayTooLarge
             );

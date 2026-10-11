@@ -6,6 +6,7 @@ use crate::transitions::{flash_liquidation::LiquidationPositionRef, flash_settle
 fn full_close_certificate_never_overrides_a_useful_integer_partial() {
     let mut certified = 0;
     let mut useful = 0;
+    let mut emergency_certified = 0;
     for (swap_bps, token_bps, fee_mode) in [(0, 0, 0), (300, 0, 0), (300, 0, 1), (300, 0, 2), (100, 100, 0)] {
     let fee = LeverageCollateralFee::new((token_bps > 0).then_some(TransferFee {
         epoch: 0.into(), maximum_fee: 1_u64.into(), transfer_fee_basis_points: (token_bps as u16).into(),
@@ -23,8 +24,9 @@ fn full_close_certificate_never_overrides_a_useful_integer_partial() {
                 let p = LiquidationPositionRef::Leverage(&position);
                 let health = market.flash_liquidation_health(&p, asset, fee).unwrap();
                 if !health.emergency_allowed().unwrap() { continue; }
-                let proof = market.proves_no_useful_partial(&p, asset, fee, fee, fee, 120, 0).unwrap();
+                let proof = market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, None).unwrap();
                 let mut found = false;
+                let mut found_recovery = false;
                 for size in 1..100 {
                     if let Ok(q) = market.quote_flash_liquidation(&p, asset, size, false, fee, fee, fee, 120, 0) {
                         assert!(health.improves(q.health_after).unwrap());
@@ -33,7 +35,12 @@ fn full_close_certificate_never_overrides_a_useful_integer_partial() {
                     if let Ok(prepared) = market.clone().prepare_emergency_liquidation(&p, asset, size, false, fee, fee, fee, 120, 0, 0) {
                         assert!(health.improves(prepared.quote.health_after).unwrap());
                         found = true;
+                        found_recovery |= prepared.quote.health_after.recovered().unwrap();
                     }
+                }
+                if market.clone().prepare_emergency_liquidation(&p, asset, 100, true, fee, fee, fee, 120, 0, 0).is_ok() {
+                    emergency_certified += 1;
+                    assert!(!found_recovery, "full AMM sale bypassed recovery: {asset:?}, reference {reference}, debt {debt}");
                 }
                 if proof { certified += 1; assert!(!found, "false full-close permission: {asset:?}, reference {reference}, debt {debt}"); }
                 if found { useful += 1; assert!(!proof); }
@@ -43,6 +50,7 @@ fn full_close_certificate_never_overrides_a_useful_integer_partial() {
     }
     assert!(certified > 0);
     assert!(useful > 0);
+    assert!(emergency_certified > 0);
 }
 
 #[test]
@@ -270,8 +278,8 @@ fn positive_equity_full_close_proof_handles_raw_token_scale() {
         let mut market = test_market(50_000 * scale, 50_000 * scale);
         let mut position = seeded_position(&mut market, MarketAsset::Quote, 995 * scale, 1_000 * scale);
         position.distress.observe(true, 0, 0).unwrap();
-        assert!(market.proves_no_useful_partial(&LiquidationPositionRef::Leverage(&position), MarketAsset::Quote,
-            fee, fee, fee, 120, 0).unwrap(), "scale {scale}");
+        assert!(market.proves_partial_bound(&LiquidationPositionRef::Leverage(&position), MarketAsset::Quote,
+            fee, fee, fee, 120, 0, None).unwrap(), "scale {scale}");
     }
 }
 
@@ -398,7 +406,7 @@ fn affordable_flash_prevents_fee_heavy_market_from_blocking_every_liquidation() 
         assert!(quote.health_before.emergency_allowed().unwrap());
         assert!(quote.health_before.improves(quote.health_after).unwrap());
         assert!(quote.rates.buyer_discount_bps < 500);
-        assert!(!market.proves_no_useful_partial(&p, asset, fee, fee, fee, 120, 0).unwrap());
+        assert!(!market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, None).unwrap());
         assert!(market.quote_flash_liquidation(&p, asset, 0, true, fee, fee, fee, 120, 0).is_err());
     }
 }
@@ -421,7 +429,63 @@ fn emergency_recovery_cap_uses_actual_fee_bearing_partials() {
             }).expect("a fee-bearing recovery crossing exists");
             let quote = market.clone().prepare_emergency_liquidation(&p, asset, first, false, fee, fee, fee, 120, 0, 0).unwrap().quote;
             assert!(quote.health_after.recovered().unwrap());
+            let full = market.clone().prepare_emergency_liquidation(&p, asset, position.collateral_amount, true, fee, fee, fee, 120, 0, 0);
+            assert!(matches!(full, Err(anchor_lang::error::Error::AnchorError(e)) if e.error_code_number == u32::from(ErrorCode::LiquidationRepayTooLarge)));
             assert!(market.clone().prepare_emergency_liquidation(&p, asset, first + 10, false, fee, fee, fee, 120, 0, 0).is_err());
+        }
+    }
+}
+
+#[test]
+fn emergency_fallback_can_close_despite_a_useful_flash_partial() {
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        for isolated in [false, true] {
+            let mut market = test_market(50_000, 50_000);
+            market.config.swap_fee_bps = 300;
+            let mut leverage = seeded_position(&mut market, asset, 970, 1_000);
+            leverage.margin_terms = LeverageMarginTerms::at_entry(50_000).unwrap();
+            leverage.distress.observe(true, 0, 0).unwrap();
+            let mut borrow = BorrowPosition::default();
+            if !isolated {
+                match asset {
+                    MarketAsset::Base => {
+                        market.debt.fixed_base_shares = market.debt.isolated_base_shares;
+                        market.debt.fixed_base_principal = market.debt.isolated_base_principal;
+                        market.debt.isolated_base_shares = 0;
+                        market.debt.isolated_base_principal = 0;
+                        borrow.fixed_base_shares = leverage.debt_shares;
+                        market.debt.leverage_quote_collateral -= leverage.collateral_amount;
+                        borrow.quote_collateral = leverage.collateral_amount;
+                    }
+                    MarketAsset::Quote => {
+                        market.debt.fixed_quote_shares = market.debt.isolated_quote_shares;
+                        market.debt.fixed_quote_principal = market.debt.isolated_quote_principal;
+                        market.debt.isolated_quote_shares = 0;
+                        market.debt.isolated_quote_principal = 0;
+                        borrow.fixed_quote_shares = leverage.debt_shares;
+                        market.debt.leverage_base_collateral -= leverage.collateral_amount;
+                        borrow.base_collateral = leverage.collateral_amount;
+                    }
+                }
+                borrow.set_liquidation_cf_bps(asset, 9_300);
+                borrow.distress_mut(asset).observe(true, 0, 0).unwrap();
+            }
+            let reference = if isolated { LiquidationPositionRef::Leverage(&leverage) } else { LiquidationPositionRef::Borrow(&borrow) };
+            let fee = LeverageCollateralFee::default();
+            let partial = market.quote_flash_liquidation(&reference, asset, 100, false, fee, fee, fee, 120, 0).unwrap();
+            assert!(partial.health_before.improves(partial.health_after).unwrap());
+            assert!(market.quote_flash_liquidation(&reference, asset, 0, true, fee, fee, fee, 120, 0).is_err());
+            let expected = SwapRequest { current_slot: 0, current_unix_timestamp: 120,
+                asset_in: asset.opposite(), reserve_credit: 1_000, protocol_fee_bps: 0 }
+                .prepare_with_cash_policy(&mut market.clone(), SwapCashPolicy::LiquidationQuote).unwrap().quote;
+            let mut prepared = market.prepare_emergency_liquidation(&reference, asset, 1_000, true, fee, fee, fee, 120, 0, 0).unwrap();
+            assert!(prepared.quote.health_before.collateral_value > prepared.quote.health_before.debt);
+            assert_eq!(prepared.quote.swap_output, expected.amount_out);
+            assert!(prepared.quote.loss.principal_written_off > 0);
+            let mut position = if isolated { LiquidationPositionMut::Leverage(&mut leverage) } else { LiquidationPositionMut::Borrow(&mut borrow) };
+            market.apply_emergency_liquidation(&mut position, asset, &mut prepared, fee, 120, 0, 0, ProtocolAuctionSplit::default()).unwrap();
+            market.assert_virtual_reserve_invariant(asset).unwrap();
+            market.assert_virtual_reserve_invariant(asset.opposite()).unwrap();
         }
     }
 }

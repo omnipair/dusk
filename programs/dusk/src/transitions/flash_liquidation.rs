@@ -198,14 +198,15 @@ impl Market {
                 require!(health_before.emergency_allowed()?, ErrorCode::PositionNotLiquidatable);
                 require!(
                     health_before.debt >= health_before.collateral_value
-                        || self.proves_no_useful_partial(
+                        || self.proves_partial_bound(
                             position,
                             asset,
                             collateral_fee,
                             eligibility_fee,
                             debt_fee,
                             now,
-                            slot
+                            slot,
+                            None
                         )?,
                     ErrorCode::LiquidationRepayTooLarge
                 );

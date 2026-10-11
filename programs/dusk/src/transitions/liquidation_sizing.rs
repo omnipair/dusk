@@ -30,41 +30,22 @@ impl Market {
     /// A conservative proof over every integer collateral slice, not a failed
     /// keeper-selected quote. Each interval gets more repayment, more remaining
     /// collateral value, and a lower maintenance rate than any real fill in it.
-    /// If even that optimistic state cannot improve health, discard the whole
-    /// interval. Otherwise bisect. Remaining AMM singleton candidates use the
+    /// If that optimistic state fails the requested improvement/recovery test,
+    /// discard the whole interval. Otherwise bisect. Remaining AMM singleton candidates use the
     /// execution path, including its actual fees. Uncertainty or exhaustion of
     /// the computation budget refuses full-close permission.
     ///
-    /// Flash bounds include the smallest allowed discount, so an affordable
-    /// lower-discount purchase prevents full-close permission too. AMM bounds
+    /// Ordinary flash full-close bounds include the smallest allowed discount,
+    /// so an affordable purchase prevents that permission too. AMM bounds
     /// include the configured base fee; additional surcharges can only lower
     /// output. Each path uses its own share rounding. Every partial retains
     /// at least one debt share, without an economic residual-debt threshold.
-    pub(crate) fn proves_no_useful_partial(
-        &self,
-        position: &LiquidationPositionRef<'_>,
-        asset: MarketAsset,
-        collateral_fee: LeverageCollateralFee,
-        eligibility_fee: LeverageCollateralFee,
-        debt_fee: LeverageCollateralFee,
-        now: i64,
-        slot: u64,
-    ) -> Result<bool> {
-        self.proves_partial_bound(
-            position,
-            asset,
-            collateral_fee,
-            eligibility_fee,
-            debt_fee,
-            now,
-            slot,
-            None,
-        )
-    }
-
-    /// Conservative recovery cap for emergency sales. A candidate crossing
-    /// MM + buffer is refused if any smaller slice could have already done so.
-    /// Keepers can always request a useful below-target partial instead.
+    /// With a recovery bound, certify that no smaller AMM slice can reach
+    /// MM + buffer. This caps a partial at its first recovery crossing; a bound
+    /// equal to all collateral authorizes the emergency AMM full-sale fallback.
+    /// Without a recovery bound, retain the stricter ordinary flash full-close
+    /// proof over both flash and AMM health-improving partials. Uncertainty never
+    /// authorizes full closure. Useful below-target partials remain permitted.
     pub(crate) fn proves_partial_bound(
         &self,
         position: &LiquidationPositionRef<'_>,

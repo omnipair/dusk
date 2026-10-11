@@ -1,5 +1,10 @@
 # Liquidation feasibility remediation
 
+**Later policy update (2026-10-12):** the approved
+[emergency AMM recovery fallback](EMERGENCY_AMM_RECOVERY_FALLBACK.md) supersedes
+this report's prior AMM full-close condition. Affordable ordinary flash prices,
+removal of debt minima, and ordinary flash full-close protection remain in force.
+
 Date: 2026-10-11. PR: [#45](https://github.com/omnipair/dusk/pull/45).
 Comparison baseline: `5688f38162a95d0e65bd7a13a6946923c36593a4`.
 

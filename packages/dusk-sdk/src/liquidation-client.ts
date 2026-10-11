@@ -124,6 +124,11 @@ export class DuskLiquidations {
     return this.program.coder.types.decode("flashLiquidationQuote", previewReturnDataBytes(returned)) as FlashLiquidationQuote;
   }
 
+  /** Full AMM fallback requires the emergency health gate and either EMA
+   * insolvency or proof that no smaller AMM sale can restore MM + 2 points.
+   * A useful below-target partial or external flash quote does not block it.
+   * Proof failure remains a rejection; a failed requested slice is not evidence.
+   */
   async previewEmergency(params: LiquidationPositionParams & { collateralDebit: GovernanceIntegerLike; full?: boolean }): Promise<EmergencyLiquidationQuote> {
     const r = await this.resolve(params);
     const instruction = await this.write.instruction("previewEmergencyLiquidation", {
@@ -133,8 +138,9 @@ export class DuskLiquidations {
     return this.program.coder.types.decode("emergencyLiquidationQuote", previewReturnDataBytes(returned)) as EmergencyLiquidationQuote;
   }
 
-  /** Direct partial-first AMM liquidation. The program nets principal internally
-   * and verifies the emergency/full-close gates; this helper cannot bypass them.
+  /** AMM liquidation with partial recovery or the approved full-sale fallback.
+   * Uses the on-chain preview for sizing, full swap fees and loss allocation.
+   * The program nets principal and verifies the gates again during execution.
    */
   async buildEmergency(params: EmergencyLiquidationParams) {
     const r = await this.resolve(params);

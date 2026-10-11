@@ -40,22 +40,22 @@ The internal AMM emergency path is now partial-first: quote actual costs and
 target the surviving position's MM +2 points, accepting useful smaller repairs.
 The user selected access at 70% of applicable MM (4.9% EMA equity at 7% MM).
 The emergency caller receives a progressive health/time reward capped at 1%
-of actual internal sale proceeds, including insolvent sales. Exact interpolation
-still needs specification and testing; this is separate from ordinary buyers'
-profit on purchased collateral and does not guarantee economic dust cleanup.
-Crossing the emergency boundary is not automatic full-close permission. Full
-liquidation within that boundary is now approved when symmetric-EMA equity is
-zero or negative, or the program verifies that no permitted partial liquidation
-improves health after all costs. Preserve useful smaller repairs even when no
-partial reaches the whole MM+2-point target. A keeper-selected failed quote,
-restrictive request or failed transaction does not prove infeasibility; verify
-the permitted sizes, including tier boundaries and integer rounding. The later
-2026-10-11 decision removes the earlier per-market residual-debt minimum. Useful
-partials may leave any positive debt under the existing health and recovery
-rules. There is no fixed insurance-funded cleanup bonus or independent dust-based
-permission for full closure. See the
-current decision record for the proposed emergency reward interpolation, which
-is still awaiting approval. Target-based insurance funding was accepted for development.
+of actual internal sale proceeds, including insolvent sales. This is separate
+from ordinary buyers' profit on purchased collateral and does not guarantee
+economic dust cleanup. The selected interpolation is described below.
+Crossing the emergency boundary is not automatic full-close permission. Under
+the 2026-10-12 decision, full AMM closure requires nonpositive EMA equity or a
+conservative proof that no smaller AMM sale can restore MM+2 after costs.
+Below-target improving partials remain available but no longer veto full AMM
+closure; neither does an external flash opportunity. This accepts that a keeper
+can choose full AMM execution while a better external partial exists. All normal
+swap fees, including dynamic surcharges, still apply. Ordinary flash full closure
+retains the stricter proof that no improving flash/AMM partial exists.
+A failed requested size, exhausted proof budget, or uncertain bound is not
+permission. No configurable residual-debt minimum or fixed cleanup bonus exists.
+The selected reward is max(health progress to 1%, time ramp from 0.3% to 1% over
+120 seconds), capped at 1%. See the current decision record for exact arithmetic.
+Target-based insurance funding was accepted for development.
 The user selected a provisional principal component of 5% of outstanding covered
 borrower/leverage principal per debt token. The user selected full insurance
 funding from the designated allocation through 75% of target, followed by a

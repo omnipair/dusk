@@ -77,12 +77,20 @@ If the route changes active hLP accounts, pass the complete final-state account
 list through `settleRemainingAccounts`; the default resolves the current market.
 
 `previewEmergency()` and `buildEmergency()` accept `collateralDebit` and `full`.
-They enforce the emergency EMA-health gate. A full sale also needs nonpositive
-EMA equity or the program's conservative proof that no useful partial exists.
+They enforce the emergency EMA-health gate (equity at or below 70% of MM).
+A full AMM sale needs nonpositive EMA equity or the program's conservative proof
+that no smaller AMM sale can restore MM +2 percentage points after all costs.
+A useful below-target partial or an external flash opportunity does not veto
+this fallback. Full normal swap fees, rewards and loss accounting still apply.
 Failure to certify, including proof-budget exhaustion, rejects full closure.
-Smaller useful fills can succeed without reaching the full MM +2-point target.
-Preview and simulate each proposed slice; a failed slice is not a full-close
-permission. Configured residual minima are debt-token atoms, separately per side.
+Smaller improving fills remain available. Preview and simulate the intended
+operation: a failed slice is not full-close permission. There is no configurable
+minimum remaining debt.
+
+Ordinary `preview({ full: true })` / `buildFlash({ full: true })` retain the
+stricter no-improving-partial certificate. An accepted full `previewEmergency`
+quote does not authorize a full ordinary flash fill. Both builders use their
+respective on-chain previews; do not infer permission from the incentive helper.
 
 Builders return unsigned instructions and owner-owned payout accounts. Prefix
 instructions belong in the builder request: inserting instructions afterwards

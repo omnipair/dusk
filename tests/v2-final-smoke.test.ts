@@ -82,6 +82,8 @@ import {
   decodePreviewMarketReturnData,
   decodePreviewSwapReturnData,
 } from "../packages/dusk-sdk/src/preview.js";
+import { createDuskProgram } from "../packages/dusk-sdk/src/program.js";
+import { DuskLiquidations } from "../packages/dusk-sdk/src/liquidation-client.js";
 import { DuskWrite } from "../packages/dusk-sdk/src/write.js";
 import { marketCreationLookupTablePlan, marketCreationV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
@@ -9654,7 +9656,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(svm.getAccount(session)).to.equal(null);
   });
 
-  it("full emergency liquidation proves partial infeasibility while EMA equity remains positive", async function () {
+  it("full emergency fallback preserves the health gate and permits a non-restoring partial", async function () {
     const f = await addBalancedLiquidity(244);
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
     await swapBaseForQuote(f, [], 80_000, 1);
@@ -9675,14 +9677,29 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, len)])) });
       svm.expireBlockhash();
     };
-    // At 4.76% equity a smaller fixed-price fill can help; poor AMM output
-    // must not let the caller force a full sale instead.
-    await setEmaValue(1_050n);
+    const sdk = new DuskLiquidations(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
+    const request = { market: f.market, position: leveragePosition, kind: "leverage" as const,
+      debtAsset: "quote" as const, collateralDebit: p.collateral_amount, full: true };
+    // 5.66% equity is liquidatable but above the 4.9% emergency gate.
+    await setEmaValue(1_060n);
     let rejected: unknown;
     try { await executeEmergency(f, leveragePosition, true, leverageCollateralVault); } catch (error) { rejected = error; }
-    expect(String(rejected)).to.include("LiquidationRepayTooLarge");
-    await setEmaValue(1_006n);
-    const { quote, computeUnits } = await executeEmergency(f, leveragePosition, true, leverageCollateralVault);
+    expect(String(rejected)).to.include("PositionNotLiquidatable");
+    // At 4.76% equity a useful flash partial exists. It no longer vetoes a
+    // full AMM fallback when no internal partial can restore MM + 2 points.
+    await setEmaValue(1_050n);
+    const partial = await sdk.preview({ ...request, maxRepayment: 100n, full: false });
+    expect(partial.repayment.gt(new BN(0))).to.equal(true);
+    const plan = await sdk.buildEmergency({ ...request, caller: payer.publicKey });
+    const transaction = new Transaction().add(...plan.instructions);
+    const { computeUnits } = await connection.sendTransactionMeasured(transaction, [payer]);
+    const quote = cpiEvent(transaction, "emergencyLiquidationSettled").quote;
+    expect(quote.swapOutput.eq(plan.quote.swapOutput)).to.equal(true);
+    expect(quote.rewardCredit.eq(plan.quote.rewardCredit)).to.equal(true);
+    expect(quote.loss.principalWrittenOff.eq(plan.quote.loss.principalWrittenOff)).to.equal(true);
+    const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(after.debt_shares.toString()).to.equal("0");
+    expect(after.collateral_amount.toString()).to.equal("0");
     console.log(`    Positive-equity full emergency liquidation: ${computeUnits.toLocaleString()} CU`);
     // Keep headroom for PDA/address-dependent account-validation work.
     expect(computeUnits <= 1_250_000n).to.equal(true);

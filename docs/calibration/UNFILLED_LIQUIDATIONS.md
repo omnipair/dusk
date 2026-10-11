@@ -4,6 +4,11 @@ Date: 2026-10-11. Source: PR #45 at `4dd17d5e` plus the diagnostic harness in th
 The runtime change reduces computation in the existing full-close proof. No fee,
 eligibility, full-close permission, accounting formula or SDK interface is changed.
 
+**Historical baseline:** the full-close policy in this report predates the
+2026-10-12 approved AMM recovery fallback. Full normal swap fees were retained.
+See [the follow-up](EMERGENCY_AMM_RECOVERY_FALLBACK.md) for current behavior and
+post-change results; the CSVs here remain the original comparison baseline.
+
 ## Findings
 
 The original 576-case matrix is unchanged. Its 272 completed admitted paths end
@@ -122,22 +127,18 @@ The matrix continuation and this instruction-level defect are separate findings:
 fixing compute does not supply missing route profitability in the 32/2 remaining
 modeled continuations.
 
-## Product choices still required
+## Subsequent product decisions, 2026-10-12
 
-- Whether emergency AMM sales should pay the full divergence surcharge, have a
-  separate cap, or pay only the base fee. An exemption changes LP protection and
-  caller incentives and needs manipulation/self-liquidation analysis before
-  adoption. Ordinary external venues retain their own fees.
-- Whether a theoretical flash partial should continue to block a full emergency
-  sale when no profitable route exists. On-chain code cannot prove the absence
-  of all outside liquidity from a keeper's failed quote. Relaxing that rule can
-  force full closure of positive-equity positions and realize losses earlier.
-
-The user was asked about the fee treatment first. No decision is inferred from
-these experiments. The emergency price-execution risk in original finding
-#287652 is not closed by this investigation.
+The user selected full normal swap fees, including the divergence surcharge.
+The user then approved full AMM liquidation inside the existing emergency gate
+when no smaller AMM sale can restore MM+2, even if a below-target partial or
+external opportunity exists. See the follow-up linked above. This does not close
+original finding #287652 concerning emergency execution-price manipulation.
 
 ## Reproduce and interpret
+
+Run on `c50455b3` to reproduce the historical CSVs below. The current branch
+uses the approved fallback and produces the follow-up report's results instead.
 
 ```sh
 DUSK_LIQUIDATION_DIAGNOSTICS=1 cargo test -p dusk --lib --features benchmark final_economic_policy_paths -- --nocapture
