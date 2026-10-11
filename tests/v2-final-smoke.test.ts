@@ -7517,8 +7517,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).remainingAccounts(hlpSwapAccounts(f)).transaction();
     tx.instructions.unshift(ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
       ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }));
-    await connection.sendTransaction(tx, [payer]);
-    return { tx, quote: cpiEvent(tx, "emergencyLiquidationSettled").quote };
+    const { computeUnits } = await connection.sendTransactionMeasured(tx, [payer]);
+    return { tx, quote: cpiEvent(tx, "emergencyLiquidationSettled").quote, computeUnits };
   }
 
   async function executeFlash(f: Awaited<ReturnType<typeof addBalancedLiquidity>>, position: PublicKey,
@@ -9678,11 +9678,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     // At 4.76% equity a smaller fixed-price fill can help; poor AMM output
     // must not let the caller force a full sale instead.
     await setEmaValue(1_050n);
-    let rejected = false;
-    try { await executeEmergency(f, leveragePosition, true, leverageCollateralVault); } catch { rejected = true; }
-    expect(rejected).to.equal(true);
+    let rejected: unknown;
+    try { await executeEmergency(f, leveragePosition, true, leverageCollateralVault); } catch (error) { rejected = error; }
+    expect(String(rejected)).to.include("LiquidationRepayTooLarge");
     await setEmaValue(1_006n);
-    const { quote } = await executeEmergency(f, leveragePosition, true, leverageCollateralVault);
+    const { quote, computeUnits } = await executeEmergency(f, leveragePosition, true, leverageCollateralVault);
+    console.log(`    Positive-equity full emergency liquidation: ${computeUnits.toLocaleString()} CU`);
+    // Keep headroom for PDA/address-dependent account-validation work.
+    expect(computeUnits <= 1_250_000n).to.equal(true);
     expect(quote.healthBefore.collateralValue.gt(quote.healthBefore.debt)).to.equal(true);
     expect(quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
   });

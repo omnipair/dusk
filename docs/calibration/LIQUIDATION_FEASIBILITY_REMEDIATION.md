@@ -29,6 +29,17 @@ that a useful partial still prevents full closure. Historical fixture adapters
 were updated for removal of the 16-byte config; their original captures are
 unchanged.
 
+## Follow-up: investigate unfilled positions
+
+[The continuation investigation](UNFILLED_LIQUIDATIONS.md) separates the finite
+keeper search and time horizon from execution costs and full-close policy. Two
+of the four external cases become healthy after another 30 seconds; all 32
+Dusk-only cases remain eligible under the unchanged fee policy in the sampled
+extension. The strict transaction suite also exposed a compute-limit failure in a
+valid full-close proof; equivalent arithmetic now avoids redundant decimal and
+CPMM geometry work, with a 1.25-million-CU regression guard. This follow-up does
+not change runtime policy or establish economic liveness.
+
 ## Outcome
 
 The two reproduced liquidation-feasibility defects are addressed together:

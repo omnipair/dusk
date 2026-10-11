@@ -52,12 +52,17 @@ fn external_receipt(credit: u64, mark: u64, f: LeverageCollateralFee) -> Result<
 
 fn audit_fill(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset, f: LeverageCollateralFee,
     now: i64, slot: u64, external: bool, mark: u64, t: &mut AuditTotals) -> Result<bool> {
+    audit_fill_sizes(m,p,side,f,now,slot,external,mark,t,&[5_000,2_000,1_000,500,100,10])
+}
+
+fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset, f: LeverageCollateralFee,
+    now: i64, slot: u64, external: bool, mark: u64, t: &mut AuditTotals, sizes: &[u64]) -> Result<bool> {
     let health = m.flash_liquidation_health(&Ref::Leverage(p), side, f)?;
     p.distress.observe(health.eligible()?, now, slot)?;
     if !health.eligible()? { return Ok(false); }
     let debt = p.debt_amount(&m.debt)?;
     for full in [false, true] {
-        for bps in [5_000, 2_000, 1_000, 500, 100, 10] {
+        for &bps in sizes {
             if full && bps != 5_000 { continue; }
             let q = match m.quote_flash_liquidation(&Ref::Leverage(p), side, debt * bps / 10_000,
                 full, f, f, f, now, slot) { Ok(q) => q, Err(_) => continue };
@@ -104,7 +109,7 @@ fn audit_fill(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset, f: Le
     }
     if !health.emergency_allowed()? { return Ok(false); }
     for full in [false, true] {
-        for bps in [5_000, 2_000, 1_000, 500, 100, 10] {
+        for &bps in sizes {
             if full && bps != 5_000 { continue; }
             let mut trial = m.clone(); let mut next = p.clone();
             let sold = if full { next.collateral_amount } else { next.collateral_amount * bps / 10_000 };
@@ -166,8 +171,13 @@ fn final_economic_policy_paths() {
                 if let Err(e)=m.assert_market_invariants() {t.path_error=format!("invariant:{}",error_name(e));break;}
                 if ps.iter().all(|p|p.debt_shares==0) {break;}
             }
-            for p in &ps { let h=m.flash_liquidation_health(&Ref::Leverage(p),side,f).unwrap();t.remaining+=h.debt;
-                if h.eligible().unwrap(){t.eligible+=1;t.eligible_debt+=h.debt;}
+            for (position_index, p) in ps.iter().enumerate() { let h=m.flash_liquidation_health(&Ref::Leverage(p),side,f).unwrap();t.remaining+=h.debt;
+                if h.eligible().unwrap(){
+                    t.eligible+=1;t.eligible_debt+=h.debt;
+                    if t.path_error.is_empty() && std::env::var_os("DUSK_LIQUIDATION_DIAGNOSTICS").is_some() {
+                        diagnose_unfilled(&m,p,case,fee_bps,wallet_bps,external,position_index);
+                    }
+                }
             }
         }
         assert_eq!(t.failed, 0, "accepted settlement failed: amp={amp}, hlp={hlp}, side={side:?}, fee={fee_bps}, path={path}: {}", t.path_error);
@@ -177,3 +187,5 @@ fn final_economic_policy_paths() {
     }}}}}}}}
     assert_eq!(count,576);
 }
+
+include!("liquidation_unfilled_diagnostics.rs");

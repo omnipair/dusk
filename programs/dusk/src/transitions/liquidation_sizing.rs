@@ -4,7 +4,7 @@ use crate::{
     math::mul_div_u128,
     state::*,
     transitions::{
-        amm::{ConcentratedCurveDirection, ConcentratedCurvePoint},
+        amm::{cpmm_amount_out_nad, ConcentratedCurveDirection, ConcentratedCurvePoint},
         flash_liquidation::LiquidationPositionRef,
         liquidation_policy::LIQUIDATION_MINIMUM_DISCOUNT_BPS,
         LeverageCollateralFee,
@@ -134,10 +134,15 @@ impl Market {
             .current_concentrated_curve_geometry()?
             .ok_or(ErrorCode::BrokenInvariant)?;
         let state = executable.integrated_curve_state_nad()?;
+        let cpmm = geometry.is_cpmm();
         let point = ConcentratedCurvePoint {
             base_reserve: state.ordinary_base,
             quote_reserve: state.ordinary_quote,
         };
+        require!(
+            point.base_reserve > 0 && point.quote_reserve > 0,
+            ErrorCode::InsufficientLiquidity
+        );
         let direction = if asset == MarketAsset::Quote {
             ConcentratedCurveDirection::BaseToQuote
         } else {
@@ -181,17 +186,33 @@ impl Market {
                 } else {
                     credit
                 };
-                let input = executable
-                    .normalize_amount(u128::from(curve_credit), self.side(asset.opposite()).asset_decimals)?;
+                // Mint decimal scales are immutable and were validated above.
+                // Reuse them instead of calculating powers of ten per interval.
+                let input = u128::from(curve_credit)
+                    .checked_mul(collateral_scale)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
                 let amm_bound = if input == 0 {
                     0
                 } else {
-                    executable.denormalize_amount_floor(
+                    // Exact CPMM has no segment crossings. Reuse its canonical
+                    // integer quote directly instead of copying the full
+                    // concentrated geometry through every proof interval.
+                    let output = if cpmm {
+                        match direction {
+                            ConcentratedCurveDirection::BaseToQuote => {
+                                cpmm_amount_out_nad(point.base_reserve, point.quote_reserve, input)?
+                            }
+                            ConcentratedCurveDirection::QuoteToBase => {
+                                cpmm_amount_out_nad(point.quote_reserve, point.base_reserve, input)?
+                            }
+                        }
+                    } else {
                         geometry
                             .quote_exact_in_prevalidated(point, input, direction)?
-                            .amount_out,
-                        self.side(asset).asset_decimals,
-                    )?
+                            .amount_out
+                    };
+                    require!(output > 0, ErrorCode::InsufficientOutputAmount);
+                    u64::try_from(output / debt_scale).map_err(|_| ErrorCode::MarketMathOverflow)?
                 };
                 let amm_bound = if fee_on_input {
                     amm_bound
