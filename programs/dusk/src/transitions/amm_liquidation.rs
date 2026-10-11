@@ -198,14 +198,6 @@ impl Market {
             maintenance_bps: position.maintenance(asset, remaining.max(1))?,
         };
         if !full {
-            let minimum = match asset {
-                MarketAsset::Base => self.config.liquidation.minimum_base_debt,
-                MarketAsset::Quote => self.config.liquidation.minimum_quote_debt,
-            };
-            require!(
-                allocation.remaining_debt >= minimum || health_before.debt < minimum,
-                ErrorCode::LiquidationResidualTooSmall
-            );
             require!(
                 health_before.improves(health_after)?,
                 ErrorCode::LiquidationDoesNotImproveHealth

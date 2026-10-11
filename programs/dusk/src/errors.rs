@@ -430,7 +430,4 @@ pub enum ErrorCode {
 
     #[msg("Partial liquidation does not improve health after costs")]
     LiquidationDoesNotImproveHealth,
-
-    #[msg("Partial liquidation would leave avoidable debt below the market minimum")]
-    LiquidationResidualTooSmall,
 }

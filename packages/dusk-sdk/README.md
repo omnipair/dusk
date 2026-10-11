@@ -101,10 +101,11 @@ rejects. Read the actual rate from `quote.rates.buyerDiscountBps`; use
 legacy helper field `buyerDiscountBps` remains a deprecated alias for that ceiling.
 Position-health previews also report the ceiling, not an executable purchase.
 
-Partial `maxRepayment` requests are capped for the configured minimum residual
-debt. A request beyond the first MM+2 recovery crossing rejects; request a
-smaller amount. Emergency collateral slices must also respect the residual
-minimum and a conservative recovery cap. The bound includes base swap fees and
+Market creation has no minimum remaining-debt setting. Partial `maxRepayment`
+requests retain at least one debt share; small remainders are allowed when the
+fill improves health. A request beyond the first MM+2 recovery crossing rejects;
+request a smaller amount. Emergency collateral slices also respect health
+improvement and a conservative recovery cap. The bound includes base swap fees and
 checks surviving AMM amounts against actual execution costs. A bounded search
 can still refuse a target crossing when it cannot certify the result;
 useful below-target slices remain permitted. Preview acceptance does not reserve

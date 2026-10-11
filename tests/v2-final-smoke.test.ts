@@ -229,7 +229,6 @@ function marketConfig() {
     maxDailyBorrowBps: 2_000,
     globalHealthContributionCapBps: 15_000,
     borrowMarketHealthFloorBps: 11_000,
-    liquidation: { minimumBaseDebt: new BN(1), minimumQuoteDebt: new BN(1) },
     amm: {
       peakAmplificationNad: new BN("1000000000"),
       coreHalfWidthBps: 0,

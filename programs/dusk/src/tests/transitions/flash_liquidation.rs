@@ -309,20 +309,27 @@ fn recovery_target_cannot_be_crossed_twice_by_larger_permitted_fills() {
 }
 
 #[test]
-fn partial_invoice_resizes_for_dust_without_granting_full_close_permission() {
-    let mut market = test_market(5_000_000, 5_000_000);
-    let position = seeded_position(&mut market, MarketAsset::Quote, 960_000, 1_000_000);
-    market.config.liquidation.minimum_quote_debt = 940_000;
-    let fee = LeverageCollateralFee::default();
-    let p = LiquidationPositionRef::Leverage(&position);
-    let q = market.quote_flash_liquidation(&p, MarketAsset::Quote, 100_000, false, fee, fee, fee, 0, 0).unwrap();
-    assert_eq!(q.health_after.debt, 940_000);
-    assert_eq!(q.repayment, 20_000);
-    assert!(q.health_before.improves(q.health_after).unwrap());
-    market.config.liquidation.minimum_quote_debt = 960_000;
-    assert!(market.quote_flash_liquidation(&p, MarketAsset::Quote, 0, true, fee, fee, fee, 0, 0).is_err());
+fn useful_partials_have_no_economic_remaining_debt_floor() {
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = test_market(50_000_000, 50_000_000);
+        let position = seeded_position(&mut market, asset, 960_000, 1_000_000);
+        let fee = LeverageCollateralFee::default();
+        let p = LiquidationPositionRef::Leverage(&position);
+        let flash = market.quote_flash_liquidation(&p, asset, 100_000, false, fee, fee, fee, 0, 0).unwrap();
+        assert_eq!(flash.repayment, 100_000);
+        assert_eq!(flash.health_after.debt, 860_000);
+        assert!(flash.health_before.improves(flash.health_after).unwrap());
+        let amm = market.clone().prepare_emergency_liquidation(&p, asset, 100_000, false,
+            fee, fee, fee, 0, 0, 0).unwrap().quote;
+        assert!(amm.health_after.debt < 940_000);
+        assert!(amm.health_before.improves(amm.health_after).unwrap());
+        // Removing the minimum does not let a caller choose full liquidation
+        // while a useful partial exists inside the emergency boundary.
+        assert!(market.quote_flash_liquidation(&p, asset, 0, true, fee, fee, fee, 0, 0).is_err());
+        assert!(market.clone().prepare_emergency_liquidation(&p, asset, 1_000_000, true,
+            fee, fee, fee, 0, 0, 0).is_err());
+    }
 }
-
 
 #[test]
 fn time_ramp_preserves_affordable_partials_above_emergency_for_both_ledgers() {

@@ -3,6 +3,32 @@
 Date: 2026-10-11. PR: [#45](https://github.com/omnipair/dusk/pull/45).
 Comparison baseline: `5688f38162a95d0e65bd7a13a6946923c36593a4`.
 
+## Follow-up: remove the minimum remaining debt
+
+After the `97889a92` remedy, the user rejected a minimum-debt setting at market
+creation. The follow-up removes both fields from `MarketConfig`, launch arguments,
+SDK helpers and scripts, together with both liquidation paths' residual-debt
+restrictions. This supersedes the pending minimum-debt choice described in the
+frozen comparison below. Any useful partial may retain positive debt; existing
+health, first-recovery and full-close conditions still apply. This changes the
+preproduction account/creation interface, so program and SDK artifacts must be
+updated together; no production account migration is asserted or implemented.
+
+The checked V1 source (`omnipair-rs` at `84a8ef7`) has no configurable minimum
+remaining debt. It rounds its 50% close-factor share burn upward. The follow-up
+does not import V1's impact-based health calculation or liquidation sizing.
+
+Follow-up verification passed the full mandatory local CI sequence, including
+493 Dusk tests in each default/production profile, 16 delegate tests, 1 faucet
+test, both regenerated program interfaces, SDK/TypeScript checks and 134 strict
+LiteSVM tests covering 66/66 instructions. The benchmark-feature suite passed
+525 tests. All 576 economic CSV rows exactly match the prior one-atom-default
+matrix. A replacement native regression verifies useful flash and internal AMM
+partials in both debt directions without the former residual floor, and confirms
+that a useful partial still prevents full closure. Historical fixture adapters
+were updated for removal of the 16-byte config; their original captures are
+unchanged.
+
 ## Outcome
 
 The two reproduced liquidation-feasibility defects are addressed together:
@@ -55,9 +81,9 @@ be certified and the positive-equity emergency conditions otherwise permit it.
   cases, not every possible account value or route.
 - The existing 70%-of-MM emergency boundary, loss waterfall, insurance limits,
   first-recovery caps and 0.5% minimum discount remain unchanged.
-- The current minimum-debt policy also remains: a configured minimum alone does
-  not grant full-close permission. Whether to change that policy is a separate
-  pending product decision.
+- At `97889a92`, the configured minimum alone did not grant full-close permission.
+  The follow-up above removes the economic minimum itself; it adds no new
+  full-close permission.
 
 ## SDK and integration
 
@@ -170,9 +196,8 @@ this work does not claim to have independently revalidated each one.
   and adverse scheduled-fee checks improve handling, but a hostile issuer can
   destroy recoverable collateral value. Principal-only insurance and write-off
   handle the resulting accounting loss; they do not prevent it.
-- **Minimum remaining debt:** the unanswered policy question is whether minimum
-  rules that exclude every improving partial should permit a full close inside
-  the existing emergency boundary. Current behavior remains unchanged pending
-  that choice.
+- **Minimum remaining debt — resolved by removal:** the follow-up above removes
+  the fields and restrictions. No market creator chooses a number, and no
+  minimum-based exception to full-close permission is needed.
 
 PR #45 remains draft. No deployment or merge is performed by this remediation.

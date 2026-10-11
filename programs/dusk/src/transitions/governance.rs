@@ -425,10 +425,6 @@ impl MarketConfig {
 
     pub fn validate(&self) -> Result<()> {
         self.fee_profile().validate()?;
-        require!(
-            self.liquidation.minimum_base_debt > 0 && self.liquidation.minimum_quote_debt > 0,
-            ErrorCode::InvalidMarketConfig
-        );
         require_eq!(
             self.target_hlp_leverage_bps,
             BPS_DENOMINATOR.checked_mul(2).ok_or(ErrorCode::InvalidMarketConfig)?,

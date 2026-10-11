@@ -11393,11 +11393,6 @@
       "code": 6142,
       "name": "LiquidationDoesNotImproveHealth",
       "msg": "Partial liquidation does not improve health after costs"
-    },
-    {
-      "code": 6143,
-      "name": "LiquidationResidualTooSmall",
-      "msg": "Partial liquidation would leave avoidable debt below the market minimum"
     }
   ],
   "types": [
@@ -15284,27 +15279,6 @@
       }
     },
     {
-      "name": "LiquidationConfig",
-      "docs": [
-        "Per-market atom amounts, independently denominated in Base and Quote.",
-        "One atom is a neutral initialization default, not an economic cleanup",
-        "promise. Market creation clients must expose the chosen amounts explicitly."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "minimum_base_debt",
-            "type": "u64"
-          },
-          {
-            "name": "minimum_quote_debt",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "LiquidationDistress",
       "docs": [
         "A committed observation is separate from an atomic flash transaction: a",
@@ -16111,14 +16085,6 @@
           {
             "name": "borrow_market_health_floor_bps",
             "type": "u16"
-          },
-          {
-            "name": "liquidation",
-            "type": {
-              "defined": {
-                "name": "LiquidationConfig"
-              }
-            }
           },
           {
             "name": "amm",

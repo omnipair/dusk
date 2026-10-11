@@ -9,7 +9,6 @@ type TypeNamed<N extends Dusk["types"][number]["name"]> = Extract<
   { name: N }
 >;
 type DuskAccountTypes = [
-  TypeNamed<"liquidationConfig">,
   TypeNamed<"liquidationDistress">,
   TypeNamed<"liquidationSession">,
   TypeNamed<"liquidationHealth">,
@@ -58,7 +57,6 @@ type DuskAccountTypes = [
   TypeNamed<"yieldAccount">,
 ];
 type DuskEventTypes = [
-  TypeNamed<"liquidationConfig">,
   TypeNamed<"liquidationDistress">,
   TypeNamed<"liquidationHealth">,
   TypeNamed<"liquidationRates">,

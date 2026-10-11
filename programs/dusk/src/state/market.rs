@@ -309,7 +309,6 @@ pub struct MarketConfig {
     pub max_daily_borrow_bps: u16,
     pub global_health_contribution_cap_bps: u16,
     pub borrow_market_health_floor_bps: u16,
-    pub liquidation: crate::state::LiquidationConfig,
     pub amm: AmmConfig,
     pub irm: IrmConfig,
     pub start_time: i64,

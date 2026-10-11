@@ -38,8 +38,8 @@ impl Market {
     /// Flash bounds include the smallest allowed discount, so an affordable
     /// lower-discount purchase prevents full-close permission too. AMM bounds
     /// include the configured base fee; additional surcharges can only lower
-    /// output. Each path uses its own share rounding. Dust exclusions alone
-    /// do not create full-close permission.
+    /// output. Each path uses its own share rounding. Every partial retains
+    /// at least one debt share, without an economic residual-debt threshold.
     pub(crate) fn proves_no_useful_partial(
         &self,
         position: &LiquidationPositionRef<'_>,
@@ -144,9 +144,8 @@ impl Market {
             ConcentratedCurveDirection::QuoteToBase
         };
         let index = self.debt.borrow_index(asset);
-        // The selected dust policy does not manufacture full-close permission.
-        // Consider otherwise useful slices even if a configured minimum would
-        // exclude them; a higher minimum alone must not force an owner out.
+        // A partial must retain debt; no configurable minimum excludes an
+        // otherwise useful slice or manufactures full-close permission.
         let maximum_burn = shares - 1;
         let fee_on_input = executable.config.swap_fee_asset(asset.opposite())? == asset.opposite();
         let base_fee =
@@ -320,7 +319,6 @@ impl Market {
                     }
                     Err(anchor_lang::error::Error::AnchorError(error))
                         if [
-                            ErrorCode::LiquidationResidualTooSmall,
                             ErrorCode::InsufficientAmount,
                             ErrorCode::InsufficientOutputAmount,
                             ErrorCode::AmountZero,

@@ -2316,10 +2316,6 @@ function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown>
     maxDailyBorrowBps: config.maxDailyBorrowBps,
     globalHealthContributionCapBps: config.globalHealthContributionCapBps,
     borrowMarketHealthFloorBps: config.borrowMarketHealthFloorBps,
-    liquidation: {
-      minimumBaseDebt: bn(config.liquidation.minimumBaseDebt, "minimumBaseDebt"),
-      minimumQuoteDebt: bn(config.liquidation.minimumQuoteDebt, "minimumQuoteDebt"),
-    },
     amm: anchorIntegerFields(config.amm, AMM_U64_FIELDS),
     irm: anchorIntegerFields(config.irm, IRM_U64_FIELDS),
     startTime: bn(config.startTime, "startTime"),

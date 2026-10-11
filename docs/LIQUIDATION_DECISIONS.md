@@ -6,6 +6,29 @@ pricing, eligibility, reward, clock and composability proposals in the earlier
 handoff, flash contract and calibration documents. The implementation checkpoint below distinguishes current code and tests from
 historical calibration evidence.
 
+## Remove the remaining-debt minimum, 2026-10-11
+
+The user rejected requiring market creators to choose a liquidation debt minimum
+and asked for useful internal and external liquidations not to be blocked by it.
+Remove the configurable minimum and its residual-debt restrictions entirely,
+rather than replacing it with an arbitrary hardcoded economic threshold.
+Market creation, the stored config, scripts and SDK no longer expose these fields.
+This supersedes the earlier per-market dust-minimum choice below.
+
+Both ordinary flash purchases and emergency AMM partials may leave any positive
+remaining debt that satisfies the existing health-improvement and recovery rules.
+A partial retains at least one debt share; it cannot silently turn into a full
+close. Full liquidation still requires the emergency boundary and either EMA
+insolvency or proof that no useful partial is possible. The 1% charge, affordable
+discount, caller reward and loss waterfall are unchanged. No fixed insurance
+cleanup bonus is added. Tiny residuals can be uneconomic for keepers; removing
+this restriction is not a guarantee of execution or profit.
+
+The checked V1 liquidation path had no configurable residual-debt minimum. Its
+50% close factor rounded debt shares upward to avoid a zero-sized action. Dusk
+retains its own partial-recovery sizing and linear EMA eligibility rather than
+copying V1's impact-based valuation or close factor.
+
 ## Liquidation feasibility remediation, 2026-10-11
 
 The user approved treating the ordinary incentive ramp as a **maximum discount**.
@@ -22,9 +45,9 @@ flash prices. AMM bounds include base swap fees, and surviving individual AMM
 inputs use the same fee-aware repayment calculation as execution. Optimistic
 bounds, including unmodeled cash constraints, and a work-limit failure still
 refuse permission. A failed keeper-selected amount never proves infeasibility.
-The existing 70%-of-MM emergency gate and dust policy remain in effect: minimum
-residual debt alone does not create full-close permission. A separate question
-about changing that dust policy is pending user selection.
+The 70%-of-MM emergency gate remains in effect. The later decision above removes
+the minimum residual-debt restriction instead of granting a new dust-based
+full-close permission.
 
 These changes fix the two reproduced feasibility defects. They cannot guarantee
 profitable routes or timely liquidation in every market. See the
@@ -83,13 +106,10 @@ unselected numeric examples below are not runtime defaults.
   after all costs. Failure to reach the entire MM+2-point target is not enough:
   retain useful partial recovery. The infeasibility check must evaluate the
   protocol-permitted sizes, not infer impossibility from a keeper's chosen size,
-  restrictive request or failed transaction. The user selected per-market
-  minimum residual debt and no fixed insurance-funded cleanup bonus. Express
-  the minimum separately in each debt token's raw units; actual per-market
-  amounts still need configuration (5 USDC was illustrative, not a universal
-  default). Resize partials to prevent avoidable subminimum leftovers while
-  preserving health improvement. The dust rule must not manufacture full-close
-  permission by excluding otherwise useful partials. A poor spot quote alone
+  restrictive request or failed transaction. The later 2026-10-11 decision
+  removes per-market minimum residual debt; useful partials are not restricted
+  by the size of their remaining debt. No fixed insurance-funded cleanup bonus
+  is added. A poor spot quote alone
   must not become a new permission to liquidate a healthy EMA position.
   The user selected emergency access at **70% of applicable maintenance**:
   at 7% MM, permit access at or below 4.9% symmetric-EMA equity. This selects
@@ -193,9 +213,9 @@ principal-first loss accounting while resolving these changes.
 | Incentive | User approved the greater of health-based and elapsed-time discounts, bounded by a 5% cap. Preserve 0.5% at MM to 5% at zero-equity health; the user selected 120 seconds for the time component to reach 5%. Use linear 0.5%-to-5% interpolation as the implementation starting point. Keep immediate eligible fills and competitive keeper racing; a capped incentive does not guarantee profitable execution. Buyer retains purchased-slice upside. The affordability rule above can reduce the actual partial discount below this ceiling. |
 | Timing | Immediate eligible fills; no mandatory auction wait, expiry or time-only emergency unlock. A persistent confirmed-distress clock now increases the incentive. Useful partial fills do not reset ongoing distress; verified recovery ends it. |
 | Earlier solvent AMM close | Previously approved for modeling only. The user subsequently objected that this separate full-close permission could undermine better execution and partial repair through flash liquidation, then confirmed dropping the proposed 0–2% shortcut. Dusk AMM execution remains a permitted ordinary flash route under the same bound payment and partial-fill rules, with session-bound debt netting where needed. Emergency access instead uses the selected 70%-of-MM boundary. |
-| Loss-taking emergency | Permit Dusk-AMM recovery below the ordinary flash-payment floor when symmetric-EMA equity is at or below 70% of applicable MM, partial-first after costs. At 7% MM this is 4.9% equity. Within that boundary, the user approved full liquidation if symmetric-EMA equity is zero or negative, or the program verifies that no permitted partial improves health after all costs. A partial need not reach the whole MM+2-point target to take precedence. A keeper's failed or restricted request is not proof of infeasibility. Selected per-market dust minimums do not create separate full-close permission; amounts require configuration. A poor AMM quote alone does not authorize loss-taking, and an external buyer cannot reduce the bound payment after release. |
+| Loss-taking emergency | Permit Dusk-AMM recovery below the ordinary flash-payment floor when symmetric-EMA equity is at or below 70% of applicable MM, partial-first after costs. At 7% MM this is 4.9% equity. Within that boundary, the user approved full liquidation if symmetric-EMA equity is zero or negative, or the program verifies that no permitted partial improves health after all costs. A partial need not reach the whole MM+2-point target to take precedence. A keeper's failed or restricted request is not proof of infeasibility. There is no configurable minimum residual debt or separate dust-based full-close permission. A poor AMM quote alone does not authorize loss-taking, and an external buyer cannot reduce the bound payment after release. |
 | Emergency caller | User approved a progressive reward capped at 1% of actual internal sale proceeds, including insolvent sales, increasing with deteriorating health or elapsed distress time. Use the approved health/time curve in the current implementation checkpoint below. This compensates the caller when Dusk performs the sale itself; it is not an extra payment to ordinary flash buyers. No fixed insurance-funded cleanup bonus. |
-| Economic dust | User selected per-market minimum residual debt, expressed separately in each debt token's raw units, and no fixed insurance-funded bonus. Resize partial fills to avoid subminimum leftovers while still improving health. Dust alone does not authorize a full close or loss-taking; do not manufacture infeasibility solely through the dust rule. Per-market amounts require configuration; the earlier 5-USDC illustration is not a universal default. Percentage rewards do not guarantee profitable cleanup of naturally tiny positions. |
+| Economic dust | The 2026-10-11 decision removes the configurable residual-debt minimum. Useful partials may leave any positive debt, subject to share rounding, health improvement and the recovery cap. No fixed insurance-funded bonus or separate dust-based full-close permission. Percentage rewards do not guarantee profitable cleanup of tiny positions. |
 | Loss waterfall | Full-liquidation recovery protects principal first. Insurance covers remaining principal only within applicable limits. Remaining principal is written off, unpaid interest is canceled, and canceled interest generates no protocol/referral fees. Finish with zero debt on the fully settled leg. |
 | Insurance spending | Up to 75% of eligible borrower/leverage principal shortfall. Preserve hLP's existing eligible-shortfall coverage, up to 100% of that shortfall. All claims use the same debt-token fund's shared 50% budget, refreshing every 24 hours against remaining available insurance; hLP does not receive a separate budget. Credit inflows and previous draws affect the current window budget. Gross vault spending and net coverage differ for transfer-fee tokens. Preserve hLP eligibility and residual-loss accounting; its coverage rate does not expand eligible borrower/leverage losses to unpaid interest. |
 | Protocol liquidation revenue | Charge 1% of net debt repaid on eligible solvent borrowing and leverage liquidations: 0.8% of repayment to insurance/LPs and 0.2% to protocol (80/20 of the collected fee). Fund through additional collateral; never reduce the quoted debt repayment by the fee. Include it in partial-health calculations and cap full-settlement collection by actual surplus after repayment and applicable caller reward. No additional treasury liquidation charge on insolvent settlement. Distribute the LP remainder through existing market LP yield ownership, including hLP through its yLP holdings, without another protocol deduction. Normal interest/swap revenue remains governed by its existing accounting. |
@@ -582,14 +602,15 @@ needs to validate it with the complete new policy.
 
 ### Sizing, rounding and computation
 
-Ordinary partial requests cap repayment to preserve the configured minimum debt.
+Ordinary partial requests cap repayment to retain at least one debt share; no
+economic minimum remaining debt is imposed.
 A fill crossing MM+2 must be the first permitted integer share burn to reach it;
 checking only the previous atom is insufficient because rounding can create
 multiple crossings. Larger requests return `LiquidationRepayTooLarge`; callers
 must use a smaller quote. Useful below-target fills remain permitted.
 
-Emergency callers select collateral input. Oversized or subminimum-residual
-quotes reject and must be resized. The recovery and full-close bounds include
+Emergency callers select collateral input. Oversized quotes reject and must be
+resized; a small debt remainder is not an independent rejection reason. The recovery and full-close bounds include
 base AMM fees. Remaining singleton AMM inputs are evaluated with actual dynamic
 fees, transfer-fee gross-ups, rewards and integer debt allocation, without
 materializing a swap or allocating fresh account clones for each probe.
@@ -597,17 +618,16 @@ Flash feasibility includes the lowest permitted discount. A diagonal arithmetic
 bound rules out unaffordable flat-tier flash ranges efficiently at large raw
 token scales. Otherwise, the interval search remains conservative.
 
-The full-close proof still ignores dust exclusions as a separate permission
-source. Unmodeled constraints, a potentially useful partial, or proof-budget
+No economic dust restriction excludes a partial or grants full-close permission.
+Unmodeled constraints, a potentially useful partial, or proof-budget
 exhaustion refuse permission. A useful below-target fill remains allowed when
 executable. These certificates protect against excessive liquidation; they do
 not guarantee every eligible position has a profitable route or a certifiable
 full close.
 
-Dust minimums are separate Base/Quote raw-atom market creation parameters.
-Their default is one atom; launchers must choose an economically meaningful
-amount for each market. No dollar denomination or fixed cleanup subsidy is
-assumed. The insurance window retains the existing slot-based approximation
+Market creation has no minimum-debt setting. Partial fills retain positive debt
+shares and must improve health, regardless of how small the remainder is.
+No dollar denomination or fixed cleanup subsidy is assumed. The insurance window retains the existing slot-based approximation
 of 24 hours. No independent hLP spending allowance is added.
 
 ### Verification and integration boundary
@@ -623,7 +643,7 @@ The complete required local CI sequence passed on this implementation:
 The benchmark feature also compiles. These are implementation/accounting regressions, not an independent security audit or evidence of economic optimality. No historical exploit PoC was executed.
 
 Native tests cover both debt directions, share-floor changes during a session,
-partial recovery, oversize rounding, minimum residuals, positive-equity full
+partial recovery, oversize rounding, small residuals, positive-equity full
 proofs, principal/interest/insurance accounting and concentrated hLP loss backing.
 Instruction tests cover external and internal flash execution, exact pairing,
 underpayment rollback, locked-position mutation, independent repayment and LP

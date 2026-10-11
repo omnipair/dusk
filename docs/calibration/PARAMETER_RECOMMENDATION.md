@@ -25,10 +25,10 @@ The user subsequently approved full emergency liquidation, within the selected
 70%-of-MM access boundary, when symmetric-EMA equity is zero or negative or
 the program verifies that no permitted partial improves health after costs.
 Failure to reach the entire MM+2-point target is insufficient if a useful partial
-exists. This supersedes earlier automatic full-sale modeling. The user selected
-per-market minimum residual debt in debt-token raw units and no fixed insurance
-cleanup bonus. Per-market amounts require configuration; the emergency reward's
-exact interpolation remains pending in the current decision record.
+exists. This supersedes earlier automatic full-sale modeling. The 2026-10-11
+follow-up removes per-market minimum residual debt and retains no fixed insurance
+cleanup bonus. Refer to the current decision record for the implemented emergency
+reward interpolation and subsequent feasibility remedies.
 The older 0.2% cases below are
 historical evidence and do not validate the selected charge or revised incentives.
 The current stored-margin implementation

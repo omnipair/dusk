@@ -4332,27 +4332,6 @@ export type LeverageDelegate = {
       }
     },
     {
-      "name": "liquidationConfig",
-      "docs": [
-        "Per-market atom amounts, independently denominated in Base and Quote.",
-        "One atom is a neutral initialization default, not an economic cleanup",
-        "promise. Market creation clients must expose the chosen amounts explicitly."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "minimumBaseDebt",
-            "type": "u64"
-          },
-          {
-            "name": "minimumQuoteDebt",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "liquidationDistress",
       "docs": [
         "A committed observation is separate from an atomic flash transaction: a",
@@ -4593,14 +4572,6 @@ export type LeverageDelegate = {
           {
             "name": "borrowMarketHealthFloorBps",
             "type": "u16"
-          },
-          {
-            "name": "liquidation",
-            "type": {
-              "defined": {
-                "name": "liquidationConfig"
-              }
-            }
           },
           {
             "name": "amm",

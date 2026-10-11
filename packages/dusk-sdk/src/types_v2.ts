@@ -11399,11 +11399,6 @@ export type Dusk = {
       "code": 6142,
       "name": "liquidationDoesNotImproveHealth",
       "msg": "Partial liquidation does not improve health after costs"
-    },
-    {
-      "code": 6143,
-      "name": "liquidationResidualTooSmall",
-      "msg": "Partial liquidation would leave avoidable debt below the market minimum"
     }
   ],
   "types": [
@@ -15290,27 +15285,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "liquidationConfig",
-      "docs": [
-        "Per-market atom amounts, independently denominated in Base and Quote.",
-        "One atom is a neutral initialization default, not an economic cleanup",
-        "promise. Market creation clients must expose the chosen amounts explicitly."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "minimumBaseDebt",
-            "type": "u64"
-          },
-          {
-            "name": "minimumQuoteDebt",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "liquidationDistress",
       "docs": [
         "A committed observation is separate from an atomic flash transaction: a",
@@ -16117,14 +16091,6 @@ export type Dusk = {
           {
             "name": "borrowMarketHealthFloorBps",
             "type": "u16"
-          },
-          {
-            "name": "liquidation",
-            "type": {
-              "defined": {
-                "name": "liquidationConfig"
-              }
-            }
           },
           {
             "name": "amm",

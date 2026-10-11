@@ -5,24 +5,6 @@ use super::{LiquidationFeeAllocation, LiquidationHealth, LiquidationRates};
 pub const LIQUIDATION_SESSION_SEED: &[u8] = b"liquidation-session";
 pub const LIQUIDATION_PAYMENT_SEED: &[u8] = b"liquidation-payment";
 
-/// Per-market atom amounts, independently denominated in Base and Quote.
-/// One atom is a neutral initialization default, not an economic cleanup
-/// promise. Market creation clients must expose the chosen amounts explicitly.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
-pub struct LiquidationConfig {
-    pub minimum_base_debt: u64,
-    pub minimum_quote_debt: u64,
-}
-
-impl Default for LiquidationConfig {
-    fn default() -> Self {
-        Self {
-            minimum_base_debt: 1,
-            minimum_quote_debt: 1,
-        }
-    }
-}
-
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct FlashLiquidationQuote {
     pub full: bool,

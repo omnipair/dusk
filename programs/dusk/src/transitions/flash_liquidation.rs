@@ -231,19 +231,13 @@ impl Market {
                 )
             } else {
                 let requested = position.bounded_repayment(self, asset, max_repayment)?;
-                let minimum = match asset {
-                    MarketAsset::Base => self.config.liquidation.minimum_base_debt,
-                    MarketAsset::Quote => self.config.liquidation.minimum_quote_debt,
-                };
-                let retained_shares = if health_before.debt >= minimum {
-                    mul_div_ceil_u128(u128::from(minimum), u128::from(NAD), self.debt.borrow_index(asset))?.max(1)
-                } else {
-                    1
-                };
+                // A partial retains at least one share. Its remaining debt
+                // has no configurable economic minimum; health and recovery
+                // checks determine whether the fill is permitted.
                 let maximum_burn = position
                     .shares(asset)
-                    .checked_sub(retained_shares)
-                    .ok_or(ErrorCode::LiquidationResidualTooSmall)?;
+                    .checked_sub(1)
+                    .ok_or(ErrorCode::InsufficientDebt)?;
                 let repay =
                     position.bounded_share_repayment(self, asset, requested.shares_to_burn.min(maximum_burn))?;
                 let fee = LiquidationFeeAllocation::quote(repay.cash_repaid, u64::MAX, balance, target);
@@ -314,14 +308,6 @@ impl Market {
                 }
                 let (debit, discount) = affordable.ok_or(ErrorCode::LiquidationDoesNotImproveHealth)?;
                 rates.buyer_discount_bps = discount;
-                let minimum = match asset {
-                    MarketAsset::Base => self.config.liquidation.minimum_base_debt,
-                    MarketAsset::Quote => self.config.liquidation.minimum_quote_debt,
-                };
-                require!(
-                    repay.remaining_position_debt >= minimum || health_before.debt < minimum,
-                    ErrorCode::LiquidationResidualTooSmall
-                );
                 (
                     debit,
                     collateral_fee.unwind_credit(debit)?,

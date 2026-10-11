@@ -22,7 +22,8 @@ discount as a maximum. Partial quotes reduce it when necessary to improve health
 keeping the 0.5% lower bound and 1% repayment charge. The returned quote's rate is
 the applied discount. Full-close certification also considers those cheaper
 partials; AMM feasibility uses fee-aware bounds and exact singleton costs.
-The current dust rule and 70%-of-MM emergency gate remain in effect. See
+The later 2026-10-11 decision removes the minimum remaining-debt setting and
+its restrictions. The 70%-of-MM emergency gate remains in effect. See
 [the decision record](LIQUIDATION_DECISIONS.md#liquidation-feasibility-remediation-2026-10-11).
 
 **2026-10-09 accepted design update:** ordinary purchase discount is the capped
@@ -48,12 +49,11 @@ zero or negative, or the program verifies that no permitted partial liquidation
 improves health after all costs. Preserve useful smaller repairs even when no
 partial reaches the whole MM+2-point target. A keeper-selected failed quote,
 restrictive request or failed transaction does not prove infeasibility; verify
-the permitted sizes, including tier boundaries and integer rounding. The user
-selected per-market minimum residual debt, denominated in each debt token's raw
-units, and no fixed insurance-funded cleanup bonus. Configure amounts per debt
-side; 5 USDC was an example. Resize partials to avoid subminimum leftovers when
-health can still improve. Dust cannot independently bypass full-close or payment
-permissions, or manufacture infeasibility by excluding useful partials. See the
+the permitted sizes, including tier boundaries and integer rounding. The later
+2026-10-11 decision removes the earlier per-market residual-debt minimum. Useful
+partials may leave any positive debt under the existing health and recovery
+rules. There is no fixed insurance-funded cleanup bonus or independent dust-based
+permission for full closure. See the
 current decision record for the proposed emergency reward interpolation, which
 is still awaiting approval. Target-based insurance funding was accepted for development.
 The user selected a provisional principal component of 5% of outstanding covered
@@ -190,7 +190,8 @@ Route output credit is not final reserve repayment credit for a transfer-fee deb
 The user explicitly confirmed full loss resolution: principal-first sale recovery, insurance for remaining principal within its limits, then principal write-off and cancellation of unpaid interest without generating fees on canceled interest. A completed full liquidation leaves zero shares/principal for the liquidated debt leg. A borrowing account with unrelated collateral or another debt leg remains open until its own closure conditions are met. A write-off is not cash yield. The phrase "authorized shortfall" must not mean that a finished full liquidation can strand outstanding debt.
 
 Ordinary flash purchases use the selected progressive collateral discount, including insolvent cleanup under the bound-payment rule. For an internal emergency sale, pay the caller a progressive share of actual proceeds before recovery, capped at the selected 1%. Competitive permissionless keepers racing for profitable fills are an accepted design assumption. Use this assumption in economic calibration; the emergency reward uses the approved max(health, time) 0.30%–1% curve in
-[the current checkpoint](LIQUIDATION_DECISIONS.md#current-implementation-checkpoint-2026-10-11). Per-market dust minimums without a fixed insurance-funded bonus are selected; configure amounts per debt token.
+[the current checkpoint](LIQUIDATION_DECISIONS.md#current-implementation-checkpoint-2026-10-11). There is no configurable minimum remaining debt and no fixed insurance-funded
+cleanup bonus. Tiny positions still depend on a willing caller and valid execution.
 
 Any buyer-controlled released collateral can be exchanged against inventory or routed through accounts outside Dusk's observation. Dusk enforces the bound collateral release and net payment. The buyer may keep purchased collateral and repay with its own funds. Do not describe this as an on-chain guarantee of best execution or bounded total buyer profit.
 
