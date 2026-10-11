@@ -6,10 +6,24 @@ buyer upside; symmetric-EMA-only ordinary eligibility; useful incremental partia
 fills; no mandatory timer; principal-first losses; and a bounded solvent insurance
 contribution for borrowing and leverage. LP withdrawals and parameter changes
 remain composable with accounting checks. The explicit session, immutable
-obligation, transfer accounting and mutation inventory remain implementation
-requirements, not completed protections.
+obligation, transfer accounting and mutation inventory below describe the design
+requirements.
 
-Status: implementation specification for PR #45, updated 2026-10-05. The existing program does not yet implement this session or its guards. This document complements the [margin and liquidation plan](LEVERAGE_MARGIN_AND_LIQUIDATION_PLAN.md) and [current decisions](LIQUIDATION_DECISIONS.md).
+Status updated 2026-10-11: PR #45 implements the flash session and its guards.
+This document retains the earlier design and required-test inventory for reference;
+its dated proposals are not a statement of current completion. Use the
+[current decisions](LIQUIDATION_DECISIONS.md) and
+[remediation validation](calibration/LIQUIDATION_FEASIBILITY_REMEDIATION.md) for
+implemented behavior, evidence and limitations. This complements the historical
+[margin and liquidation plan](LEVERAGE_MARGIN_AND_LIQUIDATION_PLAN.md).
+
+**2026-10-11 feasibility update:** the user approved the progressive ordinary
+discount as a maximum. Partial quotes reduce it when necessary to improve health,
+keeping the 0.5% lower bound and 1% repayment charge. The returned quote's rate is
+the applied discount. Full-close certification also considers those cheaper
+partials; AMM feasibility uses fee-aware bounds and exact singleton costs.
+The current dust rule and 70%-of-MM emergency gate remain in effect. See
+[the decision record](LIQUIDATION_DECISIONS.md#liquidation-feasibility-remediation-2026-10-11).
 
 **2026-10-09 accepted design update:** ordinary purchase discount is the capped
 maximum of health-based and elapsed-time discounts, with immediate fills and no
@@ -200,7 +214,7 @@ Account for shared-market changes between the endpoints. A position lock is insu
 
 ## Mutation inventory
 
-The baseline inventory below is from `programs/dusk/src/lib.rs` at PR #45 head `5b123acf`. Existing identity checks and `require_open()` are not active-session checks today. Guards must protect both public handlers and reusable state transitions that could otherwise be called by the new settlement code in the wrong mode. Keep identity validation separate from ordinary-mutation permission: matching settle needs to validate a deliberately locked position.
+The historical baseline inventory below is from `programs/dusk/src/lib.rs` at PR #45 head `5b123acf`, before the flash implementation. At that baseline, identity checks and `require_open()` were not active-session checks. Guards must protect both public handlers and reusable state transitions that could otherwise be called by the new settlement code in the wrong mode. Keep identity validation separate from ordinary-mutation permission: matching settle needs to validate a deliberately locked position.
 
 ### Borrowing
 

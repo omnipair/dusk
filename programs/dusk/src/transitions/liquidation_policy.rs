@@ -4,6 +4,7 @@ use anchor_lang::prelude::*;
 use crate::{constants::BPS_DENOMINATOR, errors::ErrorCode};
 
 pub const LIQUIDATION_INCENTIVE_SECONDS: u64 = 120;
+pub const LIQUIDATION_MINIMUM_DISCOUNT_BPS: u16 = 50;
 pub const LIQUIDATION_RECOVERY_BUFFER_BPS: u16 = 200;
 pub const LIQUIDATION_FEE_BPS: u16 = 100;
 pub const LIQUIDATION_PROTOCOL_SHARE_BPS: u16 = 2_000;
@@ -105,7 +106,8 @@ impl LiquidationHealth {
         let progress = u64::from(self.distress_progress_bps()?);
         let elapsed = age_seconds.min(LIQUIDATION_INCENTIVE_SECONDS);
         Ok(LiquidationRates {
-            buyer_discount_bps: (50 + (450 * progress / 10_000).max(450 * elapsed / 120)) as u16,
+            buyer_discount_bps: LIQUIDATION_MINIMUM_DISCOUNT_BPS
+                + (450 * progress / 10_000).max(450 * elapsed / 120) as u16,
             emergency_reward_bps: (100 * progress / 10_000).max(30 + 70 * elapsed / 120) as u16,
         })
     }

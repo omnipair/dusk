@@ -112,6 +112,9 @@ export class DuskLiquidations {
     return this.write.instruction("observeLiquidation", [resolved.debtAsset], { accounts: resolved.readAccounts });
   }
 
+  /** Returns the executable discount after partial-health affordability checks.
+   * The ramp's ceiling alone must not be used to construct a payment or route.
+   */
   async preview(params: LiquidationPositionParams & { maxRepayment: GovernanceIntegerLike; full?: boolean }): Promise<FlashLiquidationQuote> {
     const resolved = await this.resolve(params);
     const instruction = await this.write.instruction("previewFlashLiquidation", {

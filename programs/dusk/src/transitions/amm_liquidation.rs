@@ -101,7 +101,7 @@ impl Market {
     // Keep the prepared swap and candidate calculation out of the outer
     // recovery-proof frame on SBF.
     #[inline(never)]
-    fn prepare_emergency_candidate(
+    pub(crate) fn prepare_emergency_candidate(
         &mut self,
         position: &LiquidationPositionRef<'_>,
         asset: MarketAsset,
@@ -188,32 +188,7 @@ impl Market {
                 LiquidationFeeAllocation::quote(repayment, low, balance, target),
             )
         } else {
-            let maximum = position
-                .shares(asset)
-                .checked_sub(1)
-                .ok_or(ErrorCode::InsufficientDebt)?;
-            let (mut low, mut high) = (
-                0,
-                maximum.min(mul_div_u128(
-                    u128::from(budget),
-                    u128::from(NAD),
-                    self.debt.borrow_index(asset),
-                )?),
-            );
-            while low < high {
-                let shares = low + (high - low).div_ceil(2);
-                let allocation = self.liquidation_debt_allocation(position, asset, shares)?;
-                let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX, balance, target);
-                let (insurance, revenue) = fee_debits(fee, debt_fee)?;
-                if u128::from(allocation.debt) + u128::from(insurance) + u128::from(revenue) <= u128::from(budget) {
-                    low = shares;
-                } else {
-                    high = shares - 1;
-                }
-            }
-            require_gt!(low, 0, ErrorCode::InsufficientAmount);
-            let allocation = self.liquidation_debt_allocation(position, asset, low)?;
-            let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX, balance, target);
+            let (allocation, fee) = self.quote_emergency_partial_repayment(position, asset, budget, debt_fee)?;
             (allocation, allocation.debt, fee)
         };
         let remaining = available - collateral_debit;
@@ -294,6 +269,47 @@ impl Market {
             allocation,
             policy,
         })
+    }
+
+    // The full-close certificate and actual AMM execution must use identical
+    // integer share burns and transfer-fee gross-ups. This calculation does
+    // not materialize a swap, allocate account clones, or mutate any state.
+    pub(crate) fn quote_emergency_partial_repayment(
+        &self,
+        position: &LiquidationPositionRef<'_>,
+        asset: MarketAsset,
+        budget: u64,
+        debt_fee: LeverageCollateralFee,
+    ) -> Result<(LiquidationDebtAllocation, LiquidationFeeAllocation)> {
+        let target = self.liquidation_insurance_target(asset)?;
+        let balance = self.insurance.available(asset);
+        let maximum = position
+            .shares(asset)
+            .checked_sub(1)
+            .ok_or(ErrorCode::InsufficientDebt)?;
+        let (mut low, mut high) = (
+            0,
+            maximum.min(mul_div_u128(
+                u128::from(budget),
+                u128::from(NAD),
+                self.debt.borrow_index(asset),
+            )?),
+        );
+        while low < high {
+            let shares = low + (high - low).div_ceil(2);
+            let allocation = self.liquidation_debt_allocation(position, asset, shares)?;
+            let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX, balance, target);
+            let (insurance, revenue) = fee_debits(fee, debt_fee)?;
+            if u128::from(allocation.debt) + u128::from(insurance) + u128::from(revenue) <= u128::from(budget) {
+                low = shares;
+            } else {
+                high = shares - 1;
+            }
+        }
+        require_gt!(low, 0, ErrorCode::InsufficientAmount);
+        let allocation = self.liquidation_debt_allocation(position, asset, low)?;
+        let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX, balance, target);
+        Ok((allocation, fee))
     }
 
     pub(crate) fn apply_emergency_liquidation(

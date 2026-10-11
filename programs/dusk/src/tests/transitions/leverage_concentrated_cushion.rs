@@ -539,3 +539,8 @@ mod reconciliation {
     use super::*;
     include!("amm_hlp_reconciliation.rs");
 }
+
+#[cfg(feature = "benchmark")]
+mod final_economic_audit {
+    include!("liquidation_economics.rs");
+}

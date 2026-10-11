@@ -169,23 +169,37 @@ proptest! {
 
 #[cfg(feature = "benchmark")]
 fn captured_vob_market() -> Market {
-    // The captured account predates the two fractional debt-index carry
-    // fields. Insert zero carry at their Borsh position before replaying the
-    // otherwise unchanged devnet snapshot against the current Market layout.
+    // Adapt this historical fixture only: it predates liquidation minimums,
+    // fractional index carry, and aggregate leverage collateral. Locate each
+    // addition in the current Borsh layout using a unique sentinel, then insert
+    // its neutral value in serialization order. All captured bytes stay intact.
     let mut layout = Market::default();
-    layout.debt.quote_borrow_index_nad = u128::MAX;
+    layout.config.liquidation.minimum_base_debt = u64::MAX;
+    layout.config.liquidation.minimum_quote_debt = u64::MAX;
+    layout.debt.base_borrow_index_remainder = u128::from_le_bytes([0x22; 16]);
+    layout.debt.quote_borrow_index_remainder = u128::from_le_bytes([0x22; 16]);
+    layout.debt.leverage_base_collateral = u64::from_le_bytes([0x33; 8]);
+    layout.debt.leverage_quote_collateral = u64::from_le_bytes([0x33; 8]);
     let mut encoded_layout = Vec::new();
     layout.try_serialize(&mut encoded_layout).unwrap();
-    let marker = u128::MAX.to_le_bytes();
-    let marker_offset = encoded_layout
-        .windows(marker.len())
-        .position(|window| window == marker)
-        .unwrap();
-    let carry_offset = marker_offset + marker.len();
-
     let mut captured = include_bytes!("../fixtures/vob-market-20260929.bin").to_vec();
-    captured.splice(carry_offset..carry_offset, [0; 32]);
-    Market::try_deserialize(&mut captured.as_slice()).unwrap()
+    for (marker, replacement) in [
+        (vec![0xff; 16], LiquidationConfig::default().try_to_vec().unwrap()),
+        (vec![0x22; 32], vec![0; 32]),
+        (vec![0x33; 16], vec![0; 16]),
+    ] {
+        let offsets: Vec<_> = encoded_layout
+            .windows(marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == marker).then_some(offset))
+            .collect();
+        assert_eq!(offsets.len(), 1, "fixture adapter sentinel must be unique");
+        captured.splice(offsets[0]..offsets[0], replacement);
+    }
+    let mut market = Market::try_deserialize(&mut captured.as_slice()).unwrap();
+    assert_eq!(market.version, 1, "the fixture must retain its original version");
+    market.version = MARKET_LAYOUT_VERSION;
+    market
 }
 
 #[cfg(feature = "benchmark")]

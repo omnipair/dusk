@@ -7534,7 +7534,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
     const begin = await program.methods.beginFlashLiquidation({ position, debtAsset, maxRepayment: new BN(repayment),
-      maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit, full, settleIndex: 3 })
+      maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit, full, settleIndex: 4 })
       .accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
     const tokenFee = getTransferFeeConfig(await getMint(connection as any, accounts.debtMint, undefined, accounts.debtTokenProgram));
     const net = BigInt(quote.payment.toString()) + paymentAdjustment;
@@ -7546,7 +7546,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const payment = createTransferCheckedInstruction(accounts.buyerRefundAccount, accounts.debtMint, repaymentVault,
       payer.publicKey, gross, 6, [], accounts.debtTokenProgram);
     const settle = await program.methods.settleFlashLiquidation().accounts({ ...common, collateralReserveVault: null }).instruction();
-    const tx = new Transaction().add(ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }), begin, payment, settle);
+    const tx = new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }), begin, payment, settle);
     await connection.sendTransaction(tx, [payer]);
     return { tx, quote, event: cpiEvent(tx, "flashLiquidationSettled") };
   }
@@ -9341,6 +9342,45 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
   }
 
+  for (const referenceValue of [1_000_000n, 959_500n]) {
+    it(`settles a late affordable flash discount at reference value ${referenceValue}`, async function () {
+      const f = await addBalancedLiquidity(271, marketConfig(), {
+        baseDeposit: 100_000_000, quoteDeposit: 200_000_000, minYlp: 1,
+        baseMint: 500_000_000, quoteMint: 500_000_000,
+      });
+      const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f, 945_000);
+      const seedReference = () => {
+        const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+        const account = svm.getAccount(f.market)!;
+        const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+        const collateral = BigInt(p.collateral_amount.toString());
+        const price = (referenceValue * 1_000_000_000n + collateral - 1n) / collateral;
+        market.risk.base_price_ema_nad = new BN(price.toString());
+        market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n / price).toString());
+        market.risk.last_snapshot_slot = new BN(svm.getClock().slot.toString());
+        market.last_update_slot = new BN(svm.getClock().slot.toString());
+        market.risk_revision = market.curve_revision;
+        const body = Buffer.alloc(account.data.length - 8);
+        const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market, body);
+        svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+          (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, length)])) });
+        svm.expireBlockhash();
+      };
+      seedReference();
+      await connection.sendTransaction(await program.methods.observeLiquidation(1).accounts({ market: f.market,
+        borrowPosition: null, leveragePosition, collateralMint: f.baseMint, debtMint: f.quoteMint }).transaction(), [payer]);
+      const clock = svm.getClock(); clock.slot += 300n; clock.unixTimestamp += 120n;
+      svm.setClock(clock); seedReference();
+      const { quote, event } = await executeFlash(f, leveragePosition, true, leverageCollateralVault, 100_000);
+      expect(quote.rates.buyerDiscountBps).to.be.within(50, 499);
+      expect(quote.repayment.toNumber()).to.be.within(99_999, 100_000);
+      expect(quote.repayment.sub(event.debtRepaid).toNumber()).to.be.within(0, 1);
+      expect(quote.healthAfter.debt.mul(quote.healthBefore.collateralValue)
+        .lt(quote.healthBefore.debt.mul(quote.healthAfter.collateralValue))).to.equal(true);
+      expect(event.loss.principalWrittenOff.toString()).to.equal("0");
+    });
+  }
+
   it("flash liquidation binds the pair, rolls back underpayment, and settles only the isolated payment", async function () {
     const f = await addBalancedLiquidity(241);
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
@@ -10179,6 +10219,48 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect((await getAccount(connection as any, f.ownerBaseAccount)).amount - before).to.equal(10_101n);
   });
 
+  it("both repayment interfaces cap an oversized maximum after token transfer fees", async function () {
+    const tokenProgram = TOKEN_2022_PROGRAM_ID;
+    const f = await addBalancedLiquidity(272, marketConfig(), {
+      baseDeposit: 1_000_000_000, quoteDeposit: 2_000_000_000, minYlp: 1,
+      baseMint: 5_000_000_000, quoteMint: 5_000_000_000,
+    }, 6, tokenProgram, {
+      base: await createMint(connection as any, payer, payer.publicKey, null, 6, undefined, undefined, tokenProgram),
+      quote: await createTransferFeeMint(payer.publicKey, 6, 100, 10_000n),
+    });
+    for (const method of ["addLeverageMargin", "repayLeverage"] as const) {
+      const { leveragePosition } = await openQuoteDebtLeverage(f);
+      const donor = Keypair.generate();
+      await connection.requestAirdrop(donor.publicKey, LAMPORTS_PER_SOL);
+      const donorQuote = await createAccount(connection as any, payer, f.quoteMint, donor.publicKey, Keypair.generate(), undefined, tokenProgram);
+      const build = () => program.methods[method]({ debtAsset: 1, amount: new BN(100_000) }).accounts({
+        market: f.market, futarchyAuthority, positionOwner: payer.publicKey, leveragePosition, debtMint: f.quoteMint,
+        collateralMint: f.baseMint, debtReserveVault: f.quoteReserveVault, debtInterestVault: f.quoteInterestVault,
+        ownerDebtAccount: donorQuote, referralPartner: null, referralAccrual: null, owner: donor.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: tokenProgram, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      }).transaction();
+      const before = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      const failed = await build(); failed.feePayer = donor.publicKey;
+      let rejected = false;
+      try { await connection.sendTransaction(failed, [donor]); } catch { rejected = true; }
+      expect(rejected, "actual repayment still requires sufficient wallet balance").to.equal(true);
+      expect((accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any).debt_shares.toString()).to.equal(before.debt_shares.toString());
+      await mintTo(connection as any, payer, f.quoteMint, donorQuote, payer, 10_000, [], undefined, tokenProgram);
+      svm.expireBlockhash();
+      const reserveBefore = (await getAccount(connection as any, f.quoteReserveVault, undefined, tokenProgram)).amount;
+      const tx = await build(); tx.feePayer = donor.publicKey;
+      await connection.sendTransaction(tx, [donor]);
+      trackV2Instruction(method, this.test?.title);
+      const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      const debit = 10_000n - (await getAccount(connection as any, donorQuote, undefined, tokenProgram)).amount;
+      expect(debit > 0n && debit < 10_000n).to.equal(true);
+      expect(debit).to.equal(BigInt(cpiEvent(tx, "leveragePositionUpdated").ownerDebit.toString()));
+      expect((await getAccount(connection as any, f.quoteReserveVault, undefined, tokenProgram)).amount - reserveBefore).to.equal(BigInt(before.debt_principal.toString()));
+      expect(after.debt_shares.toString()).to.equal("0");
+      expect(after.collateral_amount.toString()).to.equal(before.collateral_amount.toString());
+    }
+  });
+
   it("fully repays someone else's leverage without selling their collateral", async function () {
     const f = await addBalancedLiquidity(212);
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
@@ -10187,7 +10269,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const donorQuote = await createAccount(connection as any, payer, f.quoteMint, donor.publicKey);
     await mintTo(connection as any, payer, f.quoteMint, donorQuote, payer, 10_000);
     const before = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
-    const tx = await program.methods.repayLeverage({ debtAsset: 1, amount: new BN(10_000) }).accounts({
+    // The maximum exceeds the wallet balance; only outstanding debt is paid.
+    const donorBefore = (await getAccount(connection as any, donorQuote)).amount;
+    const tx = await program.methods.repayLeverage({ debtAsset: 1, amount: new BN(100_000) }).accounts({
       market: f.market, futarchyAuthority, positionOwner: payer.publicKey, leveragePosition, debtMint: f.quoteMint,
       collateralMint: f.baseMint,
       debtReserveVault: f.quoteReserveVault, debtInterestVault: f.quoteInterestVault, ownerDebtAccount: donorQuote,
@@ -10200,6 +10284,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
     expect(after.debt_shares.toString()).to.equal("0");
     expect(after.collateral_amount.toString()).to.equal(before.collateral_amount.toString());
+    const donorDebit = donorBefore - (await getAccount(connection as any, donorQuote)).amount;
+    expect(donorDebit > 0n && donorDebit < donorBefore).to.equal(true);
+    expect(donorDebit).to.equal(BigInt(cpiEvent(tx, "leveragePositionUpdated").ownerDebit.toString()));
     expect(cpiEvent(tx, "leveragePositionUpdated").owner.equals(payer.publicKey)).to.equal(true);
     expect(cpiEvent(tx, "leveragePositionUpdated").metadata.signer.equals(donor.publicKey)).to.equal(true);
     const baseBefore = (await getAccount(connection as any, f.ownerBaseAccount)).amount;

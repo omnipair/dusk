@@ -93,11 +93,20 @@ The session closes at settle. Its payment token account persists for reuse,
 including withheld Token-2022 fees; preexisting token donations do not count as
 payment and are not refunded to the next buyer.
 
+The 0.5%–5% ramp sets a maximum buyer discount. Partial quotes choose the highest
+whole-basis-point discount within that range that improves health after the
+1% repayment charge and collateral transfer costs. If none works, the partial
+rejects. Read the actual rate from `quote.rates.buyerDiscountBps`; use
+`liquidationIncentives(...).maximumBuyerDiscountBps` only for the ceiling. The
+legacy helper field `buyerDiscountBps` remains a deprecated alias for that ceiling.
+Position-health previews also report the ceiling, not an executable purchase.
+
 Partial `maxRepayment` requests are capped for the configured minimum residual
 debt. A request beyond the first MM+2 recovery crossing rejects; request a
 smaller amount. Emergency collateral slices must also respect the residual
-minimum and a conservative recovery cap. Its optimistic bound can reject a
-target-crossing slice even if the exact smaller sale would pay less after costs;
+minimum and a conservative recovery cap. The bound includes base swap fees and
+checks surviving AMM amounts against actual execution costs. A bounded search
+can still refuse a target crossing when it cannot certify the result;
 useful below-target slices remain permitted. Preview acceptance does not reserve
 liquidity or guarantee keeper profitability. Simulate the complete transaction.
 
@@ -352,8 +361,9 @@ the program's canonical Borsh/SHA-256 digest for a fetched proposal account.
 The other typed update constructors are `feeParameterUpdate(...)`,
 `irmParameterUpdate(...)`, `emaHalfLivesParameterUpdate(...)`,
 `dailyBorrowLimitParameterUpdate(...)`, `centerControllerParameterUpdate(...)`
-and `insuranceDrawCapsParameterUpdate(...)`. Only concentration ramps; its
-duration must be 216,000–1,512,000 slots (approximately 24 hours–7 days).
+and `insuranceDrawCapsParameterUpdate(...)`. Concentration parameters apply
+immediately when the validated proposal executes, together with its other
+updates; there is no concentration ramp or ramp-duration argument.
 `canonicalParameterUpdates(...)` returns a set in the order the program
 accepts and rejects a repeated family, and `updatedFamilyRevisions(...)` builds
 the revision list a new proposal binds.

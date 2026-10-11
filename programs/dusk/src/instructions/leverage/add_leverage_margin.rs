@@ -97,11 +97,8 @@ impl<'info> AddLeverageMargin<'info> {
         validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         validate_owner_debt_account(self.owner.key(), &self.debt_mint, &self.owner_debt_account)?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
-        require_gte!(
-            self.owner_debt_account.amount,
-            args.amount,
-            ErrorCode::InsufficientBalance
-        );
+        // `amount` is a maximum, not the transfer amount. Check the payer's
+        // balance after bounding repayment by outstanding debt and token fees.
         self.leverage_position.require_open()?;
         validate_referral_binding(
             None,

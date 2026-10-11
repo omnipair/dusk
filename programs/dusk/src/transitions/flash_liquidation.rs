@@ -5,7 +5,7 @@ use crate::{
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
     state::*,
-    transitions::{DebtRepaymentQuote, LeverageCollateralFee},
+    transitions::{liquidation_policy::LIQUIDATION_MINIMUM_DISCOUNT_BPS, DebtRepaymentQuote, LeverageCollateralFee},
 };
 
 pub(crate) enum LiquidationPositionRef<'a> {
@@ -188,7 +188,7 @@ impl Market {
         position.require_idle()?;
         let health_before = self.flash_liquidation_health(position, asset, eligibility_fee)?;
         require!(health_before.eligible()?, ErrorCode::PositionNotLiquidatable);
-        let rates = health_before.rates(position.age(asset, now)?)?;
+        let mut rates = health_before.rates(position.age(asset, now)?)?;
         let available = position.collateral(asset);
         let target = self.liquidation_insurance_target(asset)?;
         let balance = self.insurance.available(asset);
@@ -247,15 +247,73 @@ impl Market {
                 let repay =
                     position.bounded_share_repayment(self, asset, requested.shares_to_burn.min(maximum_burn))?;
                 let fee = LiquidationFeeAllocation::quote(repay.cash_repaid, u64::MAX, balance, target);
-                let debit = self.flash_collateral_debit_at_price(
-                    asset,
-                    repay.cash_repaid,
-                    fee.total,
-                    rates.buyer_discount_bps,
-                    collateral_fee,
-                    self.pessimistic_collateral_price_nad(asset.opposite(), &self.current_risk()?, false),
-                )?;
-                require!(debit < available, ErrorCode::LiquidationRepayTooLarge);
+                // Search the finite discount domain from high to low. Each
+                // interval combines its best remaining value and lowest MM;
+                // if even that state cannot improve, every discount in it fails.
+                // This prunes flat-tier ranges without assuming monotone health
+                // across rounded maintenance-tier boundaries.
+                let risk = self.current_risk()?;
+                let price = self.pessimistic_collateral_price_nad(asset.opposite(), &risk, false);
+                let debit_at = |discount| {
+                    self.flash_collateral_debit_at_price(
+                        asset,
+                        repay.cash_repaid,
+                        fee.total,
+                        discount,
+                        collateral_fee,
+                        price,
+                    )
+                };
+                let mut affordable = None;
+                let mut pending = Vec::with_capacity(10);
+                // Preserve the cheap common case: the ramp maximum already
+                // works. Only search lower intervals when that exact rate fails.
+                if rates.buyer_discount_bps > LIQUIDATION_MINIMUM_DISCOUNT_BPS {
+                    pending.push((
+                        LIQUIDATION_MINIMUM_DISCOUNT_BPS,
+                        rates.buyer_discount_bps - 1,
+                        None,
+                        None,
+                    ));
+                }
+                pending.push((rates.buyer_discount_bps, rates.buyer_discount_bps, None, None));
+                while let Some((low, high, low_debit, high_debit)) = pending.pop() {
+                    let low_debit = match low_debit {
+                        Some(value) => value,
+                        None => debit_at(low)?,
+                    };
+                    if low_debit >= available {
+                        continue;
+                    }
+                    let high_debit = match high_debit {
+                        Some(value) => value,
+                        None => debit_at(high)?,
+                    };
+                    let optimistic = LiquidationHealth {
+                        collateral_value: self.denormalize_amount_floor(
+                            self.linear_liquidation_collateral_value_nad(
+                                asset.opposite(),
+                                eligibility_fee.unwind_credit(available - low_debit)?,
+                                &risk,
+                            )?,
+                            self.side(asset).asset_decimals,
+                        )?,
+                        debt: repay.remaining_position_debt,
+                        maintenance_bps: position.maintenance(asset, available.saturating_sub(high_debit).max(1))?,
+                    };
+                    if !health_before.improves(optimistic)? {
+                        continue;
+                    }
+                    if low == high {
+                        affordable = Some((low_debit, low));
+                        break;
+                    }
+                    let middle = low + (high - low) / 2;
+                    pending.push((low, middle, Some(low_debit), None));
+                    pending.push((middle + 1, high, None, Some(high_debit)));
+                }
+                let (debit, discount) = affordable.ok_or(ErrorCode::LiquidationDoesNotImproveHealth)?;
+                rates.buyer_discount_bps = discount;
                 let minimum = match asset {
                     MarketAsset::Base => self.config.liquidation.minimum_base_debt,
                     MarketAsset::Quote => self.config.liquidation.minimum_quote_debt,

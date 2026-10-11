@@ -6,6 +6,31 @@ pricing, eligibility, reward, clock and composability proposals in the earlier
 handoff, flash contract and calibration documents. The implementation checkpoint below distinguishes current code and tests from
 historical calibration evidence.
 
+## Liquidation feasibility remediation, 2026-10-11
+
+The user approved treating the ordinary incentive ramp as a **maximum discount**.
+For each requested partial repayment, quote the highest whole-basis-point discount
+from 0.5% through the current ramp ceiling that improves the surviving position's
+health after its actual collateral debit and the 1% repayment charge. A bounded
+interval search preserves this choice across token rounding and maintenance tiers.
+If no rate in that range works, reject the partial; do not remove the health guard.
+The quote/session reports the applied discount. The standalone SDK incentive
+helper and position-health previews report a ceiling, not an executable price.
+
+The full-close and first-recovery certificates consider the newly affordable
+flash prices. AMM bounds include base swap fees, and surviving individual AMM
+inputs use the same fee-aware repayment calculation as execution. Optimistic
+bounds, including unmodeled cash constraints, and a work-limit failure still
+refuse permission. A failed keeper-selected amount never proves infeasibility.
+The existing 70%-of-MM emergency gate and dust policy remain in effect: minimum
+residual debt alone does not create full-close permission. A separate question
+about changing that dust policy is pending user selection.
+
+These changes fix the two reproduced feasibility defects. They cannot guarantee
+profitable routes or timely liquidation in every market. See the
+[remediation validation](calibration/LIQUIDATION_FEASIBILITY_REMEDIATION.md) for
+stress outcomes, verification, and retained execution-price risks.
+
 ## Leverage funding simplification, 2026-10-11
 
 The user reversed optional collateral-funded leverage from commit `65a948fd`.
@@ -23,7 +48,8 @@ add/remove actions, and transitions through a debt-free 1x position. Add-to-posi
 targets the whole resulting position, defaulting to current leverage. Remove uses
 linked percentage/size inputs with a separate net-wallet-payout preview. See
 [the position action contract](LEVERAGE_POSITION_ACTIONS.md). This funding reversal
-does not change the selected IM/MM formulas or implement that next action redesign.
+does not change the selected IM/MM formulas. The agreed position actions and
+SDK helpers are implemented as described in that contract.
 
 ## Latest design steering, 2026-10-10
 
@@ -41,7 +67,9 @@ unselected numeric examples below are not runtime defaults.
   or time alone authorizing below-floor losses. Preserve the selected 0.5–5%
   health candidate as a component. The user selected **120 seconds to reach
   the 5% cap**. Use linear interpolation from 0.5% to 5% as the implementation
-  starting point; the greater health discount can apply sooner. Persistent
+  starting point; the greater health discount can apply sooner. This rate is now
+  a ceiling: the affordability rule above can select a smaller partial-fill discount.
+  Persistent
   observations and recovery resets are implemented and tested. Start from a committed on-chain eligibility
   observation, not state created only inside a reverted flash transaction.
   Useful partial fills do not reset continuing distress; verified recovery ends
@@ -162,7 +190,7 @@ principal-first loss accounting while resolving these changes.
 | Margin UX | Emphasize available leverage, required collateral and estimated liquidation price in the main flow. Raw IM/MM percentages are secondary information. Displayed leverage must include actual execution and crowding constraints. |
 | Partial liquidation | User confirmed a recovery target of the remaining position's effective MM +2 percentage points. Calculate it using the surviving position's size and terms, after all liquidation costs. Accept smaller useful fills that improve health; each fill need not reach the whole target. Size the maximum seizure to avoid unnecessary liquidation after recovery; full liquidation for insolvency, infeasible recovery or uneconomic leftovers under explicit rules. |
 | Buyer economics | Quote a specified collateral slice for a specified net debt-token payment. The buyer can route anywhere, pay from inventory, or retain purchased collateral; upside on the purchased slice belongs to the buyer. Unsold collateral remains position-owned. |
-| Incentive | User approved the greater of health-based and elapsed-time discounts, bounded by a 5% cap. Preserve 0.5% at MM to 5% at zero-equity health; the user selected 120 seconds for the time component to reach 5%. Use linear 0.5%-to-5% interpolation as the implementation starting point. Keep immediate eligible fills and competitive keeper racing; a capped incentive does not guarantee profitable execution. Buyer retains purchased-slice upside. |
+| Incentive | User approved the greater of health-based and elapsed-time discounts, bounded by a 5% cap. Preserve 0.5% at MM to 5% at zero-equity health; the user selected 120 seconds for the time component to reach 5%. Use linear 0.5%-to-5% interpolation as the implementation starting point. Keep immediate eligible fills and competitive keeper racing; a capped incentive does not guarantee profitable execution. Buyer retains purchased-slice upside. The affordability rule above can reduce the actual partial discount below this ceiling. |
 | Timing | Immediate eligible fills; no mandatory auction wait, expiry or time-only emergency unlock. A persistent confirmed-distress clock now increases the incentive. Useful partial fills do not reset ongoing distress; verified recovery ends it. |
 | Earlier solvent AMM close | Previously approved for modeling only. The user subsequently objected that this separate full-close permission could undermine better execution and partial repair through flash liquidation, then confirmed dropping the proposed 0–2% shortcut. Dusk AMM execution remains a permitted ordinary flash route under the same bound payment and partial-fill rules, with session-bound debt netting where needed. Emergency access instead uses the selected 70%-of-MM boundary. |
 | Loss-taking emergency | Permit Dusk-AMM recovery below the ordinary flash-payment floor when symmetric-EMA equity is at or below 70% of applicable MM, partial-first after costs. At 7% MM this is 4.9% equity. Within that boundary, the user approved full liquidation if symmetric-EMA equity is zero or negative, or the program verifies that no permitted partial improves health after all costs. A partial need not reach the whole MM+2-point target to take precedence. A keeper's failed or restricted request is not proof of infeasibility. Selected per-market dust minimums do not create separate full-close permission; amounts require configuration. A poor AMM quote alone does not authorize loss-taking, and an external buyer cannot reduce the bound payment after release. |
@@ -561,15 +589,20 @@ multiple crossings. Larger requests return `LiquidationRepayTooLarge`; callers
 must use a smaller quote. Useful below-target fills remain permitted.
 
 Emergency callers select collateral input. Oversized or subminimum-residual
-quotes reject and must be resized. The recovery cap uses a conservative
-fee-free AMM bound over smaller slices, so it may reject a target-crossing
-request even when that exact smaller fill would not cover all actual costs.
-A useful below-target fill remains available when executable. The full-close
-proof similarly considers optimistic flash and AMM repayments. It ignores dust
-exclusions, rejects if any partial might help, and refuses permission when its
-bounded search cannot establish impossibility. Neither certificate grants a
-loss permission on compute exhaustion. This is intentionally conservative,
-not a guarantee that every eligible position can be profitably cleared.
+quotes reject and must be resized. The recovery and full-close bounds include
+base AMM fees. Remaining singleton AMM inputs are evaluated with actual dynamic
+fees, transfer-fee gross-ups, rewards and integer debt allocation, without
+materializing a swap or allocating fresh account clones for each probe.
+Flash feasibility includes the lowest permitted discount. A diagonal arithmetic
+bound rules out unaffordable flat-tier flash ranges efficiently at large raw
+token scales. Otherwise, the interval search remains conservative.
+
+The full-close proof still ignores dust exclusions as a separate permission
+source. Unmodeled constraints, a potentially useful partial, or proof-budget
+exhaustion refuse permission. A useful below-target fill remains allowed when
+executable. These certificates protect against excessive liquidation; they do
+not guarantee every eligible position has a profitable route or a certifiable
+full close.
 
 Dust minimums are separate Base/Quote raw-atom market creation parameters.
 Their default is one atom; launchers must choose an economically meaningful

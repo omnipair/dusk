@@ -52,15 +52,21 @@ export function liquidationHealth(input: LiquidationHealthInput) {
   return { eligible, emergencyAllowed, referenceInsolvent: input.debt > 0n && equity <= 0n, recoveryTargetReached, distressProgressBps: Number(distressProgressBps), equityAtoms: equity, equityBps: value === 0n ? null : Number(equity * BPS / value) };
 }
 
-/** Time increases incentives; it never grants emergency or full-close access. */
+/** Time raises the discount ceiling; it never grants emergency or full-close
+ * access. A partial quote may select a smaller affordable discount (at least
+ * 50 bps). Use preview.rates.buyerDiscountBps for the actual payment terms.
+ */
 export function liquidationIncentives(input: LiquidationHealthInput, distressAgeSeconds: bigint) {
   amount(distressAgeSeconds, "distressAgeSeconds");
   const health = liquidationHealth(input);
   if (!health.eligible) throw new Error("Position is not liquidatable");
   const progress = BigInt(health.distressProgressBps);
   const elapsed = min(distressAgeSeconds, 120n);
+  const maximumBuyerDiscountBps = Number(50n + max(450n * progress / BPS, 450n * elapsed / 120n));
   return {
-    buyerDiscountBps: Number(50n + max(450n * progress / BPS, 450n * elapsed / 120n)),
+    maximumBuyerDiscountBps,
+    /** @deprecated This is the ceiling. Read the actual discount from preview. */
+    buyerDiscountBps: maximumBuyerDiscountBps,
     emergencyRewardBps: Number(max(100n * progress / BPS, 30n + 70n * elapsed / 120n)),
     emergencyAllowed: health.emergencyAllowed,
   };

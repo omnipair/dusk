@@ -11,6 +11,7 @@ test("time raises the reward without turning 6% equity into emergency permission
   const health = { collateralValue: 1_000_000n, debt: 940_000n, maintenanceBps: 700 };
   assert.equal(liquidationHealth(health).eligible, true);
   assert.equal(liquidationIncentives(health, 120n).emergencyAllowed, false);
+  assert.equal(liquidationIncentives(health, 120n).maximumBuyerDiscountBps, 500);
   const boundary = { ...health, debt: 951_000n };
   assert.deepEqual([0n, 60n, 120n].map(age => liquidationIncentives(boundary, age).emergencyRewardBps), [30, 65, 100]);
   assert.equal(liquidationIncentives({ ...health, debt: 1_000_001n }, 0n).emergencyRewardBps, 100);
@@ -54,12 +55,15 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   });
   program.account.leveragePosition.fetch = async () => ({ market, owner, debtAsset: 1, referralPartner: SystemProgram.programId });
   const client = new DuskLiquidations(program);
-  client.preview = async () => ({ payment: new anchor.BN(1002), collateralCredit: new anchor.BN(1100) });
+  client.preview = async () => ({ payment: new anchor.BN(1002), collateralCredit: new anchor.BN(1100), rates: { buyerDiscountBps: 455, emergencyRewardBps: 100 } });
   const request = { market, position, kind: "leverage", debtAsset: "quote" };
   const result = await client.buildFlash({
     ...request, buyer, maxRepayment: 1000n,
     prefixInstructions: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 })],
-    route: ctx => [createTransferCheckedInstruction(ctx.buyerDebtAccount, ctx.debtMint, ctx.repaymentVault, buyer, ctx.requiredPaymentCredit, 6)],
+    route: ctx => {
+      assert.equal(ctx.quote.rates.buyerDiscountBps, 455);
+      return [createTransferCheckedInstruction(ctx.buyerDebtAccount, ctx.debtMint, ctx.repaymentVault, buyer, ctx.requiredPaymentCredit, 6)];
+    },
   });
   assert.equal(result.beginIndex, 5);
   assert.equal(result.settleIndex, 7);

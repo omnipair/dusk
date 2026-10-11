@@ -82,13 +82,13 @@ proposal, and the rest of its rent returns to the proposer.
 and fails with `ProposalDigestMismatch` if it does not match.
 
 A proposal changes one or more of seven families: the complete fee profile,
-concentration shape plus its 216,000–1,512,000-slot ramp duration, IRM, the four
-EMA half-lives, the daily borrow limit, the center controller, and insurance
-draw caps. It names each family at most once, in ascending family order, so a
+concentration shape, IRM, the four EMA half-lives, the daily borrow limit, the
+center controller, and insurance draw caps. It names each family at most once, in ascending family order, so a
 set of updates has exactly one encoding and one digest. Every family must be a
 real change within its own bounds, and the configuration they produce together
 must be valid. One sponsorship and one vote cover the whole set, and it
-executes atomically: all families apply or none do.
+executes atomically: all families apply or none do. Concentration parameters
+apply immediately at execution; there is no concentration ramp.
 
 Each proposal binds the revision of every family it changes. Executing any
 proposal advances the revision of each family it touched, so a competing
