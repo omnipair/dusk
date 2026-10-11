@@ -17,9 +17,12 @@ and dedicated SDK close solver are removed. This supersedes the earlier #48
 feature-retention decision. Audit remedies, stored margins and flash liquidations
 remain part of #45.
 
-The requested next discussion covers size-only adjustments, debt-repayment margin
-increases, removing standalone margin withdrawal, combined add/remove actions,
-and user-selected leverage below the permitted maximum. This funding reversal
+The user subsequently approved size-only adjustments, debt-repayment margin
+increases on both sides, removal of standalone margin withdrawal, combined
+add/remove actions, and transitions through a debt-free 1x position. Add-to-position
+targets the whole resulting position, defaulting to current leverage. Remove uses
+linked percentage/size inputs with a separate net-wallet-payout preview. See
+[the position action contract](LEVERAGE_POSITION_ACTIONS.md). This funding reversal
 does not change the selected IM/MM formulas or implement that next action redesign.
 
 ## Latest design steering, 2026-10-10

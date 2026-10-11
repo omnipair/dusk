@@ -2165,6 +2165,10 @@
           "writable": true
         },
         {
+          "name": "owner_debt_account",
+          "writable": true
+        },
+        {
           "name": "leverage_collateral_vault",
           "writable": true,
           "pda": {
@@ -3757,6 +3761,14 @@
           "name": "owner",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "owner_debt_account",
+          "docs": [
+            "Required only when margin_amount is positive; always owned by the position owner."
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "instructions_sysvar",
@@ -6329,212 +6341,6 @@
         }
       ],
       "args": []
-    },
-    {
-      "name": "remove_leverage_margin",
-      "discriminator": [
-        245,
-        142,
-        114,
-        58,
-        238,
-        20,
-        67,
-        107
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "futarchy_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  117,
-                  116,
-                  97,
-                  114,
-                  99,
-                  104,
-                  121,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "position_owner"
-        },
-        {
-          "name": "leverage_position",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  108,
-                  101,
-                  118,
-                  101,
-                  114,
-                  97,
-                  103,
-                  101,
-                  95,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.owner",
-                "account": "LeveragePosition"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.namespace_authority",
-                "account": "LeveragePosition"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.position_id",
-                "account": "LeveragePosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "debt_mint"
-        },
-        {
-          "name": "collateral_mint"
-        },
-        {
-          "name": "debt_reserve_vault",
-          "writable": true
-        },
-        {
-          "name": "owner_debt_account",
-          "writable": true
-        },
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "RemoveLeverageMarginArgs"
-            }
-          }
-        }
-      ]
     },
     {
       "name": "remove_liquidity",
@@ -12705,6 +12511,13 @@
           {
             "name": "min_amount_out",
             "type": "u64"
+          },
+          {
+            "name": "close_bps",
+            "docs": [
+              "Percentage of current collateral and debt to close, in basis points."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -13061,6 +12874,14 @@
           },
           {
             "name": "min_repay_out",
+            "type": "u64"
+          },
+          {
+            "name": "max_surplus_out",
+            "docs": [
+              "Maximum gross debt-token remainder returned after repayment. Zero",
+              "prevents wallet payouts; a bounded value permits final 1x rounding."
+            ],
             "type": "u64"
           }
         ]
@@ -14404,6 +14225,13 @@
             "type": "u64"
           },
           {
+            "name": "margin_amount",
+            "docs": [
+              "Gross debt-token funding from the owner. Zero increases size using borrowing only."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "min_collateral_out",
             "type": "u64"
           }
@@ -15226,6 +15054,13 @@
             "type": "pubkey"
           },
           {
+            "name": "owner_debit",
+            "docs": [
+              "Gross debt-token payment from the wallet, including any transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "borrowed_amount",
             "type": "u64"
           },
@@ -15260,8 +15095,8 @@
           {
             "name": "closeout_value",
             "docs": [
-              "Executable closeout quote, or zero when unquoted by repay_leverage or",
-              "when add_leverage_margin fully clears the debt. Collateral remains owned."
+              "Executable closeout quote, or zero when unquoted by repayment or an",
+              "operation leaving debt-free collateral. Zero is not a collateral valuation."
             ],
             "type": "u64"
           },
@@ -18484,26 +18319,6 @@
           {
             "name": "recipient",
             "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
-      "name": "RemoveLeverageMarginArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "debt_asset",
-            "type": "u8"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          },
-          {
-            "name": "min_amount_out",
-            "type": "u64"
           }
         ]
       }

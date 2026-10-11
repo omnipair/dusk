@@ -150,29 +150,6 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
 }
 
 #[test]
-fn runtime_withdrawal_cannot_strip_a_retained_crowding_requirement() {
-    let mut market = test_market(1_000_000_000, 1_000_000_000);
-    let mut position = seeded_position(&mut market, MarketAsset::Base, 12_000, 15_200);
-    position.margin_terms = crate::state::LeverageMarginTerms::at_entry(50_000).unwrap();
-    position.margin_terms.admission_equity_collateral_nad = 3000 * u128::from(NAD);
-    assert!(
-        position.margin_terms.initial_bps(15_200).unwrap()
-            > position.margin_terms.maintenance_bps(15_200).unwrap() + 300
-    );
-    let result = market.remove_leverage_margin(&mut position, 300, 1, 0, LeverageCollateralFee::default());
-    assert_eq!(result.unwrap_err(), error!(ErrorCode::LeverageInitialMarginTooLow));
-    assert_eq!(position.debt_principal, 12000);
-    market
-        .remove_leverage_margin(&mut position, 100, 1, 0, LeverageCollateralFee::default())
-        .unwrap();
-    assert_eq!(
-        position.margin_terms.admission_equity_collateral_nad,
-        3000 * u128::from(NAD)
-    );
-    assert_eq!(market.leverage_collateral_exposure(MarketAsset::Quote), 15_200);
-}
-
-#[test]
 fn runtime_large_solvent_position_is_no_longer_rejected_by_two_percent_unwind() {
     let mut market = calibration_market(100_000, 1);
     let position = runtime_open(&mut market, MarketAsset::Quote, 2500 * CALIBRATION_UNIT, 2);

@@ -18,6 +18,8 @@ export * from "./hash.js";
 export * from "./indexer.js";
 export * from "./lp-naming.js";
 export * from "./leverage-margins.js";
+export * from "./leverage-actions.js";
+export * from "./leverage-preview.js";
 export * from "./liquidation.js";
 export * from "./liquidation-client.js";
 export * from "./market-launch.js";

@@ -2171,6 +2171,10 @@ export type Dusk = {
           "writable": true
         },
         {
+          "name": "ownerDebtAccount",
+          "writable": true
+        },
+        {
           "name": "leverageCollateralVault",
           "writable": true,
           "pda": {
@@ -3763,6 +3767,14 @@ export type Dusk = {
           "name": "owner",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "ownerDebtAccount",
+          "docs": [
+            "Required only when margin_amount is positive; always owned by the position owner."
+          ],
+          "writable": true,
+          "optional": true
         },
         {
           "name": "instructionsSysvar",
@@ -6335,212 +6347,6 @@ export type Dusk = {
         }
       ],
       "args": []
-    },
-    {
-      "name": "removeLeverageMargin",
-      "discriminator": [
-        245,
-        142,
-        114,
-        58,
-        238,
-        20,
-        67,
-        107
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "futarchyAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  117,
-                  116,
-                  97,
-                  114,
-                  99,
-                  104,
-                  121,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "positionOwner"
-        },
-        {
-          "name": "leveragePosition",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  108,
-                  101,
-                  118,
-                  101,
-                  114,
-                  97,
-                  103,
-                  101,
-                  95,
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.owner",
-                "account": "leveragePosition"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.namespace_authority",
-                "account": "leveragePosition"
-              },
-              {
-                "kind": "account",
-                "path": "leverage_position.position_id",
-                "account": "leveragePosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "debtMint"
-        },
-        {
-          "name": "collateralMint"
-        },
-        {
-          "name": "debtReserveVault",
-          "writable": true
-        },
-        {
-          "name": "ownerDebtAccount",
-          "writable": true
-        },
-        {
-          "name": "owner",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "eventAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "removeLeverageMarginArgs"
-            }
-          }
-        }
-      ]
     },
     {
       "name": "removeLiquidity",
@@ -12711,6 +12517,13 @@ export type Dusk = {
           {
             "name": "minAmountOut",
             "type": "u64"
+          },
+          {
+            "name": "closeBps",
+            "docs": [
+              "Percentage of current collateral and debt to close, in basis points."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -13067,6 +12880,14 @@ export type Dusk = {
           },
           {
             "name": "minRepayOut",
+            "type": "u64"
+          },
+          {
+            "name": "maxSurplusOut",
+            "docs": [
+              "Maximum gross debt-token remainder returned after repayment. Zero",
+              "prevents wallet payouts; a bounded value permits final 1x rounding."
+            ],
             "type": "u64"
           }
         ]
@@ -14410,6 +14231,13 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "marginAmount",
+            "docs": [
+              "Gross debt-token funding from the owner. Zero increases size using borrowing only."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "minCollateralOut",
             "type": "u64"
           }
@@ -15232,6 +15060,13 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
+            "name": "ownerDebit",
+            "docs": [
+              "Gross debt-token payment from the wallet, including any transfer fee."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "borrowedAmount",
             "type": "u64"
           },
@@ -15266,8 +15101,8 @@ export type Dusk = {
           {
             "name": "closeoutValue",
             "docs": [
-              "Executable closeout quote, or zero when unquoted by repay_leverage or",
-              "when add_leverage_margin fully clears the debt. Collateral remains owned."
+              "Executable closeout quote, or zero when unquoted by repayment or an",
+              "operation leaving debt-free collateral. Zero is not a collateral valuation."
             ],
             "type": "u64"
           },
@@ -18490,26 +18325,6 @@ export type Dusk = {
           {
             "name": "recipient",
             "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
-      "name": "removeLeverageMarginArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "debtAsset",
-            "type": "u8"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          },
-          {
-            "name": "minAmountOut",
-            "type": "u64"
           }
         ]
       }

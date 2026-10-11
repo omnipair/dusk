@@ -427,15 +427,6 @@ pub mod dusk {
         AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, false)
     }
 
-    pub fn remove_leverage_margin<'info>(
-        ctx: Context<'_, '_, '_, 'info, RemoveLeverageMargin<'info>>,
-        args: RemoveLeverageMarginArgs,
-    ) -> Result<()> {
-        let clock = Clock::get()?;
-        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        RemoveLeverageMargin::handle_remove_margin(ctx, args, clock.slot, clock.unix_timestamp)
-    }
-
     #[access_control(ctx.accounts.validate(&args))]
     pub fn create_leverage_delegation(
         ctx: Context<CreateLeverageDelegation>,

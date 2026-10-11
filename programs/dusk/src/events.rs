@@ -626,6 +626,8 @@ pub struct LeveragePositionUpdated {
     pub owner: Pubkey,
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
+    /// Gross debt-token payment from the wallet, including any transfer fee.
+    pub owner_debit: u64,
     pub borrowed_amount: u64,
     pub debt_delta: i64,
     pub collateral_delta: i64,
@@ -633,8 +635,8 @@ pub struct LeveragePositionUpdated {
     pub debt_shares: u128,
     pub collateral_amount: u64,
     pub margin_terms: crate::state::LeverageMarginTerms,
-    /// Executable closeout quote, or zero when unquoted by repay_leverage or
-    /// when add_leverage_margin fully clears the debt. Collateral remains owned.
+    /// Executable closeout quote, or zero when unquoted by repayment or an
+    /// operation leaving debt-free collateral. Zero is not a collateral valuation.
     pub closeout_value: u64,
     /// Net tokens paid to the owner by this update, if any.
     pub owner_credit: u64,

@@ -430,8 +430,9 @@ const acceptedOneUseHelpers = new Map([
       "rebase_concentrated_curve_after_terminal_hlp_loss",
       "apply_leverage_socialized_loss",
       "post_swap_closeout_quote_with_quote",
-      "debit_leverage_cash",
-      "add_isolated_borrow_debt",
+      // Repayment now has one handler after margin withdrawal was removed.
+      // Keep its hLP/risk checkpoint boundary independently parity-tested.
+      "prepare_leverage_margin_operation",
     ]),
   ],
   [

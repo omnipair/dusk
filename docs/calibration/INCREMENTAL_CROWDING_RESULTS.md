@@ -46,7 +46,9 @@ market exposure.
 
 ### 1. Checking the formula only when collateral exposure increases
 
-Dusk's `remove_leverage_margin` increases debt without increasing collateral.
+At the time of this analysis, Dusk's `remove_leverage_margin` increased debt without increasing collateral.
+That instruction was removed in the 2026-10-11 position-action redesign; the
+example below records why admission obligations must also cover debt changes.
 An exposure-only delta is therefore zero. If the resulting position were checked
 only against its own-size initial margin, each $15,000 position could retain
 $2,500. The two later entries could withdraw $500 each, undoing $1,000 of the

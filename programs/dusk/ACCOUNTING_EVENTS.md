@@ -236,3 +236,17 @@ Use observe/preview/begin/settle or emergency liquidation. Event CPI accounts
 are resolved by the SDK. `LeveragePositionUpdated` continues to expose collected
 interest for voluntary position operations. Indexers should implement the new
 liquidation events above before consuming this program revision.
+
+The position-action revision adds `LeveragePositionUpdated.owner_debit`: gross
+wallet funding in the debt token, including its transfer fee. `borrowed_amount`
+is separate protocol borrowing; `owner_credit` is the net debt-token refund or
+partial-close payout. Repayment contributions must not be counted as trading
+PnL. `closeout_value = 0` may mean unquoted (including a debt-free remainder),
+not worthless collateral. Use holdings, indexed debt and a labeled mark for
+current equity; opening `margin_amount` and `multiplier_bps` remain entry metadata.
+
+Funded add-to uses `increase_leverage` with `margin_amount`; owner partial closes
+use `close_leverage.close_bps`. Decrease-size can clear the debt and emit a bounded
+refund while keeping collateral. Standalone `remove_leverage_margin` is removed.
+See [position actions](../../docs/LEVERAGE_POSITION_ACTIONS.md) for client helpers
+and the full gross/net contract. These changes add no new persistent layout.

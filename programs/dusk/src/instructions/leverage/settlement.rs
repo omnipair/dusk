@@ -37,7 +37,6 @@ use crate::{
 
 pub const LEVERAGE_DELEGATE_CLOSE: u32 = 1 << 0;
 pub const LEVERAGE_DELEGATE_ADD_MARGIN: u32 = 1 << 1;
-pub const LEVERAGE_DELEGATE_REMOVE_MARGIN: u32 = 1 << 2;
 pub const LEVERAGE_DELEGATE_INCREASE: u32 = 1 << 3;
 pub const LEVERAGE_DELEGATE_DECREASE: u32 = 1 << 4;
 pub const LEVERAGE_DELEGATE_CLOSE_SETTLED: u32 = 1 << 5;

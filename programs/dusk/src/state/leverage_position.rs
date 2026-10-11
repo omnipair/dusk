@@ -105,8 +105,17 @@ impl LeveragePosition {
     }
 
     pub fn require_open(&self) -> Result<()> {
-        self.require_idle()?;
+        self.require_collateral()?;
         require!(self.debt_shares > 0, ErrorCode::ZeroDebtAmount);
+        Ok(())
+    }
+
+    /// Includes a fully repaid position whose held asset remains in custody.
+    pub fn require_collateral(&self) -> Result<()> {
+        self.require_idle()?;
+        if self.debt_shares == 0 {
+            require_eq!(self.debt_principal, 0, ErrorCode::BrokenInvariant);
+        }
         require!(self.collateral_amount > 0, ErrorCode::InsufficientAmount);
         Ok(())
     }

@@ -7404,7 +7404,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
 
     const increaseTx = await program.methods
-      .increaseLeverage({
+      .increaseLeverage({ marginAmount: new BN(0),
         debtAsset: 1,
         debtAmount: new BN(100),
         minCollateralOut: new BN(1),
@@ -7420,6 +7420,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         collateralReserveVault: fixture.baseReserveVault,
         leverageCollateralVault,
         owner: payer.publicKey,
+        ownerDebtAccount: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -7825,7 +7826,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(BigInt(open.swap.amountIn.toString())).to.equal(netDebt(1_000_000n) + BigInt(open.borrowedAmount.toString()));
       expect(await balance(ownerCollateralAccount)).to.equal(collateralBefore);
       expect(await balance(ownerDebtAccount)).to.equal(debtBefore - 1_000_000n);
-      const collateral = BigInt(open.collateralAmount.toString());
+      let collateral = BigInt(open.collateralAmount.toString());
       expect(await balance(leverageCollateralVault)).to.equal(collateral);
       const before = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
       const repayment = await program.methods.repayLeverage({ debtAsset, amount: new BN(100_000) })
@@ -7845,7 +7846,116 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         ownerDebtAccount, debtInterestVault: debtAsset === 1 ? fixture.quoteInterestVault : fixture.baseInterestVault,
         delegateFeeRecipient: null, delegateExecutorAccount: null,
         leverageDelegation: null, delegatedProgram: null };
-      const closeTx = (minimum: anchor.BN, payout = ownerDebtAccount) => program.methods.closeLeverage({ debtAsset, minAmountOut: minimum })
+      // Add-to-position uses measured debt-token funding plus explicit borrowing.
+      const fund = (funding: PublicKey, minOut = new BN(1)) => program.methods.increaseLeverage({
+        debtAsset, debtAmount: new BN(50_000), marginAmount: new BN(100_000), minCollateralOut: minOut,
+      }).accounts({ ...common, owner: payer.publicKey, positionOwner: payer.publicKey, ownerDebtAccount: funding })
+        .remainingAccounts(remaining).transaction();
+      const walletBeforeFunding = await balance(ownerDebtAccount);
+      const positionBeforeFunding = Buffer.from(svm.getAccount(leveragePosition)!.data);
+      for (const invalid of [await fund(ownerCollateralAccount), await fund(ownerDebtAccount, new BN("18446744073709551615"))]) {
+        rejected = false;
+        try { await connection.sendTransaction(invalid, [payer]); } catch { rejected = true; }
+        expect(rejected, "wrong funding or unmet output must roll back the deposit").to.equal(true);
+        expect(await balance(ownerDebtAccount)).to.equal(walletBeforeFunding);
+        expect(Buffer.from(svm.getAccount(leveragePosition)!.data).equals(positionBeforeFunding)).to.equal(true);
+      }
+      const fundedTx = await fund(ownerDebtAccount);
+      await connection.sendTransaction(fundedTx, [payer]);
+      const funded = cpiEvent(fundedTx, "leveragePositionUpdated");
+      expect(BigInt(funded.ownerDebit.toString())).to.equal(100_000n);
+      expect(BigInt(funded.swap.amountIn.toString())).to.equal(netDebt(100_000n) + 50_000n);
+      expect(await balance(ownerDebtAccount)).to.equal(walletBeforeFunding - 100_000n);
+      collateral = BigInt(funded.collateralAmount.toString());
+      expect(await balance(leverageCollateralVault)).to.equal(collateral);
+      trackV2Instruction("increaseLeverage", this.test?.title);
+
+      // Owner partial closes repay a proportional slice and return net equity.
+      const partialBefore = await balance(ownerDebtAccount);
+      const partialTx = await program.methods.closeLeverage({ debtAsset, closeBps: 5000, minAmountOut: new BN(1) })
+        .accounts(closeAccounts).remainingAccounts(remaining).transaction();
+      await connection.sendTransaction(partialTx, [payer]);
+      const partial = cpiEvent(partialTx, "leveragePositionUpdated");
+      expect(BigInt(partial.collateralAmount.toString())).to.equal(collateral - collateral / 2n);
+      expect(await balance(ownerDebtAccount) - partialBefore).to.equal(BigInt(partial.ownerCredit.toString()));
+      expect(BigInt(partial.ownerCredit.toString()) > 0n).to.equal(true);
+      expect(svm.getAccount(leveragePosition)).to.not.equal(null);
+      collateral = BigInt(partial.collateralAmount.toString());
+
+      // A bounded full debt repayment leaves a debt-free position and refunds excess.
+      const reduce = (maxSurplus: anchor.BN) => program.methods.decreaseLeverage({
+        debtAsset, collateralAmount: new BN((collateral * 4n / 5n).toString()), minRepayOut: new BN(1), maxSurplusOut: maxSurplus,
+      }).accounts({ ...common, positionOwner: payer.publicKey, owner: payer.publicKey, ownerDebtAccount,
+        debtInterestVault: closeAccounts.debtInterestVault }).remainingAccounts(remaining).transaction();
+      const beforeReduce = Buffer.from(svm.getAccount(leveragePosition)!.data);
+      const walletBeforeReduce = await balance(ownerDebtAccount);
+      rejected = false;
+      try { await connection.sendTransaction(await reduce(new BN(0)), [payer]); } catch { rejected = true; }
+      expect(rejected, "a strict decrease cannot cash out unapproved surplus").to.equal(true);
+      expect(Buffer.from(svm.getAccount(leveragePosition)!.data).equals(beforeReduce)).to.equal(true);
+      expect(await balance(ownerDebtAccount)).to.equal(walletBeforeReduce);
+      const reducedTx = await reduce(new BN("18446744073709551615"));
+      await connection.sendTransaction(reducedTx, [payer]);
+      const reduced = cpiEvent(reducedTx, "leveragePositionUpdated");
+      expect(reduced.debtShares.toString()).to.equal("0");
+      expect(reduced.debtAmount.toString()).to.equal("0");
+      expect(await balance(ownerDebtAccount) - walletBeforeReduce).to.equal(BigInt(reduced.ownerCredit.toString()));
+      collateral = BigInt(reduced.collateralAmount.toString());
+      expect(await balance(leverageCollateralVault)).to.equal(collateral);
+      const exposure = () => {
+        const market = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+        return BigInt((debtAsset === 1 ? market.debt.leverage_base_collateral : market.debt.leverage_quote_collateral).toString());
+      };
+      expect(exposure()).to.equal(0n);
+      trackV2Instruction("decreaseLeverage", this.test?.title);
+
+      // Wallet-only add-to at 1x stays outside leveraged crowding totals.
+      const unleveredAdd = await program.methods.increaseLeverage({ debtAsset, marginAmount: new BN(1000),
+        debtAmount: new BN(0), minCollateralOut: new BN(1) })
+        .accounts({ ...common, positionOwner: payer.publicKey, owner: payer.publicKey, ownerDebtAccount })
+        .remainingAccounts(remaining).transaction();
+      await connection.sendTransaction(unleveredAdd, [payer]);
+      const unlevered = cpiEvent(unleveredAdd, "leveragePositionUpdated");
+      expect(unlevered.debtShares.toString()).to.equal("0");
+      expect(BigInt(unlevered.collateralAmount.toString()) > collateral).to.equal(true);
+      collateral = BigInt(unlevered.collateralAmount.toString());
+      expect(exposure()).to.equal(0n);
+      expect(await balance(leverageCollateralVault)).to.equal(collateral);
+
+      // Reborrowing after 1x restores ALL held collateral to the crowding total.
+      const reborrow = await program.methods.increaseLeverage({ debtAsset, marginAmount: new BN(0),
+        debtAmount: new BN(1000), minCollateralOut: new BN(1) })
+        .accounts({ ...common, positionOwner: payer.publicKey, owner: payer.publicKey, ownerDebtAccount: null })
+        .remainingAccounts(remaining).transaction();
+      await connection.sendTransaction(reborrow, [payer]);
+      const restarted = cpiEvent(reborrow, "leveragePositionUpdated");
+      collateral = BigInt(restarted.collateralAmount.toString());
+      expect(exposure()).to.equal(collateral);
+      expect(BigInt(restarted.marginTerms.admissionEquityCollateralNad.toString()) > 0n).to.equal(true);
+
+      if (transferFeeBps > 0) {
+        // A repaid position supports owner partial and full closes as actual
+        // token transfers, including transfer-fee payout and custody accounting.
+        const repayAll = await program.methods.repayLeverage({ debtAsset, amount: new BN(2000) })
+          .accounts({ ...common, positionOwner: payer.publicKey, owner: payer.publicKey, ownerDebtAccount,
+            debtInterestVault: closeAccounts.debtInterestVault }).transaction();
+        await connection.sendTransaction(repayAll, [payer]);
+        expect(cpiEvent(repayAll, "leveragePositionUpdated").debtShares.toString()).to.equal("0");
+        // This repeats the earlier 50% close arguments on the updated state.
+        svm.expireBlockhash();
+        const unleveredClose = await program.methods.closeLeverage({ debtAsset, closeBps: 5000, minAmountOut: new BN(1) })
+          .accounts(closeAccounts).remainingAccounts(remaining).transaction();
+        const walletBefore = await balance(ownerDebtAccount);
+        await connection.sendTransaction(unleveredClose, [payer]);
+        const unleveredPartial = cpiEvent(unleveredClose, "leveragePositionUpdated");
+        expect(unleveredPartial.debtShares.toString()).to.equal("0");
+        expect(await balance(ownerDebtAccount) - walletBefore).to.equal(BigInt(unleveredPartial.ownerCredit.toString()));
+        collateral = BigInt(unleveredPartial.collateralAmount.toString());
+        expect(await balance(leverageCollateralVault)).to.equal(collateral);
+        expect(exposure()).to.equal(0n);
+      }
+
+      const closeTx = (minimum: anchor.BN, payout = ownerDebtAccount) => program.methods.closeLeverage({ closeBps: 10_000, debtAsset, minAmountOut: minimum })
         .accounts({ ...closeAccounts, ownerDebtAccount: payout }).remainingAccounts(remaining).transaction();
       for (const tx of [await closeTx(new BN(0), ownerCollateralAccount), await closeTx(new BN("18446744073709551615"))]) {
         rejected = false;
@@ -8027,7 +8137,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       fixture.quoteInterestVault
     );
     const closeTx = await program.methods
-      .closeLeverage({
+      .closeLeverage({ closeBps: 10_000,
         debtAsset: 1,
         minAmountOut: new BN(0),
       })
@@ -8242,42 +8352,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const debtSharesAfterAddMargin = BigInt(position.debt_shares.toString());
     expect(debtSharesAfterAddMargin < debtSharesAfterOpen).to.equal(true);
 
-    const removeMarginTx = await program.methods
-      .removeLeverageMargin({
-        debtAsset: 1,
-        amount: new BN(50),
-        minAmountOut: new BN(50),
-      })
-      .accounts({
-        market: fixture.market,
-        futarchyAuthority,
-        positionOwner: payer.publicKey,
-        leveragePosition,
-        debtMint: fixture.quoteMint,
-        collateralMint: fixture.baseMint,
-        debtReserveVault: fixture.quoteReserveVault,
-        ownerDebtAccount: fixture.ownerQuoteAccount,
-        owner: payer.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(removeMarginTx, [payer]);
-    expect(cpiEvents(removeMarginTx).filter((event) => event.name === "swapExecuted")).to.have.length(0);
-    trackV2Instruction("removeLeverageMargin", this.test?.title);
-
-    updatedPositionAccount = svm.getAccount(leveragePosition);
-    expect(updatedPositionAccount).to.not.equal(null);
-    position = accountCoder.decode(
-      "LeveragePosition",
-      Buffer.from(updatedPositionAccount!.data)
-    ) as any;
-    expect(BigInt(position.debt_shares.toString()) > debtSharesAfterAddMargin).to.equal(true);
+    // Standalone margin withdrawal is no longer a public program instruction.
+    expect(program.idl.instructions.some((ix) => ix.name === "removeLeverageMargin")).to.equal(false);
 
     const increaseTx = await program.methods
-      .increaseLeverage({
+      .increaseLeverage({ marginAmount: new BN(0),
         debtAsset: 1,
         debtAmount: new BN(100),
         minCollateralOut: new BN(1),
@@ -8293,6 +8372,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         collateralReserveVault: fixture.baseReserveVault,
         leverageCollateralVault,
         owner: payer.publicKey,
+        ownerDebtAccount: null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -8317,7 +8397,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const collateralAfterIncrease = position.collateral_amount.toNumber();
 
     const decreaseTx = await program.methods
-      .decreaseLeverage({
+      .decreaseLeverage({ maxSurplusOut: new BN(0),
         debtAsset: 1,
         collateralAmount: new BN(25),
         minRepayOut: new BN(1),
@@ -8336,6 +8416,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         referralPartner: null,
         referralAccrual: null,
         owner: payer.publicKey,
+        ownerDebtAccount: fixture.ownerQuoteAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -8475,7 +8556,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
       const ownerQuoteBefore = await getAccount(connection as any, fixture.ownerQuoteAccount, undefined, assetProgram);
       const closeTx = await program.methods
-        .closeLeverage({
+        .closeLeverage({ closeBps: 10_000,
           debtAsset: 1,
           minAmountOut: new BN(0),
         })
@@ -8532,7 +8613,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect((await getAccount(connection as any, leverageCollateralVault, undefined, TOKEN_2022_PROGRAM_ID)).amount)
       .to.equal(storedCollateral);
 
-    const closeTx = await program.methods.closeLeverage({ debtAsset: 1, minAmountOut: new BN(0) })
+    const closeTx = await program.methods.closeLeverage({ closeBps: 10_000, debtAsset: 1, minAmountOut: new BN(0) })
       .accounts({
         market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
         leveragePosition, debtMint: fixture.quoteMint, collateralMint: fixture.baseMint,
@@ -8574,7 +8655,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     clock.unixTimestamp += 2_000n;
     svm.setClock(clock);
     svm.expireBlockhash();
-    const closeTx = await program.methods.closeLeverage({ debtAsset: 1, minAmountOut: new BN(0) })
+    const closeTx = await program.methods.closeLeverage({ closeBps: 10_000, debtAsset: 1, minAmountOut: new BN(0) })
       .accounts({
         market: fixture.market, futarchyAuthority, positionOwner: payer.publicKey,
         leveragePosition, debtMint: fixture.quoteMint, collateralMint: fixture.baseMint,

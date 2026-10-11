@@ -1,5 +1,50 @@
 use super::*;
 
+// Reference-ledger helpers for lifecycle parity tests; no production callers remain.
+impl Market {
+    fn debit_leverage_cash(&mut self, debt_asset: MarketAsset, gross_debt: u64) -> Result<()> {
+        require_gte!(
+            self.side(debt_asset).reserves.cash_reserve,
+            gross_debt,
+            ErrorCode::InsufficientBorrowHeadroom
+        );
+        let debt_side = self.side_mut(debt_asset);
+        debt_side.reserves.cash_reserve = debt_side
+            .reserves
+            .cash_reserve
+            .checked_sub(gross_debt)
+            .ok_or(ErrorCode::CashReserveUnderflow)?;
+        Ok(())
+    }
+
+    fn add_isolated_borrow_debt(&mut self, debt_asset: MarketAsset, cash_debit: u64) -> Result<u128> {
+        let aggregate_debt_before = self.debt.isolated_debt(debt_asset)?;
+        let shares = self.debt.add_isolated_debt(debt_asset, cash_debit)?;
+        let aggregate_debt_after = self.debt.isolated_debt(debt_asset)?;
+        let aggregate_debt_increase = u64::try_from(
+            aggregate_debt_after
+                .checked_sub(aggregate_debt_before)
+                .ok_or(ErrorCode::DebtMathOverflow)?,
+        )
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let side = self.side_mut(debt_asset);
+        if aggregate_debt_increase > cash_debit {
+            side.reserves.live_reserve = side
+                .reserves
+                .live_reserve
+                .checked_add(aggregate_debt_increase - cash_debit)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+        } else if aggregate_debt_increase < cash_debit {
+            side.reserves.live_reserve = side
+                .reserves
+                .live_reserve
+                .checked_sub(cash_debit - aggregate_debt_increase)
+                .ok_or(ErrorCode::ReserveUnderflow)?;
+        }
+        Ok(shares)
+    }
+}
+
 const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1000;
 const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700;
 
@@ -13,6 +58,10 @@ mod margin_calibration {
 
 mod flash_liquidation {
     include!("flash_liquidation.rs");
+}
+
+mod position_actions {
+    include!("leverage_position_actions.rs");
 }
 
 use crate::transitions::amm::SwapRequest;
@@ -1066,6 +1115,7 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
         .increase_leverage(
             &mut position,
             100,
+            0,
             increase_quote.amount_out,
             prepared_leverage_swap(
                 &market,
@@ -1091,33 +1141,15 @@ fn referred_leverage_records_exact_debt_and_binds_partner() {
 }
 
 #[test]
-fn remove_leverage_margin_does_not_consume_the_public_borrow_bucket() {
-    let mut market = test_market(1_000_000, 1_000_000);
-    let mut position = seeded_position(&mut market, MarketAsset::Base, 100, 1_000);
-
-    let receipt = market.remove_leverage_margin(&mut position, 10, 0, 0, LeverageCollateralFee::default()).unwrap();
-
-    assert_eq!(receipt.borrowed_amount, 10);
-    assert_eq!(receipt.debt_delta, 10);
-    assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 0);
-}
-
-#[test]
 fn isolated_leverage_ignores_capacity_used_by_public_borrowers() {
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 100, 1_000);
-    let remaining_for_isolated = 9;
-    let limit = market
-        .daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps)
-        .unwrap();
-    market
-        .side_mut(MarketAsset::Base)
-        .daily_borrow_bucket
-        .record_borrow(limit - remaining_for_isolated, limit, 0)
-        .unwrap();
-
-    let receipt = market.remove_leverage_margin(&mut position, 10, 0, 0, LeverageCollateralFee::default()).unwrap();
-
+    let limit = market.daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps).unwrap();
+    market.side_mut(MarketAsset::Base).daily_borrow_bucket.record_borrow(limit - 9, limit, 0).unwrap();
+    let quote = market.quote_leverage_swap(MarketAsset::Base, 10, 0).unwrap();
+    let prepared = prepared_leverage_swap(&market, quote, SwapCashPolicy::Borrow { asset: MarketAsset::Base, amount: 10 });
+    let receipt = market.increase_leverage(&mut position, 10, 0, quote.amount_out, prepared,
+        full_fee_credit(&quote), 0, ProtocolAuctionSplit::default(), 0, 0, LeverageCollateralFee::default()).unwrap();
     assert_eq!(receipt.borrowed_amount, 10);
     assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, limit - 9);
 }
@@ -1963,6 +1995,7 @@ fn concentrated_increase_leverage_checkpoints_active_hlp_exposure() {
         .increase_leverage(
             &mut position,
             100 * scale,
+            0,
             quote.amount_out,
             prepared,
             full_fee_credit(&quote),
@@ -2002,6 +2035,7 @@ fn concentrated_decrease_leverage_checkpoints_active_hlp_exposure() {
         .decrease_leverage(
             &mut position,
             100 * scale,
+            0,
             0,
             &mut prepared,
             full_fee_credit(&quote),

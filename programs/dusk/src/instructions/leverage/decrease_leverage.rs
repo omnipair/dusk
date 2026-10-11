@@ -31,6 +31,9 @@ pub struct DecreaseLeverageArgs {
     pub debt_asset: u8,
     pub collateral_amount: u64,
     pub min_repay_out: u64,
+    /// Maximum gross debt-token remainder returned after repayment. Zero
+    /// prevents wallet payouts; a bounded value permits final 1x rounding.
+    pub max_surplus_out: u64,
 }
 
 #[event_cpi]
@@ -70,6 +73,10 @@ pub struct DecreaseLeverage<'info> {
     pub collateral_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub debt_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    #[account(mut, constraint = owner_debt_account.owner == leverage_position.owner @ ErrorCode::InvalidTokenAccount,
+        constraint = owner_debt_account.mint == debt_mint.key() @ ErrorCode::InvalidTokenAccount)]
+    pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -211,6 +218,7 @@ impl<'info> DecreaseLeverage<'info> {
             &mut ctx.accounts.leverage_position,
             args.collateral_amount,
             args.min_repay_out,
+            args.max_surplus_out,
             &mut prepared_swap,
             swap_fee_credit,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
@@ -262,6 +270,27 @@ impl<'info> DecreaseLeverage<'info> {
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
 
+        // Return output not needed to burn debt shares, including final 1x rounding.
+        let owner_before = ctx.accounts.owner_debt_account.amount;
+        if receipt.owner_residual > 0 {
+            transfer_checked_with_remaining_accounts(
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.debt_reserve_vault.to_account_info(),
+                ctx.accounts.owner_debt_account.to_account_info(),
+                ctx.accounts.debt_mint.to_account_info(),
+                token_program_for_mint(
+                    &ctx.accounts.debt_mint,
+                    &ctx.accounts.token_program,
+                    &ctx.accounts.token_2022_program,
+                )?,
+                receipt.owner_residual,
+                ctx.accounts.debt_mint.decimals,
+                &[&generate_market_seeds!(ctx.accounts.market)[..]],
+                h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+            )?;
+        }
+        ctx.accounts.owner_debt_account.reload()?;
+        let owner_credit = token_account_credit(owner_before, &ctx.accounts.owner_debt_account)?;
         // Reconcile physical reserve custody after inline settlement.
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;
@@ -319,6 +348,7 @@ impl<'info> DecreaseLeverage<'info> {
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
+            owner_debit: 0,
             borrowed_amount: receipt.borrowed_amount,
             debt_delta: receipt.debt_delta,
             collateral_delta: receipt.collateral_delta,
@@ -327,7 +357,7 @@ impl<'info> DecreaseLeverage<'info> {
             collateral_amount: receipt.collateral_amount,
             margin_terms: ctx.accounts.leverage_position.margin_terms,
             closeout_value: receipt.closeout_value,
-            owner_credit: 0,
+            owner_credit,
             interest_paid: receipt.interest_paid,
             swap: Some(swap_event),
             metadata: MarketEventMetadata::at_slot(owner_key, market_key, current_slot),

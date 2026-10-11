@@ -248,7 +248,8 @@ delegated_close_leverage
 increase_leverage
 decrease_leverage
 add_leverage_margin
-remove_leverage_margin
+repay_leverage
+withdraw_repaid_leverage
 create_leverage_delegation
 update_leverage_delegation
 close_leverage_delegation

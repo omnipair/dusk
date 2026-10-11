@@ -40,9 +40,9 @@ Dusk exposes the current market instruction set:
 - `swap`, `rescue_hlp`, `close_insolvent_hlp`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
-- `start_liquidation_auction`, `fill_liquidation_auction`, `backstop_liquidation_auction`
+- `observe_liquidation`, `preview_flash_liquidation`, `begin_flash_liquidation`, `settle_flash_liquidation`, `preview_emergency_liquidation`, `emergency_liquidation`
 - `deposit_single_sided`, `withdraw_single_sided`
-- `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage_position`
+- `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `repay_leverage`, `withdraw_repaid_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
 - `preview_market`, `preview_hlp_order_trigger`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position`
 - Futarchy and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `update_protocol_auction_route`, `set_global_reduce_only`, `settle_protocol_auction`

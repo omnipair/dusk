@@ -217,7 +217,7 @@ The baseline inventory below is from `programs/dusk/src/lib.rs` at PR #45 head `
 | Entry/path | Required treatment while active |
 | --- | --- |
 | `open_leverage` / account initialization | Cannot overwrite/reinitialize an active or existing nonempty position. Verify same-transaction close/reopen behavior and position incarnation binding. |
-| `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `repay_leverage`, `remove_leverage_margin` | Require idle before mutation. `repay_leverage` shares the add-margin handler and must not be missed because it does not sell collateral. |
+| `increase_leverage` (including funded add-to), `decrease_leverage`, `add_leverage_margin`, `repay_leverage` | Require idle before mutation. `repay_leverage` shares the add-margin handler and must not be missed because it does not sell collateral. Standalone margin withdrawal has been removed. |
 | `close_leverage`, `delegated_close_leverage`, existing full liquidation | Require idle for ordinary paths. Preserve owner-owned payouts and reject callbacks that try to erase or move the bound obligation. Partial flash settlement must not inherit unconditional account closure. |
 | `withdraw_repaid_leverage` | Explicit idle check before its zero-debt check, transfer, and unconditional account closure. A zero-collateral implicit lock would not reliably cover this lifecycle. |
 | Create/update/close delegation and delegate protection/order execution | Freeze position-linked authorization changes while active or prove a specifically permitted change cannot invalidate the session. Dusk must enforce the guard at its own CPI entrypoints; checks only in the delegate program are insufficient. |

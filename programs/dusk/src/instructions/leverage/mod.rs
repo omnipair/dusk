@@ -4,7 +4,6 @@ pub mod decrease_leverage;
 pub mod delegation;
 pub mod increase_leverage;
 pub mod open_leverage;
-pub mod remove_leverage_margin;
 pub(crate) mod settlement;
 
 pub use add_leverage_margin::*;
@@ -13,13 +12,12 @@ pub use decrease_leverage::*;
 pub use delegation::*;
 pub use increase_leverage::*;
 pub use open_leverage::*;
-pub use remove_leverage_margin::*;
 
 pub use settlement::{
     lending_market_admission_fees, leverage_collateral_admission_fee, leverage_collateral_fee,
     leverage_collateral_liquidation_fee, leverage_position_pda, DelegatedCpiArgs, LeverageDelegationApproval,
     LEVERAGE_DELEGATE_ADD_MARGIN, LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED, LEVERAGE_DELEGATE_DECREASE,
-    LEVERAGE_DELEGATE_INCREASE, LEVERAGE_DELEGATE_REMOVE_MARGIN, LEVERAGE_HLP_ACCOUNT_PREFIX_LEN,
+    LEVERAGE_DELEGATE_INCREASE, LEVERAGE_HLP_ACCOUNT_PREFIX_LEN,
 };
 
 mod withdraw_repaid_leverage;

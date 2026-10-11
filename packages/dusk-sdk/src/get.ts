@@ -1,4 +1,5 @@
 import type { BN, Program } from "@coral-xyz/anchor";
+import { previewLeverageAction, type PreviewLeverageActionParams } from "./leverage-preview.js";
 import { PublicKey, TransactionInstruction, type Commitment } from "@solana/web3.js";
 import {
   simulatePreviewWithContext,
@@ -189,6 +190,10 @@ export class DuskGet {
   /** Fetch saved margin terms; does not quote an opening or an increase. */
   async leverageMargins(account: AddressLike) {
     return getStoredLeverageMargins(await this.leveragePosition(account));
+  }
+
+  previewLeverageAction(params: PreviewLeverageActionParams) {
+    return previewLeverageAction(this.program, params);
   }
 
   leverageDelegation(account: AddressLike): Promise<LeverageDelegation> {

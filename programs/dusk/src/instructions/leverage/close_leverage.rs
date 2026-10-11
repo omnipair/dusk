@@ -36,6 +36,8 @@ use crate::{
 pub struct CloseLeverageArgs {
     pub debt_asset: u8,
     pub min_amount_out: u64,
+    /// Percentage of current collateral and debt to close, in basis points.
+    pub close_bps: u16,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -226,7 +228,11 @@ impl<'info> CloseLeverage<'info> {
             self.position_owner.key(),
             ErrorCode::InvalidTokenAccount
         );
-        self.leverage_position.require_open()?;
+        self.leverage_position.require_collateral()?;
+        require!(
+            args.close_bps > 0 && args.close_bps <= BPS_DENOMINATOR,
+            ErrorCode::InvalidArgument
+        );
         self.leverage_position
             .assert_position(self.position_owner.key(), self.market.key(), debt_asset)?;
         validate_referral_binding(
@@ -258,9 +264,11 @@ impl<'info> CloseLeverage<'info> {
             &CloseLeverageArgs {
                 debt_asset: args.debt_asset,
                 min_amount_out: args.min_amount_out,
+                close_bps: args.close_bps,
             },
             unix_timestamp,
         )?;
+        self.leverage_position.require_open()?;
         require!(
             args.close_bps > 0 && args.close_bps <= BPS_DENOMINATOR,
             ErrorCode::InvalidArgument
@@ -338,12 +346,13 @@ impl<'info> CloseLeverage<'info> {
         current_epoch: u64,
         current_unix_timestamp: i64,
     ) -> Result<()> {
+        let close_bps = args.close_bps;
         Self::execute(
             ctx,
             args,
             None,
             CloseMode::Owner,
-            BPS_DENOMINATOR,
+            close_bps,
             current_slot,
             current_epoch,
             current_unix_timestamp,
@@ -362,6 +371,7 @@ impl<'info> CloseLeverage<'info> {
             CloseLeverageArgs {
                 debt_asset: args.debt_asset,
                 min_amount_out: args.min_amount_out,
+                close_bps: args.close_bps,
             },
             Some(args.delegated),
             CloseMode::Delegate,
@@ -418,12 +428,15 @@ impl<'info> CloseLeverage<'info> {
         let collateral_sold = close_slice.collateral_amount;
         let is_full_close = close_bps == BPS_DENOMINATOR;
         // Price the selected close before an optional delegated approval callback.
-        let debt_amount = ctx
-            .accounts
-            .market
-            .debt
-            .isolated_repayment_for_max(debt_asset, close_slice.debt_shares, u64::MAX)?
-            .cash_repaid;
+        let debt_amount = if close_slice.debt_shares > 0 {
+            ctx.accounts
+                .market
+                .debt
+                .isolated_repayment_for_max(debt_asset, close_slice.debt_shares, u64::MAX)?
+                .cash_repaid
+        } else {
+            0
+        };
         let expected_collateral_reserve_credit =
             leverage_collateral_credit(&ctx.accounts.collateral_mint, collateral_sold, current_epoch)?;
         let close_quote = ctx.accounts.market.quote_leverage_swap_at_time(
@@ -796,6 +809,7 @@ impl<'info> CloseLeverage<'info> {
                 debt_asset_mint: debt_mint_key,
                 collateral_asset_mint: collateral_mint_key,
                 borrowed_amount: 0,
+                owner_debit: 0,
                 debt_delta: -i64::try_from(receipt.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
                 collateral_delta: -i64::try_from(receipt.collateral_sold).map_err(|_| ErrorCode::Overflow)?,
                 debt_amount: receipt.remaining_debt_amount,

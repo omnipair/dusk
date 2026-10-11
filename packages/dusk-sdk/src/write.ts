@@ -1738,8 +1738,22 @@ export class DuskWrite {
    * a Token-2022 side needs no caller branching.
    */
   /** Borrow more against an open position and receive collateral. */
-  async increaseLeverageInstruction(
-    params: IncreaseLeverageParams
+  async increaseLeverageInstruction(params: IncreaseLeverageParams): Promise<TransactionInstruction> {
+    return this.fundLeverageInstruction(params, 0n);
+  }
+
+  /** Add debt-token equity and optional borrowing to the same position. */
+  async addToLeverageInstruction(params: AddToLeverageParams): Promise<TransactionInstruction> {
+    if (BigInt(params.marginAmount.toString()) <= 0n) throw new RangeError("marginAmount must be positive");
+    return this.fundLeverageInstruction(params, params.marginAmount, params.ownerDebtAccount);
+  }
+
+  async addToLeverageTransaction(params: AddToLeverageParams): Promise<Transaction> {
+    return new Transaction().add(await this.addToLeverageInstruction(params));
+  }
+
+  private async fundLeverageInstruction(
+    params: IncreaseLeverageParams, marginAmount: RawAmount, ownerDebtAccount?: AddressLike
   ): Promise<TransactionInstruction> {
     const core = await this.resolveLeverageAccounts(params);
     return this.instruction(
@@ -1747,6 +1761,7 @@ export class DuskWrite {
       {
         debtAsset: marketAssetIndex(params.debtAsset),
         debtAmount: governanceIntegerBN(params.debtAmount, "debtAmount"),
+        marginAmount: governanceIntegerBN(marginAmount, "marginAmount"),
         minCollateralOut: governanceIntegerBN(
           params.minCollateralOut,
           "minCollateralOut"
@@ -1764,6 +1779,7 @@ export class DuskWrite {
           collateralReserveVault: core.collateralReserveVault,
           leverageCollateralVault: core.leverageCollateralVault,
           owner: core.owner,
+          ownerDebtAccount: ownerDebtAccount ? address(ownerDebtAccount) : null,
           instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
           tokenProgram: core.tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1798,6 +1814,7 @@ export class DuskWrite {
           "collateralAmount"
         ),
         minRepayOut: governanceIntegerBN(params.minRepayOut, "minRepayOut"),
+        maxSurplusOut: governanceIntegerBN(params.maxSurplusOut ?? 0n, "maxSurplusOut"),
       },
       {
         accounts: {
@@ -1810,6 +1827,7 @@ export class DuskWrite {
           debtReserveVault: core.debtReserveVault,
           collateralReserveVault: core.collateralReserveVault,
           debtInterestVault: core.debtInterestVault,
+          ownerDebtAccount: address(params.ownerDebtAccount),
           leverageCollateralVault: core.leverageCollateralVault,
           referralPartner: core.referralPartner,
           referralAccrual: core.referralAccrual,
@@ -1836,7 +1854,7 @@ export class DuskWrite {
 
   /** Repay anyone’s leverage debt from `owner`’s tokens; collateral stays with the position owner. */
   async addLeverageMarginInstruction(params: LeverageMarginParams): Promise<TransactionInstruction> {
-    return this.leverageRepaymentInstruction(params, "addLeverageMargin");
+    return this.repayLeverageInstruction(params);
   }
 
   /** Permissionless repayment without an unnecessary collateral-sale quote. */
@@ -1861,7 +1879,7 @@ export class DuskWrite {
           positionOwner: core.positionOwner,
           leveragePosition: core.leveragePosition,
           debtMint: core.debtMint,
-          ...(method === "addLeverageMargin" ? { collateralMint: core.collateralMint } : {}),
+          collateralMint: core.collateralMint,
           debtReserveVault: core.debtReserveVault,
           debtInterestVault: core.debtInterestVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
@@ -1876,56 +1894,20 @@ export class DuskWrite {
     );
   }
 
+  async repayLeverageTransaction(params: LeverageMarginParams): Promise<Transaction> {
+    return new Transaction().add(await this.repayLeverageInstruction(params));
+  }
+
   async addLeverageMarginTransaction(
     params: LeverageMarginParams
   ): Promise<Transaction> {
     return new Transaction().add(
-      await this.addLeverageMarginInstruction(params)
-    );
-  }
-
-  /** Withdraw surplus margin, bounded by the position's health. */
-  async removeLeverageMarginInstruction(
-    params: RemoveLeverageMarginParams
-  ): Promise<TransactionInstruction> {
-    const core = await this.resolveLeverageAccounts(params);
-    return this.instruction(
-      "removeLeverageMargin" as DuskInstructionName,
-      {
-        debtAsset: marketAssetIndex(params.debtAsset),
-        amount: governanceIntegerBN(params.amount, "amount"),
-        minAmountOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
-      },
-      {
-        accounts: {
-          market: core.market,
-          futarchyAuthority: core.futarchyAuthority,
-          positionOwner: core.positionOwner,
-          leveragePosition: core.leveragePosition,
-          debtMint: core.debtMint,
-          collateralMint: core.collateralMint,
-          debtReserveVault: core.debtReserveVault,
-          ownerDebtAccount: address(params.ownerDebtAccount),
-          owner: core.owner,
-          tokenProgram: core.tokenProgram,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-        },
-        remainingAccounts: params.remainingAccounts,
-      }
-    );
-  }
-
-  async removeLeverageMarginTransaction(
-    params: RemoveLeverageMarginParams
-  ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.removeLeverageMarginInstruction(params)
+      await this.repayLeverageInstruction(params)
     );
   }
 
   /**
-   * Close a position. Owner-signed by default; pass the delegation accounts to
-   * settle through `leverage_delegate` instead.
+   * Owner-signed proportional partial/full close. Delegated closes use the delegate client.
    */
   async closeLeverageInstruction(
     params: CloseLeverageParams,
@@ -1933,12 +1915,16 @@ export class DuskWrite {
   ): Promise<TransactionInstruction> {
     if ("collateralFunded" in params && params.collateralFunded === true)
       throw new Error("Collateral-funded leverage closes are no longer supported");
+    const closeBps = params.closeBps ?? 10_000;
+    if (!Number.isSafeInteger(closeBps) || closeBps <= 0 || closeBps > 10_000)
+      throw new RangeError("closeBps must be between 1 and 10000");
     const core = await this.resolveLeverageAccounts(params);
     return this.instruction(
       "closeLeverage",
       {
         debtAsset: marketAssetIndex(params.debtAsset),
         minAmountOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
+        closeBps,
       },
       {
         accounts: {
@@ -2167,9 +2153,19 @@ export interface IncreaseLeverageParams extends LeverageAccounts {
   minCollateralOut: RawAmount;
 }
 
+export interface AddToLeverageParams extends IncreaseLeverageParams {
+  /** Gross wallet funding in the borrowed token. */
+  marginAmount: RawAmount;
+  ownerDebtAccount: AddressLike;
+}
+
 export interface DecreaseLeverageParams extends LeverageAccounts {
   collateralAmount: RawAmount;
   minRepayOut: RawAmount;
+  /** Owner-owned debt-token account for unused repayment output. */
+  ownerDebtAccount: AddressLike;
+  /** Gross surplus limit; defaults to zero. Use a bounded value for 1x rounding. */
+  maxSurplusOut?: RawAmount;
 }
 
 export interface LeverageMarginParams extends LeverageAccounts {
@@ -2177,12 +2173,11 @@ export interface LeverageMarginParams extends LeverageAccounts {
   ownerDebtAccount: AddressLike;
 }
 
-export interface RemoveLeverageMarginParams extends LeverageMarginParams {
-  minAmountOut: RawAmount;
-}
-
 export interface CloseLeverageParams extends LeverageAccounts {
+  /** Minimum net wallet payout after all transfer fees. */
   minAmountOut: RawAmount;
+  /** Percentage of the entire position to remove. Default 10000 closes all. */
+  closeBps?: number;
   /** Payout account owned by the position owner. */
   ownerDebtAccount: AddressLike;
   /** Required for delegated closes; the two accounts receive bounded fees. */

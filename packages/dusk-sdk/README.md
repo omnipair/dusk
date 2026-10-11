@@ -194,6 +194,50 @@ sells exposure, repays the debt and returns the residual in the debt token.
 An application can swap a different wallet token into the required funding token
 before opening; the protocol has no optional collateral-funded mode.
 
+### Position actions
+
+See [the position action contract](../../docs/LEVERAGE_POSITION_ACTIONS.md) for
+amount units, rounding and the six agreed controls. All sizing is in the debt
+token on both market directions; neither token needs to be a stablecoin.
+
+- `increaseLeverageInstruction`: borrow and buy, with no wallet funding.
+- `addToLeverageInstruction`: swap `marginAmount` (gross debt-token funding) plus
+  `debtAmount` into held collateral. Select leverage for the whole resulting
+  position; `planLeverageIncrease` defaults to its current leverage.
+- `addLeverageMarginInstruction` / `repayLeverageInstruction`: repay debt without
+  swapping held collateral. No standalone margin withdrawal is supported.
+- `decreaseLeverageInstruction`: sell collateral into repayment, including full
+  repayment to 1x. `maxSurplusOut` defaults to zero and explicitly bounds any
+  gross surplus returned to the owner's debt-token account.
+- `closeLeverageInstruction`: `closeBps` selects a proportional owner partial
+  close; omit it for a full close. `minAmountOut` is net wallet receipt.
+
+`leverageActionMetrics`, `planLeverageIncrease`, `planLeverageDecrease`,
+`planLeverageRepayAll`, `leverageRepaymentQuote`, `leverageCloseSlice` and
+`leverageClosePercentage` support linked controls with bigint arithmetic.
+Sizing callbacks must use same-snapshot, fee-adjusted internal quotes. For a
+final executable check, simulate the actual action:
+
+```ts
+const ix = await dusk.write.addToLeverageInstruction({
+  ...positionAccounts,
+  ownerDebtAccount,
+  marginAmount: 100_000_000n,
+  debtAmount: 200_000_000n,
+  minCollateralOut,
+});
+const preview = await dusk.get.previewLeverageAction({
+  market, leveragePosition, instructions: [ix], feePayer: owner,
+});
+// Review preview.walletFlows, preview.metrics, and preview.marginTerms.
+// Simulation never submits or signs the transaction.
+```
+
+Metrics returned by this preview use the symmetric EMA, before any hypothetical
+liquidation costs. They are not executable close payout or liquidation eligibility;
+the actual action's wallet flows come from its simulated settlement events.
+
+
 ### Swap and LP Transfer Events
 
 `SwapExecuted` records the market immediately after a completed trade: the

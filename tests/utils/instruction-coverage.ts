@@ -159,7 +159,6 @@ const DUSK_INSTRUCTIONS = [
   "decreaseLeverage",
   "addLeverageMargin",
   "repayLeverage",
-  "removeLeverageMargin",
   "beginFlashLiquidation",
   "settleFlashLiquidation",
   "previewFlashLiquidation",
