@@ -410,9 +410,9 @@ transaction }`. Fetch state with `dusk.get.parameterProposal(proposal)`,
 
 Support is burned from the holder's external yLP account and represented by a
 proposal-specific virtual claim, so it cannot back multiple proposals. The
-claim continues earning yLP yield. Withdrawal destroys that claim, merges its
-virtual-yield ledgers, and mints back exactly the locked yLP. Collecting support
-can be withdrawn; queued support stays frozen until the proposal executes,
+claim continues earning yLP yield. Withdrawal releases the requested amount,
+credits accrued virtual yield to the owner, and remints only the released yLP.
+A partial release retains the remaining claim. Collecting support can be withdrawn; queued support stays frozen until the proposal executes,
 expires, or becomes stale. When the last supporter withdraws, the proposal
 becomes a tombstone: the account keeps only its discriminator, which stops the
 address from ever holding another proposal, and the rest of its rent returns
@@ -830,3 +830,63 @@ set cache expiry, coordinate database locks, or stream to subscribers. Those
 remain application responsibilities; validate deployment identity before and
 after a capture. Cancellation and timeout bound the caller's wait; they do not
 necessarily cancel an RPC request already sent over the transport.
+
+
+### Reusable governance balances and delegation
+
+`dusk.governance` builds instructions and transactions; it never signs or submits.
+Amounts are raw **yLP atoms**, not asset amounts or dollar values. Only direct yLP
+is eligible; hLP vault holdings remain excluded. Deposited and committed shares
+continue accruing swap fees and interest to their original owner.
+
+```ts
+const deposit = await dusk.governance.deposit({ market, owner, amount: 100_000n });
+const delegateTx = await dusk.governance.setDelegate({ market, owner, delegate });
+// Owner signs both; delegate receives no token-transfer or yield-withdrawal authority.
+
+const proposal = await dusk.governance.createProposal({
+  market, proposer: delegate, nonce: 1n, updates, metadata,
+  contributions: [{ owner, amount: 1_000n }, { owner: secondOwner, amount: 1_000n }],
+});
+// Delegate signs. Every contributing owner must have appointed this delegate.
+// Combined sponsorship must meet the existing minimum atomically.
+
+const support = await dusk.governance.supportProposal({
+  market, proposal: proposal.proposal, authority: delegate, digest,
+  contributions: [{ owner, amount: 5_000n }],
+});
+const release = await dusk.governance.withdrawSupport({
+  market, proposal: proposal.proposal, owner, authority: delegate, amount: 500n,
+});
+// Omit amount to release all. Released shares return to this owner's idle balance.
+
+const revoke = await dusk.governance.setDelegate({ market, owner, delegate: null });
+const balance = await dusk.governance.getBalance(market, owner); // includes availableAmount
+const allocations = await dusk.governance.listSupport(market, owner);
+const withdraw = await dusk.governance.withdraw({ market, owner, amount: 500n });
+const claim = await dusk.governance.claimYield({ market, owner });
+// claim credits the owner's YieldAccounts; use the existing harvest flow to collect.
+```
+
+The owner can always act directly. One delegate per owner per market can create
+proposals, support proposals, or release collecting support. Replacing/revoking
+that delegate takes effect immediately, including for existing allocations.
+Delegate changes need only the owner and their governance balance; closing an
+empty wallet ATA cannot block revocation. Fund the balance before setting a delegate.
+Queued support stays frozen until execution, expiry, or staleness under the
+existing rules. Idle shares remain owner-withdrawable. The same shares cannot
+support multiple proposals simultaneously. Falling below the original sponsorship
+minimum cancels a collecting proposal. The final release leaves its permanent
+tombstone, refunding excess rent to the proposer; allocation rent returns to its
+original payer. Empty reusable balances remain open for future deposits.
+
+Direct wallet support remains available through `dusk.write`. Its
+`withdrawParameterSupport({ ..., amount })` now supports partial withdrawals;
+omitting `amount` releases all. The on-chain instruction now takes
+`{ amount: Option<u64> }`, so raw instruction callers must update their encoding.
+
+Combined builders sort owners canonically and reject duplicates. Large batches
+or long metadata may require a v0 transaction and a caller-provided address lookup
+table. Use the returned `instruction` to compose such a transaction; initial
+sponsorship cannot be split across multiple transactions. Existing queue and
+execute helpers work for proposals with direct, reusable, or mixed support.

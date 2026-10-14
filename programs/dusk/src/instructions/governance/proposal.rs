@@ -321,7 +321,7 @@ impl<'info> CreateParameterProposal<'info> {
     }
 }
 
-fn governance_vault_amount(
+pub(super) fn governance_vault_amount(
     market: &Account<Market>,
     ylp_mint: &InterfaceAccount<Mint>,
     vault: &UncheckedAccount,

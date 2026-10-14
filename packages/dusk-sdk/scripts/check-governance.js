@@ -27,6 +27,8 @@ import {
 } from "../dist/governance.js";
 import { deriveYieldAccountAddress } from "../dist/constants.js";
 import IDL from "../dist/idl_v2.js";
+import { DuskGovernance } from "../dist/governance-client.js";
+import { deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress } from "../dist/constants.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
@@ -334,3 +336,43 @@ for (const expected of [alternateBaseYield, alternateQuoteYield]) {
 console.log(
   `governance transaction-size check passed: ${serializedSize}/${SOLANA_TRANSACTION_LIMIT} bytes`
 );
+
+// Reusable governance builders preserve amounts alongside canonical sorting.
+const governance = new DuskGovernance(program);
+const balanceAddress = deriveGovernanceBalanceAddress(keys[1], keys[0], program.programId)[0];
+const deposited = await governance.deposit({ market: keys[1], owner: keys[0], amount: 500n });
+assert.equal(deposited.governanceBalance.toString(), balanceAddress.toString());
+const depositDecoded = program.coder.instruction.decode(deposited.instruction.data);
+assert.equal(depositDecoded.name, "manageGovernanceBalance");
+assert.equal(depositDecoded.data.action.deposit.amount.toString(), "500");
+const revoke = await governance.setDelegate({ market: keys[1], owner: keys[0], delegate: null });
+assert.equal(program.coder.instruction.decode(revoke.instruction.data).data.delegate.toString(), PublicKey.default.toString());
+const batch = await governance.createProposal({ market: keys[1], proposer: keys[7], nonce: 89,
+  updates: [dailyBorrowLimitParameterUpdate(1900)], metadata: verifiedMetadata,
+  contributions: [{ owner: keys[8], amount: 600 }, { owner: keys[0], amount: 700 }],
+});
+const batchDecoded = program.coder.instruction.decode(batch.instruction.data);
+assert.equal(batchDecoded.name, "createGovernanceProposal");
+assert.equal(batch.supports.length, 2);
+assert(Buffer.compare(batch.supports[0].governanceBalance.toBuffer(), batch.supports[1].governanceBalance.toBuffer()) < 0);
+for (const [index, support] of batch.supports.entries()) {
+  assert.equal(batchDecoded.data.args.contributions[index].toString(), support.owner.equals(keys[8]) ? "600" : "700");
+  assert.equal(support.governanceSupport.toString(), deriveGovernanceSupportAddress(batch.proposal, support.governanceBalance, program.programId)[0].toString());
+}
+await assert.rejects(governance.createProposal({ market: keys[1], proposer: keys[7], nonce: 90,
+  updates: [dailyBorrowLimitParameterUpdate(1900)], metadata: verifiedMetadata,
+  contributions: [{ owner: keys[0], amount: 600 }, { owner: keys[0], amount: 700 }],
+}), /Duplicate governance owner/);
+assert.throws(() => governance.deposit({ market: keys[1], owner: keys[0], amount: 0 }), /positive/);
+const released = await governance.withdrawSupport({ market: keys[1], proposal: batch.proposal,
+  owner: keys[0], authority: keys[7], amount: 50, proposer: keys[7], rentRefund: keys[7],
+});
+assert.equal(program.coder.instruction.decode(released.instruction.data).data.args.amount.toString(), "50");
+console.log("Reusable governance builders: passed");
+
+program.account.governanceSupport.all = async (filters) => {
+  assert.equal(filters[0].memcmp.offset, 40);
+  assert.equal(filters[0].memcmp.bytes, balanceAddress.toBase58());
+  return [];
+};
+assert.deepEqual(await governance.listSupport(keys[1], keys[0]), []);

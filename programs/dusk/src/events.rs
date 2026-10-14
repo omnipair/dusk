@@ -935,3 +935,30 @@ pub struct DebtFreePositionClosed {
     pub quote_received: u64,
     pub metadata: MarketEventMetadata,
 }
+
+#[event]
+pub struct GovernanceBalanceUpdated {
+    pub market: Pubkey,
+    pub owner: Pubkey,
+    pub governance_balance: Pubkey,
+    pub delegate: Pubkey,
+    /// 0 deposit, 1 withdraw, 2 delegate change, 3 yield checkpoint/claim.
+    pub action: u8,
+    pub amount: u64,
+    pub total_amount: u64,
+    pub committed_amount: u64,
+}
+
+#[event]
+pub struct GovernanceSupportChanged {
+    pub proposal: Pubkey,
+    pub governance_balance: Pubkey,
+    pub owner: Pubkey,
+    pub authority: Pubkey,
+    pub withdrawn: bool,
+    pub amount: u64,
+    pub owner_support: u64,
+    pub total_locked: u64,
+    pub status: u8,
+    pub proposal_tombstoned: bool,
+}

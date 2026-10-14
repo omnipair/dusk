@@ -536,7 +536,7 @@ pub struct Market {
     /// One-shot signer allowed to provide the first fully-backed Base/Quote
     /// seed. It is cleared permanently once yLP supply becomes nonzero.
     pub initial_liquidity_authority: Pubkey,
-    /// External yLP burned into active governance support. This is added back
+    /// External yLP burned into direct support or reusable governance balances. This is added back
     /// when computing direct-yLP eligibility; internal reserve-share supply is
     /// intentionally unchanged by governance locking.
     pub governance_locked_ylp: u64,

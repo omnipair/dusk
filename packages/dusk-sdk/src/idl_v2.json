@@ -1592,6 +1592,244 @@
       ]
     },
     {
+      "name": "create_governance_proposal",
+      "discriminator": [
+        102,
+        90,
+        114,
+        133,
+        147,
+        63,
+        113,
+        168
+      ],
+      "accounts": [
+        {
+          "name": "proposer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  97,
+                  109,
+                  101,
+                  116,
+                  101,
+                  114,
+                  95,
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "proposer"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ylp_mint"
+        },
+        {
+          "name": "base_hlp_ylp_vault",
+          "docs": [
+            "Token-2022 yLP vault by the handler; an existing vault is fully parsed",
+            "and validated before proposal state changes."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  95,
+                  121,
+                  108,
+                  112,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.hlp_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "ylp_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quote_hlp_ylp_vault",
+          "docs": [
+            "hLP yLP vault above."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  95,
+                  121,
+                  108,
+                  112,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.hlp_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "ylp_mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateGovernanceProposalArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "create_leverage_delegation",
       "discriminator": [
         189,
@@ -5015,6 +5253,168 @@
       ]
     },
     {
+      "name": "manage_governance_balance",
+      "discriminator": [
+        66,
+        246,
+        215,
+        106,
+        67,
+        20,
+        51,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance_balance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  98,
+                  97,
+                  108,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ylp_mint",
+          "writable": true
+        },
+        {
+          "name": "owner_ylp_account",
+          "writable": true
+        },
+        {
+          "name": "base_yield_account",
+          "writable": true
+        },
+        {
+          "name": "quote_yield_account",
+          "writable": true
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "action",
+          "type": {
+            "defined": {
+              "name": "GovernanceBalanceAction"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "observe_liquidation",
       "discriminator": [
         142,
@@ -7128,6 +7528,103 @@
       ]
     },
     {
+      "name": "set_governance_delegate",
+      "discriminator": [
+        89,
+        7,
+        44,
+        62,
+        31,
+        17,
+        147,
+        223
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "governance_balance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  98,
+                  97,
+                  108,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "governance_balance.market",
+                "account": "GovernanceBalance"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "delegate",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "set_harvest_authority",
       "docs": [
         "Set or revoke a harvest caller independently of the yield recipient.",
@@ -7946,6 +8443,88 @@
           "type": {
             "defined": {
               "name": "SettleProtocolAuctionArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "support_governance_proposal",
+      "discriminator": [
+        184,
+        125,
+        203,
+        203,
+        65,
+        53,
+        51,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "ylp_mint"
+        },
+        {
+          "name": "base_hlp_ylp_vault"
+        },
+        {
+          "name": "quote_hlp_ylp_vault"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "SupportGovernanceProposalArgs"
             }
           }
         }
@@ -9376,6 +9955,125 @@
       ]
     },
     {
+      "name": "withdraw_governance_support",
+      "discriminator": [
+        37,
+        252,
+        250,
+        121,
+        81,
+        152,
+        252,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "proposer",
+          "writable": true
+        },
+        {
+          "name": "governance_balance",
+          "writable": true
+        },
+        {
+          "name": "governance_support",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal"
+              },
+              {
+                "kind": "account",
+                "path": "governance_balance"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rent_refund",
+          "writable": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "WithdrawParameterSupportArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "withdraw_parameter_support",
       "discriminator": [
         249,
@@ -9538,7 +10236,16 @@
           "name": "program"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "WithdrawParameterSupportArgs"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "withdraw_repaid_leverage",
@@ -9935,6 +10642,32 @@
       ]
     },
     {
+      "name": "GovernanceBalance",
+      "discriminator": [
+        148,
+        93,
+        254,
+        156,
+        245,
+        36,
+        10,
+        36
+      ]
+    },
+    {
+      "name": "GovernanceSupport",
+      "discriminator": [
+        84,
+        179,
+        42,
+        253,
+        18,
+        3,
+        167,
+        120
+      ]
+    },
+    {
       "name": "LeverageDelegation",
       "discriminator": [
         49,
@@ -10142,6 +10875,32 @@
         237,
         207,
         38
+      ]
+    },
+    {
+      "name": "GovernanceBalanceUpdated",
+      "discriminator": [
+        28,
+        49,
+        128,
+        12,
+        144,
+        1,
+        11,
+        240
+      ]
+    },
+    {
+      "name": "GovernanceSupportChanged",
+      "discriminator": [
+        255,
+        99,
+        165,
+        177,
+        189,
+        157,
+        92,
+        171
       ]
     },
     {
@@ -12598,6 +13357,46 @@
       }
     },
     {
+      "name": "CreateGovernanceProposalArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "updates",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "MarketParameterUpdate"
+                }
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "ProposalMetadataV1"
+              }
+            }
+          },
+          {
+            "name": "contributions",
+            "docs": [
+              "One positive amount per remaining [balance, support] pair. Balance",
+              "addresses must be strictly ascending; all owners authorize the signer."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "CreateLeverageDelegationArgs",
       "type": {
         "kind": "struct",
@@ -13690,6 +14489,212 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceBalance",
+      "docs": [
+        "Owner-held virtual yLP. Both idle and committed shares accrue yield here."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegate",
+            "docs": [
+              "The default key revokes delegation. The owner always retains control."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "total_amount",
+            "type": "u64"
+          },
+          {
+            "name": "committed_amount",
+            "type": "u64"
+          },
+          {
+            "name": "base_yield",
+            "type": {
+              "defined": {
+                "name": "VirtualYieldLedger"
+              }
+            }
+          },
+          {
+            "name": "quote_yield",
+            "type": {
+              "defined": {
+                "name": "VirtualYieldLedger"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceBalanceAction",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Deposit",
+            "fields": [
+              {
+                "name": "amount",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "Withdraw",
+            "fields": [
+              {
+                "name": "amount",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "ClaimYield"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceBalanceUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "governance_balance",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegate",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "docs": [
+              "0 deposit, 1 withdraw, 2 delegate change, 3 yield checkpoint/claim."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_amount",
+            "type": "u64"
+          },
+          {
+            "name": "committed_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceSupport",
+      "docs": [
+        "One owner's reusable balance allocated to one proposal. Yield stays on the",
+        "balance, so allocation/release cannot duplicate or transfer yield claims."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "governance_balance",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "rent_refund",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceSupportChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "governance_balance",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "withdrawn",
+            "type": "bool"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "owner_support",
+            "type": "u64"
+          },
+          {
+            "name": "total_locked",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "proposal_tombstoned",
+            "type": "bool"
           }
         ]
       }
@@ -15822,7 +16827,7 @@
           {
             "name": "governance_locked_ylp",
             "docs": [
-              "External yLP burned into active governance support. This is added back",
+              "External yLP burned into direct support or reusable governance balances. This is added back",
               "when computing direct-yLP eligibility; internal reserve-share supply is",
               "intentionally unchanged by governance locking."
             ],
@@ -18600,6 +19605,32 @@
       }
     },
     {
+      "name": "SupportGovernanceProposalArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "digest",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "contributions",
+            "docs": [
+              "Same canonical remaining-account pairs as creation."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "SupportParameterProposalArgs",
       "type": {
         "kind": "struct",
@@ -19433,6 +20464,23 @@
           {
             "name": "min_liquidation_cf_bps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WithdrawParameterSupportArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "docs": [
+              "None releases all support; Some releases only this amount."
+            ],
+            "type": {
+              "option": "u64"
+            }
           }
         ]
       }

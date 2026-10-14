@@ -1,3 +1,7 @@
+mod balance;
+mod delegated;
+pub use balance::*;
+pub use delegated::*;
 mod proposal;
 mod support;
 
@@ -147,4 +151,28 @@ pub(crate) fn validate_supporter_accounts(
 #[cfg(test)]
 mod tests {
     include!("../../tests/instructions/governance/mod.rs");
+}
+
+/// Preserve proposal identity after the final direct or delegated allocation is released.
+pub(super) fn save_released_proposal(
+    proposal: &crate::state::ParameterProposal,
+    info: &AccountInfo,
+    proposer: &AccountInfo,
+) -> Result<()> {
+    if proposal.total_locked == 0 {
+        use crate::{account::get_size_with_discriminator, state::ParameterProposalTombstone};
+        let space = get_size_with_discriminator::<ParameterProposalTombstone>();
+        let refund = info
+            .lamports()
+            .checked_sub(Rent::get()?.minimum_balance(space))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        info.realloc(space, false)?;
+        info.try_borrow_mut_data()?
+            .copy_from_slice(ParameterProposalTombstone::DISCRIMINATOR);
+        info.sub_lamports(refund)?;
+        proposer.add_lamports(refund)?;
+    } else {
+        proposal.try_serialize(&mut &mut info.try_borrow_mut_data()?[..])?;
+    }
+    Ok(())
 }

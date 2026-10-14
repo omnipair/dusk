@@ -1598,6 +1598,244 @@ export type Dusk = {
       ]
     },
     {
+      "name": "createGovernanceProposal",
+      "discriminator": [
+        102,
+        90,
+        114,
+        133,
+        147,
+        63,
+        113,
+        168
+      ],
+      "accounts": [
+        {
+          "name": "proposer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  97,
+                  109,
+                  101,
+                  116,
+                  101,
+                  114,
+                  95,
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "proposer"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ylpMint"
+        },
+        {
+          "name": "baseHlpYlpVault",
+          "docs": [
+            "Token-2022 yLP vault by the handler; an existing vault is fully parsed",
+            "and validated before proposal state changes."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  95,
+                  121,
+                  108,
+                  112,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.hlp_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "ylpMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "quoteHlpYlpVault",
+          "docs": [
+            "hLP yLP vault above."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  95,
+                  121,
+                  108,
+                  112,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.hlp_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "ylpMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "createGovernanceProposalArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "createLeverageDelegation",
       "discriminator": [
         189,
@@ -5021,6 +5259,168 @@ export type Dusk = {
       ]
     },
     {
+      "name": "manageGovernanceBalance",
+      "discriminator": [
+        66,
+        246,
+        215,
+        106,
+        67,
+        20,
+        51,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "governanceBalance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  98,
+                  97,
+                  108,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ylpMint",
+          "writable": true
+        },
+        {
+          "name": "ownerYlpAccount",
+          "writable": true
+        },
+        {
+          "name": "baseYieldAccount",
+          "writable": true
+        },
+        {
+          "name": "quoteYieldAccount",
+          "writable": true
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "action",
+          "type": {
+            "defined": {
+              "name": "governanceBalanceAction"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "observeLiquidation",
       "discriminator": [
         142,
@@ -7134,6 +7534,103 @@ export type Dusk = {
       ]
     },
     {
+      "name": "setGovernanceDelegate",
+      "discriminator": [
+        89,
+        7,
+        44,
+        62,
+        31,
+        17,
+        147,
+        223
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "governanceBalance",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  98,
+                  97,
+                  108,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "governance_balance.market",
+                "account": "governanceBalance"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "delegate",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "setHarvestAuthority",
       "docs": [
         "Set or revoke a harvest caller independently of the yield recipient.",
@@ -7952,6 +8449,88 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "settleProtocolAuctionArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "supportGovernanceProposal",
+      "discriminator": [
+        184,
+        125,
+        203,
+        203,
+        65,
+        53,
+        51,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "ylpMint"
+        },
+        {
+          "name": "baseHlpYlpVault"
+        },
+        {
+          "name": "quoteHlpYlpVault"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "supportGovernanceProposalArgs"
             }
           }
         }
@@ -9382,6 +9961,125 @@ export type Dusk = {
       ]
     },
     {
+      "name": "withdrawGovernanceSupport",
+      "discriminator": [
+        37,
+        252,
+        250,
+        121,
+        81,
+        152,
+        252,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "proposer",
+          "writable": true
+        },
+        {
+          "name": "governanceBalance",
+          "writable": true
+        },
+        {
+          "name": "governanceSupport",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  115,
+                  117,
+                  112,
+                  112,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal"
+              },
+              {
+                "kind": "account",
+                "path": "governanceBalance"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rentRefund",
+          "writable": true
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "withdrawParameterSupportArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "withdrawParameterSupport",
       "discriminator": [
         249,
@@ -9544,7 +10242,16 @@ export type Dusk = {
           "name": "program"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "withdrawParameterSupportArgs"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "withdrawRepaidLeverage",
@@ -9941,6 +10648,32 @@ export type Dusk = {
       ]
     },
     {
+      "name": "governanceBalance",
+      "discriminator": [
+        148,
+        93,
+        254,
+        156,
+        245,
+        36,
+        10,
+        36
+      ]
+    },
+    {
+      "name": "governanceSupport",
+      "discriminator": [
+        84,
+        179,
+        42,
+        253,
+        18,
+        3,
+        167,
+        120
+      ]
+    },
+    {
       "name": "leverageDelegation",
       "discriminator": [
         49,
@@ -10148,6 +10881,32 @@ export type Dusk = {
         237,
         207,
         38
+      ]
+    },
+    {
+      "name": "governanceBalanceUpdated",
+      "discriminator": [
+        28,
+        49,
+        128,
+        12,
+        144,
+        1,
+        11,
+        240
+      ]
+    },
+    {
+      "name": "governanceSupportChanged",
+      "discriminator": [
+        255,
+        99,
+        165,
+        177,
+        189,
+        157,
+        92,
+        171
       ]
     },
     {
@@ -12604,6 +13363,46 @@ export type Dusk = {
       }
     },
     {
+      "name": "createGovernanceProposalArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "updates",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "marketParameterUpdate"
+                }
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "proposalMetadataV1"
+              }
+            }
+          },
+          {
+            "name": "contributions",
+            "docs": [
+              "One positive amount per remaining [balance, support] pair. Balance",
+              "addresses must be strictly ascending; all owners authorize the signer."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "createLeverageDelegationArgs",
       "type": {
         "kind": "struct",
@@ -13696,6 +14495,212 @@ export type Dusk = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "governanceBalance",
+      "docs": [
+        "Owner-held virtual yLP. Both idle and committed shares accrue yield here."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegate",
+            "docs": [
+              "The default key revokes delegation. The owner always retains control."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "totalAmount",
+            "type": "u64"
+          },
+          {
+            "name": "committedAmount",
+            "type": "u64"
+          },
+          {
+            "name": "baseYield",
+            "type": {
+              "defined": {
+                "name": "virtualYieldLedger"
+              }
+            }
+          },
+          {
+            "name": "quoteYield",
+            "type": {
+              "defined": {
+                "name": "virtualYieldLedger"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "governanceBalanceAction",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "deposit",
+            "fields": [
+              {
+                "name": "amount",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "withdraw",
+            "fields": [
+              {
+                "name": "amount",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "claimYield"
+          }
+        ]
+      }
+    },
+    {
+      "name": "governanceBalanceUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "governanceBalance",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegate",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "docs": [
+              "0 deposit, 1 withdraw, 2 delegate change, 3 yield checkpoint/claim."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "totalAmount",
+            "type": "u64"
+          },
+          {
+            "name": "committedAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "governanceSupport",
+      "docs": [
+        "One owner's reusable balance allocated to one proposal. Yield stays on the",
+        "balance, so allocation/release cannot duplicate or transfer yield claims."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "governanceBalance",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "rentRefund",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "governanceSupportChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "governanceBalance",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "withdrawn",
+            "type": "bool"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "ownerSupport",
+            "type": "u64"
+          },
+          {
+            "name": "totalLocked",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "proposalTombstoned",
+            "type": "bool"
           }
         ]
       }
@@ -15828,7 +16833,7 @@ export type Dusk = {
           {
             "name": "governanceLockedYlp",
             "docs": [
-              "External yLP burned into active governance support. This is added back",
+              "External yLP burned into direct support or reusable governance balances. This is added back",
               "when computing direct-yLP eligibility; internal reserve-share supply is",
               "intentionally unchanged by governance locking."
             ],
@@ -18606,6 +19611,32 @@ export type Dusk = {
       }
     },
     {
+      "name": "supportGovernanceProposalArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "digest",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "contributions",
+            "docs": [
+              "Same canonical remaining-account pairs as creation."
+            ],
+            "type": {
+              "vec": "u64"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "supportParameterProposalArgs",
       "type": {
         "kind": "struct",
@@ -19439,6 +20470,23 @@ export type Dusk = {
           {
             "name": "minLiquidationCfBps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "withdrawParameterSupportArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "docs": [
+              "None releases all support; Some releases only this amount."
+            ],
+            "type": {
+              "option": "u64"
+            }
           }
         ]
       }

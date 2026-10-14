@@ -573,3 +573,48 @@ fn lifecycle_boundaries_keep_support_frozen_through_the_deadline() {
     assert!(proposal.mark_expired_if_past_deadline(proposal.execution_deadline + 1));
     assert_eq!(proposal.status, ParameterProposalStatus::Expired);
 }
+
+#[test]
+fn draining_virtual_yield_preserves_fractional_entitlement_without_double_claim() {
+    let mut ledger = VirtualYieldLedger::default();
+    let mut owner = empty_yield_account();
+    ledger.accrue(3, YIELD_GROWTH_SCALE_Q64 / 2, YIELD_GROWTH_SCALE_Q64 / 2).unwrap();
+    ledger.drain_into(&mut owner).unwrap();
+    assert_eq!(owner.accrued_swap_fee_amount, 1);
+    assert_eq!(owner.swap_fee_remainder_q64, 1_u64 << 63);
+    ledger.drain_into(&mut owner).unwrap();
+    assert_eq!(owner.accrued_swap_fee_amount, 1);
+    assert_eq!(owner.swap_fee_remainder_q64, 1_u64 << 63);
+    // Two shares remain after a partial withdrawal, accruing only the new interval.
+    ledger.accrue(2, YIELD_GROWTH_SCALE_Q64, YIELD_GROWTH_SCALE_Q64).unwrap();
+    ledger.drain_into(&mut owner).unwrap();
+    assert_eq!(owner.accrued_swap_fee_amount, 2);
+    assert_eq!(owner.swap_fee_remainder_q64, 1_u64 << 63);
+    assert_eq!(owner.accrued_interest_amount, 2);
+}
+
+#[test]
+fn governance_balance_authority_and_available_shares_are_owner_scoped() {
+    use crate::state::GovernanceBalance;
+    use crate::constants::GOVERNANCE_BALANCE_SEED_PREFIX;
+    let owner = Pubkey::new_unique();
+    let market = Pubkey::new_unique();
+    let delegate = Pubkey::new_unique();
+    let (key, bump) = Pubkey::find_program_address(&[GOVERNANCE_BALANCE_SEED_PREFIX, market.as_ref(), owner.as_ref()], &crate::ID);
+    let mut balance = GovernanceBalance { market, owner, delegate, total_amount: 100, committed_amount: 0,
+        base_yield: VirtualYieldLedger::default(), quote_yield: VirtualYieldLedger::default(), bump };
+    balance.assert_account(market, key).unwrap();
+    assert!(balance.assert_account(Pubkey::new_unique(), key).is_err());
+    balance.authorize(owner).unwrap();
+    balance.authorize(delegate).unwrap();
+    assert!(balance.authorize(Pubkey::new_unique()).is_err());
+    balance.commit(60).unwrap();
+    assert_eq!(balance.available().unwrap(), 40);
+    assert!(balance.commit(41).is_err());
+    assert!(balance.commit(0).is_err());
+    balance.delegate = Pubkey::default();
+    assert!(balance.authorize(delegate).is_err());
+    assert!(balance.authorize(Pubkey::default()).is_err());
+    balance.authorize(owner).unwrap();
+    assert_eq!(balance.committed_amount, 60);
+}

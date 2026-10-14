@@ -8,10 +8,7 @@ use crate::{
     events::{ParameterProposalQueued, ParameterProposalSupportWithdrawn, ParameterProposalSupported},
     generate_market_seeds,
     instructions::accounts::validate_lp_mint,
-    state::{
-        Market, ParameterProposal, ParameterProposalStatus, ParameterProposalTombstone, ProposalSupport, YieldAccount,
-        YieldTokenKind,
-    },
+    state::{Market, ParameterProposal, ParameterProposalStatus, ProposalSupport, YieldAccount, YieldTokenKind},
     token::{token_burn, token_mint_to},
 };
 
@@ -236,6 +233,12 @@ impl<'info> SupportParameterProposal<'info> {
     }
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct WithdrawParameterSupportArgs {
+    /// None releases all support; Some releases only this amount.
+    pub amount: Option<u64>,
+}
+
 #[event_cpi]
 #[derive(Accounts)]
 pub struct WithdrawParameterSupport<'info> {
@@ -270,7 +273,6 @@ pub struct WithdrawParameterSupport<'info> {
 
     #[account(
         mut,
-        close = supporter,
         seeds = [
             PROPOSAL_SUPPORT_SEED_PREFIX,
             proposal.key().as_ref(),
@@ -347,7 +349,7 @@ impl<'info> WithdrawParameterSupport<'info> {
         Ok(proposal)
     }
 
-    pub fn handle_withdraw(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
+    pub fn handle_withdraw(ctx: Context<'_, '_, '_, 'info, Self>, args: WithdrawParameterSupportArgs) -> Result<()> {
         let mut proposal = ctx.accounts.validate()?;
         let clock = Clock::get()?;
         proposal.mark_stale_if_revision_changed(&ctx.accounts.market.parameter_revisions);
@@ -357,7 +359,13 @@ impl<'info> WithdrawParameterSupport<'info> {
             ErrorCode::ProposalSupportFrozen
         );
 
-        let amount = ctx.accounts.proposal_support.locked_amount;
+        let amount = args.amount.unwrap_or(ctx.accounts.proposal_support.locked_amount);
+        require!(amount > 0, ErrorCode::AmountZero);
+        require_gte!(
+            ctx.accounts.proposal_support.locked_amount,
+            amount,
+            ErrorCode::InvalidProposalSupport
+        );
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
             clock.slot,
@@ -379,11 +387,11 @@ impl<'info> WithdrawParameterSupport<'info> {
         ctx.accounts
             .proposal_support
             .base_yield
-            .merge_into(&mut ctx.accounts.base_yield_account)?;
+            .drain_into(&mut ctx.accounts.base_yield_account)?;
         ctx.accounts
             .proposal_support
             .quote_yield
-            .merge_into(&mut ctx.accounts.quote_yield_account)?;
+            .drain_into(&mut ctx.accounts.quote_yield_account)?;
 
         proposal.total_locked = proposal
             .total_locked
@@ -421,24 +429,16 @@ impl<'info> WithdrawParameterSupport<'info> {
             status: proposal.status.code(),
             proposal_tombstoned,
         });
-        let proposal_info = ctx.accounts.proposal.to_account_info();
-        if proposal_tombstoned {
-            let space = get_size_with_discriminator::<ParameterProposalTombstone>();
-            let refund = proposal_info
-                .lamports()
-                .checked_sub(Rent::get()?.minimum_balance(space))
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            proposal_info.realloc(space, false)?;
-            proposal_info
-                .try_borrow_mut_data()?
-                .copy_from_slice(ParameterProposalTombstone::DISCRIMINATOR);
-            proposal_info.sub_lamports(refund)?;
-            ctx.accounts.proposer.add_lamports(refund)?;
-        } else {
-            let mut data = proposal_info.try_borrow_mut_data()?;
-            let mut writer: &mut [u8] = &mut data;
-            proposal.try_serialize(&mut writer)?;
+        ctx.accounts.proposal_support.locked_amount -= amount;
+        if ctx.accounts.proposal_support.locked_amount == 0 {
+            ctx.accounts
+                .proposal_support
+                .close(ctx.accounts.supporter.to_account_info())?;
         }
-        Ok(())
+        super::save_released_proposal(
+            &proposal,
+            &ctx.accounts.proposal.to_account_info(),
+            &ctx.accounts.proposer.to_account_info(),
+        )
     }
 }

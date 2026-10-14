@@ -169,6 +169,8 @@ export interface ExecuteParameterProposalParams {
 }
 
 export interface WithdrawParameterSupportParams {
+  /** Omit to withdraw all support; otherwise release this many yLP atoms. */
+  amount?: GovernanceIntegerLike;
   supporter: AddressLike;
   market: AddressLike;
   proposal: AddressLike;
@@ -1073,7 +1075,7 @@ export class DuskWrite {
     return { proposal, instruction, transaction: new Transaction().add(instruction) };
   }
 
-  /** Mint back exactly one support position's burned yLP and merge its virtual yield. */
+  /** Release all or part of direct support and credit earned yield to its owner. */
   async withdrawParameterSupport(
     params: WithdrawParameterSupportParams
   ): Promise<ParameterGovernanceBuild> {
@@ -1093,7 +1095,7 @@ export class DuskWrite {
     );
     const instruction = await this.instruction(
       "withdrawParameterSupport" as DuskInstructionName,
-      undefined,
+      { amount: params.amount === undefined ? null : governanceIntegerBN(params.amount, "amount") },
       {
         accounts: {
           supporter,

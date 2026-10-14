@@ -8,6 +8,7 @@ import {
   calculateEpochFee,
   getTransferFeeConfig,
   createBurnCheckedInstruction,
+  createCloseAccountInstruction,
   createAmountToUiAmountInstruction,
   createInitializeGroupPointerInstruction,
   createInitializeGroupMemberPointerInstruction,
@@ -84,6 +85,8 @@ import {
 } from "../packages/dusk-sdk/src/preview.js";
 import { createDuskProgram } from "../packages/dusk-sdk/src/program.js";
 import { DuskLiquidations } from "../packages/dusk-sdk/src/liquidation-client.js";
+import { DuskGovernance } from "../packages/dusk-sdk/src/governance-client.js";
+import { dailyBorrowLimitParameterUpdate } from "../packages/dusk-sdk/src/governance.js";
 import { DuskWrite } from "../packages/dusk-sdk/src/write.js";
 import { marketCreationLookupTablePlan, marketCreationV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
@@ -9707,6 +9710,142 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
   });
 
+  it("isolates reusable governance balances, combined sponsorship, revocation and partial withdrawals", async function () {
+    const f = await addBalancedLiquidity(231);
+    const initialSupply = (await getMint(connection as any, f.ylpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
+    const floor = Number((initialSupply + 99n) / 100n);
+    const initialContribution = Math.ceil(floor / 2) + 100;
+    const bob = Keypair.generate(), delegate = Keypair.generate(), replacement = Keypair.generate();
+    for (const signer of [bob, delegate, replacement]) svm.airdrop(signer.publicKey, BigInt(LAMPORTS_PER_SOL));
+    const sdkProgram = createDuskProgram({ provider: program.provider });
+    const gov = new DuskGovernance(sdkProgram);
+    const writer = new DuskWrite(sdkProgram);
+    const send = async (build: { transaction: Transaction }, signers: Keypair[] = []) => {
+      svm.expireBlockhash();
+      return connection.sendTransaction(build.transaction, [payer, ...signers]);
+    };
+    const reject = async (build: { transaction: Transaction }, signers: Keypair[], expected: string) => {
+      let error: unknown;
+      try { await send(build, signers); } catch (e) { error = e; }
+      expect(String(error)).to.include(expected);
+    };
+    const owner = payer.publicKey, market = f.market;
+    const ownerParams = { market, owner };
+    const bobParams = { market, owner: bob.publicKey };
+    const bobAta = await createToken2022Ata(f.ylpMint, bob.publicKey);
+    await initializeYieldAccounts(f, bob.publicKey, f.ylpMint, "ylp");
+    await initializeLpTransferHook(f, f.ylpMint);
+    await send({ transaction: new Transaction().add(await createTransferCheckedWithTransferHookInstruction(
+      connection as any, f.ownerYlpAccount, f.ylpMint, bobAta, owner, 40_000n, 6, [], undefined, TOKEN_2022_PROGRAM_ID,
+    )) });
+    await send(await gov.deposit({ ...ownerParams, amount: 50_000 }));
+    await send(await gov.deposit({ ...bobParams, amount: 30_000 }), [bob]);
+    await send(await gov.setDelegate({ ...ownerParams, delegate: delegate.publicKey }));
+    await send(await gov.setDelegate({ ...bobParams, delegate: delegate.publicKey }), [bob]);
+    trackV2Instruction("manageGovernanceBalance", this.test?.title);
+    trackV2Instruction("setGovernanceDelegate", this.test?.title);
+    const mintSupply = async () => (await getMint(connection as any, f.ylpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
+    const decodedMarket = () => accountCoder.decode("Market", Buffer.from(svm.getAccount(market)!.data)) as any;
+    const totalOwnership = async () => await mintSupply() + BigInt(decodedMarket().governance_locked_ylp.toString());
+    expect(await totalOwnership()).to.equal(initialSupply);
+    expect(await mintSupply()).to.equal(initialSupply - 80_000n);
+    const create = (nonce: number, contributions: { owner: PublicKey; amount: number }[]) => gov.createProposal({
+      market, proposer: delegate.publicKey, nonce, contributions,
+      updates: [dailyBorrowLimitParameterUpdate(1_900)],
+      metadata: { version: 1, title: "Delegated governance", descriptionUri: "ipfs://delegation-test", descriptionSha256: Array(32).fill(1), descriptionLen: 1 },
+    });
+    // Neither owner alone meets the 1% floor. A failed batch must roll back all allocations.
+    await reject(await create(1, [{ owner, amount: initialContribution }]), [delegate], "ProposalSponsorshipTooLow");
+    await reject(await create(1, [{ owner, amount: initialContribution }, { owner: bob.publicKey, amount: 30_001 }]), [delegate], "InsufficientBalance");
+    expect((await gov.getBalance(market, owner))!.committedAmount.toNumber()).to.equal(0);
+    expect((await gov.getBalance(market, bob.publicKey))!.committedAmount.toNumber()).to.equal(0);
+    const duplicate = await create(1, [{ owner, amount: initialContribution }, { owner: bob.publicKey, amount: initialContribution }]);
+    const remainingStart = duplicate.instruction.keys.length - 4;
+    duplicate.instruction.keys.splice(remainingStart + 2, 2, ...duplicate.instruction.keys.slice(remainingStart, remainingStart + 2));
+    await reject(duplicate, [delegate], "InvalidProposalSupport");
+    const first = await create(1, [{ owner, amount: initialContribution }, { owner: bob.publicKey, amount: initialContribution }]);
+    expect(svm.getAccount(f.baseHlpYlpVault)).to.equal(null);
+    await send(first, [delegate]);
+    trackV2Instruction("createGovernanceProposal", this.test?.title);
+    const proposal = first.proposal;
+    expect((await sdkProgram.account.parameterProposal.fetch(proposal)).totalLocked.toNumber()).to.equal(initialContribution * 2);
+    expect((await gov.getSupport(proposal, market, owner))!.amount.toNumber()).to.equal(initialContribution);
+    expect(await totalOwnership()).to.equal(initialSupply);
+    await send(await gov.withdrawSupport({ market, proposal, owner, authority: delegate.publicKey, amount: 100 }), [delegate]);
+    await send(await gov.withdrawSupport({ market, proposal, owner: bob.publicKey, authority: bob.publicKey, amount: 100 }), [bob]);
+    expect((await sdkProgram.account.parameterProposal.fetch(proposal)).totalLocked.toNumber()).to.equal(initialContribution * 2 - 200);
+    trackV2Instruction("withdrawGovernanceSupport", this.test?.title);
+    // Replacement takes effect on existing collecting allocations; the old delegate cannot act.
+    await send(await gov.setDelegate({ ...ownerParams, delegate: replacement.publicKey }));
+    await reject(await gov.withdrawSupport({ market, proposal, owner, authority: delegate.publicKey, amount: 50 }), [delegate], "InvalidSigner");
+    const digest = (await sdkProgram.account.parameterProposal.fetch(proposal)).digest;
+    await reject(await gov.supportProposal({ market, proposal, authority: delegate.publicKey, digest, contributions: [{ owner, amount: 100 }] }), [delegate], "InvalidSigner");
+    await send(await gov.withdrawSupport({ market, proposal, owner, authority: owner, amount: 50 }));
+    expect((await sdkProgram.account.parameterProposal.fetch(proposal)).status).to.have.property("cancelled");
+    await send(await gov.withdrawSupport({ market, proposal, owner, authority: replacement.publicKey }), [replacement]);
+    await send(await gov.withdrawSupport({ market, proposal, owner: bob.publicKey, authority: delegate.publicKey }), [delegate]);
+    expect(svm.getAccount(proposal)!.data.length).to.equal(8);
+    expect(await gov.getSupport(proposal, market, owner)).to.equal(null);
+    expect((await gov.getBalance(market, owner))!.availableAmount.toNumber()).to.equal(50_000);
+    expect(await mintSupply()).to.equal(initialSupply - 80_000n); // releasing support does not mint or transfer yLP
+    await send(await gov.setDelegate({ ...ownerParams, delegate: delegate.publicKey }));
+    const second = await create(2, [{ owner, amount: 1000 }, { owner: bob.publicKey, amount: 1000 }]);
+    await send(second, [delegate]);
+    const secondDigest = (await sdkProgram.account.parameterProposal.fetch(second.proposal)).digest;
+    await reject(await gov.supportProposal({ market, proposal: second.proposal, authority: delegate.publicKey,
+      digest: Array(32).fill(0), contributions: [{ owner, amount: 10 }] }), [delegate], "ProposalDigestMismatch");
+    // Direct and delegated support share the same proposal but independent holdings/yield.
+    await send(await writer.supportParameterProposal({ market, proposal: second.proposal, supporter: owner, amount: 1000, digest: secondDigest }));
+    await swapBaseForQuote(f);
+    await send(await writer.withdrawParameterSupport({ market, proposal: second.proposal, proposer: delegate.publicKey, supporter: owner, amount: 400 }));
+    expect((await sdkProgram.account.parameterProposal.fetch(second.proposal)).totalLocked.toNumber()).to.equal(2600);
+    const ownerYieldKey = deriveYieldAccountAddress(market, owner, f.ylpMint, f.baseMint, "ylp")[0];
+    await send(await gov.claimYield(ownerParams));
+    const yieldBefore = await sdkProgram.account.yieldAccount.fetch(ownerYieldKey);
+    await send(await gov.claimYield(ownerParams));
+    const yieldAfter = await sdkProgram.account.yieldAccount.fetch(ownerYieldKey);
+    expect(yieldAfter.accruedSwapFeeAmount.toString()).to.equal(yieldBefore.accruedSwapFeeAmount.toString());
+    expect(yieldAfter.swapFeeRemainderQ64.toString()).to.equal(yieldBefore.swapFeeRemainderQ64.toString());
+    expect(yieldBefore.accruedSwapFeeAmount.gtn(0)).to.equal(true);
+    const queuedBatch = await gov.supportProposal({ market, proposal: second.proposal, authority: delegate.publicKey, digest: secondDigest,
+      contributions: [{ owner, amount: 40_000 }, { owner: bob.publicKey, amount: 28_000 }] });
+    await send(queuedBatch, [delegate]);
+    const batchEvents = cpiEvents(queuedBatch.transaction).filter((event) => event.name === "governanceSupportChanged");
+    expect(batchEvents).to.have.length(2);
+    expect(new Set(batchEvents.map((event) => event.data.owner.toString()))).to.deep.equal(new Set([owner.toString(), bob.publicKey.toString()]));
+    for (const event of batchEvents) expect(event.data.totalLocked.toNumber()).to.equal(70_600);
+    trackV2Instruction("supportGovernanceProposal", this.test?.title);
+    const queued = await sdkProgram.account.parameterProposal.fetch(second.proposal);
+    expect(queued.status).to.have.property("queued");
+    expect(queued.queuedEligibleYlp.toNumber()).to.equal(Number(initialSupply));
+    expect(queued.queuedSupport.toNumber()).to.equal(70_600);
+    // Queued allocations survive revocation and cannot be freed through any withdrawal path.
+    await send(await gov.setDelegate({ ...ownerParams, delegate: null }));
+    await reject(await gov.withdrawSupport({ market, proposal: second.proposal, owner, authority: owner, amount: 1 }), [], "ProposalSupportFrozen");
+    await reject(await writer.withdrawParameterSupport({ market, proposal: second.proposal, proposer: delegate.publicKey, supporter: owner, amount: 1 }), [], "ProposalSupportFrozen");
+    await reject(await gov.withdraw({ ...ownerParams, amount: 9_001 }), [], "InsufficientBalance");
+    await send(await gov.withdraw({ ...ownerParams, amount: 100 }));
+    expect((await gov.getBalance(market, owner))!.committedAmount.toNumber()).to.equal(41_000);
+    const clock = svm.getClock(); clock.unixTimestamp = BigInt(queued.executionDeadline.toString()) + 1n; svm.setClock(clock);
+    await send(await gov.withdrawSupport({ market, proposal: second.proposal, owner, authority: owner }));
+    await send(await gov.withdrawSupport({ market, proposal: second.proposal, owner: bob.publicKey, authority: delegate.publicKey }), [delegate]);
+    expect(svm.getAccount(second.proposal)!.data.length).to.be.greaterThan(8); // direct support still exists
+    await send(await writer.withdrawParameterSupport({ market, proposal: second.proposal, proposer: delegate.publicKey, supporter: owner }));
+    expect(svm.getAccount(second.proposal)!.data.length).to.equal(8);
+    await send(await gov.withdraw({ ...ownerParams, amount: 49_900 }));
+    await send(await gov.withdraw({ ...bobParams, amount: 30_000 }), [bob]);
+    expect(await mintSupply()).to.equal(initialSupply);
+    expect(decodedMarket().governance_locked_ylp.toNumber()).to.equal(0);
+    expect((await getAccount(connection as any, f.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(initialSupply - 40_000n);
+    expect((await getAccount(connection as any, bobAta, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(40_000n);
+    // Revocation remains available after the LP deposits everything and closes their empty ATA.
+    await send(await gov.deposit({ ...bobParams, amount: 40_000 }), [bob]);
+    await send({ transaction: new Transaction().add(createCloseAccountInstruction(bobAta, bob.publicKey, bob.publicKey, [], TOKEN_2022_PROGRAM_ID)) }, [bob]);
+    expect(svm.getAccount(bobAta)).to.equal(null);
+    await send(await gov.setDelegate({ ...bobParams, delegate: null }), [bob]);
+    expect((await gov.getBalance(market, bob.publicKey))!.delegate.equals(PublicKey.default)).to.equal(true);
+  });
+
   it("runs the direct-yLP parameter proposal lifecycle", async function () {
     const fixture = await addBalancedLiquidity(61);
     const proposer = payer.publicKey;
@@ -9978,7 +10117,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const supportRent = BigInt(svm.getAccount(proposalSupport)!.lamports);
     const proposerLamportsBefore = BigInt(svm.getAccount(proposer)!.lamports);
     const withdrawTx = await program.methods
-      .withdrawParameterSupport()
+      .withdrawParameterSupport({ amount: null })
       .accounts({
         supporter: proposer,
         market: fixture.market,

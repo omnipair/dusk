@@ -70,7 +70,10 @@ Direct yLP holders
   burn-lock at least 1% of eligible direct yLP to sponsor a typed parameter proposal
   add support until the proposal holds strictly more than 50% of eligible direct yLP
   wait through a seven-day timelock before permissionless execution
-  remint locked yLP, with its virtual yield preserved, after the proposal becomes terminal
+  withdraw any collecting support, fully or partially, before it queues
+  release queued support after execution, expiry, or staleness
+  optionally fund a reusable governance balance and appoint one delegate per market
+  retain ownership and yield while a delegate creates or supports proposals
 ```
 
 ## Token Model
@@ -217,6 +220,11 @@ support_parameter_proposal
 queue_parameter_proposal
 execute_parameter_proposal
 withdraw_parameter_support
+manage_governance_balance
+set_governance_delegate
+create_governance_proposal
+support_governance_proposal
+withdraw_governance_support
 add_liquidity
 open_liquidity_gates
 remove_liquidity
@@ -274,6 +282,15 @@ update_protocol_auction_route
 set_global_reduce_only
 settle_protocol_auction
 ```
+
+LP governance supports direct wallet locks and reusable owner balances. An owner
+may appoint one delegate per market to create and support proposals, combining
+authorized owners' contributions to meet sponsorship atomically. Each owner's
+allocation remains separate. Collecting support can be released partially or
+fully; queued support follows the existing lock rules. Revocation is immediate
+and does not unlock queued support. Only the owner can withdraw idle shares or
+claim yield, and the same shares cannot support multiple proposals. SDK builders
+and examples are in [the governance guide](packages/dusk-sdk/README.md#reusable-governance-balances-and-delegation).
 
 Market parameters are deliberately split into seven typed proposal families:
 fees, concentration shape, IRM, EMA half-lives, the daily

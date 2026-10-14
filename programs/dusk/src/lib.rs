@@ -160,8 +160,44 @@ pub mod dusk {
 
     pub fn withdraw_parameter_support<'info>(
         ctx: Context<'_, '_, '_, 'info, WithdrawParameterSupport<'info>>,
+        args: WithdrawParameterSupportArgs,
     ) -> Result<()> {
-        WithdrawParameterSupport::handle_withdraw(ctx)
+        WithdrawParameterSupport::handle_withdraw(ctx, args)
+    }
+
+    pub fn manage_governance_balance<'info>(
+        ctx: Context<'_, '_, '_, 'info, ManageGovernanceBalance<'info>>,
+        action: GovernanceBalanceAction,
+    ) -> Result<()> {
+        ManageGovernanceBalance::handle(ctx, action)
+    }
+
+    pub fn set_governance_delegate<'info>(
+        ctx: Context<'_, '_, '_, 'info, SetGovernanceDelegate<'info>>,
+        delegate: Pubkey,
+    ) -> Result<()> {
+        SetGovernanceDelegate::handle(ctx, delegate)
+    }
+
+    pub fn create_governance_proposal<'info>(
+        ctx: Context<'_, '_, '_, 'info, CreateGovernanceProposal<'info>>,
+        args: CreateGovernanceProposalArgs,
+    ) -> Result<()> {
+        CreateGovernanceProposal::handle(ctx, args)
+    }
+
+    pub fn support_governance_proposal<'info>(
+        ctx: Context<'_, '_, '_, 'info, SupportGovernanceProposal<'info>>,
+        args: SupportGovernanceProposalArgs,
+    ) -> Result<()> {
+        SupportGovernanceProposal::handle(ctx, args)
+    }
+
+    pub fn withdraw_governance_support<'info>(
+        ctx: Context<'_, '_, '_, 'info, WithdrawGovernanceSupport<'info>>,
+        args: WithdrawParameterSupportArgs,
+    ) -> Result<()> {
+        WithdrawGovernanceSupport::handle(ctx, args)
     }
 
     // Liquidity instructions

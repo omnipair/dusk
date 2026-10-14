@@ -157,3 +157,7 @@ pub const MARKET_LAYOUT_VERSION: u8 = 2;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");
+
+/// Reusable owner governance balance and per-proposal allocation.
+pub const GOVERNANCE_BALANCE_SEED_PREFIX: &[u8] = b"governance_balance";
+pub const GOVERNANCE_SUPPORT_SEED_PREFIX: &[u8] = b"governance_support";

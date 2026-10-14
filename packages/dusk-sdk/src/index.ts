@@ -31,3 +31,5 @@ export * from "./referral.js";
 export * from "./write.js";
 export * from "./virtual-book/index.js";
 export * from "./protection.js";
+
+export * from "./governance-client.js";

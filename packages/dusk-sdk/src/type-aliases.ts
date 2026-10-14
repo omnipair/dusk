@@ -9,6 +9,8 @@ type TypeNamed<N extends Dusk["types"][number]["name"]> = Extract<
   { name: N }
 >;
 type DuskAccountTypes = [
+  TypeNamed<"governanceBalance">,
+  TypeNamed<"governanceSupport">,
   TypeNamed<"liquidationDistress">,
   TypeNamed<"liquidationSession">,
   TypeNamed<"liquidationHealth">,
@@ -57,6 +59,8 @@ type DuskAccountTypes = [
   TypeNamed<"yieldAccount">,
 ];
 type DuskEventTypes = [
+  TypeNamed<"governanceBalanceUpdated">,
+  TypeNamed<"governanceSupportChanged">,
   TypeNamed<"liquidationDistress">,
   TypeNamed<"liquidationHealth">,
   TypeNamed<"liquidationRates">,
@@ -198,3 +202,8 @@ export type FlashLiquidationBegun = IdlTypes<DuskEventIdl>["flashLiquidationBegu
 export type FlashLiquidationSettled = IdlTypes<DuskEventIdl>["flashLiquidationSettled"];
 export type EmergencyLiquidationSettled = IdlTypes<DuskEventIdl>["emergencyLiquidationSettled"];
 export type LiquidationObserved = IdlTypes<DuskEventIdl>["liquidationObserved"];
+
+export type GovernanceBalance = IdlTypes<DuskAccountIdl>["governanceBalance"];
+export type GovernanceSupport = IdlTypes<DuskAccountIdl>["governanceSupport"];
+export type GovernanceBalanceUpdated = IdlTypes<DuskEventIdl>["governanceBalanceUpdated"];
+export type GovernanceSupportChanged = IdlTypes<DuskEventIdl>["governanceSupportChanged"];
