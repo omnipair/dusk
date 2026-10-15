@@ -303,7 +303,7 @@ fn commit_contributions<'info>(
     );
     let mut previous: Option<Pubkey> = None;
     let mut changes = Vec::with_capacity(amounts.len());
-    for (pair, amount) in accounts.chunks_exact(2).zip(amounts.iter().copied()) {
+    for (pair, amount) in accounts.chunks(2).zip(amounts.iter().copied()) {
         let balance_info = &pair[0];
         let support_info = &pair[1];
         require!(

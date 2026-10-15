@@ -686,3 +686,12 @@ emergency permission still accepts execution-price risk at critical EMA health.
 It is not a claim that AMM price manipulation or keeper liveness is solved.
 
 No merge or deployment is part of this implementation request.
+
+## 2026-10-15 follow-up economics
+
+The [EMA inventory settlement comparison](calibration/EMA_SETTLEMENT_ECONOMICS.md)
+resumes the open execution-price investigation after the governance delegation
+review. It includes manipulation trading costs, honest/control strategies and
+final LP/hLP claims. It preserves V2 eligibility and changes no liquidation
+runtime policy. #287652 remains open; inventory settlement is a design candidate,
+not an approved or implemented remedy.

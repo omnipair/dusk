@@ -196,3 +196,5 @@ fn final_economic_policy_paths() {
 }
 
 include!("liquidation_unfilled_diagnostics.rs");
+
+include!("liquidation_ema_inventory_economics.rs");

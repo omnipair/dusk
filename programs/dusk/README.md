@@ -389,7 +389,7 @@ different.
 - A physical reserve vault must contain at least executable `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory + protected_recenter_reserve`; protocol transitions conserve that accounted total exactly, while unsolicited token donations are tolerated but remain non-executable. Interest liabilities must be backed by the interest vault.
 - Base fees and lending interest never fund concentration recentering.
 - A normal trade checkpoints the current curve as economically neutral; retained dynamic surcharge is the only swap path that creates protected recentering budget.
-- Recenter and parameter-ramp points are admitted only when their curve-depth-per-share impairment is funded.
+- Recenter and parameter-update endpoints are admitted only when their curve-depth-per-share impairment is funded.
 - Swaps, previews, leverage, and predictive hLP positioning use the live
   applied curve. Public borrowing deliberately uses a stricter full-range-tail
   CPMM shadow curve.
