@@ -3,6 +3,11 @@ use crate::math::leverage_margin::LeverageMarginSchedule;
 
 const CALIBRATION_UNIT: u64 = 1_000;
 
+mod ema_settlement {
+    use super::*;
+    include!("liquidation_ema_settlement.rs");
+}
+
 mod stored_margin_runtime {
     use super::*;
     include!("leverage_stored_margin_runtime.rs");

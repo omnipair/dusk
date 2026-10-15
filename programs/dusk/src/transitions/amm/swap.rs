@@ -28,11 +28,19 @@ pub(crate) struct SwapRequest {
     pub protocol_fee_bps: u16,
 }
 
+// Bind oracle-priced inventory settlement to the real preparation state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct InventorySettlement {
+    pub curve_revision: u64,
+    pub actual_start_price_nad: u64,
+}
+
 /// State-only preparation shared by preview and execution. `finalize_state`
 /// commits the matching state transition; token settlement remains an
 /// instruction concern.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PreparedSwap {
+    pub(crate) inventory_settlement: Option<InventorySettlement>,
     pub(crate) quoted_slot: u64,
     pub quote: AmmSwapQuote,
     pub base_pre_rebalance: HlpRebalanceReceipt,
@@ -180,7 +188,20 @@ impl PreparedSwap {
                 ErrorCode::BrokenInvariant
             );
         }
+        let inventory = self.inventory_settlement;
+        if let Some(reference) = inventory {
+            require!(
+                matches!(cash_policy, SwapCashPolicy::SettleLiquidation { .. }) && lending.is_none(),
+                ErrorCode::InvalidLiquidationSession
+            );
+            require_eq!(
+                reference.curve_revision,
+                market.curve_revision,
+                ErrorCode::InvalidLiquidationSession
+            );
+        }
         let prepared_transition = self.concentrated_transition.take().ok_or(ErrorCode::BrokenInvariant)?;
+        self.inventory_settlement = None;
         let prepared_cache = self.post_fee_curve_cache.take();
         let fee_asset = MarketAsset::try_from_code(quote.fee.fee_asset)?;
         let lifecycle = if cash_policy == SwapCashPolicy::Spot || lending.is_some() {
@@ -247,14 +268,20 @@ impl PreparedSwap {
             market.credit_protected_recenter_reserve(fee_asset, quote.fee.retained_surcharge)?;
         }
         let fresh_transition;
-        let transition = if socialized_loss {
+        let transition = if socialized_loss || inventory.is_some() {
             fresh_transition = prepare_concentrated_hlp_transition_at_current_state(market)?;
             &fresh_transition
         } else {
             prepared_transition.as_ref()
         };
         let (base_rebalance, quote_rebalance) = transition.consume(market)?;
-        if quote.fee.compounded_fee_debit > 0 {
+        if inventory.is_some() {
+            require!(prepared_cache.is_none(), ErrorCode::BrokenInvariant);
+            // Reference pricing can change real invariant depth even without
+            // a recorded write-off. Consume protection on loss; an apparent
+            // gain cannot manufacture a spendable recenter buffer.
+            market.checkpoint_amm_socialized_loss_raw(current_slot)?;
+        } else if quote.fee.compounded_fee_debit > 0 {
             let cache = if socialized_loss {
                 None
             } else {
@@ -278,7 +305,7 @@ impl PreparedSwap {
                     .current_concentrated_spot_price_nad()?
                     .ok_or(ErrorCode::BrokenInvariant)?
             }
-        } else if socialized_loss {
+        } else if socialized_loss || inventory.is_some() {
             market
                 .current_concentrated_spot_price_nad()?
                 .ok_or(ErrorCode::BrokenInvariant)?
@@ -286,7 +313,11 @@ impl PreparedSwap {
             quote.reserve_end_price_nad
         };
         require!(final_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-        market.finalize_amm_trade_after_inventory_checkpoint(quote.start_price_nad, final_price_nad, current_slot)?;
+        market.finalize_amm_trade_after_inventory_checkpoint(
+            inventory.map_or(quote.start_price_nad, |reference| reference.actual_start_price_nad),
+            final_price_nad,
+            current_slot,
+        )?;
         let depth = market
             .amm
             .concentrated_curve_cache
@@ -439,6 +470,7 @@ impl SwapRequest {
         let post_fee_curve_cache = concentrated.post_fee_curve_cache.map(Box::new);
         let quote = concentrated.as_swap_quote(self.asset_in);
         Ok(Box::new(PreparedSwap {
+            inventory_settlement: None,
             quoted_slot: self.current_slot,
             quote,
             base_pre_rebalance: HlpRebalanceReceipt {

@@ -124,8 +124,13 @@ export class DuskLiquidations {
     return this.program.coder.types.decode("flashLiquidationQuote", previewReturnDataBytes(returned)) as FlashLiquidationQuote;
   }
 
-  /** Full AMM fallback requires the emergency health gate and either EMA
-   * insolvency or proof that no smaller AMM sale can restore MM + 2 points.
+  /** Emergency inventory settlement uses the symmetric price EMA and smoothed
+   * curve depth, including the configured concentration and full fee schedule.
+   * referencePriceNad is debt per collateral (1e9); referenceDepthNad is curve depth,
+   * not token atoms or TVL. swapOutput is credited settlement value, not a
+   * live-spot trade quote. Eligibility remains linear symmetric-EMA health.
+   * Full settlement requires either EMA insolvency or proof that no smaller
+   * reference-priced settlement can restore MM + 2 points.
    * A useful below-target partial or external flash quote does not block it.
    * Proof failure remains a rejection; a failed requested slice is not evidence.
    */
@@ -138,9 +143,12 @@ export class DuskLiquidations {
     return this.program.coder.types.decode("emergencyLiquidationQuote", previewReturnDataBytes(returned)) as EmergencyLiquidationQuote;
   }
 
-  /** AMM liquidation with partial recovery or the approved full-sale fallback.
-   * Uses the on-chain preview for sizing, full swap fees and loss allocation.
-   * The program nets principal and verifies the gates again during execution.
+  /** EMA inventory liquidation with partial recovery or the approved full fallback.
+   * Uses the on-chain preview for sizing, full fees and loss allocation.
+   * The program nets principal, pays only funded cash amounts, reconciles real
+   * hLP balances and verifies the gates again during execution. The reference
+   * returned here identifies the preview's inputs; it is not locked on-chain.
+   * Explicit minimums protect the caller if the EMA/fee state changes.
    */
   async buildEmergency(params: EmergencyLiquidationParams) {
     const r = await this.resolve(params);
@@ -178,7 +186,14 @@ export class DuskLiquidations {
       minRewardCredit: governanceIntegerBN(params.minRewardCredit ?? BigInt(quote.rewardCredit.toString()), "minRewardCredit"),
       minSwapOutput: governanceIntegerBN(params.minSwapOutput ?? BigInt(quote.swapOutput.toString()), "minSwapOutput"),
     }, { accounts: { accounts, collateralReserveVault: r.collateralSide.reserveVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY }, remainingAccounts });
-    return { quote, instruction, instructions: [...prefix, instruction], callerDebtAccount: buyerRefundAccount, ownerDebtAccount };
+    return {
+      quote, instruction, instructions: [...prefix, instruction],
+      reference: {
+        priceNad: BigInt(quote.referencePriceNad.toString()),
+        depthNad: BigInt(quote.referenceDepthNad.toString()),
+      },
+      callerDebtAccount: buyerRefundAccount, ownerDebtAccount,
+    };
   }
 
   /** Prefix + begin + caller's route + settle, with indices computed last.

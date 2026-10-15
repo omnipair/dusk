@@ -9593,7 +9593,23 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(after[vault].quote_interest_growth_index_q64.gt(before[vault].quote_interest_growth_index_q64)).to.equal(true);
     }
     await seedValue(938_000n); // approximately 4% equity on the remaining 900k debt
-    const { quote } = await executeEmergency(f, leveragePosition, true, leverageCollateralVault, f.ownerQuoteAccount, false, new BN(10_000));
+    const sdk = new DuskLiquidations(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
+    const request = { market: f.market, position: leveragePosition, kind: "leverage" as const,
+      debtAsset: "quote" as const, collateralDebit: 10_000n, full: false };
+    const beforeSpotMove = await sdk.previewEmergency(request);
+    await swapBaseForQuote(f, hlpSwapAccounts(f), 100_000_000, 1);
+    const afterSpotMove = await sdk.previewEmergency(request);
+    expect(afterSpotMove.referencePriceNad.eq(beforeSpotMove.referencePriceNad)).to.equal(true);
+    expect(afterSpotMove.referenceDepthNad.eq(beforeSpotMove.referenceDepthNad)).to.equal(true);
+    expect(afterSpotMove.swapOutput.eq(beforeSpotMove.swapOutput)).to.equal(true);
+    expect(afterSpotMove.healthBefore.collateralValue.eq(beforeSpotMove.healthBefore.collateralValue)).to.equal(true);
+    const plan = await sdk.buildEmergency({ ...request, caller: payer.publicKey });
+    const transaction = new Transaction().add(...plan.instructions);
+    await connection.sendTransaction(transaction, [payer]);
+    const quote = cpiEvent(transaction, "emergencyLiquidationSettled").quote;
+    expect(quote.swapOutput.eq(plan.quote.swapOutput)).to.equal(true);
+    expect(BigInt(quote.referencePriceNad.toString())).to.equal(plan.reference.priceNad);
+    expect(BigInt(quote.referenceDepthNad.toString())).to.equal(plan.reference.depthNad);
     expect(quote.full).to.equal(false);
     expect(quote.loss.principalWrittenOff.toString()).to.equal("0");
     const remaining = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
@@ -9664,12 +9680,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f);
     await swapBaseForQuote(f, [], 80_000, 1);
     const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
-    const setEmaValue = async (value: bigint) => {
+    const setEmaValue = async (value: bigint, depthDivisor = 1n) => {
       const account = svm.getAccount(f.market)!;
       const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
       const price = (value * 1_000_000_000n + BigInt(p.collateral_amount.toString()) - 1n) / BigInt(p.collateral_amount.toString());
       market.risk.base_price_ema_nad = new BN(price.toString());
       market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n / price).toString());
+      market.risk.curve_depth_ema_nad = new BN((BigInt(market.risk.curve_depth_ema_nad.toString()) / depthDivisor).toString());
       market.risk.last_snapshot_slot = new BN(svm.getClock().slot.toString());
       market.last_update_slot = new BN(svm.getClock().slot.toString());
       market.risk_revision = market.curve_revision;
@@ -9688,11 +9705,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     let rejected: unknown;
     try { await executeEmergency(f, leveragePosition, true, leverageCollateralVault); } catch (error) { rejected = error; }
     expect(String(rejected)).to.include("PositionNotLiquidatable");
-    // At 4.76% equity a useful flash partial exists. It no longer vetoes a
-    // full AMM fallback when no internal partial can restore MM + 2 points.
+    // At 4.76% equity a depressed live spot quote is no longer enough to
+    // authorize full closure: the reference curve can still support partials.
     await setEmaValue(1_050n);
     const partial = await sdk.preview({ ...request, maxRepayment: 100n, full: false });
     expect(partial.repayment.gt(new BN(0))).to.equal(true);
+    let referenceFullError: any;
+    try { await sdk.previewEmergency(request); } catch (error) { referenceFullError = error; }
+    expect(referenceFullError?.simulation?.value?.logs?.join("\n")).to.include("LiquidationRepayTooLarge");
+    const referencePartial = await sdk.previewEmergency({ ...request, collateralDebit: 50n, full: false });
+    expect(referencePartial.repayment.gt(new BN(0))).to.equal(true);
+    // A genuinely shallower depth EMA can make recovery impossible. Keep the
+    // EMA price/health unchanged and verify the approved full fallback then.
+    await setEmaValue(1_050n, 100n);
     const plan = await sdk.buildEmergency({ ...request, caller: payer.publicKey });
     const transaction = new Transaction().add(...plan.instructions);
     const { computeUnits } = await connection.sendTransactionMeasured(transaction, [payer]);

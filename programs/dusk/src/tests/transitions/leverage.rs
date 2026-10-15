@@ -286,6 +286,7 @@ fn prepared_leverage_swap(
         prepare_concentrated_hlp_transition(market, market.integrated_curve_state_nad().unwrap(), integrated, asset_in)
             .unwrap();
     Box::new(crate::transitions::amm::PreparedSwap {
+        inventory_settlement: None,
         concentrated_transition: Some(Box::new(concentrated_transition)),
         post_fee_curve_cache,
         quoted_slot: swap.quoted_slot,

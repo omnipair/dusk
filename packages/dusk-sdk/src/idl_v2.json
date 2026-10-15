@@ -13850,6 +13850,20 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "reference_price_nad",
+            "docs": [
+              "Symmetric collateral-price EMA (debt per collateral, NAD), not live spot."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reference_depth_nad",
+            "docs": [
+              "Smoothed total active curve depth used only for settlement sizing."
+            ],
+            "type": "u128"
+          },
+          {
             "name": "full",
             "type": "bool"
           },

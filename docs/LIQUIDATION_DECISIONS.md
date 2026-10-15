@@ -695,3 +695,35 @@ review. It includes manipulation trading costs, honest/control strategies and
 final LP/hLP claims. It preserves V2 eligibility and changes no liquidation
 runtime policy. #287652 remains open; inventory settlement is a design candidate,
 not an approved or implemented remedy.
+
+
+## 2026-10-16: EMA-priced internal emergency settlement
+
+Approved: keep V2 linear symmetric-EMA eligibility and stored maintenance terms.
+A current liquidity withdrawal must not by itself move that health threshold.
+Replace emergency live-curve pricing with the configured concentrated curve
+reconstructed at the collateral side’s symmetric price EMA and `curve_depth_ema_nad`. Do not
+use `min(observed_depth, ema_depth)`, live reserve `k`, or a live-price quote floor.
+Use the identical reference in partial recovery/full-close certificates.
+
+Keep full fees: launch price and divergence are evaluated on the reference;
+the volatility accumulator/decay and fee ownership/retention rules remain.
+This does not make fee history independent of preceding trades. Quote and event
+include reference price and depth; SDK emergency helpers expose them. Ordinary
+flash routing is unchanged, including its voluntary live-AMM execution route.
+
+Reference reserves only price the debt offset. Actual collateral custody, cash
+payouts, principal-first recovery, principal-only insurance, canceled interest,
+and real hLP claims/debt reconciliation remain authoritative. Never commit a
+virtual reserve or hLP endpoint. A real cash shortage can still reject settlement.
+
+Status of #287652: direct live-price/depth dependency is being removed. Economic
+manipulation through the inventory change remains an explicitly documented risk;
+this change alone does not establish that the complete finding is resolved.
+See `calibration/EMA_EMERGENCY_CURRENT_FEES.md` for the pre-implementation comparison.
+
+
+Implementation and verification: [EMA internal settlement](calibration/EMA_INTERNAL_SETTLEMENT.md).
+The SDK quote/event interface now carries reference price/depth. All required
+local checks passed, including 501 native tests in each profile, 64 SDK tests
+and 135 strict LiteSVM tests; no account migration is introduced.

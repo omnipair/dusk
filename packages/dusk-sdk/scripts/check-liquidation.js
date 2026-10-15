@@ -89,10 +89,12 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   assert.deepEqual(composed.settleInstruction.keys.at(-1), customRemaining);
   assert.equal(composed.instructions.filter(ix => ix.programId.equals(ComputeBudgetProgram.programId)
     && ix.data[0] === 2).length, 1);
-  client.previewEmergency = async () => ({ rewardCredit: new anchor.BN(3), swapOutput: new anchor.BN(900) });
+  client.previewEmergency = async () => ({ rewardCredit: new anchor.BN(3), swapOutput: new anchor.BN(900),
+    referencePriceNad: new anchor.BN(1_000_000_000), referenceDepthNad: new anchor.BN("123456789123456789123456789") });
   const emergency = await client.buildEmergency({ ...request, caller: buyer, collateralDebit: 1100n, full: true });
   const emergencyDecoded = program.coder.instruction.decode(emergency.instruction.data);
   assert.equal(emergencyDecoded.name, "emergencyLiquidation");
+  assert.deepEqual(emergency.reference, { priceNad: 1_000_000_000n, depthNad: 123456789123456789123456789n });
   assert.equal(emergencyDecoded.data.args.minRewardCredit.toString(), "3");
   assert.equal(emergencyDecoded.data.args.minSwapOutput.toString(), "900");
   assert.ok(!emergency.ownerDebtAccount.equals(emergency.callerDebtAccount));

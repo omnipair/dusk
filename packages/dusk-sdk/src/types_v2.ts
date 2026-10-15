@@ -13856,6 +13856,20 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
+            "name": "referencePriceNad",
+            "docs": [
+              "Symmetric collateral-price EMA (debt per collateral, NAD), not live spot."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "referenceDepthNad",
+            "docs": [
+              "Smoothed total active curve depth used only for settlement sizing."
+            ],
+            "type": "u128"
+          },
+          {
             "name": "full",
             "type": "bool"
           },

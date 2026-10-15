@@ -1,3 +1,4 @@
+mod liquidation;
 mod swap;
 pub use swap::PreparedSwap;
 pub(crate) use swap::{split_claimable_fee_credit, FinalizedSwapState, SwapRequest};
@@ -1544,6 +1545,28 @@ impl Market {
         current_unix_timestamp: i64,
         pre_state: DynamicFeePreState,
     ) -> Result<PreliminarySwapInputs> {
+        let price = self
+            .current_concentrated_spot_price_nad()?
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        self.preliminary_swap_inputs_at_reference_price(
+            asset_in,
+            reserve_credit,
+            current_slot,
+            current_unix_timestamp,
+            pre_state,
+            price,
+        )
+    }
+
+    pub(crate) fn preliminary_swap_inputs_at_reference_price(
+        &self,
+        asset_in: MarketAsset,
+        reserve_credit: u64,
+        current_slot: u64,
+        current_unix_timestamp: i64,
+        pre_state: DynamicFeePreState,
+        current_base_price_nad: u64,
+    ) -> Result<PreliminarySwapInputs> {
         require!(reserve_credit > 0, ErrorCode::AmountZero);
         let mut config = self.dynamic_fee_config()?;
         // The launch size reference is configured in fixed nine-decimal
@@ -1556,9 +1579,6 @@ impl Market {
             NAD_DECIMALS,
             true,
         )?;
-        let current_base_price_nad = self
-            .current_concentrated_spot_price_nad()?
-            .ok_or(ErrorCode::InsufficientLiquidity)?;
         config.base_fee_bps = self.config.effective_base_fee_bps_for_swap_at(
             asset_in,
             gross_input_nad,

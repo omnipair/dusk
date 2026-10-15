@@ -16,6 +16,10 @@ use crate::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct EmergencyLiquidationQuote {
+    /// Symmetric collateral-price EMA (debt per collateral, NAD), not live spot.
+    pub reference_price_nad: u64,
+    /// Smoothed total active curve depth used only for settlement sizing.
+    pub reference_depth_nad: u128,
     pub full: bool,
     pub collateral_debit: u64,
     pub collateral_credit: u64,
@@ -51,9 +55,9 @@ fn fee_debits(fee: LiquidationFeeAllocation, token_fee: LeverageCollateralFee) -
 }
 
 impl Market {
-    /// Freeze one AMM sale and bind its actual output to debt repayment. No
-    /// transfer of the principal offset is needed. The caller must settle the
-    /// quoted custody debits and commit this exact prepared swap atomically.
+    // Freeze an EMA-priced inventory settlement and bind its credited output
+    // to debt repayment. Only real payouts need cash; virtual reference reserves
+    // must never replace the real reserve or hLP accounting.
     pub(crate) fn prepare_emergency_liquidation(
         &mut self,
         position: &LiquidationPositionRef<'_>,
@@ -157,7 +161,7 @@ impl Market {
                     reserve_credit: collateral_credit,
                     protocol_fee_bps,
                 }
-                .prepare_with_cash_policy(self, SwapCashPolicy::LiquidationQuote)?,
+                .prepare_ema_liquidation(self)?,
             )
         };
         let output = swap.as_ref().map_or(0, |s| s.quote.amount_out);
@@ -239,7 +243,10 @@ impl Market {
         if let Some(swap) = &mut swap {
             swap.bind_liquidation(self, policy)?;
         }
+        let reference = self.current_risk()?;
         let quote = EmergencyLiquidationQuote {
+            reference_price_nad: self.pessimistic_collateral_price_nad(asset.opposite(), &reference, false),
+            reference_depth_nad: reference.curve_depth_ema_nad,
             full,
             collateral_debit,
             collateral_credit,

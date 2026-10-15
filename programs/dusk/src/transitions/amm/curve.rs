@@ -500,6 +500,31 @@ fn reserve_ratio_cmp(point: ConcentratedCurvePoint, boundary: ConcentratedCurveP
         .cmp(&(U512::from(boundary.quote_reserve) * U512::from(point.base_reserve)))
 }
 
+// Build the same tail/band geometry from independent oracle inputs. Unlike
+// reconstruction at a reserve point, this never reads the live inventory.
+pub(crate) fn prepare_concentrated_cache_at_depth(
+    center_price_nad: u64,
+    depth_nad: u128,
+    parameters: ConcentratedCurveParameters,
+) -> Result<ConcentratedCurveCache> {
+    parameters.validate(u64::MAX)?;
+    require!(center_price_nad > 0 && depth_nad > 0, ErrorCode::InvalidSettlementPrice);
+    let sqrt_center = sqrt_ratio_nad(u128::from(center_price_nad))?;
+    let (core_width, outer_width) = parameters.sqrt_widths_nad()?;
+    let (_, concentrated_share) = parameters.liquidity_shares_nad()?;
+    let concentrated = mul_div_u128(depth_nad, concentrated_share, u128::from(NAD))?;
+    complete_concentrated_cache(
+        parameters,
+        depth_nad - concentrated,
+        concentrated,
+        mul_div_u128(sqrt_center, u128::from(NAD), core_width)?,
+        mul_div_u128(sqrt_center, core_width, u128::from(NAD))?,
+        mul_div_u128(sqrt_center, u128::from(NAD), outer_width)?,
+        mul_div_u128(sqrt_center, outer_width, u128::from(NAD))?,
+        sqrt_center,
+    )
+}
+
 /// Reconstructs the unique positive curve scale through an arbitrary reserve
 /// point for a sticky center and concentration policy. Homothetic boundary
 /// ratios select the expected branch first, so the normal path evaluates one

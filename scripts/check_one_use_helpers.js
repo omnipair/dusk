@@ -362,6 +362,9 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 const acceptedOneUseHelpers = new Map([
   // Off-chain historical auction replay; compiled only with feature benchmark.
   ["programs/dusk/src/transitions/amm/swap.rs", new Set(["settle_backstop_swap"])],
+  // Emergency inventory preparation must remain separate from executable
+  // swaps: a virtual pricing endpoint must never become an hLP/reserve plan.
+  ["programs/dusk/src/transitions/amm/liquidation.rs", new Set(["prepare_ema_liquidation"])],
   // Keep the pure, clock-bound hLP admission and fee-boundary calculations
   // independently testable from Anchor account deserialization and sysvars.
   ["programs/dusk/src/instructions/hlp_deposit_preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
@@ -374,7 +377,9 @@ const acceptedOneUseHelpers = new Map([
   ["programs/dusk/src/instructions/spot/swap.rs", new Set(["require_hlp_recovery_swap"])],
   [
     "programs/dusk/src/transitions/amm/curve.rs",
-    new Set(["parameters", "center_point_with_geometry", "concentrated_total_liquidity_root"]),
+    // Oracle geometry construction has independent price/depth inputs, unlike
+    // live-reserve reconstruction, and is exercised across concentration tiers.
+    new Set(["parameters", "center_point_with_geometry", "concentrated_total_liquidity_root", "prepare_concentrated_cache_at_depth"]),
   ],
   [
     "programs/dusk/src/transitions/amm/fees.rs",

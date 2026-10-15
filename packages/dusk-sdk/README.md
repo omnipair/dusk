@@ -77,9 +77,27 @@ If the route changes active hLP accounts, pass the complete final-state account
 list through `settleRemainingAccounts`; the default resolves the current market.
 
 `previewEmergency()` and `buildEmergency()` accept `collateralDebit` and `full`.
+
+Emergency internal settlement uses **symmetric EMA price and smoothed curve depth**,
+with the market's concentration. Both preview and settlement report
+`referencePriceNad` (debt per collateral at 1e9 scale) and `referenceDepthNad` (normalized
+curve depth, not TVL). `buildEmergency()` also returns these as bigint
+`reference.priceNad` / `reference.depthNad`. `swapOutput` is the debt value credited
+by this inventory settlement; it is not a live-spot execution quote. The pool
+receives real collateral and reduces the loan, with funded cash payouts and real
+hLP reconciliation. Normal flash routes, including `settlement: "duskAmm"`, retain
+their venue's executable quotes.
+
+The full fee schedule remains: launch price and divergence use the reference
+curve; volatility uses the existing accumulator and decay. Thus changed fee
+history can change net proceeds even when price/depth EMAs are unchanged. Live
+spot/depth are not substituted into reference sizing or its full-close proof.
+Use a fresh preview and simulate the complete transaction. The returned reference
+is not a lock; the builder's minimum-output/reward arguments still apply.
+
 They enforce the emergency EMA-health gate (equity at or below 70% of MM).
-A full AMM sale needs nonpositive EMA equity or the program's conservative proof
-that no smaller AMM sale can restore MM +2 percentage points after all costs.
+A full reference-priced settlement needs nonpositive EMA equity or the program's conservative proof
+that no smaller reference-priced settlement can restore MM +2 percentage points after all costs.
 A useful below-target partial or an external flash opportunity does not veto
 this fallback. Full normal swap fees, rewards and loss accounting still apply.
 Failure to certify, including proof-budget exhaustion, rejects full closure.
@@ -127,7 +145,10 @@ access. A verified healthy position ends its distress episode.
 
 Indexers should consume `FlashLiquidationBegun`, `FlashLiquidationSettled`,
 `EmergencyLiquidationSettled` and `LiquidationObserved`. AMM settlement also emits
-`SwapExecuted`; external purchases do not generate Dusk swap volume. Collected
+`SwapExecuted`; external purchases do not generate Dusk swap volume. For emergency
+settlement, its start price/output describe the reference-priced debt offset;
+its final reserve/spot snapshots describe the actual pool. Correlate it with
+`EmergencyLiquidationSettled` rather than treating it as a live execution quote. Collected
 interest retains `BorrowInterestPaid`/referral events. A terminal settlement
 clears the debt leg but leaves position rent to the existing owner cleanup path.
 `previewBorrowPosition` reports `liquidationHealth`, `liquidationRates` and
