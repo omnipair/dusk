@@ -208,10 +208,12 @@ this work does not claim to have independently revalidated each one.
   insurance do not provide a protocol execution-price floor. No profitable
   manipulation exploit is established here. This needs explicit risk disposition
   or a separately approved mitigation; atomic settlement alone does not close it.
-- **#287160: mutable transfer-fee collateral risk remains.** Net-credit accounting
-  and adverse scheduled-fee checks improve handling, but a hostile issuer can
-  destroy recoverable collateral value. Principal-only insurance and write-off
-  handle the resulting accounting loss; they do not prevent it.
+- **#287160: implemented mitigation with a keeper-execution dependency.** New-risk
+  checks immediately consider adverse scheduled fees; the final notice epoch
+  enables early liquidation while transfers still pay current fees. Exact net
+  settlement and the loss waterfall handle missed-window losses. Timely confirmed
+  keeper execution remains an assumption; fee-authority revocation is not a
+  missing agreed fix. See [current policy](../mutable-transfer-fees.md).
 - **Minimum remaining debt — resolved by removal:** the follow-up above removes
   the fields and restrictions. No market creator chooses a number, and no
   minimum-based exception to full-close permission is needed.

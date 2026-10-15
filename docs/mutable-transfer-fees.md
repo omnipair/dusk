@@ -1,7 +1,99 @@
-# Mutable Token-2022 transfer fees
+# Mutable Token-2022 transfer fees (#287160)
 
-Dusk reads each asset mint's current and scheduled transfer fees at execution. Borrowing and liquidity withdrawals check market-wide health using both mints. A position's collateral withdrawal checks the fee on that collateral mint. Stored market and position health contributions remain gross; admission checks discount them when they read the mint schedules. The fee is not cached in the Market account.
+## Implemented mitigation and remaining assumption
 
-A newly scheduled fee blocks unsafe new credit immediately. Existing borrowers have the first notice epoch to repay or add collateral. In the final notice epoch, an announced fee may make a borrow or leverage position liquidatable while actual transfers still pay the current fee. Lending auctions are canceled if the fee is withdrawn and the position becomes healthy again. A fee authority can therefore schedule and cancel a change to trigger a liquidation before it takes effect; borrowers of mutable-fee assets bear that bounded penalty risk. Once a fee takes effect, liquidation uses the effective fee and can consume insurance or socialize a shortfall under the existing rules.
+Dusk supports assets whose issuer can change the transfer fee. **Revoking that
+fee authority is not a required or agreed remediation.** The mitigation combines
+fee-aware admission, early liquidation during the final notice epoch, actual
+net-receipt settlement, and an explicit loss waterfall.
 
-Market-wide health applies the fee rate conservatively to aggregate stored contributions. It cannot calculate each position's capped fee from the aggregate alone. For example, a 100% rate capped at one atom can halt new borrowing and liquidity withdrawals despite a much smaller actual loss. This is a liveness limitation of the current aggregate representation; exact capped-fee valuation would require position-level distribution data. Position previews and auction transfers still use each transfer's exact fee and cap.
+Early liquidation depends on a keeper finding an executable, worthwhile fill
+and getting it confirmed before activation. This is a substantive mitigation,
+not a guarantee against issuer confiscation. Scheduling a fee does not itself
+execute a liquidation. The SDK and keeper monitoring support this policy; the
+keeper deployment must use the matching Dusk interface and artifacts.
+
+## Three different fee calculations
+
+Example: current fee 3%, newly announced fee 100%, with no binding cap, scheduled
+for epoch 102. A transfer debits 1,000 token atoms. Table amounts are net credit.
+
+| Epoch | Actual transfer | New-risk admission | Existing-position liquidation health |
+| --- | ---: | ---: | ---: |
+| 100: first notice | 970 | 0 | 970 |
+| 101: final notice | 970 | 0 | 0 |
+| 102: fee active | 0 | 0 | 0 |
+
+New-risk checks consider **all announced future schedules** immediately. Existing
+positions' liquidation checks include the announced schedule only when it becomes
+effective next epoch. A pending schedule can therefore make a position eligible
+while its collateral can still be transferred under the current fee. Healthy
+positions must still pass the program's eligibility checks; notice status alone
+never authorizes liquidation.
+
+For each transfer amount, Dusk computes the exact fee under each applicable
+schedule, including ceiling rounding and that schedule's maximum fee, then uses
+the smaller net credit. It does **not** combine the largest rate with the largest
+cap. A pending fee reduction cannot relax conservative health before activation.
+Actual transfers and payment gross-ups always use the effective fee.
+
+Dusk reads the mint schedules during execution; they are not cached in `Market`.
+Borrowing and liquidity-withdrawal checks consider both market mints. Stored
+market and position contributions remain gross and are discounted at valuation.
+
+## SDK and keeper contract
+
+Use `fetchTransferFeeNotices(connection, mints)` for a coherent mint + Clock read,
+or `liquidations.transferFeeNotices(...)` on a `DuskLiquidations` instance for a
+position's debt/collateral pair.
+`transferFeeCredit` exposes the effective, admission and liquidation calculations.
+These are monitoring helpers, not substitutes for on-chain position previews.
+
+1. Discover every supported market and both mints. Poll Clock and mint accounts;
+   an epoch transition can change eligibility **without a mint account update**.
+2. Re-evaluate affected borrowing and leverage positions when a schedule changes,
+   when entering the final notice epoch, and at activation. Keep normal periodic
+   scans so restarts or missed notifications cannot lose work.
+3. Refresh direct RPC state and on-chain previews before simulation/signing.
+   Rebuild if the epoch, fee schedule, authority, payment or route has changed.
+   Do not retain a healthy result across a fee/epoch change. Cancellation or
+   rescheduling must trigger the same recheck and can make a position healthy.
+4. Use current fees for the collateral receipt and all debt-payment gross-ups.
+   Confirm the transaction and re-read remaining debt. A preview, submitted
+   signature, or observation/timer transaction alone is not successful cleanup.
+5. Alert on failed scans, final-notice backlog, repeated route/economic failures,
+   signer/confirmation failure, or activation with exposed debt still remaining.
+   Never bypass liquidation health, reward limits or insurance limits to clear
+   the alert. Epochs, rather than an assumed number of wall-clock hours, define
+   the notice window.
+
+The keeper repository runbook is
+[`docs/transfer-fee-notice.md`](https://github.com/omnipair/dusk-keepers/blob/feat/mutable-fee-liquidation-callers/docs/transfer-fee-notice.md).
+Its existing frozen deployment uses the older auction interface; updating this
+monitor does not upgrade the deployed program or turn that caller into #45's
+flash/emergency executor. Re-pin and validate the matching executor at rollout.
+
+## Residual risks and evidence
+
+A fee authority can schedule and cancel a change after an early liquidation.
+Borrowers of mutable-fee assets bear the resulting liquidation-penalty risk.
+A fee can activate before cleanup because of unavailable/unprofitable routes,
+insufficient keeper coverage, congestion or confirmation delays. At that point,
+zero-credit settlement follows principal-first recovery, principal-only bounded
+insurance, unpaid-interest cancellation and remaining principal write-off.
+These rules account for a loss; they do not prevent the issuer from causing it.
+
+Market-wide health applies a conservative fee rate to aggregate contributions.
+It cannot reconstruct per-position fee caps from those aggregates. A 100% rate
+capped at one atom can therefore restrict new borrowing and liquidity withdrawal
+more than exact position valuation would. Position previews and actual transfers
+use exact fee caps. This aggregate limitation remains separate from keeper notice
+handling.
+
+Evidence includes SDK/Rust/keeper-TypeScript shared schedule vectors (first notice,
+final notice, activation, cancellation/rescheduling, reductions, caps and u64
+bounds) and the program's LiteSVM regression:
+`liquidates leverage in the final notice epoch before a confiscatory fee activates`.
+The separate `socializes leverage debt when a mutable fee leaves zero liquidation
+credit` test covers missed-window loss accounting. These demonstrate the paths;
+they do not establish production keeper availability or universal cleanup.

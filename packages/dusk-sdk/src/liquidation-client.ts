@@ -1,3 +1,4 @@
+import { fetchTransferFeeNotices } from "./transfer-fees.js";
 import type { Program, IdlTypes } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
@@ -104,6 +105,17 @@ export class DuskLiquidations {
     const collateralSide = debtAsset === 0 ? state.quoteSide : state.baseSide;
     const readAccounts = { market, borrowPosition: params.kind === "borrow" ? position : null, leveragePosition: params.kind === "leverage" ? position : null, debtMint: debtSide.assetMint, collateralMint: collateralSide.assetMint };
     return { market, position, state, positionState, debtSide, collateralSide, debtAsset, readAccounts };
+  }
+
+  /** Monitor both sides: collateral fees affect health, debt fees affect payment.
+   * Re-preview when refreshKey changes, including epoch changes without mint writes.
+   * This read does not prove eligibility or reserve a price for a later transaction.
+   */
+  async transferFeeNotices(params: LiquidationPositionParams, minContextSlot?: number) {
+    const r = await this.resolve(params);
+    const snapshot = await fetchTransferFeeNotices(this.program.provider.connection,
+      [r.debtSide.assetMint, r.collateralSide.assetMint], { minContextSlot });
+    return { slot: snapshot.slot, epoch: snapshot.epoch, debt: snapshot.mints[0], collateral: snapshot.mints[1] };
   }
 
   /** Commit separately if a failed execution route must not erase the timer. */

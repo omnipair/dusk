@@ -911,3 +911,31 @@ or long metadata may require a v0 transaction and a caller-provided address look
 table. Use the returned `instruction` to compose such a transaction; initial
 sponsorship cannot be split across multiple transactions. Existing queue and
 execute helpers work for proposals with direct, reusable, or mixed support.
+
+### Mutable transfer-fee notice monitoring
+
+```ts
+import { DuskLiquidations, transferFeeCredit } from "@omnipair/dusk-sdk";
+const liquidations = new DuskLiquidations(program, keeperPublicKey);
+const notice = await liquidations.transferFeeNotices({
+  market, position, kind: "leverage", debtAsset: "quote",
+});
+// Each mint and Clock were read from the same RPC bank.
+console.log(notice.slot, notice.epoch, notice.collateral.phase);
+const actualReceipt = transferFeeCredit(grossCollateral, notice.collateral, "effective");
+const healthCredit = transferFeeCredit(grossCollateral, notice.collateral, "liquidation");
+```
+
+`fetchTransferFeeNotices(connection, mints, { minContextSlot })` also supports
+1–99 mints per coherent request. Monitor both debt and collateral mint
+`refreshKey`s and poll epochs even when mint data does not change. `nextRecheckEpoch`
+is the next notice/activation boundary, not an instruction to wait until then.
+A change or cancellation invalidates prior health/payment estimates. Refresh the
+on-chain flash/emergency preview and simulate the complete transaction before
+signing; these helpers do not prove eligibility or promise a fill. Use effective
+fees for actual transfers, never a pending fee as a current payment fee.
+
+See [the fee policy and keeper rollout dependency](../../docs/mutable-transfer-fees.md).
+#287160 has implemented notice-window mitigation; timely confirmed keeper execution
+remains an operational assumption. Fee-authority revocation is not a missing
+agreed fix.

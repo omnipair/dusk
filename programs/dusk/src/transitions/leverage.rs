@@ -19,11 +19,11 @@ use crate::{
 /// A position stores the vault's gross balance; risk checks use this credit.
 ///
 /// `effective` is the fee a transfer pays now. `pending` is a fee change the
-/// mint has already scheduled for a later epoch. Exit and liquidation checks
-/// carry only the effective fee. Admission checks that add risk also carry the
-/// pending fee, so debt is never issued against collateral that a scheduled
-/// change is about to devalue. The issuer can reschedule or cancel a pending
-/// change, so it never makes an existing position liquidatable.
+/// mint has already scheduled for a later epoch. Transfers use the effective
+/// fee. Admission checks also carry all announced fees; liquidation health
+/// carries a pending fee during its final notice epoch. Existing positions can
+/// therefore become liquidatable before activation. The issuer can reschedule
+/// or cancel a change, so execution must read the mint and recheck health.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LeverageCollateralFee {
     effective: Option<TransferFee>,
