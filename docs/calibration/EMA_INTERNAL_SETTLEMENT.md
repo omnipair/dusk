@@ -79,6 +79,9 @@ The direct live-price/depth dependency is removed. The subsequent
 [current implementation closeout](EMA_SETTLEMENT_CLOSEOUT.md) uses admitted
 positions and actual settlement, with both fees and final LP/hLP value. It confirms
 unchanged reference invoices and settlement resource deltas in the tested paths,
-but additional trading profit around real inventory remains. #287652 stays open
-for that residual economic risk. The older counterfactual report is historical
-evidence, not the latest validation. No historical PoC, merge or deployment.
+but additional trading profit around real inventory remains. On 2026-10-17 the
+user explicitly accepted that inventory/arbitrage tradeoff and authorized closing
+#287652: original dependency remediated, residual risk accepted. This does not
+claim zero impact, equal V1 profitability, or insurance for later trading losses.
+The older counterfactual report is historical evidence, not the latest validation.
+No historical PoC, merge or deployment.

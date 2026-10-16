@@ -1,5 +1,12 @@
 # Nemesis closeout — verified result
 
+**Disposition update, 2026-10-17:** the user authorized closure of #287652 with
+accepted residual inventory/arbitrage risk after remediation of the original
+live-price/depth dependency. See the [acceptance record](../calibration/EMA_SETTLEMENT_CLOSEOUT.md).
+The dated review below is preserved as evidence of what was known before that
+acceptance; its references to an open disposition are historical. No new audit
+or runtime change is claimed by this update.
+
 Runtime 5a9abcb3; 2026-10-16. Full Feynman -> full State (12 coupled relations) -> targeted Feynman, converged after three passes. Scope and evidence are in [the closeout summary](../AUDIT_CLOSEOUT.md) and the dependency map below. This is not a fresh exhaustive audit of every change in #45.
 
 No new verified runtime accounting/security defect in this scoped review. #287652 original direct live-price/depth dependency is mitigated; residual inventory-related trading extraction remains open. #287160 has implemented mitigation with retained issuer and keeper-execution risks. Neither a zero-loss claim nor a universal-liveness claim is made.

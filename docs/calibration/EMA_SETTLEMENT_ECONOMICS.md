@@ -1,5 +1,11 @@
 # EMA inventory settlement versus AMM liquidation
 
+**Current disposition, 2026-10-17:** #287652 is closed after the EMA-price/
+smoothed-depth implementation and explicit user acceptance of residual inventory/
+arbitrage risk. See the [current evidence and acceptance record](EMA_SETTLEMENT_CLOSEOUT.md).
+This document preserves earlier proposals/results; its open-finding statements
+refer to that historical stage and do not override the current disposition.
+
 Analysis at PR #45 head `befe57fbc471c0211d9cecfc9063d30a57db98d5`, 2026-10-15.
 **No runtime liquidation policy changes in this review.** This is the economic
 comparison requested before the governance delegation work.

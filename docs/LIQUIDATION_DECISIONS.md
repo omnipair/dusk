@@ -1,10 +1,30 @@
 # Margin and flash liquidation decisions
 
-Updated 2026-10-12. This is the current decision record for implementation in
+Updated 2026-10-17. This is the current decision record for implementation in
 [PR #45](https://github.com/omnipair/dusk/pull/45). It supersedes conflicting
 pricing, eligibility, reward, clock and composability proposals in the earlier
 handoff, flash contract and calibration documents. The implementation checkpoint below distinguishes current code and tests from
 historical calibration evidence.
+
+## Close #287652 with accepted inventory/arbitrage risk, 2026-10-17
+
+The user explicitly authorized closing #287652 and recording the remaining
+inventory/arbitrage risk as an accepted tradeoff like V1. EMA price and smoothed
+depth remediate the original live-curve settlement dependency. Keep V2 linear
+EMA eligibility, the existing reference-curve impact/full fees, emergency gates,
+partial/full rules, rewards, principal-first insurance/write-off and SDK helpers.
+
+Accepted risk: real seized collateral changes pool inventory; preceding and
+subsequent trades can increase actor profit and reduce final pool resources even
+when the settlement invoice is unchanged. The V1 analogy concerns that mechanism,
+not identical economics or demonstrated historical exploitability. Principal
+shortfalls use the existing waterfall; no new insurance coverage for later
+inventory/trading losses is selected. No trading restriction, time gate or live
+execution-price floor is added by this decision.
+
+See the [economic acceptance record](calibration/EMA_SETTLEMENT_CLOSEOUT.md) for
+measured examples and limitations. This supersedes earlier open-disposition text
+below. It changes documentation/status only and does not authorize merge or deploy.
 
 ## Emergency AMM recovery fallback, 2026-10-12
 

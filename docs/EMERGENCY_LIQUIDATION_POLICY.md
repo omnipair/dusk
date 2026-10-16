@@ -1,5 +1,11 @@
 # Emergency liquidation policy and calibration contract
 
+**Current disposition, 2026-10-17:** #287652 is closed after the EMA-price/
+smoothed-depth implementation and explicit user acceptance of residual inventory/
+arbitrage risk. See the [current evidence and acceptance record](calibration/EMA_SETTLEMENT_CLOSEOUT.md).
+This document preserves earlier proposals/results; its open-finding statements
+refer to that historical stage and do not override the current disposition.
+
 **Historical proposal, superseded 2026-10-05:** use [the current decision record](LIQUIDATION_DECISIONS.md)
 for implementation. Emergency permission now depends on critically low EMA equity
 without a mandatory timer; the numeric threshold is unselected. This document and

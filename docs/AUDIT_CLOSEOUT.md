@@ -1,19 +1,22 @@
 # PR #45 closeout
 
-Date: 2026-10-16. Runtime source: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
-This closeout adds a reproducible test, its CI check and updated documentation; program, SDK
-runtime, instruction/account interfaces and deployed artifacts are unchanged.
+Updated: 2026-10-17 (risk acceptance); analysis: 2026-10-16. Runtime source: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
+The 2026-10-16 closeout added a reproducible test and its CI check. This 2026-10-17
+update records risk acceptance in documentation only; program/SDK runtime and
+instruction/account interfaces are unchanged.
 
 ## Current conclusion
 
 **Implementation closeout is documented; an unqualified security/economic signoff
-is not established.** #287652's original live-price dependency is mitigated, but
-inventory-related trading extraction remains open for explicit disposition.
+is not established.** #287652 is closed: the original live-price/depth dependency
+is remediated and the user explicitly accepted the remaining inventory/arbitrage
+risk on 2026-10-17. This updates disposition without changing runtime policy.
 #287160 has the agreed fee-notice mitigation and keeper implementation; issuer
 risk and timely successful keeper execution remain assumptions.
 
 The [35-finding ledger](audit/V12_FINDINGS.md) has 31 remediated root causes,
-2 superseded auction findings and those 2 retained-risk items. The export's
+2 superseded auction findings, #287160 mitigated with retained issuer/keeper risk,
+and #287652 closed after remediation with accepted residual economic risk. The export's
 other 134 Invalid labels were not independently re-audited one by one.
 
 ## Agreed implementation coverage
@@ -65,13 +68,14 @@ credit/payout/custody validation; SDK preview/build reference fields.
 The suspected virtual-reserve overwrite, duplicate insurance use, fee ownership
 shift, repayment manipulation with unchanged reference inputs, and loss counted
 as recenter profit were checked against their complete called paths and tests.
-The surviving economic concern is separately retained as #287652. The [tracked review report](audit/EMA_NEMESIS_CLOSEOUT.md) includes the dependency
+The surviving economic concern is documented under #287652, closed after the
+2026-10-17 risk acceptance; the scoped review's evidence is unchanged. The [tracked review report](audit/EMA_NEMESIS_CLOSEOUT.md) includes the dependency
 map, rejected hypotheses and convergence result. Local logs remain in
 `.audit/findings/pr45-closeout-20261016/`.
 
 ## Validation
 
-The complete mandatory local CI sequence passed on these changes:
+The 2026-10-16 closeout passed the complete mandatory local CI sequence:
 
 - Formatting, tracked-file hygiene, helper shape and required Clippy checks.
 - 501 Dusk tests in each default/production profile and production library check;
@@ -88,15 +92,30 @@ reference/resource-delta invariance; it is now a focused CI step. The current
 policy sweep covers 576 combinations. Hosted status for the prior runtime commit
 was green; new-head hosted status is a separate check after push.
 
+The 2026-10-17 documentation-only acceptance update passed all mandatory local
+checks again: 501 Dusk tests in each profile, 16 delegate tests, 1 faucet test,
+the focused EMA economic regression, full SBF builds and identity checks,
+TypeScript, 66 SDK tests, and 135 strict LiteSVM tests with 71/71 instruction
+coverage and the complete compute baseline. The 536-test benchmark result above
+belongs to the preceding closeout; the focused benchmark regression was rerun
+for this update. Evidence: `.audit/findings/pr45-287652-acceptance-20261017/`.
+
+## Accepted #287652 tradeoff
+
+The user accepted residual inventory/arbitrage risk on 2026-10-17 after reviewing
+current fees, concentration, hLP, trading costs and final pool value. V1 shared the
+inventory-settlement mechanism; equal profitability or safety across versions is
+not established. The [acceptance record](calibration/EMA_SETTLEMENT_CLOSEOUT.md)
+retains the 156.182-token example, insurance/write-off explanation and evidence
+limits. No runtime/SDK/interface change or new insurance mandate is introduced.
+The 2026-10-16 review is not relabeled as a new audit.
+
 ## Still open
 
-1. **#287652 economic disposition:** accept the quantified residual inventory/
-   trading risk, or choose another mitigation and validate it. No program policy
-   is silently changed to obtain a closed label.
-2. **Operational follow-through:** authorized program/keeper rollout, live target
+1. **Operational follow-through:** authorized program/keeper rollout, live target
    validation, and remaining UI/indexer/VOB consumers. Passing tests/docs PRs do
    not establish deployment or compatibility of every downstream consumer.
-3. **Coverage limit:** ordinary-eligible positions above the emergency threshold
+2. **Coverage limit:** ordinary-eligible positions above the emergency threshold
    can remain unfilled in finite sampling. The current sweep has no emergency-
    eligible residuals, but is not proof of universal or timely cleanup.
 

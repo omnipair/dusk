@@ -1,20 +1,57 @@
 # EMA settlement economic closeout
 
-Date: 2026-10-16. Runtime reviewed: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
-This follow-up changes tests and documentation, not program behavior or interfaces.
+Analysis: 2026-10-16. Risk acceptance: 2026-10-17. Runtime reviewed: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
+The 2026-10-16 follow-up added tests and documentation. The 2026-10-17 update
+records risk acceptance only; program behavior and interfaces are unchanged.
 
 ## Disposition of #287652
 
-**The direct live-spot/depth pricing defect is mitigated. The broader economic
-finding remains open for explicit risk disposition.** A preceding trade does not
-change the reference invoice in these tests, but can increase trading profit
-around the resulting real inventory change. Do not label that result a missing
-slippage check or claim that EMA eliminates liquidation-related trading risk.
+**Closed: the original live-spot/depth settlement dependency is remediated;
+remaining inventory/arbitrage risk is explicitly accepted.** On 2026-10-17 the
+user authorized closure with this request: "okay so can we close #287652 now and
+document the remaining inventory/arbitrage risk as an accepted tradeoff like V1?"
+This records the product owner's risk acceptance, not a new audit conclusion.
 
-No new accounting defect was confirmed in the scoped closeout review. Suppressing
-all such profit would require a different execution/inventory policy, additional
-trading restrictions, or an explicit economic risk limit. None is silently added.
-The agreed V2 linear EMA health and EMA-price/smoothed-depth settlement remain.
+The implemented fix reconstructs emergency settlement from the collateral-side
+symmetric price EMA and smoothed curve depth. V2 linear EMA eligibility remains;
+current liquidity withdrawal alone does not make a healthy position liquidatable.
+Size-dependent reference-curve impact and full configured fees still apply. EMA
+settlement is not a flat-price or zero-slippage promise. Volatility fee history,
+EMA evolution, configuration and real cash requirements remain relevant.
+
+### Accepted tradeoff and V1 comparison
+
+The pool accepts seized collateral in exchange for a debt offset. Its resulting
+inventory can lose value, and trading before/after settlement can create
+additional arbitrage profit after modeled costs. The user accepts that residual
+risk with the existing permissionless trading and emergency policy. This closure
+adds no waiting period, execution-price floor, route restriction, or insurance
+coverage of subsequent trading losses. No new accounting defect was confirmed.
+
+V1 also calculated an EMA-based curve exchange, canceled debt and moved seized
+collateral into pool reserves. V1 used live reserve-derived depth and included
+curve impact in eligibility. Dusk keeps linear V2 health, uses smoothed depth for
+settlement, and has different concentration, fees and hLP accounting. The analogy
+is the inventory-risk mechanism; it does not establish equal losses, identical
+manipulation profitability, or historical absence of a V1 exploit. Reference:
+[V1 liquidation at `84a8ef7a`](https://github.com/omnipair/omnipair-rs/blob/84a8ef7a2a3a81e750435b86d7191bf43413d6a4/programs/omnipair/src/instructions/lending/liquidate.rs).
+
+### What insurance and socialization cover
+
+In the example below, 7,500 principal is resolved by 4,331.143 settlement repayment,
+500 insurance and 2,668.857 principal write-off. The 1,000-token insurance fund's
+50% window budget binds before the 75%-of-principal-loss cap. The position's debt
+is cleared. The additional 156.182 decrease in final marked pool resources is a
+comparison after trading; it is not another outstanding borrower principal
+balance and does not trigger a second insurance payment. LP/hLP value and
+protected buckets must be distinguished from total resources. Insurance and
+socialization allocate losses; they do not eliminate system-wide losses.
+
+The acceptance covers the documented inventory/arbitrage tradeoff under the
+current implementation and measured assumptions. It is not acceptance of a new
+accounting defect, unauthorized debt offset, or reintroduced direct live-price/
+depth dependency. It is not a zero-loss, best-execution, universal-liveness or
+production-readiness claim. The measurements and limitations below are retained.
 
 ## What was isolated
 
@@ -114,7 +151,7 @@ are already token units. Side 0 means base debt; side 1 means quote debt.
 Helpers for admission, venue accounting and final claims are reused from the
 existing calibration modules; alternate settlement policies are not invoked.
 
-## Liquidation progress and next decision
+## Liquidation progress and closure boundary
 
 The current 576-combination policy sweep has 272 completed admitted paths,
 288 no-entry paths and 16 paths reaching the test's shock-search cap. Completed
@@ -123,7 +160,7 @@ residuals. Eighteen end ordinarily eligible above the emergency boundary
 (16 Dusk-only, 2 with the modeled external venue). A finite route/size sampler
 cannot prove permanent blockage or universal cleanup.
 
-Closing #287652 completely therefore requires explicit acceptance of the remaining
-inventory/trading risk or a separately chosen mitigation with new validation.
-The available evidence supports neither a zero-loss promise nor an undisclosed
-change to the user's no-mandatory-wait, permissionless-trading policy.
+The 2026-10-17 acceptance above completes #287652's disposition. Ordinary-fill
+availability remains a separate operational/economic limitation. Closing this
+finding does not authorize merge, deployment, or a change to the existing
+no-mandatory-wait, permissionless-trading policy.

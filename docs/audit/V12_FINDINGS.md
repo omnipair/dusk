@@ -1,6 +1,6 @@
 # Original V12 findings: current disposition
 
-Date: 2026-10-16. Runtime: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
+Updated: 2026-10-17. Runtime: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
 
 The original export contains **169 reports: 134 labeled Invalid and 35 labeled
 Unreviewed**. Those were source labels, not 35 established vulnerabilities.
@@ -9,7 +9,8 @@ subsequent fixes and remaining risks. The 134 Invalid reports were inventoried,
 **not independently re-audited one by one**.
 
 Current disposition: **31 remediated, 2 superseded, 1 mitigated with retained
-issuer/keeper risk (#287160), and 1 open residual economic risk (#287652)**.
+issuer/keeper risk (#287160), and 1 closed after remediation with accepted residual
+economic risk (#287652)**. The user explicitly accepted the latter on 2026-10-17.
 Remediated refers to the reported root cause, not proof of subsystem safety.
 Historical source line numbers below are locators from the earlier review; use
 function/test names when later edits move lines.
@@ -42,7 +43,7 @@ function/test names when later edits move lines.
 | #287644 | New-position borrow capacity omits debt-share rounding | Remediated | Borrow capacity uses executable share rounding and projected debt; `new_position_preview_uses_executable_debt_share_rounding` plus existing-position boundary/property tests. |
 | #287648 | Liquidation auctions execute against an unbounded stale price snapshot | Superseded | Auction-opening reference is no longer reused for a later fill. Each atomic flash begin uses fresh current risk and binds a same-transaction settlement quote. |
 | #287650 | Delegated leverage closes fail during the launch window | Remediated | Close common validation calls launch same-transaction guard; preparation discriminator is included in launch guard handling. Both owner and delegated paths pass through common validation. |
-| #287652 | Backstop collateral swap has no execution-price bound | Open residual economic risk | EMA price/smoothed depth replace live spot/depth settlement. The current admitted-position regression preserves the invoice and settlement resource delta, but additional trading extraction remains; see the economic closeout report. |
+| #287652 | Backstop collateral swap has no execution-price bound | Closed; original dependency remediated, residual risk accepted | EMA price/smoothed depth replace live spot/depth settlement. The admitted-position regression preserves the invoice and settlement resource delta. The user accepted remaining inventory/arbitrage risk on 2026-10-17; see the economic closeout for scope, loss allocation and V1 comparison limits. |
 | #287654 | Uncapped divergence fees can be reduced by splitting swaps | Remediated | Current divergence charge is a Huberized additive potential with marginal cap, including production build. Native split-path/telescoping and marginal-cap tests pass; `transitions/amm/fees.rs`. |
 | #287656 | Delegated closes can redirect residual payouts | Remediated | `CloseLeverage::validate_common` requires residual token-account owner = position owner (`close_leverage.rs:233`); Dusk pays bounded treasury/executor fees then owner directly. Delegated order custody is not residual authority. |
 | #287657 | TP/SL trigger price omits mint-decimal normalization | Remediated | Delegated closeout trigger explicitly normalizes debt/collateral decimals (`leverage_delegate/instructions/leverage/before_close.rs:3`). Shared entry limit similarly normalizes quote/base decimals. |
@@ -57,7 +58,8 @@ function/test names when later edits move lines.
 
 - [#287652 current economic evidence](../calibration/EMA_SETTLEMENT_CLOSEOUT.md):
   the original live-price dependency is removed; post-settlement inventory and
-  trading risk still requires disposition. This is not an unimplemented EMA fix.
+  arbitrage risk was explicitly accepted on 2026-10-17. This is a scoped closure,
+  not a claim of zero loss or identical V1 economics.
 - [#287160 current fee/keeper policy](../mutable-transfer-fees.md): implemented
   prevention and accounting do not remove mutable-mint authority risk. No new
   fee-authority revocation requirement has been adopted.

@@ -1,6 +1,6 @@
 # Dusk audit status
 
-**Current through:** 2026-10-16; runtime `5a9abcb3`, PR #45.
+**Current through:** 2026-10-17; runtime `5a9abcb3`, PR #45.
 
 This is the current disposition summary. Dated reports describe their reviewed
 revisions; their old zero-open counts are not current blanket clearance.
@@ -12,13 +12,14 @@ revisions; their old zero-open counts are not current blanket clearance.
 | Remediated reported root causes | 31 |
 | Superseded old auction findings | 2 |
 | #287160: mitigated, retained issuer/keeper risk | 1 |
-| #287652: direct dependency mitigated, residual economic risk open | 1 |
+| #287652: closed after remediation; residual inventory/arbitrage risk accepted | 1 |
 
 The export had 169 reports. Its 134 Invalid labels were inventoried, not each
 independently re-audited. Later NM-001–NM-005 are remediated. Governance delegation
 review confirmed no new security defect; its Clippy build blocker was fixed in
 `6da3f778`. The fresh EMA settlement closeout confirms no additional accounting
-defect in its scoped review, and retains the economic concern below.
+defect in its scoped review. The user accepted the remaining #287652 economic
+tradeoff on 2026-10-17; the measured risk remains documented below.
 
 - [Current findings and evidence](../../docs/audit/V12_FINDINGS.md)
 - [Agreement coverage, checks and companion PRs](../../docs/AUDIT_CLOSEOUT.md)
@@ -30,9 +31,12 @@ defect in its scoped review, and retains the economic concern below.
 **#287652:** internal settlement uses symmetric EMA price and smoothed depth,
 not a caller-chosen live execution quote. Actual native tests preserve invoices
 and settlement resource deltas, but preceding trades can still improve profit
-from subsequent trading against the new real inventory. This remains open for
-explicit economic risk disposition; zero loss/manipulation resistance is not
-claimed. A caller minimum is not a protocol economic guarantee.
+from subsequent trading against the new real inventory. **Closed on 2026-10-17
+with explicit user acceptance of that residual inventory/arbitrage risk.** The
+V1 analogy describes the shared inventory mechanism, not identical profitability.
+Principal shortfalls still use bounded insurance and write-off; later trading
+losses receive no separate insurance draw. Zero loss/manipulation resistance is
+not claimed. A caller minimum is not a protocol economic guarantee.
 
 **#287160:** fee-aware admission, final-notice eligibility and keeper monitoring/
 execution are implemented. A hostile fee authority or a missed profitable

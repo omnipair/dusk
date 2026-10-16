@@ -1,5 +1,11 @@
 # Dusk leverage margins and liquidation: implementation handoff
 
+**Current disposition, 2026-10-17:** #287652 is closed after the EMA-price/
+smoothed-depth implementation and explicit user acceptance of residual inventory/
+arbitrage risk. See the [current evidence and acceptance record](calibration/EMA_SETTLEMENT_CLOSEOUT.md).
+This document preserves earlier proposals/results; its open-finding statements
+refer to that historical stage and do not override the current disposition.
+
 Status: implementation plan; economic parameters require calibration.
 
 **2026-10-05 update:** read [the current decision record](LIQUIDATION_DECISIONS.md)

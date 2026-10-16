@@ -1,5 +1,11 @@
 # EMA-priced emergency settlement with current fees and hLP
 
+**Current disposition, 2026-10-17:** #287652 is closed after the EMA-price/
+smoothed-depth implementation and explicit user acceptance of residual inventory/
+arbitrage risk. See the [current evidence and acceptance record](EMA_SETTLEMENT_CLOSEOUT.md).
+This document preserves earlier proposals/results; its open-finding statements
+refer to that historical stage and do not override the current disposition.
+
 Date: 2026-10-16 (Asia/Makassar). PR #45 / `6da3f7785b2e4523a74843b21980a1b3f9b128fb`; GitHub head verified during this experiment.
 
 ## Verdict

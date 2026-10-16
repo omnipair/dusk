@@ -1,5 +1,11 @@
 # Preliminary native leverage calibration
 
+**Current disposition, 2026-10-17:** #287652 is closed after the EMA-price/
+smoothed-depth implementation and explicit user acceptance of residual inventory/
+arbitrage risk. See the [current evidence and acceptance record](EMA_SETTLEMENT_CLOSEOUT.md).
+This document preserves earlier proposals/results; its open-finding statements
+refer to that historical stage and do not override the current disposition.
+
 **Native concentration follow-up (2026-10-05):** [concentrated/hLP repayment-cushion results](CONCENTRATED_CUSHION_RESULTS.md)
 use Dusk's actual integer curve, controller, repayment, insurance/write-off and
 hLP reconstruction. The report records execution failures and remaining debt;

@@ -199,16 +199,18 @@ formal proof, or a replay of the original supplied exploit PoC.
 
 The prior review traced all 35 originally unreviewed subjects from the 169-report
 export. With #287245 and #287621 now fixed, that ledger becomes **31 root causes
-remediated, 2 superseded by removal of the old auction path, and 2 retained risk
-items**. The other 134 reports' original Invalid classifications were inventoried;
+remediated, 2 superseded by removal of the old auction path, 1 mitigated with
+retained issuer/keeper risk, and 1 closed with accepted residual economic risk**
+(updated 2026-10-17). The other 134 reports' original Invalid classifications were inventoried;
 this work does not claim to have independently revalidated each one.
 
-- **#287652: direct dependency mitigated; residual economic risk open.** Later
+- **#287652: closed after remediation; residual economic risk accepted.** Later
   implementation replaced live spot/depth with EMA price and smoothed depth.
   [Current closeout](EMA_SETTLEMENT_CLOSEOUT.md) verifies unchanged settlement
   invoices and resource deltas, but finds additional post-settlement trading
-  extraction in native stress cases. The original live-price description below
-  is historical, not a missing current implementation.
+  extraction in native stress cases. The user accepted this inventory/arbitrage
+  tradeoff on 2026-10-17. Earlier live-price descriptions are historical, not a
+  missing current implementation.
 - **#287160: implemented mitigation with a keeper-execution dependency.** New-risk
   checks immediately consider adverse scheduled fees; the final notice epoch
   enables early liquidation while transfers still pay current fees. Exact net
