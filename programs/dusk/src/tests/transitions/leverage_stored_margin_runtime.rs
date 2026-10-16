@@ -94,8 +94,9 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                         &mut market,
                         SwapCashPolicy::Close {
                             debt_asset,
-                            debt_shares: slice.debt_shares,
-                            debt_principal: slice.debt_principal,
+                            debt_shares: first.debt_shares,
+                            debt_principal: first.debt_principal,
+                            shares_to_burn: slice.debt_shares,
                         },
                     )
                     .unwrap();

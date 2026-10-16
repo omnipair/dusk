@@ -303,8 +303,9 @@ fn settle_netted(
     require_eq!(slice.cash_repaid, repaid, ErrorCode::BrokenInvariant);
     let policy = SwapCashPolicy::Close {
         debt_asset,
-        debt_shares: slice.shares_to_burn,
-        debt_principal: repaid.into(),
+        debt_shares: next.debt_shares,
+        debt_principal: next.debt_principal,
+        shares_to_burn: slice.shares_to_burn,
     };
     prepared.cash_policy = policy;
     let finalized = prepared.apply(

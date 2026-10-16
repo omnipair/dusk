@@ -473,13 +473,31 @@ fn derive_leverage_lifecycle_plan_from_state(
             debt_asset,
             debt_shares,
             debt_principal,
+            shares_to_burn,
         } => {
             require!(debt_asset == asset_in.opposite(), ErrorCode::BrokenInvariant);
+            require_gte!(debt_shares, shares_to_burn, ErrorCode::DebtShareMathOverflow);
             let mut shares = debt_shares;
             let mut principal = debt_principal;
-            if shares > 0 {
-                transition.clearance = debt.clear_isolated_debt(debt_asset, &mut shares, &mut principal, u64::MAX)?;
+            if shares_to_burn > 0 {
+                let aggregate_shares = match debt_asset {
+                    MarketAsset::Base => debt.isolated_base_shares,
+                    MarketAsset::Quote => debt.isolated_quote_shares,
+                };
+                let cash_repaid = Debt::aggregate_debt_reduction_for_shares(
+                    aggregate_shares,
+                    shares_to_burn,
+                    debt.borrow_index(debt_asset),
+                )?;
+                transition.clearance =
+                    debt.clear_isolated_debt(debt_asset, &mut shares, &mut principal, cash_repaid)?;
+                require_eq!(
+                    transition.clearance.shares_burned,
+                    shares_to_burn,
+                    ErrorCode::BrokenInvariant
+                );
             } else {
+                require_eq!(shares, 0, ErrorCode::BrokenInvariant);
                 require_eq!(principal, 0, ErrorCode::BrokenInvariant);
             }
             require_gte!(
@@ -487,7 +505,9 @@ fn derive_leverage_lifecycle_plan_from_state(
                 transition.clearance.cash_repaid,
                 ErrorCode::InsufficientAmount
             );
-            require_eq!(transition.clearance.remaining_debt, 0, ErrorCode::BrokenInvariant);
+            if shares_to_burn == debt_shares {
+                require_eq!(transition.clearance.remaining_debt, 0, ErrorCode::BrokenInvariant);
+            }
             transition.position_debt_shares = shares;
             transition.position_debt_principal = principal;
             transition.removed_unrealized_interest = transition.clearance.interest_paid;
@@ -943,8 +963,9 @@ impl Market {
         );
         let debt_asset = position.debt_asset()?;
         let total_debt = Debt::shares_to_debt(position.debt_shares, self.debt.borrow_index(debt_asset))?;
-        let slice_debt = u64::try_from(Debt::shares_to_debt(debt_shares, self.debt.borrow_index(debt_asset))?)
-            .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let remaining_debt =
+            Debt::shares_to_debt(position.debt_shares - debt_shares, self.debt.borrow_index(debt_asset))?;
+        let slice_debt = u64::try_from(total_debt - remaining_debt).map_err(|_| ErrorCode::DebtMathOverflow)?;
         let (slice_principal, _) =
             realized_interest_split(slice_debt, total_debt, position.debt_principal.min(total_debt))?;
         Ok(LeverageCloseSlice {
@@ -1627,8 +1648,9 @@ impl Market {
         require_gte!(residual, min_residual_out, ErrorCode::SlippageExceeded);
         let cash_policy = SwapCashPolicy::Close {
             debt_asset,
-            debt_shares: slice.debt_shares,
-            debt_principal: slice.debt_principal,
+            debt_shares: position.debt_shares,
+            debt_principal: position.debt_principal,
+            shares_to_burn: slice.debt_shares,
         };
         let finalized = prepared_swap.apply(
             self,
@@ -1643,18 +1665,29 @@ impl Market {
         let fees = finalized.fees;
         let (base_hlp_rebalance, quote_hlp_rebalance) = (finalized.base_rebalance, finalized.quote_rebalance);
         let clearance = lifecycle.clearance;
-        require_eq!(lifecycle.position_debt_shares, 0, ErrorCode::BrokenInvariant);
-        require_eq!(lifecycle.position_debt_principal, 0, ErrorCode::BrokenInvariant);
-        position.debt_shares = position
-            .debt_shares
-            .checked_sub(slice.debt_shares)
-            .ok_or(ErrorCode::DebtShareMathOverflow)?;
-        position.debt_principal = position
-            .debt_principal
-            .checked_sub(slice.debt_principal)
-            .ok_or(ErrorCode::DebtMathOverflow)?;
+        require_eq!(
+            clearance.position_principal_reduced as u128,
+            slice.debt_principal,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            lifecycle.position_debt_shares,
+            position.debt_shares - slice.debt_shares,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            lifecycle.position_debt_principal,
+            position.debt_principal - slice.debt_principal,
+            ErrorCode::BrokenInvariant
+        );
+        position.debt_shares = lifecycle.position_debt_shares;
+        position.debt_principal = lifecycle.position_debt_principal;
         require_eq!(clearance.cash_repaid, debt_amount, ErrorCode::BrokenInvariant);
-        require_eq!(clearance.remaining_debt, 0, ErrorCode::BrokenInvariant);
+        require_eq!(
+            clearance.remaining_debt,
+            position.debt_amount(&self.debt)?,
+            ErrorCode::BrokenInvariant
+        );
         if had_debt {
             self.reduce_leverage_collateral(position, collateral_sold)?;
         } else {

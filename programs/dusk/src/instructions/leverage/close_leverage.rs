@@ -583,8 +583,9 @@ impl<'info> CloseLeverage<'info> {
         };
         let policy = SwapCashPolicy::Close {
             debt_asset,
-            debt_shares: close_slice.debt_shares,
-            debt_principal: close_slice.debt_principal,
+            debt_shares: ctx.accounts.leverage_position.debt_shares,
+            debt_principal: ctx.accounts.leverage_position.debt_principal,
+            shares_to_burn: close_slice.debt_shares,
         };
         let prepared_swap = prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?;
 

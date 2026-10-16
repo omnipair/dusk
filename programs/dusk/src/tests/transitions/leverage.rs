@@ -366,20 +366,40 @@ fn apply_leverage_lifecycle_transition_reference(
             debt_asset,
             debt_shares,
             debt_principal,
+            shares_to_burn,
         } => {
             require!(debt_asset == asset_in.opposite(), ErrorCode::BrokenInvariant);
             let mut shares = debt_shares;
             let mut principal = debt_principal;
-            transition.clearance =
-                market
-                    .debt
-                    .clear_isolated_debt(debt_asset, &mut shares, &mut principal, u64::MAX)?;
+            if shares_to_burn > 0 {
+                let aggregate_shares = match debt_asset {
+                    MarketAsset::Base => market.debt.isolated_base_shares,
+                    MarketAsset::Quote => market.debt.isolated_quote_shares,
+                };
+                let cash_repaid = Debt::aggregate_debt_reduction_for_shares(
+                    aggregate_shares,
+                    shares_to_burn,
+                    market.debt.borrow_index(debt_asset),
+                )?;
+                transition.clearance = market.debt.clear_isolated_debt(
+                    debt_asset,
+                    &mut shares,
+                    &mut principal,
+                    cash_repaid,
+                )?;
+                require_eq!(transition.clearance.shares_burned, shares_to_burn, ErrorCode::BrokenInvariant);
+            } else {
+                require_eq!(shares, 0, ErrorCode::BrokenInvariant);
+                require_eq!(principal, 0, ErrorCode::BrokenInvariant);
+            }
             require_gte!(
                 amount_out,
                 transition.clearance.cash_repaid,
                 ErrorCode::InsufficientAmount
             );
-            require_eq!(transition.clearance.remaining_debt, 0, ErrorCode::BrokenInvariant);
+            if shares_to_burn == debt_shares {
+                require_eq!(transition.clearance.remaining_debt, 0, ErrorCode::BrokenInvariant);
+            }
             transition.position_debt_shares = shares;
             transition.position_debt_principal = principal;
             transition.removed_unrealized_interest = transition.clearance.interest_paid;
@@ -589,6 +609,7 @@ fn leverage_lifecycle_cases(asset_in: MarketAsset) -> Vec<(Market, SwapCashPolic
             debt_asset,
             debt_shares: close_position.debt_shares,
             debt_principal: close_position.debt_principal,
+            shares_to_burn: close_position.debt_shares,
         },
         81_011,
         close_debt + 10_007,
@@ -1203,6 +1224,7 @@ fn close_leverage_clears_isolated_debt_and_residual_cash() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            shares_to_burn: position.debt_shares,
         },
     );
 
@@ -1298,8 +1320,9 @@ fn partial_close_leverage_pays_equity_and_keeps_the_remainder_open() {
         close_quote,
         SwapCashPolicy::Close {
             debt_asset: MarketAsset::Base,
-            debt_shares: slice.debt_shares,
-            debt_principal: slice.debt_principal,
+            debt_shares: position.debt_shares,
+            debt_principal: position.debt_principal,
+            shares_to_burn: slice.debt_shares,
         },
     );
 
@@ -1349,6 +1372,94 @@ fn partial_close_leverage_pays_equity_and_keeps_the_remainder_open() {
     position.require_open().unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+#[test]
+fn repeated_partial_closes_preserve_repayable_principal() {
+    let debt_asset = MarketAsset::Quote;
+    let mut market = test_market(1_000_000, 1_000_000);
+    market.debt.quote_borrow_index_nad = 3 * NAD as u128 / 2;
+    let mut position = empty_position();
+    let prepared_open = prepare_leverage_swap_with_policy(
+        &mut market,
+        debt_asset,
+        12,
+        1,
+        SwapCashPolicy::Borrow {
+            asset: debt_asset,
+            amount: 6,
+        },
+    );
+    let open_quote = prepared_open.leverage_quote();
+    market
+        .open_leverage(
+            &mut position,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::default(),
+            0,
+            debt_asset,
+            6,
+            20_000,
+            open_quote.amount_out,
+            prepared_open,
+            full_fee_credit(&open_quote),
+            0,
+            1,
+            255,
+            0,
+            ProtocolAuctionSplit::default(),
+            LeverageCollateralFee::default(),
+        )
+        .unwrap();
+    assert_eq!((position.debt_shares, position.debt_principal), (4, 6));
+
+    for close_bps in [2_000, 2_223, 2_858] {
+        let slice = market.leverage_close_slice(&position, close_bps).unwrap();
+        let prepared = prepare_leverage_swap_with_policy(
+            &mut market,
+            debt_asset.opposite(),
+            slice.collateral_amount,
+            1,
+            SwapCashPolicy::Close {
+                debt_asset,
+                debt_shares: position.debt_shares,
+                debt_principal: position.debt_principal,
+                shares_to_burn: slice.debt_shares,
+            },
+        );
+        let quote = prepared.leverage_quote();
+        market
+            .partial_close_leverage(
+                &mut position,
+                close_bps,
+                0,
+                prepared,
+                full_fee_credit(&quote),
+                0,
+                ProtocolAuctionSplit::default(),
+                1,
+                0,
+                LeverageCollateralFee::default(),
+            )
+            .unwrap();
+        assert!(position.debt_principal <= u128::from(position.debt_amount(&market.debt).unwrap()));
+        market.assert_market_invariants().unwrap();
+    }
+
+    assert_eq!((position.debt_shares, position.debt_principal), (1, 1));
+    market
+        .liquidation_debt_allocation(
+            &crate::transitions::flash_liquidation::LiquidationPositionRef::Leverage(&position),
+            debt_asset,
+            1,
+        )
+        .unwrap();
+    market.repay_leverage_debt(&mut position, 1, 1).unwrap();
+    assert_eq!((position.debt_shares, position.debt_principal), (0, 0));
+    market.assert_market_invariants().unwrap();
 }
 
 #[test]
@@ -2067,6 +2178,7 @@ fn concentrated_close_leverage_checkpoints_active_hlp_exposure() {
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
+            shares_to_burn: position.debt_shares,
         },
     );
     let quote = prepared.leverage_quote();

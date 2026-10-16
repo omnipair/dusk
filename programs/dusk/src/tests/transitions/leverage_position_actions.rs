@@ -74,7 +74,7 @@ fn repaid_positions_can_be_partially_and_fully_sold_without_readding_exposure() 
             let slice = market.leverage_close_slice(&position, close_bps).unwrap();
             assert_eq!(slice.debt_shares, 0);
             let prepared = prepare_leverage_swap_with_policy(&mut market, asset.opposite(), slice.collateral_amount, 2,
-                SwapCashPolicy::Close { debt_asset: asset, debt_shares: 0, debt_principal: 0 });
+                SwapCashPolicy::Close { debt_asset: asset, debt_shares: 0, debt_principal: 0, shares_to_burn: 0 });
             let quote = prepared.leverage_quote();
             let receipt = if close_bps == 10_000 {
                 market.close_leverage(&mut position, 0, prepared, full_fee_credit(&quote), 0,

@@ -2438,8 +2438,9 @@ impl BenchmarkMarket {
             },
             SwapCashPolicy::Close {
                 debt_asset,
-                debt_shares: slice.debt_shares,
-                debt_principal: slice.debt_principal,
+                debt_shares: leverage.position.debt_shares,
+                debt_principal: leverage.position.debt_principal,
+                shares_to_burn: slice.debt_shares,
             },
         )?;
         require_gte!(

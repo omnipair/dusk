@@ -55,8 +55,10 @@ pub(crate) enum SwapCashPolicy {
     },
     Close {
         debt_asset: MarketAsset,
+        /// The full position before this close, not the detached slice.
         debt_shares: u128,
         debt_principal: u128,
+        shares_to_burn: u128,
     },
     Liquidate {
         debt_asset: MarketAsset,
