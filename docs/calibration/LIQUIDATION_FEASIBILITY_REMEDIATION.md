@@ -203,11 +203,12 @@ remediated, 2 superseded by removal of the old auction path, and 2 retained risk
 items**. The other 134 reports' original Invalid classifications were inventoried;
 this work does not claim to have independently revalidated each one.
 
-- **#287652: emergency execution-price risk remains open.** The caller can choose
-  zero minimum output. EMA eligibility, partial-first permission and capped
-  insurance do not provide a protocol execution-price floor. No profitable
-  manipulation exploit is established here. This needs explicit risk disposition
-  or a separately approved mitigation; atomic settlement alone does not close it.
+- **#287652: direct dependency mitigated; residual economic risk open.** Later
+  implementation replaced live spot/depth with EMA price and smoothed depth.
+  [Current closeout](EMA_SETTLEMENT_CLOSEOUT.md) verifies unchanged settlement
+  invoices and resource deltas, but finds additional post-settlement trading
+  extraction in native stress cases. The original live-price description below
+  is historical, not a missing current implementation.
 - **#287160: implemented mitigation with a keeper-execution dependency.** New-risk
   checks immediately consider adverse scheduled fees; the final notice epoch
   enables early liquidation while transfers still pay current fees. Exact net

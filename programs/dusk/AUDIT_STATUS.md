@@ -1,35 +1,58 @@
-# Dusk Internal Audit Status
+# Dusk audit status
 
-**Current through:** 2026-08-29 (`8aa97e1`)
+**Current through:** 2026-10-16; runtime `5a9abcb3`, PR #45.
 
-This is the authoritative current disposition of Dusk's known internal
-findings. Dated reports under the ignored `.audit/findings/` directory are
-historical evidence: their original severity remains useful, but their text is
-not a statement that the finding is still open. Do not determine current risk
-by grepping those snapshots.
+This is the current disposition summary. Dated reports describe their reviewed
+revisions; their old zero-open counts are not current blanket clearance.
 
-Status meanings:
+## Current disposition
 
-- **Resolved:** the defect was changed and has regression evidence.
-- **Accepted design risk:** the behavior is intentional, documented, and still
-  part of the protocol's trust or economic model.
-- **Open:** a verified defect still requires remediation or explicit release
-  acceptance.
+| Original V12 unresolved subjects | Count |
+| --- | ---: |
+| Remediated reported root causes | 31 |
+| Superseded old auction findings | 2 |
+| #287160: mitigated, retained issuer/keeper risk | 1 |
+| #287652: direct dependency mitigated, residual economic risk open | 1 |
 
-## Current verdict
+The export had 169 reports. Its 134 Invalid labels were inventoried, not each
+independently re-audited. Later NM-001–NM-005 are remediated. Governance delegation
+review confirmed no new security defect; its Clippy build blocker was fixed in
+`6da3f778`. The fresh EMA settlement closeout confirms no additional accounting
+defect in its scoped review, and retains the economic concern below.
 
-Known internal findings after the reserve-conservation and aggregate-funding
-admission fixes:
+- [Current findings and evidence](../../docs/audit/V12_FINDINGS.md)
+- [Agreement coverage, checks and companion PRs](../../docs/AUDIT_CLOSEOUT.md)
+- [#287652 current economics](../../docs/calibration/EMA_SETTLEMENT_CLOSEOUT.md)
+- [#287160 fee-notice policy](../../docs/mutable-transfer-fees.md)
 
-| Critical | High | Medium | Low |
-| ---: | ---: | ---: | ---: |
-| 0 | 0 | 0 | 0 |
+## Open / retained risks
 
-Independent external audit, owner signoff, and target-cluster release checks
-remain pending release gates. They are not classified as internal defects in
-this matrix.
+**#287652:** internal settlement uses symmetric EMA price and smoothed depth,
+not a caller-chosen live execution quote. Actual native tests preserve invoices
+and settlement resource deltas, but preceding trades can still improve profit
+from subsequent trading against the new real inventory. This remains open for
+explicit economic risk disposition; zero loss/manipulation resistance is not
+claimed. A caller minimum is not a protocol economic guarantee.
 
-## Resolved findings
+**#287160:** fee-aware admission, final-notice eligibility and keeper monitoring/
+execution are implemented. A hostile fee authority or a missed profitable
+execution window can still destroy collateral value. The loss waterfall handles
+that loss; it does not prevent it. Fee-authority revocation is not an agreed
+missing implementation. The new keeper candidate is not deployed.
+
+Permissionless execution needs a caller, available funding/routes and successful
+confirmation. Full cash exhaustion, proof limits and unprofitable residuals are
+not eliminated by atomicity. No production readiness or universal liveness claim
+is made by this ledger.
+
+## Historical resolved mechanisms through 2026-08-29
+
+The following table preserves the earlier review's evidence and accepted design
+context. In particular, its liquidation-auction and direct-only governance text
+describes historical implementations, superseded by #45's flash/emergency and
+reusable governance balance interfaces above.
+
+### Historical resolved findings
 
 | Area | Historical finding aliases | Highest former severity | Current resolution and evidence |
 | --- | --- | ---: | --- |
@@ -48,7 +71,7 @@ this matrix.
 | hLP funding reuse and active-swap tracking loss | repeated cash-headroom reuse; post-only hedge | High | The concentrated integrated quote prices only ordinary yLP reserves, then reconstructs hLP yLP ownership and indexed funding debt algebraically at the quoted endpoint. Both active vaults finish with zero opposite-asset exposure; interest cash, virtual reserves, and token-vault settlement are reconciled once. The finished LiteSVM suite covers Spot in both directions plus leverage and liquidation. |
 | Exhausted hLP terminal funding waterfall | passive hLP insolvency without terminal recovery | Medium | Added permissionless `close_insolvent_hlp`. It retires the exhausted vault's yLP ownership, draws only the borrowed-asset insurance balance, pays a bounded caller bounty from recovered funding interest, credits the remaining payable funding interest to yLP, and socializes only the caller-capped residual funding-interest loss. Any shortfall reaching principal fails closed. Existing hLP tokens remain burnable for zero principal while already-checkpointed fee claims remain separate. Focused rollback/accounting coverage and the final SBF/IDL build pass. |
 
-## Accepted design risks
+### Historical accepted design context
 
 | Area | Accepted behavior |
 | --- | --- |
@@ -62,12 +85,3 @@ this matrix.
 | Direct-yLP governance | Support is one-sided, queued support is frozen, metadata availability does not control typed execution, and direct burns can irreversibly reduce the eligible denominator. |
 | Validated parameter domain | Arithmetic and curve proofs cover the enforced launch/governance bounds. Future bound expansion requires a new proof and benchmark pass. |
 | Lazy risk materialization | Ordinary operations persist the required scalar observation; full pessimistic lending shapes are materialized by risk-sensitive paths. |
-
-## Open findings
-
-No severity-classified internal defect is currently open. Economic execution is
-still permissionless rather than automatic: the recovery swap supplies an
-in-band arbitrage incentive while equity remains, and the final exhausted-hLP
-close pays a bounded caller bounty from recovered funding interest. Residual
-loss still requires the caller's explicit `max_socialized_loss`; if nobody calls,
-the exhausted hLP position remains open.

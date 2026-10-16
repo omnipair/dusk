@@ -75,13 +75,10 @@ Logs: `.audit/findings/ema-settlement-implementation/` (local evidence).
 
 ## Finding #287652
 
-The direct live-price/depth dependency of emergency settlement is removed.
-This is not a finding of complete economic manipulation resistance. The prior
-[current-fee economic comparison](EMA_EMERGENCY_CURRENT_FEES.md) found additional
-trading profit and lower final LP/hLP value around the inventory change despite
-stable reference repayment. That experiment preceded this implementation and
-is not an instruction-level exploit proof against this commit.
-
-Keep that residual risk visible; do not mark #287652 fully resolved solely
-because pricing now uses EMA inputs. No supplied historical PoC was run.
-No merge or deployment was performed.
+The direct live-price/depth dependency is removed. The subsequent
+[current implementation closeout](EMA_SETTLEMENT_CLOSEOUT.md) uses admitted
+positions and actual settlement, with both fees and final LP/hLP value. It confirms
+unchanged reference invoices and settlement resource deltas in the tested paths,
+but additional trading profit around real inventory remains. #287652 stays open
+for that residual economic risk. The older counterfactual report is historical
+evidence, not the latest validation. No historical PoC, merge or deployment.

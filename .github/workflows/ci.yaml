@@ -61,6 +61,9 @@ jobs:
       - name: Test Dusk production features
         run: cargo test -p dusk --lib --features production
 
+      - name: Check EMA settlement economic invariants
+        run: cargo test -p dusk --lib --features benchmark ema_admitted_settlement_preserves_reference_and_resource_delta
+
       - name: Test leverage delegate
         run: cargo test -p leverage_delegate
 

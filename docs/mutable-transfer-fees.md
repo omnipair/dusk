@@ -69,9 +69,13 @@ These are monitoring helpers, not substitutes for on-chain position previews.
 
 The keeper repository runbook is
 [`docs/transfer-fee-notice.md`](https://github.com/omnipair/dusk-keepers/blob/feat/mutable-fee-liquidation-callers/docs/transfer-fee-notice.md).
-Its existing frozen deployment uses the older auction interface; updating this
-monitor does not upgrade the deployed program or turn that caller into #45's
-flash/emergency executor. Re-pin and validate the matching executor at rollout.
+[Keeper PR #2](https://github.com/omnipair/dusk-keepers/pull/2) at `52c1cec`
+implements #45's observe/flash/emergency interface and captures protocol artifacts
+from `5a9abcb3`. Native, RPC-loop, receipt-recovery and container checks pass.
+It supports internal Dusk settlement and bounded inventory purchases; automatic
+Jupiter route discovery is not implemented. This candidate is not deployed.
+An older auction caller does not gain this coverage from the documentation
+update; live coverage requires a separately authorized, validated rollout. Re-pin artifacts if program/interface code changes.
 
 ## Residual risks and evidence
 
