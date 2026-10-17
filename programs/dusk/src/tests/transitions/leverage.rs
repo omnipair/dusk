@@ -2534,6 +2534,109 @@ fn protection_snapshot_matches_full_update_closeout_with_active_hlp() {
 }
 
 #[test]
+fn protection_snapshot_refreshes_symmetric_ema_after_either_swap_direction() {
+    for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = test_market(1_000_000, 1_000_000);
+        market.config.ema_half_life_ms = 60_000;
+        let position = seeded_position(&mut market, MarketAsset::Quote, 900, 1_000);
+        let request = SwapRequest {
+            current_slot: 1,
+            current_unix_timestamp: 0,
+            asset_in,
+            reserve_credit: 100_000,
+            protocol_fee_bps: 0,
+        };
+        let mut prepared = request.prepare(&mut market).unwrap();
+        let quote = prepared.leverage_quote();
+        prepared
+            .apply(
+                &mut market,
+                SwapCashPolicy::Spot,
+                full_fee_credit(&quote),
+                1,
+                0,
+                ProtocolAuctionSplit::default(),
+                None,
+            )
+            .unwrap();
+
+        let slot = 10_000;
+        let mut expected = market.clone();
+        expected.accrue_interest_to_slot(slot).unwrap();
+        expected.advance_amm_clock(slot).unwrap();
+        expected.refresh_risk_at_slot(slot).unwrap();
+        let expected_health = expected
+            .leverage_reference_protection_health(&position, position.collateral_amount)
+            .unwrap();
+        let stale_health = market
+            .leverage_reference_protection_health(&position, position.collateral_amount)
+            .unwrap();
+        assert_ne!(stale_health, expected_health, "asset_in={asset_in:?}");
+
+        let mut snapshot = market.clone();
+        snapshot.prepare_position_protection_snapshot(slot).unwrap();
+        assert_eq!(snapshot.risk, expected.risk, "asset_in={asset_in:?}");
+        assert_eq!(
+            snapshot
+                .leverage_reference_protection_health(&position, position.collateral_amount)
+                .unwrap(),
+            expected_health,
+            "asset_in={asset_in:?}",
+        );
+    }
+}
+
+#[test]
+fn close_and_decrease_preflight_count_only_cash_after_principal_netting() {
+    for is_close in [true, false] {
+        let mut market = test_market(1_000, 1_000);
+        let position = seeded_position(&mut market, MarketAsset::Quote, 100, 125);
+        // A separate receivable-backed loan leaves little physical cash on
+        // the debt side while the position's principal still nets internally.
+        market.debt.fixed_quote_shares = 880;
+        market.debt.fixed_quote_principal = 880;
+        market.quote_side.reserves.cash_reserve = 20;
+        market.assert_market_invariants().unwrap();
+        let request = SwapRequest {
+            current_slot: 1,
+            current_unix_timestamp: 0,
+            asset_in: MarketAsset::Base,
+            reserve_credit: 125,
+            protocol_fee_bps: 0,
+        };
+        let policy = if is_close {
+            SwapCashPolicy::Close {
+                debt_asset: MarketAsset::Quote,
+                debt_shares: position.debt_shares,
+                debt_principal: position.debt_principal,
+                shares_to_burn: position.debt_shares,
+            }
+        } else {
+            SwapCashPolicy::Decrease {
+                debt_asset: MarketAsset::Quote,
+                debt_shares: position.debt_shares,
+                debt_principal: position.debt_principal,
+            }
+        };
+        let mut prepared = request.prepare_with_cash_policy(&mut market, policy).unwrap();
+        let quote = prepared.leverage_quote();
+        assert!(quote.gross_amount_out > market.quote_side.reserves.cash_reserve);
+        prepared
+            .apply(
+                &mut market,
+                policy,
+                full_fee_credit(&quote),
+                1,
+                0,
+                ProtocolAuctionSplit::default(),
+                None,
+            )
+            .unwrap();
+        market.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
 fn repayment_finalization_matches_full_curve_checkpoint() {
     for concentrated in [false, true] {
         for active_hlp in [false, true] {

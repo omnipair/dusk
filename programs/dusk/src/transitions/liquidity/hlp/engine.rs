@@ -1197,9 +1197,6 @@ impl Market {
             MarketAsset::Base => &self.base_hlp_vault,
             MarketAsset::Quote => &self.quote_hlp_vault,
         };
-        if vault.residual_exposure == 0 {
-            require_hlp_settlement_available(self, target_asset)?;
-        }
         require_gte!(vault.hlp_supply, hlp_amount, ErrorCode::InsufficientBalance);
         let ylp_amount = proportional(vault.ylp_shares, hlp_amount, vault.hlp_supply)?;
         let target_redeemed = ylp_live_underlying_amount(self, target_asset, ylp_amount)?;
@@ -1257,13 +1254,10 @@ impl Market {
             MarketAsset::Base => market.base_hlp_vault.cached_settlement_price_nad,
             MarketAsset::Quote => market.quote_hlp_vault.cached_settlement_price_nad,
         };
-        // Preserve the ordinary stale-price guard. An explicitly recorded
-        // partial controller residual is different: an exit reduces or fully
-        // retires that hedge, so trapping it behind the prior reference would
-        // create a liveness failure.
-        if residual_exposure == 0 {
-            require_hlp_settlement_available(market, target_asset)?;
-        }
+        // An exit burns the proportional hLP/yLP ownership and debt at the
+        // current curve quote. A cached price from the last settlement must
+        // not trap the owner after an ordinary trade moves the market; the
+        // owner's token minimum and post-state cash/health checks still bind.
         checkpoint_hlp_yield_from_ylp(market, target_asset)?;
         let mut final_price_nad = None;
         let receipt = match target_asset {

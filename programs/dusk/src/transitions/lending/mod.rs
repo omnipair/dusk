@@ -1302,16 +1302,17 @@ impl Market {
         self.accrue_interest_to_slot(current_slot)
     }
 
-    /// Refreshes only inputs consumed by position-risk previews on a disposable
-    /// market copy. Borrow valuation refreshes its own scalar risk, and leverage
-    /// closeout derives hLP equity from live claims and indexed debt, not cached
-    /// hLP NAV or yield checkpoints. Never use this to settle persistent state.
+    /// Refreshes position-risk inputs on a disposable market copy. Both borrow
+    /// and leverage protection must read the current symmetric EMA after the
+    /// AMM clock advances. The snapshot does not settle hLP NAV or yield.
+    /// Never use this to settle persistent state.
     pub fn prepare_position_protection_snapshot(&mut self, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
         self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             self.advance_amm_clock(current_slot)?;
         }
+        self.refresh_risk_at_slot(current_slot)?;
         Ok(())
     }
 

@@ -2,6 +2,106 @@ use super::*;
 use proptest::prelude::*;
 
 #[test]
+fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
+    use crate::state::{AmmConfig, AmmState};
+    use crate::transitions::amm::SwapRequest;
+    use crate::transitions::liquidity::SwapCashPolicy;
+    use crate::transitions::LeverageSwapFeeCredit;
+
+    for fee_bps in [0, 30] {
+        let mut initial = Market::default();
+        initial.add_liquidity(1_000_000, 1_000_000).unwrap();
+        initial.debt.base_borrow_index_nad = NAD as u128;
+        initial.debt.quote_borrow_index_nad = NAD as u128;
+        initial.config.settlement_divergence_bps = 10_000;
+        initial.deposit_single_sided(MarketAsset::Base, 20_000, 1).unwrap();
+        initial.deposit_single_sided(MarketAsset::Quote, 20_000, 1).unwrap();
+        initial.config.swap_fee_bps = fee_bps;
+        initial.config.amm = AmmConfig {
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
+            center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
+            ..AmmConfig::default()
+        };
+        initial.amm = AmmState::default();
+        initial.prepare_amm_for_swap(1).unwrap();
+        initial.config.settlement_divergence_bps = 500;
+
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            let supply = match target {
+                MarketAsset::Base => initial.base_hlp_vault.hlp_supply,
+                MarketAsset::Quote => initial.quote_hlp_vault.hlp_supply,
+            };
+            let slice = supply / 2;
+            let baseline = initial.quote_hlp_withdrawal(target, slice).unwrap();
+            for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+                let mut market = initial.clone();
+                let amount_in = 100_000;
+                let mut swap = SwapRequest {
+                    current_slot: 2,
+                    current_unix_timestamp: 0,
+                    asset_in,
+                    reserve_credit: amount_in,
+                    protocol_fee_bps: 0,
+                }
+                .prepare(&mut market)
+                .unwrap();
+                let quote = swap.leverage_quote();
+                let first_out = quote.amount_out;
+                let fee_credit = LeverageSwapFeeCredit::from_total_actual_credit(
+                    &quote,
+                    swap.quote.fee.claimable_fee_debit,
+                )
+                .unwrap();
+                swap.apply(&mut market, SwapCashPolicy::Spot, fee_credit, 2, 0, ProtocolAuctionSplit::default(), None)
+                    .unwrap();
+                assert!(require_hlp_settlement_available(&market, target).is_err());
+
+                let preview = market.quote_hlp_withdrawal(target, slice).unwrap();
+                let exit = market.withdraw_single_sided(target, slice).unwrap();
+                assert_eq!(exit.target_amount_out, preview);
+                assert!(exit.target_amount_out.abs_diff(baseline) <= 4);
+
+                // A trader who moves the price, exits their hLP, then reverses
+                // the trade does not extract value in this zero/30-bps fixture.
+                let mut reverse = SwapRequest {
+                    current_slot: 3,
+                    current_unix_timestamp: 0,
+                    asset_in: asset_in.opposite(),
+                    reserve_credit: first_out,
+                    protocol_fee_bps: 0,
+                }
+                .prepare(&mut market)
+                .unwrap();
+                let reverse_quote = reverse.leverage_quote();
+                let reverse_credit = LeverageSwapFeeCredit::from_total_actual_credit(
+                    &reverse_quote,
+                    reverse.quote.fee.claimable_fee_debit,
+                )
+                .unwrap();
+                reverse
+                    .apply(
+                        &mut market,
+                        SwapCashPolicy::Spot,
+                        reverse_credit,
+                        3,
+                        0,
+                        ProtocolAuctionSplit::default(),
+                        None,
+                    )
+                    .unwrap();
+                let gain_at_initial_price = i128::from(exit.target_amount_out) - i128::from(baseline)
+                    + i128::from(reverse_quote.amount_out)
+                    - i128::from(amount_in);
+                assert!(gain_at_initial_price <= 0, "fee={fee_bps}, target={target:?}, input={asset_in:?}");
+                market.assert_market_invariants().unwrap();
+            }
+        }
+    }
+}
+
+#[test]
 fn extreme_forward_price_values_both_hlp_numeraires_without_a_rounded_reciprocal() {
     let mut market = Market::default();
     market.base_side.asset_decimals = 0;

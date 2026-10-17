@@ -1066,11 +1066,20 @@ export class DuskWrite {
   async executeParameterProposal(
     params: ExecuteParameterProposalParams
   ): Promise<ParameterGovernanceBuild> {
+    const market = address(params.market);
     const proposal = address(params.proposal);
+    const state = await this.governanceMarketState(market);
     const instruction = await this.instruction(
       "executeParameterProposal" as DuskInstructionName,
       undefined,
-      { accounts: { market: params.market, proposal } }
+      {
+        accounts: {
+          market,
+          baseMint: address(state.baseSide.assetMint),
+          quoteMint: address(state.quoteSide.assetMint),
+          proposal,
+        },
+      }
     );
     return { proposal, instruction, transaction: new Transaction().add(instruction) };
   }
@@ -1464,10 +1473,6 @@ export class DuskWrite {
     const owner = address(params.owner);
     const assetMint = address(params.assetMint);
     const positionId = address(params.positionId);
-    const tokenProgram = await tokenProgramForMint(
-      this.program.provider.connection,
-      assetMint
-    );
     return this.instruction(
       "depositCollateral" as DuskInstructionName,
       { positionId, depositAmount: governanceIntegerBN(params.depositAmount, "depositAmount") },
@@ -1485,7 +1490,7 @@ export class DuskWrite {
             params.borrowPosition ??
               deriveBorrowPositionAddress(market, owner, positionId)[0]
           ),
-          tokenProgram,
+          tokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
         remainingAccounts: params.remainingAccounts,
@@ -1563,10 +1568,6 @@ export class DuskWrite {
     const owner = address(params.owner);
     const assetMint = address(params.assetMint);
     const positionId = address(params.positionId);
-    const tokenProgram = await tokenProgramForMint(
-      this.program.provider.connection,
-      assetMint
-    );
     return this.instruction(
       "withdrawCollateral" as DuskInstructionName,
       {
@@ -1589,7 +1590,7 @@ export class DuskWrite {
             params.borrowPosition ??
               deriveBorrowPositionAddress(market, owner, positionId)[0]
           ),
-          tokenProgram,
+          tokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
         remainingAccounts: params.remainingAccounts,
@@ -1618,10 +1619,6 @@ export class DuskWrite {
     const referralPartner = params.referralPartner
       ? address(params.referralPartner)
       : null;
-    const tokenProgram = await tokenProgramForMint(
-      this.program.provider.connection,
-      debtAssetMint
-    );
     return this.instruction(
       "repay" as DuskInstructionName,
       { repayAmount: governanceIntegerBN(params.repayAmount, "repayAmount") },
@@ -1653,7 +1650,7 @@ export class DuskWrite {
                 debtAssetMint
               )[0]
             : null,
-          tokenProgram,
+          tokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
         remainingAccounts: params.remainingAccounts,
@@ -2028,10 +2025,6 @@ export class DuskWrite {
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
     const ylpMint = address(params.ylpMint);
-    const tokenProgram = await tokenProgramForMint(
-      this.program.provider.connection,
-      baseMint
-    );
     return {
       market,
       owner,
@@ -2071,7 +2064,7 @@ export class DuskWrite {
             this.program.programId
           )[0]
       ),
-      tokenProgram,
+      tokenProgram: TOKEN_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,
     };
   }
