@@ -145,6 +145,9 @@ pub fn token_program_for_mint<'info>(
 }
 
 pub fn require_supported_asset_mint(mint: &InterfaceAccount<Mint>) -> Result<()> {
+    // A freeze authority can freeze any protocol vault for this asset after the
+    // market opens, which can make collateral exits and liquidation impossible.
+    require!(mint.freeze_authority == COption::None, ErrorCode::FreezableAssetMint);
     let mint_info = mint.to_account_info();
     let supported = if *mint_info.owner == Token::id() {
         true

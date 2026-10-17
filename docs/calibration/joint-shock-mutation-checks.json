@@ -1,0 +1,14 @@
+[
+  {
+    "mutation": "starting-debt",
+    "test": "joint_shock_sol_usdc_preserves_recorded_starting_debt",
+    "test_failed_as_expected": true,
+    "exit_code": 101
+  },
+  {
+    "mutation": "double-interest",
+    "test": "joint_shock_sol_usdc_pays_funding_once_and_preserves_opposite_claims",
+    "test_failed_as_expected": true,
+    "exit_code": 101
+  }
+]

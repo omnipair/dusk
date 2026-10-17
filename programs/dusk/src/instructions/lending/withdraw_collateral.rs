@@ -9,6 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCollateralWithdrawn, MarketEventMetadata, MarketHealthUpdated},
     generate_market_seeds,
+    instructions::leverage_collateral_admission_fee,
     state::{BorrowPosition, FutarchyAuthority, Market},
     token::transfer_checked_with_remaining_accounts,
 };
@@ -64,6 +65,7 @@ pub struct WithdrawCollateral<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -151,11 +153,20 @@ impl<'info> WithdrawCollateral<'info> {
             require_gte!(asset_credit, args.min_asset_amount_out, ErrorCode::SlippageExceeded);
 
             // Apply the exact vault debit and recheck position solvency.
-            let collateral_receipt = accounts.market.withdraw_collateral(
+            // Remaining collateral must cover the debt at the worse of the
+            // effective and any scheduled collateral fee.
+            let collateral_fee = leverage_collateral_admission_fee(&accounts.asset_mint, Clock::get()?.epoch)?;
+            let collateral_receipt = accounts.market.withdraw_collateral_with_fee(
                 &mut accounts.borrow_position,
                 market_asset,
                 collateral_debit,
+                collateral_fee,
                 args.min_liquidation_cf_bps,
+            )?;
+            accounts.market.reset_borrow_distress_if_recovered(
+                &mut accounts.borrow_position,
+                market_asset.opposite(),
+                crate::instructions::leverage_collateral_liquidation_fee(&accounts.asset_mint, Clock::get()?.epoch)?,
             )?;
             (market_key, owner_key, asset_mint_key, asset_credit, collateral_receipt)
         };

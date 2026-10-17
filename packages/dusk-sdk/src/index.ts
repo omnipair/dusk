@@ -17,6 +17,12 @@ export * from "./governance.js";
 export * from "./hash.js";
 export * from "./indexer.js";
 export * from "./lp-naming.js";
+export * from "./leverage-margins.js";
+export * from "./leverage-actions.js";
+export * from "./leverage-preview.js";
+export * from "./liquidation.js";
+export * from "./liquidation-client.js";
+export * from "./market-launch.js";
 export * from "./lp-vanity.js";
 export * from "./market-bootstrap.js";
 export * from "./preview.js";
@@ -25,3 +31,7 @@ export * from "./referral.js";
 export * from "./write.js";
 export * from "./virtual-book/index.js";
 export * from "./protection.js";
+
+export * from "./governance-client.js";
+
+export * from "./transfer-fees.js";

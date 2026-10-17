@@ -38,6 +38,10 @@ pub struct InitializeMarketArgs {
     pub bootstrap_price_nad: u64,
     /// Number of price-fee periods already completed before graduation.
     pub launch_fee_progress_offset: u16,
+    /// Metadata for the three LP mints, created atomically with the market.
+    pub ylp_metadata: InitializeLpMetadataArgs,
+    pub base_hlp_metadata: InitializeLpMetadataArgs,
+    pub quote_hlp_metadata: InitializeLpMetadataArgs,
 }
 
 #[event_cpi]
@@ -57,12 +61,14 @@ pub struct InitializeMarket<'info> {
         constraint = ylp_mint.key() != base_mint.key() @ ErrorCode::InvalidLpMintKey,
         constraint = ylp_mint.key() != quote_mint.key() @ ErrorCode::InvalidLpMintKey,
     )]
+    #[account(mut)]
     pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         constraint = base_hlp_mint.key() != base_mint.key() @ ErrorCode::InvalidLpMintKey,
         constraint = base_hlp_mint.key() != quote_mint.key() @ ErrorCode::InvalidLpMintKey,
         constraint = base_hlp_mint.key() != ylp_mint.key() @ ErrorCode::InvalidLpMintKey,
     )]
+    #[account(mut)]
     pub base_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         constraint = quote_hlp_mint.key() != base_mint.key() @ ErrorCode::InvalidLpMintKey,
@@ -70,7 +76,33 @@ pub struct InitializeMarket<'info> {
         constraint = quote_hlp_mint.key() != ylp_mint.key() @ ErrorCode::InvalidLpMintKey,
         constraint = quote_hlp_mint.key() != base_hlp_mint.key() @ ErrorCode::InvalidLpMintKey,
     )]
+    #[account(mut)]
     pub quote_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    #[account(
+        mut,
+        seeds = [METADATA_SEED_PREFIX, MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(), ylp_mint.key().as_ref()],
+        seeds::program = MPL_TOKEN_METADATA_PROGRAM_ID,
+        bump
+    )]
+    /// CHECK: Metaplex metadata PDA for the yLP mint.
+    pub ylp_token_metadata: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [METADATA_SEED_PREFIX, MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(), base_hlp_mint.key().as_ref()],
+        seeds::program = MPL_TOKEN_METADATA_PROGRAM_ID,
+        bump
+    )]
+    /// CHECK: Metaplex metadata PDA for the base hLP mint.
+    pub base_hlp_token_metadata: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [METADATA_SEED_PREFIX, MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(), quote_hlp_mint.key().as_ref()],
+        seeds::program = MPL_TOKEN_METADATA_PROGRAM_ID,
+        bump
+    )]
+    /// CHECK: Metaplex metadata PDA for the quote hLP mint.
+    pub quote_hlp_token_metadata: UncheckedAccount<'info>,
 
     #[account(
         init,
@@ -196,6 +228,10 @@ pub struct InitializeMarket<'info> {
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
+    #[account(address = sysvar_instructions::ID)]
+    /// CHECK: Required by Metaplex CreateV1.
+    pub sysvar_instructions: UncheckedAccount<'info>,
+    pub token_metadata_program: Program<'info, Metadata>,
 }
 
 impl<'info> InitializeMarket<'info> {
@@ -222,6 +258,10 @@ impl<'info> InitializeMarket<'info> {
         require!(self.ylp_mint.supply == 0, ErrorCode::NonZeroSupply);
         require!(self.base_hlp_mint.supply == 0, ErrorCode::NonZeroSupply);
         require!(self.quote_hlp_mint.supply == 0, ErrorCode::NonZeroSupply);
+
+        validate_lp_metadata_args(&args.ylp_metadata)?;
+        validate_lp_metadata_args(&args.base_hlp_metadata)?;
+        validate_lp_metadata_args(&args.quote_hlp_metadata)?;
 
         args.config.validate()?;
         require!(
@@ -400,6 +440,42 @@ impl<'info> InitializeMarket<'info> {
             ctx.bumps.market,
         )?;
 
+        // Either all three LP metadata accounts exist with the market or none
+        // of them do. No caller can assign branding after the first LP mint.
+        create_lp_metadata(
+            &ctx.accounts.market,
+            &ctx.accounts.payer,
+            &ctx.accounts.ylp_mint,
+            &ctx.accounts.ylp_token_metadata,
+            &ctx.accounts.system_program,
+            &ctx.accounts.sysvar_instructions,
+            &ctx.accounts.token_2022_program,
+            &ctx.accounts.token_metadata_program,
+            args.ylp_metadata,
+        )?;
+        create_lp_metadata(
+            &ctx.accounts.market,
+            &ctx.accounts.payer,
+            &ctx.accounts.base_hlp_mint,
+            &ctx.accounts.base_hlp_token_metadata,
+            &ctx.accounts.system_program,
+            &ctx.accounts.sysvar_instructions,
+            &ctx.accounts.token_2022_program,
+            &ctx.accounts.token_metadata_program,
+            args.base_hlp_metadata,
+        )?;
+        create_lp_metadata(
+            &ctx.accounts.market,
+            &ctx.accounts.payer,
+            &ctx.accounts.quote_hlp_mint,
+            &ctx.accounts.quote_hlp_token_metadata,
+            &ctx.accounts.system_program,
+            &ctx.accounts.sysvar_instructions,
+            &ctx.accounts.token_2022_program,
+            &ctx.accounts.token_metadata_program,
+            args.quote_hlp_metadata,
+        )?;
+
         // Emit the complete immutable market identity and initial configuration.
         emit_cpi!(MarketCreated {
             market: market_key,
@@ -476,127 +552,72 @@ pub struct InitializeLpMetadataArgs {
     pub uri: String,
 }
 
-#[derive(Accounts)]
-pub struct InitializeLpMetadata<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-
-    pub market: Box<Account<'info, Market>>,
-
-    #[account(mut)]
-    pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    #[account(
-        mut,
-        seeds = [
-            METADATA_SEED_PREFIX,
-            MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(),
-            lp_mint.key().as_ref(),
-        ],
-        seeds::program = MPL_TOKEN_METADATA_PROGRAM_ID,
-        bump
-    )]
-    /// CHECK: derived/checked via seeds above.
-    pub lp_token_metadata: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
-
-    #[account(address = sysvar_instructions::ID)]
-    /// CHECK: the Metaplex create_v1 CPI requires the instructions sysvar.
-    pub sysvar_instructions: UncheckedAccount<'info>,
-
-    pub token_2022_program: Program<'info, Token2022>,
-
-    pub token_metadata_program: Program<'info, Metadata>,
+fn validate_lp_metadata_args(args: &InitializeLpMetadataArgs) -> Result<()> {
+    require!(!args.name.is_empty() && args.name.len() <= 32, ErrorCode::InvalidLpName);
+    require!(args.name.is_ascii(), ErrorCode::InvalidLpName);
+    require!(
+        !args.symbol.is_empty() && args.symbol.len() <= 10,
+        ErrorCode::InvalidLpSymbol
+    );
+    require!(args.symbol.is_ascii(), ErrorCode::InvalidLpSymbol);
+    require!(
+        args.uri.len() <= 200 && args.uri.starts_with("http"),
+        ErrorCode::InvalidLpUri
+    );
+    Ok(())
 }
 
-impl<'info> InitializeLpMetadata<'info> {
-    pub fn validate(&self, args: &InitializeLpMetadataArgs) -> Result<()> {
-        require!(args.name.len() <= 32, ErrorCode::InvalidLpName);
-        require!(args.name.is_ascii(), ErrorCode::InvalidLpName);
-        require!(args.symbol.len() <= 10, ErrorCode::InvalidLpSymbol);
-        require!(args.symbol.is_ascii(), ErrorCode::InvalidLpSymbol);
-        require!(args.uri.len() <= 200, ErrorCode::InvalidLpUri);
-        require!(args.uri.starts_with("http"), ErrorCode::InvalidLpUri);
+#[allow(clippy::too_many_arguments)]
+fn create_lp_metadata<'info>(
+    market: &Account<'info, Market>,
+    payer: &Signer<'info>,
+    lp_mint: &InterfaceAccount<'info, Mint>,
+    lp_token_metadata: &UncheckedAccount<'info>,
+    system_program: &Program<'info, System>,
+    sysvar_instructions: &UncheckedAccount<'info>,
+    token_2022_program: &Program<'info, Token2022>,
+    token_metadata_program: &Program<'info, Metadata>,
+    args: InitializeLpMetadataArgs,
+) -> Result<()> {
+    let token_metadata_program = token_metadata_program.to_account_info();
+    let metadata = lp_token_metadata.to_account_info();
+    let mint = lp_mint.to_account_info();
+    let authority = market.to_account_info();
+    let payer = payer.to_account_info();
+    let system_program = system_program.to_account_info();
+    let instructions_sysvar = sysvar_instructions.to_account_info();
+    let token_2022_program = token_2022_program.to_account_info();
+    let cpi_accounts = CreateV1CpiAccounts {
+        metadata: &metadata,
+        master_edition: None,
+        mint: (&mint, false),
+        authority: &authority,
+        payer: &payer,
+        update_authority: (&authority, true),
+        system_program: &system_program,
+        sysvar_instructions: &instructions_sysvar,
+        spl_token_program: Some(&token_2022_program),
+    };
+    let cpi_args = CreateV1InstructionArgs {
+        name: args.name,
+        symbol: args.symbol,
+        uri: args.uri,
+        seller_fee_basis_points: 0,
+        creators: None,
+        primary_sale_happened: false,
+        is_mutable: true,
+        token_standard: TokenStandard::Fungible,
+        collection: None,
+        uses: None,
+        collection_details: None,
+        rule_set: None,
+        decimals: None,
+        print_supply: None,
+    };
 
-        let lp_mint = self.lp_mint.key();
-        let (decimals, vanity_suffix) = if lp_mint == self.market.ylp_mint {
-            (self.market.base_side.asset_decimals, "yLP")
-        } else if lp_mint == self.market.base_side.hlp_mint {
-            (self.market.base_side.asset_decimals, "hLP")
-        } else if lp_mint == self.market.quote_side.hlp_mint {
-            (self.market.quote_side.asset_decimals, "hLP")
-        } else {
-            return err!(ErrorCode::InvalidLpMintKey);
-        };
-        validate_lp_mint(&self.lp_mint, self.market.key(), decimals)?;
-        #[cfg(feature = "production")]
-        {
-            let mint_key = lp_mint.to_string();
-            let start_idx = mint_key
-                .len()
-                .checked_sub(vanity_suffix.len())
-                .ok_or(ErrorCode::InvalidLpMintKey)?;
-            require_eq!(vanity_suffix, &mint_key[start_idx..], ErrorCode::InvalidLpMintKey);
-        }
-        #[cfg(not(feature = "production"))]
-        let _ = vanity_suffix;
-
-        Ok(())
-    }
-
-    pub fn handle_initialize(ctx: Context<Self>, args: InitializeLpMetadataArgs) -> Result<()> {
-        let InitializeLpMetadata {
-            payer,
-            market,
-            lp_mint,
-            lp_token_metadata,
-            system_program,
-            sysvar_instructions,
-            token_2022_program,
-            token_metadata_program,
-        } = ctx.accounts;
-
-        let token_metadata_program = token_metadata_program.to_account_info();
-        let metadata = lp_token_metadata.to_account_info();
-        let mint = lp_mint.to_account_info();
-        let authority = market.to_account_info();
-        let payer = payer.to_account_info();
-        let system_program = system_program.to_account_info();
-        let instructions_sysvar = sysvar_instructions.to_account_info();
-        let token_2022_program = token_2022_program.to_account_info();
-        let cpi_accounts = CreateV1CpiAccounts {
-            metadata: &metadata,
-            master_edition: None,
-            mint: (&mint, false),
-            authority: &authority,
-            payer: &payer,
-            update_authority: (&authority, true),
-            system_program: &system_program,
-            sysvar_instructions: &instructions_sysvar,
-            spl_token_program: Some(&token_2022_program),
-        };
-        let cpi_args = CreateV1InstructionArgs {
-            name: args.name,
-            symbol: args.symbol,
-            uri: args.uri,
-            seller_fee_basis_points: 0,
-            creators: None,
-            primary_sale_happened: false,
-            is_mutable: true,
-            token_standard: TokenStandard::Fungible,
-            collection: None,
-            uses: None,
-            collection_details: None,
-            rule_set: None,
-            decimals: None,
-            print_supply: None,
-        };
-
-        CreateV1Cpi::new(&token_metadata_program, cpi_accounts, cpi_args)
-            .invoke_signed(&[&generate_market_seeds!(market)[..]])
-            .map_err(Into::into)
-    }
+    CreateV1Cpi::new(&token_metadata_program, cpi_accounts, cpi_args)
+        .invoke_signed(&[&generate_market_seeds!(market)[..]])
+        .map_err(Into::into)
 }
 
 #[cfg(test)]

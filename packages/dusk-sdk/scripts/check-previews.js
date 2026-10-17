@@ -121,6 +121,12 @@ test("simulation errors, absent return data and another program's data still fai
   }
 });
 
+test("a state-changing instruction may be simulated without return data", async () => {
+  const { reader } = fixture({ err: null, logs: [] });
+  const result = await reader.simulateWithContext([instruction], { requireReturnData: false });
+  assert.equal(result.context.slot, 123);
+});
+
 test("context simulations retain actual slots, ordered account snapshots and request time", async () => {
   const accounts = [
     {

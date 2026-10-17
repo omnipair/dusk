@@ -2,17 +2,22 @@ use anchor_lang::{prelude::*, solana_program::hash::hashv};
 
 use crate::{
     constants::{
-        BPS_DENOMINATOR, MAX_PROPOSAL_DESCRIPTION_BYTES, MAX_PROPOSAL_DESCRIPTION_URI_BYTES, MAX_PROPOSAL_TITLE_BYTES,
-        PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS, PARAMETER_PROPOSAL_SPONSOR_BPS, PARAMETER_PROPOSAL_SUPPORT_BPS,
-        PARAMETER_PROPOSAL_TIMELOCK_SECONDS, PROPOSAL_METADATA_VERSION,
+        BPS_DENOMINATOR, MAX_PARAMETER_UPDATES_PER_PROPOSAL, MAX_PROPOSAL_DESCRIPTION_BYTES,
+        MAX_PROPOSAL_DESCRIPTION_URI_BYTES, MAX_PROPOSAL_TITLE_BYTES, PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS,
+        PARAMETER_PROPOSAL_SPONSOR_BPS, PARAMETER_PROPOSAL_SUPPORT_BPS, PARAMETER_PROPOSAL_TIMELOCK_SECONDS,
+        PROPOSAL_METADATA_VERSION,
     },
     errors::ErrorCode,
 };
 
 use super::{FeeProfile, IrmConfig};
 
-/// Domain separator for the immutable, client-verifiable proposal digest.
-pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V1";
+/// Domain separator for the immutable, client-verifiable proposal digest. V2
+/// binds a list of family updates and each updated family's revision.
+pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V2";
+
+/// Number of governed parameter families, and of `Market::parameter_revisions`.
+pub const PARAMETER_FAMILY_COUNT: usize = 7;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub enum ParameterFamily {
@@ -68,9 +73,39 @@ pub enum MarketParameterUpdate {
     /// Insurance loss-concentration limits. These governed values can only
     /// select a stricter policy than the protocol-level hard ceilings.
     InsuranceDrawCaps {
-        per_event_bps: u16,
+        principal_coverage_bps: u16,
         per_day_bps: u16,
     },
+}
+
+/// One to seven updates, at most one per family, in ascending family order,
+/// so a proposal's updates have exactly one encoding and one digest.
+pub fn validate_parameter_update_set(updates: &[MarketParameterUpdate]) -> Result<()> {
+    require!(
+        !updates.is_empty() && updates.len() <= MAX_PARAMETER_UPDATES_PER_PROPOSAL,
+        ErrorCode::ParameterUpdatesNotCanonical
+    );
+    require!(
+        updates
+            .windows(2)
+            .all(|pair| pair[0].family().code() < pair[1].family().code()),
+        ErrorCode::ParameterUpdatesNotCanonical
+    );
+    Ok(())
+}
+
+/// The revision each updated family must still be at for the proposal to
+/// apply; families the proposal does not touch read zero and are ignored.
+pub fn updated_family_revisions(
+    updates: &[MarketParameterUpdate],
+    market_revisions: &[u64; PARAMETER_FAMILY_COUNT],
+) -> [u64; PARAMETER_FAMILY_COUNT] {
+    let mut revisions = [0; PARAMETER_FAMILY_COUNT];
+    for update in updates {
+        let index = update.family().code() as usize;
+        revisions[index] = market_revisions[index];
+    }
+    revisions
 }
 
 impl MarketParameterUpdate {
@@ -168,9 +203,14 @@ pub struct ParameterProposal {
     pub market: Pubkey,
     pub proposer: Pubkey,
     pub nonce: u64,
-    pub family: ParameterFamily,
-    pub family_revision: u64,
-    pub update: MarketParameterUpdate,
+    /// The families this proposal changes, one update each, in ascending
+    /// family order. They execute together or not at all.
+    #[max_len(7)]
+    pub updates: Vec<MarketParameterUpdate>,
+    /// The revision of each updated family when the proposal was created; an
+    /// executed change to any of them makes this proposal stale. Families the
+    /// proposal does not update read zero.
+    pub family_revisions: [u64; PARAMETER_FAMILY_COUNT],
     pub metadata: ProposalMetadataV1,
     pub digest: [u8; 32],
     pub status: ParameterProposalStatus,
@@ -195,24 +235,31 @@ impl ParameterProposal {
         market: Pubkey,
         proposer: Pubkey,
         nonce: u64,
-        family_revision: u64,
-        update: MarketParameterUpdate,
+        market_revisions: &[u64; PARAMETER_FAMILY_COUNT],
+        updates: Vec<MarketParameterUpdate>,
         metadata: ProposalMetadataV1,
         eligible_supply: u64,
         created_at: i64,
         bump: u8,
     ) -> Result<()> {
         metadata.validate()?;
+        validate_parameter_update_set(&updates)?;
         require!(eligible_supply > 0, ErrorCode::ProposalSponsorshipTooLow);
-        let family = update.family();
-        let digest =
-            parameter_proposal_digest(crate::ID, market, proposer, nonce, family_revision, &update, &metadata)?;
+        let family_revisions = updated_family_revisions(&updates, market_revisions);
+        let digest = parameter_proposal_digest(
+            crate::ID,
+            market,
+            proposer,
+            nonce,
+            &family_revisions,
+            &updates,
+            &metadata,
+        )?;
         self.market = market;
         self.proposer = proposer;
         self.nonce = nonce;
-        self.family = family;
-        self.family_revision = family_revision;
-        self.update = update;
+        self.updates = updates;
+        self.family_revisions = family_revisions;
         self.metadata = metadata;
         self.digest = digest;
         self.status = ParameterProposalStatus::Collecting;
@@ -244,7 +291,7 @@ impl ParameterProposal {
         )
         .map_err(|_| error!(ErrorCode::InvalidParameterProposal))?;
         require_keys_eq!(proposal_key, expected, ErrorCode::InvalidParameterProposal);
-        require!(self.update.family() == self.family, ErrorCode::InvalidParameterProposal);
+        validate_parameter_update_set(&self.updates).map_err(|_| error!(ErrorCode::InvalidParameterProposal))?;
         self.assert_digest()
     }
 
@@ -254,8 +301,8 @@ impl ParameterProposal {
             self.market,
             self.proposer,
             self.nonce,
-            self.family_revision,
-            &self.update,
+            &self.family_revisions,
+            &self.updates,
             &self.metadata,
         )?;
         require!(self.digest == expected, ErrorCode::InvalidProposalDigest);
@@ -284,11 +331,25 @@ impl ParameterProposal {
         Ok(true)
     }
 
-    pub fn mark_stale_if_revision_changed(&mut self, current_revision: u64) -> bool {
+    /// The families this proposal changes, in ascending order.
+    pub fn families(&self) -> impl Iterator<Item = ParameterFamily> + '_ {
+        self.updates.iter().map(MarketParameterUpdate::family)
+    }
+
+    /// Whether every family this proposal changes is still at the revision
+    /// it was created against.
+    pub fn revisions_current(&self, market_revisions: &[u64; PARAMETER_FAMILY_COUNT]) -> bool {
+        self.families().all(|family| {
+            let index = family.code() as usize;
+            market_revisions[index] == self.family_revisions[index]
+        })
+    }
+
+    pub fn mark_stale_if_revision_changed(&mut self, market_revisions: &[u64; PARAMETER_FAMILY_COUNT]) -> bool {
         if matches!(
             self.status,
             ParameterProposalStatus::Collecting | ParameterProposalStatus::Queued
-        ) && current_revision != self.family_revision
+        ) && !self.revisions_current(market_revisions)
         {
             self.status = ParameterProposalStatus::Stale;
             return true;
@@ -341,26 +402,30 @@ pub fn parameter_proposal_digest(
     market: Pubkey,
     proposer: Pubkey,
     nonce: u64,
-    family_revision: u64,
-    update: &MarketParameterUpdate,
+    family_revisions: &[u64; PARAMETER_FAMILY_COUNT],
+    updates: &[MarketParameterUpdate],
     metadata: &ProposalMetadataV1,
 ) -> Result<[u8; 32]> {
-    let update_bytes = update
+    let updates_bytes = updates
+        .to_vec()
         .try_to_vec()
         .map_err(|_| error!(ErrorCode::InvalidProposalDigest))?;
     let metadata_bytes = metadata
         .try_to_vec()
         .map_err(|_| error!(ErrorCode::InvalidProposalDigest))?;
     let nonce = nonce.to_le_bytes();
-    let family_revision = family_revision.to_le_bytes();
+    let revisions_bytes: Vec<u8> = family_revisions
+        .iter()
+        .flat_map(|revision| revision.to_le_bytes())
+        .collect();
     Ok(hashv(&[
         PARAMETER_PROPOSAL_DIGEST_DOMAIN,
         program_id.as_ref(),
         market.as_ref(),
         proposer.as_ref(),
         &nonce,
-        &family_revision,
-        &update_bytes,
+        &revisions_bytes,
+        &updates_bytes,
         &metadata_bytes,
     ])
     .to_bytes())

@@ -147,6 +147,14 @@ impl<'info> ExecuteProtectionOrder<'info> {
             asset,
             &clock,
             true,
+            dusk::instructions::leverage_collateral_fee(
+                if asset == MarketAsset::Base {
+                    &a.quote_mint
+                } else {
+                    &a.base_mint
+                },
+                clock.epoch,
+            )?,
         )?;
         require!(
             before <= a.order.trigger_health_bps,
@@ -338,6 +346,14 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 &clock,
                 // Both native LP exits finalize risk after their reserve mutation.
                 false,
+                dusk::instructions::leverage_collateral_fee(
+                    if asset == MarketAsset::Base {
+                        &a.quote_mint
+                    } else {
+                        &a.base_mint
+                    },
+                    clock.epoch,
+                )?,
             )?
         };
         require!(

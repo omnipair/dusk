@@ -13,7 +13,7 @@ pub struct LeverageEntryOrder {
     pub debt_asset: u8,
     /// Gross vault debit forwarded to Dusk as margin.
     pub margin_amount: u64,
-    /// Gross vault debit paid to the successful executor.
+    /// Minimum net credit paid to the successful executor.
     pub executor_bounty: u64,
     pub multiplier_bps: u64,
     pub limit_price_nad: u64,

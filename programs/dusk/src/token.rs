@@ -258,7 +258,6 @@ pub(crate) const SUPPORTED_ASSET_EXTENSIONS: &[ExtensionType] = &[
     ExtensionType::TransferFeeConfig,
     ExtensionType::MetadataPointer,
     ExtensionType::TokenMetadata,
-    ExtensionType::TransferHook,
     ExtensionType::GroupPointer,
     ExtensionType::TokenGroup,
     ExtensionType::GroupMemberPointer,

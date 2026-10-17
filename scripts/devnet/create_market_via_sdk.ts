@@ -43,7 +43,9 @@ import {
   deriveMarketAddress,
   deriveMarketParamsHash,
   lpMintRent,
+  marketLpTokenNaming,
 } from "../../packages/dusk-sdk/dist/index.js";
+import { sendAtomicMarketCreation } from "../utils/market-creation.ts";
 
 const API = process.env.DUSK_API_URL ?? "https://dusk-api-production-291f.up.railway.app";
 const RPC = process.env.DUSK_RPC_URL ?? "https://api.devnet.solana.com";
@@ -200,8 +202,17 @@ async function main() {
   console.log(`               base-hlp ${baseHlp.mint.toBase58()}`);
   console.log(`               quote-hlp ${quoteHlp.mint.toBase58()}`);
 
-  const initSig = await send([
-    await dusk.write.initializeMarketInstruction({
+  const naming = marketLpTokenNaming({
+    baseSymbol: String(config.baseSymbol ?? "BASE"),
+    quoteSymbol: String(config.quoteSymbol ?? "QUOTE"),
+  });
+  const lpMetadata = Object.fromEntries(
+    (["ylp", "baseHlp", "quoteHlp"] as const).map((kind) => [
+      kind,
+      { name: naming[kind].name, symbol: naming[kind].symbol, uri: "https://ipfs.omnipair.fi/dusk-lp.json" },
+    ])
+  ) as Record<"ylp" | "baseHlp" | "quoteHlp", { name: string; symbol: string; uri: string }>;
+  const marketInstruction = await dusk.write.initializeMarketInstruction({
       payer: owner,
       baseMint,
       quoteMint,
@@ -212,28 +223,12 @@ async function main() {
       teamTreasuryWsolAccount,
       paramsHash,
       config: defaultMarketLaunchConfig(),
-    }),
-  ]);
-  console.log(`initialized    ${initSig}`);
-
-  const upper = label.toUpperCase().slice(0, 6);
-  for (const [mint, kind] of [
-    [ylp.mint, "YLP"],
-    [baseHlp.mint, "BHLP"],
-    [quoteHlp.mint, "QHLP"],
-  ] as const) {
-    await send([
-      await dusk.write.initializeLpMetadataInstruction({
-        payer: owner,
-        market,
-        lpMint: mint,
-        name: `Dusk ${upper} ${kind}`,
-        symbol: `${kind}`,
-        uri: "https://ipfs.omnipair.fi/dusk-lp.json",
-      }),
-    ]);
-  }
-  console.log(`metadata       3 mints named`);
+      lpMetadata,
+    });
+  const { signature: initSig, lookupTable } = await sendAtomicMarketCreation({
+    connection, payer: keypair, instruction: marketInstruction,
+  });
+  console.log(`initialized    ${initSig} (lookup table ${lookupTable})`);
 
   // Seed before returning, so the API can preview what was just created.
   const ata = (mint: PublicKey) => getAssociatedTokenAddressSync(mint, owner);

@@ -21,7 +21,9 @@ pub struct ExecuteHlpOrder<'info> {
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
+    #[account(mut)]
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(mut)]
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
     pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -143,7 +145,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             ctx.accounts.order.min_target_amount_out,
             LeverageDelegateError::InvalidOrder
         );
-        let incentive = min(
+        let incentive_net = min(
             output,
             ceil_div(
                 (output as u128)
@@ -171,12 +173,27 @@ impl<'info> ExecuteHlpOrder<'info> {
             MarketAsset::Base => &ctx.accounts.base_mint,
             MarketAsset::Quote => &ctx.accounts.quote_mint,
         };
-        let protocol_debit = ctx.accounts.protocol_fee.collect(
+        let epoch = Clock::get()?.epoch;
+        let incentive_debit =
+            gross_debit_for_net(&fee_mint.to_account_info(), incentive_net, epoch)?;
+        let owner_min_debit = gross_debit_for_net(
+            &fee_mint.to_account_info(),
+            ctx.accounts.order.min_target_amount_out,
+            epoch,
+        )?;
+        let protected_debit = incentive_debit
+            .checked_add(owner_min_debit)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        let fee_budget = output
+            .checked_sub(protected_debit)
+            .ok_or(LeverageDelegateError::InvalidOrder)?;
+        let protocol_debit = ctx.accounts.protocol_fee.collect_with_budget(
             owner_key,
             ctx.accounts.order.key(),
             fee_mint,
             &ctx.accounts.futarchy_authority,
             output,
+            fee_budget,
             ctx.accounts.custody_target_account.to_account_info(),
             ctx.accounts.order.to_account_info(),
             signer,
@@ -185,7 +202,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             ctx.remaining_accounts,
         )?;
         let owner_amount = output
-            .checked_sub(incentive)
+            .checked_sub(incentive_debit)
             .and_then(|remaining| remaining.checked_sub(protocol_debit))
             .ok_or(LeverageDelegateError::InvalidOrder)?;
         require_gte!(
@@ -202,7 +219,8 @@ impl<'info> ExecuteHlpOrder<'info> {
             MarketAsset::Base => ctx.accounts.base_mint.decimals,
             MarketAsset::Quote => ctx.accounts.quote_mint.decimals,
         };
-        if incentive > 0 {
+        let executor_balance_before = ctx.accounts.executor_target_account.amount;
+        if incentive_debit > 0 {
             transfer_checked(
                 token_program_for_mint(
                     &target_mint_account,
@@ -213,12 +231,24 @@ impl<'info> ExecuteHlpOrder<'info> {
                 target_mint_account.clone(),
                 ctx.accounts.executor_target_account.to_account_info(),
                 ctx.accounts.order.to_account_info(),
-                incentive,
+                incentive_debit,
                 target_decimals,
                 signer,
                 ctx.remaining_accounts,
             )?;
         }
+        ctx.accounts.executor_target_account.reload()?;
+        let executor_credit = ctx
+            .accounts
+            .executor_target_account
+            .amount
+            .checked_sub(executor_balance_before)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        require_gte!(
+            executor_credit,
+            incentive_net,
+            LeverageDelegateError::InvalidOrder
+        );
         let owner_balance_before = ctx.accounts.owner_target_account.amount;
         if owner_amount > 0 {
             transfer_checked(
@@ -255,7 +285,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             0,
             LeverageDelegateError::InvalidTokenAccount
         );
-        close_token_account(
+        close_token_account_with_fee_harvest(
             token_program_for_mint(
                 &match target_asset {
                     MarketAsset::Base => ctx.accounts.base_mint.to_account_info(),
@@ -265,6 +295,10 @@ impl<'info> ExecuteHlpOrder<'info> {
                 &ctx.accounts.token_2022_program.to_account_info(),
             ),
             ctx.accounts.custody_target_account.to_account_info(),
+            match target_asset {
+                MarketAsset::Base => ctx.accounts.base_mint.to_account_info(),
+                MarketAsset::Quote => ctx.accounts.quote_mint.to_account_info(),
+            },
             ctx.accounts.order_owner.to_account_info(),
             ctx.accounts.order.to_account_info(),
             signer,

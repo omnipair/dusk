@@ -5,7 +5,35 @@ import type { Dusk } from "./types_v2.js";
 
 const coder = new BorshCoder(IDL as unknown as Idl);
 
-type DuskPreviewTypes = IdlTypes<Dusk>;
+type PreviewTypeNamed<N extends Dusk["types"][number]["name"]> = Extract<
+  Dusk["types"][number],
+  { name: N }
+>;
+type DuskPreviewIdl = {
+  address: Dusk["address"];
+  metadata: Dusk["metadata"];
+  instructions: [];
+  types: [
+    PreviewTypeNamed<"liquidationDistress">,
+    PreviewTypeNamed<"liquidationHealth">,
+    PreviewTypeNamed<"liquidationRates">,
+    PreviewTypeNamed<"addLiquidityPreview">,
+    PreviewTypeNamed<"borrowCapacityPreview">,
+    PreviewTypeNamed<"borrowPositionCapacityPreview">,
+    PreviewTypeNamed<"borrowPositionPreview">,
+    PreviewTypeNamed<"hlpDepositCapacityPreview">,
+    PreviewTypeNamed<"hlpDepositStatus">,
+    PreviewTypeNamed<"hlpOrderTriggerPreview">,
+    PreviewTypeNamed<"marketAsset">,
+    PreviewTypeNamed<"marketHealth">,
+    PreviewTypeNamed<"marketPreview">,
+    PreviewTypeNamed<"positionDebtSidePreview">,
+    PreviewTypeNamed<"previewAmm">,
+    PreviewTypeNamed<"previewSide">,
+    PreviewTypeNamed<"swapPreview">,
+  ];
+};
+type DuskPreviewTypes = IdlTypes<DuskPreviewIdl>;
 
 export type HlpDepositCapacityPreview = DuskPreviewTypes["hlpDepositCapacityPreview"];
 export type MarketPreview = DuskPreviewTypes["marketPreview"];

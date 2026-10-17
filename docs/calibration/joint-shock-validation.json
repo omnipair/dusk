@@ -1,0 +1,12 @@
+{
+  "scenarios": 104,
+  "complete": 102,
+  "admission_rejections": 2,
+  "settlement_blocked": 0,
+  "funded_paths": 66,
+  "boundary_checks": 132,
+  "total_replays": 326,
+  "focused_probes": 32,
+  "liquidations_reconciled": 2840,
+  "custody_and_preview_checks": 8091
+}

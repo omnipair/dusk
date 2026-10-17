@@ -33,6 +33,7 @@ pub(crate) struct IntegratedCurveState {
     pub quote_hlp_base_debt: u128,
 }
 
+#[cfg(test)]
 impl IntegratedCurveState {
     /// Decomposes total live reserves into the ordinary trader-facing tranche
     /// and two perfectly hedged hLP positions at the current reserve ratio.

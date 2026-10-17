@@ -69,14 +69,7 @@ impl Insurance {
         )
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
         let daily_remaining = daily_limit.saturating_sub(window.drawn);
-        let event_limit = u64::try_from(
-            (available as u128)
-                .checked_mul(self.per_event_draw_bps as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-                / BPS_DENOMINATOR as u128,
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        Ok(available.min(event_limit).min(daily_remaining))
+        Ok(available.min(daily_remaining))
     }
 
     pub fn credit(&mut self, asset: MarketAsset, actual_credit: u64, current_slot: u64) -> Result<()> {
@@ -229,6 +222,42 @@ impl MarketAsset {
 }
 
 impl MarketSide {
+    /// Liquidation's protocol share is already selected before insurance is
+    /// funded. Distribute the remaining LP amount once, over ordinary yLP
+    /// ownership (including the yLP backing hLP), without another protocol cut.
+    pub(crate) fn record_liquidation_fee_credit(
+        &mut self,
+        lp: u64,
+        protocol: u64,
+        split: ProtocolAuctionSplit,
+        eligible_ylp_supply: u64,
+    ) -> Result<()> {
+        let credit = lp.checked_add(protocol).ok_or(ErrorCode::FeeMathOverflow)?;
+        let (fee, buyback) = split_protocol_auction_fee(protocol, &split)?;
+        self.fees.interest_vault_balance = self
+            .fees
+            .interest_vault_balance
+            .checked_add(credit)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.fees.interest_protocol_fee_liability = self
+            .fees
+            .interest_protocol_fee_liability
+            .checked_add(fee)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.fees.interest_buyback_fee_liability = self
+            .fees
+            .interest_buyback_fee_liability
+            .checked_add(buyback)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.fees.unallocated_interest_liability = self
+            .fees
+            .unallocated_interest_liability
+            .checked_add(lp)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.carry_forward_interest_with_supply(eligible_ylp_supply)?;
+        self.fees.assert_backed()
+    }
+
     pub fn assert_share_backing(&self) -> Result<()> {
         if self.shares.ylp_supply == 0 {
             require_eq!(self.reserves.live_reserve, 0, ErrorCode::BrokenInvariant);

@@ -326,7 +326,13 @@ impl<'info> WithdrawSingleSided<'info> {
         ctx.accounts
             .market
             .finalize_amm_transition_and_observe_risk(current_slot)?;
-        ctx.accounts.market.assert_market_health()?;
+        let fees = crate::instructions::lending_market_admission_fees(
+            &ctx.accounts.market,
+            &ctx.accounts.base_mint,
+            &ctx.accounts.quote_mint,
+            Clock::get()?.epoch,
+        )?;
+        ctx.accounts.market.assert_market_health_with_fees(fees)?;
 
         // Burn backing yLP and transfer the released target asset to the owner.
         let ylp_program = token_program_for_mint(

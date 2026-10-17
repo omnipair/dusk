@@ -137,8 +137,8 @@ typecheck gates.
   `target/idl/leverage_delegate.json` exist before running the delegated close
   LiteSVM smoke path.
 - Confirm `target/types/dusk.ts` exists and matches the same build.
-- Confirm `initialize_lp_metadata` passes the deterministic LiteSVM
-  CreateV1-compatible CPI fixture and has also been exercised against the real
+- Confirm `initialize_market` creates all three LP metadata records in the
+  deterministic LiteSVM CreateV1-compatible CPI fixture and has also been exercised against the real
   Metaplex Token Metadata program on the target cluster. For the focused local
   fixture path:
 

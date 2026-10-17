@@ -16,7 +16,6 @@ use crate::{
         },
         record_hlp_interest_credit, validate_hlp_authority_pdas,
     },
-    math::arithmetic::ceil_div,
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{token_burn, transfer_checked_with_remaining_accounts},
     transitions::HlpYieldEligibility,
@@ -194,13 +193,10 @@ impl<'info> CloseInsolventHlp<'info> {
             0
         } else {
             u64::try_from(
-                ceil_div(
-                    (receipt.interest_paid as u128)
-                        .checked_mul(HLP_TERMINAL_CALLER_BPS as u128)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    BPS_DENOMINATOR as u128,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?,
+                (receipt.interest_paid as u128)
+                    .checked_mul(HLP_TERMINAL_CALLER_BPS as u128)
+                    .and_then(|amount| amount.checked_div(BPS_DENOMINATOR as u128))
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
             )
             .map_err(|_| ErrorCode::MarketMathOverflow)?
         };
@@ -274,7 +270,10 @@ impl<'info> CloseInsolventHlp<'info> {
         ctx.accounts
             .market
             .finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
-        ctx.accounts.market.assert_market_health()?;
+        // This is the terminal recovery path for an already-insolvent hLP.
+        // A changed fee on either market mint can leave global health below
+        // the floor; requiring that floor here would strand the debt instead
+        // of allowing insurance and socialization to close it.
         require_reserve_custody(
             ctx.accounts.borrowed_reserve_vault.amount,
             ctx.accounts.market.side(borrowed_asset),
