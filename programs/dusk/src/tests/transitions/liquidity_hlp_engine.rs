@@ -2,6 +2,95 @@ use super::*;
 use proptest::prelude::*;
 
 #[test]
+fn h_lp_entry_mints_against_current_value_even_if_cached_values_are_stale() {
+    use crate::state::{AmmConfig, AmmState};
+
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = Market::default();
+        market.add_liquidity(1_000_000, 1_000_000).unwrap();
+        market.debt.base_borrow_index_nad = NAD as u128;
+        market.debt.quote_borrow_index_nad = NAD as u128;
+        market.deposit_single_sided(target, 20_000, 1).unwrap();
+        market.config.amm = AmmConfig {
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
+            center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
+            ..AmmConfig::default()
+        };
+        market.amm = AmmState::default();
+        market.prepare_amm_for_swap(1).unwrap();
+
+        let prices = current_hlp_curve_prices(&market).unwrap();
+        let supply_before = match target {
+            MarketAsset::Base => market.base_hlp_vault.hlp_supply,
+            MarketAsset::Quote => market.quote_hlp_vault.hlp_supply,
+        };
+        let nav_before = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
+        let vault = match target {
+            MarketAsset::Base => &mut market.base_hlp_vault,
+            MarketAsset::Quote => &mut market.quote_hlp_vault,
+        };
+        vault.last_nav_nad = nav_before / 2;
+        vault.cached_settlement_price_nad = prices.base_in_quote_nad() * 2;
+        market.config.settlement_divergence_bps = 1;
+
+        let receipt = market.deposit_single_sided(target, 10_000, 1).unwrap();
+        let nav_after = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
+        let expected = (nav_after - nav_before) * u128::from(supply_before) / nav_before;
+        assert_eq!(u128::from(receipt.hlp_amount), expected, "target={target:?}");
+        assert!(
+            nav_after * u128::from(supply_before) >= nav_before * u128::from(receipt.hlp_supply),
+            "existing holders must not lose per-share economic NAV; target={target:?}"
+        );
+        market.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
+fn h_lp_share_value_includes_unpaid_public_interest_without_spending_it() {
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = Market::default();
+        market.add_liquidity(1_000_000, 1_000_000).unwrap();
+        market.debt.base_borrow_index_nad = NAD as u128;
+        market.debt.quote_borrow_index_nad = NAD as u128;
+        market.deposit_single_sided(target, 20_000, 1).unwrap();
+        let prices = current_hlp_curve_prices(&market).unwrap();
+        let economic_before = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
+        let executable_before = hlp_nav_nad_with_prices(&market, target, prices).unwrap();
+        assert_eq!(economic_before, executable_before);
+
+        // A public borrower owes 25,000 of accrued target-asset interest.
+        // It belongs to the yLP share owners but is not executable AMM cash.
+        match target {
+            MarketAsset::Base => {
+                market.debt.fixed_base_shares = 400_000;
+                market.debt.fixed_base_principal = 400_000;
+                market.debt.base_borrow_index_nad = (NAD as u128) * 17 / 16;
+            }
+            MarketAsset::Quote => {
+                market.debt.fixed_quote_shares = 400_000;
+                market.debt.fixed_quote_principal = 400_000;
+                market.debt.quote_borrow_index_nad = (NAD as u128) * 17 / 16;
+            }
+        }
+        market.side_mut(target).reserves.cash_reserve -= 400_000;
+        market.side_mut(target).reserves.live_reserve += 25_000;
+        let vault = match target {
+            MarketAsset::Base => &market.base_hlp_vault,
+            MarketAsset::Quote => &market.quote_hlp_vault,
+        };
+        let expected_interest_claim =
+            25_000_u128 * u128::from(vault.ylp_shares) / u128::from(market.side(target).shares.ylp_supply);
+        let expected_in_nad = market.normalize_amount(expected_interest_claim, market.side(target).asset_decimals).unwrap();
+        let economic_after = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
+        assert_eq!(economic_after - economic_before, expected_in_nad);
+        assert_eq!(hlp_nav_nad_with_prices(&market, target, prices).unwrap(), executable_before);
+        assert_eq!(current_hlp_curve_prices(&market).unwrap(), prices);
+    }
+}
+
+#[test]
 fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
     use crate::state::{AmmConfig, AmmState};
     use crate::transitions::amm::SwapRequest;
@@ -56,7 +145,11 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
                 .unwrap();
                 swap.apply(&mut market, SwapCashPolicy::Spot, fee_credit, 2, 0, ProtocolAuctionSplit::default(), None)
                     .unwrap();
-                assert!(require_hlp_settlement_available(&market, target).is_err());
+                let reference = match target {
+                    MarketAsset::Base => market.base_hlp_vault.cached_settlement_price_nad,
+                    MarketAsset::Quote => market.quote_hlp_vault.cached_settlement_price_nad,
+                };
+                assert_ne!(current_hlp_curve_prices(&market).unwrap().base_in_quote_nad(), reference);
 
                 let preview = market.quote_hlp_withdrawal(target, slice).unwrap();
                 let exit = market.withdraw_single_sided(target, slice).unwrap();
@@ -129,22 +222,6 @@ fn extreme_forward_price_values_both_hlp_numeraires_without_a_rounded_reciprocal
         .unwrap(),
         NAD + 1,
     );
-}
-
-#[test]
-fn quote_hlp_settlement_divergence_uses_inverse_relative_change() {
-    let mut market = Market::default();
-    market.base_side.asset_decimals = 0;
-    market.quote_side.asset_decimals = 0;
-    market.add_liquidity(10_000, 20_000).unwrap();
-    market.config.settlement_divergence_bps = 500;
-    market.quote_hlp_vault.hlp_supply = 1;
-    market.quote_hlp_vault.cached_settlement_price_nad = 1_900_000_000;
-    market.base_hlp_vault.hlp_supply = 1;
-    market.base_hlp_vault.cached_settlement_price_nad = 1_900_000_000;
-
-    assert!(require_hlp_settlement_available(&market, MarketAsset::Quote).is_ok());
-    assert!(require_hlp_settlement_available(&market, MarketAsset::Base).is_err());
 }
 
 #[test]

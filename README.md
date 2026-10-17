@@ -140,7 +140,7 @@ Each market maintains two aggregate hLP vaults:
 - `hLP_base`: users deposit base and the vault funds the quote leg.
 - `hLP_quote`: users deposit quote and the vault funds the base leg.
 
-Opening an hLP position mints vault shares against aggregate vault NAV. The target-side deposit is reserve cash; the funded side is tracked as hLP funding debt and an explicit hLP live-reserve component:
+Opening an hLP position mints vault shares against current aggregate vault NAV, including the hLP-owned yLP claim on accrued public interest. A cached settlement price or NAV does not set the deposit share price. The target-side deposit is reserve cash; the funded side is tracked as hLP funding debt and an explicit hLP live-reserve component:
 
 ```text
 user target asset
@@ -193,7 +193,7 @@ Dusk is designed around market-local risk accounting:
 - Pessimistic depth is the lower of observed curve depth and its EMA. Public borrowing uses only the full-range CPMM tail at the lower of symmetric and directional price EMAs. Borrowing and leverage liquidatability use linear symmetric-EMA value. Ordinary flash payment is fixed from that value and the bounded discount. Emergency AMM execution is separately gated at 70% of maintenance; its execution price does not make a reference-healthy position liquidatable.
 - Isolated leverage has its own position state and debt buckets.
 - Price and risk books use cached EMA state to reduce same-transaction spot manipulation.
-- hLP settlement uses cached settlement references and divergence guards.
+- hLP entries price shares from current economic NAV. The hedge-state and funding checks still apply; accrued public interest is included in share value but excluded from executable AMM reserves.
 - Swaps stay live when hLP leverage-up is cash-constrained; unexecuted rebalance is stored as `residual_exposure`.
 - Each debt asset has one shared 24-hour leaky/token bucket for gross new
   principal issued through public lending `borrow`. Isolated leverage and

@@ -992,7 +992,6 @@ impl Market {
     ) -> Result<SingleSidedLiquidityReceipt> {
         let market = self;
         require!(deposit_amount > 0, ErrorCode::AmountZero);
-        require_hlp_settlement_available(market, target_asset)?;
         let pre_prices = current_hlp_curve_prices(market)?;
         let pre_entry = current_hlp_entry_state_with_prices(market, target_asset, pre_prices)?;
         let (hlp_supply_before, settlement_reference_before) = match target_asset {
@@ -1032,12 +1031,14 @@ impl Market {
         let (ylp_amount, hlp_amount, hlp_supply, post_prices) = match target_asset {
             MarketAsset::Base => {
                 let hlp_supply_before = market.base_hlp_vault.hlp_supply;
+                // Price the existing shares at this transaction's mark. A
+                // cached controller NAV can predate an arbitrary swap, and
+                // yLP's accrued public-interest claim belongs to the old
+                // holders even before that interest is paid into cash.
                 let nav_before_nad = if hlp_supply_before == 0 {
                     0
-                } else if market.base_hlp_vault.last_nav_nad > 0 {
-                    market.base_hlp_vault.last_nav_nad
                 } else {
-                    hlp_nav_nad(market, MarketAsset::Base)?
+                    hlp_share_nav_nad_with_prices(market, MarketAsset::Base, pre_prices)?
                 };
                 let ylp_amount = ylp_for_live_reserve_deposit(market, deposit_amount, borrowed_amount)?;
                 require!(ylp_amount > 0, ErrorCode::SlippageExceeded);
@@ -1052,31 +1053,24 @@ impl Market {
                 market.base_hlp_vault.add_debt_principal(borrowed_amount)?;
                 market.base_hlp_vault.credit_ylp(ylp_amount)?;
                 let current_prices = current_hlp_curve_prices(market)?;
-                let current_nav_nad = hlp_nav_nad_with_prices(market, MarketAsset::Base, current_prices)?;
+                let current_nav_nad = hlp_share_nav_nad_with_prices(market, MarketAsset::Base, pre_prices)?;
                 let hlp_amount = if hlp_supply_before == 0 {
                     deposit_amount
                 } else {
                     let delta_nav_nad = current_nav_nad
                         .checked_sub(nav_before_nad)
                         .ok_or(ErrorCode::MarketMathOverflow)?;
-                    hlp_shares_for_delta_nav(
-                        delta_nav_nad,
-                        nav_before_nad.max(market.base_hlp_vault.last_nav_nad),
-                        hlp_supply_before,
-                    )?
+                    hlp_shares_for_delta_nav(delta_nav_nad, nav_before_nad, hlp_supply_before)?
                 };
                 market.base_hlp_vault.mint_hlp(hlp_amount)?;
-                market.base_hlp_vault.last_nav_nad = current_nav_nad;
                 (ylp_amount, hlp_amount, market.base_hlp_vault.hlp_supply, current_prices)
             }
             MarketAsset::Quote => {
                 let hlp_supply_before = market.quote_hlp_vault.hlp_supply;
                 let nav_before_nad = if hlp_supply_before == 0 {
                     0
-                } else if market.quote_hlp_vault.last_nav_nad > 0 {
-                    market.quote_hlp_vault.last_nav_nad
                 } else {
-                    hlp_nav_nad(market, MarketAsset::Quote)?
+                    hlp_share_nav_nad_with_prices(market, MarketAsset::Quote, pre_prices)?
                 };
                 let ylp_amount = ylp_for_live_reserve_deposit(market, borrowed_amount, deposit_amount)?;
                 require!(ylp_amount > 0, ErrorCode::SlippageExceeded);
@@ -1091,21 +1085,16 @@ impl Market {
                 market.quote_hlp_vault.add_debt_principal(borrowed_amount)?;
                 market.quote_hlp_vault.credit_ylp(ylp_amount)?;
                 let current_prices = current_hlp_curve_prices(market)?;
-                let current_nav_nad = hlp_nav_nad_with_prices(market, MarketAsset::Quote, current_prices)?;
+                let current_nav_nad = hlp_share_nav_nad_with_prices(market, MarketAsset::Quote, pre_prices)?;
                 let hlp_amount = if hlp_supply_before == 0 {
                     deposit_amount
                 } else {
                     let delta_nav_nad = current_nav_nad
                         .checked_sub(nav_before_nad)
                         .ok_or(ErrorCode::MarketMathOverflow)?;
-                    hlp_shares_for_delta_nav(
-                        delta_nav_nad,
-                        nav_before_nad.max(market.quote_hlp_vault.last_nav_nad),
-                        hlp_supply_before,
-                    )?
+                    hlp_shares_for_delta_nav(delta_nav_nad, nav_before_nad, hlp_supply_before)?
                 };
                 market.quote_hlp_vault.mint_hlp(hlp_amount)?;
-                market.quote_hlp_vault.last_nav_nad = current_nav_nad;
                 (
                     ylp_amount,
                     hlp_amount,
@@ -1895,40 +1884,6 @@ pub(crate) fn checkpoint_hlp_yield_from_ylp_shares(
     }
 }
 
-pub(crate) fn require_hlp_settlement_available(market: &Market, target_asset: MarketAsset) -> Result<()> {
-    let prices = current_hlp_curve_prices(market)?;
-    let vault = match target_asset {
-        MarketAsset::Base => &market.base_hlp_vault,
-        MarketAsset::Quote => &market.quote_hlp_vault,
-    };
-    if vault.hlp_supply == 0 || vault.cached_settlement_price_nad == 0 {
-        return Ok(());
-    }
-    let current_price = prices.base_in_quote_nad();
-    let reference_price = vault.cached_settlement_price_nad;
-    let divergence = if current_price >= reference_price {
-        current_price
-            .checked_sub(reference_price)
-            .ok_or(ErrorCode::MarketMathOverflow)?
-    } else {
-        reference_price
-            .checked_sub(current_price)
-            .ok_or(ErrorCode::MarketMathOverflow)?
-    };
-    // Quote-target vaults previously compared reciprocal prices. Their
-    // relative divergence is |reference - current| / current in forward units.
-    let divergence_denominator = match target_asset {
-        MarketAsset::Base => reference_price,
-        MarketAsset::Quote => current_price,
-    };
-    let max_divergence = divergence_denominator
-        .checked_mul(market.config.settlement_divergence_bps as u128)
-        .and_then(|value| value.checked_div(crate::constants::BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    require!(divergence <= max_divergence, ErrorCode::HlpSettlementUnavailable);
-    Ok(())
-}
-
 /// One executable forward price supplies both hLP valuation directions through
 /// multiplication or division. Re-evaluating the curve for every inventory and
 /// debt leg would exhaust Solana's non-freeing 32 KiB heap on composite swaps.
@@ -1945,7 +1900,10 @@ pub(crate) fn hlp_curve_prices_from_base_price_nad(base_in_quote_nad: u128) -> R
     Ok(HlpCurvePrices { base_in_quote_nad })
 }
 
-fn hlp_nav_nad(market: &Market, target_asset: MarketAsset) -> Result<u128> {
+/// Economic value of an hLP share, including the yLP claim on public interest
+/// already accrued into live reserves. The hedge controller deliberately uses
+/// executable curve reserves instead; an unpaid receivable is not swap cash.
+fn hlp_share_nav_nad_with_prices(market: &Market, target_asset: MarketAsset, prices: HlpCurvePrices) -> Result<u128> {
     let vault = match target_asset {
         MarketAsset::Base => &market.base_hlp_vault,
         MarketAsset::Quote => &market.quote_hlp_vault,
@@ -1953,7 +1911,17 @@ fn hlp_nav_nad(market: &Market, target_asset: MarketAsset) -> Result<u128> {
     if vault.ylp_shares == 0 && vault.debt_shares == 0 {
         return Ok(0);
     }
-    hlp_nav_nad_with_prices(market, target_asset, current_hlp_curve_prices(market)?)
+    let base_claim = ylp_live_underlying_amount(market, MarketAsset::Base, vault.ylp_shares)?;
+    let quote_claim = ylp_live_underlying_amount(market, MarketAsset::Quote, vault.ylp_shares)?;
+    let base_value =
+        asset_value_in_target_nad_with_prices(market, prices, MarketAsset::Base, base_claim, target_asset)?;
+    let quote_value =
+        asset_value_in_target_nad_with_prices(market, prices, MarketAsset::Quote, quote_claim, target_asset)?;
+    let debt = current_hlp_inventory_values_nad_with_prices(market, target_asset, prices)?.debt_value_nad;
+    base_value
+        .checked_add(quote_value)
+        .and_then(|assets| assets.checked_sub(debt))
+        .ok_or_else(|| ErrorCode::Undercollateralized.into())
 }
 
 fn hlp_nav_nad_with_prices(market: &Market, target_asset: MarketAsset, prices: HlpCurvePrices) -> Result<u128> {

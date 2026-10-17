@@ -14922,9 +14922,6 @@ export type Dusk = {
             "name": "unhedgeable"
           },
           {
-            "name": "settlementRequired"
-          },
-          {
             "name": "noFundingCapacity"
           },
           {

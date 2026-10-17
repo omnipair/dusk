@@ -141,10 +141,11 @@ flash instructions is still required. The following gates remain material:
 | Concurrent state changes | An hLP transition is tied to specific curve revisions, LP supply and hLP shares/debt. A plan prepared at flash begin cannot simply be applied after allowed LP/parameter/other-position operations. Keep the original payment/debt obligation bound, then prepare valid settlement accounting against current shared state with reservations intact. |
 | Instruction boundary | Native state tests do not exercise transfer-fee CPIs, session account lifecycle, token-account aliasing, exact begin/settle pairing, compute/account limits or concurrent instruction ordering. These remain required integration tests for the new entrypoints and previews. |
 
-The ordinary hLP settlement-divergence check is used by single-sided entry and
-withdrawal, not a blanket guard on every integrated swap or liquidation. Do not
-infer that all hLP activity must pause for liquidation. Conversely, hLP funding
-cash and reserve-identity constraints still apply to the native integrated path.
+Single-sided hLP entry and withdrawal no longer require the current curve
+price to remain near a cached settlement reference. Entry prices shares at
+current economic NAV; hedge-state, funding cash and reserve-identity checks
+still apply to the native integrated path. A price move alone does not pause
+every integrated swap or liquidation.
 
 Same-market flash routing needs a separate cash-flow check: a spot swap must
 physically pay its full output before later repayment, whereas integrated

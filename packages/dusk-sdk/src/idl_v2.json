@@ -14916,9 +14916,6 @@
             "name": "Unhedgeable"
           },
           {
-            "name": "SettlementRequired"
-          },
-          {
             "name": "NoFundingCapacity"
           },
           {
