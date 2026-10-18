@@ -24,6 +24,9 @@ export interface SimulateOptions {
 }
 
 export interface PreviewSimulationOptions extends SimulateOptions {
+  /** Require a complete budget prefix when other programs bind instruction
+   * indices. Dusk flash-liquidation plans are detected automatically. */
+  preserveInstructionIndices?: boolean;
   /** Optional active lookup tables for larger position-action transactions. */
   lookupTables?: AddressLookupTableAccount[];
   /** Include CPI events when previewing an actual state-changing instruction. */
@@ -78,11 +81,28 @@ export async function simulatePreviewWithContext(
   )
     throw new Error("Invalid preview minimum slot");
   if (!instructions.length) throw new Error("A preview requires an instruction");
-  const transaction = new Transaction().add(
-    ComputeBudgetProgram.requestHeapFrame({ bytes: options.heapFrameBytes ?? 256 * 1024 }),
-    ComputeBudgetProgram.setComputeUnitLimit({ units: options.computeUnitLimit ?? 1_400_000 }),
-    ...instructions
-  );
+  // A complete flash plan already has its budgets and absolute settle index.
+  // Ordinary previews still need a budget prefix: placing budgets after the
+  // preview overwrites Solana's final return-data program ID.
+  const simulationInstructions = [...instructions];
+  const missingBudgets: TransactionInstruction[] = [];
+  const flashDiscriminator = program.idl?.instructions.find(ix =>
+    ix.name === "beginFlashLiquidation")?.discriminator;
+  const bindsIndices = options.preserveInstructionIndices || (flashDiscriminator && instructions.some(ix =>
+    ix.programId.equals(program.programId) && ix.data.subarray(0, 8).equals(Buffer.from(flashDiscriminator))));
+  for (const [tag, explicit, budget] of [
+    [1, options.heapFrameBytes, ComputeBudgetProgram.requestHeapFrame({ bytes: options.heapFrameBytes ?? 256 * 1024 })],
+    [2, options.computeUnitLimit, ComputeBudgetProgram.setComputeUnitLimit({ units: options.computeUnitLimit ?? 1_400_000 })],
+  ] as const) {
+    const matches = simulationInstructions.flatMap((ix, index) =>
+      ix.programId.equals(ComputeBudgetProgram.programId) && ix.data[0] === tag ? [index] : []);
+    if (matches.length > 1) throw new Error("Duplicate compute-budget instruction in preview plan");
+    if (!matches.length) missingBudgets.push(budget);
+    else if (explicit !== undefined) simulationInstructions[matches[0]!] = budget;
+  }
+  if (bindsIndices && missingBudgets.length)
+    throw new Error("Index-bound simulation requires planned heap and compute budgets; use buildFlash or include them before binding indices");
+  const transaction = new Transaction().add(...missingBudgets, ...simulationInstructions);
   transaction.feePayer = address(
     options.feePayer ?? program.provider.publicKey ?? DEFAULT_READONLY_PUBLIC_KEY
   );

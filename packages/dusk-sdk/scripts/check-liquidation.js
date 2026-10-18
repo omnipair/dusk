@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import anchor from "@coral-xyz/anchor";
-import { Keypair, ComputeBudgetProgram, SystemProgram } from "@solana/web3.js";
+import { Keypair, ComputeBudgetProgram, SystemProgram, AddressLookupTableAccount, TransactionMessage } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, createTransferCheckedInstruction, calculateFee } from "@solana/spl-token";
 import IDL from "../dist/idl_v2.js";
 import { DuskLiquidations } from "../dist/liquidation-client.js";
@@ -78,6 +78,30 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   const ownerMeta = result.beginInstruction.keys[common.findIndex(i => i.name === "ownerDebtAccount")];
   const buyerMeta = result.beginInstruction.keys[common.findIndex(i => i.name === "buyerRefundAccount")];
   assert.ok(!ownerMeta.pubkey.equals(buyerMeta.pubkey));
+  const addresses = [...new Map(result.instructions.flatMap(ix => ix.keys.map(meta =>
+    [meta.pubkey.toBase58(), meta.pubkey]))).values()];
+  const lookup = new AddressLookupTableAccount({ key: Keypair.generate().publicKey, state: {
+    deactivationSlot: (1n << 64n) - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0,
+    authority: buyer, addresses,
+  } });
+  let simulated = false;
+  program.provider.connection.simulateTransaction = async wire => {
+    const message = TransactionMessage.decompile(wire.message, { addressLookupTableAccounts: [lookup] });
+    const begin = program.coder.instruction.decode(message.instructions[result.beginIndex].data);
+    assert.equal(begin.name, "beginFlashLiquidation");
+    assert.equal(begin.data.args.settleIndex, result.settleIndex);
+    assert.equal(program.coder.instruction.decode(message.instructions[result.settleIndex].data).name,
+      "settleFlashLiquidation");
+    for (const tag of [1, 2]) assert.equal(message.instructions.filter(ix =>
+      ix.programId.equals(ComputeBudgetProgram.programId) && ix.data[0] === tag).length, 1);
+    simulated = true;
+    return { context: { slot: 123 }, value: { err: null, logs: [] } };
+  };
+  await client.get.simulateWithContext(result.instructions, { lookupTables: [lookup], requireReturnData: false });
+  assert.ok(simulated);
+  await assert.rejects(client.get.simulateWithContext(result.instructions.filter(ix =>
+    !ix.programId.equals(ComputeBudgetProgram.programId)), { requireReturnData: false }),
+    /requires planned heap and compute budgets/);
   client.write.hlpRemainingAccounts = async () => [];
   const internal = await client.buildFlash({ ...request, buyer, maxRepayment: 1000n, settlement: "duskAmm" });
   assert.equal(internal.requiredPaymentCredit, 0n);

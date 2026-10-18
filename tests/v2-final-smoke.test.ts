@@ -5481,7 +5481,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("rescueHlp", this.test?.title);
   });
 
-  it("closes terminal hLP with a caller bounty", async function () {
+  it("closes terminal hLP with a caller bounty and permits receipt cleanup despite another distressed vault", async function () {
     const fixture = await addBalancedLiquidity(125, marketConfig(), {
       baseDeposit: 100_000_000,
       quoteDeposit: 200_000_000,
@@ -5489,7 +5489,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       baseMint: 500_000_000,
       quoteMint: 500_000_000,
     });
-    await openBaseHedge(fixture, 10_000_000);
+    const hedge = await openBaseHedge(fixture, 10_000_000);
+    await openQuoteHedge(fixture, 10_000_000);
+
+    // Exercise the SDK's actual simulation envelope, including its inserted
+    // compute budgets, against the SVM rather than a mocked RPC response.
+    const sdkPreview = await new DuskGet(program as any, payer.publicKey).simulateReturnData(
+      await program.methods.previewMarket().accounts({ market: fixture.market }).instruction()
+    );
+    expect(decodePreviewMarketReturnData(sdkPreview)).to.not.equal(null);
 
     const marketPreview = decodePreviewMarketReturnData(
       await simulateReturnData(
@@ -5570,6 +5578,52 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const callerAfter = await getAccount(connection as any, fixture.ownerQuoteAccount);
     expect(callerAfter.amount > callerBefore.amount).to.equal(true);
+
+    // The retired Base hLP has no reserve or debt claim. A later funding
+    // shock to the independent Quote hLP must not prevent burning its tokens.
+    const closedAccount = svm.getAccount(fixture.market)!;
+    const closed = accountCoder.decode("Market", Buffer.from(closedAccount.data)) as any;
+    expect(closed.base_hlp_vault.ylp_shares.isZero()).to.equal(true);
+    expect(closed.base_hlp_vault.debt_shares.isZero()).to.equal(true);
+    closed.debt.base_borrow_index_nad = new BN("100000000000");
+    const shockedBody = Buffer.alloc(closedAccount.data.length - 8);
+    const shockedLength = marketLayout.layout.encode(closed, shockedBody);
+    svm.setAccount(fixture.market, {
+      ...closedAccount,
+      data: new Uint8Array(Buffer.concat([
+        (accountCoder as any).accountDiscriminator("Market"),
+        shockedBody.subarray(0, shockedLength),
+      ])),
+    });
+    const baseCashBefore = await getAccount(connection as any, fixture.baseReserveVault);
+    const quoteCashBefore = await getAccount(connection as any, fixture.quoteReserveVault);
+    const ownerBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
+    const cleanup = await program.methods
+      .withdrawSingleSided({ hlpAmount: new BN(10_000_000), minTargetAmountOut: new BN(0) })
+      .accounts({
+        market: fixture.market, futarchyAuthority, owner: payer.publicKey,
+        baseMint: fixture.baseMint, quoteMint: fixture.quoteMint,
+        ylpMint: fixture.ylpMint, targetHlpMint: fixture.baseHlpMint,
+        baseReserveVault: fixture.baseReserveVault, quoteReserveVault: fixture.quoteReserveVault,
+        borrowedInterestVault: fixture.quoteInterestVault,
+        ownerTargetAccount: fixture.ownerBaseAccount, ownerHlpAccount: hedge.ownerBaseHlpAccount,
+        hlpYlpAccount: hedge.hlpYlpAccount, baseYieldAccount: hedge.baseYieldAccount,
+        quoteYieldAccount: hedge.quoteYieldAccount, tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      })
+      .transaction();
+    await connection.sendTransaction(cleanup, [payer]);
+    const afterCleanup = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    expect(afterCleanup.base_hlp_vault.hlp_supply.isZero()).to.equal(true);
+    expect(afterCleanup.quote_hlp_vault).to.deep.equal(closed.quote_hlp_vault);
+    for (const name of Object.keys(closed.debt)) {
+      expect(afterCleanup.debt[name].toString(), name).to.equal(closed.debt[name].toString());
+    }
+    expect((await getAccount(connection as any, fixture.baseReserveVault)).amount).to.equal(baseCashBefore.amount);
+    expect((await getAccount(connection as any, fixture.quoteReserveVault)).amount).to.equal(quoteCashBefore.amount);
+    expect((await getAccount(connection as any, fixture.ownerBaseAccount)).amount).to.equal(ownerBefore.amount);
+    expect((await getAccount(connection as any, hedge.ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
+    trackV2Instruction("withdrawSingleSided", this.test?.title);
   });
 
   it("keeps an active base hLP vault exactly hedged through large opposite-direction swaps", async function () {

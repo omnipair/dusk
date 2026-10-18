@@ -1,5 +1,11 @@
 # PR #45 closeout
 
+**2026-10-18 merge hold:** the later external-model review found additional
+issues. Six of its seven original subjects have source fixes; the hLP
+solvency/receivable mismatch and related entry accounting remain unresolved.
+See [the current remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md). The dated
+V12/EMA closeout below does not clear those later findings.
+
 Updated: 2026-10-17 (risk acceptance); analysis: 2026-10-16. Runtime source: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
 The 2026-10-16 closeout added a reproducible test and its CI check. This 2026-10-17
 update records risk acceptance in documentation only; program/SDK runtime and

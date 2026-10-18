@@ -386,7 +386,8 @@ test("full curve sampling batches both directions and retains original observati
   const sent = [];
   t.mock.method(h.connection, "simulateTransaction", async (tx, options) => {
     const response = h.response();
-    const returns = tx.message.compiledInstructions.slice(2).map((ix) => {
+    const returns = tx.message.compiledInstructions.filter(ix =>
+      tx.message.staticAccountKeys[ix.programIdIndex].equals(h.dusk.program.programId)).map((ix) => {
       const decoded = h.dusk.program.coder.instruction.decode(Buffer.from(ix.data));
       assert.equal(decoded.name, "previewSwap");
       const mint = tx.message.staticAccountKeys[ix.accountKeyIndexes[2]];

@@ -46,6 +46,14 @@ for historical API data.
 
 ## Flash and emergency liquidations
 
+`get.simulateWithContext(plan.instructions, { requireReturnData: false, lookupTables })`
+preserves the absolute begin/settle indices in a built flash plan. Existing
+compute budgets are retained (or explicitly overridden in place). A flash plan
+missing either budget is rejected rather than silently shifted. Ordinary
+previews receive a budget prefix. Set `preserveInstructionIndices: true` for
+other programs with index-bound plans. Do not prepend instructions after `buildFlash`; pass
+setup instructions through its `prefixInstructions` argument instead.
+
 The auction start/fill/backstop and old full leverage-liquidation instructions
 have been replaced. Use `dusk.liquidations` for either borrowing or leverage:
 

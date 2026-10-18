@@ -2,6 +2,45 @@ use super::*;
 use proptest::prelude::*;
 
 #[test]
+fn y_lp_entry_and_cash_exit_include_unpaid_interest_once() {
+    const UNIT: u64 = 1_000_000;
+    let mut market = Market::default();
+    market.base_side.asset_decimals = 6;
+    market.quote_side.asset_decimals = 6;
+    market.debt.base_borrow_index_nad = NAD as u128;
+    market.debt.quote_borrow_index_nad = NAD as u128;
+    market.add_liquidity(1_000_000 * UNIT, 1_000_000 * UNIT).unwrap();
+    market.debt.fixed_quote_shares = u128::from(425_000 * UNIT);
+    market.debt.fixed_quote_principal = 400_000 * UNIT;
+    market.quote_side.reserves.cash_reserve -= 400_000 * UNIT;
+    market.quote_side.reserves.live_reserve += 25_000 * UNIT;
+    let old_supply = market.base_side.shares.ylp_supply;
+    let old_base_claim = market.base_side.reserves.live_reserve;
+    let old_quote_claim = market.quote_side.reserves.live_reserve;
+    let cash_before = market.quote_side.reserves.cash_reserve;
+    let entry = market.add_liquidity(1_000 * UNIT, 1_025 * UNIT).unwrap();
+    assert_eq!(entry.ylp_amount, old_supply / 1_000);
+    assert_eq!(
+        ylp_live_underlying_amount(&market, MarketAsset::Base, old_supply).unwrap(),
+        old_base_claim
+    );
+    assert_eq!(
+        ylp_live_underlying_amount(&market, MarketAsset::Quote, old_supply).unwrap(),
+        old_quote_claim
+    );
+    let exit = market.remove_liquidity(entry.ylp_amount).unwrap();
+    assert_eq!(exit.base_amount_out, entry.base_reserve_credit);
+    assert_eq!(exit.quote_amount_out, entry.quote_reserve_credit);
+    assert_eq!(market.quote_side.reserves.cash_reserve, cash_before);
+    assert_eq!(
+        market.unrealized_interest(MarketAsset::Quote).unwrap(),
+        u128::from(25_000 * UNIT)
+    );
+    assert_eq!(market.quote_side.fees.interest_growth_index_q64, 0);
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
 fn h_lp_entry_mints_against_current_value_even_if_cached_values_are_stale() {
     use crate::state::{AmmConfig, AmmState};
 

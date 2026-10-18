@@ -99,6 +99,22 @@ test("previews honor an explicit commitment, fee payer and compute budgets", asy
   assert.deepEqual(Buffer.from(sent.message.serialize()), expected.serializeMessage());
 });
 
+test("simulation preserves supplied instruction indices and overrides budgets in place", async () => {
+  const { reader, calls } = fixture();
+  const heap = ComputeBudgetProgram.requestHeapFrame({ bytes: 64 * 1024 });
+  const limit = ComputeBudgetProgram.setComputeUnitLimit({ units: 500_000 });
+  const supplied = [heap, instruction, limit];
+  await reader.simulateWithContext(supplied, { computeUnitLimit: 700_000 });
+  const sent = VersionedTransaction.deserialize(Buffer.from(calls[0].params[0], "base64"));
+  const expected = new Transaction({ feePayer: payer, recentBlockhash: PublicKey.default.toBase58() })
+    .add(heap, instruction, ComputeBudgetProgram.setComputeUnitLimit({ units: 700_000 }));
+  assert.deepEqual(Buffer.from(sent.message.serialize()), expected.serializeMessage());
+  assert.equal(supplied[2], limit, "do not mutate the caller's execution plan");
+  await assert.rejects(reader.simulateWithContext([heap, heap, instruction]), /Duplicate compute-budget/);
+  await assert.rejects(reader.simulateWithContext([instruction], { preserveInstructionIndices: true }),
+    /requires planned heap and compute budgets/);
+});
+
 test("simulation errors, absent return data and another program's data still fail", async () => {
   for (const [value, message] of [
     [
