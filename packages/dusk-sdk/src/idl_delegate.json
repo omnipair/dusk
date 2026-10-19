@@ -3357,6 +3357,14 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "public_interest_advance",
+            "type": {
+              "defined": {
+                "name": "PublicInterestAdvance"
+              }
+            }
+          },
+          {
             "name": "swap_fee_growth_index_q64",
             "type": "u128"
           },
@@ -4933,6 +4941,43 @@
           {
             "name": "buyback_auction_bps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PublicInterestAdvance",
+      "docs": [
+        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "held in the reserve vault until repayment, so cancellation can return it",
+        "to executable cash without a transfer or a second transfer fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outstanding_gross",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_escrow",
+            "type": "u64"
+          },
+          {
+            "name": "repayment_credit_pending",
+            "docs": [
+              "Native repayment has already restored this cash; its token handler",
+              "must exclude it from the new interest-vault transfer."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocol_release_pending",
+            "docs": [
+              "Frozen protocol allocation released by repayment, still held in the",
+              "reserve vault until the same instruction completes token settlement."
+            ],
+            "type": "u64"
           }
         ]
       }

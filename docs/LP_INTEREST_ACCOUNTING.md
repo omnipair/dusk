@@ -135,3 +135,107 @@ leverage under concentration; no literal 2x constraint is being introduced.
 
 This candidate does not close the complete hLP audit item or implement the
 new harvest/flash interfaces. See [the remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md).
+
+## Frozen fee split and cash advances (2026-10-19 follow-up)
+
+Approved policy: the LP/protocol split is fixed when reserve cash funds the
+interest. A later protocol-rate change applies only to the unfunded part.
+The native ledger and SDK accounting calculations implement this cutoff;
+**the cash-funding instruction and automatic harvest integration are not yet
+exposed**. Existing harvest still pays funded claims only. External hLP flash
+recovery remains a separate outstanding implementation item.
+
+Each asset tracks gross advanced interest and frozen protocol escrow. The
+LP part is transferred to interest custody and credited by its measured net
+receipt. The protocol part stays in reserve custody, excluded from executable
+cash and LP value, until the corresponding interest is repaid. Repayment
+recycles the advance into executable cash; only fresh interest and released
+protocol escrow transfer to interest custody. The new fee rate applies only
+to the fresh net credit. Referral revenue is allocated from actual protocol
+credit when repayment occurs.
+
+Let `U` be gross public unpaid interest, `A` the outstanding gross advance,
+`R` the live reserve, and `C` available cash. Funding `a` records:
+
+```text
+A' = A + a
+R' = R - a
+C' = C - a
+curve' = R' - (U - A') = R - (U - A)
+```
+
+Thus funding alone does not change executable curve reserves. Borrower debt
+is unchanged. A clearance removes its proportional advance and frozen fee;
+the final clearance drains integer remainders. Paid advances replenish cash.
+Canceled advances return the held protocol portion to cash. The LP portion
+already paid is a real loss if the borrower defaults; it is not paid again,
+and principal-only insurance does not cover canceled interest.
+
+The repayment kernel applies the debit and recycled credit together. A
+valid internal repayment must not fail because it tries to collect cash for
+already-funded interest a second time. The same reconciliation is wired into
+ordinary borrowing, leverage repayment/close, external flash recovery and
+native liquidation accounting.
+
+SDK functions `quoteInterestAdvanceAmounts` and `allocateRepaidInterest`
+provide integer accounting amounts, including the effective Token-2022 fee
+and a frozen/current-rate split. They do not establish hLP feasibility or
+build a cash-funded harvest transaction.
+
+### Harvest/hedge integration remains unresolved
+
+A native diagnostic funds interest, publishes its gross hLP-owned LP share,
+and applies the existing full-value hedge reconstruction. This is a tested
+comparison, **not the proposed net-yield harvest implementation**. Funding
+leaves the raw curve and quoted price unchanged. The subsequent existing
+hedge reconstruction can change the quoted price.
+
+The fixture starts with 1,000,000 tokens per ordinary reserve, deposits
+200,000 tokens into each hLP, and has 400,000 USDC of public principal. With
+4x concentration and a 20% protocol interest share:
+
+| Accrued USDC interest | Price before funding/rehedging | Price after | Change |
+| ---: | ---: | ---: | ---: |
+| 25,000 | 0.999984250 | 0.999977720 | -0.000653% |
+| 250,000 | 0.998593574 | 0.997806262 | -0.078842% |
+| 800,000 | 0.988868015 | 0.971366965 | -1.769806% |
+
+The two larger cases deliberately stress large unpaid balances; they are
+not yield forecasts. The diagnostic excludes token transfer fees and new
+hLP funding interest. It verifies that rehedging preserves each hLP's
+remaining NAV at the fixed pre-rehedge mark within token rounding. The
+changed AMM mark is a separate effect and has not been accepted as harvest
+behavior. Historical funded claims are not used in this experiment.
+
+Clarification requested: does the user's price-neutral harvesting requirement
+also cover an automatic hedge rebalance in that transaction? Until resolved,
+no existing controller call is being attached to harvest. The required
+net-yield checkpoint must also restore funding before releasing new holder
+yield; simply publishing the gross hLP share is not sufficient.
+
+### Validation of the advance accounting
+
+The complete required local CI sequence passed: formatting, hygiene, helper
+shape, Clippy, 518 Dusk tests in both default and production profiles, the
+production check, the EMA settlement invariant, delegate/faucet tests,
+TypeScript, Dusk/delegate/faucet SBF builds, build identity, regenerated IDLs,
+and 74 SDK tests. Strict LiteSVM passed 136 tests, exercised all 71 instructions
+and all 18 required compute scenarios, with no pending tests. Existing CU
+ceilings were retained. Ordinary swaps measured 98,640 CU against the unchanged
+strict 100,000 limit; the concentrated public-interest fixture reached 883,010 CU.
+
+The instruction regression seeds a funded accounting/custody state, then runs
+real repayment transfers with both hLPs at 1x and 4x concentration and both debt
+assets. It freezes 20% on the funded half, changes the current rate to 60%, and
+verifies custody, exact fresh/frozen protocol allocation, LP growth without a
+second payout, and full ledger clearance. This seeded test does not demonstrate
+a public harvest instruction. Native tests cover zero-starting-cash internal
+repayment, concentrated emergency cancellation, and both hLPs through repayment
+and writeoffs. SDK tests cover effective Token-2022 transfer fees, mixed frozen
+and fresh net-credit allocation, cash caps and u64 precision. The combined
+advance/repayment instruction fixture uses fee-free asset mints; a real
+transfer-fee advance transaction remains part of harvest integration coverage.
+
+Market layout version 3 adds the two per-asset advance ledgers; all four SDK
+IDL/type files are regenerated with the source change. This is a development
+interface change, not a deployed migration.

@@ -4546,6 +4546,71 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", first);
           recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", second);
         }
+        // Seed the accounting/custody result of an interest advance. Harvest
+        // integration is deliberately separate; this tests real repayment CPIs
+        // after funding, with both hLPs present and a later protocol-rate change.
+        const fundedAccount = svm.getAccount(f.market)!;
+        const funded = accountCoder.decode("Market", Buffer.from(fundedAccount.data)) as any;
+        const side = funded[`${interestAsset}_side`];
+        const advanced = interest / 2n;
+        const frozenProtocol = advanced / 5n; // The funded portion froze 20%.
+        const fundedLp = advanced - frozenProtocol;
+        side.reserves.cash_reserve = side.reserves.cash_reserve.sub(new BN(advanced.toString()));
+        side.reserves.live_reserve = side.reserves.live_reserve.sub(new BN(advanced.toString()));
+        side.fees.public_interest_advance.outstanding_gross = new BN(advanced.toString());
+        side.fees.public_interest_advance.protocol_escrow = new BN(frozenProtocol.toString());
+        side.fees.interest_vault_balance = side.fees.interest_vault_balance.add(new BN(fundedLp.toString()));
+        side.fees.interest_liability = side.fees.interest_liability.add(new BN(fundedLp.toString()));
+        const supply = raw(side.shares.ylp_supply);
+        const fundedScaled = (fundedLp << 64n) + raw(side.fees.interest_growth_remainder_scaled);
+        side.fees.interest_growth_index_q64 = side.fees.interest_growth_index_q64.add(new BN((fundedScaled / supply).toString()));
+        side.fees.interest_growth_remainder_scaled = new BN((fundedScaled % supply).toString());
+        const fundedBody = Buffer.alloc(fundedAccount.data.length - 8);
+        const fundedSize = layout.encode(funded, fundedBody);
+        svm.setAccount(f.market, { ...fundedAccount, data: new Uint8Array(Buffer.concat([
+          (accountCoder as any).accountDiscriminator("Market"), fundedBody.subarray(0, fundedSize),
+        ])) });
+        const reserveVault = debtIsBase ? f.baseReserveVault : f.quoteReserveVault;
+        const interestVault = debtIsBase ? f.baseInterestVault : f.quoteInterestVault;
+        for (const [key, delta] of [[reserveVault, -fundedLp], [interestVault, fundedLp]] as const) {
+          const account = svm.getAccount(key)!;
+          const data = Buffer.from(account.data);
+          data.writeBigUInt64LE(data.readBigUInt64LE(64) + delta, 64);
+          svm.setAccount(key, { ...account, data: new Uint8Array(data) });
+        }
+        const authorityAccount = svm.getAccount(futarchyAuthority)!;
+        const authority = accountCoder.decode("FutarchyAuthority", Buffer.from(authorityAccount.data)) as any;
+        authority.revenue_share.interest_bps = 6_000; // Only the unfunded half uses 60%.
+        svm.setAccount(futarchyAuthority, { ...authorityAccount,
+          data: new Uint8Array(await accountCoder.encode("FutarchyAuthority", authority)) });
+        const reserveBefore = (await getAccount(connection as any, reserveVault)).amount;
+        const interestBefore = (await getAccount(connection as any, interestVault)).amount;
+        const repay = await program.methods.repay({ repayAmount: new BN(200_000 * unit) }).accounts({
+          market: f.market, futarchyAuthority, owner: payer.publicKey,
+          debtAssetMint: debtMint, collateralAssetMint: collateralMint,
+          reserveVault, interestVault, ownerDebtAccount: debtIsBase ? f.ownerBaseAccount : f.ownerQuoteAccount,
+          borrowPosition, referralPartner: null, referralAccrual: null,
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+        }).transaction();
+        await connection.sendTransaction(repay, [payer]);
+        trackV2Instruction("repay", this.test?.title);
+        const repaid = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+        const repaidSide = repaid[`${interestAsset}_side`];
+        const fresh = interest - advanced;
+        const freshProtocol = fresh * 6n / 10n;
+        expect((await getAccount(connection as any, reserveVault)).amount - reserveBefore)
+          .to.equal(BigInt(100_000 * unit) + advanced - frozenProtocol);
+        expect((await getAccount(connection as any, interestVault)).amount - interestBefore)
+          .to.equal(fresh + frozenProtocol);
+        expect(raw(repaidSide.fees.interest_protocol_fee_liability) - raw(side.fees.interest_protocol_fee_liability))
+          .to.equal(freshProtocol + frozenProtocol);
+        const freshScaled = ((fresh - freshProtocol) << 64n) + raw(side.fees.interest_growth_remainder_scaled);
+        expect(raw(repaidSide.fees.interest_growth_index_q64) - raw(side.fees.interest_growth_index_q64))
+          .to.equal(freshScaled / supply);
+        for (const value of Object.values(repaidSide.fees.public_interest_advance)) expect(raw(value)).to.equal(0n);
+        expect(raw(repaid.debt[`fixed_${interestAsset}_shares`])).to.equal(0n);
+        await resetFutarchyDefaults();
       }
     }
   });

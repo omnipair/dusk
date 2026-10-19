@@ -60,6 +60,7 @@ pub(crate) fn accrue_market_interest<'info>(
     event_authority: AccountInfo<'info>,
 ) -> Result<()> {
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        market.side(asset).fees.public_interest_advance.require_settled()?;
         if let Some(receipt) = accrue_side::<true>(market, asset, current_slot)? {
             emit_accounting_event(
                 &BorrowInterestAccrued {

@@ -35,3 +35,5 @@ export * from "./protection.js";
 export * from "./governance-client.js";
 
 export * from "./transfer-fees.js";
+
+export * from "./interest-accounting.js";

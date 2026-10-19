@@ -960,3 +960,20 @@ receivables remain excluded from swap-pricing reserves.
 Simulate the completed deposit transaction to check rounding, cash custody,
 transfer fees and slippage. Under concentration, an opposite-token-neutral
 hLP need not have a literal 2x gross-value/equity ratio.
+
+### Public-interest cash advance calculations
+
+`quoteInterestAdvanceAmounts` computes the cash-capped gross advance, frozen
+protocol escrow, LP transfer debit and measured-fee-adjusted LP credit. Pass
+amounts as `bigint` and the current `TransferFeeNotice`; pending transfer fees
+are reported separately by that notice and do not replace the effective fee.
+`allocateRepaidInterest` splits measured repayment custody credit between
+fresh LP/protocol revenue and the already-frozen protocol portion. Already
+funded LP interest must be excluded from `freshGrossInterest`.
+
+These are accounting helpers, not harvest builders or hLP feasibility quotes.
+The native advance ledger is integrated with repayment/writeoff accounting;
+a public cash-funding/harvest instruction and funding-before-new-hLP-yield
+integration remain pending. Existing harvest pays already-funded claims.
+The Market layout is version 3 and includes `fees.publicInterestAdvance` on
+both asset sides. Use the regenerated IDL; a version-2 snapshot is incompatible.

@@ -26,6 +26,7 @@ type DuskAccountTypes = [
   TypeNamed<"deferredControllerTarget">,
   TypeNamed<"feeProfile">,
   TypeNamed<"fees">,
+  TypeNamed<"publicInterestAdvance">,
   TypeNamed<"futarchyAuthority">,
   TypeNamed<"hlpVault">,
   TypeNamed<"insurance">,

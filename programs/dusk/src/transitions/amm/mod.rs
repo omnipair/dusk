@@ -850,7 +850,7 @@ impl Market {
     /// separate debt cost and is deliberately excluded. Debt-share rounding
     /// can momentarily put tracked principal above computed debt, so principal
     /// is clamped first.
-    pub(crate) fn unrealized_interest(&self, asset: MarketAsset) -> Result<u128> {
+    pub(crate) fn public_unpaid_interest(&self, asset: MarketAsset) -> Result<u128> {
         let (fixed_debt, fixed_principal, isolated_debt, isolated_principal) = match asset {
             MarketAsset::Base => (
                 self.debt.fixed_base_debt()?,
@@ -873,6 +873,17 @@ impl Market {
                     .and_then(|isolated_interest| fixed_interest.checked_add(isolated_interest))
             })
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+    }
+
+    /// Only the public receivable not already funded from reserves remains
+    /// outside pricing principal. Funding reduces live and this exclusion by
+    /// the same gross amount, without moving the executable curve reserves.
+    pub(crate) fn unrealized_interest(&self, asset: MarketAsset) -> Result<u128> {
+        self.public_unpaid_interest(asset)?
+            .checked_sub(u128::from(
+                self.side(asset).fees.public_interest_advance.outstanding_gross,
+            ))
+            .ok_or_else(|| ErrorCode::BrokenInvariant.into())
     }
 
     pub(crate) fn curve_reserve(&self, asset: MarketAsset) -> Result<u64> {

@@ -14,10 +14,10 @@ fixes and remaining work; it is not a new exhaustive audit or a security signoff
 | OR-NM-001: fixed Token program SDK slots | Fixed in `f2794e76`; actual account construction is covered by `check-write-program-accounts.js`. |
 | OR-NM-002: governance execution mint accounts | Fixed in `f2794e76`; the same SDK check builds the instruction with both required mints. |
 | OR-NM-003: partial-close principal rounding | Fixed in `d97e6997`; remaining principal follows aggregate before/after debt clearance. |
-| OR-NM-004: hLP solvency/recovery disagreement | **Open.** Ordinary curve equity excludes public unpaid interest; terminal backing includes it. A vault can fail ordinary operations while terminal recovery rejects it as solvent. |
+| OR-NM-004: hLP solvency/recovery disagreement | **Partially remediated in #52.** Full-value entry/NAV/hedge reconstruction corrects the original valuation disagreement. Cash-funded harvest sequencing and external hLP recovery remain unfinished; the complete item stays open. |
 | OR-NM-005: gross close/decrease cash preflight | Fixed in `f2794e76`; preflight includes exact principal netting and retains actual cash floors. |
 | OR-NM-006: stale protection EMA | Fixed in `f2794e76`; the disposable protection snapshot refreshes reference risk. |
-| OR-NM-007: stale hLP settlement reference | Exit guard fixed in `f2794e76`; fresh deposit NAV in `5c0aca7f`. The separate unpaid-interest entry mismatch below remains open. |
+| OR-NM-007: stale hLP settlement reference | Exit guard fixed in `f2794e76`; fresh deposit NAV in `5c0aca7f`. The separate full-value entry correction is implemented in #52; the remaining harvest/recovery work is tracked under OR-NM-004. |
 
 ## Follow-up findings
 
@@ -91,10 +91,16 @@ including real public-debt/funding accrual and both-asset round trips. All 18
 required compute scenarios are covered. The full review remains a gate.
 The accounting note records the material concentrated hLP compute increase.
 
-This is partial remediation, not closeout. The approved cash-funded harvest
-advance ledger, funding-before-new-yield sequencing, external hLP flash
-execution, shared terminal/native/flash valuation and loss rules, SDK support
-and instruction-level coverage still need completion. No merge or deployment
+This is partial remediation, not closeout. The follow-up native advance ledger
+freezes the LP/protocol split when reserve cash funds interest, reconciles paid
+and canceled advances, and includes SDK accounting helpers. It does not expose
+a funding instruction. Cash-funded harvest integration, funding-before-new-yield
+sequencing, external hLP flash execution, shared terminal/native/flash valuation
+and loss rules, SDK transaction support and instruction-level coverage still
+need completion. The accounting follow-up passes 518 default/production tests,
+74 SDK tests and 136 strict LiteSVM tests, including real repayment after a
+seeded advance with both hLPs and a changed protocol rate. Existing compute
+ceilings remain unchanged. No merge or deployment
 should rely on native tests alone. The recovery target is confirmed as
 opposite-token neutrality, including when concentration makes gross leverage
 differ from 2x.

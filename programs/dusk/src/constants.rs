@@ -150,10 +150,10 @@ pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// Serialized `Market` account layout discriminator.
 ///
-/// Layout 2 adds aggregate leverage collateral to Debt. It must not decode
-/// existing layout-1 bytes as the expanded structure.
+/// Layout 3 adds per-asset cash-funded public-interest advances and escrow.
+/// Earlier serialized accounts must not decode as this expanded structure.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 2;
+pub const MARKET_LAYOUT_VERSION: u8 = 3;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

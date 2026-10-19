@@ -1703,13 +1703,14 @@ impl Market {
         finalize_at_slot: Option<u64>,
     ) -> Result<DebtReceipt> {
         let curve_reserves_before = self.curve_reserves_nad()?;
+        let unpaid_before = self.public_unpaid_interest(repay_asset)?;
         let repayment = self.fixed_repayment_for_max(borrow_position, repay_asset, repay_credit)?;
         // Instruction handlers preview this amount before moving tokens. Keep
         // the state boundary exact so no transferred atom can become an
         // unaccounted donation if state changed unexpectedly.
         require_eq!(repayment.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
         borrow_position.require_idle()?;
-        let (interest_paid, debt_reduction) = match repay_asset {
+        let (interest_paid, debt_reduction, live_debit, principal_credit) = match repay_asset {
             MarketAsset::Base => {
                 let shares_to_burn = repayment.shares_to_burn;
                 let debt_reduction = repayment.position_debt_reduced;
@@ -1733,19 +1734,7 @@ impl Market {
                     .fixed_base_shares
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.base_side.reserves.live_reserve = self
-                    .base_side
-                    .reserves
-                    .live_reserve
-                    .checked_sub(live_debit)
-                    .ok_or(ErrorCode::ReserveUnderflow)?;
-                self.base_side.reserves.cash_reserve = self
-                    .base_side
-                    .reserves
-                    .cash_reserve
-                    .checked_add(principal_credit)
-                    .ok_or(ErrorCode::ReserveOverflow)?;
-                (interest_paid, debt_reduction)
+                (interest_paid, debt_reduction, live_debit, principal_credit)
             }
             MarketAsset::Quote => {
                 let shares_to_burn = repayment.shares_to_burn;
@@ -1770,21 +1759,10 @@ impl Market {
                     .fixed_quote_shares
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.quote_side.reserves.live_reserve = self
-                    .quote_side
-                    .reserves
-                    .live_reserve
-                    .checked_sub(live_debit)
-                    .ok_or(ErrorCode::ReserveUnderflow)?;
-                self.quote_side.reserves.cash_reserve = self
-                    .quote_side
-                    .reserves
-                    .cash_reserve
-                    .checked_add(principal_credit)
-                    .ok_or(ErrorCode::ReserveOverflow)?;
-                (interest_paid, debt_reduction)
+                (interest_paid, debt_reduction, live_debit, principal_credit)
             }
         };
+        self.settle_public_debt_reserves(repay_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
         let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
         if let Some(slot) = finalize_at_slot {
             self.finalize_debt_repayment(slot, curve_reserves_before)?;

@@ -25,7 +25,14 @@ impl SwapCashFloors {
     }
 
     pub(crate) fn available(self, market: &Market) -> bool {
-        market.base_side.reserves.cash_reserve >= self.base && market.quote_side.reserves.cash_reserve >= self.quote
+        self.available_amounts(
+            market.base_side.reserves.cash_reserve,
+            market.quote_side.reserves.cash_reserve,
+        )
+    }
+
+    pub(crate) fn available_amounts(self, base: u64, quote: u64) -> bool {
+        base >= self.base && quote >= self.quote
     }
 
     pub(crate) fn available_with_credit(self, market: &Market, asset: MarketAsset, credit: u64) -> bool {

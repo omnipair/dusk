@@ -360,6 +360,10 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // The advance ledger's funding and one-shot payment consumption boundaries
+  // own the frozen fee and transient-credit invariants. Keep these independently
+  // testable from reserve mutation and Token-2022 CPIs.
+  ["programs/dusk/src/transitions/interest_advance.rs", new Set(["fund", "take_payment"])],
   // Off-chain historical auction replay; compiled only with feature benchmark.
   ["programs/dusk/src/transitions/amm/swap.rs", new Set(["settle_backstop_swap"])],
   // Emergency inventory preparation must remain separate from executable

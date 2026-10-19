@@ -14115,6 +14115,14 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
+            "name": "publicInterestAdvance",
+            "type": {
+              "defined": {
+                "name": "publicInterestAdvance"
+              }
+            }
+          },
+          {
             "name": "swapFeeGrowthIndexQ64",
             "type": "u128"
           },
@@ -19018,6 +19026,43 @@ export type Dusk = {
       }
     },
     {
+      "name": "publicInterestAdvance",
+      "docs": [
+        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "held in the reserve vault until repayment, so cancellation can return it",
+        "to executable cash without a transfer or a second transfer fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outstandingGross",
+            "type": "u64"
+          },
+          {
+            "name": "protocolEscrow",
+            "type": "u64"
+          },
+          {
+            "name": "repaymentCreditPending",
+            "docs": [
+              "Native repayment has already restored this cash; its token handler",
+              "must exclude it from the new interest-vault transfer."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocolReleasePending",
+            "docs": [
+              "Frozen protocol allocation released by repayment, still held in the",
+              "reserve vault until the same instruction completes token settlement."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "referralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -20843,11 +20888,11 @@ export type Dusk = {
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 2 adds aggregate leverage collateral to Debt. It must not decode",
-        "existing layout-1 bytes as the expanded structure."
+        "Layout 3 adds per-asset cash-funded public-interest advances and escrow.",
+        "Earlier serialized accounts must not decode as this expanded structure."
       ],
       "type": "u8",
-      "value": "2"
+      "value": "3"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

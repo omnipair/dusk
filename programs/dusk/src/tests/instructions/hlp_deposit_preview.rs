@@ -18,6 +18,18 @@ fn snapshot() -> (Market, Clock) {
         .unwrap()
         + marker.len();
     let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
+    // Advance ledgers precede Debt in the current layout. Insert them first,
+    // so the following historical Debt insertions use current offsets.
+    for (asset, tag) in [
+        (MarketAsset::Base, 0x3197_5bdf_2468_ace0_u64),
+        (MarketAsset::Quote, 0x4286_ace0_1357_9bdf_u64),
+    ] {
+        layout.side_mut(asset).fees.public_interest_advance.outstanding_gross = tag;
+        let mut marked = Vec::new();
+        layout.try_serialize(&mut marked).unwrap();
+        let offset = marked.windows(8).position(|w| w == tag.to_le_bytes()).unwrap();
+        bytes.splice(offset..offset, [0u8; 32]);
+    }
     bytes.splice(insertion_offset..insertion_offset, [0u8; 32]);
     // The immutable capture also predates aggregate leverage collateral.
     layout.debt.leverage_base_collateral = 0x1357_9bdf_2468_ace0;

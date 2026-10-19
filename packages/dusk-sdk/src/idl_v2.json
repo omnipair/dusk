@@ -14109,6 +14109,14 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "public_interest_advance",
+            "type": {
+              "defined": {
+                "name": "PublicInterestAdvance"
+              }
+            }
+          },
+          {
             "name": "swap_fee_growth_index_q64",
             "type": "u128"
           },
@@ -19012,6 +19020,43 @@
       }
     },
     {
+      "name": "PublicInterestAdvance",
+      "docs": [
+        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "held in the reserve vault until repayment, so cancellation can return it",
+        "to executable cash without a transfer or a second transfer fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outstanding_gross",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_escrow",
+            "type": "u64"
+          },
+          {
+            "name": "repayment_credit_pending",
+            "docs": [
+              "Native repayment has already restored this cash; its token handler",
+              "must exclude it from the new interest-vault transfer."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocol_release_pending",
+            "docs": [
+              "Frozen protocol allocation released by repayment, still held in the",
+              "reserve vault until the same instruction completes token settlement."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "ReferralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -20837,11 +20882,11 @@
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 2 adds aggregate leverage collateral to Debt. It must not decode",
-        "existing layout-1 bytes as the expanded structure."
+        "Layout 3 adds per-asset cash-funded public-interest advances and escrow.",
+        "Earlier serialized accounts must not decode as this expanded structure."
       ],
       "type": "u8",
-      "value": "2"
+      "value": "3"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

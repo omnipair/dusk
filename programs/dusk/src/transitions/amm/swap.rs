@@ -107,19 +107,37 @@ impl PreparedSwap {
             shares > 0 && debt_asset == self.quote.asset_in.opposite(),
             ErrorCode::InvalidLiquidationSession
         );
-        let cash_out = self
-            .quote
-            .gross_amount_out
-            .checked_sub(repayment.min(principal_removed))
-            .ok_or(ErrorCode::InsufficientAmount)?;
-        require!(
-            self.concentrated_transition
-                .as_ref()
-                .ok_or(ErrorCode::BrokenInvariant)?
-                .interest_cash_floors(self.quote.asset_in, cash_out)
-                .available_with_credit(market, debt_asset, insurance_credit),
-            ErrorCode::InsufficientLiquidity
-        );
+        if market.side(debt_asset).fees.public_interest_advance.outstanding_gross > 0 {
+            let (base_cash, quote_cash) = market.preview_leverage_settlement_cash(
+                policy,
+                self.quote.asset_in,
+                self.quote.fee.amount_in_for_quote,
+                self.quote.amount_out,
+                self.quote.gross_amount_out,
+            )?;
+            require!(
+                self.concentrated_transition
+                    .as_ref()
+                    .ok_or(ErrorCode::BrokenInvariant)?
+                    .interest_cash_floors(self.quote.asset_in, 0)
+                    .available_amounts(base_cash, quote_cash),
+                ErrorCode::InsufficientLiquidity
+            );
+        } else {
+            let cash_out = self
+                .quote
+                .gross_amount_out
+                .checked_sub(repayment.min(principal_removed))
+                .ok_or(ErrorCode::InsufficientAmount)?;
+            require!(
+                self.concentrated_transition
+                    .as_ref()
+                    .ok_or(ErrorCode::BrokenInvariant)?
+                    .interest_cash_floors(self.quote.asset_in, cash_out)
+                    .available_with_credit(market, debt_asset, insurance_credit),
+                ErrorCode::InsufficientLiquidity
+            );
+        }
         self.cash_policy = policy;
         Ok(())
     }
@@ -259,7 +277,7 @@ impl PreparedSwap {
             lifecycle.removed_unrealized_interest,
         )?;
         let rebase = market.apply_leverage_socialized_loss(debt_asset, lifecycle, current_slot)?;
-        let socialized_loss = lifecycle.socialized_principal_loss > 0;
+        let socialized_loss = lifecycle.socialized_principal_loss > 0 || lifecycle.socialized_advance_loss > 0;
         if socialized_loss {
             rebase_hlp_tracking_for_socialized_loss(&mut self.base_pre_rebalance, 0, rebase.base_nav_delta_nad)?;
             rebase_hlp_tracking_for_socialized_loss(&mut self.quote_pre_rebalance, 0, rebase.quote_nav_delta_nad)?;
@@ -439,85 +457,110 @@ impl SwapRequest {
             market.finalize_concentrated_book_curve(integrated_start, &mut concentrated, self.asset_in)?;
         }
         let transition = prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
-        let cash_available = match cash_policy {
-            SwapCashPolicy::LiquidationQuote => true,
-            SwapCashPolicy::Decrease {
-                debt_asset,
-                debt_shares,
-                debt_principal,
-            } => {
-                require!(debt_asset == self.asset_in.opposite(), ErrorCode::BrokenInvariant);
-                let clearance = market.debt.isolated_clearance_for_max(
+        let has_advance = market
+            .side(self.asset_in.opposite())
+            .fees
+            .public_interest_advance
+            .outstanding_gross
+            > 0;
+        let clears_debt = !matches!(
+            cash_policy,
+            SwapCashPolicy::Spot | SwapCashPolicy::Borrow { .. } | SwapCashPolicy::LiquidationQuote
+        );
+        let cash_available = if has_advance && clears_debt {
+            let (base_cash, quote_cash) = market.preview_leverage_settlement_cash(
+                cash_policy,
+                self.asset_in,
+                concentrated.fee.amount_in_for_quote,
+                concentrated.amount_out,
+                concentrated.gross_amount_out,
+            )?;
+            transition
+                .interest_cash_floors(self.asset_in, 0)
+                .available_amounts(base_cash, quote_cash)
+        } else {
+            match cash_policy {
+                SwapCashPolicy::LiquidationQuote => true,
+                SwapCashPolicy::Decrease {
                     debt_asset,
                     debt_shares,
                     debt_principal,
-                    concentrated.amount_out,
-                )?;
-                let cash_out = concentrated
-                    .gross_amount_out
-                    .checked_sub(clearance.principal_paid)
-                    .ok_or(ErrorCode::InsufficientAmount)?;
-                transition
-                    .interest_cash_floors(self.asset_in, cash_out)
-                    .available(market)
-            }
-            SwapCashPolicy::Close {
-                debt_asset,
-                debt_shares,
-                debt_principal,
-                shares_to_burn,
-            } => {
-                require!(debt_asset == self.asset_in.opposite(), ErrorCode::BrokenInvariant);
-                require_gte!(debt_shares, shares_to_burn, ErrorCode::DebtShareMathOverflow);
-                let principal_paid = if shares_to_burn == 0 {
-                    require_eq!(debt_shares, 0, ErrorCode::BrokenInvariant);
-                    require_eq!(debt_principal, 0, ErrorCode::BrokenInvariant);
-                    0
-                } else {
-                    let aggregate_shares = match debt_asset {
-                        MarketAsset::Base => market.debt.isolated_base_shares,
-                        MarketAsset::Quote => market.debt.isolated_quote_shares,
-                    };
-                    let cash_repaid = Debt::aggregate_debt_reduction_for_shares(
-                        aggregate_shares,
-                        shares_to_burn,
-                        market.debt.borrow_index(debt_asset),
+                } => {
+                    require!(debt_asset == self.asset_in.opposite(), ErrorCode::BrokenInvariant);
+                    let clearance = market.debt.isolated_clearance_for_max(
+                        debt_asset,
+                        debt_shares,
+                        debt_principal,
+                        concentrated.amount_out,
                     )?;
-                    require_gte!(concentrated.amount_out, cash_repaid, ErrorCode::InsufficientAmount);
-                    let clearance =
-                        market
-                            .debt
-                            .isolated_clearance_for_max(debt_asset, debt_shares, debt_principal, cash_repaid)?;
-                    require_eq!(clearance.shares_burned, shares_to_burn, ErrorCode::BrokenInvariant);
-                    clearance.principal_paid
-                };
-                let cash_out = concentrated
-                    .gross_amount_out
-                    .checked_sub(principal_paid)
-                    .ok_or(ErrorCode::InsufficientAmount)?;
-                transition
-                    .interest_cash_floors(self.asset_in, cash_out)
-                    .available(market)
+                    let cash_out = concentrated
+                        .gross_amount_out
+                        .checked_sub(clearance.principal_paid)
+                        .ok_or(ErrorCode::InsufficientAmount)?;
+                    transition
+                        .interest_cash_floors(self.asset_in, cash_out)
+                        .available(market)
+                }
+                SwapCashPolicy::Close {
+                    debt_asset,
+                    debt_shares,
+                    debt_principal,
+                    shares_to_burn,
+                } => {
+                    require!(debt_asset == self.asset_in.opposite(), ErrorCode::BrokenInvariant);
+                    require_gte!(debt_shares, shares_to_burn, ErrorCode::DebtShareMathOverflow);
+                    let principal_paid = if shares_to_burn == 0 {
+                        require_eq!(debt_shares, 0, ErrorCode::BrokenInvariant);
+                        require_eq!(debt_principal, 0, ErrorCode::BrokenInvariant);
+                        0
+                    } else {
+                        let aggregate_shares = match debt_asset {
+                            MarketAsset::Base => market.debt.isolated_base_shares,
+                            MarketAsset::Quote => market.debt.isolated_quote_shares,
+                        };
+                        let cash_repaid = Debt::aggregate_debt_reduction_for_shares(
+                            aggregate_shares,
+                            shares_to_burn,
+                            market.debt.borrow_index(debt_asset),
+                        )?;
+                        require_gte!(concentrated.amount_out, cash_repaid, ErrorCode::InsufficientAmount);
+                        let clearance = market.debt.isolated_clearance_for_max(
+                            debt_asset,
+                            debt_shares,
+                            debt_principal,
+                            cash_repaid,
+                        )?;
+                        require_eq!(clearance.shares_burned, shares_to_burn, ErrorCode::BrokenInvariant);
+                        clearance.principal_paid
+                    };
+                    let cash_out = concentrated
+                        .gross_amount_out
+                        .checked_sub(principal_paid)
+                        .ok_or(ErrorCode::InsufficientAmount)?;
+                    transition
+                        .interest_cash_floors(self.asset_in, cash_out)
+                        .available(market)
+                }
+                SwapCashPolicy::SettleLiquidation {
+                    debt_asset,
+                    principal_removed,
+                    repayment,
+                    insurance_credit,
+                    ..
+                } => {
+                    require!(debt_asset == self.asset_in.opposite(), ErrorCode::BrokenInvariant);
+                    let cash_out = concentrated
+                        .gross_amount_out
+                        .checked_sub(repayment.min(principal_removed))
+                        .ok_or(ErrorCode::InsufficientAmount)?;
+                    transition
+                        .interest_cash_floors(self.asset_in, cash_out)
+                        .available_with_credit(market, debt_asset, insurance_credit)
+                }
+                _ => transition
+                    .interest_cash_floors(self.asset_in, concentrated.gross_amount_out)
+                    .available(market),
             }
-            SwapCashPolicy::SettleLiquidation {
-                debt_asset,
-                principal_removed,
-                repayment,
-                insurance_credit,
-                ..
-            } => {
-                require!(debt_asset == self.asset_in.opposite(), ErrorCode::BrokenInvariant);
-                let cash_out = concentrated
-                    .gross_amount_out
-                    .checked_sub(repayment.min(principal_removed))
-                    .ok_or(ErrorCode::InsufficientAmount)?;
-                transition
-                    .interest_cash_floors(self.asset_in, cash_out)
-                    .available_with_credit(market, debt_asset, insurance_credit)
-            }
-            _ => transition
-                .interest_cash_floors(self.asset_in, concentrated.gross_amount_out)
-                .available(market),
         };
         require!(cash_available, ErrorCode::InsufficientLiquidity);
         let post_fee_curve_cache = concentrated.post_fee_curve_cache.map(Box::new);

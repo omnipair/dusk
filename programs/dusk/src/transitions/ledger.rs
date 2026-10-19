@@ -453,7 +453,27 @@ impl MarketSide {
         if interest_credit == 0 {
             return FeesReceipt::from_side(self);
         }
-        let (protocol_fee, lp_interest) = split_revenue(interest_credit, protocol_fee_bps)?;
+        let (protocol_fee, _) = split_revenue(interest_credit, protocol_fee_bps)?;
+        self.record_interest_credit_allocation(
+            interest_credit,
+            protocol_fee,
+            protocol_auction_split,
+            referral_interest_amount,
+            eligible_ylp_supply,
+        )
+    }
+
+    pub(crate) fn record_interest_credit_allocation(
+        &mut self,
+        interest_credit: u64,
+        protocol_fee: u64,
+        protocol_auction_split: ProtocolAuctionSplit,
+        referral_interest_amount: u64,
+        eligible_ylp_supply: u64,
+    ) -> Result<FeesReceipt> {
+        let lp_interest = interest_credit
+            .checked_sub(protocol_fee)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
         require_gte!(protocol_fee, referral_interest_amount, ErrorCode::FeeMathOverflow);
         let remaining_protocol_fee = protocol_fee
             .checked_sub(referral_interest_amount)

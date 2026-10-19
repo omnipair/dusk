@@ -353,8 +353,24 @@ pub struct Debt {
     pub leverage_quote_collateral: u64,
 }
 
+/// Reserve-cash funding of public borrower interest. The protocol portion is
+/// held in the reserve vault until repayment, so cancellation can return it
+/// to executable cash without a transfer or a second transfer fee.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct PublicInterestAdvance {
+    pub outstanding_gross: u64,
+    pub protocol_escrow: u64,
+    /// Native repayment has already restored this cash; its token handler
+    /// must exclude it from the new interest-vault transfer.
+    pub repayment_credit_pending: u64,
+    /// Frozen protocol allocation released by repayment, still held in the
+    /// reserve vault until the same instruction completes token settlement.
+    pub protocol_release_pending: u64,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Fees {
+    pub public_interest_advance: PublicInterestAdvance,
     pub swap_fee_growth_index_q64: u128,
     pub interest_growth_index_q64: u128,
     /// Scaled fee entitlement not yet representable by the integer growth

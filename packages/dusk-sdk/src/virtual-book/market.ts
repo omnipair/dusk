@@ -65,7 +65,7 @@ export async function previewVirtualBookSnapshot(
   );
   if (
     preview.slot.toString() !== String(slot) ||
-    account.version !== 2 ||
+    account.version !== 3 ||
     !address.equals(new PublicKey(market)) ||
     account.bump !== bump ||
     !preview.amm.initialized ||

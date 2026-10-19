@@ -41,8 +41,16 @@ const debtEnd = borrowIndexEnd + 32 + 128;
 const exposureMarketBytes = Buffer.concat([
   carriedMarketBytes.subarray(0, debtEnd), Buffer.alloc(16), carriedMarketBytes.subarray(debtEnd),
 ]);
-const currentMarketBytes = exposureMarketBytes;
-currentMarketBytes[8] = 2;
+// Layout 3 adds a 32-byte advance ledger at the start of each Fees struct.
+// These offsets refer to this historical fixture after its Debt adaptations.
+const baseFeesOffset = 250;
+const quoteFeesOffset = 755;
+const currentMarketBytes = Buffer.concat([
+  exposureMarketBytes.subarray(0, baseFeesOffset), Buffer.alloc(32),
+  exposureMarketBytes.subarray(baseFeesOffset, quoteFeesOffset), Buffer.alloc(32),
+  exposureMarketBytes.subarray(quoteFeesOffset),
+]);
+currentMarketBytes[8] = 3;
 fixture.result.value.accounts[0].data[0] = currentMarketBytes.toString("base64");
 const slot = fixture.result.context.slot;
 const prefix = `Program return: ${fixture.programId} `;

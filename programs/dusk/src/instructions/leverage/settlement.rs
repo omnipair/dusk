@@ -26,7 +26,7 @@ use crate::{
         HLP_YLP_MINT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX, QUOTE_INTEREST_VAULT_INDEX,
     },
     instructions::liquidity::record_inline_hlp_interest_credit,
-    instructions::referral::accounting::{accrue_referral_interest, ReferralInterestAccrualReceipt},
+    instructions::referral::accounting::ReferralInterestAccrualReceipt,
     state::{FutarchyAuthority, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
     transitions::{
@@ -605,36 +605,53 @@ pub fn record_leverage_interest<'info>(
     interest_eligibility: HlpYieldEligibility,
     remaining_accounts: &[AccountInfo<'info>],
 ) -> Result<ReferralInterestAccrualReceipt> {
-    if interest_paid == 0 {
-        return accrue_referral_interest(
-            expected_referral_partner,
-            referral_interest_share_bps,
-            futarchy_authority,
-            referral_partner,
-            referral_accrual,
-            market.key(),
-            debt_mint,
-            0,
-            0,
-            futarchy_authority.revenue_share.interest_bps,
-        );
-    }
+    let (fresh_gross, frozen_protocol_gross) = market
+        .side_mut(debt_asset)
+        .fees
+        .public_interest_advance
+        .take_payment(interest_paid)?;
+    let transfer_gross = fresh_gross
+        .checked_add(frozen_protocol_gross)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
     let interest_vault_balance_before = interest_vault.amount;
-    let debt_token_program = token_program_for_mint(debt_mint, token_program, token_2022_program)?;
-    transfer_checked_with_remaining_accounts(
-        market.to_account_info(),
-        debt_reserve_vault.to_account_info(),
-        interest_vault.to_account_info(),
-        debt_mint.to_account_info(),
-        debt_token_program,
-        interest_paid,
-        debt_mint.decimals,
-        &[&generate_market_seeds!(market)[..]],
-        remaining_accounts,
-    )?;
-    interest_vault.reload()?;
+    if transfer_gross > 0 {
+        let debt_token_program = token_program_for_mint(debt_mint, token_program, token_2022_program)?;
+        transfer_checked_with_remaining_accounts(
+            market.to_account_info(),
+            debt_reserve_vault.to_account_info(),
+            interest_vault.to_account_info(),
+            debt_mint.to_account_info(),
+            debt_token_program,
+            transfer_gross,
+            debt_mint.decimals,
+            &[&generate_market_seeds!(market)[..]],
+            remaining_accounts,
+        )?;
+        interest_vault.reload()?;
+    }
     let interest_vault_credit = token_account_credit(interest_vault_balance_before, interest_vault)?;
-    let referral_receipt = accrue_referral_interest(
+    let frozen_protocol_credit = if transfer_gross == 0 {
+        0
+    } else {
+        u64::try_from(crate::math::mul_div_u128(
+            u128::from(interest_vault_credit),
+            u128::from(frozen_protocol_gross),
+            u128::from(transfer_gross),
+        )?)
+        .map_err(|_| ErrorCode::FeeMathOverflow)?
+    };
+    let fresh_credit = interest_vault_credit - frozen_protocol_credit;
+    let fresh_protocol = crate::state::ReferralInterestQuote::new(
+        fresh_gross,
+        fresh_credit,
+        futarchy_authority.revenue_share.interest_bps,
+        None,
+    )?
+    .protocol_interest_revenue;
+    let protocol_credit = fresh_protocol
+        .checked_add(frozen_protocol_credit)
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    let referral_receipt = crate::instructions::referral::accounting::accrue_referral_interest_with_protocol(
         expected_referral_partner,
         referral_interest_share_bps,
         futarchy_authority,
@@ -644,11 +661,11 @@ pub fn record_leverage_interest<'info>(
         debt_mint,
         interest_paid,
         interest_vault_credit,
-        futarchy_authority.revenue_share.interest_bps,
+        protocol_credit,
     )?;
-    market.side_mut(debt_asset).record_interest_credit_with_supply(
+    market.side_mut(debt_asset).record_interest_credit_allocation(
         interest_vault_credit,
-        futarchy_authority.revenue_share.interest_bps,
+        protocol_credit,
         futarchy_authority.protocol_auction_split,
         referral_receipt.quote.referral_amount,
         interest_eligibility.ylp_supply,

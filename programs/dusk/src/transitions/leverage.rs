@@ -221,6 +221,7 @@ pub(crate) struct LeverageLifecycleTransition {
     pub(crate) removed_unrealized_interest: u64,
     pub(crate) phantom_unpaid_interest: u64,
     pub(crate) socialized_principal_loss: u64,
+    pub(crate) socialized_advance_loss: u64,
 }
 
 /// Exact mutable footprint of the reserve/debt lifecycle transition. The
@@ -232,6 +233,8 @@ struct LeverageLifecycleState {
     base_cash_reserve: u64,
     quote_live_reserve: u64,
     quote_cash_reserve: u64,
+    base_interest_advance: crate::state::PublicInterestAdvance,
+    quote_interest_advance: crate::state::PublicInterestAdvance,
     base_borrow_index_nad: u128,
     quote_borrow_index_nad: u128,
     fixed_base_shares: u128,
@@ -274,6 +277,8 @@ impl LeverageLifecycleState {
             base_cash_reserve: market.base_side.reserves.cash_reserve,
             quote_live_reserve: market.quote_side.reserves.live_reserve,
             quote_cash_reserve: market.quote_side.reserves.cash_reserve,
+            base_interest_advance: market.base_side.fees.public_interest_advance,
+            quote_interest_advance: market.quote_side.fees.public_interest_advance,
             base_borrow_index_nad: market.debt.base_borrow_index_nad,
             quote_borrow_index_nad: market.debt.quote_borrow_index_nad,
             fixed_base_shares: market.debt.fixed_base_shares,
@@ -358,17 +363,26 @@ impl LeverageLifecycleState {
     /// reserve. Retain interest outside fixed/isolated borrower debt while
     /// accounting for either borrower ledger's collected or canceled interest.
     fn projected_curve_reserve_from(self, start: Self, asset: MarketAsset, start_curve_reserve: u64) -> Result<u64> {
-        let start_isolated_interest = start.unrealized_interest(asset)?;
-        let unchanged_fixed_interest = u128::from(start.live_reserve(asset))
-            .checked_sub(u128::from(start_curve_reserve))
-            .and_then(|total_interest| total_interest.checked_sub(start_isolated_interest))
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        let post_isolated_interest = self.unrealized_interest(asset)?;
-        let post_curve_reserve = u128::from(self.live_reserve(asset))
-            .checked_sub(unchanged_fixed_interest)
-            .and_then(|reserve| reserve.checked_sub(post_isolated_interest))
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        u64::try_from(post_curve_reserve).map_err(|_| ErrorCode::MarketMathOverflow.into())
+        let delta = i128::from(self.live_reserve(asset)) - i128::from(start.live_reserve(asset));
+        let before = i128::try_from(start.unrealized_interest(asset)?).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let after = i128::try_from(self.unrealized_interest(asset)?).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let advance_delta = match asset {
+            MarketAsset::Base => {
+                i128::from(self.base_interest_advance.outstanding_gross)
+                    - i128::from(start.base_interest_advance.outstanding_gross)
+            }
+            MarketAsset::Quote => {
+                i128::from(self.quote_interest_advance.outstanding_gross)
+                    - i128::from(start.quote_interest_advance.outstanding_gross)
+            }
+        };
+        let projected = i128::from(start_curve_reserve)
+            .checked_add(advance_delta)
+            .and_then(|v| v.checked_add(delta))
+            .and_then(|v| v.checked_add(before))
+            .and_then(|v| v.checked_sub(after))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        u64::try_from(projected).map_err(|_| ErrorCode::BrokenInvariant.into())
     }
 }
 
@@ -381,6 +395,8 @@ fn commit_leverage_lifecycle_state(market: &mut Market, post: LeverageLifecycleS
     market.base_side.reserves.cash_reserve = post.base_cash_reserve;
     market.quote_side.reserves.live_reserve = post.quote_live_reserve;
     market.quote_side.reserves.cash_reserve = post.quote_cash_reserve;
+    market.base_side.fees.public_interest_advance = post.base_interest_advance;
+    market.quote_side.fees.public_interest_advance = post.quote_interest_advance;
     market.debt.isolated_base_shares = post.isolated_base_shares;
     market.debt.isolated_quote_shares = post.isolated_quote_shares;
     market.debt.isolated_base_principal = post.isolated_base_principal;
@@ -665,6 +681,31 @@ fn derive_leverage_lifecycle_plan_from_state(
         }
     }
 
+    // Recycle funded interest in the same reserve calculation as the debit.
+    // It does not need to exist as cash a second time before debt is cleared.
+    let mut restored_advance = 0_u64;
+    let mut advanced_removed = 0_u64;
+    if !matches!(policy, SwapCashPolicy::Spot | SwapCashPolicy::Borrow { .. }) {
+        let asset = asset_in.opposite();
+        post.set_debt(debt);
+        let unpaid_before = start.unrealized_interest(asset)?;
+        let unpaid_after = post.unrealized_interest(asset)?;
+        let advance = match asset {
+            MarketAsset::Base => &mut post.base_interest_advance,
+            MarketAsset::Quote => &mut post.quote_interest_advance,
+        };
+        let cleared = advance.clear(unpaid_before, unpaid_after, transition.clearance.interest_paid)?;
+        restored_advance = cleared
+            .repaid
+            .checked_add(cleared.protocol_returned)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        advanced_removed = cleared
+            .repaid
+            .checked_add(cleared.canceled)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        transition.socialized_advance_loss = cleared.canceled - cleared.protocol_returned;
+    }
+
     let asset_in_live = post
         .live_reserve(asset_in)
         .checked_add(amount_in_after_fee)
@@ -676,20 +717,16 @@ fn derive_leverage_lifecycle_plan_from_state(
         .ok_or(ErrorCode::ReserveOverflow)?;
     *post.cash_reserve_mut(asset_in) = asset_in_cash;
     let asset_out = asset_in.opposite();
-    let asset_out_live = post
-        .live_reserve(asset_out)
-        .checked_sub(
-            gross_amount_out
-                .checked_add(extra_live_debit_out)
-                .ok_or(ErrorCode::ReserveUnderflow)?,
-        )
+    let asset_out_live = u128::from(post.live_reserve(asset_out))
+        .checked_add(u128::from(restored_advance))
+        .and_then(|v| v.checked_sub(u128::from(gross_amount_out) + u128::from(extra_live_debit_out)))
         .ok_or(ErrorCode::ReserveUnderflow)?;
-    *post.live_reserve_mut(asset_out) = asset_out_live;
-    let asset_out_cash = post
-        .cash_reserve_mut(asset_out)
-        .checked_sub(cash_debit_out)
+    *post.live_reserve_mut(asset_out) = u64::try_from(asset_out_live).map_err(|_| ErrorCode::ReserveOverflow)?;
+    let asset_out_cash = u128::from(*post.cash_reserve_mut(asset_out))
+        .checked_add(u128::from(restored_advance))
+        .and_then(|v| v.checked_sub(u128::from(cash_debit_out)))
         .ok_or(ErrorCode::CashReserveUnderflow)?;
-    *post.cash_reserve_mut(asset_out) = asset_out_cash;
+    *post.cash_reserve_mut(asset_out) = u64::try_from(asset_out_cash).map_err(|_| ErrorCode::ReserveOverflow)?;
 
     if let SwapCashPolicy::Borrow { asset, amount } = policy {
         let aggregate_debt_before = debt.isolated_debt(asset)?;
@@ -727,6 +764,7 @@ fn derive_leverage_lifecycle_plan_from_state(
         };
         let expected_curve_after = curve_before
             .checked_sub(gross_amount_out)
+            .and_then(|v| v.checked_sub(transition.socialized_advance_loss))
             .ok_or(ErrorCode::ReserveUnderflow)?;
         let curve_after = post.projected_curve_reserve_from(start, debt_asset, curve_before)?;
         require_gte!(curve_after, expected_curve_after, ErrorCode::BrokenInvariant);
@@ -759,6 +797,11 @@ fn derive_leverage_lifecycle_plan_from_state(
         require_eq!(curve_after, expected_curve_after, ErrorCode::BrokenInvariant);
         debt_curve_reserve_after_transition = Some(curve_after);
     }
+
+    transition.removed_unrealized_interest = transition
+        .removed_unrealized_interest
+        .checked_sub(advanced_removed)
+        .ok_or(ErrorCode::BrokenInvariant)?;
 
     require!(
         debt_curve_reserve_before_share_removal == supplied_debt_curve_reserve_before_share_removal,
@@ -975,6 +1018,27 @@ impl Market {
         })
     }
 
+    /// Cash available after the same debt/advance kernel used at settlement.
+    /// Quote guards must recycle prepaid interest before reserving hLP funding.
+    pub(crate) fn preview_leverage_settlement_cash(
+        &self,
+        policy: SwapCashPolicy,
+        asset_in: MarketAsset,
+        amount_in_after_fee: u64,
+        amount_out: u64,
+        gross_amount_out: u64,
+    ) -> Result<(u64, u64)> {
+        let plan = derive_leverage_lifecycle_plan(
+            self,
+            policy,
+            asset_in,
+            amount_in_after_fee,
+            amount_out,
+            gross_amount_out,
+        )?;
+        Ok((plan.post.base_cash_reserve, plan.post.quote_cash_reserve))
+    }
+
     pub(crate) fn apply_leverage_lifecycle_transition(
         &mut self,
         policy: SwapCashPolicy,
@@ -1026,7 +1090,7 @@ impl Market {
         _current_slot: u64,
     ) -> Result<HlpSocializedLossRebase> {
         let loss = transition.socialized_principal_loss;
-        if loss == 0 {
+        if loss == 0 && transition.socialized_advance_loss == 0 {
             return Ok(HlpSocializedLossRebase::default());
         }
         require!(self.amm.initialized, ErrorCode::BrokenInvariant);
@@ -1984,6 +2048,7 @@ impl Market {
         position.require_open()?;
         require!(repay_credit > 0, ErrorCode::AmountZero);
         let debt_asset = position.debt_asset()?;
+        let unpaid_before = self.public_unpaid_interest(debt_asset)?;
         let repayment = self
             .debt
             .isolated_repayment_for_max(debt_asset, position.debt_shares, repay_credit)?;
@@ -2000,17 +2065,13 @@ impl Market {
             position.margin_terms.admission_equity_collateral_nad = 0;
         }
         let live_debit = clearance.live_debit_for_cash_repay()?;
-        let side = self.side_mut(debt_asset);
-        side.reserves.live_reserve = side
-            .reserves
-            .live_reserve
-            .checked_sub(live_debit)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
-        side.reserves.cash_reserve = side
-            .reserves
-            .cash_reserve
-            .checked_add(principal_paid)
-            .ok_or(ErrorCode::ReserveOverflow)?;
+        self.settle_public_debt_reserves(
+            debt_asset,
+            unpaid_before,
+            clearance.interest_paid,
+            live_debit,
+            principal_paid,
+        )?;
         if self.amm.initialized
             && before_accrual.is_some()
             && before_accrual == Some(self.integrated_curve_state_nad()?)
