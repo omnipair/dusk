@@ -422,6 +422,9 @@ pub struct ProtocolAuctionEpoch {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct HlpVault {
+    /// Collateral committed to one atomic flash recovery. Receipt supply is
+    /// fixed until settlement; retail operations on other positions may run.
+    pub flash_collateral_debit: u64,
     pub ylp_vault: Pubkey,
     pub ylp_shares: u64,
     /// hLP-owned live reserve depth that is not backed by reserve cash or
@@ -690,6 +693,9 @@ pub struct ReserveShares {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Reserves {
+    /// Same-transaction collateral receivable. Included in backing, excluded
+    /// from cash available to swaps, loans and withdrawals.
+    pub flash_receivable: u64,
     // Virtual Reserves (r_virtual = r_cash + r_cash_backed_debt + r_hlp_live)
     pub live_reserve: u64,
     // Cash Reserves (r_cash)

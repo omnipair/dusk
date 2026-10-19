@@ -14,7 +14,7 @@ fixes and remaining work; it is not a new exhaustive audit or a security signoff
 | OR-NM-001: fixed Token program SDK slots | Fixed in `f2794e76`; actual account construction is covered by `check-write-program-accounts.js`. |
 | OR-NM-002: governance execution mint accounts | Fixed in `f2794e76`; the same SDK check builds the instruction with both required mints. |
 | OR-NM-003: partial-close principal rounding | Fixed in `d97e6997`; remaining principal follows aggregate before/after debt clearance. |
-| OR-NM-004: hLP solvency/recovery disagreement | **Partially remediated in #52.** Full-value entry/NAV/hedge reconstruction corrects the original valuation disagreement. Cash-funded harvest sequencing and external hLP recovery remain unfinished; the complete item stays open. |
+| OR-NM-004: hLP solvency/recovery disagreement | **Partially remediated in #52.** Full-value entry/NAV/hedge reconstruction corrects the original valuation disagreement. Cash-funded harvest sequencing and vault-wide external recovery are implemented in the follow-up. Final economic and adversarial review remains a closeout gate. |
 | OR-NM-005: gross close/decrease cash preflight | Fixed in `f2794e76`; preflight includes exact principal netting and retains actual cash floors. |
 | OR-NM-006: stale protection EMA | Fixed in `f2794e76`; the disposable protection snapshot refreshes reference risk. |
 | OR-NM-007: stale hLP settlement reference | Exit guard fixed in `f2794e76`; fresh deposit NAV in `5c0aca7f`. The separate full-value entry correction is implemented in #52; the remaining harvest/recovery work is tracked under OR-NM-004. |
@@ -93,13 +93,17 @@ The accounting note records the material concentrated hLP compute increase.
 
 This is partial remediation, not closeout. The follow-up native advance ledger
 freezes the LP/protocol split when reserve cash funds interest, reconciles paid
-and canceled advances, and includes SDK accounting helpers. It does not expose
-a funding instruction. Cash-funded harvest integration, funding-before-new-yield
-sequencing, external hLP flash execution, shared terminal/native/flash valuation
-and loss rules, SDK transaction support and instruction-level coverage still
-need completion. The accounting follow-up passes 518 default/production tests,
-74 SDK tests and 136 strict LiteSVM tests, including real repayment after a
-seeded advance with both hLPs and a changed protocol rate. Existing compute
+and canceled advances, and includes SDK accounting helpers. The follow-up now exposes cash funding and SDK harvest builders, and settles
+new hLP income before publishing holder yield. Real instruction tests cover
+yLP and both hLPs, concentration, transfer fees and repayment. External hLP flash execution and SDK transaction builders are now implemented,
+with atomic payment, collateral-fee and rollback coverage. Native and flash
+terminal settlement use principal-only insurance and separately cancel unpaid
+interest. Full review of this expanded recovery surface remains required.
+The completed harvesting/recovery implementation passes 523 Dusk tests in each
+default/production profile, 75 SDK checks, and 137 strict LiteSVM tests covering
+all 75 instructions. Real funding, harvest and repayment run with both hLPs,
+transfer fees and a changed protocol rate; flash tests cover inventory and
+Dusk-AMM routes, insolvent closure, underpayment and atomic rollback. Existing compute
 ceilings remain unchanged. No merge or deployment
 should rely on native tests alone. The recovery target is confirmed as
 opposite-token neutrality, including when concentration makes gross leverage

@@ -971,9 +971,67 @@ are reported separately by that notice and do not replace the effective fee.
 fresh LP/protocol revenue and the already-frozen protocol portion. Already
 funded LP interest must be excluded from `freshGrossInterest`.
 
-These are accounting helpers, not harvest builders or hLP feasibility quotes.
-The native advance ledger is integrated with repayment/writeoff accounting;
-a public cash-funding/harvest instruction and funding-before-new-hLP-yield
-integration remain pending. Existing harvest pays already-funded claims.
-The Market layout is version 3 and includes `fees.publicInterestAdvance` on
-both asset sides. Use the regenerated IDL; a version-2 snapshot is incompatible.
+For transaction composition, use the vault-aware yield client:
+
+```ts
+const quote = await dusk.yield.previewFunding({ market, caller });
+const plan = await dusk.yield.buildHarvest({
+  market, owner, caller, kind: "baseHlp", asset: "quote",
+  // Optional per-asset gross advance caps, in raw atoms:
+  maxBaseGross: 0n, maxQuoteGross: 1_000_000n,
+});
+// Simulate the complete plan.transaction before signing and sending.
+```
+
+`kind` accepts `ylp`, `baseHlp` and `quoteHlp`. The builder reads the owner's
+YieldAccount, respects its configured recipient and creates that recipient's
+ATA if needed. Existing yield accounts are required. Builders never sign or send.
+Set `fundAccruedInterest: false` to harvest existing funded claims without a new
+funding/rebalance attempt. `fundInstruction` is the standalone funding builder.
+
+Funding moves only available cash. Newly earned hLP income first covers the
+vault-wide funding gap; existing funded holder claims are protected. The hedge
+reconstruction can change the AMM mark; the cash advance alone leaves swap
+reserves unchanged. `HlpInterestAllocated` distinguishes new holder yield from
+capital returned to reserves. Subtract its capital debits from gross
+`BorrowInterestPaid` credits when reconciling net interest-vault changes.
+
+Repayment builders supply the canonical accounts needed for both hLP vaults.
+Raw callers must include the five existing hLP accounts followed by both asset
+mints and reserve vaults when fresh public interest is settled with active hLP.
+The Market layout is version 4 with `fees.publicInterestAdvance` on both sides,
+per-vault flash locks, and non-cash `reserves.flashReceivable`;
+use the regenerated IDL. A version-2 snapshot is incompatible.
+
+
+### Vault-wide hLP flash recovery
+
+```ts
+const quote = await dusk.hlpLiquidations.preview({ market, targetAsset: "base" });
+const plan = await dusk.hlpLiquidations.buildFlash({
+  market, targetAsset: "base", buyer,
+  allowFull: false, // explicit opt-in is required for an insolvent full closure
+  route: async ({ buyerCollateralAccount, repaymentVault, requiredPaymentCredit,
+                  collateralMint, debtMint, collateralTokenProgram, debtTokenProgram }) => {
+    // Return an external route, a Dusk swap, or explicit inventory payment.
+    // Deliver requiredPaymentCredit NET atoms into repaymentVault; gross up
+    // its incoming transfer fee. The quote already includes vault→reserve fees.
+    return buildRecoveryRoute({ buyerCollateralAccount, repaymentVault,
+      requiredPaymentCredit, collateralMint, debtMint, collateralTokenProgram, debtTokenProgram });
+  },
+});
+// Compile plan.instructions with a prepared address lookup table when needed.
+// Do not insert/reorder instructions: begin binds the exact settle index.
+```
+
+The helpers never sign, submit, or silently top up from the keeper's wallet.
+The quote is current-bank only. `maxPayment`, collateral limits, insurance and
+principal-loss caps protect the submitted plan against state drift. Prefix
+instructions must be supplied through `prefixInstructions` before building.
+An affected hLP cohort cannot mint/redeem between begin and settle; swaps and
+independent market operations remain composable subject to cash and accounting
+checks. The SDK's complete-plan simulator preserves bound instruction indices.
+`HlpFlashSettled.loss` separates principal recovery, principal insurance,
+principal writeoff and canceled interest; a partial recovery has an empty loss
+allocation. Native `HlpTerminalLiquidated.socializedLoss` now denotes principal
+loss only, with `interestCanceled` reported separately.

@@ -286,7 +286,7 @@ pub(crate) fn apply_concentrated_hlp_recovery(
         MarketAsset::Base => &market.base_hlp_vault,
         MarketAsset::Quote => &market.quote_hlp_vault,
     };
-    if vault.hlp_supply == 0 || vault.ylp_shares == 0 || vault.debt_shares == 0 {
+    if vault.hlp_supply == 0 || vault.ylp_shares == 0 || vault.debt_shares == 0 || vault.flash_collateral_debit > 0 {
         return Ok(());
     }
     let supply = market.base_side.shares.ylp_supply;
@@ -365,8 +365,8 @@ pub(crate) fn apply_concentrated_hlp_recovery(
 
 /// Identity-bound terminal settlement for an hLP whose indexed funding debt
 /// has consumed all of its marked collateral. The vault's yLP ownership is
-/// retired first; insurance then replaces only the borrowed-asset shortfall,
-/// and any remaining unpaid funding interest is explicitly socialized.
+/// retired first; insurance covers only principal loss and unpaid funding
+/// interest is canceled. Available cash limits realized funding interest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HlpTerminalWaterfallPlan {
     target_asset: MarketAsset,
@@ -378,8 +378,8 @@ pub(crate) struct HlpTerminalWaterfallPlan {
     expected_target_hlp_live: u64,
     expected_borrowed_hlp_live: u64,
     debt: u64,
-    interest_due: u64,
     collateral_value_in_borrowed: u64,
+    insurance_credit: u64,
     insurance_request: u64,
     insurance_draw_slot: u64,
 }
@@ -392,6 +392,7 @@ pub(crate) struct HlpTerminalWaterfallReceipt {
     pub interest_paid: u64,
     pub insurance_drawn: u64,
     pub socialized_loss: u64,
+    pub interest_canceled: u64,
     pub remaining_hlp_supply: u64,
 }
 
@@ -451,22 +452,32 @@ impl HlpTerminalWaterfallPlan {
         require_eq!(insurance_spent, self.insurance_request, ErrorCode::BrokenInvariant);
         require_gte!(insurance_spent, insurance_credit, ErrorCode::BrokenInvariant);
 
-        let shortfall = self.debt.saturating_sub(self.collateral_value_in_borrowed);
-        let socialized_loss = shortfall.saturating_sub(insurance_credit);
+        require_eq!(insurance_credit, self.insurance_credit, ErrorCode::BrokenInvariant);
+        let mut loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote_with_coverage(
+            self.expected_debt_principal.min(self.debt),
+            self.debt,
+            self.collateral_value_in_borrowed,
+            insurance_credit,
+            market.insurance.principal_coverage_bps,
+        )?;
+        let socialized_loss = loss.principal_written_off;
         require_gte!(
             max_socialized_loss,
             socialized_loss,
             ErrorCode::LiquidationSocializationExceeded
         );
-        // This waterfall is intentionally scoped to passive funding accrual.
-        // Principal insolvency indicates a broken hedge/accounting invariant,
-        // not a loss which this permissionless path may silently socialize.
-        require!(socialized_loss <= self.interest_due, ErrorCode::BrokenInvariant);
-        let interest_paid = self
-            .interest_due
-            .checked_sub(socialized_loss)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
         let borrowed_asset = self.target_asset.opposite();
+        let cash = market
+            .side(borrowed_asset)
+            .reserves
+            .cash_reserve
+            .checked_add(insurance_credit)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        let interest_paid = loss.interest_paid.min(cash);
+        loss.interest_canceled = loss
+            .interest_canceled
+            .checked_add(loss.interest_paid - interest_paid)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
 
         if insurance_spent > 0 {
             market
@@ -522,6 +533,7 @@ impl HlpTerminalWaterfallPlan {
             interest_paid,
             insurance_drawn: insurance_credit,
             socialized_loss,
+            interest_canceled: loss.interest_canceled,
             remaining_hlp_supply,
         })
     }
@@ -544,8 +556,10 @@ impl Market {
         &mut self,
         target_asset: MarketAsset,
         max_insurance_draw: u64,
+        debt_fee: crate::transitions::LeverageCollateralFee,
         current_slot: u64,
     ) -> Result<HlpTerminalWaterfallPlan> {
+        self.require_hlp_flash_idle(target_asset)?;
         checkpoint_hlp_yield_from_ylp(self, target_asset)?;
         let vault = match target_asset {
             MarketAsset::Base => &self.base_hlp_vault,
@@ -561,18 +575,11 @@ impl Market {
         let target_claim = ylp_live_underlying_amount(self, target_asset, vault.ylp_shares)?;
         let borrowed_asset = target_asset.opposite();
         let borrowed_claim = ylp_live_underlying_amount(self, borrowed_asset, vault.ylp_shares)?;
-        let target_curve_reserve = self.curve_reserve(target_asset)?;
-        let borrowed_curve_reserve = self.curve_reserve(borrowed_asset)?;
-        require!(
-            target_curve_reserve > 0 && borrowed_curve_reserve > 0,
-            ErrorCode::InsufficientLiquidity
-        );
-        let target_value_in_borrowed = u64::try_from(mul_div_u128(
-            target_claim as u128,
-            borrowed_curve_reserve as u128,
-            target_curve_reserve as u128,
-        )?)
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let prices = current_hlp_curve_prices(self)?;
+        let target_value =
+            asset_value_in_target_nad_with_prices(self, prices, target_asset, target_claim, borrowed_asset)?;
+        let target_value_in_borrowed =
+            self.denormalize_amount_floor(target_value, self.side(borrowed_asset).asset_decimals)?;
         let collateral_value_in_borrowed = borrowed_claim
             .checked_add(target_value_in_borrowed)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -581,15 +588,17 @@ impl Market {
             self.debt.borrow_index(borrowed_asset),
         )?)
         .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        let shortfall = debt.saturating_sub(collateral_value_in_borrowed);
-        require!(shortfall > 0, ErrorCode::HlpNotLiquidatable);
-        let interest_due = debt.saturating_sub(vault.debt_principal);
-        require!(shortfall <= interest_due, ErrorCode::BrokenInvariant);
+        require!(debt >= collateral_value_in_borrowed, ErrorCode::HlpNotLiquidatable);
         let insurance_available = self.insurance.draw_capacity(borrowed_asset, current_slot)?;
-        // Insurance is senior to socialization. The caller cap can make the
-        // transaction fail under state drift, but it cannot elect to preserve
-        // available insurance while pushing the same loss onto yLP.
-        let insurance_request = shortfall.min(insurance_available);
+        let loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote_with_coverage(
+            vault.debt_principal.min(debt),
+            debt,
+            collateral_value_in_borrowed,
+            debt_fee.unwind_credit(insurance_available)?,
+            self.insurance.principal_coverage_bps,
+        )?;
+        // The caller can reject state drift, but cannot omit available coverage.
+        let insurance_request = debt_fee.effective_gross_for_credit(loss.insurance_credit)?;
         require_gte!(max_insurance_draw, insurance_request, ErrorCode::InsuranceDrawExceeded);
         Ok(HlpTerminalWaterfallPlan {
             target_asset,
@@ -601,8 +610,8 @@ impl Market {
             expected_target_hlp_live: vault.hlp_live_reserve(target_asset),
             expected_borrowed_hlp_live: vault.hlp_live_reserve(borrowed_asset),
             debt,
-            interest_due,
             collateral_value_in_borrowed,
+            insurance_credit: loss.insurance_credit,
             insurance_request,
             insurance_draw_slot: current_slot,
         })
@@ -618,7 +627,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_at_current_state(
     prepare_concentrated_hlp_transition_from_end(market, market.integrated_curve_state_nad()?, true, false, 0, 0)
 }
 
-fn prepare_concentrated_hlp_transition_from_end(
+pub(super) fn prepare_concentrated_hlp_transition_from_end(
     market: &Market,
     end: IntegratedCurveState,
     preserve_current_ordinary_reserves: bool,
@@ -1023,6 +1032,7 @@ impl Market {
         min_hlp_amount: u64,
     ) -> Result<SingleSidedLiquidityReceipt> {
         let market = self;
+        market.require_hlp_flash_idle(target_asset)?;
         require!(deposit_amount > 0, ErrorCode::AmountZero);
         let pre_prices = current_hlp_curve_prices(market)?;
         let pre_entry = current_hlp_entry_state_with_prices(market, target_asset, pre_prices)?;
@@ -1247,6 +1257,7 @@ impl Market {
         hlp_amount: u64,
     ) -> Result<SingleSidedLiquidityReceipt> {
         let market = self;
+        market.require_hlp_flash_idle(target_asset)?;
         require!(hlp_amount > 0, ErrorCode::AmountZero);
         if market.hlp_terminally_closed(target_asset) {
             // Terminal hLP tokens represent no remaining principal. Burning
@@ -1931,7 +1942,11 @@ pub(crate) fn hlp_curve_prices_from_base_price_nad(base_in_quote_nad: u128) -> R
 /// Economic value of an hLP share, including the yLP claim on public interest
 /// already accrued into live reserves. The controller uses these same claims;
 /// swap quotes independently exclude unpaid interest from trading reserves.
-fn hlp_share_nav_nad_with_prices(market: &Market, target_asset: MarketAsset, prices: HlpCurvePrices) -> Result<u128> {
+pub(super) fn hlp_share_nav_nad_with_prices(
+    market: &Market,
+    target_asset: MarketAsset,
+    prices: HlpCurvePrices,
+) -> Result<u128> {
     let vault = match target_asset {
         MarketAsset::Base => &market.base_hlp_vault,
         MarketAsset::Quote => &market.quote_hlp_vault,
@@ -1964,7 +1979,7 @@ fn hlp_nav_nad_with_prices(market: &Market, target_asset: MarketAsset, prices: H
         .ok_or_else(|| ErrorCode::Undercollateralized.into())
 }
 
-fn ylp_live_underlying_amount(market: &Market, asset: MarketAsset, ylp_amount: u64) -> Result<u64> {
+pub(super) fn ylp_live_underlying_amount(market: &Market, asset: MarketAsset, ylp_amount: u64) -> Result<u64> {
     let side = market.side(asset);
     ylp_live_underlying_amount_from_values(side.reserves.live_reserve, side.shares.ylp_supply, ylp_amount)
 }
@@ -1978,7 +1993,7 @@ fn ylp_live_underlying_amount_from_values(live_reserve: u64, supply: u64, ylp_am
     u64::try_from(amount).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-fn asset_value_in_target_nad_with_prices(
+pub(super) fn asset_value_in_target_nad_with_prices(
     market: &Market,
     prices: HlpCurvePrices,
     asset: MarketAsset,

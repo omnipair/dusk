@@ -1,9 +1,15 @@
 mod engine;
+mod flash;
+mod flash_terminal;
+pub use flash::HlpFlashQuote;
+pub(crate) use flash_terminal::HlpFlashTerminalSettlement;
+mod harvest;
 pub(crate) mod integrated;
 pub(crate) mod recovery;
 pub(crate) mod solver;
 
 pub use engine::*;
+pub(crate) use harvest::HlpNewInterestSettlement;
 pub(crate) use integrated::*;
 pub(crate) use recovery::*;
 pub(crate) use solver::*;

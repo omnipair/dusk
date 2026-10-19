@@ -2,45 +2,29 @@ use super::*;
 use crate::state::Debt;
 
 fn snapshot() -> (Market, Clock) {
-    // The captured devnet account predates fractional borrow-index carries.
-    // Insert zero carries at the new Debt fields without changing the fixture.
+    // Extend the immutable historical capture with zero-valued fields added
+    // since that layout. Locate each insertion in the current serialization and
+    // apply ascending offsets, including all fields preceding the Debt block.
     let mut layout = Market::default();
-    layout.debt.base_borrow_index_nad = 0x1234_5678_9abc_def0_1357_2468_ace0_bdf1;
-    layout.debt.quote_borrow_index_nad = 0x2468_ace0_1357_bdf1_1234_5678_9abc_def0;
-    let mut layout_bytes = Vec::new();
-    layout.try_serialize(&mut layout_bytes).unwrap();
-    let mut marker = Vec::new();
-    marker.extend_from_slice(&layout.debt.base_borrow_index_nad.to_le_bytes());
-    marker.extend_from_slice(&layout.debt.quote_borrow_index_nad.to_le_bytes());
-    let insertion_offset = layout_bytes
-        .windows(marker.len())
-        .position(|window| window == marker)
-        .unwrap()
-        + marker.len();
+    let tags = [0x3197_5bdf_2468_ace0_u64, 0x4286_ace0_1357_9bdf, 0x5397_ace0_1357_9bdf,
+        0x6486_ace0_1357_9bdf, 0x7597_ace0_1357_9bdf, 0x8686_ace0_1357_9bdf,
+        0x9797_ace0_1357_9bdf, 0xa886_ace0_1357_9bdf];
+    layout.base_side.reserves.flash_receivable = tags[0];
+    layout.base_side.fees.public_interest_advance.outstanding_gross = tags[1];
+    layout.quote_side.reserves.flash_receivable = tags[2];
+    layout.quote_side.fees.public_interest_advance.outstanding_gross = tags[3];
+    layout.base_hlp_vault.flash_collateral_debit = tags[4];
+    layout.quote_hlp_vault.flash_collateral_debit = tags[5];
+    layout.debt.base_borrow_index_remainder = u128::from(tags[6]);
+    layout.debt.leverage_base_collateral = tags[7];
+    let mut current = Vec::new();
+    layout.try_serialize(&mut current).unwrap();
+    let mut insertions: Vec<_> = tags.into_iter().zip([8, 32, 8, 32, 8, 8, 32, 16]).map(|(tag, size)| {
+        (current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap(), size)
+    }).collect();
+    insertions.sort_unstable();
     let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
-    // Advance ledgers precede Debt in the current layout. Insert them first,
-    // so the following historical Debt insertions use current offsets.
-    for (asset, tag) in [
-        (MarketAsset::Base, 0x3197_5bdf_2468_ace0_u64),
-        (MarketAsset::Quote, 0x4286_ace0_1357_9bdf_u64),
-    ] {
-        layout.side_mut(asset).fees.public_interest_advance.outstanding_gross = tag;
-        let mut marked = Vec::new();
-        layout.try_serialize(&mut marked).unwrap();
-        let offset = marked.windows(8).position(|w| w == tag.to_le_bytes()).unwrap();
-        bytes.splice(offset..offset, [0u8; 32]);
-    }
-    bytes.splice(insertion_offset..insertion_offset, [0u8; 32]);
-    // The immutable capture also predates aggregate leverage collateral.
-    layout.debt.leverage_base_collateral = 0x1357_9bdf_2468_ace0;
-    layout.debt.leverage_quote_collateral = 0x2468_ace0_1357_9bdf;
-    layout_bytes.clear();
-    layout.try_serialize(&mut layout_bytes).unwrap();
-    marker.clear();
-    marker.extend_from_slice(&layout.debt.leverage_base_collateral.to_le_bytes());
-    marker.extend_from_slice(&layout.debt.leverage_quote_collateral.to_le_bytes());
-    let exposure_offset = layout_bytes.windows(marker.len()).position(|window| window == marker).unwrap();
-    bytes.splice(exposure_offset..exposure_offset, [0u8; 16]);
+    for (offset, size) in insertions { bytes.splice(offset..offset, vec![0u8; size]); }
     let mut market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
     market.version = crate::constants::MARKET_LAYOUT_VERSION;
     let clock = Clock {

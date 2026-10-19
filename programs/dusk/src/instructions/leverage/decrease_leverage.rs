@@ -267,7 +267,8 @@ impl<'info> DecreaseLeverage<'info> {
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
             interest_eligibility,
-            h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+            ctx.remaining_accounts,
+            ctx.accounts.event_authority.to_account_info(),
         )?;
 
         // Return output not needed to burn debt shares, including final 1x rounding.

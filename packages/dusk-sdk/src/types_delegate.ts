@@ -3663,6 +3663,14 @@ export type LeverageDelegate = {
         "kind": "struct",
         "fields": [
           {
+            "name": "flashCollateralDebit",
+            "docs": [
+              "Collateral committed to one atomic flash recovery. Receipt supply is",
+              "fixed until settlement; retail operations on other positions may run."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "ylpVault",
             "type": "pubkey"
           },
@@ -5067,6 +5075,14 @@ export type LeverageDelegate = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flashReceivable",
+            "docs": [
+              "Same-transaction collateral receivable. Included in backing, excluded",
+              "from cash available to swaps, loans and withdrawals."
+            ],
+            "type": "u64"
+          },
           {
             "name": "liveReserve",
             "type": "u64"

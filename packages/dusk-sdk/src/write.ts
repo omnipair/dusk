@@ -296,8 +296,8 @@ export class DuskWrite {
     const market = address(marketAddress);
     const state = (marketSnapshot ?? await this.fetchMarketAccount(market)) as {
       ylpMint: AccountMeta["pubkey"];
-      baseSide: { interestVault: AccountMeta["pubkey"] };
-      quoteSide: { interestVault: AccountMeta["pubkey"] };
+      baseSide: { interestVault: AccountMeta["pubkey"]; assetMint: AccountMeta["pubkey"]; reserveVault: AccountMeta["pubkey"] };
+      quoteSide: { interestVault: AccountMeta["pubkey"]; assetMint: AccountMeta["pubkey"]; reserveVault: AccountMeta["pubkey"] };
       baseHlpVault: {
         hlpSupply: { toString(): string };
         residualExposure: { toString(): string };
@@ -321,6 +321,12 @@ export class DuskWrite {
       { pubkey: state.quoteHlpVault.ylpVault, isSigner: false, isWritable: true },
       { pubkey: state.baseSide.interestVault, isSigner: false, isWritable: true },
       { pubkey: state.quoteSide.interestVault, isSigner: false, isWritable: true },
+      // Fresh public-interest settlements rebalance both vaults. These keys
+      // usually duplicate fixed swap accounts; repayments need them explicitly.
+      { pubkey: state.baseSide.assetMint, isSigner: false, isWritable: false },
+      { pubkey: state.quoteSide.assetMint, isSigner: false, isWritable: false },
+      { pubkey: state.baseSide.reserveVault, isSigner: false, isWritable: true },
+      { pubkey: state.quoteSide.reserveVault, isSigner: false, isWritable: true },
     ];
   }
 
@@ -1653,7 +1659,7 @@ export class DuskWrite {
           tokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
-        remainingAccounts: params.remainingAccounts,
+        remainingAccounts: [...(await this.hlpRemainingAccounts(market)), ...(params.remainingAccounts ?? [])],
       }
     );
   }
@@ -1888,7 +1894,7 @@ export class DuskWrite {
           tokenProgram: core.tokenProgram,
           token2022Program: TOKEN_2022_PROGRAM_ID,
         },
-        remainingAccounts: params.remainingAccounts,
+        remainingAccounts: [...(await this.hlpRemainingAccounts(core.market)), ...(params.remainingAccounts ?? [])],
       }
     );
   }

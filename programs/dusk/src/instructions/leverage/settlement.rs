@@ -20,10 +20,10 @@ use crate::{
     errors::ErrorCode,
     generate_market_seeds,
     instructions::accounts::{
-        require_supported_asset_mint, token_account_credit, token_account_info_amount, token_account_info_credit,
-        token_program_for_mint, validate_interest_accounts, validate_owner_asset_account, validate_side_vault_accounts,
-        HlpSwapAccountLayout, BASE_HLP_YLP_VAULT_INDEX, BASE_INTEREST_VAULT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN,
-        HLP_YLP_MINT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX, QUOTE_INTEREST_VAULT_INDEX,
+        require_reserve_custody, require_supported_asset_mint, token_account_credit, token_account_info_amount,
+        token_account_info_credit, token_program_for_mint, validate_interest_accounts, validate_owner_asset_account,
+        validate_side_vault_accounts, HlpSwapAccountLayout, BASE_HLP_YLP_VAULT_INDEX, BASE_INTEREST_VAULT_INDEX,
+        HLP_SWAP_ACCOUNT_PREFIX_LEN, HLP_YLP_MINT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX, QUOTE_INTEREST_VAULT_INDEX,
     },
     instructions::liquidity::record_inline_hlp_interest_credit,
     instructions::referral::accounting::ReferralInterestAccrualReceipt,
@@ -135,11 +135,50 @@ pub fn settle_inline_leverage_hlp<'info>(
     interest_eligibility: HlpYieldEligibility,
     event_authority: AccountInfo<'info>,
 ) -> Result<()> {
+    let debt = (debt_mint.to_account_info(), debt_reserve_vault.to_account_info());
+    let collateral = (
+        collateral_mint.to_account_info(),
+        collateral_reserve_vault.to_account_info(),
+    );
+    let assets = if debt_asset == MarketAsset::Base {
+        [debt, collateral]
+    } else {
+        [collateral, debt]
+    };
+    settle_inline_hlp_accounts(
+        market,
+        futarchy_authority,
+        assets,
+        token_program,
+        token_2022_program,
+        remaining_accounts,
+        layout,
+        base_receipt,
+        quote_receipt,
+        interest_eligibility,
+        event_authority,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn settle_inline_hlp_accounts<'info>(
+    market: &mut Account<'info, Market>,
+    futarchy_authority: &Account<'info, FutarchyAuthority>,
+    asset_accounts: [(AccountInfo<'info>, AccountInfo<'info>); 2],
+    token_program: &Program<'info, Token>,
+    token_2022_program: &Program<'info, Token2022>,
+    remaining_accounts: &[AccountInfo<'info>],
+    layout: HlpSwapAccountLayout,
+    base_receipt: HlpRebalanceReceipt,
+    quote_receipt: HlpRebalanceReceipt,
+    interest_eligibility: HlpYieldEligibility,
+    event_authority: AccountInfo<'info>,
+) -> Result<()> {
     for receipt in [base_receipt, quote_receipt] {
         if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 && receipt.interest_paid == 0 {
             continue;
         }
-        require_eq!(
+        require_gte!(
             layout.prefix_len,
             HLP_SWAP_ACCOUNT_PREFIX_LEN,
             ErrorCode::NotEnoughAccounts
@@ -187,20 +226,13 @@ pub fn settle_inline_leverage_hlp<'info>(
         };
         let interest_vault = &remaining_accounts[interest_vault_index];
         let interest_vault_balance_before = token_account_info_amount(interest_vault)?;
-        let (reserve_vault, mint, token_program_account, decimals) = if borrowed_asset == debt_asset {
-            (
-                debt_reserve_vault.to_account_info(),
-                debt_mint.to_account_info(),
-                token_program_for_mint(debt_mint, token_program, token_2022_program)?,
-                debt_mint.decimals,
-            )
+        let (mint, reserve_vault) = asset_accounts[borrowed_asset.code() as usize].clone();
+        let decimals = market.side(borrowed_asset).asset_decimals;
+        let token_program_account = if *mint.owner == Token::id() {
+            token_program.to_account_info()
         } else {
-            (
-                collateral_reserve_vault.to_account_info(),
-                collateral_mint.to_account_info(),
-                token_program_for_mint(collateral_mint, token_program, token_2022_program)?,
-                collateral_mint.decimals,
-            )
+            require_keys_eq!(*mint.owner, Token2022::id(), ErrorCode::InvalidTokenProgram);
+            token_2022_program.to_account_info()
         };
         transfer_checked_with_remaining_accounts(
             market.to_account_info(),
@@ -492,14 +524,14 @@ pub fn validate_leverage_mints<'info>(
 /// The fee a collateral transfer pays at `epoch`. Use it for exits, repayment,
 /// and liquidation, which must not react to a change that has not happened.
 pub fn leverage_collateral_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
-    collateral_fee_schedule(mint, epoch, 0)
+    collateral_fee_schedule(&mint.to_account_info(), epoch, 0)
 }
 
 /// The effective fee plus any change already scheduled for a later epoch.
 /// Token-2022 gives two epochs of notice before a new fee applies; checks that
 /// issue debt or release collateral value it at the worse of the two.
 pub fn leverage_collateral_admission_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
-    collateral_fee_schedule(mint, epoch, u64::MAX)
+    collateral_fee_schedule(&mint.to_account_info(), epoch, u64::MAX)
 }
 
 /// An existing position gets its first notice epoch to repay or deleverage.
@@ -507,7 +539,7 @@ pub fn leverage_collateral_admission_fee(mint: &InterfaceAccount<Mint>, epoch: u
 /// pay the old fee, preventing an announced confiscatory fee from stranding
 /// all collateral when it activates.
 pub fn leverage_collateral_liquidation_fee(mint: &InterfaceAccount<Mint>, epoch: u64) -> Result<LeverageCollateralFee> {
-    collateral_fee_schedule(mint, epoch, 1)
+    collateral_fee_schedule(&mint.to_account_info(), epoch, 1)
 }
 
 /// Validate both market mints before valuing stored lending contributions.
@@ -527,11 +559,10 @@ pub fn lending_market_admission_fees(
 }
 
 fn collateral_fee_schedule(
-    mint: &InterfaceAccount<Mint>,
+    mint_info: &AccountInfo,
     epoch: u64,
     pending_lookahead_epochs: u64,
 ) -> Result<LeverageCollateralFee> {
-    let mint_info = mint.to_account_info();
     if *mint_info.owner == Token::id() {
         return Ok(LeverageCollateralFee::default());
     }
@@ -604,6 +635,7 @@ pub fn record_leverage_interest<'info>(
     interest_paid: u64,
     interest_eligibility: HlpYieldEligibility,
     remaining_accounts: &[AccountInfo<'info>],
+    event_authority: AccountInfo<'info>,
 ) -> Result<ReferralInterestAccrualReceipt> {
     let (fresh_gross, frozen_protocol_gross) = market
         .side_mut(debt_asset)
@@ -663,6 +695,9 @@ pub fn record_leverage_interest<'info>(
         interest_vault_credit,
         protocol_credit,
     )?;
+    // Historical public growth is protected before the new cash credit.
+    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
+    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
     market.side_mut(debt_asset).record_interest_credit_allocation(
         interest_vault_credit,
         protocol_credit,
@@ -670,8 +705,22 @@ pub fn record_leverage_interest<'info>(
         referral_receipt.quote.referral_amount,
         interest_eligibility.ylp_supply,
     )?;
-    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
-    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
+    if market.has_active_hlp() && interest_vault_credit > protocol_credit {
+        settle_new_public_hlp_income(
+            market,
+            futarchy_authority,
+            token_program,
+            token_2022_program,
+            remaining_accounts,
+            interest_eligibility,
+            event_authority,
+        )?;
+        debt_reserve_vault.reload()?;
+        interest_vault.reload()?;
+    } else {
+        market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
+        market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
+    }
     Ok(referral_receipt)
 }
 
@@ -686,4 +735,121 @@ pub fn validate_owner_debt_account<'info>(
 #[cfg(test)]
 mod tests {
     include!("../../tests/instructions/leverage/settlement.rs");
+}
+
+/// Fresh public repayment follows the same funding-before-yield policy as a
+/// cash advance. The standard hLP prefix is followed by both mints/reserves.
+#[allow(clippy::too_many_arguments)]
+#[event]
+pub struct HlpInterestAllocated {
+    pub market: Pubkey,
+    /// [hLP target side][income asset]. Historical holder growth is unchanged.
+    pub published: [[u64; 2]; 2],
+    pub capital_debit: [[u64; 2]; 2],
+    pub capital_credit: [[u64; 2]; 2],
+}
+
+pub(crate) fn settle_new_public_hlp_income<'info>(
+    market: &mut Account<'info, Market>,
+    authority: &Account<'info, FutarchyAuthority>,
+    token_program: &Program<'info, Token>,
+    token_2022_program: &Program<'info, Token2022>,
+    accounts: &[AccountInfo<'info>],
+    eligibility: HlpYieldEligibility,
+    event_authority: AccountInfo<'info>,
+) -> Result<crate::transitions::liquidity::HlpNewInterestSettlement> {
+    if !market.has_active_hlp() {
+        return Ok(Default::default());
+    }
+    let layout = HlpSwapAccountLayout::try_from((&**market, accounts))?;
+    let find = |key: Pubkey| {
+        accounts
+            .iter()
+            .find(|a| a.key() == key)
+            .cloned()
+            .ok_or_else(|| error!(ErrorCode::NotEnoughAccounts))
+    };
+    let assets = [
+        (
+            find(market.base_side.asset_mint)?,
+            find(market.base_side.reserve_vault)?,
+        ),
+        (
+            find(market.quote_side.asset_mint)?,
+            find(market.quote_side.reserve_vault)?,
+        ),
+    ];
+    let clock = Clock::get()?;
+    let fees = [
+        collateral_fee_schedule(&assets[0].0, clock.epoch, 0)?,
+        collateral_fee_schedule(&assets[1].0, clock.epoch, 0)?,
+    ];
+    let receipt = market.settle_new_hlp_public_interest(eligibility, fees, clock.slot)?;
+    for t in 0..2 {
+        for (i, (mint, reserve)) in assets.iter().enumerate() {
+            let gross = receipt.reserve_debit[t][i];
+            if gross == 0 {
+                continue;
+            }
+            let interest = &accounts[if i == 0 {
+                BASE_INTEREST_VAULT_INDEX
+            } else {
+                QUOTE_INTEREST_VAULT_INDEX
+            }];
+            let before = token_account_info_amount(reserve)?;
+            let token = if *mint.owner == Token::id() {
+                token_program.to_account_info()
+            } else {
+                require_keys_eq!(*mint.owner, Token2022::id(), ErrorCode::InvalidTokenProgram);
+                token_2022_program.to_account_info()
+            };
+            transfer_checked_with_remaining_accounts(
+                market.to_account_info(),
+                interest.clone(),
+                reserve.clone(),
+                mint.clone(),
+                token,
+                gross,
+                market
+                    .side(if i == 0 { MarketAsset::Base } else { MarketAsset::Quote })
+                    .asset_decimals,
+                &[&generate_market_seeds!(market)[..]],
+                layout.hook_accounts(accounts),
+            )?;
+            require_eq!(
+                token_account_info_credit(before, reserve)?,
+                receipt.reserve_credit[t][i],
+                ErrorCode::BrokenInvariant
+            );
+        }
+    }
+    settle_inline_hlp_accounts(
+        market,
+        authority,
+        assets.clone(),
+        token_program,
+        token_2022_program,
+        accounts,
+        layout,
+        receipt.base_rebalance,
+        receipt.quote_rebalance,
+        eligibility,
+        event_authority.clone(),
+    )?;
+    for (i, (_, reserve)) in assets.iter().enumerate() {
+        require_reserve_custody(
+            token_account_info_amount(reserve)?,
+            market.side(if i == 0 { MarketAsset::Base } else { MarketAsset::Quote }),
+        )?;
+    }
+    crate::instructions::accounting::emit_accounting_event(
+        &HlpInterestAllocated {
+            market: market.key(),
+            published: receipt.published,
+            capital_debit: receipt.reserve_debit,
+            capital_credit: receipt.reserve_credit,
+        },
+        event_authority,
+    )?;
+    Ok(receipt)
 }

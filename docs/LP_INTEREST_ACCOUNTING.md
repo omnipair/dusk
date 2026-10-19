@@ -110,40 +110,96 @@ ceilings are the successful finished-binary measurements plus exactly 5%.
 These fixture measurements do not establish that every composition fits;
 external hLP flash execution needs its own transaction budget tests.
 
-## Approved follow-up scope, not yet implemented
+## Vault-wide harvesting and flash recovery
 
-1. Cash-funded harvesting of accrued public interest for yLP and hLP, bounded
-   by available reserve cash. Advances must be tracked through repayment and
-   writeoff, including protocol/referral shares and transfer fees. Existing
-   harvest currently pays only already-funded liabilities.
-2. Before releasing new hLP yield, settle its funding cost and restore its
-   hedge. Already-funded historical holder claims cannot be spent on this.
-3. External atomic hLP flash liquidation, in addition to native recovery.
-   It must preserve the remaining holders' value, bind measured net repayment
-   to the flashed backing, lock the affected session, and account for shared
-   pool mutations without restoring an obsolete market snapshot.
-4. Shared native/flash recovery valuation and loss accounting, corresponding
-   SDK builders/previews, instruction-level adversarial coverage, and fresh
-   full-PR review before merging or deploying.
+`fund_interest` funds accrued public interest from available cash and settles
+new hLP income at vault scope. It checkpoints historical holder growth first,
+uses only new income to cover each vault's funding gap, jointly restores the
+opposite-token hedge, and publishes the remaining new yield. Existing funded
+claims cannot be spent on recovery. New income in the borrowed asset is used
+first, then new target-asset income; transfer fees are charged to that vault.
+Both vaults use one frozen pre-rebalance mark for the ownership allocation.
 
-The recovery objective is to return the vault to its intended hedge. In a
-balanced constant-product pool this is 2x: gross LP value is twice equity and
-the opposite-token claim equals funding debt. Under concentration, fixed 2x
-and an opposite-token-neutral hedge can differ. The confirmed target for
-external recovery is neutral opposite-token exposure, with variable gross
-leverage under concentration; no literal 2x constraint is being introduced.
+Funding alone leaves swap reserves unchanged. The user approved the existing
+hedge reconstruction changing the AMM mark within the harvest transaction.
+The hedge is vault-wide, including under concentration; its target is opposite-
+token neutrality, not a fixed 2x gross leverage ratio.
 
-This candidate does not close the complete hLP audit item or implement the
-new harvest/flash interfaces. See [the remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md).
+`HlpInterestAllocated` reports new published yield, custody debits retained as
+hLP capital, and measured reserve credits. `PublicInterestFunded` reports the
+cash advance and allocations. Repayment uses the same new-income settlement.
+Gross `BorrowInterestPaid` credits minus capital debits reconcile net interest
+custody; these gross credit events must not be interpreted as net vault growth.
+
+The SDK exposes `dusk.yield.fundInstruction`, `previewFunding`, and
+`buildHarvest`. The latter composes funding with an existing holder harvest;
+`fundAccruedInterest: false` collects already-funded claims independently.
+Funding checks reserve cash, current transfer fees and the complete hedge
+settlement. A simulation is not a reservation of cash or a guarantee of inclusion.
+
+The hLP flash interface adds `preview_hlp_flash`, `begin_hlp_flash`, and
+`settle_hlp_flash`. Recovery applies to an entire target-token vault. A holder
+cannot recover only their own receipt's hedge or assign the cost to new holders.
+
+1. **Quote:** indexed funding debt must be at least 9/8 of the vault's full
+   opposite-token claim, matching the existing critical recovery threshold.
+   A solvent quote supplies the debt-token funding gap and returns enough
+   target tokens at the symmetric EMA to pay an affordable discount, up to the
+   existing 5% ceiling. Both token-transfer fees are included. No new timer is
+   introduced. The entire remaining vault must retain positive full-value NAV.
+2. **Begin:** the program freezes the quote, buyer, market, slot and exact future
+   settlement instruction. Target reserve cash leaves; a matching temporary
+   receivable preserves backing and is never spendable cash. The affected
+   vault cannot mint or redeem hLP while its recovery is outstanding.
+3. **Route:** the buyer may supply their own inventory or sell the collateral
+   through another venue or Dusk. Swaps and independent market actions compose
+   with the actual state. An active flash cohort does not also pay a native swap
+   recovery bonus. There is no state snapshot restored over intervening trades.
+4. **Settle:** only new, measured credit in a dedicated session payment vault
+   meets the obligation. Existing donations and credits sent directly to the
+   market reserve do not qualify. The program restores the opposite-token
+   hedge, settles funding and yLP changes, refunds unused new payment, and
+   closes the session. A missing or failing settle reverts the entire transaction.
+
+When full marked backing is no greater than debt, the quote instead offers the
+entire target-token claim. The full path requires explicit keeper opt-in. Its
+eligibility uses full live claims at the actual concentrated-curve mark; payment
+uses the frozen symmetric EMA. The terminal settlement revalidates insolvency
+and the target claim, so conflicting changes can make the transaction revert.
+
+Both native terminal closure and flash terminal closure protect principal
+first, draw principal-only insurance under the existing 75% coverage / 50% daily
+budget, and report principal writeoff separately from canceled interest. A
+caller cap may reject drift but cannot elect to skip available coverage.
+Funding interest is realized only to the extent that cash can pay it; the rest
+is canceled when the cohort closes. Insurance does not cash-fund that interest.
+Native closure retains seized inventory in the pool; flash closure physically
+releases the quoted target tokens. Historical funded claims remain untouched.
+Any flash surplus becomes funded yield of the retired cohort, whose receipts
+remain burnable. Closing one insolvent vault does not require repairing the
+other insolvent vault first.
+
+The SDK exposes `dusk.hlpLiquidations.preview` and `buildFlash`. Its route
+callback receives the exact **net payment-vault credit** required. Incoming
+transfers must gross up separately. Builders return instructions without
+signing or submitting, and reject unapproved full closure. A versioned
+transaction with a prepared lookup table is appropriate for composed routes;
+final instruction order must stay unchanged because settle's index is bound.
+
+Cash limits still matter: unpaid receivables are NAV, not flashable token cash.
+If target cash cannot fund an external quote, the quote rejects; the native
+terminal path can retain inventory and cancel unpaid interest. A preview does
+not guarantee external liquidity, profitability, or successful inclusion.
+The complete audit item's review status is recorded in
+[the remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md).
 
 ## Frozen fee split and cash advances (2026-10-19 follow-up)
 
 Approved policy: the LP/protocol split is fixed when reserve cash funds the
 interest. A later protocol-rate change applies only to the unfunded part.
-The native ledger and SDK accounting calculations implement this cutoff;
-**the cash-funding instruction and automatic harvest integration are not yet
-exposed**. Existing harvest still pays funded claims only. External hLP flash
-recovery remains a separate outstanding implementation item.
+The native ledger, public funding instruction and SDK implement this cutoff.
+The holder harvest pays funded claims; the SDK composes funding first. External
+hLP flash recovery follows the vault-wide lifecycle above.
 
 Each asset tracks gross advanced interest and frozen protocol escrow. The
 LP part is transferred to interest custody and credited by its measured net
@@ -179,10 +235,10 @@ native liquidation accounting.
 
 SDK functions `quoteInterestAdvanceAmounts` and `allocateRepaidInterest`
 provide integer accounting amounts, including the effective Token-2022 fee
-and a frozen/current-rate split. They do not establish hLP feasibility or
-build a cash-funded harvest transaction.
+and a frozen/current-rate split. Use the simulated `previewFunding` for hLP feasibility and `buildHarvest`
+for transaction composition.
 
-### Harvest/hedge integration remains unresolved
+### Historical gross-income rehedge diagnostic
 
 A native diagnostic funds interest, publishes its gross hLP-owned LP share,
 and applies the existing full-value hedge reconstruction. This is a tested
@@ -204,14 +260,17 @@ The two larger cases deliberately stress large unpaid balances; they are
 not yield forecasts. The diagnostic excludes token transfer fees and new
 hLP funding interest. It verifies that rehedging preserves each hLP's
 remaining NAV at the fixed pre-rehedge mark within token rounding. The
-changed AMM mark is a separate effect and has not been accepted as harvest
-behavior. Historical funded claims are not used in this experiment.
+changed AMM mark is a separate effect. The user subsequently accepted hedge
+rebalancing moving the mark. Historical funded claims are not used here.
 
-Clarification requested: does the user's price-neutral harvesting requirement
-also cover an automatic hedge rebalance in that transaction? Until resolved,
-no existing controller call is being attached to harvest. The required
-net-yield checkpoint must also restore funding before releasing new holder
-yield; simply publishing the gross hLP share is not sufficient.
+The implemented net-yield checkpoint differs from this gross-income diagnostic:
+it restores funding using only newly earned income before publishing the rest.
+The integration test covers both hLPs and yLP, SPL Token and Token-2022, both
+interest assets, 1x/4x concentration, a 20%-to-60% protocol rate change, actual
+cash-funded harvests and repayment conservation including withheld transfer fees.
+The native allocation matrix covers 108 cases, including 1x/4x/10x concentration,
+three unpaid-interest amounts, funding accrual and capped/uncapped transfer fees.
+It checks each vault's value at the common mark and preserves historical claims.
 
 ### Validation of the advance accounting
 
@@ -224,18 +283,45 @@ and all 18 required compute scenarios, with no pending tests. Existing CU
 ceilings were retained. Ordinary swaps measured 98,640 CU against the unchanged
 strict 100,000 limit; the concentrated public-interest fixture reached 883,010 CU.
 
-The instruction regression seeds a funded accounting/custody state, then runs
+At the previous advance-ledger checkpoint, the instruction regression seeded
+a funded accounting/custody state, then ran
 real repayment transfers with both hLPs at 1x and 4x concentration and both debt
 assets. It freezes 20% on the funded half, changes the current rate to 60%, and
 verifies custody, exact fresh/frozen protocol allocation, LP growth without a
-second payout, and full ledger clearance. This seeded test does not demonstrate
-a public harvest instruction. Native tests cover zero-starting-cash internal
+second payout, and full ledger clearance. The new integration replaces this seeded advance with real funding and harvest
+instructions. Native tests cover zero-starting-cash internal
 repayment, concentrated emergency cancellation, and both hLPs through repayment
 and writeoffs. SDK tests cover effective Token-2022 transfer fees, mixed frozen
-and fresh net-credit allocation, cash caps and u64 precision. The combined
-advance/repayment instruction fixture uses fee-free asset mints; a real
-transfer-fee advance transaction remains part of harvest integration coverage.
+and fresh net-credit allocation, cash caps and u64 precision. The new instruction fixture also covers fee-bearing Token-2022 advances,
+harvests and repayments.
 
-Market layout version 3 adds the two per-asset advance ledgers; all four SDK
+Market layout version 4 includes the two per-asset advance ledgers, temporary
+flash receivables, and per-vault recovery locks; all four SDK
 IDL/type files are regenerated with the source change. This is a development
 interface change, not a deployed migration.
+
+
+## Harvest and flash validation (2026-10-20)
+
+The implementation passes 523 native Dusk tests in each default/production
+profile, including a 108-case harvest conservation matrix. That matrix covers
+both interest assets, 1×/4×/10× concentration, funding gaps, and capped/uncapped
+transfer fees. It checks ordinary yLP value and both hLPs at a common mark,
+including newly published yield and retained capital. Historical funded claims
+are preserved. Existing repayment/writeoff tests exercise the shared advance
+ledger and its frozen protocol allocation.
+
+The SDK has 75 passing checks. The strict LiteSVM suite has 137 passing tests,
+75/75 instructions exercised and all 18 required compute scenarios. Its flash
+matrix executes 24 combinations of target direction, 1×/4× concentration,
+SPL/Token-2022 assets and inventory/AMM/terminal routes. It checks actual SDK
+simulation and execution, preview parity, packet size with a real lookup table,
+missing-settlement and underpayment rollback, full-close opt-in and exclusion
+of pre-begin payment-vault donations. Native tests also exercise two independent
+flash sessions with a swap between begin and settle and principal-loss coverage.
+
+The strict full-suite hLP flash maximum observed before commit is 1,333,784 CU.
+The 1,355,000-CU guard and existing swap ceilings were not raised. This composed
+route has limited extra compute capacity: larger real routes still require
+simulation and can exceed the transaction budget. These checks validate the
+covered execution paths; they do not replace the final full-PR audit.

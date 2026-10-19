@@ -228,6 +228,7 @@ impl<'info> Repay<'info> {
                 debt_receipt.interest_paid,
                 eligibility,
                 remaining_accounts,
+                accounts.event_authority.to_account_info(),
             )?;
             accounts.reserve_vault.reload()?;
 

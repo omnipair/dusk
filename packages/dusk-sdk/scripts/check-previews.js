@@ -6,6 +6,7 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
   VersionedTransaction,
 } from "@solana/web3.js";
 
@@ -246,4 +247,20 @@ test("hLP capacity helper binds all mints and preserves native status, ceilings 
   assert.deepEqual(Array.from(ix.accountKeyIndexes, (i) => tx.message.staticAccountKeys[i].toBase58()), [
     payer, deriveFutarchyAuthorityAddress(programId)[0], baseMint, quoteMint, targetHlpMint,
   ].map((key) => key.toBase58()));
+});
+
+
+test("hLP flash simulation never inserts budgets ahead of a bound settlement", async () => {
+  const { reader, calls } = fixture();
+  const discriminator = [1, 3, 5, 7, 2, 4, 6, 8];
+  reader.program.idl = { instructions: [{ name: "beginHlpFlash", discriminator }] };
+  const begin = new TransactionInstruction({ programId, keys: [], data: Buffer.from(discriminator) });
+  await assert.rejects(reader.simulateWithContext([begin]), /requires planned heap and compute budgets/);
+  assert.equal(calls.length, 0);
+  const instructions = [ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), begin];
+  await reader.simulateWithContext(instructions);
+  const sent = VersionedTransaction.deserialize(Buffer.from(calls[0].params[0], "base64"));
+  assert.deepEqual([...sent.message.compiledInstructions[2].data], discriminator);
+  assert.equal(sent.message.compiledInstructions.length, 3);
 });

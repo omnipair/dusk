@@ -13,6 +13,7 @@ import {
 } from "@solana/spl-token";
 import {
   Dusk,
+  MARKET_LAYOUT_VERSION,
   decodeDuskVirtualBookBatch,
   decodePreviewSwapReturnData,
   combineVirtualBookBatches,
@@ -51,7 +52,23 @@ const currentMarketBytes = Buffer.concat([
   exposureMarketBytes.subarray(quoteFeesOffset),
 ]);
 currentMarketBytes[8] = 3;
-fixture.result.value.accounts[0].data[0] = currentMarketBytes.toString("base64");
+// Adapt the immutable layout-3 fixture through its explicit old schema. This
+// is test data conversion, not a production account migration.
+const fixtureProgram = new Dusk({ connection: new Connection("http://localhost:8899"), programId: fixture.programId }).program;
+const oldIdl = structuredClone(fixtureProgram.idl);
+for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.type.fields.filter(f =>
+  !["flashReceivable", "flashCollateralDebit"].includes(f.name));
+const BorshAccountsCoder = Reflect.get(anchor, "BorshAccountsCoder") ?? Reflect.get(anchor, "default").BorshAccountsCoder;
+const oldAccount = new BorshAccountsCoder(oldIdl).decode("market", currentMarketBytes);
+oldAccount.version = MARKET_LAYOUT_VERSION;
+oldAccount.baseSide.reserves.flashReceivable = new BN(0);
+oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
+oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);
+oldAccount.quoteHlpVault.flashCollateralDebit = new BN(0);
+const body = Buffer.alloc(currentMarketBytes.length + 32);
+const entry = fixtureProgram.coder.accounts.accountLayouts.get("market");
+const size = entry.layout.encode(oldAccount, body);
+fixture.result.value.accounts[0].data[0] = Buffer.concat([currentMarketBytes.subarray(0, 8), body.subarray(0, size)]).toString("base64");
 const slot = fixture.result.context.slot;
 const prefix = `Program return: ${fixture.programId} `;
 // The saved devnet snapshot predates the two trailing output-fee fields.

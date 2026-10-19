@@ -777,6 +777,15 @@ impl Market {
                 total_cash_backed_borrowed(self, asset, self.debt.quote_borrow_index_nad)?,
             ),
         };
+        let flash_collateral = match asset {
+            MarketAsset::Base => self.base_hlp_vault.flash_collateral_debit,
+            MarketAsset::Quote => self.quote_hlp_vault.flash_collateral_debit,
+        };
+        require_eq!(
+            side.reserves.flash_receivable,
+            flash_collateral,
+            ErrorCode::BrokenInvariant
+        );
         let hlp_live = self.hlp_live_reserve(asset)?;
         // Invariants:
         // 1. x_virtual * y_virtual = k (Constant product invariant)
@@ -787,6 +796,7 @@ impl Market {
         // not same-side cash-backed reserve debt.
         let expected_live_reserve = (side.reserves.cash_reserve as u128)
             .checked_add(cash_backed_debt)
+            .and_then(|value| value.checked_add(u128::from(side.reserves.flash_receivable)))
             .and_then(|value| value.checked_add(hlp_live))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_eq!(

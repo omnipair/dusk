@@ -144,10 +144,12 @@ impl<'info> CloseInsolventHlp<'info> {
             base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
             quote_hlp_ylp_shares: ctx.accounts.market.quote_hlp_vault.ylp_shares,
         };
-        let plan =
-            ctx.accounts
-                .market
-                .prepare_terminal_hlp_waterfall(target_asset, args.max_insurance_draw, current_slot)?;
+        let plan = ctx.accounts.market.prepare_terminal_hlp_waterfall(
+            target_asset,
+            args.max_insurance_draw,
+            crate::instructions::leverage_collateral_fee(&ctx.accounts.borrowed_mint, Clock::get()?.epoch)?,
+            current_slot,
+        )?;
         require!(plan.target_asset() == target_asset, ErrorCode::BrokenInvariant);
         let insurance_spent = plan.insurance_request();
         let reserve_before = ctx.accounts.borrowed_reserve_vault.amount;
@@ -288,6 +290,7 @@ impl<'info> CloseInsolventHlp<'info> {
             caller_bounty: caller_bounty_credit,
             insurance_drawn: receipt.insurance_drawn,
             socialized_loss: receipt.socialized_loss,
+            interest_canceled: receipt.interest_canceled,
             remaining_hlp_supply: receipt.remaining_hlp_supply,
         });
         Ok(())

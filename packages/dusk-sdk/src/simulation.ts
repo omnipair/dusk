@@ -86,10 +86,10 @@ export async function simulatePreviewWithContext(
   // preview overwrites Solana's final return-data program ID.
   const simulationInstructions = [...instructions];
   const missingBudgets: TransactionInstruction[] = [];
-  const flashDiscriminator = program.idl?.instructions.find(ix =>
-    ix.name === "beginFlashLiquidation")?.discriminator;
-  const bindsIndices = options.preserveInstructionIndices || (flashDiscriminator && instructions.some(ix =>
-    ix.programId.equals(program.programId) && ix.data.subarray(0, 8).equals(Buffer.from(flashDiscriminator))));
+  const flashDiscriminators = program.idl?.instructions.filter(ix =>
+    ix.name === "beginFlashLiquidation" || ix.name === "beginHlpFlash").map(ix => Buffer.from(ix.discriminator)) ?? [];
+  const bindsIndices = options.preserveInstructionIndices || instructions.some(ix =>
+    ix.programId.equals(program.programId) && flashDiscriminators.some(tag => ix.data.subarray(0, 8).equals(tag)));
   for (const [tag, explicit, budget] of [
     [1, options.heapFrameBytes, ComputeBudgetProgram.requestHeapFrame({ bytes: options.heapFrameBytes ?? 256 * 1024 })],
     [2, options.computeUnitLimit, ComputeBudgetProgram.setComputeUnitLimit({ units: options.computeUnitLimit ?? 1_400_000 })],

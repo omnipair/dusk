@@ -1129,6 +1129,7 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     let hlp_live = market.hlp_live_reserve(asset)?;
     let cash_backed_before = live
         .checked_sub(cash)
+        .and_then(|value| value.checked_sub(u128::from(market.side(asset).reserves.flash_receivable)))
         .and_then(|value| value.checked_sub(hlp_live))
         .ok_or(ErrorCode::BrokenInvariant)?;
     if fixed_shares == 0 && isolated_shares == 0 {

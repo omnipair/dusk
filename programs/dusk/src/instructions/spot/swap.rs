@@ -351,7 +351,7 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
     if !rebalance_executes_token_changes(receipt) {
         return Ok(());
     }
-    require_eq!(
+    require_gte!(
         accounts.prefix_len,
         HLP_SWAP_ACCOUNT_PREFIX_LEN,
         ErrorCode::NotEnoughAccounts

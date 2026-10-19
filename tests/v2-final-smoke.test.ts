@@ -7,6 +7,7 @@ import {
   ACCOUNT_SIZE,
   calculateEpochFee,
   getTransferFeeConfig,
+  getTransferFeeAmount,
   createBurnCheckedInstruction,
   createCloseAccountInstruction,
   createAmountToUiAmountInstruction,
@@ -50,6 +51,8 @@ import {
   SYSVAR_INSTRUCTIONS_PUBKEY,
   Transaction,
   TransactionInstruction,
+  TransactionMessage,
+  VersionedTransaction,
 } from "@solana/web3.js";
 import { expect } from "chai";
 import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
@@ -84,6 +87,8 @@ import {
   decodePreviewSwapReturnData,
 } from "../packages/dusk-sdk/src/preview.js";
 import { createDuskProgram } from "../packages/dusk-sdk/src/program.js";
+import { DuskHlpLiquidations } from "../packages/dusk-sdk/src/hlp-liquidation-client.js";
+import { DuskYield } from "../packages/dusk-sdk/src/yield-client.js";
 import { DuskLiquidations } from "../packages/dusk-sdk/src/liquidation-client.js";
 import { DuskGovernance } from "../packages/dusk-sdk/src/governance-client.js";
 import { dailyBorrowLimitParameterUpdate } from "../packages/dusk-sdk/src/governance.js";
@@ -648,9 +653,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     )[0];
   }
 
-  function cpiEvents(transaction: Transaction): Array<{ name: string; data: any }> {
-    if (!transaction.signature) throw new Error("Transaction has no signature");
-    const result = svm.getTransaction(transaction.signature);
+  function cpiEvents(transaction: Transaction | VersionedTransaction): Array<{ name: string; data: any }> {
+    const signature = transaction instanceof VersionedTransaction ? transaction.signatures[0] : transaction.signature;
+    if (!signature) throw new Error("Transaction has no signature");
+    const result = svm.getTransaction(signature);
     if (!result) throw new Error("LiteSVM transaction metadata was not retained");
     if (typeof (result as any).err === "function") {
       throw new Error(`Cannot decode events from failed transaction: ${(result as any).err()}`);
@@ -658,12 +664,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const eventTag = Buffer.alloc(8);
     eventTag.writeBigUInt64LE(0x1d9acb512ea545e4n);
-    const accountKeys = transaction.compileMessage().accountKeys;
+    const accountKeys = transaction instanceof VersionedTransaction
+      ? transaction.message.getAccountKeys({ addressLookupTableAccounts: transaction.message.addressTableLookups.map(l => new AddressLookupTableAccount({
+        key: l.accountKey, state: AddressLookupTableAccount.deserialize(svm.getAccount(l.accountKey)!.data),
+      })) }) : transaction.compileMessage().accountKeys;
     const events: Array<{ name: string; data: any }> = [];
     for (const group of (result as any).innerInstructions()) {
       for (const inner of group) {
         const instruction = inner.instruction();
-        const invokedProgram = accountKeys[instruction.programIdIndex()];
+        const invokedProgram = Array.isArray(accountKeys) ? accountKeys[instruction.programIdIndex()] : accountKeys.get(instruction.programIdIndex());
         const data = Buffer.from(instruction.data());
         if (
           invokedProgram?.equals(DUSK_PROGRAM_ID) &&
@@ -681,7 +690,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return events;
   }
 
-  function cpiEvent(transaction: Transaction, name: string): any {
+  function cpiEvent(transaction: Transaction | VersionedTransaction, name: string): any {
     const matches = cpiEvents(transaction).filter((event) => event.name === name);
     expect(matches, `${name} CPI event count`).to.have.length(1);
     return matches[0].data;
@@ -1417,6 +1426,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         isWritable: true,
         isSigner: false,
       },
+      { pubkey: fixture.baseMint, isWritable: false, isSigner: false },
+      { pubkey: fixture.quoteMint, isWritable: false, isSigner: false },
+      { pubkey: fixture.baseReserveVault, isWritable: true, isSigner: false },
+      { pubkey: fixture.quoteReserveVault, isWritable: true, isSigner: false },
     ];
   }
 
@@ -4456,6 +4469,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     this.timeout(120_000);
     const raw = (value: any) => BigInt(value.toString());
     const unit = 1_000_000;
+    for (const feeTokens of [false, true]) {
+    const assetProgram = feeTokens ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
     for (const amplification of [1, 4]) {
       for (const interestAsset of ["base", "quote"] as const) {
         const config = marketConfig();
@@ -4468,7 +4483,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const f = await addBalancedLiquidity(212, config, {
           baseDeposit: 1_000_000 * unit, quoteDeposit: 1_000_000 * unit,
           minYlp: 1, baseMint: 3_000_000 * unit, quoteMint: 3_000_000 * unit,
-        });
+        }, 6, assetProgram, feeTokens ? {
+          base: await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n),
+          quote: await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n),
+        } : undefined);
         await openBaseHedge(f, 20_000 * unit);
         await openQuoteHedge(f, 20_000 * unit);
         const debtIsBase = interestAsset === "base";
@@ -4486,7 +4504,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
         }).transaction(), [payer]);
         await connection.sendTransaction(await program.methods.borrow({
-          borrowAmount: new BN(100_000 * unit), minDebtAmountOut: new BN(100_000 * unit),
+          borrowAmount: new BN(100_000 * unit), minDebtAmountOut: new BN(0),
           minLiquidationCfBps: 0, referrer: null,
         }).accounts({
           market: f.market, futarchyAuthority, owner: payer.publicKey,
@@ -4520,10 +4538,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         // First settle the real funding accrual (and any one-time recovery
         // incentive). Round trips below must not repeatedly recreate value.
         const fundingSettlement = await swapBaseForQuote(f, hlpSwapAccounts(f), 1_000 * unit, 1);
-        recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", fundingSettlement);
+        if (!feeTokens) recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", fundingSettlement);
         for (const input of ["base", "quote"] as const) {
           const inputAccount = input === "base" ? f.ownerBaseAccount : f.ownerQuoteAccount;
-          const before = (await getAccount(connection as any, inputAccount)).amount;
+          const before = (await getAccount(connection as any, inputAccount, undefined, assetProgram)).amount;
           const amountIn = 10_000 * unit;
           const preview = decodePreviewSwapReturnData(await simulateReturnData(
             await program.methods.previewSwap({ exactAssetIn: new BN(amountIn) }).accounts({
@@ -4541,50 +4559,69 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           const second = input === "base"
             ? await swapQuoteForBase(f, hlpSwapAccounts(f), event.amountOut.toNumber(), 1)
             : await swapBaseForQuote(f, hlpSwapAccounts(f), event.amountOut.toNumber(), 1);
-          const after = (await getAccount(connection as any, inputAccount)).amount;
+          const after = (await getAccount(connection as any, inputAccount, undefined, assetProgram)).amount;
           expect(after <= before, `amp=${amplification} interest=${interestAsset} input=${input} delta=${after - before} bonus=${event.hlpRecoveryBonusOutput}`).to.equal(true);
-          recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", first);
-          recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", second);
+          if (!feeTokens) recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", first);
+          if (!feeTokens) recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", second);
         }
-        // Seed the accounting/custody result of an interest advance. Harvest
-        // integration is deliberately separate; this tests real repayment CPIs
-        // after funding, with both hLPs present and a later protocol-rate change.
-        const fundedAccount = svm.getAccount(f.market)!;
-        const funded = accountCoder.decode("Market", Buffer.from(fundedAccount.data)) as any;
-        const side = funded[`${interestAsset}_side`];
+        // Execute the real SDK-built cash advance and both-vault hedge settlement.
+        const advanceAuthorityAccount = svm.getAccount(futarchyAuthority)!;
+        const advanceAuthority = accountCoder.decode("FutarchyAuthority", Buffer.from(advanceAuthorityAccount.data)) as any;
+        advanceAuthority.revenue_share.interest_bps = 2_000;
+        svm.setAccount(futarchyAuthority, { ...advanceAuthorityAccount,
+          data: new Uint8Array(await accountCoder.encode("FutarchyAuthority", advanceAuthority)) });
         const advanced = interest / 2n;
-        const frozenProtocol = advanced / 5n; // The funded portion froze 20%.
-        const fundedLp = advanced - frozenProtocol;
-        side.reserves.cash_reserve = side.reserves.cash_reserve.sub(new BN(advanced.toString()));
-        side.reserves.live_reserve = side.reserves.live_reserve.sub(new BN(advanced.toString()));
-        side.fees.public_interest_advance.outstanding_gross = new BN(advanced.toString());
-        side.fees.public_interest_advance.protocol_escrow = new BN(frozenProtocol.toString());
-        side.fees.interest_vault_balance = side.fees.interest_vault_balance.add(new BN(fundedLp.toString()));
-        side.fees.interest_liability = side.fees.interest_liability.add(new BN(fundedLp.toString()));
+        const frozenProtocol = advanced / 5n;
+        const yields = new DuskYield(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
+        const fundParams = { market: f.market, caller: payer.publicKey,
+          maxBaseGross: debtIsBase ? advanced : 0n, maxQuoteGross: debtIsBase ? 0n : advanced };
+        const fundPreview = await yields.previewFunding(fundParams);
+        const fundTx = new Transaction().add(
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+          ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
+          await yields.fundInstruction(fundParams));
+        await connection.sendTransaction(fundTx, [payer]);
+        trackV2Instruction("fundInterest", this.test?.title);
+        const fundEvent = cpiEvent(fundTx, "publicInterestFunded");
+        expect(fundEvent.receipt.grossFunded.map(String)).to.deep.equal(fundPreview.grossFunded.map(String));
+        expect(fundEvent.receipt.hlpYieldPublished.map((r: any[]) => r.map(String)))
+          .to.deep.equal(fundPreview.hlpYieldPublished.map(r => r.map(String)));
+        const funded = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+        const side = funded[`${interestAsset}_side`];
+        expect(raw(side.fees.public_interest_advance.outstanding_gross)).to.equal(advanced);
+        expect(raw(side.fees.public_interest_advance.protocol_escrow)).to.equal(frozenProtocol);
         const supply = raw(side.shares.ylp_supply);
-        const fundedScaled = (fundedLp << 64n) + raw(side.fees.interest_growth_remainder_scaled);
-        side.fees.interest_growth_index_q64 = side.fees.interest_growth_index_q64.add(new BN((fundedScaled / supply).toString()));
-        side.fees.interest_growth_remainder_scaled = new BN((fundedScaled % supply).toString());
-        const fundedBody = Buffer.alloc(fundedAccount.data.length - 8);
-        const fundedSize = layout.encode(funded, fundedBody);
-        svm.setAccount(f.market, { ...fundedAccount, data: new Uint8Array(Buffer.concat([
-          (accountCoder as any).accountDiscriminator("Market"), fundedBody.subarray(0, fundedSize),
-        ])) });
         const reserveVault = debtIsBase ? f.baseReserveVault : f.quoteReserveVault;
         const interestVault = debtIsBase ? f.baseInterestVault : f.quoteInterestVault;
-        for (const [key, delta] of [[reserveVault, -fundedLp], [interestVault, fundedLp]] as const) {
-          const account = svm.getAccount(key)!;
-          const data = Buffer.from(account.data);
-          data.writeBigUInt64LE(data.readBigUInt64LE(64) + delta, 64);
-          svm.setAccount(key, { ...account, data: new Uint8Array(data) });
+        // Every holder uses the same harvest helper. A vault whose entire
+        // new income repaired its hedge correctly has no new claim to collect.
+        for (const kind of ["ylp", "baseHlp", "quoteHlp"] as const) {
+          const holderIndex = kind === "baseHlp" ? 0 : 1;
+          const available = kind === "ylp" || raw(fundEvent.receipt.hlpYieldPublished[holderIndex][debtIsBase ? 0 : 1]) > 0n;
+          if (!available) continue;
+          const wallet = debtIsBase ? f.ownerBaseAccount : f.ownerQuoteAccount;
+          const before = (await getAccount(connection as any, wallet, undefined, assetProgram)).amount;
+          const harvest = await yields.buildHarvest({ market: f.market, owner: payer.publicKey, caller: payer.publicKey,
+            kind, asset: interestAsset, fundAccruedInterest: false });
+          await connection.sendTransaction(harvest.transaction, [payer]);
+          trackV2Instruction("harvest", this.test?.title);
+          const after = (await getAccount(connection as any, wallet, undefined, assetProgram)).amount;
+          const claim = cpiEvent(harvest.transaction, "yieldClaimed");
+          expect(after - before).to.equal(raw(claim.recipientCredit));
+          expect(after > before).to.equal(true);
         }
+        const tokensWithWithheld = async (key: PublicKey) => {
+          const account = await getAccount(connection as any, key, undefined, assetProgram);
+          return account.amount + (getTransferFeeAmount(account)?.withheldAmount ?? 0n);
+        };
+        const custodyBefore = await tokensWithWithheld(reserveVault) + await tokensWithWithheld(interestVault);
+        const debtWallet = debtIsBase ? f.ownerBaseAccount : f.ownerQuoteAccount;
+        const walletBefore = (await getAccount(connection as any, debtWallet, undefined, assetProgram)).amount;
         const authorityAccount = svm.getAccount(futarchyAuthority)!;
         const authority = accountCoder.decode("FutarchyAuthority", Buffer.from(authorityAccount.data)) as any;
         authority.revenue_share.interest_bps = 6_000; // Only the unfunded half uses 60%.
         svm.setAccount(futarchyAuthority, { ...authorityAccount,
           data: new Uint8Array(await accountCoder.encode("FutarchyAuthority", authority)) });
-        const reserveBefore = (await getAccount(connection as any, reserveVault)).amount;
-        const interestBefore = (await getAccount(connection as any, interestVault)).amount;
         const repay = await program.methods.repay({ repayAmount: new BN(200_000 * unit) }).accounts({
           market: f.market, futarchyAuthority, owner: payer.publicKey,
           debtAssetMint: debtMint, collateralAssetMint: collateralMint,
@@ -4592,26 +4629,32 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           borrowPosition, referralPartner: null, referralAccrual: null,
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
           eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-        }).transaction();
+        }).remainingAccounts(hlpSwapAccounts(f)).transaction();
         await connection.sendTransaction(repay, [payer]);
         trackV2Instruction("repay", this.test?.title);
         const repaid = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
         const repaidSide = repaid[`${interestAsset}_side`];
         const fresh = interest - advanced;
-        const freshProtocol = fresh * 6n / 10n;
-        expect((await getAccount(connection as any, reserveVault)).amount - reserveBefore)
-          .to.equal(BigInt(100_000 * unit) + advanced - frozenProtocol);
-        expect((await getAccount(connection as any, interestVault)).amount - interestBefore)
-          .to.equal(fresh + frozenProtocol);
+        const transferGross = fresh + frozenProtocol;
+        const feeConfig = getTransferFeeConfig(await getMint(connection as any, debtMint, undefined, assetProgram));
+        const fee = feeConfig ? calculateEpochFee(feeConfig, svm.getClock().epoch, transferGross) : 0n;
+        const credit = transferGross - fee;
+        const protocolFrozenCredit = credit * frozenProtocol / transferGross;
+        const freshCredit = credit - protocolFrozenCredit;
+        const freshProtocol = freshCredit * 6n / 10n;
+        const custodyAfter = await tokensWithWithheld(reserveVault) + await tokensWithWithheld(interestVault);
+        const walletAfter = (await getAccount(connection as any, debtWallet, undefined, assetProgram)).amount;
+        expect(custodyAfter - custodyBefore).to.equal(walletBefore - walletAfter);
         expect(raw(repaidSide.fees.interest_protocol_fee_liability) - raw(side.fees.interest_protocol_fee_liability))
-          .to.equal(freshProtocol + frozenProtocol);
-        const freshScaled = ((fresh - freshProtocol) << 64n) + raw(side.fees.interest_growth_remainder_scaled);
+          .to.equal(freshProtocol + protocolFrozenCredit);
+        const freshScaled = ((freshCredit - freshProtocol) << 64n) + raw(side.fees.interest_growth_remainder_scaled);
         expect(raw(repaidSide.fees.interest_growth_index_q64) - raw(side.fees.interest_growth_index_q64))
           .to.equal(freshScaled / supply);
         for (const value of Object.values(repaidSide.fees.public_interest_advance)) expect(raw(value)).to.equal(0n);
         expect(raw(repaid.debt[`fixed_${interestAsset}_shares`])).to.equal(0n);
         await resetFutarchyDefaults();
       }
+    }
     }
   });
 
@@ -5642,6 +5685,171 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .transaction();
     await connection.sendTransaction(tx, [payer]);
     trackV2Instruction("rescueHlp", this.test?.title);
+  });
+
+
+  it("settles vault-wide hLP flash recovery atomically with SDK quotes and fee tokens", async function () {
+    this.timeout(180_000);
+    const raw = (v: any) => BigInt(v.toString());
+    for (const fees of [false, true]) for (const amp of [1, 4]) for (const target of ["base", "quote"] as const) for (const mode of ["inventory", "amm", "full"]) {
+      const config = marketConfig();
+      config.amm.peakAmplificationNad = new BN(amp * 1_000_000_000);
+      config.amm.coreHalfWidthBps = amp === 1 ? 0 : 100;
+      config.amm.fadeWidthBps = amp === 1 ? 0 : 400;
+      const tokenProgram = fees ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const f = await addBalancedLiquidity(273, config, {
+        baseDeposit: 1_000_000_000_000, quoteDeposit: 1_000_000_000_000, minYlp: 1,
+        baseMint: 3_000_000_000_000, quoteMint: 3_000_000_000_000,
+      }, 6, tokenProgram, fees ? {
+        base: await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n),
+        quote: await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n),
+      } : undefined);
+      await openBaseHedge(f, 20_000_000_000);
+      await openQuoteHedge(f, 20_000_000_000);
+      const account = svm.getAccount(f.market)!;
+      const m = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+      const borrowed = target === "base" ? "quote" : "base";
+      const indexName = `${borrowed}_borrow_index_nad`;
+      m.debt[indexName] = new BN((raw(m.debt[indexName]) * (mode === "full" ? 12n : 5n) / 4n).toString());
+      const layout = (accountCoder as any).accountLayouts.get("Market").layout;
+      const body = Buffer.alloc(account.data.length - 8);
+      const length = layout.encode(m, body);
+      svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+        (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, length),
+      ])) });
+      const sdk = new DuskHlpLiquidations(createDuskProgram({ provider: program.provider }) as any, payer.publicKey);
+      const paymentRoute = async (c: any) => {
+        const mint = await getMint(connection as any, c.debtMint, undefined, tokenProgram);
+        const schedule = getTransferFeeConfig(mint);
+        const fee = schedule ? calculateEpochFee(schedule, svm.getClock().epoch, c.requiredPaymentCredit) : 0n;
+        const gross = fee > 0n ? grossLiquidationPayment(c.requiredPaymentCredit, {
+          basisPoints: schedule!.newerTransferFee.transferFeeBasisPoints, maximumFee: schedule!.newerTransferFee.maximumFee,
+        }) : c.requiredPaymentCredit;
+        const payment = createTransferCheckedInstruction(mode === "amm" ? c.buyerDebtAccount : (target === "base" ? f.ownerQuoteAccount : f.ownerBaseAccount),
+          c.debtMint, c.repaymentVault, payer.publicKey, gross, 6, [], tokenProgram);
+        if (mode !== "amm") return [payment];
+        // The route funds its obligation entirely by selling the flashed tokens
+        // through Dusk, with no fallback debit from the keeper's inventory.
+        const swap = await program.methods.swap({ exactAssetIn: c.quote.collateralCredit, minAssetOut: new BN(gross.toString()) }).accounts({
+          market: f.market, futarchyAuthority, trader: payer.publicKey,
+          assetInMint: c.collateralMint, assetOutMint: c.debtMint,
+          reserveInVault: target === "base" ? f.baseReserveVault : f.quoteReserveVault,
+          reserveOutVault: target === "base" ? f.quoteReserveVault : f.baseReserveVault,
+          traderAssetInAccount: c.buyerCollateralAccount, traderAssetOutAccount: c.buyerDebtAccount,
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+        }).remainingAccounts(hlpSwapAccounts(f)).instruction();
+        return [swap, payment];
+      };
+      const built = await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, allowFull: mode === "full", route: paymentRoute });
+      const measuredPreview = await simulateReturnData(await program.methods.previewHlpFlash(target === "base" ? 0 : 1).accounts({
+        market: f.market, futarchyAuthority,
+        targetMint: target === "base" ? f.baseMint : f.quoteMint,
+        borrowedMint: target === "base" ? f.quoteMint : f.baseMint,
+      }).transaction());
+      const decodedPreview = sdk.program.coder.types.decode("hlpFlashQuote", measuredPreview) as any;
+      expect(decodedPreview.payment.toString()).to.equal(built.quote.payment.toString());
+      expect(built.quote.full).to.equal(mode === "full");
+      if (mode === "full") {
+        let rejected: unknown;
+        try { await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, route: paymentRoute }); }
+        catch (e) { rejected = e; }
+        expect(String(rejected)).to.include("set allowFull explicitly");
+      }
+      const tableStub = new TransactionInstruction({ programId: DUSK_PROGRAM_ID, data: Buffer.alloc(0),
+        keys: built.instructions.flatMap(ix => [...ix.keys, { pubkey: ix.programId, isWritable: false, isSigner: false }]) });
+      const lastHash = svm.getSlotHashes()[0];
+      lastHash.slot = svm.getClock().slot; lastHash.hash = (await connection.getLatestBlockhash()).blockhash;
+      svm.setSlotHashes([lastHash]);
+      const lookupPlan = marketCreationLookupTablePlan({ payer: payer.publicKey, recentSlot: Number(lastHash.slot), initializeMarketInstruction: tableStub });
+      await connection.sendTransaction(new Transaction().add(lookupPlan.createInstruction), [payer]);
+      for (const ix of lookupPlan.extendInstructions) await connection.sendTransaction(new Transaction().add(ix), [payer]);
+      svm.warpToSlot(svm.getClock().slot + 1n); svm.expireBlockhash();
+      const lookup = new AddressLookupTableAccount({ key: lookupPlan.address,
+        state: AddressLookupTableAccount.deserialize(svm.getAccount(lookupPlan.address)!.data) });
+      const versioned = async (instructions: readonly TransactionInstruction[]) => {
+        const tx = new VersionedTransaction(new TransactionMessage({ payerKey: payer.publicKey,
+          recentBlockhash: (await connection.getLatestBlockhash()).blockhash, instructions: [...instructions],
+        }).compileToV0Message([lookup]));
+        tx.sign([payer]); expect(tx.serialize().length).to.be.at.most(1232); return tx;
+      };
+      // A missing settlement and an underpayment must revert the entire begin,
+      // including market state, collateral transfer, and new session creation.
+      for (const bad of [built.instructions.slice(0, -1), built.instructions.map((ix, i) => {
+        if (i !== built.settleIndex - 1) return ix;
+        const data = Buffer.from(ix.data); data.writeBigUInt64LE(1n, 1);
+        return new TransactionInstruction({ programId: ix.programId, keys: ix.keys, data });
+      })]) {
+        const before = Buffer.from(svm.getAccount(f.market)!.data);
+        const reserve = (await getAccount(connection as any, target === "base" ? f.baseReserveVault : f.quoteReserveVault, undefined, tokenProgram)).amount;
+        let rejected: unknown;
+        try { await connection.sendTransaction(await versioned(bad)); } catch (e) { rejected = e; }
+        expect(rejected, `amp=${amp} target=${target} fees=${fees}`).to.not.equal(undefined);
+        expect(Buffer.from(svm.getAccount(f.market)!.data).equals(before)).to.equal(true);
+        expect((await getAccount(connection as any, target === "base" ? f.baseReserveVault : f.quoteReserveVault, undefined, tokenProgram)).amount).to.equal(reserve);
+        expect(svm.getAccount(built.session)).to.equal(null);
+      }
+      const good = await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, allowFull: mode === "full", route: paymentRoute });
+      const simulation = await sdk.get.simulateWithContext(good.instructions, {
+        lookupTables: [lookup], requireReturnData: false,
+      }).catch((e: any) => { throw new Error(`amp=${amp} target=${target} fees=${fees} mode=${mode}: ${e}\n${e.simulation?.value?.logs?.join("\n")}`); });
+      expect(simulation.value.err).to.equal(null);
+      const tx = await versioned(good.instructions);
+      const beforeTarget = await getAccount(connection as any, good.buyerCollateralAccount, undefined, tokenProgram).catch(() => ({ amount: 0n }));
+      await connection.sendTransaction(tx);
+      const e = cpiEvent(tx as any, "hlpFlashSettled");
+      expect(e.quote.payment.toString()).to.equal(good.quote.payment.toString());
+      expect(e.quote.collateralDebit.toString()).to.equal(good.quote.collateralDebit.toString());
+      expect((await getAccount(connection as any, good.buyerCollateralAccount, undefined, tokenProgram)).amount - beforeTarget.amount)
+        .to.equal(mode === "amm" ? 0n : raw(good.quote.collateralCredit));
+      expect(svm.getAccount(good.session)).to.equal(null);
+      expect((await getAccount(connection as any, good.repaymentVault, undefined, tokenProgram)).amount).to.equal(0n);
+      const after = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+      for (const side of ["base", "quote"]) {
+        const v = after[`${side}_hlp_vault`], other = side === "base" ? "quote" : "base";
+        const claim = raw(after[`${other}_side`].reserves.live_reserve) * raw(v.ylp_shares) / raw(after.base_side.shares.ylp_supply);
+        const debt = (raw(v.debt_shares) * raw(after.debt[`${other}_borrow_index_nad`]) + 999_999_999n) / 1_000_000_000n;
+        if (mode !== "full") expect((debt > claim ? debt - claim : claim - debt) <= 2n).to.equal(true);
+        if (mode === "full" && side === target) {
+          expect(raw(v.ylp_shares)).to.equal(0n); expect(raw(v.debt_shares)).to.equal(0n);
+          expect(raw(v.hlp_supply)).to.equal(raw(m[`${side}_hlp_vault`].hlp_supply));
+          expect(raw(e.loss.insuranceCredit)).to.equal(0n);
+          expect(raw(e.loss.interestCanceled) > 0n).to.equal(true);
+        }
+        expect(raw(after[`${side}_side`].reserves.flash_receivable)).to.equal(0n);
+        expect(raw(v.flash_collateral_debit)).to.equal(0n);
+        const custody = await getAccount(connection as any, side === "base" ? f.baseReserveVault : f.quoteReserveVault, undefined, tokenProgram);
+        const ledger = after[`${side}_side`];
+        expect(custody.amount).to.equal(raw(ledger.reserves.cash_reserve) + raw(ledger.fees.swap_fee_custody_balance)
+          + raw(ledger.reserves.protected_recenter_reserve) + raw(ledger.reserves.base_hlp_backing_inventory)
+          + raw(ledger.reserves.quote_hlp_backing_inventory) + raw(ledger.fees.public_interest_advance.protocol_escrow)
+          + raw(ledger.fees.public_interest_advance.protocol_release_pending));
+      }
+      if (!fees && amp === 1 && target === "base" && mode === "inventory") {
+        // The persistent payment vault already exists. Even a same-transaction
+        // donation BEFORE begin must not satisfy the subsequent obligation.
+        const account = svm.getAccount(f.market)!;
+        const accrued = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+        accrued.debt.quote_borrow_index_nad = new BN((raw(accrued.debt.quote_borrow_index_nad) * 5n / 4n).toString());
+        const data = Buffer.alloc(account.data.length - 8), length = layout.encode(accrued, data);
+        svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+          (accountCoder as any).accountDiscriminator("Market"), data.subarray(0, length),
+        ])) });
+        const quote = await sdk.preview({ market: f.market, targetAsset: target });
+        const donation = createTransferCheckedInstruction(f.ownerQuoteAccount, f.quoteMint,
+          good.repaymentVault, payer.publicKey, raw(quote.payment), 6);
+        const unpaid = await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey,
+          prefixInstructions: [donation], route: () => [],
+        });
+        const before = Buffer.from(svm.getAccount(f.market)!.data);
+        let rejected: unknown;
+        try { await connection.sendTransaction(await versioned(unpaid.instructions)); } catch (e) { rejected = e; }
+        expect(String(rejected)).to.include("InsufficientAmount");
+        expect(Buffer.from(svm.getAccount(f.market)!.data).equals(before)).to.equal(true);
+        expect((await getAccount(connection as any, good.repaymentVault)).amount).to.equal(0n);
+      }
+      for (const name of ["previewHlpFlash", "beginHlpFlash", "settleHlpFlash"]) trackV2Instruction(name, this.test?.title);
+    }
   });
 
   it("closes terminal hLP with a caller bounty and permits receipt cleanup despite another distressed vault", async function () {
@@ -8416,9 +8624,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .map((event) => event.data);
     expect(paidEvents.some((event) => "margin" in event.source)).to.equal(true);
     expect(paidEvents.some((event) => "hlp" in event.source)).to.equal(true);
-    expect(paidEvents.reduce((sum, event) => sum + BigInt(event.interestVaultCredit.toString()), 0n))
-      .to.equal(quoteInterestCredit);
-    expect(quoteInterestCredit >= BigInt(closeEvent.interestPaid.toString())).to.equal(true);
+    const retainedQuoteIncome = cpiEvents(closeMeasurement.transaction)
+      .filter((event) => event.name === "hlpInterestAllocated")
+      .reduce((sum, event) => sum + BigInt(event.data.capitalDebit[0][1].toString())
+        + BigInt(event.data.capitalDebit[1][1].toString()), 0n);
+    const grossInterestCredit = paidEvents.reduce((sum, event) => sum + BigInt(event.interestVaultCredit.toString()), 0n);
+    expect(grossInterestCredit - retainedQuoteIncome).to.equal(quoteInterestCredit);
+    expect(grossInterestCredit >= BigInt(closeEvent.interestPaid.toString())).to.equal(true);
     expect(svm.getAccount(leveragePosition)).to.equal(null);
 
     const afterCloseAccount = svm.getAccount(fixture.market);

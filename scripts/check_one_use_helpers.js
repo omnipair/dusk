@@ -360,6 +360,14 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // New hLP income allocation is a pure transition boundary: economic tests
+  // exercise conservation without custody CPIs; the instruction moves exactly
+  // its returned debits and credits atomically.
+  ["programs/dusk/src/transitions/liquidity/hlp/harvest.rs", new Set(["settle_new_hlp_public_interest"])],
+  // Flash session boundaries are pure accounting kernels, separately exercised
+  // without token CPIs; instructions bind them to custody and atomic settlement.
+  ["programs/dusk/src/transitions/liquidity/hlp/flash.rs", new Set(["begin_hlp_flash_recovery", "settle_hlp_flash_recovery"])],
+  ["programs/dusk/src/transitions/liquidity/hlp/flash_terminal.rs", new Set(["settle_terminal_hlp_flash"])],
   // The advance ledger's funding and one-shot payment consumption boundaries
   // own the frozen fee and transient-credit invariants. Keep these independently
   // testable from reserve mutation and Token-2022 CPIs.

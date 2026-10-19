@@ -741,6 +741,7 @@ impl<'info> SettleFlashLiquidation<'info> {
             loss.interest_paid,
             eligibility,
             ctx.remaining_accounts,
+            ctx.accounts.event_authority.to_account_info(),
         )?;
         emit_liquidation_interest(
             a,

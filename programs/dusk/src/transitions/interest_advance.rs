@@ -113,7 +113,7 @@ impl Market {
     /// reserve vault and is payable only when that interest is actually repaid.
     /// This is the native accounting leg, not a standalone harvest: the caller
     /// must move measured LP custody credit and complete hLP net-yield settlement
-    /// before publishing holder claims. No public instruction invokes it yet.
+    /// before publishing holder claims. `fund_interest` executes this full sequence.
     pub fn fund_public_interest(
         &mut self,
         asset: MarketAsset,

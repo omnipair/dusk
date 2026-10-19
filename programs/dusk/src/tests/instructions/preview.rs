@@ -268,9 +268,8 @@ fn active_reconfigured_concentrated_preview_market() -> Market {
 }
 
 #[test]
-fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest() {
+fn exhausted_hlp_waterfall_cancels_interest_without_spending_principal_insurance() {
     let target_asset = MarketAsset::Base;
-    let borrowed_asset = MarketAsset::Quote;
     let mut market = active_concentrated_preview_market();
     let vault_shares = market.base_hlp_vault.ylp_shares;
     let ylp_supply_before = market.base_side.shares.ylp_supply;
@@ -282,11 +281,8 @@ fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest()
         (market.quote_side.reserves.live_reserve as u128) * (vault_shares as u128) / (ylp_supply_before as u128),
     )
     .unwrap();
-    let target_curve = market.curve_reserve(target_asset).unwrap();
-    let borrowed_curve = market.curve_reserve(borrowed_asset).unwrap();
-    let target_value =
-        u64::try_from(mul_div_u128(target_claim as u128, borrowed_curve as u128, target_curve as u128).unwrap())
-            .unwrap();
+    let price = market.current_concentrated_spot_price_nad().unwrap().unwrap() as u128;
+    let target_value = u64::try_from(mul_div_u128(target_claim as u128, price, NAD as u128).unwrap()).unwrap();
     let collateral = borrowed_claim.checked_add(target_value).unwrap();
     let desired_debt = collateral.checked_add(1_000).unwrap();
     market.debt.quote_borrow_index_nad =
@@ -298,32 +294,22 @@ fn exhausted_hlp_waterfall_draws_insurance_before_socializing_funding_interest()
     let shortfall = actual_debt.saturating_sub(collateral);
     assert!(shortfall > 600);
     assert!(shortfall <= actual_debt.saturating_sub(market.base_hlp_vault.debt_principal));
-    // The shared 50% window admits 600 atoms from 1,200 available. hLP claims
-    // use their eligible loss, without the borrower 75% coverage multiplier.
     market.insurance.quote_available = 1_200;
-
-    // The permissionless instruction deliberately advances debt and the AMM
-    // clock without invoking ordinary hLP settlement, which must reject an
-    // already-exhausted vault.
     market.advance_amm_clock(1).unwrap();
-
-    let mut insurance_capped = market.clone();
-    assert!(insurance_capped
-        .prepare_terminal_hlp_waterfall(target_asset, 599, 1)
-        .is_err());
-
-    let plan = market.prepare_terminal_hlp_waterfall(target_asset, 600, 1).unwrap();
-    assert_eq!(plan.insurance_request(), 600);
-    let before_capped = market.try_to_vec().unwrap();
-    assert!(plan.consume(&mut market, 600, 600, shortfall - 601).is_err());
-    assert_eq!(market.try_to_vec().unwrap(), before_capped);
-
-    let receipt = plan.consume(&mut market, 600, 600, shortfall - 600).unwrap();
-    assert_eq!(receipt.insurance_drawn, 600);
-    assert_eq!(receipt.socialized_loss, shortfall - 600);
+    let plan = market.prepare_terminal_hlp_waterfall(target_asset, 0, crate::transitions::LeverageCollateralFee::default(), 1).unwrap();
+    assert_eq!(plan.insurance_request(), 0);
+    let terminal_price = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+    let terminal_collateral = borrowed_claim + u64::try_from(mul_div_u128(u128::from(target_claim), u128::from(terminal_price), u128::from(NAD)).unwrap()).unwrap();
+    let expected_interest = terminal_collateral.saturating_sub(market.base_hlp_vault.debt_principal)
+        .min(market.quote_side.reserves.cash_reserve);
+    let principal = market.base_hlp_vault.debt_principal;
+    let receipt = plan.consume(&mut market, 0, 0, 0).unwrap();
+    assert_eq!(receipt.insurance_drawn, 0);
+    assert_eq!(receipt.socialized_loss, 0);
+    assert_eq!(receipt.interest_canceled, actual_debt - principal - expected_interest);
     assert_eq!(receipt.debt_closed, actual_debt);
     assert_eq!(receipt.ylp_burn_amount, vault_shares);
-    assert_eq!(market.insurance.quote_available, 600);
+    assert_eq!(market.insurance.quote_available, 1_200);
     assert_eq!(market.base_hlp_vault.ylp_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_principal, 0);

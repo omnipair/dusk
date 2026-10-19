@@ -3657,6 +3657,14 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "flash_collateral_debit",
+            "docs": [
+              "Collateral committed to one atomic flash recovery. Receipt supply is",
+              "fixed until settlement; retail operations on other positions may run."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "ylp_vault",
             "type": "pubkey"
           },
@@ -5061,6 +5069,14 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flash_receivable",
+            "docs": [
+              "Same-transaction collateral receivable. Included in backing, excluded",
+              "from cash available to swaps, loans and withdrawals."
+            ],
+            "type": "u64"
+          },
           {
             "name": "live_reserve",
             "type": "u64"
