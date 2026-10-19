@@ -995,11 +995,11 @@ impl Market {
     }
 
     fn rebase_concentrated_curve_at_current_ordinary_point(&mut self) -> Result<u128> {
-        let ordinary = self.integrated_curve_state_nad()?;
+        let ordinary = self.ordinary_curve_point_nad()?;
         let parameters = self.config.amm.concentrated_curve_parameters()?;
         self.amm.concentrated_curve_cache = prepare_concentrated_cache_at_point(
-            ordinary.ordinary_base,
-            ordinary.ordinary_quote,
+            ordinary.base_reserve,
+            ordinary.quote_reserve,
             self.current_curve_center_price_nad()?,
             parameters,
         )?;

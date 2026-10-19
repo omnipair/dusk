@@ -29,6 +29,8 @@ export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
   "joint_shock_hlp_one_day",
   "hlp_active",
   "token_2022_swap",
+  "public_interest_hlp_cpmm",
+  "public_interest_hlp_concentrated",
 ] as const;
 
 export type SwapComputeScenario = (typeof REQUIRED_SWAP_COMPUTE_SCENARIOS)[number];
@@ -63,22 +65,24 @@ export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
 const COMPUTE_SCENARIO_BASELINES: Partial<
   Record<SwapComputeScenario, ComputeScenarioBaseline>
 > = {
-  cpmm_same_slot: { measuredMaximum: 93_586n, ceiling: 98_266n },
-  cpmm_advanced_slot: { measuredMaximum: 128_732n, ceiling: 135_169n },
-  cpmm_active_debt: { measuredMaximum: 136_947n, ceiling: 143_795n },
-  concentrated_centered: { measuredMaximum: 266_593n, ceiling: 279_923n },
-  concentrated_transition: { measuredMaximum: 267_346n, ceiling: 280_714n },
-  concentrated_tail: { measuredMaximum: 265_033n, ceiling: 278_285n },
-  dynamic_fee_divergence_stress: { measuredMaximum: 368_650n, ceiling: 387_083n },
-  dynamic_fee_volatility_stress: { measuredMaximum: 140_425n, ceiling: 147_447n },
-  retained_surcharge: { measuredMaximum: 369_889n, ceiling: 388_384n },
-  controller_due_recenter: { measuredMaximum: 631_338n, ceiling: 662_905n },
-  concentrated_hlp_active: { measuredMaximum: 355_721n, ceiling: 373_508n },
-  concentrated_hlp_funding_interest: { measuredMaximum: 355_721n, ceiling: 373_508n },
-  joint_shock_hlp_same_slot: { measuredMaximum: 449_203n, ceiling: 471_664n },
-  joint_shock_hlp_one_day: { measuredMaximum: 558_895n, ceiling: 586_840n },
-  hlp_active: { measuredMaximum: 120_929n, ceiling: 126_976n },
-  token_2022_swap: { measuredMaximum: 107_182n, ceiling: 112_542n },
+  cpmm_same_slot: { measuredMaximum: 97_627n, ceiling: 102_509n },
+  cpmm_advanced_slot: { measuredMaximum: 132_773n, ceiling: 139_412n },
+  cpmm_active_debt: { measuredMaximum: 141_586n, ceiling: 148_666n },
+  concentrated_centered: { measuredMaximum: 188_344n, ceiling: 197_762n },
+  concentrated_transition: { measuredMaximum: 189_097n, ceiling: 198_552n },
+  concentrated_tail: { measuredMaximum: 186_784n, ceiling: 196_124n },
+  dynamic_fee_divergence_stress: { measuredMaximum: 290_448n, ceiling: 304_971n },
+  dynamic_fee_volatility_stress: { measuredMaximum: 144_467n, ceiling: 151_691n },
+  retained_surcharge: { measuredMaximum: 291_609n, ceiling: 306_190n },
+  controller_due_recenter: { measuredMaximum: 416_063n, ceiling: 436_867n },
+  concentrated_hlp_active: { measuredMaximum: 835_599n, ceiling: 877_379n },
+  concentrated_hlp_funding_interest: { measuredMaximum: 835_599n, ceiling: 877_379n },
+  joint_shock_hlp_same_slot: { measuredMaximum: 765_516n, ceiling: 803_792n },
+  joint_shock_hlp_one_day: { measuredMaximum: 876_743n, ceiling: 920_581n },
+  hlp_active: { measuredMaximum: 123_337n, ceiling: 129_504n },
+  token_2022_swap: { measuredMaximum: 111_223n, ceiling: 116_785n },
+  public_interest_hlp_cpmm: { measuredMaximum: 262_981n, ceiling: 276_131n },
+  public_interest_hlp_concentrated: { measuredMaximum: 881_839n, ceiling: 925_931n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {

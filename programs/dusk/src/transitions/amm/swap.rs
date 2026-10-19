@@ -281,7 +281,7 @@ impl PreparedSwap {
             // a recorded write-off. Consume protection on loss; an apparent
             // gain cannot manufacture a spendable recenter buffer.
             market.checkpoint_amm_socialized_loss_raw(current_slot)?;
-        } else if quote.fee.compounded_fee_debit > 0 {
+        } else if prepared_cache.is_some() {
             let cache = if socialized_loss {
                 None
             } else {
@@ -289,7 +289,7 @@ impl PreparedSwap {
             };
             market.checkpoint_amm_neutral_inventory_raw(current_slot, cache)?;
         } else {
-            require!(prepared_cache.is_none(), ErrorCode::BrokenInvariant);
+            require_eq!(quote.fee.compounded_fee_debit, 0, ErrorCode::BrokenInvariant);
         }
         // Fixed-debt clearance can still change reserves after the AMM/hLP leg.
         // Observe the complete operation once, including that final change.
@@ -411,7 +411,7 @@ impl SwapRequest {
             market.prepare_amm_for_swap(self.current_slot)?;
         }
 
-        // Concentrated tail+band markets quote and hedge in one algebraic path.
+        // Concentrated tail+band markets freeze one curve/ownership settlement.
         // Apply at most one center target derived from an earlier observation
         // before freezing this swap's fee/curve state. The observation made by
         // this swap can only schedule a target for a later operation.
@@ -425,16 +425,8 @@ impl SwapRequest {
             self.current_unix_timestamp,
             pre_state,
         )?;
-        let integrated_start = market.integrated_curve_state_nad()?;
-        let mut concentrated = market
-            .quote_concentrated_integrated_with_fee_from_state(
-                self.asset_in,
-                self.reserve_credit,
-                preliminary,
-                integrated_start,
-                self.protocol_fee_bps,
-            )?
-            .ok_or(ErrorCode::BrokenInvariant)?;
+        let (integrated_start, mut concentrated) =
+            market.prepare_current_hlp_quote(self.asset_in, self.reserve_credit, preliminary, self.protocol_fee_bps)?;
         if cash_policy == SwapCashPolicy::Spot {
             crate::transitions::liquidity::apply_concentrated_hlp_recovery(
                 market,
@@ -442,6 +434,9 @@ impl SwapRequest {
                 integrated_start,
                 &mut concentrated,
             )?;
+        }
+        if concentrated.recovery.bonus_output > 0 {
+            market.finalize_concentrated_book_curve(integrated_start, &mut concentrated, self.asset_in)?;
         }
         let transition = prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
         let cash_available = match cash_policy {

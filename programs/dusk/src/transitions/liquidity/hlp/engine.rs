@@ -293,7 +293,7 @@ pub(crate) fn apply_concentrated_hlp_recovery(
     require_eq!(supply, market.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
     require!(supply > 0, ErrorCode::SupplyUnderflow);
 
-    let opposite_reserve = market.curve_reserve(asset_in)?;
+    let opposite_reserve = market.side(asset_in).reserves.live_reserve;
     let canonical_opposite_claim = u64::try_from(
         (opposite_reserve as u128)
             .checked_mul(vault.ylp_shares as u128)
@@ -650,10 +650,11 @@ fn prepare_concentrated_hlp_transition_from_end(
     // especially important after fee compounding: recomputing them from the
     // derived ordinary tranche can lose a few reserve atoms.
     let endpoint = integrated::materialized_hlp_endpoint(end)?;
+    let (book_base, book_quote) = end.book_ordinary()?;
     let ownership = reconstruct_hlp_ownership(
         ordinary_supply,
-        end.ordinary_base,
-        end.ordinary_quote,
+        book_base,
+        book_quote,
         end.base_hlp_equity,
         end.quote_hlp_equity,
     )?;
@@ -673,21 +674,25 @@ fn prepare_concentrated_hlp_transition_from_end(
 
     let (base_non_debt_reserve, quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
         // Changing hLP ownership/debt around an already materialized reserve
-        // point must not create or destroy ordinary curve reserves. Remove
-        // public lending interest from the raw live identity just as
-        // `integrated_curve_state_nad` does, then change only hLP funding debt.
+        // point must not create or destroy ordinary backing. Use full live
+        // claims for hedge ownership and debt. Public interest is subtracted
+        // only when converting the completed book endpoint into curve reserves.
         let old_base_hlp_live =
             u64::try_from(market.hlp_live_reserve(MarketAsset::Base)?).map_err(|_| ErrorCode::ReserveOverflow)?;
         let old_quote_hlp_live =
             u64::try_from(market.hlp_live_reserve(MarketAsset::Quote)?).map_err(|_| ErrorCode::ReserveOverflow)?;
         (
             market
-                .curve_reserve(MarketAsset::Base)?
+                .side(MarketAsset::Base)
+                .reserves
+                .live_reserve
                 .checked_sub(old_base_hlp_live)
                 .and_then(|value| value.checked_sub(quote_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
             market
-                .curve_reserve(MarketAsset::Quote)?
+                .side(MarketAsset::Quote)
+                .reserves
+                .live_reserve
                 .checked_sub(old_quote_hlp_live)
                 .and_then(|value| value.checked_sub(base_interest_paid))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
@@ -695,8 +700,8 @@ fn prepare_concentrated_hlp_transition_from_end(
     } else {
         // A quoted swap has not materialized its endpoint yet, so reconstruct
         // the exact post-swap live reserves from the quoted ordinary point.
-        let ordinary_base = market.denormalize_amount_floor(end.ordinary_base, market.base_side.asset_decimals)?;
-        let ordinary_quote = market.denormalize_amount_floor(end.ordinary_quote, market.quote_side.asset_decimals)?;
+        let ordinary_base = market.denormalize_amount_floor(book_base, market.base_side.asset_decimals)?;
+        let ordinary_quote = market.denormalize_amount_floor(book_quote, market.quote_side.asset_decimals)?;
         let base_equity = market.denormalize_amount_floor(end.base_hlp_equity, market.base_side.asset_decimals)?;
         let quote_equity = market.denormalize_amount_floor(end.quote_hlp_equity, market.quote_side.asset_decimals)?;
         (
@@ -750,9 +755,11 @@ fn prepare_concentrated_hlp_transition_from_end(
 
     let final_base_curve_reserve = base_non_debt_reserve
         .checked_add(final_quote_debt)
+        .and_then(|value| value.checked_sub(u64::try_from(market.unrealized_interest(MarketAsset::Base).ok()?).ok()?))
         .ok_or(ErrorCode::ReserveOverflow)?;
     let final_quote_curve_reserve = quote_non_debt_reserve
         .checked_add(final_base_debt)
+        .and_then(|value| value.checked_sub(u64::try_from(market.unrealized_interest(MarketAsset::Quote).ok()?).ok()?))
         .ok_or(ErrorCode::ReserveOverflow)?;
 
     let base_receipt = concentrated_hlp_receipt(
@@ -804,6 +811,31 @@ fn prepare_concentrated_hlp_transition_from_end(
 }
 
 impl ConcentratedHlpTransition {
+    pub(crate) fn final_ordinary_point_nad(
+        &self,
+        market: &Market,
+    ) -> Result<crate::transitions::amm::ConcentratedCurvePoint> {
+        use crate::transitions::amm::{CurveReservesNad, HlpCurveBasis};
+        Ok(HlpCurveBasis::from_inventory(
+            CurveReservesNad {
+                base: market.normalize_amount(
+                    u128::from(self.final_base_curve_reserve) + u128::from(self.base_output_rounding_carry),
+                    market.base_side.asset_decimals,
+                )?,
+                quote: market.normalize_amount(
+                    u128::from(self.final_quote_curve_reserve) + u128::from(self.quote_output_rounding_carry),
+                    market.quote_side.asset_decimals,
+                )?,
+            },
+            self.final_ylp_supply,
+            self.final_base_ylp_shares,
+            self.final_quote_ylp_shares,
+            market.normalize_amount(u128::from(self.final_base_debt), market.quote_side.asset_decimals)?,
+            market.normalize_amount(u128::from(self.final_quote_debt), market.base_side.asset_decimals)?,
+        )?
+        .ordinary)
+    }
+
     pub(crate) fn debt_deltas(&self) -> (i128, i128) {
         (self.base_receipt.debt_delta, self.quote_receipt.debt_delta)
     }
@@ -1008,11 +1040,11 @@ impl Market {
             hlp_supply_before == 0 || pre_entry.disposition.admits_entry(),
             ErrorCode::HlpSettlementUnavailable
         );
-        // An hLP owns ordinary yLP shares. Its two deposit legs must therefore
-        // follow the executable reserve claims, not a 50/50 marginal-value
-        // split (the two coincide only for CPMM).
-        let target_reserve = market.curve_reserve(target_asset)?;
-        let opposite_reserve = market.curve_reserve(target_asset.opposite())?;
+        // The purchase and its funding use the same full-value yLP ratio.
+        // Accrued public interest belongs to the existing shares. A curve-only
+        // funding leg would buy a different claim and leave a hedge residual.
+        let target_reserve = market.side(target_asset).reserves.live_reserve;
+        let opposite_reserve = market.side(target_asset.opposite()).reserves.live_reserve;
         require!(
             target_reserve > 0 && opposite_reserve > 0,
             ErrorCode::InsufficientLiquidity
@@ -1474,14 +1506,10 @@ fn settled_close_target_amount(
         return Ok(target_redeemed);
     }
 
-    let state = market.integrated_curve_state_nad()?;
+    let start = market.ordinary_curve_point_nad()?;
     let geometry = market
         .current_concentrated_curve_geometry()?
         .ok_or(ErrorCode::BrokenInvariant)?;
-    let start = ConcentratedCurvePoint {
-        base_reserve: state.ordinary_base,
-        quote_reserve: state.ordinary_quote,
-    };
     let borrowed_asset = target_asset.opposite();
     if borrowed_redeemed > debt_repaid {
         let surplus_borrowed = borrowed_redeemed
@@ -1901,8 +1929,8 @@ pub(crate) fn hlp_curve_prices_from_base_price_nad(base_in_quote_nad: u128) -> R
 }
 
 /// Economic value of an hLP share, including the yLP claim on public interest
-/// already accrued into live reserves. The hedge controller deliberately uses
-/// executable curve reserves instead; an unpaid receivable is not swap cash.
+/// already accrued into live reserves. The controller uses these same claims;
+/// swap quotes independently exclude unpaid interest from trading reserves.
 fn hlp_share_nav_nad_with_prices(market: &Market, target_asset: MarketAsset, prices: HlpCurvePrices) -> Result<u128> {
     let vault = match target_asset {
         MarketAsset::Base => &market.base_hlp_vault,
@@ -1936,25 +1964,15 @@ fn hlp_nav_nad_with_prices(market: &Market, target_asset: MarketAsset, prices: H
         .ok_or_else(|| ErrorCode::Undercollateralized.into())
 }
 
-fn ylp_curve_underlying_amount(market: &Market, asset: MarketAsset, ylp_amount: u64) -> Result<u64> {
-    let side = market.side(asset);
-    if ylp_amount == 0 || side.shares.ylp_supply == 0 {
-        return Ok(0);
-    }
-    let reserve_amount = (ylp_amount as u128)
-        .checked_mul(market.curve_reserve(asset)? as u128)
-        .and_then(|value| value.checked_div(side.shares.ylp_supply as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(reserve_amount).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
 fn ylp_live_underlying_amount(market: &Market, asset: MarketAsset, ylp_amount: u64) -> Result<u64> {
     let side = market.side(asset);
     ylp_live_underlying_amount_from_values(side.reserves.live_reserve, side.shares.ylp_supply, ylp_amount)
 }
 
 fn ylp_live_underlying_amount_from_values(live_reserve: u64, supply: u64, ylp_amount: u64) -> Result<u64> {
-    require!(ylp_amount > 0, ErrorCode::AmountZero);
+    if ylp_amount == 0 {
+        return Ok(0);
+    }
     require_gte!(supply, ylp_amount, ErrorCode::InsufficientBalance);
     let amount = mul_div_u128(ylp_amount as u128, live_reserve as u128, supply as u128)?;
     u64::try_from(amount).map_err(|_| ErrorCode::MarketMathOverflow.into())
@@ -1990,8 +2008,8 @@ fn current_hlp_inventory_values_nad_with_prices(
         MarketAsset::Quote => &market.quote_hlp_vault,
     };
     let opposite_asset = target_asset.opposite();
-    let target_underlying = ylp_curve_underlying_amount(market, target_asset, vault.ylp_shares)?;
-    let opposite_underlying = ylp_curve_underlying_amount(market, opposite_asset, vault.ylp_shares)?;
+    let target_underlying = ylp_live_underlying_amount(market, target_asset, vault.ylp_shares)?;
+    let opposite_underlying = ylp_live_underlying_amount(market, opposite_asset, vault.ylp_shares)?;
     let debt_amount = u64::try_from(match target_asset {
         MarketAsset::Base => {
             Debt::shares_to_debt(market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad)?

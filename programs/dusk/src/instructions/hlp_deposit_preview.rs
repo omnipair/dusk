@@ -167,8 +167,8 @@ fn preview_hlp_funding_limit(
         return Ok((status, 0));
     }
     market.observe_current_risk(clock.slot)?;
-    let target_reserve = market.curve_reserve(target)?;
-    let opposite_reserve = market.curve_reserve(target.opposite())?;
+    let target_reserve = market.side(target).reserves.live_reserve;
+    let opposite_reserve = market.side(target.opposite()).reserves.live_reserve;
     if target_reserve == 0 || opposite_reserve == 0 {
         return Ok((HlpDepositStatus::NoLiquidity, 0));
     }

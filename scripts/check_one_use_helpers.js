@@ -389,6 +389,10 @@ const acceptedOneUseHelpers = new Map([
     "programs/dusk/src/transitions/amm/mod.rs",
     new Set([
       // Complete swaps now have one caller for these AMM-owned ledger/observation kernels.
+      // These freeze a complete book/curve quote and isolate temporary geometry
+      // so neither routine's caller exceeds the SBF stack-frame limit.
+      "prepare_current_hlp_quote",
+      "prepare_book_curve_mark",
       "credit_protected_recenter_reserve",
       "finalize_amm_trade_after_inventory_checkpoint",
       "liquidity_nad",
@@ -449,6 +453,9 @@ const acceptedOneUseHelpers = new Map([
       "target_asset",
       "prepare_terminal_hlp_waterfall",
       "prepare_concentrated_hlp_transition_at_current_state",
+      // Quote finalization must derive its point from the private, atom-rounded
+      // ownership/debt plan rather than duplicate that accounting in the AMM.
+      "final_ordinary_point_nad",
       "debt_deltas",
       "interest_cash_floors",
       "hlp_valuation_from_values",

@@ -214,3 +214,36 @@ test("order fees use 10 bps, round up, and reject non-u64 values", async () => {
   assert.equal(orderProtocolFeeAccounts(payer, programId, TOKEN_2022_PROGRAM_ID).feeRecipient.toBase58(),
     getAssociatedTokenAddressSync(programId, payer, true, TOKEN_2022_PROGRAM_ID).toBase58());
 });
+
+test("hLP capacity helper binds all mints and preserves native status, ceilings and slot", async () => {
+  const { createDuskProgram } = await import("../dist/program.js");
+  const { deriveFutarchyAuthorityAddress } = await import("../dist/constants.js");
+  const { default: anchor } = await import("@coral-xyz/anchor");
+  const baseMint = new PublicKey(new Uint8Array(32).fill(3));
+  const quoteMint = new PublicKey(new Uint8Array(32).fill(4));
+  const targetHlpMint = new PublicKey(new Uint8Array(32).fill(5));
+  const rpcValue = { err: null, logs: [], returnData: null };
+  const { connection, calls } = fixture(rpcValue);
+  const program = createDuskProgram({ connection, programId });
+  const expected = {
+    market: payer, targetAsset: { base: {} }, hlpMint: targetHlpMint,
+    slot: new anchor.BN(123), epoch: new anchor.BN(9), status: { ready: {} },
+    fundingLimitGross: new anchor.BN(5_101), fundingLimitNet: new anchor.BN(5_000),
+  };
+  const encoded = program.coder.types.encode("hlpDepositCapacityPreview", expected);
+  rpcValue.returnData = { programId: programId.toBase58(), data: [encoded.toString("base64"), "base64"] };
+  const reader = new DuskGet(program);
+  const result = await reader.previewHlpDepositCapacity({
+    market: payer, baseMint, quoteMint, targetHlpMint, feePayer: payer,
+  });
+  assert.deepEqual(result.status, { ready: {} });
+  assert.equal(result.slot.toString(), "123");
+  assert.equal(result.fundingLimitGross.toString(), "5101");
+  assert.equal(result.fundingLimitNet.toString(), "5000");
+  const tx = VersionedTransaction.deserialize(Buffer.from(calls[0].params[0], "base64"));
+  const ix = tx.message.compiledInstructions.at(-1);
+  assert.equal(tx.message.staticAccountKeys[ix.programIdIndex].toBase58(), programId.toBase58());
+  assert.deepEqual(Array.from(ix.accountKeyIndexes, (i) => tx.message.staticAccountKeys[i].toBase58()), [
+    payer, deriveFutarchyAuthorityAddress(programId)[0], baseMint, quoteMint, targetHlpMint,
+  ].map((key) => key.toBase58()));
+});

@@ -106,6 +106,7 @@ pub struct ConcentratedCurveParameters {
 }
 
 impl ConcentratedCurveCache {
+    #[inline(never)]
     pub(crate) fn geometry(self) -> Result<ConcentratedCurveGeometry> {
         require_eq!(
             self.math_revision,
@@ -213,6 +214,9 @@ impl ConcentratedCurveCache {
                     upper_sqrt_price: self.outer_upper_sqrt_price_nad,
                 },
             ];
+            // Every boundary and region uses the same four floored values
+            // per layer. Compute them once, retaining identical rounding.
+            let prepared_layers = [layers[0].prepare()?, layers[1].prepare()?];
             let mut geometry = ConcentratedCurveGeometry {
                 inner_liquidity: self.concentrated_liquidity,
                 shoulder_liquidity,
@@ -222,31 +226,31 @@ impl ConcentratedCurveCache {
             geometry.nested_boundaries = [
                 nested_point_at_sqrt_price(
                     self.tail_liquidity,
-                    layers,
+                    prepared_layers,
                     self.outer_upper_sqrt_price_nad,
                     sqrt_price_scale,
                 )?,
                 nested_point_at_sqrt_price(
                     self.tail_liquidity,
-                    layers,
+                    prepared_layers,
                     self.core_upper_sqrt_price_nad,
                     sqrt_price_scale,
                 )?,
                 nested_point_at_sqrt_price(
                     self.tail_liquidity,
-                    layers,
+                    prepared_layers,
                     self.core_lower_sqrt_price_nad,
                     sqrt_price_scale,
                 )?,
                 nested_point_at_sqrt_price(
                     self.tail_liquidity,
-                    layers,
+                    prepared_layers,
                     self.outer_lower_sqrt_price_nad,
                     sqrt_price_scale,
                 )?,
             ];
             for region in 0..5 {
-                let (base, quote) = nested_region_constants(layers, region, sqrt_price_scale)?;
+                let (base, quote) = nested_region_constants(layers, region, Some(&prepared_layers))?;
                 geometry.nested_base_constants[region] = base;
                 geometry.nested_quote_constants[region] = quote;
             }
@@ -677,7 +681,7 @@ pub(crate) fn prepare_concentrated_cache_at_point(
                     upper_sqrt_price: outer_upper_sqrt_price_nad,
                 },
             ];
-            let (base_constant, quote_constant) = nested_region_constants(layers, region, NAD as u128)?;
+            let (base_constant, quote_constant) = nested_region_constants(layers, region, None)?;
             let active_liquidity = match region {
                 0 | 4 => tail_liquidity,
                 1 | 3 => tail_liquidity
@@ -1026,9 +1030,33 @@ struct ConcentratedCurveLayer {
     upper_sqrt_price: u128,
 }
 
+#[derive(Clone, Copy)]
+struct PreparedCurveLayer {
+    layer: ConcentratedCurveLayer,
+    lower: ConcentratedCurvePoint,
+    upper: ConcentratedCurvePoint,
+}
+
+impl ConcentratedCurveLayer {
+    fn prepare(self) -> Result<PreparedCurveLayer> {
+        let scale = NAD as u128;
+        Ok(PreparedCurveLayer {
+            layer: self,
+            lower: ConcentratedCurvePoint {
+                base_reserve: mul_div_u128(self.liquidity, scale, self.lower_sqrt_price)?,
+                quote_reserve: mul_div_u128(self.liquidity, self.lower_sqrt_price, scale)?,
+            },
+            upper: ConcentratedCurvePoint {
+                base_reserve: mul_div_u128(self.liquidity, scale, self.upper_sqrt_price)?,
+                quote_reserve: mul_div_u128(self.liquidity, self.upper_sqrt_price, scale)?,
+            },
+        })
+    }
+}
+
 fn nested_point_at_sqrt_price(
     tail_liquidity: u128,
-    layers: [ConcentratedCurveLayer; 2],
+    layers: [PreparedCurveLayer; 2],
     sqrt_price: u128,
     sqrt_price_scale: u128,
 ) -> Result<ConcentratedCurvePoint> {
@@ -1036,10 +1064,11 @@ fn nested_point_at_sqrt_price(
     let mut base_reserve = mul_div_u128(tail_liquidity, sqrt_price_scale, sqrt_price)?;
     let mut quote_reserve = mul_div_u128(tail_liquidity, sqrt_price, sqrt_price_scale)?;
     for layer in layers {
-        let base_at_lower = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.lower_sqrt_price)?;
-        let base_at_upper = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.upper_sqrt_price)?;
-        let quote_at_lower = mul_div_u128(layer.liquidity, layer.lower_sqrt_price, sqrt_price_scale)?;
-        let quote_at_upper = mul_div_u128(layer.liquidity, layer.upper_sqrt_price, sqrt_price_scale)?;
+        let base_at_lower = layer.lower.base_reserve;
+        let base_at_upper = layer.upper.base_reserve;
+        let quote_at_lower = layer.lower.quote_reserve;
+        let quote_at_upper = layer.upper.quote_reserve;
+        let layer = layer.layer;
         let (base_claim, quote_claim) = if sqrt_price <= layer.lower_sqrt_price {
             (
                 base_at_lower
@@ -1077,11 +1106,20 @@ fn nested_point_at_sqrt_price(
     })
 }
 
+#[inline(never)]
 fn nested_region_constants(
     layers: [ConcentratedCurveLayer; 2],
     region: usize,
-    sqrt_price_scale: u128,
+    prepared: Option<&[PreparedCurveLayer; 2]>,
 ) -> Result<(ConcentratedSignedReserve, ConcentratedSignedReserve)> {
+    let prepared_storage;
+    let layers = match prepared {
+        Some(prepared) => prepared,
+        None => {
+            prepared_storage = [layers[0].prepare()?, layers[1].prepare()?];
+            &prepared_storage
+        }
+    };
     require!(region <= 4, ErrorCode::BrokenInvariant);
     let states = match region {
         0 => [2_u8, 2_u8],
@@ -1093,11 +1131,11 @@ fn nested_region_constants(
     };
     let mut base = ConcentratedSignedReserve::default();
     let mut quote = ConcentratedSignedReserve::default();
-    for (layer, state) in layers.into_iter().zip(states) {
-        let base_at_lower = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.lower_sqrt_price)?;
-        let base_at_upper = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.upper_sqrt_price)?;
-        let quote_at_lower = mul_div_u128(layer.liquidity, layer.lower_sqrt_price, sqrt_price_scale)?;
-        let quote_at_upper = mul_div_u128(layer.liquidity, layer.upper_sqrt_price, sqrt_price_scale)?;
+    for (layer, state) in layers.iter().zip(states) {
+        let base_at_lower = layer.lower.base_reserve;
+        let base_at_upper = layer.upper.base_reserve;
+        let quote_at_lower = layer.lower.quote_reserve;
+        let quote_at_upper = layer.upper.quote_reserve;
         match state {
             0 => base.add_positive(
                 base_at_lower

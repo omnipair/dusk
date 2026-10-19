@@ -10,7 +10,7 @@ pub(crate) use solver::*;
 
 use super::*;
 use crate::transitions::{
-    amm::{ConcentratedCurveDirection, ConcentratedCurvePoint, ConcentratedIntegratedAmmQuote},
+    amm::{ConcentratedCurveDirection, ConcentratedIntegratedAmmQuote},
     DebtClearance, DebtRepaymentQuote, HlpRecoveryBreakdown,
 };
 use crate::{constants::*, math::*, state::*};

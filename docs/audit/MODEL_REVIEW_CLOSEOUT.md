@@ -1,6 +1,6 @@
 # External model review: remediation status
 
-Updated 2026-10-18. Original reviewed head: `3d9bae7f`. Follow-up base:
+Updated 2026-10-19. Original reviewed head: `3d9bae7f`. Follow-up base:
 `5c0aca7f`. **PR #45 is not ready to merge or deploy.**
 
 The original review locally verified seven findings. The external model runs
@@ -74,18 +74,30 @@ The selected policy is unchanged: full accrued public-interest value for LP
 ownership, cash-limited exits without a separate unpaid claim after exit, and
 public unpaid interest excluded from AMM pricing reserves.
 
-Those rules are not consistently implemented in hLP entry and reconstruction.
-New hLP funding uses curve reserves, while its underlying yLP purchase and share
-NAV use live reserves. A public receivable can therefore make a deposit create
-a hedge residual. Merely changing the funding ratio to live reserves fixed four
-of eight local matrix cases; opposite-asset-interest cases still failed. That
-incomplete prototype was archived and is not part of the candidate runtime.
+The accounting correction gives hLP entry and reconstruction the same
+full-value backing as yLP. It keeps separate book offsets outside swap-pricing
+coordinates, retains reserve/cash checks, and marks opposite-asset residuals
+at the concentrated curve price. Native regressions cover both hLPs, both
+interest assets, concentration, repayment and writeoffs, and positive-value
+recovery from the old curve-only insolvency condition.
 
-Closing OR-NM-004 and this entry mismatch requires testing the complete hedge
-transition against ordinary yLP and both hLP vaults' economic value. Neither
-relaxing the hedge guard nor excluding earned interest from share NAV is an
-approved remedy. No merge or deployment should rely on green CI alone while
-these items remain open.
+A further local economic regression found a repeatable fee-free round-trip
+credit when the book-value candidate reconstructed ownership after pricing.
+The revised candidate certifies the actual reconstructed endpoint before
+choosing trader output. It passes repeated-cycle checks at two concentration
+levels and both trade directions. The complete local CI sequence now passes:
+513 default/production Dusk tests, 70 SDK checks and 136 strict LiteSVM tests,
+including real public-debt/funding accrual and both-asset round trips. All 18
+required compute scenarios are covered. The full review remains a gate.
+The accounting note records the material concentrated hLP compute increase.
+
+This is partial remediation, not closeout. The approved cash-funded harvest
+advance ledger, funding-before-new-yield sequencing, external hLP flash
+execution, shared terminal/native/flash valuation and loss rules, SDK support
+and instruction-level coverage still need completion. No merge or deployment
+should rely on native tests alone. The recovery target is confirmed as
+opposite-token neutrality, including when concentration makes gross leverage
+differ from 2x.
 
 Other model hypotheses remain unverified, including terminal cohort restart,
 orphaned final-token burns, borrower principal pooling and delegated execution

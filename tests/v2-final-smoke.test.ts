@@ -4452,6 +4452,104 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(recentered.curve_revision.gt(recentered.risk_revision)).to.equal(true);
   });
 
+  it("settles public-interest hLP round trips within the transaction budget", async function () {
+    this.timeout(120_000);
+    const raw = (value: any) => BigInt(value.toString());
+    const unit = 1_000_000;
+    for (const amplification of [1, 4]) {
+      for (const interestAsset of ["base", "quote"] as const) {
+        const config = marketConfig();
+        config.swapFeeBps = 0;
+        config.divergenceFeeShareCapBps = 0;
+        config.volatilityFeeShareCapBps = 0;
+        config.amm.peakAmplificationNad = new BN(amplification * 1_000_000_000);
+        config.amm.coreHalfWidthBps = amplification === 1 ? 0 : 100;
+        config.amm.fadeWidthBps = amplification === 1 ? 0 : 400;
+        const f = await addBalancedLiquidity(212, config, {
+          baseDeposit: 1_000_000 * unit, quoteDeposit: 1_000_000 * unit,
+          minYlp: 1, baseMint: 3_000_000 * unit, quoteMint: 3_000_000 * unit,
+        });
+        await openBaseHedge(f, 20_000 * unit);
+        await openQuoteHedge(f, 20_000 * unit);
+        const debtIsBase = interestAsset === "base";
+        const debtMint = debtIsBase ? f.baseMint : f.quoteMint;
+        const collateralMint = debtIsBase ? f.quoteMint : f.baseMint;
+        const positionId = Keypair.generate().publicKey;
+        const borrowPosition = deriveBorrowPositionAddress(f.market, payer.publicKey, positionId)[0];
+        await connection.sendTransaction(await program.methods.depositCollateral({
+          positionId, depositAmount: new BN(800_000 * unit),
+        }).accounts({
+          market: f.market, owner: payer.publicKey, assetMint: collateralMint,
+          collateralVault: debtIsBase ? f.quoteCollateralVault : f.baseCollateralVault,
+          ownerAssetAccount: debtIsBase ? f.ownerQuoteAccount : f.ownerBaseAccount,
+          borrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+          systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+        }).transaction(), [payer]);
+        await connection.sendTransaction(await program.methods.borrow({
+          borrowAmount: new BN(100_000 * unit), minDebtAmountOut: new BN(100_000 * unit),
+          minLiquidationCfBps: 0, referrer: null,
+        }).accounts({
+          market: f.market, futarchyAuthority, owner: payer.publicKey,
+          debtAssetMint: debtMint, collateralAssetMint: collateralMint,
+          reserveVault: debtIsBase ? f.baseReserveVault : f.quoteReserveVault,
+          ownerDebtAccount: debtIsBase ? f.ownerBaseAccount : f.ownerQuoteAccount,
+          borrowPosition, referralPartner: null, referralAccrual: null,
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+          eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+        }).transaction(), [payer]);
+        // Materialize a deterministic 12.5% accrual on real outstanding public
+        // debt. The same index also accrues hLP funding debt; only public
+        // interest increases live reserves. Reserve token cash stays unchanged.
+        const account = svm.getAccount(f.market)!;
+        const accrued = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+        const indexField = `${interestAsset}_borrow_index_nad`;
+        const publicShares = raw(accrued.debt[`fixed_${interestAsset}_shares`]);
+        const oldIndex = raw(accrued.debt[indexField]);
+        const newIndex = oldIndex * 9n / 8n;
+        const interest = publicShares * newIndex / 1_000_000_000n - publicShares * oldIndex / 1_000_000_000n;
+        accrued.debt[indexField] = new BN(newIndex.toString());
+        accrued[`${interestAsset}_side`].reserves.live_reserve =
+          accrued[`${interestAsset}_side`].reserves.live_reserve.add(new BN(interest.toString()));
+        const layout = (accountCoder as any).accountLayouts.get("Market").layout;
+        const body = Buffer.alloc(account.data.length - 8);
+        const size = layout.encode(accrued, body);
+        svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+          (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, size),
+        ])) });
+        expect(interest).to.equal(BigInt(12_500 * unit));
+        // First settle the real funding accrual (and any one-time recovery
+        // incentive). Round trips below must not repeatedly recreate value.
+        const fundingSettlement = await swapBaseForQuote(f, hlpSwapAccounts(f), 1_000 * unit, 1);
+        recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", fundingSettlement);
+        for (const input of ["base", "quote"] as const) {
+          const inputAccount = input === "base" ? f.ownerBaseAccount : f.ownerQuoteAccount;
+          const before = (await getAccount(connection as any, inputAccount)).amount;
+          const amountIn = 10_000 * unit;
+          const preview = decodePreviewSwapReturnData(await simulateReturnData(
+            await program.methods.previewSwap({ exactAssetIn: new BN(amountIn) }).accounts({
+              market: f.market, futarchyAuthority,
+              assetInMint: input === "base" ? f.baseMint : f.quoteMint,
+              assetOutMint: input === "base" ? f.quoteMint : f.baseMint,
+            }).transaction()
+          )) as any;
+          const first = input === "base"
+            ? await swapBaseForQuote(f, hlpSwapAccounts(f), amountIn, 1)
+            : await swapQuoteForBase(f, hlpSwapAccounts(f), amountIn, 1);
+          const event = cpiEvent(first.transaction, "swapExecuted");
+          expect(event.amountOut.toString()).to.equal(preview.amountOut.toString());
+          await expectSwapMarketState(event, f.market);
+          const second = input === "base"
+            ? await swapQuoteForBase(f, hlpSwapAccounts(f), event.amountOut.toNumber(), 1)
+            : await swapBaseForQuote(f, hlpSwapAccounts(f), event.amountOut.toNumber(), 1);
+          const after = (await getAccount(connection as any, inputAccount)).amount;
+          expect(after <= before, `amp=${amplification} interest=${interestAsset} input=${input} delta=${after - before} bonus=${event.hlpRecoveryBonusOutput}`).to.equal(true);
+          recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", first);
+          recordSwapComputeScenario(amplification === 1 ? "public_interest_hlp_cpmm" : "public_interest_hlp_concentrated", second);
+        }
+      }
+    }
+  });
+
   it("measures O(1) concentrated hLP swap with fee compounding", async function () {
     this.timeout(120_000);
 

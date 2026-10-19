@@ -44,6 +44,8 @@ import {
 import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type AddressLike } from "./address.js";
 import { getStoredLeverageMargins } from "./leverage-margins.js";
 import {
+  decodePreviewHlpDepositCapacityReturnData,
+  type HlpDepositCapacityPreview,
   decodePreviewAddLiquidityReturnData,
   decodePreviewBorrowCapacityReturnData,
   decodePreviewBorrowPositionReturnData,
@@ -90,6 +92,14 @@ export const pda = {
   parameterProposal: deriveParameterProposalAddress,
   proposalSupport: deriveProposalSupportAddress,
 } as const;
+
+export interface PreviewHlpDepositCapacityParams extends SimulateOptions {
+  market: AddressLike;
+  futarchyAuthority?: AddressLike;
+  baseMint: AddressLike;
+  quoteMint: AddressLike;
+  targetHlpMint: AddressLike;
+}
 
 export interface PreviewSwapParams extends SimulateOptions {
   market: AddressLike;
@@ -302,6 +312,21 @@ export class DuskGet {
     const instruction = await this.previewInstruction("previewMarket", [], normalizeAccountKeys({ market }));
 
     return decodePreviewMarketReturnData(await this.simulateReturnData(instruction, options));
+  }
+
+  /** Current full-value hedge admission and funding ceiling, including transfer fees.
+   * A Ready status is not an amount-specific execution guarantee; simulate the
+   * completed deposit transaction to check rounding, slippage and custody.
+   */
+  async previewHlpDepositCapacity(params: PreviewHlpDepositCapacityParams): Promise<HlpDepositCapacityPreview> {
+    const instruction = await this.previewInstruction("previewHlpDepositCapacity", [], normalizeAccountKeys({
+      market: params.market,
+      futarchyAuthority: params.futarchyAuthority ?? deriveFutarchyAuthorityAddress(this.program.programId)[0],
+      baseMint: params.baseMint,
+      quoteMint: params.quoteMint,
+      targetHlpMint: params.targetHlpMint,
+    }));
+    return decodePreviewHlpDepositCapacityReturnData(await this.simulateReturnData(instruction, params));
   }
 
   async previewAddLiquidity(params: PreviewAddLiquidityParams): Promise<AddLiquidityPreview> {

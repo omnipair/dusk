@@ -53,22 +53,22 @@ fn gross_limit_includes_transfer_fee_plateaus_and_caps() {
 }
 
 #[test]
-fn native_preview_explains_meta_rejection_and_quotes_usdc_funding() {
+fn native_preview_uses_full_value_hedge_and_quotes_both_funding_limits() {
     let (mut market, clock) = snapshot();
     let (status, limit) =
         preview_hlp_funding_limit(&mut market, MarketAsset::Base, 10_000_000, false, &clock).unwrap();
-    assert_eq!((status, limit), (HlpDepositStatus::RebalanceRequired, 0));
-    // This is precisely the deployed transaction guard, not a UI heuristic.
-    assert_eq!(
-        market.assert_hlp_entry_available(MarketAsset::Base).unwrap_err(),
-        error!(ErrorCode::HlpSettlementUnavailable)
-    );
+    assert_eq!(status, HlpDepositStatus::Ready);
+    assert!(limit > 0);
+    market.assert_hlp_entry_available(MarketAsset::Base).unwrap();
+    // Ready reports current hedge/funding headroom. An amount-specific entry
+    // still enforces the native post-mint rounding bound.
+    assert_eq!(market.deposit_single_sided(MarketAsset::Base, 10_000_000, 1).unwrap_err(), error!(ErrorCode::HlpSettlementUnavailable));
     let (mut market, clock) = snapshot();
     let (status, limit) = preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock).unwrap();
     assert_eq!(status, HlpDepositStatus::Ready);
     assert!(limit > 0);
-    let target = market.curve_reserve(MarketAsset::Quote).unwrap() as u128;
-    let opposite = market.curve_reserve(MarketAsset::Base).unwrap() as u128;
+    let target = market.quote_side.reserves.live_reserve as u128;
+    let opposite = market.base_side.reserves.live_reserve as u128;
     let index = market.debt.base_borrow_index_nad;
     let fits = |amount: u64| {
         let borrowed = (amount as u128) * opposite / target;

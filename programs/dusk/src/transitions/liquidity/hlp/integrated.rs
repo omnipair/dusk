@@ -1,8 +1,9 @@
-//! O(1) integrated curve + opposite-asset-neutral hLP transition.
+//! Integrated curve and opposite-asset-neutral hLP settlement.
 //!
-//! Trader cash moves on the ordinary yLP tranche `(U,V)`. hLP synthetic liquidity is
-//! reconstructed afterward from fixed target-asset equities, which keeps both
-//! hLPs exactly one-sided without a finite-difference or Broyden solve.
+//! Cash flow and full-value ownership have separate coordinates when public
+//! interest is unpaid. With no such hLP receivable, quoting stays analytic.
+//! Otherwise, a bounded, certified search prices the actual reconstructed
+//! endpoint so updating ownership cannot reset the curve between two trades.
 
 use anchor_lang::prelude::*;
 
@@ -23,7 +24,7 @@ pub(crate) enum IntegratedSwapDirection {
 
 /// Ordinary-yLP cash curve plus fixed hLP target-asset equities.
 ///
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct IntegratedCurveState {
     pub ordinary_base: u128,
     pub ordinary_quote: u128,
@@ -31,6 +32,93 @@ pub(crate) struct IntegratedCurveState {
     pub quote_hlp_equity: u128,
     pub base_hlp_quote_debt: u128,
     pub quote_hlp_base_debt: u128,
+    // Book ownership includes accrued public interest; the trading coordinates
+    // above do not. Offsets are frozen for one quote, so trader cash moves both
+    // ledgers equally without inserting an unpaid receivable into the curve.
+    pub ordinary_base_book_offset: i128,
+    pub ordinary_quote_book_offset: i128,
+    pub base_unpaid_interest: u128,
+    pub quote_unpaid_interest: u128,
+    pub base_atom_nad: u128,
+    pub quote_atom_nad: u128,
+}
+
+impl IntegratedCurveState {
+    pub(crate) fn uses_book_hedge(self) -> bool {
+        (self.base_hlp_equity > 0 || self.quote_hlp_equity > 0)
+            && (self.ordinary_base_book_offset != 0 || self.ordinary_quote_book_offset != 0)
+    }
+
+    // Reconstruct the curve coordinates that the completed full-value hedge
+    // will actually expose. This is separate from the cash-flow coordinates:
+    // changing ownership also changes the fraction of excluded receivables.
+    #[inline(never)]
+    pub(crate) fn reconstructed_curve_point(self) -> Result<Option<ConcentratedCurvePoint>> {
+        let endpoint = reconstruct_hlp_endpoint(self)?;
+        let base_live = endpoint
+            .total_base
+            .checked_add(self.base_unpaid_interest)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        let quote_live = endpoint
+            .total_quote
+            .checked_add(self.quote_unpaid_interest)
+            .ok_or(ErrorCode::ReserveOverflow)?;
+        if endpoint.total_base == 0 || endpoint.total_quote == 0 {
+            return Ok(None);
+        }
+        let base_claim = mul_div_u128(self.base_hlp_equity, endpoint.total_base, base_live)?;
+        let base_opposite = mul_div_u128(self.base_hlp_equity, endpoint.total_quote, base_live)?;
+        let quote_claim = mul_div_u128(self.quote_hlp_equity, endpoint.total_quote, quote_live)?;
+        let quote_opposite = mul_div_u128(self.quote_hlp_equity, endpoint.total_base, quote_live)?;
+        let signed = |v: u128| i128::try_from(v).map_err(|_| ErrorCode::MarketMathOverflow);
+        let value = |claim: u128, debt: u128, numerator: u128, denominator: u128| -> Result<i128> {
+            let v = signed(mul_div_u128(claim.abs_diff(debt), numerator, denominator)?)?;
+            Ok(if claim < debt { -v } else { v })
+        };
+        let base_equity = signed(base_claim)?
+            .checked_add(value(
+                base_opposite,
+                endpoint.base_hlp_quote_debt,
+                endpoint.total_base,
+                endpoint.total_quote,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote_equity = signed(quote_claim)?
+            .checked_add(value(
+                quote_opposite,
+                endpoint.quote_hlp_base_debt,
+                endpoint.total_quote,
+                endpoint.total_base,
+            )?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let base = signed(endpoint.total_base)?
+            .checked_sub(base_equity)
+            .and_then(|v| v.checked_sub(signed(endpoint.quote_hlp_base_debt).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote = signed(endpoint.total_quote)?
+            .checked_sub(quote_equity)
+            .and_then(|v| v.checked_sub(signed(endpoint.base_hlp_quote_debt).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok((base > 0 && quote > 0).then_some(ConcentratedCurvePoint {
+            base_reserve: base.max(0) as u128,
+            quote_reserve: quote.max(0) as u128,
+        }))
+    }
+
+    pub(crate) fn book_ordinary(self) -> Result<(u128, u128)> {
+        let add_offset = |amount: u128, offset: i128| -> Result<u128> {
+            if offset >= 0 {
+                amount.checked_add(offset as u128)
+            } else {
+                amount.checked_sub(offset.unsigned_abs())
+            }
+            .ok_or_else(|| ErrorCode::InsufficientLiquidity.into())
+        };
+        Ok((
+            add_offset(self.ordinary_base, self.ordinary_base_book_offset)?,
+            add_offset(self.ordinary_quote, self.ordinary_quote_book_offset)?,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -70,6 +158,7 @@ impl IntegratedCurveState {
             quote_hlp_equity,
             base_hlp_quote_debt: base_hlp_quote_claim,
             quote_hlp_base_debt: quote_hlp_base_claim,
+            ..Self::default()
         })
     }
 }
@@ -137,6 +226,7 @@ pub(crate) struct IntegratedExactInQuote {
     pub base_hlp_quote_debt_delta: i128,
     pub quote_hlp_base_debt_delta: i128,
     pub curve: ConcentratedCurveQuote,
+    pub pricing_end: ConcentratedCurvePoint,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,32 +247,12 @@ fn signed_delta(end: u128, start: u128) -> Result<i128> {
     }
 }
 
-pub(crate) fn reconstruct_hlp_endpoint(state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
-    require!(
-        state.ordinary_base > 0 && state.ordinary_quote > 0,
-        ErrorCode::InsufficientLiquidity
-    );
-
-    let base_from_quote_hlp = mul_div_u128(state.quote_hlp_equity, state.ordinary_base, state.ordinary_quote)?;
-    let quote_from_base_hlp = mul_div_u128(state.base_hlp_equity, state.ordinary_quote, state.ordinary_base)?;
-
-    let total_base = state
-        .ordinary_base
-        .checked_add(state.base_hlp_equity)
-        .and_then(|value| value.checked_add(base_from_quote_hlp))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let total_quote = state
-        .ordinary_quote
-        .checked_add(state.quote_hlp_equity)
-        .and_then(|value| value.checked_add(quote_from_base_hlp))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-
-    Ok(IntegratedHlpEndpoint {
-        total_base,
-        total_quote,
-        base_hlp_quote_debt: quote_from_base_hlp,
-        quote_hlp_base_debt: base_from_quote_hlp,
-    })
+pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
+    let (base, quote) = state.book_ordinary()?;
+    require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
+    state.quote_hlp_base_debt = mul_div_u128(state.quote_hlp_equity, base, quote)?;
+    state.base_hlp_quote_debt = mul_div_u128(state.base_hlp_equity, quote, base)?;
+    materialized_hlp_endpoint(state)
 }
 
 /// Applies an hLP-funded target-asset output bonus after the ordinary curve
@@ -227,13 +297,14 @@ pub(crate) fn apply_hlp_recovery_bonus(
 /// Adds one already-priced LP fee to total reserves and attributes its value
 /// to the yLP owners which existed before the swap. Ordinary yLP supply stays
 /// fixed; each hLP's pro-rata fee gain is converted into its target-asset
-/// equity at the final total-reserve ratio, then the canonical one-sided
+/// equity at the frozen concentrated curve endpoint price, then the one-sided
 /// claims and debts are reconstructed algebraically.
 pub(crate) fn apply_compounded_ylp_fee(
     start: IntegratedCurveState,
     quote: &mut IntegratedFrozenFeeQuote,
     fee_is_base: bool,
     compounded_fee_nad: u128,
+    endpoint_price_nad: u128,
     eligible_ylp_supply: u64,
     base_hlp_ylp_shares: u64,
     quote_hlp_ylp_shares: u64,
@@ -242,6 +313,7 @@ pub(crate) fn apply_compounded_ylp_fee(
         return Ok(());
     }
     require!(eligible_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+    require!(endpoint_price_nad > 0, ErrorCode::InvalidSettlementPrice);
     require_gte!(
         eligible_ylp_supply,
         base_hlp_ylp_shares
@@ -270,7 +342,7 @@ pub(crate) fn apply_compounded_ylp_fee(
     // exactly `compounded_fee_nad`; the matching hedge debt remains the sole
     // additional funded reserve movement.
     if fee_is_base {
-        let quote_equity_gain = mul_div_u128(quote_hlp_fee, end.ordinary_quote, end.ordinary_base)?;
+        let quote_equity_gain = mul_div_u128(quote_hlp_fee, endpoint_price_nad, crate::constants::NAD as u128)?;
         end.ordinary_base = end
             .ordinary_base
             .checked_add(
@@ -292,7 +364,7 @@ pub(crate) fn apply_compounded_ylp_fee(
             .checked_add(quote_equity_gain)
             .ok_or(ErrorCode::MarketMathOverflow)?;
     } else {
-        let base_equity_gain = mul_div_u128(base_hlp_fee, end.ordinary_base, end.ordinary_quote)?;
+        let base_equity_gain = mul_div_u128(base_hlp_fee, crate::constants::NAD as u128, endpoint_price_nad)?;
         end.ordinary_quote = end
             .ordinary_quote
             .checked_add(
@@ -324,15 +396,16 @@ pub(crate) fn apply_compounded_ylp_fee(
 }
 
 pub(crate) fn materialized_hlp_endpoint(state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
-    let total_base = state
-        .ordinary_base
+    let (base, quote) = state.book_ordinary()?;
+    let total_base = base
         .checked_add(state.base_hlp_equity)
         .and_then(|value| value.checked_add(state.quote_hlp_base_debt))
+        .and_then(|value| value.checked_sub(state.base_unpaid_interest))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let total_quote = state
-        .ordinary_quote
+    let total_quote = quote
         .checked_add(state.quote_hlp_equity)
         .and_then(|value| value.checked_add(state.base_hlp_quote_debt))
+        .and_then(|value| value.checked_sub(state.quote_unpaid_interest))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     Ok(IntegratedHlpEndpoint {
         total_base,
@@ -342,10 +415,11 @@ pub(crate) fn materialized_hlp_endpoint(state: IntegratedCurveState) -> Result<I
     })
 }
 
-/// One exact-input virtual-reserve CPMM quote followed by an exact algebraic
-/// hLP reconstruction. The caller may invoke this once on gross input to price
-/// toxicity and once on final net input; neither call feeds a newly retained
-/// fee back into its own curve state.
+/// Quotes exact trader cash flow and the matching hLP ownership endpoint.
+/// Public receivables stay outside pricing principal; an active full-value
+/// hedge must nevertheless use its reconstructed endpoint in the invariant.
+/// Retained fees do not feed back into the trade that generated them.
+#[inline(never)]
 pub(crate) fn quote_integrated_exact_in(
     state: IntegratedCurveState,
     geometry: ConcentratedCurveGeometry,
@@ -362,18 +436,157 @@ pub(crate) fn quote_integrated_exact_in(
         IntegratedSwapDirection::BaseToQuote => ConcentratedCurveDirection::BaseToQuote,
         IntegratedSwapDirection::QuoteToBase => ConcentratedCurveDirection::QuoteToBase,
     };
-    let curve = geometry.quote_exact_in_prevalidated(
+    if state.uses_book_hedge() && (state.base_unpaid_interest > 0 || state.quote_unpaid_interest > 0) {
+        let start = state
+            .reconstructed_curve_point()?
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        let (book_base, book_quote) = state.book_ordinary()?;
+        let output_limit = match direction {
+            IntegratedSwapDirection::BaseToQuote => state.ordinary_quote.min(book_quote),
+            IntegratedSwapDirection::QuoteToBase => state.ordinary_base.min(book_base),
+        };
+        let quantum = match direction {
+            IntegratedSwapDirection::BaseToQuote => state.quote_atom_nad.max(1),
+            IntegratedSwapDirection::QuoteToBase => state.base_atom_nad.max(1),
+        };
+        let mut low = 0_u128;
+        let mut high = output_limit.checked_sub(1).ok_or(ErrorCode::InsufficientLiquidity)?;
+        let mut accepted = None;
+        let mut candidate = geometry
+            .quote_exact_in_prevalidated(start, amount_in, curve_direction)?
+            .amount_out;
+        // First use the observed opposite-coordinate gap to approach the root.
+        // Every candidate is independently certified and bounded. If this does
+        // not converge, 64 bisections retain the original one-atom guarantee.
+        for iteration in 0..72 {
+            let output = if iteration < 8 && candidate > low && candidate <= high {
+                candidate
+            } else {
+                low + (high - low).div_ceil(2)
+            };
+            let mut end = state;
+            match direction {
+                IntegratedSwapDirection::BaseToQuote => {
+                    end.ordinary_base = end
+                        .ordinary_base
+                        .checked_add(amount_in)
+                        .ok_or(ErrorCode::ReserveOverflow)?;
+                    end.ordinary_quote -= output;
+                }
+                IntegratedSwapDirection::QuoteToBase => {
+                    end.ordinary_quote = end
+                        .ordinary_quote
+                        .checked_add(amount_in)
+                        .ok_or(ErrorCode::ReserveOverflow)?;
+                    end.ordinary_base -= output;
+                }
+            }
+            let hlp = reconstruct_hlp_endpoint(end)?;
+            end.base_hlp_quote_debt = hlp.base_hlp_quote_debt;
+            end.quote_hlp_base_debt = hlp.quote_hlp_base_debt;
+            let point = end
+                .reconstructed_curve_point()?
+                .ok_or(ErrorCode::InsufficientLiquidity)?;
+            let (input_start, input_end, opposite_end) = match direction {
+                IntegratedSwapDirection::BaseToQuote => (start.base_reserve, point.base_reserve, point.quote_reserve),
+                IntegratedSwapDirection::QuoteToBase => (start.quote_reserve, point.quote_reserve, point.base_reserve),
+            };
+            let reference = if input_end > input_start {
+                geometry.quote_exact_in_prevalidated(start, input_end - input_start, curve_direction)?
+            } else if input_end < input_start {
+                geometry.quote_exact_out(
+                    start,
+                    input_start - input_end,
+                    match direction {
+                        IntegratedSwapDirection::BaseToQuote => ConcentratedCurveDirection::QuoteToBase,
+                        IntegratedSwapDirection::QuoteToBase => ConcentratedCurveDirection::BaseToQuote,
+                    },
+                )?
+            } else {
+                ConcentratedCurveQuote {
+                    amount_in: 0,
+                    amount_out: 0,
+                    end: start,
+                    end_branch: geometry.branch(start),
+                    boundary_crossings: 0,
+                }
+            };
+            let required_opposite = match direction {
+                IntegratedSwapDirection::BaseToQuote => reference.end.quote_reserve,
+                IntegratedSwapDirection::QuoteToBase => reference.end.base_reserve,
+            };
+            let correction = opposite_end.abs_diff(required_opposite).max(quantum);
+            if opposite_end >= required_opposite {
+                candidate = output.saturating_add(correction);
+                low = output;
+                accepted = Some(IntegratedExactInQuote {
+                    amount_out: output,
+                    end,
+                    hlp,
+                    base_hlp_quote_debt_delta: signed_delta(hlp.base_hlp_quote_debt, state.base_hlp_quote_debt)?,
+                    quote_hlp_base_debt_delta: signed_delta(hlp.quote_hlp_base_debt, state.quote_hlp_base_debt)?,
+                    pricing_end: point,
+                    curve: ConcentratedCurveQuote {
+                        amount_in,
+                        amount_out: output,
+                        end: ConcentratedCurvePoint {
+                            base_reserve: end.ordinary_base,
+                            quote_reserve: end.ordinary_quote,
+                        },
+                        end_branch: geometry.branch(point),
+                        boundary_crossings: reference.boundary_crossings,
+                    },
+                });
+            } else {
+                candidate = output.saturating_sub(correction);
+                high = output.checked_sub(1).ok_or(ErrorCode::InsufficientLiquidity)?;
+            }
+            if high.saturating_sub(low) < quantum {
+                break;
+            }
+        }
+        return accepted.ok_or_else(|| ErrorCode::InsufficientLiquidity.into());
+    }
+
+    let curve_start = if state.uses_book_hedge() {
+        state
+            .reconstructed_curve_point()?
+            .ok_or(ErrorCode::InsufficientLiquidity)?
+    } else {
         ConcentratedCurvePoint {
             base_reserve: state.ordinary_base,
             quote_reserve: state.ordinary_quote,
-        },
-        amount_in,
-        curve_direction,
-    )?;
-
+        }
+    };
+    let mut curve = geometry.quote_exact_in_prevalidated(curve_start, amount_in, curve_direction)?;
+    let pricing_end = curve.end;
     let mut end = state;
-    end.ordinary_base = curve.end.base_reserve;
-    end.ordinary_quote = curve.end.quote_reserve;
+    match direction {
+        IntegratedSwapDirection::BaseToQuote => {
+            end.ordinary_base = end
+                .ordinary_base
+                .checked_add(amount_in)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+            end.ordinary_quote = end
+                .ordinary_quote
+                .checked_sub(curve.amount_out)
+                .ok_or(ErrorCode::InsufficientLiquidity)?;
+        }
+        IntegratedSwapDirection::QuoteToBase => {
+            end.ordinary_quote = end
+                .ordinary_quote
+                .checked_add(amount_in)
+                .ok_or(ErrorCode::ReserveOverflow)?;
+            end.ordinary_base = end
+                .ordinary_base
+                .checked_sub(curve.amount_out)
+                .ok_or(ErrorCode::InsufficientLiquidity)?;
+        }
+    }
+    curve.end = ConcentratedCurvePoint {
+        base_reserve: end.ordinary_base,
+        quote_reserve: end.ordinary_quote,
+    };
     let start_hlp = materialized_hlp_endpoint(state)?;
     let hlp = reconstruct_hlp_endpoint(end)?;
     end.base_hlp_quote_debt = hlp.base_hlp_quote_debt;
@@ -385,6 +598,7 @@ pub(crate) fn quote_integrated_exact_in(
         hlp,
         base_hlp_quote_debt_delta: signed_delta(hlp.base_hlp_quote_debt, start_hlp.base_hlp_quote_debt)?,
         quote_hlp_base_debt_delta: signed_delta(hlp.quote_hlp_base_debt, start_hlp.quote_hlp_base_debt)?,
+        pricing_end,
         curve,
     })
 }

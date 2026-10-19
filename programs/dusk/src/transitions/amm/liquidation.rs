@@ -49,6 +49,7 @@ impl Market {
             quote_hlp_equity: 0,
             base_hlp_quote_debt: 0,
             quote_hlp_base_debt: 0,
+            ..IntegratedCurveState::default()
         };
         Ok((reference, state))
     }

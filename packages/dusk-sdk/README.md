@@ -947,3 +947,16 @@ See [the fee policy and keeper rollout dependency](../../docs/mutable-transfer-f
 #287160 has implemented notice-window mitigation; timely confirmed keeper execution
 remains an operational assumption. Fee-authority revocation is not a missing
 agreed fix.
+
+### hLP funding capacity
+
+Use `dusk.get.previewHlpDepositCapacity({ market, baseMint, quoteMint, targetHlpMint })`
+to read the native entry status and gross/net funding ceilings. It accrues the
+market in a read-only simulation and prices the underlying yLP purchase and
+hedge using full live-reserve value, including public unpaid interest. These
+receivables remain excluded from swap-pricing reserves.
+
+`Ready` and the capacity ceiling do not guarantee execution for every amount.
+Simulate the completed deposit transaction to check rounding, cash custody,
+transfer fees and slippage. Under concentration, an opposite-token-neutral
+hLP need not have a literal 2x gross-value/equity ratio.

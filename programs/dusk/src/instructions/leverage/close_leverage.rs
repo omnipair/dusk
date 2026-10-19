@@ -439,39 +439,43 @@ impl<'info> CloseLeverage<'info> {
         };
         let expected_collateral_reserve_credit =
             leverage_collateral_credit(&ctx.accounts.collateral_mint, collateral_sold, current_epoch)?;
-        let close_quote = ctx.accounts.market.quote_leverage_swap_at_time(
-            collateral_asset,
-            expected_collateral_reserve_credit,
-            current_slot,
-            current_unix_timestamp,
-        )?;
-        require_gte!(close_quote.amount_out, debt_amount, ErrorCode::InsufficientAmount);
-        let expected_residual = close_quote
-            .amount_out
-            .checked_sub(debt_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let expected_residual_net = expected_residual
-            .checked_sub(get_transfer_fee_for_epoch(
-                &ctx.accounts.debt_mint.to_account_info(),
-                expected_residual,
-                current_epoch,
-            )?)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let expected_payout = if matches!(mode, CloseMode::Delegate) {
+        // A delegate needs a payout quote before its approval callback. An
+        // owner close validates debt coverage and the net minimum against the
+        // measured-input settlement below, so a second curve quote is redundant.
+        let (expected_residual, expected_payout) = if matches!(mode, CloseMode::Delegate) {
+            let close_quote = ctx.accounts.market.quote_leverage_swap_at_time(
+                collateral_asset,
+                expected_collateral_reserve_credit,
+                current_slot,
+                current_unix_timestamp,
+            )?;
+            require_gte!(close_quote.amount_out, debt_amount, ErrorCode::InsufficientAmount);
+            let expected_residual = close_quote
+                .amount_out
+                .checked_sub(debt_amount)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let expected_residual_net = expected_residual
+                .checked_sub(get_transfer_fee_for_epoch(
+                    &ctx.accounts.debt_mint.to_account_info(),
+                    expected_residual,
+                    current_epoch,
+                )?)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
             let incentive_basis = if is_full_close {
                 ctx.accounts.leverage_position.margin_amount
             } else {
                 expected_residual_net
             };
-            Some(quote_delegated_close_payout(
+            let payout = quote_delegated_close_payout(
                 &ctx.accounts.debt_mint.to_account_info(),
                 expected_residual,
                 close_quote.amount_out,
                 incentive_basis,
                 current_epoch,
-            )?)
+            )?;
+            (expected_residual, Some(payout))
         } else {
-            None
+            (0, None)
         };
 
         if matches!(mode, CloseMode::Delegate) {

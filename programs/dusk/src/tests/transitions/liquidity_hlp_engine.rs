@@ -124,7 +124,7 @@ fn h_lp_share_value_includes_unpaid_public_interest_without_spending_it() {
         let expected_in_nad = market.normalize_amount(expected_interest_claim, market.side(target).asset_decimals).unwrap();
         let economic_after = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
         assert_eq!(economic_after - economic_before, expected_in_nad);
-        assert_eq!(hlp_nav_nad_with_prices(&market, target, prices).unwrap(), executable_before);
+        assert_eq!(hlp_nav_nad_with_prices(&market, target, prices).unwrap(), economic_after);
         assert_eq!(current_hlp_curve_prices(&market).unwrap(), prices);
     }
 }
@@ -547,4 +547,9 @@ fn captured_vob_asks_certify_only_base_output_rounding() {
         assert_eq!(transition.quote_output_rounding_carry, 0, "ask {amount}");
         assert!(transition.base_output_rounding_carry <= 1, "ask {amount}");
     }
+}
+
+mod interest {
+    use super::*;
+    include!("liquidity_hlp_interest.rs");
 }
