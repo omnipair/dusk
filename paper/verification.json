@@ -1,28 +1,25 @@
 {
-  "reviewed_commit": "263c1635ad87ee36ffd9bf0b970457e4be965326",
-  "updated_at": "2026-09-10",
+  "reviewed_commit": "5c0aca7fcb582418f1c5b99061d4ff7605b6f185",
+  "incoming_commit": "2bf53910aef2277b044e83bece8a13c555582039",
+  "updated_at": "2026-10-19",
+  "revision": "Align both whitepapers with #45; add square-root/maintained-2x/inventory-weight derivation, native hLP flows, and explicit unfinished #52 boundary.",
   "outputs": [
     {
       "path": "paper/dusk-v2-whitepaper.pdf",
-      "pages": 10,
-      "sha256": "af99972654e03e39aed054f658b708c9f67425a3913bd104655fe908e85c8db0",
-      "rendered_pages": 10,
-      "visual_review": "passed; all pages inspected, final changed pages reviewed individually"
+      "pages": 21,
+      "sha256": "2879a487f0c92a18a49853551f0bbe8d82619e2e216ed43db1d695c61a033885",
+      "rendered_pages": 21,
+      "visual_review": "passed; all pages inspected in contact sheets, derivation/native example pages inspected at full size, final table correction rendered and inspected"
     },
     {
       "path": "paper/dusk-v2-whitepaper-expanded.pdf",
-      "pages": 26,
-      "sha256": "d61ad24670da411bc4f705c132c9e8b893035250ddf9a1fc6a5754d890bee183",
-      "rendered_pages": 26,
-      "visual_review": "passed; all pages inspected, final changed pages reviewed individually"
+      "pages": 39,
+      "sha256": "25f821e41d98aca8405e4203ce4a9e6d641ac89aa309121e8e7526ec3c6ea710",
+      "rendered_pages": 39,
+      "visual_review": "passed; all pages inspected in contact sheets, derivation/native example pages inspected at full size, final table correction rendered and inspected"
     }
   ],
   "checks": {
-    "rust": {
-      "command": "cargo test -p dusk --lib",
-      "passed": 362,
-      "failed": 0
-    },
     "illustrations": {
       "status": "passed",
       "checks": [
@@ -34,17 +31,33 @@
         "equity cap",
         "rate anchor bounds",
         "target equilibrium",
-        "unpaid-interest exclusion"
+        "unpaid-interest exclusion",
+        "GAMM borrow/accrual/repayment ledger",
+        "regional shifted-product invariant",
+        "homothetic liquidity scaling",
+        "marginal derivative price",
+        "radial hLP ownership identity",
+        "canonical hLP NAV",
+        "ordinary depth and finite-trade impact",
+        "static leveraged-LP tracking gap"
       ]
     },
-    "source_manifest_files_verified": 24,
-    "bibtex_citations_resolved": 6,
-    "tex_builds": "both passed with Tectonic 0.16.9",
+    "native_evidence": {
+      "cases": 8,
+      "verification_command": "python3 paper/simulations/verify_native.py",
+      "status": "passed",
+      "execution_scope": "Retained native benchmark results; not token CPIs or elapsed-funding tests"
+    },
+    "source_manifest_files_verified": 36,
+    "historical_files_unchanged": 19,
+    "bibtex_citations_resolved": 7,
+    "tex_builds": "Both passed with Tectonic 0.16.9",
     "overfull_boxes": 0,
     "unresolved_references": 0,
     "missing_glyph_warnings": 0,
-    "visual_review": "all 36 final pages reviewed; no clipping, overlapping tables, or stray reference pages",
-    "tex_notes": "Three non-fatal underfull paragraph warnings remain in the expanded paper; inspected visually."
+    "visual_review": "All 60 pages reviewed; only expanded page 31 changed in the final table-layout rebuild and was inspected separately.",
+    "tex_notes": "Three non-fatal underfull paragraph warnings remain in expanded appendix A; no clipping, overlap or unresolved references.",
+    "full_local_ci": "Passed; see precommit-verification.json"
   },
-  "scope": "Whitepapers and supporting paper bundle only; no Rust, SDK, root README, or program README edits. Full pre-commit CI was not run; no commit or push."
+  "scope": "Documentation and paper evidence only. No protocol/SDK change, merge or deployment. Incoming approved accounting/recovery work is not declared complete."
 }

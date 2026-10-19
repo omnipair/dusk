@@ -1,5 +1,5 @@
 {
-  "reviewed_commit": "263c1635ad87ee36ffd9bf0b970457e4be965326",
+  "reviewed_commit": "5c0aca7fcb582418f1c5b99061d4ff7605b6f185",
   "target_utilization_bps": 7000,
   "steepness": 4,
   "speed_per_year": 20,
@@ -20,5 +20,18 @@
   ],
   "recovery_claim": 1000000,
   "recovery_conversion": "1 target atom per opposite atom",
+  "depth_comparison": {
+    "starting_base": 1000,
+    "starting_quote": 1000,
+    "input_base": 50,
+    "scales": [
+      1,
+      2,
+      4
+    ],
+    "fees": 0,
+    "sufficient_output_cash": true
+  },
+  "lp_tracking": "Static 2x CPMM benchmark with no funding interest, fees, or adjustment during the price move",
   "scope": "Mathematical illustrations; not a full program emulator"
 }

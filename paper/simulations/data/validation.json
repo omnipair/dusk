@@ -9,6 +9,14 @@
     "equity cap",
     "rate anchor bounds",
     "target equilibrium",
-    "unpaid-interest exclusion"
+    "unpaid-interest exclusion",
+    "GAMM borrow/accrual/repayment ledger",
+    "regional shifted-product invariant",
+    "homothetic liquidity scaling",
+    "marginal derivative price",
+    "radial hLP ownership identity",
+    "canonical hLP NAV",
+    "ordinary depth and finite-trade impact",
+    "static leveraged-LP tracking gap"
   ]
 }
