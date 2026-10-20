@@ -87,7 +87,7 @@ pub struct Swap<'info> {
 }
 
 impl<'info> Swap<'info> {
-    pub(crate) fn validate_and_read_clock(&self, args: &SwapArgs, mode: SwapExecutionMode) -> Result<(u64, u64, i64)> {
+    pub(crate) fn validate_and_read_clock(&self, args: &SwapArgs) -> Result<(u64, u64, i64)> {
         // Read the sysvar once for the complete swap. In particular, do not
         // call `Market::assert_started`, which would fetch `Clock` a second
         // time before the slot-driven AMM/debt pipeline begins.
@@ -97,12 +97,6 @@ impl<'info> Swap<'info> {
             clock.unix_timestamp >= self.market.config.start_time,
             ErrorCode::MarketNotStarted
         );
-        if mode == SwapExecutionMode::Ordinary {
-            require!(
-                !self.futarchy_authority.is_reduce_only(self.market.reduce_only),
-                ErrorCode::ReduceOnlyMode
-            );
-        }
         require!(args.exact_asset_in > 0, ErrorCode::AmountZero);
         require_gte!(
             self.trader_asset_in_account.amount,

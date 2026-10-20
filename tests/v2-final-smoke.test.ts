@@ -5218,7 +5218,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
 
   it("toggles global and market reduce-only through the emergency signer", async function () {
-    const fixture = await initializeFinalMarket(57);
+    const fixture = await addBalancedLiquidity(57);
 
     const globalTx = await program.methods
       .setGlobalReduceOnly({
@@ -5239,6 +5239,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       Buffer.from(authorityAccount!.data)
     ) as any;
     expect(authority.global_reduce_only).to.equal(true);
+    await swapBaseForQuote(fixture, [], 1_000, 1);
 
     const marketTx = await program.methods
       .setMarketReduceOnly({
@@ -5258,12 +5259,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(marketAccount).to.not.equal(null);
     const decodedMarket = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
     expect(decodedMarket.reduce_only).to.equal(true);
+    await swapBaseForQuote(fixture, [], 1_001, 1);
 
     await resetFutarchyDefaults();
     authorityAccount = svm.getAccount(futarchyAuthority);
     expect(authorityAccount).to.not.equal(null);
     authority = accountCoder.decode("FutarchyAuthority", Buffer.from(authorityAccount!.data)) as any;
     expect(authority.global_reduce_only).to.equal(false);
+    await swapBaseForQuote(fixture, [], 1_002, 1);
   });
 
   it("settles protocol swap and interest revenue from source-specific custody", async function () {

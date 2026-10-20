@@ -284,8 +284,7 @@ pub mod dusk {
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         let mode = SwapExecutionMode::Ordinary;
-        let (current_slot, current_epoch, current_unix_timestamp) =
-            ctx.accounts.validate_and_read_clock(&args, mode)?;
+        let (current_slot, current_epoch, current_unix_timestamp) = ctx.accounts.validate_and_read_clock(&args)?;
         Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
     }
 
@@ -318,8 +317,7 @@ pub mod dusk {
     /// the 9/8 funding-stress boundary.
     pub fn rescue_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         let mode = SwapExecutionMode::HlpRecovery;
-        let (current_slot, current_epoch, current_unix_timestamp) =
-            ctx.accounts.validate_and_read_clock(&args, mode)?;
+        let (current_slot, current_epoch, current_unix_timestamp) = ctx.accounts.validate_and_read_clock(&args)?;
         Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
     }
 
