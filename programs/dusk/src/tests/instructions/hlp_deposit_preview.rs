@@ -17,11 +17,15 @@ fn snapshot() -> (Market, Clock) {
     layout.quote_hlp_vault.flash_collateral_debit = tags[5];
     layout.debt.base_borrow_index_remainder = u128::from(tags[6]);
     layout.debt.leverage_base_collateral = tags[7];
+    let frozen_offset_tag = 0x3197_5bdf_2468_ace0_4286_ace0_1357_9bdf_i128;
+    layout.amm.frozen_base_vault_base_offset_nad = frozen_offset_tag;
     let mut current = Vec::new();
     layout.try_serialize(&mut current).unwrap();
     let mut insertions: Vec<_> = tags.into_iter().zip([8, 32, 8, 32, 8, 8, 32, 16]).map(|(tag, size)| {
         (current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap(), size)
     }).collect();
+    let frozen_offset = current.windows(16).position(|window| window == frozen_offset_tag.to_le_bytes()).unwrap();
+    insertions.push((frozen_offset - 1, 65));
     insertions.sort_unstable();
     let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
     for (offset, size) in insertions { bytes.splice(offset..offset, vec![0u8; size]); }

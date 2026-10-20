@@ -13058,6 +13058,35 @@
             }
           },
           {
+            "name": "frozen_hlp_mask",
+            "docs": [
+              "A distressed hLP cannot be reconstructed as positive one-sided equity.",
+              "Each bit freezes only that vault's share/debt hedge during swaps."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "frozen_base_vault_base_offset_nad",
+            "docs": [
+              "Fixed virtual-coordinate adjustment captured when the vault freezes.",
+              "It preserves the pre-freeze executable price without treating the",
+              "vault's negative equity as spendable token inventory."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "frozen_base_vault_quote_offset_nad",
+            "type": "i128"
+          },
+          {
+            "name": "frozen_quote_vault_base_offset_nad",
+            "type": "i128"
+          },
+          {
+            "name": "frozen_quote_vault_quote_offset_nad",
+            "type": "i128"
+          },
+          {
             "name": "_reserved",
             "type": {
               "array": [
@@ -15579,6 +15608,9 @@
           },
           {
             "name": "NoNetDeposit"
+          },
+          {
+            "name": "Frozen"
           }
         ]
       }
@@ -21814,7 +21846,7 @@
         "Earlier serialized accounts must not decode as this expanded structure."
       ],
       "type": "u8",
-      "value": "4"
+      "value": "5"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

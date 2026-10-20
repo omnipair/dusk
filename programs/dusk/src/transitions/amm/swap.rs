@@ -443,8 +443,12 @@ impl SwapRequest {
             self.current_unix_timestamp,
             pre_state,
         )?;
-        let (integrated_start, mut concentrated) =
-            market.prepare_current_hlp_quote(self.asset_in, self.reserve_credit, preliminary, self.protocol_fee_bps)?;
+        let (integrated_start, mut concentrated) = market.prepare_current_hlp_quote_with_distress_freeze(
+            self.asset_in,
+            self.reserve_credit,
+            preliminary,
+            self.protocol_fee_bps,
+        )?;
         if cash_policy == SwapCashPolicy::Spot {
             crate::transitions::liquidity::apply_concentrated_hlp_recovery(
                 market,

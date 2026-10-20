@@ -51,9 +51,10 @@ impl Market {
         let target_claim = engine::ylp_live_underlying_amount(self, target, vault.ylp_shares)?;
         let gap = debt.saturating_sub(opposite);
         require!(
-            gap > 0
-                && u128::from(debt) * recovery::HLP_RECOVERY_CRITICAL_DENOMINATOR
-                    >= u128::from(opposite) * recovery::HLP_RECOVERY_CRITICAL_NUMERATOR,
+            self.hlp_frozen(target)
+                || (gap > 0
+                    && u128::from(debt) * recovery::HLP_RECOVERY_CRITICAL_DENOMINATOR
+                        >= u128::from(opposite) * recovery::HLP_RECOVERY_CRITICAL_NUMERATOR),
             ErrorCode::HlpNotLiquidatable
         );
         let prices = current_hlp_curve_prices(self)?;
@@ -65,6 +66,9 @@ impl Market {
             .checked_add(opposite_value)
             .ok_or(ErrorCode::MarketMathOverflow)?
             <= debt_value;
+        if full {
+            self.require_hlp_ema_insolvent(target)?;
+        }
         // Reuse the native rescue incentive's health bands. Payment is frozen
         // against the symmetric EMA, independently of the route's execution.
         let discount = if opposite == 0 {
@@ -109,7 +113,12 @@ impl Market {
         }
         let nav = engine::hlp_share_nav_nad_with_prices(self, target, prices)?;
         let interest = debt.saturating_sub(vault.debt_principal);
-        let credit = gap.max(interest.saturating_sub(self.side(borrowed).reserves.cash_reserve));
+        // A previously frozen vault can regain full backing as its opposite
+        // yLP claim grows. It still needs a positive atomic payment to resume
+        // its hedge; otherwise its receipts would remain frozen forever.
+        let credit = gap
+            .max(interest.saturating_sub(self.side(borrowed).reserves.cash_reserve))
+            .max(u64::from(self.hlp_frozen(target)));
         let payment_value = engine::asset_value_in_target_nad_with_prices(self, prices, borrowed, credit, target)?;
         let normalized_credit = self.normalize_amount(u128::from(credit), self.side(borrowed).asset_decimals)?;
         let collateral_at = |discount_bps: u16| -> Result<(u64, u64)> {
@@ -202,6 +211,13 @@ impl Market {
         );
         self.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
         self.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
+        // A frozen vault may have recovered positive full value while its
+        // hedge was paused. This funded settlement is the point where it
+        // resumes: reconstruct its indexed debt and equity before applying
+        // the payment, so the payment cannot disappear into the static tranche.
+        if self.hlp_frozen(target) {
+            self.clear_frozen_hlp(target);
+        }
         // Compose with the actual current state. Swaps, other loans, and yLP
         // operations in the middle are never overwritten with a begin snapshot.
         let mut end = self.integrated_curve_state_nad()?;

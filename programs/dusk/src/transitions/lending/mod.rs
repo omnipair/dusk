@@ -1312,6 +1312,7 @@ impl Market {
         self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             self.advance_amm_clock(current_slot)?;
+            self.freeze_negative_hlp_vaults()?;
         }
         self.refresh_risk_at_slot(current_slot)?;
         Ok(())
@@ -1326,6 +1327,7 @@ impl Market {
             // remains gated while a due concentrated controller target would
             // otherwise price the mint against a stale NAV basis.
             self.advance_amm_clock(current_slot)?;
+            self.freeze_negative_hlp_vaults()?;
             let (_, _, price_nad) = self.checkpoint_hlp_vaults_with_price()?;
             let curve_depth_nad = self
                 .amm

@@ -845,6 +845,158 @@ impl HlpCurveBasis {
 }
 
 impl Market {
+    pub(crate) fn frozen_curve_offsets(&self) -> Result<(i128, i128)> {
+        Ok((
+            self.amm
+                .frozen_base_vault_base_offset_nad
+                .checked_add(self.amm.frozen_quote_vault_base_offset_nad)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            self.amm
+                .frozen_base_vault_quote_offset_nad
+                .checked_add(self.amm.frozen_quote_vault_quote_offset_nad)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        ))
+    }
+
+    pub(crate) fn clear_frozen_hlp(&mut self, target: MarketAsset) {
+        match target {
+            MarketAsset::Base => {
+                self.amm.frozen_hlp_mask &= !1;
+                self.amm.frozen_base_vault_base_offset_nad = 0;
+                self.amm.frozen_base_vault_quote_offset_nad = 0;
+            }
+            MarketAsset::Quote => {
+                self.amm.frozen_hlp_mask &= !2;
+                self.amm.frozen_quote_vault_base_offset_nad = 0;
+                self.amm.frozen_quote_vault_quote_offset_nad = 0;
+            }
+        }
+    }
+
+    pub(crate) fn hlp_frozen(&self, target: MarketAsset) -> bool {
+        self.amm.frozen_hlp_mask & if target == MarketAsset::Base { 1 } else { 2 } != 0
+    }
+
+    pub(crate) fn frozen_adjusted_ordinary(&self, basis: &HlpCurveBasis) -> Result<ConcentratedCurvePoint> {
+        if self.amm.frozen_hlp_mask == 0 {
+            return Ok(basis.ordinary);
+        }
+        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
+        let (frozen_base_offset, frozen_quote_offset) = self.frozen_curve_offsets()?;
+        let base_live = self.normalize_amount(
+            u128::from(self.base_hlp_vault.hlp_live_reserve(MarketAsset::Quote)),
+            self.quote_side.asset_decimals,
+        )?;
+        let quote_live = self.normalize_amount(
+            u128::from(self.quote_hlp_vault.hlp_live_reserve(MarketAsset::Base)),
+            self.base_side.asset_decimals,
+        )?;
+        let base_adjustment = frozen_base_offset
+            .checked_add(if self.hlp_frozen(MarketAsset::Base) {
+                basis.base_hlp_equity
+            } else {
+                0
+            })
+            .and_then(|value| {
+                value.checked_add(if self.hlp_frozen(MarketAsset::Quote) {
+                    signed(basis.quote_hlp_base_debt)
+                        .ok()?
+                        .checked_sub(signed(quote_live).ok()?)?
+                } else {
+                    0
+                })
+            })
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote_adjustment = frozen_quote_offset
+            .checked_add(if self.hlp_frozen(MarketAsset::Quote) {
+                basis.quote_hlp_equity
+            } else {
+                0
+            })
+            .and_then(|value| {
+                value.checked_add(if self.hlp_frozen(MarketAsset::Base) {
+                    signed(basis.base_hlp_quote_debt)
+                        .ok()?
+                        .checked_sub(signed(base_live).ok()?)?
+                } else {
+                    0
+                })
+            })
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let base = signed(basis.ordinary.base_reserve)?
+            .checked_add(base_adjustment)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote = signed(basis.ordinary.quote_reserve)?
+            .checked_add(quote_adjustment)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
+        Ok(ConcentratedCurvePoint {
+            base_reserve: base as u128,
+            quote_reserve: quote as u128,
+        })
+    }
+
+    /// Freeze a negative-value vault's hedge without changing the current
+    /// executable price. The other vault remains in the integrated solver.
+    pub(crate) fn freeze_negative_hlp_vaults(&mut self) -> Result<()> {
+        if !self.has_active_hlp() || self.amm.frozen_hlp_mask == 3 {
+            return Ok(());
+        }
+        let prices = super::liquidity::current_hlp_curve_prices(self)?;
+        let (base_nav, quote_nav) = super::liquidity::current_hlp_signed_navs_with_prices(self, prices)?;
+        if (base_nav >= 0 || self.hlp_frozen(MarketAsset::Base))
+            && (quote_nav >= 0 || self.hlp_frozen(MarketAsset::Quote))
+        {
+            return Ok(());
+        }
+        let basis = self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?;
+        if base_nav < 0 && !self.hlp_frozen(MarketAsset::Base) {
+            let base_live = self.normalize_amount(
+                u128::from(self.base_hlp_vault.hlp_live_reserve(MarketAsset::Quote)),
+                self.quote_side.asset_decimals,
+            )?;
+            self.amm.frozen_base_vault_base_offset_nad = self
+                .amm
+                .frozen_base_vault_base_offset_nad
+                .checked_sub(basis.base_hlp_equity)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            self.amm.frozen_base_vault_quote_offset_nad = self
+                .amm
+                .frozen_base_vault_quote_offset_nad
+                .checked_sub(
+                    i128::try_from(basis.base_hlp_quote_debt)
+                        .map_err(|_| ErrorCode::MarketMathOverflow)?
+                        .checked_sub(i128::try_from(base_live).map_err(|_| ErrorCode::MarketMathOverflow)?)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            self.amm.frozen_hlp_mask |= 1;
+        }
+        if quote_nav < 0 && !self.hlp_frozen(MarketAsset::Quote) {
+            let quote_live = self.normalize_amount(
+                u128::from(self.quote_hlp_vault.hlp_live_reserve(MarketAsset::Base)),
+                self.base_side.asset_decimals,
+            )?;
+            self.amm.frozen_quote_vault_quote_offset_nad = self
+                .amm
+                .frozen_quote_vault_quote_offset_nad
+                .checked_sub(basis.quote_hlp_equity)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            self.amm.frozen_quote_vault_base_offset_nad = self
+                .amm
+                .frozen_quote_vault_base_offset_nad
+                .checked_sub(
+                    i128::try_from(basis.quote_hlp_base_debt)
+                        .map_err(|_| ErrorCode::MarketMathOverflow)?
+                        .checked_sub(i128::try_from(quote_live).map_err(|_| ErrorCode::MarketMathOverflow)?)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            self.amm.frozen_hlp_mask |= 2;
+        }
+        Ok(())
+    }
+
     /// Aggregate public fixed and isolated interest which has not yet been
     /// paid into the non-compounding interest vault. hLP funding interest is a
     /// separate debt cost and is deliberately excluded. Debt-share rounding
@@ -914,8 +1066,9 @@ impl Market {
     #[inline(never)]
     fn integrated_curve_state_with_mark_nad(&self) -> Result<(IntegratedCurveState, IntegratedCurveMark)> {
         let reserves = self.curve_reserves_nad()?;
+        let basis = self.hlp_curve_basis_from_reserves_nad(reserves)?;
+        let ordinary = self.frozen_adjusted_ordinary(&basis)?;
         let HlpCurveBasis {
-            ordinary,
             base_hlp_base_claim,
             quote_hlp_quote_claim,
             base_opposite_net,
@@ -924,7 +1077,8 @@ impl Market {
             quote_hlp_equity,
             base_hlp_quote_debt,
             quote_hlp_base_debt,
-        } = self.hlp_curve_basis_from_reserves_nad(reserves)?;
+            ..
+        } = basis;
         let supply = self.base_side.shares.ylp_supply;
         let as_signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
         let base_interest = self.normalize_amount(
@@ -993,33 +1147,109 @@ impl Market {
         let full_quote_equity = as_signed(quote_book_claim)?
             .checked_add(signed_value(quote_opposite_book_net, price, NAD as u128)?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(
+            (full_base_equity >= 0 || self.hlp_frozen(MarketAsset::Base))
+                && (full_quote_equity >= 0 || self.hlp_frozen(MarketAsset::Quote)),
+            ErrorCode::HlpSettlementUnavailable
+        );
         let base_equity_adjustment = full_base_equity
             .checked_sub(base_hlp_equity)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote_equity_adjustment = full_quote_equity
             .checked_sub(quote_hlp_equity)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        require!(
-            full_base_equity >= 0 && full_quote_equity >= 0,
-            ErrorCode::HlpSettlementUnavailable
-        );
+        let active_base_equity = if self.hlp_frozen(MarketAsset::Base) {
+            0
+        } else {
+            full_base_equity as u128
+        };
+        let active_quote_equity = if self.hlp_frozen(MarketAsset::Quote) {
+            0
+        } else {
+            full_quote_equity as u128
+        };
+        let base_book_offset = if self.amm.frozen_hlp_mask == 0 {
+            as_signed(base_interest)?
+                .checked_sub(base_equity_adjustment)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        } else {
+            as_signed(reserves.base)?
+                .checked_add(as_signed(base_interest)?)
+                .and_then(|value| value.checked_sub(as_signed(ordinary.base_reserve).ok()?))
+                .and_then(|value| value.checked_sub(as_signed(active_base_equity).ok()?))
+                .and_then(|value| {
+                    value.checked_sub(
+                        as_signed(if self.hlp_frozen(MarketAsset::Quote) {
+                            self.normalize_amount(
+                                u128::from(self.quote_hlp_vault.hlp_live_reserve(MarketAsset::Base)),
+                                self.base_side.asset_decimals,
+                            )
+                            .ok()?
+                        } else {
+                            quote_hlp_base_debt
+                        })
+                        .ok()?,
+                    )
+                })
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
+        let quote_book_offset = if self.amm.frozen_hlp_mask == 0 {
+            as_signed(quote_interest)?
+                .checked_sub(quote_equity_adjustment)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        } else {
+            as_signed(reserves.quote)?
+                .checked_add(as_signed(quote_interest)?)
+                .and_then(|value| value.checked_sub(as_signed(ordinary.quote_reserve).ok()?))
+                .and_then(|value| value.checked_sub(as_signed(active_quote_equity).ok()?))
+                .and_then(|value| {
+                    value.checked_sub(
+                        as_signed(if self.hlp_frozen(MarketAsset::Base) {
+                            self.normalize_amount(
+                                u128::from(self.base_hlp_vault.hlp_live_reserve(MarketAsset::Quote)),
+                                self.quote_side.asset_decimals,
+                            )
+                            .ok()?
+                        } else {
+                            base_hlp_quote_debt
+                        })
+                        .ok()?,
+                    )
+                })
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
         let state = IntegratedCurveState {
             ordinary_base: ordinary.base_reserve,
             ordinary_quote: ordinary.quote_reserve,
-            base_hlp_equity: full_base_equity as u128,
-            quote_hlp_equity: full_quote_equity as u128,
-            base_hlp_quote_debt,
-            quote_hlp_base_debt,
-            ordinary_base_book_offset: as_signed(base_interest)?
-                .checked_sub(base_equity_adjustment)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            ordinary_quote_book_offset: as_signed(quote_interest)?
-                .checked_sub(quote_equity_adjustment)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
+            base_hlp_equity: active_base_equity,
+            quote_hlp_equity: active_quote_equity,
+            // Indexed interest remains on the frozen vault's debt account;
+            // the integrated swap carries only its funded reserve leg.
+            base_hlp_quote_debt: if self.hlp_frozen(MarketAsset::Base) {
+                self.normalize_amount(
+                    u128::from(self.base_hlp_vault.hlp_live_reserve(MarketAsset::Quote)),
+                    self.quote_side.asset_decimals,
+                )?
+            } else {
+                base_hlp_quote_debt
+            },
+            quote_hlp_base_debt: if self.hlp_frozen(MarketAsset::Quote) {
+                self.normalize_amount(
+                    u128::from(self.quote_hlp_vault.hlp_live_reserve(MarketAsset::Base)),
+                    self.base_side.asset_decimals,
+                )?
+            } else {
+                quote_hlp_base_debt
+            },
+            ordinary_base_book_offset: base_book_offset,
+            ordinary_quote_book_offset: quote_book_offset,
             base_unpaid_interest: base_interest,
             quote_unpaid_interest: quote_interest,
             base_atom_nad: self.normalize_amount(1, self.base_side.asset_decimals)?,
             quote_atom_nad: self.normalize_amount(1, self.quote_side.asset_decimals)?,
+            frozen_hlp_mask: self.amm.frozen_hlp_mask,
+            frozen_base_curve_offset_nad: self.frozen_curve_offsets()?.0,
+            frozen_quote_curve_offset_nad: self.frozen_curve_offsets()?.1,
         };
         state.book_ordinary()?;
         Ok((state, mark))
@@ -1051,9 +1281,7 @@ impl Market {
     }
 
     pub(crate) fn ordinary_curve_point_nad(&self) -> Result<ConcentratedCurvePoint> {
-        Ok(self
-            .hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?
-            .ordinary)
+        self.frozen_adjusted_ordinary(&self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?)
     }
 
     pub(crate) fn current_concentrated_curve_geometry(&self) -> Result<Option<ConcentratedCurveGeometry>> {
@@ -1182,6 +1410,30 @@ impl Market {
             .1
             .ok_or(ErrorCode::BrokenInvariant)?;
         Ok((state, quote))
+    }
+
+    /// A healthy swap needs no second valuation pass. If its integrated quote
+    /// cannot be built, isolate any newly distressed hLP vault and retry once.
+    /// Keep this outside the swap preparation stack frame for SBF.
+    #[inline(never)]
+    pub(crate) fn prepare_current_hlp_quote_with_distress_freeze(
+        &mut self,
+        asset_in: MarketAsset,
+        reserve_credit: u64,
+        preliminary: PreliminarySwapInputs,
+        protocol_fee_bps: u16,
+    ) -> Result<(IntegratedCurveState, ConcentratedIntegratedAmmQuote)> {
+        match self.prepare_current_hlp_quote(asset_in, reserve_credit, preliminary, protocol_fee_bps) {
+            Ok(quote) => Ok(quote),
+            Err(original_error) => {
+                let before = self.amm.frozen_hlp_mask;
+                self.freeze_negative_hlp_vaults()?;
+                if self.amm.frozen_hlp_mask == before {
+                    return Err(original_error);
+                }
+                self.prepare_current_hlp_quote(asset_in, reserve_credit, preliminary, protocol_fee_bps)
+            }
+        }
     }
 
     // Keep temporary geometry in its own SBF stack frame. The caller reuses
@@ -2123,6 +2375,11 @@ impl AmmState {
             retention_target_saturated: false,
             retention_target_stale: false,
             deferred_controller_target: DeferredControllerTarget::default(),
+            frozen_hlp_mask: 0,
+            frozen_base_vault_base_offset_nad: 0,
+            frozen_base_vault_quote_offset_nad: 0,
+            frozen_quote_vault_base_offset_nad: 0,
+            frozen_quote_vault_quote_offset_nad: 0,
             _reserved: [0; AMM_STATE_RESERVED_BYTES],
         })
     }

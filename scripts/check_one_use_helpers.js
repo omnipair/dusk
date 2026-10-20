@@ -404,6 +404,9 @@ const acceptedOneUseHelpers = new Map([
       // These freeze a complete book/curve quote and isolate temporary geometry
       // so neither routine's caller exceeds the SBF stack-frame limit.
       "prepare_current_hlp_quote",
+      // The rare distress retry stays in its own SBF frame; placing the
+      // returned integrated quote and error on the swap frame overflows it.
+      "prepare_current_hlp_quote_with_distress_freeze",
       "prepare_book_curve_mark",
       "credit_protected_recenter_reserve",
       "finalize_amm_trade_after_inventory_checkpoint",

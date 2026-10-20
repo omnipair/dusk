@@ -2780,6 +2780,35 @@ export type LeverageDelegate = {
             }
           },
           {
+            "name": "frozenHlpMask",
+            "docs": [
+              "A distressed hLP cannot be reconstructed as positive one-sided equity.",
+              "Each bit freezes only that vault's share/debt hedge during swaps."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "frozenBaseVaultBaseOffsetNad",
+            "docs": [
+              "Fixed virtual-coordinate adjustment captured when the vault freezes.",
+              "It preserves the pre-freeze executable price without treating the",
+              "vault's negative equity as spendable token inventory."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "frozenBaseVaultQuoteOffsetNad",
+            "type": "i128"
+          },
+          {
+            "name": "frozenQuoteVaultBaseOffsetNad",
+            "type": "i128"
+          },
+          {
+            "name": "frozenQuoteVaultQuoteOffsetNad",
+            "type": "i128"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [

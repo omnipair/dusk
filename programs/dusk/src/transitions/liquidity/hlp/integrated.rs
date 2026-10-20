@@ -41,12 +41,18 @@ pub(crate) struct IntegratedCurveState {
     pub quote_unpaid_interest: u128,
     pub base_atom_nad: u128,
     pub quote_atom_nad: u128,
+    /// Frozen vaults retain their actual LP shares and indexed debt. Their
+    /// negative NAV is not a tradable reserve or a hedge-rebalance input.
+    pub frozen_hlp_mask: u8,
+    pub frozen_base_curve_offset_nad: i128,
+    pub frozen_quote_curve_offset_nad: i128,
 }
 
 impl IntegratedCurveState {
     pub(crate) fn uses_book_hedge(self) -> bool {
-        (self.base_hlp_equity > 0 || self.quote_hlp_equity > 0)
-            && (self.ordinary_base_book_offset != 0 || self.ordinary_quote_book_offset != 0)
+        self.frozen_hlp_mask != 0
+            || ((self.base_hlp_equity > 0 || self.quote_hlp_equity > 0)
+                && (self.ordinary_base_book_offset != 0 || self.ordinary_quote_book_offset != 0))
     }
 
     // Reconstruct the curve coordinates that the completed full-value hedge
@@ -98,6 +104,12 @@ impl IntegratedCurveState {
         let quote = signed(endpoint.total_quote)?
             .checked_sub(quote_equity)
             .and_then(|v| v.checked_sub(signed(endpoint.base_hlp_quote_debt).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let base = base
+            .checked_add(self.frozen_base_curve_offset_nad)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote = quote
+            .checked_add(self.frozen_quote_curve_offset_nad)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         Ok((base > 0 && quote > 0).then_some(ConcentratedCurvePoint {
             base_reserve: base.max(0) as u128,
@@ -250,8 +262,12 @@ fn signed_delta(end: u128, start: u128) -> Result<i128> {
 pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
     let (base, quote) = state.book_ordinary()?;
     require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
-    state.quote_hlp_base_debt = mul_div_u128(state.quote_hlp_equity, base, quote)?;
-    state.base_hlp_quote_debt = mul_div_u128(state.base_hlp_equity, quote, base)?;
+    if state.frozen_hlp_mask & 2 == 0 {
+        state.quote_hlp_base_debt = mul_div_u128(state.quote_hlp_equity, base, quote)?;
+    }
+    if state.frozen_hlp_mask & 1 == 0 {
+        state.base_hlp_quote_debt = mul_div_u128(state.base_hlp_equity, quote, base)?;
+    }
     materialized_hlp_endpoint(state)
 }
 
@@ -341,6 +357,19 @@ pub(crate) fn apply_compounded_ylp_fee(
     // reserves into hLP equity. Thus the only external reserve addition is
     // exactly `compounded_fee_nad`; the matching hedge debt remains the sole
     // additional funded reserve movement.
+    // A frozen cohort still earns its proportional fee through fixed yLP
+    // ownership. Keep that fee in the static tranche instead of turning it
+    // into a new positive hLP equity and silently unfreezing its hedge.
+    let base_hlp_fee = if start.frozen_hlp_mask & 1 != 0 {
+        0
+    } else {
+        base_hlp_fee
+    };
+    let quote_hlp_fee = if start.frozen_hlp_mask & 2 != 0 {
+        0
+    } else {
+        quote_hlp_fee
+    };
     if fee_is_base {
         let quote_equity_gain = mul_div_u128(quote_hlp_fee, endpoint_price_nad, crate::constants::NAD as u128)?;
         end.ordinary_base = end
@@ -436,7 +465,9 @@ pub(crate) fn quote_integrated_exact_in(
         IntegratedSwapDirection::BaseToQuote => ConcentratedCurveDirection::BaseToQuote,
         IntegratedSwapDirection::QuoteToBase => ConcentratedCurveDirection::QuoteToBase,
     };
-    if state.uses_book_hedge() && (state.base_unpaid_interest > 0 || state.quote_unpaid_interest > 0) {
+    if state.uses_book_hedge()
+        && (state.base_unpaid_interest > 0 || state.quote_unpaid_interest > 0 || state.frozen_hlp_mask != 0)
+    {
         let start = state
             .reconstructed_curve_point()?
             .ok_or(ErrorCode::InsufficientLiquidity)?;

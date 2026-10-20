@@ -58,6 +58,7 @@ impl Market {
                 <= self.normalize_amount(u128::from(debt), self.side(borrowed).asset_decimals)?,
             ErrorCode::HlpNotLiquidatable
         );
+        self.require_hlp_ema_insolvent(target)?;
         let recovery = opposite_claim
             .checked_add(quote.reserve_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -166,6 +167,7 @@ impl Market {
             .interest_liability
             .checked_add(surplus_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.clear_frozen_hlp(target);
         self.rebase_concentrated_curve_after_terminal_hlp_loss()?;
         // A second vault may also be insolvent. Closing this cohort must not
         // require rehedging that other cohort first; its debt and full-value

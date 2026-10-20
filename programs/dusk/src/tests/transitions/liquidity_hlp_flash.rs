@@ -25,6 +25,29 @@ fn market_for_flash(amplification: u64, target: MarketAsset, funding_bps: u128) 
 }
 
 #[test]
+fn frozen_vault_can_get_funded_rescue_after_critical_gap_has_receded() {
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = market_for_flash(4, target, 100);
+        let fee = LeverageCollateralFee::default();
+        assert!(market.quote_hlp_flash_recovery(target, fee, fee).is_err());
+        market.amm.frozen_hlp_mask = if target == MarketAsset::Base { 1 } else { 2 };
+        let quote = market.quote_hlp_flash_recovery(target, fee, fee).unwrap();
+        assert!(!quote.full);
+        assert!(quote.payment > 0 && quote.collateral_debit > 0);
+
+        let mut fully_backed = market_for_flash(4, target, 0);
+        fully_backed.amm.frozen_hlp_mask = market.amm.frozen_hlp_mask;
+        let quote = fully_backed.quote_hlp_flash_recovery(target, fee, fee).unwrap();
+        assert!(!quote.full);
+        assert!(quote.payment > 0 && quote.collateral_debit > 0);
+        fully_backed.begin_hlp_flash_recovery(quote).unwrap();
+        fully_backed.settle_hlp_flash_recovery(quote, 2).unwrap();
+        assert_eq!(fully_backed.amm.frozen_hlp_mask, 0);
+        fully_backed.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
 fn flash_recovery_preserves_other_holders_and_restores_hedge() {
     for amp in [1, 4, 10] {
         for target in [MarketAsset::Base, MarketAsset::Quote] {
@@ -112,6 +135,69 @@ fn terminal_flash_closes_debt_and_uses_insurance_only_for_principal() {
                 m.assert_market_invariants().unwrap();
             }
         }
+    }
+}
+
+#[test]
+fn terminal_flash_clears_frozen_vault_before_receipt_exit() {
+    let mut market = market_for_flash(4, MarketAsset::Base, 15_000);
+    market.freeze_negative_hlp_vaults().unwrap();
+    assert_eq!(market.amm.frozen_hlp_mask, 1);
+    let fee = LeverageCollateralFee::default();
+    let quote = market.quote_hlp_flash_recovery(MarketAsset::Base, fee, fee).unwrap();
+    assert!(quote.full);
+    let receipt_supply = market.base_hlp_vault.hlp_supply;
+    market.begin_hlp_flash_recovery(quote).unwrap();
+    market.settle_terminal_hlp_flash(quote, fee, u64::MAX, u64::MAX, 2).unwrap();
+    assert_eq!(market.amm.frozen_hlp_mask, 0);
+    let exit = market.withdraw_single_sided(MarketAsset::Base, receipt_supply).unwrap();
+    assert_eq!(exit.target_amount_out, 0);
+    assert_eq!(exit.hlp_supply, 0);
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn solvent_recovery_of_frozen_vault_must_repay_debt_and_unfreeze() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+
+    for amp in [1, 4, 10] {
+    let mut market = market_for_flash(amp, MarketAsset::Base, 10_500);
+    market.freeze_negative_hlp_vaults().unwrap();
+    assert_eq!(market.amm.frozen_hlp_mask, 1);
+    let mut trade = SwapRequest { current_slot: 2, current_unix_timestamp: 0,
+        asset_in: MarketAsset::Quote, reserve_credit: if amp == 1 { 300_000_000_000 } else { 500_000_000_000 }, protocol_fee_bps: 0 }
+        .prepare(&mut market).unwrap();
+    let credit = LeverageSwapFeeCredit::from_total_actual_credit(&trade.leverage_quote(),
+        trade.quote.fee.claimable_fee_debit).unwrap();
+    trade.apply(&mut market, SwapCashPolicy::Spot, credit, 2, 0,
+        ProtocolAuctionSplit::default(), None).unwrap();
+    let fee = LeverageCollateralFee::default();
+    let quote = market.quote_hlp_flash_recovery(MarketAsset::Base, fee, fee)
+        .unwrap_or_else(|e| panic!("amp={amp}: {e}"));
+    assert!(!quote.full);
+    let prices = current_hlp_curve_prices(&market).unwrap();
+    let ordinary_shares = market.base_side.shares.ylp_supply
+        - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
+    let ordinary_value = |m: &Market| [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|asset| {
+        engine::asset_value_in_target_nad_with_prices(m, prices, asset,
+            engine::ylp_live_underlying_amount(m, asset, ordinary_shares).unwrap(), MarketAsset::Quote).unwrap()
+    }).sum::<u128>();
+    let ordinary_before = ordinary_value(&market);
+    let healthy_nav_before = engine::hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap();
+    let debt_before = Debt::shares_to_debt(market.base_hlp_vault.debt_shares,
+        market.debt.quote_borrow_index_nad).unwrap();
+    market.begin_hlp_flash_recovery(quote).unwrap();
+    market.settle_hlp_flash_recovery(quote, 2).unwrap();
+    assert!(ordinary_value(&market).abs_diff(ordinary_before) < 100_000);
+    let healthy_nav_after = engine::hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap();
+    assert!(healthy_nav_after.abs_diff(healthy_nav_before) < 100_000);
+    let debt_after = Debt::shares_to_debt(market.base_hlp_vault.debt_shares,
+        market.debt.quote_borrow_index_nad).unwrap();
+    assert!(debt_after < debt_before);
+    assert_eq!(market.amm.frozen_hlp_mask, 0);
+    let exit = market.withdraw_single_sided(MarketAsset::Base, market.base_hlp_vault.hlp_supply / 10).unwrap();
+    assert!(exit.target_amount_out > 0);
+    market.assert_market_invariants().unwrap();
     }
 }
 

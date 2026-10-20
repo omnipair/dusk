@@ -34,6 +34,7 @@ pub enum HlpDepositStatus {
     Unhedgeable,
     NoFundingCapacity,
     NoNetDeposit,
+    Frozen,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,6 +155,10 @@ fn preview_hlp_funding_limit(
         return Ok((HlpDepositStatus::NoLiquidity, 0));
     }
     market.advance_amm_clock(clock.slot)?;
+    market.freeze_negative_hlp_vaults()?;
+    if market.hlp_frozen(target) {
+        return Ok((HlpDepositStatus::Frozen, 0));
+    }
     market.checkpoint_hlp_vaults()?;
     let prices = current_hlp_curve_prices(market)?;
     let entry = current_hlp_entry_state_with_prices(market, target, prices)?;

@@ -209,6 +209,16 @@ pub struct AmmState {
     pub retention_target_stale: bool,
     /// Exact unfunded controller target retried by later real operations.
     pub deferred_controller_target: DeferredControllerTarget,
+    /// A distressed hLP cannot be reconstructed as positive one-sided equity.
+    /// Each bit freezes only that vault's share/debt hedge during swaps.
+    pub frozen_hlp_mask: u8,
+    /// Fixed virtual-coordinate adjustment captured when the vault freezes.
+    /// It preserves the pre-freeze executable price without treating the
+    /// vault's negative equity as spendable token inventory.
+    pub frozen_base_vault_base_offset_nad: i128,
+    pub frozen_base_vault_quote_offset_nad: i128,
+    pub frozen_quote_vault_base_offset_nad: i128,
+    pub frozen_quote_vault_quote_offset_nad: i128,
     pub _reserved: [u8; AMM_STATE_RESERVED_BYTES],
 }
 
@@ -234,6 +244,11 @@ impl Default for AmmState {
             retention_target_saturated: false,
             retention_target_stale: false,
             deferred_controller_target: DeferredControllerTarget::default(),
+            frozen_hlp_mask: 0,
+            frozen_base_vault_base_offset_nad: 0,
+            frozen_base_vault_quote_offset_nad: 0,
+            frozen_quote_vault_base_offset_nad: 0,
+            frozen_quote_vault_quote_offset_nad: 0,
             _reserved: [0; AMM_STATE_RESERVED_BYTES],
         }
     }

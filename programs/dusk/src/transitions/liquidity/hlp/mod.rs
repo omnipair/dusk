@@ -348,6 +348,7 @@ impl Market {
     /// Validate that the current hLP hedge state admits new capital without
     /// exposing rebalance-engine intermediates outside the hLP domain.
     pub fn assert_hlp_entry_available(&self, target_asset: MarketAsset) -> Result<()> {
+        require!(!self.hlp_frozen(target_asset), ErrorCode::HlpSettlementUnavailable);
         let prices = current_hlp_curve_prices(self)?;
         let entry = current_hlp_entry_state_with_prices(self, target_asset, prices)?;
         require!(entry.disposition.admits_entry(), ErrorCode::HlpSettlementUnavailable);
@@ -365,12 +366,12 @@ impl Market {
         checkpoint_hlp_yield_from_ylp(self, MarketAsset::Quote)?;
         let base_active = self.base_hlp_vault.hlp_supply > 0 || self.base_hlp_vault.residual_exposure != 0;
         let quote_active = self.quote_hlp_vault.hlp_supply > 0 || self.quote_hlp_vault.residual_exposure != 0;
-        let base_delta = if base_active {
+        let base_delta = if base_active && !self.hlp_frozen(MarketAsset::Base) {
             checkpoint_one_hlp_with_prices(self, MarketAsset::Base, prices)?
         } else {
             0
         };
-        let quote_delta = if quote_active {
+        let quote_delta = if quote_active && !self.hlp_frozen(MarketAsset::Quote) {
             checkpoint_one_hlp_with_prices(self, MarketAsset::Quote, prices)?
         } else {
             0

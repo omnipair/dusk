@@ -999,9 +999,10 @@ capital returned to reserves. Subtract its capital debits from gross
 Repayment builders supply the canonical accounts needed for both hLP vaults.
 Raw callers must include the five existing hLP accounts followed by both asset
 mints and reserve vaults when fresh public interest is settled with active hLP.
-The Market layout is version 4 with `fees.publicInterestAdvance` on both sides,
+The Market layout is version 5 with `fees.publicInterestAdvance` on both sides,
 per-vault flash locks, and non-cash `reserves.flashReceivable`;
-use the regenerated IDL. A version-2 snapshot is incompatible.
+use the regenerated IDL. It also records a frozen hLP mask and per-vault
+curve offsets; older snapshots are incompatible.
 
 
 ### Vault-wide hLP flash recovery
@@ -1035,3 +1036,23 @@ checks. The SDK's complete-plan simulator preserves bound instruction indices.
 principal writeoff and canceled interest; a partial recovery has an empty loss
 allocation. Native `HlpTerminalLiquidated.socializedLoss` now denotes principal
 loss only, with `interestCanceled` reported separately.
+
+If an hLP vault has negative executable value, ordinary spot swaps continue.
+Only that vault's automatic hedge is frozen; the opposite vault remains active.
+`state.amm.frozenHlpMask` uses bit 1 for base hLP and bit 2 for quote hLP.
+The frozen vault cannot make an ordinary withdrawal that leaves its deficit to
+the other holders. A terminal close requires insolvency at both the spot curve
+and the symmetric EMA, so a spot-only price move cannot write off the vault.
+
+An eligible holder can build `hlpLiquidations.buildNativeCloseAndExit({ market,
+targetAsset, exit: { hlpAmount, options } })`. The helper places the permissionless
+native close before `withdrawSingleSided` in one transaction; `options` are the
+normal hLP withdrawal accounts and the owner signs. It burns the closed vault's
+receipts for zero principal payout. The flash builder also accepts `exit`,
+appending an owner-signed withdrawal after settlement. For a solvent rescue,
+set `exit.minTargetAmountOut` to protect the holder's payout. A terminal quote
+still requires `allowFull` and pays zero principal. A vault with only a
+transient spot deficit must recover or receive funded rescue before its holders
+can withdraw. Once its executable value recovers, a frozen vault can quote a
+funded flash rescue even if its debt gap has fallen below the ordinary rescue
+threshold; a fully covered gap uses a minimal zero-discount payment.
