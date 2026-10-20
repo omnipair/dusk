@@ -557,8 +557,9 @@ impl Market {
 
     /// Allows ordinary yLP capital to be seeded before the configured trading
     /// start while preserving the same version and reduce-only guards used by
-    /// live risk-increasing operations. Trading, borrowing, leverage, and hLP
-    /// funding remain gated by `assert_live_with_futarchy_at`.
+    /// live risk-increasing operations. Borrowing, opening or increasing
+    /// leverage, and hLP funding remain gated by `assert_live_with_futarchy_at`.
+    /// Spot trading and risk-reducing actions remain available in reduce-only.
     pub(crate) fn assert_liquidity_seeding_available_with_futarchy(
         &self,
         futarchy_authority: &FutarchyAuthority,
