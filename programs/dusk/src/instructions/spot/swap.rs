@@ -305,6 +305,17 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(asset_out_credit, args.min_asset_out, ErrorCode::SlippageExceeded);
 
+        // Keep the ordinary no-hLP swap path below its hard compute ceiling.
+        if ctx.accounts.market.base_hlp_vault.hlp_supply > 0 || ctx.accounts.market.quote_hlp_vault.hlp_supply > 0 {
+            crate::instructions::accounting::emit_hlp_rebalanced(
+                &ctx.accounts.market,
+                base_rebalance,
+                quote_rebalance,
+                current_slot,
+                ctx.accounts.event_authority.to_account_info(),
+            )?;
+        }
+
         emit_cpi!(SwapExecuted::from_amm(
             market_key,
             trader_key,

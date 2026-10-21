@@ -5610,6 +5610,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const activeHlpMeasurement = await swapBaseForQuote(fixture, hlpSwapAccounts(fixture));
     recordSwapComputeScenario("hlp_active", activeHlpMeasurement);
     await expectSwapMarketState(cpiEvent(activeHlpMeasurement.transaction, "swapExecuted"), fixture.market);
+    const rebalance = cpiEvent(activeHlpMeasurement.transaction, "hlpRebalanced");
+    expect(rebalance.market.equals(fixture.market)).to.equal(true);
+    expect(rebalance.baseHlpYlpMinted.isZero()).to.equal(true);
+    expect(rebalance.baseHlpYlpBurned.gt(new BN(0))).to.equal(true);
+    expect(rebalance.quoteHlpYlpMinted.isZero()).to.equal(true);
+    expect(rebalance.quoteHlpYlpBurned.isZero()).to.equal(true);
+    expect(cpiEvents(activeHlpMeasurement.transaction).filter((event) =>
+      event.name === "liquidityAdded" || event.name === "liquidityRemoved"
+    )).to.have.length(0);
     trackV2Instruction("swap", this.test?.title);
 
     const ylpAfter = await getAccount(
@@ -5619,6 +5628,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
     expect(ylpAfter.amount < ylpBefore.amount).to.equal(true);
+    expect(BigInt(rebalance.baseHlpYlpBurned.toString())).to.equal(ylpBefore.amount - ylpAfter.amount);
+    expect(BigInt(rebalance.baseHlpYlpSharesAfter.toString())).to.equal(ylpAfter.amount);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
@@ -5814,6 +5825,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const debt = (raw(v.debt_shares) * raw(after.debt[`${other}_borrow_index_nad`]) + 999_999_999n) / 1_000_000_000n;
         if (mode !== "full") expect((debt > claim ? debt - claim : claim - debt) <= 2n).to.equal(true);
         if (mode === "full" && side === target) {
+          expect(raw(e[`${side}HlpYlpBurned`]) > 0n).to.equal(true);
           expect(raw(v.ylp_shares)).to.equal(0n); expect(raw(v.debt_shares)).to.equal(0n);
           expect(raw(v.hlp_supply)).to.equal(raw(m[`${side}_hlp_vault`].hlp_supply));
           expect(raw(e.loss.insuranceCredit)).to.equal(0n);

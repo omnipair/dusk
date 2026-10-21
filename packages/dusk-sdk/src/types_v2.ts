@@ -11457,6 +11457,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "hlpRebalanced",
+      "discriminator": [
+        48,
+        237,
+        118,
+        177,
+        48,
+        168,
+        104,
+        6
+      ]
+    },
+    {
       "name": "hlpTerminalLiquidated",
       "discriminator": [
         80,
@@ -15739,6 +15752,27 @@ export type Dusk = {
             }
           },
           {
+            "name": "baseHlpYlpMinted",
+            "docs": [
+              "Internal yLP changes made by this flash recovery. They are not user",
+              "liquidity deposits or exits and are included here to avoid a second",
+              "event CPI on the compute-constrained atomic settlement path."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpYlpBurned",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpMinted",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpBurned",
+            "type": "u64"
+          },
+          {
             "name": "fundingInterestPaid",
             "type": {
               "array": [
@@ -15921,6 +15955,102 @@ export type Dusk = {
           {
             "name": "fundingAprEmaNad",
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpRebalanced",
+      "docs": [
+        "Internal vault-owned yLP changes from one completed hLP hedge transition.",
+        "Ordinary yLP deposits and exits continue to use `LiquidityAdded` and",
+        "`LiquidityRemoved`. This event includes both vaults because one operation",
+        "can burn shares in one vault and mint them in the other. Debt changes are",
+        "indexed-debt changes; funding interest is also reported by the canonical",
+        "`BorrowInterestPaid` event and must not be counted twice as revenue."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpYlpMinted",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpYlpBurned",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpMinted",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpBurned",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpYlpSharesAfter",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpSharesAfter",
+            "type": "u64"
+          },
+          {
+            "name": "ylpSupplyAfter",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpDebtIncrease",
+            "docs": [
+              "Quote-token debt of the base-target hLP."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpDebtDecrease",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpDebtAfter",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpDebtIncrease",
+            "docs": [
+              "Base-token debt of the quote-target hLP."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpDebtDecrease",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpDebtAfter",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpFundingInterestPaid",
+            "docs": [
+              "Gross quote tokens paid from reserve cash to the interest vault."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpFundingInterestPaid",
+            "docs": [
+              "Gross base tokens paid from reserve cash to the interest vault."
+            ],
+            "type": "u64"
           }
         ]
       }

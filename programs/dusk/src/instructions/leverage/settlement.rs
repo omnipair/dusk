@@ -156,8 +156,18 @@ pub fn settle_inline_leverage_hlp<'info>(
         base_receipt,
         quote_receipt,
         interest_eligibility,
-        event_authority,
-    )
+        event_authority.clone(),
+    )?;
+    if market.base_hlp_vault.hlp_supply > 0 || market.quote_hlp_vault.hlp_supply > 0 {
+        crate::instructions::accounting::emit_hlp_rebalanced(
+            market,
+            base_receipt,
+            quote_receipt,
+            Clock::get()?.slot,
+            event_authority,
+        )?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -836,6 +846,15 @@ pub(crate) fn settle_new_public_hlp_income<'info>(
         eligibility,
         event_authority.clone(),
     )?;
+    if market.base_hlp_vault.hlp_supply > 0 || market.quote_hlp_vault.hlp_supply > 0 {
+        crate::instructions::accounting::emit_hlp_rebalanced(
+            market,
+            receipt.base_rebalance,
+            receipt.quote_rebalance,
+            Clock::get()?.slot,
+            event_authority.clone(),
+        )?;
+    }
     for (i, (_, reserve)) in assets.iter().enumerate() {
         require_reserve_custody(
             token_account_info_amount(reserve)?,
