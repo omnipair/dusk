@@ -12,6 +12,28 @@ TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
 targets Dusk market layout v2, including aggregate leverage exposure and stored
 position margin terms. Regenerate clients and use matching account layouts.
 
+## Protocol revenue defaults
+
+`DEFAULT_PROTOCOL_REVENUE_SHARE_BPS` is exported from the generated program IDL.
+Its initial value is 2,000 bps (20%): the protocol share of base swap fees,
+paid borrowing/leverage/hLP interest, and liquidation fees. Dynamic swap
+surcharges remain excluded. Liquidation's total charge is still 1% of net debt
+repaid, subject to available surplus; the shared constant sets the protocol's
+share of that charge.
+
+`initFutarchyAuthority` now accepts nullable `swapBps` and `interestBps`. Pass
+`null` for the program default, or a number for an explicit override, including
+zero. Governance can subsequently change either share and the auction split.
+The bootstrap script uses the program defaults when `DUSK_PROTOCOL_SWAP_BPS` and
+`DUSK_PROTOCOL_INTEREST_BPS` are unset. Regenerate clients for this instruction change.
+Changing the Rust default affects new authorities and liquidation allocations;
+existing authorities retain their configured swap and interest shares.
+
+The initial auction split remains 100% fee auctions / 0% buybacks. Referral
+commissions come out of the protocol interest share before the auction split.
+The separate voluntary-order service charge and flat market-creation charge
+are not revenue-share percentages and are outside this default.
+
 ## Stored leverage margins
 
 ```typescript

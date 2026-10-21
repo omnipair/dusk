@@ -13,6 +13,11 @@ pub const YIELD_GROWTH_SCALE_Q64: u128 = 1_u128 << 64;
 pub const YIELD_GROWTH_FRACTION_MASK_Q64: u128 = YIELD_GROWTH_SCALE_Q64 - 1;
 #[constant]
 pub const BPS_DENOMINATOR: u16 = 10_000;
+/// Initial DAO share of base swap fees and paid interest, and the protocol
+/// share of liquidation fees. Governance can override swap and interest shares.
+#[constant]
+pub const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS: u16 = 2_000;
+const _: () = assert!(DEFAULT_PROTOCOL_REVENUE_SHARE_BPS <= BPS_DENOMINATOR);
 #[constant]
 pub const MAX_COLLATERAL_FACTOR_BPS: u16 = 8_500;
 #[constant]

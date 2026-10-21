@@ -15,8 +15,10 @@ use crate::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitFutarchyAuthorityArgs {
     pub authority: Pubkey,
-    pub swap_bps: u16,
-    pub interest_bps: u16,
+    /// None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share.
+    pub swap_bps: Option<u16>,
+    /// None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share.
+    pub interest_bps: Option<u16>,
     pub max_referral_interest_share_bps: u16,
     pub futarchy_treasury: Pubkey,
     pub futarchy_treasury_bps: u16,
@@ -86,8 +88,6 @@ impl<'info> InitFutarchyAuthority<'info> {
         };
         require_keys_eq!(deployer.key(), upgrade_authority, ErrorCode::InvalidDeployer);
 
-        require_gte!(BPS_DENOMINATOR, args.swap_bps, ErrorCode::InvalidSwapFeeBps);
-        require_gte!(BPS_DENOMINATOR, args.interest_bps, ErrorCode::InvalidInterestFeeBps);
         require_gte!(
             MAX_REFERRAL_INTEREST_SHARE_BPS,
             args.max_referral_interest_share_bps,

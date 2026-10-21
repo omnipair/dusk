@@ -1,13 +1,16 @@
 //! Shared liquidation policy arithmetic and serialized quote components.
 use anchor_lang::prelude::*;
 
-use crate::{constants::BPS_DENOMINATOR, errors::ErrorCode};
+use crate::{
+    constants::{BPS_DENOMINATOR, DEFAULT_PROTOCOL_REVENUE_SHARE_BPS},
+    errors::ErrorCode,
+};
 
 pub const LIQUIDATION_INCENTIVE_SECONDS: u64 = 120;
 pub const LIQUIDATION_MINIMUM_DISCOUNT_BPS: u16 = 50;
 pub const LIQUIDATION_RECOVERY_BUFFER_BPS: u16 = 200;
 pub const LIQUIDATION_FEE_BPS: u16 = 100;
-pub const LIQUIDATION_PROTOCOL_SHARE_BPS: u16 = 2_000;
+pub const LIQUIDATION_PROTOCOL_SHARE_BPS: u16 = DEFAULT_PROTOCOL_REVENUE_SHARE_BPS;
 pub const PRINCIPAL_LOSS_COVERAGE_BPS: u16 = 7_500;
 
 /// A committed observation is separate from an atomic flash transaction: a
@@ -175,7 +178,8 @@ pub struct LiquidationFeeAllocation {
 impl LiquidationFeeAllocation {
     pub fn quote(net_repayment: u64, surplus_cap: u64, insurance_balance: u64, target: u64) -> Self {
         let total = (net_repayment / 100).min(surplus_cap);
-        let protocol = total / 5;
+        let protocol =
+            (u128::from(total) * u128::from(LIQUIDATION_PROTOCOL_SHARE_BPS) / u128::from(BPS_DENOMINATOR)) as u64;
         let designated = total - protocol;
         let shortfall = target.saturating_sub(insurance_balance);
         let insurance = if target == 0 || shortfall == 0 {
@@ -340,6 +344,11 @@ mod tests {
 
     #[test]
     fn fee_taper_conserves_every_atom_and_never_distributes_existing_insurance() {
+        for repayment in [0, 99, 100, 499, 500, u64::MAX] {
+            let fee = LiquidationFeeAllocation::quote(repayment, u64::MAX, 0, 0);
+            assert_eq!(fee.protocol, fee.total / 5);
+            assert_eq!(fee.protocol + fee.insurance + fee.lp, fee.total);
+        }
         for (balance, insurance, lp) in [
             (0, 800, 0),
             (7_500, 800, 0),

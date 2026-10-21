@@ -1,41 +1,45 @@
 {
-  "reviewed_commit": "263c1635ad87ee36ffd9bf0b970457e4be965326",
+  "reviewed_commit": "5c0aca7fcb582418f1c5b99061d4ff7605b6f185",
+  "updated_at": "2026-10-19",
+  "incoming_pr": 52,
+  "incoming_commit": "2bf53910aef2277b044e83bece8a13c555582039",
+  "incoming_work_status": "Committed cleanup and SDK fixes; full-value accounting candidate and agreed future recovery/harvest work are explicitly separate in the paper.",
   "source_files": [
     {
       "path": "programs/dusk/src/transitions/ledger.rs",
-      "sha256": "ad60558a6585275119c7399c25d25ad65465c8f7c05a4c9d7c092255379dc0a0"
+      "sha256": "b5f713a8b1b6f56489a447cf10cb0cac97b477ebf9418309f494362f750d90e9"
     },
     {
       "path": "programs/dusk/src/state/market.rs",
-      "sha256": "6742c4cafa901c6b20be4e6612d70289aa4d4b0ebd1f7482d919cc831bfa9654"
+      "sha256": "4f017a80b7c716c9c9cfcfee5a0db6c6e5e27bdec69965f39584b7f9f5f05c33"
     },
     {
       "path": "programs/dusk/src/transitions/amm/mod.rs",
-      "sha256": "62de22987445a734d2b288835ed50b000b91c21ffd8026d893bded715d0491d5"
+      "sha256": "8d089227b5797e170febd8c419bc0f26a147146f7669f03e9ca795440d2345db"
     },
     {
       "path": "programs/dusk/src/instructions/accounts.rs",
-      "sha256": "aeece488dbb0f882739a985f3504b13c219b6b060c74ff164a7331c06631aa98"
+      "sha256": "68ac9b70be452a72e4acbed2e502d433217e66cf19b1de3b0a43d237c5a98759"
     },
     {
       "path": "programs/dusk/src/transitions/amm/curve.rs",
-      "sha256": "03635013d2f7d9182ae5b5763a11fa4d6d62bb9c8acc362614ed823e8f3f05e9"
+      "sha256": "17ef3b4a566f98529ca80d173de26891b41fe5cf46fa24b25cbd145701966fa0"
     },
     {
       "path": "programs/dusk/src/instructions/prepare_swap.rs",
-      "sha256": "1042a66158c4fceb49d26a962339637f4deb364f58a24cddb830f8d4b45d2d37"
+      "sha256": "214f354903f34406b41c853806ea2e093ecd5458a941c30cbb2043250c7c05eb"
     },
     {
       "path": "programs/dusk/src/transitions/amm/fees.rs",
-      "sha256": "4ae3096812613ebaffaf431c597c26c162cc2913144c2f1d2a006a568a7ce453"
+      "sha256": "75a9302855059538618813cb37be24ec3fd3733888fdf2a0dcc46450e34b674e"
     },
     {
       "path": "programs/dusk/src/transitions/liquidity/hlp/integrated.rs",
-      "sha256": "31d7bfbd01e8eef84458ae4259c57f73493921d357fbe902da87a955687dabf2"
+      "sha256": "0b5123016cb077f57602909ffcdbb6637b97313e494ea4bab2c95c194043e840"
     },
     {
       "path": "programs/dusk/src/transitions/liquidity/hlp/engine.rs",
-      "sha256": "1b726d28e610d98fba2e825dc08d4ae6a13e53a9faba884be256c3332fbcf094"
+      "sha256": "282751e5ecda71ca64ede13d9fb3bf5fbae99d3e2d00afc79eedb298e4b6fceb"
     },
     {
       "path": "programs/dusk/src/transitions/liquidity/hlp/recovery.rs",
@@ -43,47 +47,31 @@
     },
     {
       "path": "programs/dusk/src/instructions/spot/close_insolvent_hlp.rs",
-      "sha256": "55b36220163d7ff5f756300aa8ea2adc25c811fce260c1b8400f6a9f6b13e67c"
+      "sha256": "d9f643fd1de26d919db0fdccad4c786fdf62756b7d793008cecca126c6e21ab9"
     },
     {
       "path": "programs/dusk/src/transitions/lending/mod.rs",
-      "sha256": "9fd7974071af9f40a35f92d41455f43da2eaeca7267792ea395d8320999a48d5"
+      "sha256": "b64f046428bfc2ab7d62230d2c734d3016dc7bfb35b777c1d458df39331c538b"
     },
     {
       "path": "programs/dusk/src/math/risk.rs",
-      "sha256": "e2eb77391da822bbb7338f238e2a2fe885d39e6d01cfc4586277e3c14ed15829"
+      "sha256": "937f09406c871652e9da550b5d85379c5eaca9ecb02248681b73c2c6e9018961"
     },
     {
       "path": "programs/dusk/src/constants.rs",
-      "sha256": "ae032c9f802804a802e708359bf5d5ae1a1535a9b45651bd70bbf522d1054b5b"
+      "sha256": "b40c9f5584a6f296a38eb77d723ec9f2ca13d83b15d598d93ee6d303e56adf26"
     },
     {
       "path": "programs/dusk/src/transitions/lending/liquidation.rs",
-      "sha256": "6f80356e95393c11a64345bc2595ce0bfde6199f6b80dd8fdd20fd69f82ebc1d"
-    },
-    {
-      "path": "programs/dusk/src/instructions/lending/liquidation/start_liquidation_auction.rs",
-      "sha256": "46cfe82c6d4f0ca9c02b8a308604a65850f82eaa7b156d62537f42c3aba3c2cd"
-    },
-    {
-      "path": "programs/dusk/src/instructions/lending/liquidation/fill_liquidation_auction.rs",
-      "sha256": "ecf87e2ec596ced08f178ef79d48364d8058adc104b0577003064204d14bd026"
-    },
-    {
-      "path": "programs/dusk/src/instructions/lending/liquidation/backstop_liquidation_auction.rs",
-      "sha256": "1cc88f2279e5c23760fff0c3cc5abd835ea387fee61586ea23e77c6564029af4"
-    },
-    {
-      "path": "programs/dusk/src/instructions/lending/liquidation/settlement.rs",
-      "sha256": "b3ff97db0e15a3561d8ea90d82e67c996ff1c190cafe3eafa918c57fd928082c"
+      "sha256": "5604d01eaa5c8008bf892f301493d3ced5289d091844a2c7b259cb3806b0b374"
     },
     {
       "path": "programs/dusk/src/transitions/leverage.rs",
-      "sha256": "33be69691f5625e2dba451819929c6a32ff654fdd12927e2afd0ef2168856907"
+      "sha256": "9b884174cf3e47b003adfe599e6b0ac8fe893f9eacd733febb5ef1158c0ec906"
     },
     {
       "path": "programs/leverage_delegate/src/lib.rs",
-      "sha256": "091849b7bef6608c3500814f5bef1b4ddf1d3681717cfce724dbc44b28b55bff"
+      "sha256": "e6675cbd2cc6df3e90c4a4ebff569feeaa3dad90a0beec6cb6fa77b74b0004b6"
     },
     {
       "path": "programs/dusk/src/state/yield_account.rs",
@@ -95,7 +83,71 @@
     },
     {
       "path": "programs/dusk/src/state/parameter_proposal.rs",
-      "sha256": "2959bfb59c904c112635a8dcede8166bedf6eeb3fc9ff841c7894fb42faf2893"
+      "sha256": "39a7361e5db84695b9d04a241b731087a89ab005796aab646714907074ff614e"
+    },
+    {
+      "path": "programs/dusk/src/transitions/liquidation_policy.rs",
+      "sha256": "80b40007c8383b3efe8816d8cf09c5673be2ad50c7a290787b4f479688d9d152"
+    },
+    {
+      "path": "programs/dusk/src/transitions/amm/liquidation.rs",
+      "sha256": "ce5d939a92ef581d8eee7532a61ee7d1659bcb38ddc97665d3607f5a21d5078e"
+    },
+    {
+      "path": "programs/dusk/src/instructions/flash_liquidation.rs",
+      "sha256": "833ea241a148ebcd7031ea18bf2b91f34adf03ea7c6dd25cec655e8df5df07e4"
+    },
+    {
+      "path": "programs/dusk/src/instructions/flash_amm_settlement.rs",
+      "sha256": "0b073d19b6211525c3c403537a68b87d7ebc259c4aef6ff32d17a45c5e1307b3"
+    },
+    {
+      "path": "programs/dusk/src/instructions/emergency_liquidation.rs",
+      "sha256": "aa138ae568de2ed3404f059f90707e3f6fe735a83996554b28ccc142821542a6"
+    },
+    {
+      "path": "programs/dusk/src/state/leverage_position.rs",
+      "sha256": "7916ffe90fe76038a335b784159b4f082562a6140a168061fc4d7c949672c714"
+    },
+    {
+      "path": "programs/dusk/src/transitions/leverage_margins.rs",
+      "sha256": "6b21c72fe9dca21eae6cbf861dccead5591f063f01e118986c913ffc59c1e78c"
+    },
+    {
+      "path": "programs/dusk/src/state/governance_balance.rs",
+      "sha256": "b0872c6d476956525a21b5c6f852d220d61302753cf80ff68593e92357760808"
+    },
+    {
+      "path": "programs/dusk/src/instructions/governance/balance.rs",
+      "sha256": "0ab2c2fbab4bb2c44d63e43ced67ca9d06c766750fd4b3cad8de1a775fc114a1"
+    },
+    {
+      "path": "programs/dusk/src/instructions/governance/delegated.rs",
+      "sha256": "c61c753eb434542cef6d7ebcdf33b79567bbe1949e5412d69c250d4329009af7"
+    },
+    {
+      "path": "programs/dusk/src/instructions/market/initialization.rs",
+      "sha256": "59d3537dde9d29be9194a460bb5548cd67c04d352cdb5b50dc8900d8bce79675"
+    },
+    {
+      "path": "programs/dusk/src/token.rs",
+      "sha256": "cf3d708551641d9a1084108e8ee4af64445beaf44491dabde232a79368a01664"
+    },
+    {
+      "path": "docs/STORED_LEVERAGE_MARGINS.md",
+      "sha256": "89ce1d281468c5f33531b29580ce9769930e503718e6dc3c1d6f360174139e84"
+    },
+    {
+      "path": "docs/LEVERAGE_POSITION_ACTIONS.md",
+      "sha256": "2cfc740043adc66813e8e1326887e6b02077cfb82fce66eeedea0fa3186a1a3a"
+    },
+    {
+      "path": "docs/FLASH_LIQUIDATION_CONTRACT.md",
+      "sha256": "5e22fa95d3817d80bf26101ed1ce358c9b45ce407f414e302bed09f8432cd1b9"
+    },
+    {
+      "path": "docs/calibration/EMA_SETTLEMENT_CLOSEOUT.md",
+      "sha256": "ef5f01031c94c35ab31bdff37b15f5ee91064b7dfb647ac801ecdfa0dd026d75"
     }
   ]
 }

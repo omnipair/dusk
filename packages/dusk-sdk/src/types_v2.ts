@@ -16202,11 +16202,21 @@ export type Dusk = {
           },
           {
             "name": "swapBps",
-            "type": "u16"
+            "docs": [
+              "None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share."
+            ],
+            "type": {
+              "option": "u16"
+            }
           },
           {
             "name": "interestBps",
-            "type": "u16"
+            "docs": [
+              "None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share."
+            ],
+            "type": {
+              "option": "u16"
+            }
           },
           {
             "name": "maxReferralInterestShareBps",
@@ -21734,6 +21744,15 @@ export type Dusk = {
       "name": "bpsDenominator",
       "type": "u16",
       "value": "10000"
+    },
+    {
+      "name": "defaultProtocolRevenueShareBps",
+      "docs": [
+        "Initial DAO share of base swap fees and paid interest, and the protocol",
+        "share of liquidation fees. Governance can override swap and interest shares."
+      ],
+      "type": "u16",
+      "value": "2000"
     },
     {
       "name": "futarchyAuthoritySeedPrefix",

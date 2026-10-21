@@ -1,4 +1,10 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
+import IDL from "./idl_v2.js";
+
+/** Shared on-chain default; regenerated from the program instead of duplicated here. */
+export const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS = Number(
+  IDL.constants.find(({ name }) => name === "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS")!.value
+);
 
 const DEFAULT_PROGRAM_ID = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";

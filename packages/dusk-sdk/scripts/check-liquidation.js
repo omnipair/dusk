@@ -4,8 +4,9 @@ import anchor from "@coral-xyz/anchor";
 import { Keypair, ComputeBudgetProgram, SystemProgram, AddressLookupTableAccount, TransactionMessage } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, createTransferCheckedInstruction, calculateFee } from "@solana/spl-token";
 import IDL from "../dist/idl_v2.js";
+import { DEFAULT_PROTOCOL_REVENUE_SHARE_BPS } from "../dist/constants.js";
 import { DuskLiquidations } from "../dist/liquidation-client.js";
-import { liquidationHealth, liquidationIncentives, liquidationFeeAllocation, liquidationInsuranceTarget, liquidationLossAllocation, liquidationDistressAge, grossLiquidationPayment, deriveLiquidationSessionAddress, deriveLiquidationPaymentAddress } from "../dist/liquidation.js";
+import { LIQUIDATION_POLICY, liquidationHealth, liquidationIncentives, liquidationFeeAllocation, liquidationInsuranceTarget, liquidationLossAllocation, liquidationDistressAge, grossLiquidationPayment, deriveLiquidationSessionAddress, deriveLiquidationPaymentAddress } from "../dist/liquidation.js";
 
 test("time raises the reward without turning 6% equity into emergency permission", () => {
   const health = { collateralValue: 1_000_000n, debt: 940_000n, maintenanceBps: 700 };
@@ -20,9 +21,16 @@ test("time raises the reward without turning 6% equity into emergency permission
 });
 
 test("one percent liquidation fee follows the 80/20 split and insurance taper", () => {
+  assert.equal(DEFAULT_PROTOCOL_REVENUE_SHARE_BPS, 2_000);
+  assert.equal(LIQUIDATION_POLICY.protocolFeeShareBps, DEFAULT_PROTOCOL_REVENUE_SHARE_BPS);
   assert.equal(liquidationInsuranceTarget(100_000n, 30_000n), 7_000n);
   assert.deepEqual(liquidationFeeAllocation(100_000n, 8_750n, 10_000n), { total: 1000n, protocol: 200n, insurance: 400n, lp: 400n });
   assert.deepEqual(liquidationFeeAllocation(100_000n, 10_001n, 10_000n, 50n), { total: 50n, protocol: 10n, insurance: 0n, lp: 40n });
+  for (const repayment of [0n, 99n, 100n, 499n, 500n, (1n << 64n) - 1n]) {
+    const fee = liquidationFeeAllocation(repayment, 0n, 0n);
+    assert.equal(fee.protocol, fee.total / 5n);
+    assert.equal(fee.protocol + fee.insurance + fee.lp, fee.total);
+  }
 });
 
 test("insolvent liquidation cancels interest and cannot draw more than 75% of principal loss", () => {

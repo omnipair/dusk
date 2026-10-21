@@ -91,8 +91,8 @@ fn ordinary_liquidity_can_seed_before_start_but_reduce_only_still_blocks_it() {
     market.config.start_time = 1_000;
     let mut futarchy = FutarchyAuthority::initialize(
         Pubkey::new_unique(),
-        0,
-        0,
+        Some(0),
+        Some(0),
         0,
         Pubkey::new_unique(),
         Pubkey::new_unique(),

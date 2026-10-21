@@ -57,6 +57,7 @@ import {
 import { expect } from "chai";
 import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
 import {
+  DEFAULT_PROTOCOL_REVENUE_SHARE_BPS,
   buildLpTransferHookAccountMetas,
   buildLpTransferHookValidationAccountData,
   buildYieldTransferHookValidationAccountData,
@@ -1763,62 +1764,87 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(svm.getAccount(baseClassBaseYield)).to.equal(null);
   });
 
-  it("initializes the Dusk futarchy authority from upgradeable ProgramData", async function () {
-    const { isolatedSvm, isolatedConnection, isolatedPayer, isolatedProgram } =
-      await createIsolatedProgram();
-    const [isolatedFutarchyAuthority] = deriveFutarchyAuthorityAddress();
-    const [programData] = PublicKey.findProgramAddressSync(
-      [DUSK_PROGRAM_ID.toBuffer()],
-      BPF_LOADER_UPGRADEABLE_PROGRAM_ID
-    );
-    const programDataBytes = upgradeableProgramData(isolatedPayer.publicKey);
-    isolatedSvm.setAccount(programData, {
-      lamports: Number(isolatedSvm.minimumBalanceForRentExemption(BigInt(programDataBytes.length))),
-      data: new Uint8Array(programDataBytes),
-      owner: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
-      executable: false,
-      rentEpoch: 0,
+  for (const [swapBps, interestBps] of [[null, null], [0, null], [125, 250]] as const) {
+    it(`initializes the Dusk futarchy authority with shares ${swapBps ?? "default"}/${interestBps ?? "default"}`, async function () {
+      const { isolatedSvm, isolatedConnection, isolatedPayer, isolatedProgram } =
+        await createIsolatedProgram();
+      const [isolatedFutarchyAuthority] = deriveFutarchyAuthorityAddress();
+      const [programData] = PublicKey.findProgramAddressSync(
+        [DUSK_PROGRAM_ID.toBuffer()],
+        BPF_LOADER_UPGRADEABLE_PROGRAM_ID
+      );
+      const programDataBytes = upgradeableProgramData(isolatedPayer.publicKey);
+      isolatedSvm.setAccount(programData, {
+        lamports: Number(isolatedSvm.minimumBalanceForRentExemption(BigInt(programDataBytes.length))),
+        data: new Uint8Array(programDataBytes),
+        owner: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+        executable: false,
+        rentEpoch: 0,
+      });
+
+      const tx = await isolatedProgram.methods
+        .initFutarchyAuthority({
+          authority: isolatedPayer.publicKey,
+          swapBps,
+          interestBps,
+          maxReferralInterestShareBps: 2_500,
+          futarchyTreasury: isolatedPayer.publicKey,
+          futarchyTreasuryBps: 5_000,
+          buybacksVault: isolatedPayer.publicKey,
+          buybacksVaultBps: 2_000,
+          teamTreasury: isolatedPayer.publicKey,
+          teamTreasuryBps: 3_000,
+          stakingVault: isolatedPayer.publicKey,
+          feeAuctionAcceptedMint: NATIVE_MINT,
+          buybackAuctionAcceptedMint: NATIVE_MINT,
+        })
+        .accounts({
+          deployer: isolatedPayer.publicKey,
+          futarchyAuthority: isolatedFutarchyAuthority,
+          programData,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction();
+      await isolatedConnection.sendTransaction(tx, [isolatedPayer]);
+      trackV2Instruction("initFutarchyAuthority", this.test?.title);
+
+      const authorityAccount = isolatedSvm.getAccount(isolatedFutarchyAuthority);
+      expect(authorityAccount).to.not.equal(null);
+      const authority = accountCoder.decode(
+        "FutarchyAuthority",
+        Buffer.from(authorityAccount!.data)
+      ) as any;
+      expect(authority.authority.toString()).to.equal(isolatedPayer.publicKey.toString());
+      expect(authority.revenue_share.swap_bps).to.equal(swapBps ?? DEFAULT_PROTOCOL_REVENUE_SHARE_BPS);
+      expect(authority.revenue_share.interest_bps).to.equal(interestBps ?? DEFAULT_PROTOCOL_REVENUE_SHARE_BPS);
+      expect(authority.revenue_distribution.futarchy_treasury_bps).to.equal(5_000);
+      expect(authority.revenue_distribution.buybacks_vault_bps).to.equal(2_000);
+      expect(authority.revenue_distribution.team_treasury_bps).to.equal(3_000);
+
+      const update = await isolatedProgram.methods
+        .updateProtocolRevenue({
+          swapBps: 1_500,
+          interestBps: 0,
+          maxReferralInterestShareBps: null,
+          revenueDistribution: null,
+          protocolAuctionSplit: null,
+        })
+        .accounts({
+          authoritySigner: isolatedPayer.publicKey,
+          futarchyAuthority: isolatedFutarchyAuthority,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+      await isolatedConnection.sendTransaction(update, [isolatedPayer]);
+      const updated = accountCoder.decode(
+        "FutarchyAuthority",
+        Buffer.from(isolatedSvm.getAccount(isolatedFutarchyAuthority)!.data)
+      ) as any;
+      expect(updated.revenue_share.swap_bps).to.equal(1_500);
+      expect(updated.revenue_share.interest_bps).to.equal(0);
     });
-
-    const tx = await isolatedProgram.methods
-      .initFutarchyAuthority({
-        authority: isolatedPayer.publicKey,
-        swapBps: 125,
-        interestBps: 250,
-        maxReferralInterestShareBps: 2_500,
-        futarchyTreasury: isolatedPayer.publicKey,
-        futarchyTreasuryBps: 5_000,
-        buybacksVault: isolatedPayer.publicKey,
-        buybacksVaultBps: 2_000,
-        teamTreasury: isolatedPayer.publicKey,
-        teamTreasuryBps: 3_000,
-        stakingVault: isolatedPayer.publicKey,
-        feeAuctionAcceptedMint: NATIVE_MINT,
-        buybackAuctionAcceptedMint: NATIVE_MINT,
-      })
-      .accounts({
-        deployer: isolatedPayer.publicKey,
-        futarchyAuthority: isolatedFutarchyAuthority,
-        programData,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction();
-    await isolatedConnection.sendTransaction(tx, [isolatedPayer]);
-    trackV2Instruction("initFutarchyAuthority", this.test?.title);
-
-    const authorityAccount = isolatedSvm.getAccount(isolatedFutarchyAuthority);
-    expect(authorityAccount).to.not.equal(null);
-    const authority = accountCoder.decode(
-      "FutarchyAuthority",
-      Buffer.from(authorityAccount!.data)
-    ) as any;
-    expect(authority.authority.toString()).to.equal(isolatedPayer.publicKey.toString());
-    expect(authority.revenue_share.swap_bps).to.equal(125);
-    expect(authority.revenue_share.interest_bps).to.equal(250);
-    expect(authority.revenue_distribution.futarchy_treasury_bps).to.equal(5_000);
-    expect(authority.revenue_distribution.buybacks_vault_bps).to.equal(2_000);
-    expect(authority.revenue_distribution.team_treasury_bps).to.equal(3_000);
-  });
+  }
 
   for (const [baseDecimals, quoteDecimals, token2022, concentrated, groupedUi] of [
     [12, 6, false, false],
