@@ -13,6 +13,7 @@ import {
 } from "@solana/spl-token";
 import {
   Dusk,
+  IDL,
   MARKET_LAYOUT_VERSION,
   decodeDuskVirtualBookBatch,
   decodePreviewSwapReturnData,
@@ -55,6 +56,11 @@ currentMarketBytes[8] = 3;
 // Adapt the immutable layout-3 fixture through its explicit old schema. This
 // is test data conversion, not a production account migration.
 const fixtureProgram = new Dusk({ connection: new Connection("http://localhost:8899"), programId: fixture.programId }).program;
+assert.equal(
+  MARKET_LAYOUT_VERSION,
+  Number(IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION").value),
+  "SDK market layout version must match the generated program IDL"
+);
 const oldIdl = structuredClone(fixtureProgram.idl);
 for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.type.fields.filter(f =>
   ![

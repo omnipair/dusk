@@ -22,7 +22,9 @@ export const DUSK_PROGRAM_ID = new PublicKey(getProgramIdFromEnv(DEFAULT_PROGRAM
 
 export const PROGRAM_ID = DUSK_PROGRAM_ID;
 /** Current development Market account layout. */
-export const MARKET_LAYOUT_VERSION = 4;
+export const MARKET_LAYOUT_VERSION = Number(
+  IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION")!.value
+);
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
 /** Direct-yLP parameter-governance constants. These values are immutable for Dusk market layout v1. */
