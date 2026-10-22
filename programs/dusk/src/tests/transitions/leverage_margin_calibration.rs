@@ -46,7 +46,7 @@ fn calibration_market(total_liquidity: u64, amplification: u64) -> Market {
     }
     market.amm = AmmState::default();
     market.risk = Risk::default();
-    market.prepare_amm_for_swap(1).unwrap();
+    market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
     market.refresh_risk().unwrap();
     market
 }
@@ -93,7 +93,7 @@ fn calibration_entry(
         market,
         policy,
         full_fee_credit(&quote),
-        slot,
+        crate::clock::test_clock(slot),
         0,
         ProtocolAuctionSplit::default(),
         None,
@@ -164,7 +164,7 @@ fn margin_calibration_native_entry_report() {
                         let debt_cash = market.side(debt_asset).reserves.cash_reserve;
                         let liquidity_reference =
                             2 * reference_credit(&market, collateral_asset, collateral_cash).min(debt_cash);
-                        let Ok(exit) = market.quote_leverage_swap(collateral_asset, position.collateral_amount, 2)
+                        let Ok(exit) = market.quote_leverage_swap(collateral_asset, position.collateral_amount, crate::clock::test_clock(2))
                         else {
                             println!("MARGIN_CALIBRATION_REJECT,{liquidity},{amplification},{},{spend_dollars},{wallet_bps},native_exit", debt_asset.code());
                             continue;
@@ -181,7 +181,7 @@ fn margin_calibration_native_entry_report() {
                         let candidate_admitted =
                             reference_health >= u128::from(required) && execution_health >= u128::from(required);
                         let old_admitted = market
-                            .require_position_initial_leverage_health(&position, 2, 0, LeverageCollateralFee::default())
+                            .require_position_initial_leverage_health(&position, crate::clock::test_clock(2), 0, LeverageCollateralFee::default())
                             .is_ok();
                         println!("MARGIN_CALIBRATION,{liquidity},{amplification},{},{spend_dollars},{wallet_bps},{notional},{liquidity_reference},{reference_health},{execution_health},{required},{candidate_admitted},{old_admitted}", debt_asset.code());
                         assert_eq!(
@@ -203,7 +203,7 @@ fn native_plain_curve_matches_independent_reserve_depth_example() {
     for value in [10_000, 25_000, 50_000] {
         let amount = value * CALIBRATION_UNIT;
         let actual = market
-            .quote_leverage_swap(MarketAsset::Base, amount, 2)
+            .quote_leverage_swap(MarketAsset::Base, amount, crate::clock::test_clock(2))
             .unwrap()
             .amount_out;
         let reserve = 50_000u128 * u128::from(CALIBRATION_UNIT);
@@ -230,7 +230,7 @@ fn margin_calibration_partial_recovery_report() {
                 let debt = collateral * u64::from(10_000 - maintenance) / 10_000;
                 let position = seeded_position(&mut initial, MarketAsset::Quote, debt, collateral);
                 let full_exit = initial
-                    .quote_leverage_swap(MarketAsset::Base, collateral, 2)
+                    .quote_leverage_swap(MarketAsset::Base, collateral, crate::clock::test_clock(2))
                     .unwrap()
                     .amount_out;
                 let target = u128::from(maintenance + 200);
@@ -263,7 +263,7 @@ fn margin_calibration_partial_recovery_report() {
                         &mut market,
                         policy,
                         full_fee_credit(&quote),
-                        2,
+                        crate::clock::test_clock(2),
                         0,
                         ProtocolAuctionSplit::default(),
                         None,
@@ -275,7 +275,7 @@ fn margin_calibration_partial_recovery_report() {
                     let reference_value = reference_credit(&market, MarketAsset::Base, remaining);
                     let reference_health = equity_bps(reference_value, remaining_debt).unwrap();
                     best_reference_health = best_reference_health.max(reference_health);
-                    let Ok(remaining_exit) = market.quote_leverage_swap(MarketAsset::Base, remaining, 2) else {
+                    let Ok(remaining_exit) = market.quote_leverage_swap(MarketAsset::Base, remaining, crate::clock::test_clock(2)) else {
                         continue;
                     };
                     let execution_health = equity_bps(remaining_exit.amount_out, remaining_debt).unwrap();
@@ -316,7 +316,7 @@ fn margin_calibration_emergency_price_path_report() {
                     let collateral_asset = debt_asset.opposite();
                     let entry_reference = reference_credit(&market, collateral_asset, position.collateral_amount);
                     let entry_exit = market
-                        .quote_leverage_swap(collateral_asset, position.collateral_amount, 2)
+                        .quote_leverage_swap(collateral_asset, position.collateral_amount, crate::clock::test_clock(2))
                         .unwrap()
                         .amount_out;
                     let liquidity_reference = 2 * reference_credit(
@@ -356,7 +356,7 @@ fn margin_calibration_emergency_price_path_report() {
                                 &mut market,
                                 SwapCashPolicy::Spot,
                                 full_fee_credit(&quote),
-                                slot,
+                                crate::clock::test_clock(slot),
                                 0,
                                 ProtocolAuctionSplit::default(),
                                 None,
@@ -369,7 +369,7 @@ fn margin_calibration_emergency_price_path_report() {
                             .quote_leverage_swap_at_time(
                                 collateral_asset,
                                 position.collateral_amount,
-                                slot,
+                                crate::clock::test_clock(slot),
                                 (slot * 400 / 1_000) as i64,
                             )
                             .unwrap()

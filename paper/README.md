@@ -1,35 +1,33 @@
 # Omnipair Dusk whitepapers
 
-Two research drafts revised against Dusk commit `263c1635ad87ee36ffd9bf0b970457e4be965326` on September 10, 2026. Dusk is under active development and has no production deployment.
+**Start with [the hLP derivation and worked examples](HLP_DERIVATION.md).** It explains `xy=k`, `√p`, continuously maintained 2× leverage and the inventory-dependent hedge for concentration.
 
-- `dusk-v2-whitepaper.tex` / `.pdf`: compact paper (10 pages).
-- `dusk-v2-whitepaper-expanded.tex` / `.pdf`: expanded paper (26 pages) with derivations, worked examples, and implementation mapping.
-- `main.tex`: shared mechanism text; expanded-only passages use `\ifexpanded`.
-- `appendices.tex`: expanded derivations and review evidence.
-- `preamble.tex`, `references.bib`: shared formatting and references.
-- `SOURCES.md`: claim-to-code mapping, revision scope, and verification notes.
-- `source-manifest.json`: hashes of the implementation files named in the source map.
-- `simulations/generate.py`: reproducible mathematical illustrations, tables, and vector figures.
+These research drafts were revised on October 23, 2026 for the integration candidate combining PR #45 at `04941f19` and PR #52 at `2f46e0e7`. The hLP accounting, harvest, cash-carry and flash-recovery mechanisms are described as implemented; final combined review remains pending. This is not a production deployment or audit certification.
 
-The original July drafts were recovered from the earlier whitepaper drafting task because the `paper/` directory was absent from this checkout. This revision replaces their obsolete mechanism descriptions rather than retaining a historical warning over unchanged content. The old claims of synthetic hLP trader depth, fixed two-times leverage on every curve, iterative pre-rebalancing, universal non-compounding yield, and close-factor public liquidation are superseded.
+## Read
+
+- [Compact paper](dusk-v2-whitepaper.pdf): shared derivations and current mechanisms.
+- [Expanded paper](dusk-v2-whitepaper-expanded.pdf): additional proofs, complete numerical trade/rebalance trace and source mapping.
+- [Source map and validation boundary](SOURCES.md): code anchors, historical replay scope and remaining review.
+- [Verification](verification.json): current PDF and arithmetic checks; [local CI receipt](precommit-verification.json).
+- [Historical comparison](COMPARISON.md): unchanged July drafts and prior revisions.
+
+Both papers explain flash liquidation, affordable partial-fill discounts, EMA-priced emergency execution with smoothed depth, stored margins/crowding, position actions, insurance, reusable governance delegation, and integrated hLP accounting/recovery. The retained native numerical replay predates the integrated hLP fee-marking change and is labeled as historical; current program behavior is covered separately by native and instruction tests.
 
 ## Build
 
-Use Python 3 with ReportLab for vector charts, then Tectonic for LaTeX and bibliography compilation:
+Use Python 3 with ReportLab and Tectonic:
 
 ```sh
 python3 paper/simulations/generate.py
+python3 paper/simulations/verify_native.py
 cd paper
 tectonic --keep-logs dusk-v2-whitepaper.tex
 tectonic --keep-logs dusk-v2-whitepaper-expanded.tex
 ```
 
-The bundled Codex Python runtime includes ReportLab. A conventional LaTeX installation can compile either source using `latexmk -pdf` instead. Generated figures are PDF vectors and require no SVG converter. The final PDFs are kept beside their stable LaTeX entry points, matching the original paper bundle.
+`main.tex`, `appendices.tex`, `preamble.tex` and `references.bib` are the shared sources. Both top-level TeX files must be rebuilt after editing them. Render and visually inspect every page after compilation; update the source manifest and verification receipt when the implementation changes. Stable PDF filenames are retained beside the sources.
 
-## Illustrations and scope
+The generator writes disclosed mathematical illustrations, not a program emulator. The [native replay](simulations/README.md) separately checks selected program transitions, including concentration and both hLP vaults. Numerical examples do not establish profitability or liquidation liveness in every market.
 
-The generator discloses assumptions in `simulations/data/assumptions.json` and writes `validation.json`, three CSV datasets, two LaTeX tables, and three vector figures. It covers the nested curve, daily adaptive-rate paths at the current 70% utilization target, and integer hLP recovery pricing. These are mathematical illustrations, not a full program simulator or evidence of market returns.
-
-Both papers share their equations and parameters. After changing the shared text or data, regenerate and compile **both** papers, check references and source mappings, then render both PDFs and inspect all pages for layout problems. Update the reviewed commit and source map when the implementation snapshot changes.
-
-No Rust, SDK, root README, or program README changes are included in this whitepaper update.
+This update changes documentation and reproducible paper evidence only; program and SDK interfaces are unchanged. The historical `previous/` bundle is unchanged.

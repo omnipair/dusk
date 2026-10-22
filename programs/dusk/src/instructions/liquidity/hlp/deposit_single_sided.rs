@@ -167,19 +167,19 @@ impl<'info> DepositSingleSided<'info> {
     pub fn update_and_validate(&mut self, args: &DepositSingleSidedArgs) -> Result<()> {
         self.validate(args)?;
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
-        let current_slot = Clock::get()?.slot;
+        let clock = crate::clock::MarketClock::get()?;
         crate::instructions::accounting::accrue_market_interest(
             &mut self.market,
-            current_slot,
+            clock,
             self.event_authority.to_account_info(),
         )?;
         reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
         self.market.assert_current_version()?;
         if self.market.base_side.reserves.live_reserve > 0 && self.market.quote_side.reserves.live_reserve > 0 {
-            self.market.advance_amm_clock(current_slot)?;
+            self.market.advance_amm_clock(clock)?;
             self.market.checkpoint_hlp_vaults()?;
             self.market.assert_hlp_entry_available(target_asset)?;
-            self.market.observe_current_risk(current_slot)?;
+            self.market.observe_current_risk(clock)?;
         }
         Ok(())
     }
@@ -260,7 +260,7 @@ impl<'info> DepositSingleSided<'info> {
         .ok_or(ErrorCode::MarketMathOverflow)?;
 
         // Apply hLP accounting and checkpoint the immutable post-deposit curve.
-        let current_slot = Clock::get()?.slot;
+        let clock = crate::clock::MarketClock::get()?;
         let receipt = ctx
             .accounts
             .market
@@ -269,9 +269,7 @@ impl<'info> DepositSingleSided<'info> {
         // state would price this entry against a stale NAV. One final curve
         // evaluation now supplies curve-depth accounting and the exact risk observation
         // for the immutable post-deposit state.
-        ctx.accounts
-            .market
-            .finalize_amm_transition_and_observe_risk(current_slot)?;
+        ctx.accounts.market.finalize_amm_transition_and_observe_risk(clock)?;
         let fees = crate::instructions::lending_market_admission_fees(
             &ctx.accounts.market,
             &ctx.accounts.base_mint,

@@ -71,12 +71,18 @@ pub(crate) fn emit_hlp_rebalanced<'info>(
 /// quotes use the quiet domain transition, so they never publish accruals.
 pub(crate) fn accrue_market_interest<'info>(
     market: &mut Account<'info, Market>,
-    current_slot: u64,
+    clock: crate::clock::MarketClock,
     event_authority: AccountInfo<'info>,
 ) -> Result<()> {
+    market.base_side.fees.public_interest_advance.require_settled()?;
+    market.quote_side.fees.public_interest_advance.require_settled()?;
+    // An identical already-accrued snapshot cannot emit new interest. Keep the
+    // cash-ledger checks above even on this common repeated-clock path.
+    if market.debt.accrued_at(clock) {
+        return Ok(());
+    }
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        market.side(asset).fees.public_interest_advance.require_settled()?;
-        if let Some(receipt) = accrue_side::<true>(market, asset, current_slot)? {
+        if let Some(receipt) = accrue_side::<true>(market, asset, clock)? {
             emit_accounting_event(
                 &BorrowInterestAccrued {
                     market: market.key(),
@@ -84,6 +90,8 @@ pub(crate) fn accrue_market_interest<'info>(
                     asset_side: receipt.asset.code(),
                     from_slot: receipt.from_slot,
                     to_slot: receipt.to_slot,
+                    from_timestamp_ms: receipt.from_timestamp_ms,
+                    to_timestamp_ms: receipt.to_timestamp_ms,
                     borrow_index_before_nad: receipt.index_before,
                     borrow_index_after_nad: receipt.index_after,
                     credit_interest: receipt.credit_interest,

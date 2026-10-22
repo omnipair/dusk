@@ -146,19 +146,18 @@ impl<'info> SettleProtocolAuction<'info> {
         let sold_mint = ctx.accounts.sold_mint.key();
         let accepted_mint = ctx.accounts.accepted_mint.key();
         let sold_side = ctx.accounts.market.asset_for_mint(sold_mint)?;
-        let auction_epoch =
-            ctx.accounts
-                .market
-                .side(sold_side)
-                .fees
-                .protocol_auction_epoch(args.lane, args.source, current_slot);
-        let (max_reference_age_slots, start_multiplier_bps, floor_multiplier_bps, duration_slots, staking_vault_bps) = {
+        let auction_epoch = ctx.accounts.market.side(sold_side).fees.protocol_auction_epoch(
+            args.lane,
+            args.source,
+            crate::clock::MarketClock::from_clock(&clock)?,
+        );
+        let (max_reference_age_slots, start_multiplier_bps, floor_multiplier_bps, duration_ms, staking_vault_bps) = {
             let auction = ctx.accounts.futarchy_authority.auction_config(args.lane);
             (
                 auction.params.max_reference_age_slots,
                 auction.params.start_multiplier_bps,
                 auction.params.floor_multiplier_bps,
-                auction.params.duration_slots,
+                auction.params.duration_ms,
                 auction.recipients.staking_vault_bps,
             )
         };
@@ -223,8 +222,11 @@ impl<'info> SettleProtocolAuction<'info> {
             reference_price_nad,
             start_multiplier_bps,
             floor_multiplier_bps,
-            current_slot.saturating_sub(auction_epoch.start_slot),
-            duration_slots,
+            crate::clock::MarketClock::from_clock(&clock)?
+                .timestamp_ms
+                .checked_sub(auction_epoch.start_timestamp_ms)
+                .ok_or(ErrorCode::InvalidArgument)?,
+            duration_ms,
             staking_vault_bps,
         )?;
         let auction_price_nad = quote.auction_price_nad;
@@ -307,7 +309,7 @@ impl<'info> SettleProtocolAuction<'info> {
             args.lane,
             args.source,
             args.sold_amount,
-            auction_epoch.start_slot,
+            auction_epoch.start_timestamp_ms,
         )?;
         market_side.fees.assert_backed()?;
         let required_custody = match args.source {

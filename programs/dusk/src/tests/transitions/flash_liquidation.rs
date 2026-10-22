@@ -60,7 +60,7 @@ fn emergency_sale_uses_principal_first_waterfall_and_clears_both_directions() {
         let mut position = indexed_position(&mut market, asset, 900_000);
         let remove = position.collateral_amount - 850_000;
         market.reduce_leverage_collateral(&mut position, remove).unwrap();
-        market.insurance.credit(asset, 1_000_000, 0).unwrap();
+        market.insurance.credit(asset, 1_000_000, crate::clock::test_clock(0)).unwrap();
         let mut prepared = market.prepare_emergency_liquidation(&LiquidationPositionRef::Leverage(&position), asset,
             850_000, true, LeverageCollateralFee::default(), LeverageCollateralFee::default(), LeverageCollateralFee::default(),
             0, 0, 0).unwrap();
@@ -174,7 +174,7 @@ fn full_external_recovery_spends_insurance_only_on_principal_and_cancels_interes
         let remove = position.collateral_amount - 850_000;
         market.reduce_leverage_collateral(&mut position, remove).unwrap();
         let before_curve = market.curve_reserve(asset).unwrap();
-        market.insurance.credit(asset, 1_000_000, 1).unwrap();
+        market.insurance.credit(asset, 1_000_000, crate::clock::test_clock(1)).unwrap();
         let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Leverage(&position), asset, position.debt_shares).unwrap();
         assert_eq!((allocation.debt, allocation.principal), (1_350_000, 900_000));
         let loss = market.settle_flash_recovery(
@@ -188,7 +188,7 @@ fn full_external_recovery_spends_insurance_only_on_principal_and_cancels_interes
         assert_eq!(position.debt_principal, 0);
         assert_eq!(position.collateral_amount, 0);
         assert_eq!(market.insurance.available(asset), 625_000);
-        assert_eq!(market.insurance.draw_capacity(asset, 1).unwrap(), 125_000);
+        assert_eq!(market.insurance.draw_capacity(asset, crate::clock::test_clock(1)).unwrap(), 125_000);
         assert_eq!(market.curve_reserve(asset).unwrap(), before_curve - 125_000);
     }
 }
@@ -261,7 +261,7 @@ fn external_flash_loss_preserves_concentrated_hlp_backing() {
         assert!(loss.principal_written_off > 0);
         market.assert_virtual_reserve_invariant(asset).unwrap();
         market.assert_virtual_reserve_invariant(asset.opposite()).unwrap();
-        market.prepare_amm_for_swap(2).unwrap();
+        market.prepare_amm_for_swap(crate::clock::test_clock(2)).unwrap();
         assert!(market.current_concentrated_curve_geometry().unwrap().is_some());
         for side in [MarketAsset::Base, MarketAsset::Quote] {
             let shares = if side == MarketAsset::Base { market.base_hlp_vault.hlp_supply } else { market.quote_hlp_vault.hlp_supply } / 10;

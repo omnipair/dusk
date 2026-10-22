@@ -30,7 +30,7 @@ pub(super) fn sale(market: &Market, asset: MarketAsset, amount: u64, slot: u64) 
     }
     .prepare(&mut trial)?;
     let output = prepared.quote.amount_out;
-    prepared.finalize_state(&mut trial, slot, 0, ProtocolAuctionSplit::default())?;
+    prepared.finalize_state(&mut trial, crate::clock::test_clock(slot), 0, ProtocolAuctionSplit::default())?;
     Ok((trial, output))
 }
 
@@ -163,7 +163,7 @@ pub(super) fn settle(
     }
     let repaid = recovery.min(debt);
     if repaid > 0 {
-        trial.repay_leverage_debt(&mut next, repaid, slot)?;
+        trial.repay_leverage_debt(&mut next, repaid, crate::clock::test_clock(slot))?;
     }
     let mut paid = Paid {
         repaid,
@@ -173,14 +173,14 @@ pub(super) fn settle(
         ..Paid::default()
     };
     if fill.contribution > 0 {
-        trial.insurance.credit(debt_asset, fill.contribution, slot)?;
+        trial.insurance.credit(debt_asset, fill.contribution, crate::clock::test_clock(slot))?;
     }
     if fill.kind > 0 && next.debt_shares > 0 {
         // All sold collateral has left in this atomic model step. Keep its
         // original field until the native zero-credit terminal adapter clears
         // it, so require_open and final write-off see the original obligation.
         let remaining = next.debt_amount(&trial.debt)?;
-        let insurance = trial.insurance.draw_capacity(debt_asset, slot)?.min(remaining);
+        let insurance = trial.insurance.draw_capacity(debt_asset, crate::clock::test_clock(slot))?.min(remaining);
         let result = trial.liquidate_leverage_position(
             &mut next,
             None,
@@ -192,7 +192,7 @@ pub(super) fn settle(
             },
             0,
             ProtocolAuctionSplit::default(),
-            slot,
+            crate::clock::test_clock(slot),
         )?;
         paid.insurance = result.insurance_drawn;
         paid.loss = result.principal_written_off;

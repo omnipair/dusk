@@ -28,8 +28,11 @@ pub(crate) struct GovernanceYieldIndexes {
 
 /// Close all yield intervals under the current parameters before changing an
 /// external yLP balance or its matching virtual support balance.
-pub(crate) fn carry_forward_governance_yield(market: &mut Market, current_slot: u64) -> Result<GovernanceYieldIndexes> {
-    market.accrue_interest_to_slot(current_slot)?;
+pub(crate) fn carry_forward_governance_yield(
+    market: &mut Market,
+    clock: crate::clock::MarketClock,
+) -> Result<GovernanceYieldIndexes> {
+    market.accrue_interest_to_clock(clock)?;
     market.base_side.carry_forward_swap_fees()?;
     market.base_side.carry_forward_interest()?;
     market.quote_side.carry_forward_swap_fees()?;

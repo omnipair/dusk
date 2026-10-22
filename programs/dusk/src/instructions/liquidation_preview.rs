@@ -200,7 +200,7 @@ impl ObserveLiquidation<'_> {
         let asset = MarketAsset::try_from_code(debt_asset)?;
         crate::instructions::accounting::accrue_market_interest(
             &mut a.market,
-            clock.slot,
+            crate::clock::MarketClock::from_clock(&clock)?,
             a.event_authority.to_account_info(),
         )?;
         a.market.update()?;

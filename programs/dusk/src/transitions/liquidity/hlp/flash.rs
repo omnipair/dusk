@@ -50,7 +50,7 @@ impl Market {
         let opposite = engine::ylp_live_underlying_amount(self, borrowed, vault.ylp_shares)?;
         let target_claim = engine::ylp_live_underlying_amount(self, target, vault.ylp_shares)?;
         let gap = debt.saturating_sub(opposite);
-        // A solvent vault need not wait for the native rescue instruction's
+        // A solvent vault need not wait for the native recovery swap's
         // critical-stress boundary. The fixed payment repairs the funding gap
         // while the affordable-discount check below preserves positive NAV.
         require!(self.hlp_frozen(target) || gap > 0, ErrorCode::HlpNotLiquidatable);
@@ -66,7 +66,7 @@ impl Market {
         if full {
             self.require_hlp_ema_insolvent(target)?;
         }
-        // Reuse the native rescue incentive's health bands. Payment is frozen
+        // Reuse the native recovery incentive's health bands. Payment is frozen
         // against the symmetric EMA, independently of the route's execution.
         let discount = if opposite == 0 {
             recovery::HLP_RECOVERY_MAX_DISCOUNT_BPS
@@ -192,7 +192,7 @@ impl Market {
     pub(crate) fn settle_hlp_flash_recovery(
         &mut self,
         quote: HlpFlashQuote,
-        slot: u64,
+        clock: crate::clock::MarketClock,
     ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
         require!(!quote.full, ErrorCode::InvalidLiquidationSession);
         let target = MarketAsset::try_from_code(quote.target_asset)?;
@@ -273,7 +273,7 @@ impl Market {
         vault.flash_collateral_debit = 0;
         let plan = engine::prepare_concentrated_hlp_transition_from_end(self, end, false, true, 0, 0)?;
         let receipts = plan.consume(self)?;
-        self.finalize_amm_transition_and_observe_risk(slot)?;
+        self.finalize_amm_transition_and_observe_risk(clock)?;
         self.assert_market_invariants()?;
         Ok(receipts)
     }

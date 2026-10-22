@@ -144,13 +144,15 @@ pub(super) fn settle_with_amm<'info>(
         &mut a.market,
         policy,
         swap_fee,
-        clock.slot,
+        crate::clock::MarketClock::from_clock(&clock)?,
         a.futarchy_authority.revenue_share.swap_bps,
         a.futarchy_authority.protocol_auction_split,
         None,
     )?;
     if insurance_debit > 0 {
-        a.market.insurance.consume_draw(asset, insurance_debit, clock.slot)?;
+        a.market
+            .insurance
+            .consume_draw(asset, insurance_debit, crate::clock::MarketClock::from_clock(&clock)?)?;
     }
     {
         let mut position = match (&mut a.borrow_position, &mut a.leverage_position) {
@@ -221,7 +223,9 @@ pub(super) fn settle_with_amm<'info>(
         );
     }
     if fee.insurance > 0 {
-        a.market.insurance.credit(asset, fee.insurance, clock.slot)?;
+        a.market
+            .insurance
+            .credit(asset, fee.insurance, crate::clock::MarketClock::from_clock(&clock)?)?;
     }
     a.market.side_mut(asset).record_liquidation_fee_credit(
         fee.lp,

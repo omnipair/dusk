@@ -12660,7 +12660,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "minAdjustmentIntervalSlots",
+            "name": "minAdjustmentIntervalMs",
             "type": "u64"
           },
           {
@@ -12810,7 +12810,15 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "lastObservationTimestampMs",
+            "type": "u64"
+          },
+          {
             "name": "lastAdjustmentSlot",
+            "type": "u64"
+          },
+          {
+            "name": "lastAdjustmentTimestampMs",
             "type": "u64"
           },
           {
@@ -13170,6 +13178,14 @@ export type Dusk = {
           },
           {
             "name": "toSlot",
+            "type": "u64"
+          },
+          {
+            "name": "fromTimestampMs",
+            "type": "u64"
+          },
+          {
+            "name": "toTimestampMs",
             "type": "u64"
           },
           {
@@ -13910,6 +13926,10 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "lastDecayTimestampMs",
+            "type": "u64"
+          },
+          {
             "name": "decayRemainderMs",
             "docs": [
               "Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed",
@@ -13976,7 +13996,15 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "baseLastAccrualTimestampMs",
+            "type": "u64"
+          },
+          {
             "name": "quoteLastAccrualSlot",
+            "type": "u64"
+          },
+          {
+            "name": "quoteLastAccrualTimestampMs",
             "type": "u64"
           },
           {
@@ -16117,6 +16145,10 @@ export type Dusk = {
           {
             "name": "fundingAprEmaLastSlot",
             "type": "u64"
+          },
+          {
+            "name": "fundingAprEmaLastTimestampMs",
+            "type": "u64"
           }
         ]
       }
@@ -16159,11 +16191,21 @@ export type Dusk = {
           },
           {
             "name": "swapBps",
-            "type": "u16"
+            "docs": [
+              "None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share."
+            ],
+            "type": {
+              "option": "u16"
+            }
           },
           {
             "name": "interestBps",
-            "type": "u16"
+            "docs": [
+              "None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share."
+            ],
+            "type": {
+              "option": "u16"
+            }
           },
           {
             "name": "maxReferralInterestShareBps",
@@ -16422,10 +16464,18 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "startTimestampMs",
+            "type": "u64"
+          },
+          {
             "name": "startSlot",
             "docs": [
-              "Slot at which the current 24-hour accounting window began. A zero",
-              "value means no draw window has been opened yet."
+              "Ordering checkpoint for the current 24-hour accounting window.",
+              "`initialized` distinguishes an unopened window from timestamp/slot zero."
             ],
             "type": "u64"
           },
@@ -17782,6 +17832,10 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "lastUpdateTimestampMs",
+            "type": "u64"
+          },
+          {
             "name": "reduceOnly",
             "type": "bool"
           },
@@ -18417,7 +18471,7 @@ export type Dusk = {
                 "type": "u64"
               },
               {
-                "name": "minAdjustmentIntervalSlots",
+                "name": "minAdjustmentIntervalMs",
                 "type": "u64"
               }
             ]
@@ -19600,7 +19654,7 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "durationSlots",
+            "name": "durationMs",
             "type": "u64"
           },
           {
@@ -19620,7 +19674,7 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
-            "name": "startSlot",
+            "name": "startTimestampMs",
             "type": "u64"
           },
           {
@@ -19663,7 +19717,7 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "durationSlots",
+            "name": "durationMs",
             "type": "u64"
           },
           {
@@ -20465,6 +20519,10 @@ export type Dusk = {
           },
           {
             "name": "lastSnapshotSlot",
+            "type": "u64"
+          },
+          {
+            "name": "lastSnapshotTimestampMs",
             "type": "u64"
           }
         ]
@@ -21690,6 +21748,15 @@ export type Dusk = {
       "value": "10000"
     },
     {
+      "name": "defaultProtocolRevenueShareBps",
+      "docs": [
+        "Initial DAO share of base swap fees and paid interest, and the protocol",
+        "share of liquidation fees. Governance can override swap and interest shares."
+      ],
+      "type": "u16",
+      "value": "2000"
+    },
+    {
       "name": "futarchyAuthoritySeedPrefix",
       "type": "bytes",
       "value": "[102, 117, 116, 97, 114, 99, 104, 121, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121]"
@@ -21802,11 +21869,11 @@ export type Dusk = {
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 3 adds per-asset cash-funded public-interest advances and escrow.",
+        "Layout 6 adds elapsed-time checkpoints and replaces auction slot timers.",
         "Earlier serialized accounts must not decode as this expanded structure."
       ],
       "type": "u8",
-      "value": "5"
+      "value": "6"
     },
     {
       "name": "marketReserveVaultSeedPrefix",
@@ -21917,11 +21984,6 @@ export type Dusk = {
       "name": "referralPartnerSeedPrefix",
       "type": "bytes",
       "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 97, 114, 116, 110, 101, 114]"
-    },
-    {
-      "name": "targetMsPerSlot",
-      "type": "u64",
-      "value": "400"
     },
     {
       "name": "yieldAccountSeedPrefix",

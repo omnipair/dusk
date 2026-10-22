@@ -93,7 +93,7 @@ fn make(c: &Value) -> R<Sim> {
             volatility_half_life_ms: 60_000,
             adjustment_threshold_nad: NAD / 100,
             adjustment_step_nad: NAD / 1000,
-            min_adjustment_interval_slots: 150,
+            min_adjustment_interval_ms: 60_000,
             volatility_shock_cap_nad: NAD / 20,
             volatility_cap_nad: NAD / 10,
             divergence_fee_coefficient_nad: if dynamic { NAD / 10 } else { 0 },
@@ -332,7 +332,11 @@ fn make(c: &Value) -> R<Sim> {
         market
             .market_mut()
             .insurance
-            .credit(debt_asset, insurance, clock(now).slot)
+            .credit(
+                debt_asset,
+                insurance,
+                dusk::clock::MarketClock::from_timestamp(clock(now).slot, now).map_err(err)?,
+            )
             .map_err(err)?;
     }
     let mut s = Sim {

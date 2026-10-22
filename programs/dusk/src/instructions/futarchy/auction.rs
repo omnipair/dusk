@@ -62,7 +62,7 @@ impl<'info> UpdateProtocolAuctionConfig<'info> {
             accepted_mint,
             start_multiplier_bps: params.start_multiplier_bps,
             floor_multiplier_bps: params.floor_multiplier_bps,
-            duration_slots: params.duration_slots,
+            duration_ms: params.duration_ms,
             max_reference_age_slots: params.max_reference_age_slots,
             signer,
         });

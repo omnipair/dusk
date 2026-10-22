@@ -1,4 +1,10 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
+import IDL from "./idl_v2.js";
+
+/** Shared on-chain default; regenerated from the program instead of duplicated here. */
+export const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS = Number(
+  IDL.constants.find(({ name }) => name === "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS")!.value
+);
 
 const DEFAULT_PROGRAM_ID = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
@@ -16,7 +22,9 @@ export const DUSK_PROGRAM_ID = new PublicKey(getProgramIdFromEnv(DEFAULT_PROGRAM
 
 export const PROGRAM_ID = DUSK_PROGRAM_ID;
 /** Current development Market account layout. */
-export const MARKET_LAYOUT_VERSION = 4;
+export const MARKET_LAYOUT_VERSION = Number(
+  IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION")!.value
+);
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
 /** Direct-yLP parameter-governance constants. These values are immutable for Dusk market layout v1. */
@@ -30,9 +38,6 @@ export const PROPOSAL_METADATA_VERSION = 1;
 export const MAX_PROPOSAL_TITLE_BYTES = 96;
 export const MAX_PROPOSAL_DESCRIPTION_URI_BYTES = 200;
 export const MAX_PROPOSAL_DESCRIPTION_BYTES = 32_768;
-export const DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS = 216_000;
-export const MIN_CONCENTRATION_RAMP_DURATION_SLOTS = 216_000;
-export const MAX_CONCENTRATION_RAMP_DURATION_SLOTS = 1_512_000;
 
 /**
  * PDA seeds used by the program

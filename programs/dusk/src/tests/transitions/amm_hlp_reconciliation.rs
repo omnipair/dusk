@@ -48,7 +48,7 @@ fn fund_recenter(market: &mut Market) {
         .credit_protected_recenter_reserve(MarketAsset::Quote, 2_000 * CALIBRATION_UNIT)
         .unwrap();
     market.amm.price_ema_nad = NAD * 9 / 10;
-    assert!(market.advance_one_amm_controller_target(2).unwrap());
+    assert!(market.advance_one_amm_controller_target(crate::clock::test_clock(3)).unwrap());
     assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
     assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
 }
@@ -75,7 +75,7 @@ fn native_hlp_swap_after_funded_recenter() {
         .unwrap()
     );
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let (after, output) = sale(&market, asset, 100 * CALIBRATION_UNIT, 2).unwrap();
+        let (after, output) = sale(&market, asset, 100 * CALIBRATION_UNIT, 3).unwrap();
         assert!(output > 0);
         after.assert_market_invariants().unwrap();
     }
@@ -91,25 +91,25 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
                     0 => fund_recenter(&mut market),
                     1 => {
                         market.remove_liquidity(market.base_side.shares.ylp_supply / 4).unwrap();
-                        market.finalize_amm_transition_and_observe_risk(2).unwrap();
+                        market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(3)).unwrap();
                     }
                     _ => {
                         market
                             .credit_protected_recenter_reserve(MarketAsset::Quote, 2_000 * CALIBRATION_UNIT)
                             .unwrap();
                         market.release_protected_recenter_reserves().unwrap();
-                        market.finalize_amm_transition_and_observe_risk(2).unwrap();
+                        market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(3)).unwrap();
                     }
                 }
                 if funding {
                     market.debt.base_borrow_index_nad = 17 * NAD as u128 / 16;
                     market.debt.quote_borrow_index_nad = 33 * NAD as u128 / 32;
-                    market.finalize_amm_transition_and_observe_risk(2).unwrap();
+                    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(3)).unwrap();
                 }
-                no_accrual(&mut market, 2);
+                no_accrual(&mut market, 3);
                 let mut prepared = SwapRequest {
-                    current_slot: 2,
-                    current_unix_timestamp: 0,
+                    current_slot: 3,
+                    current_unix_timestamp: 1,
                     asset_in: asset,
                     reserve_credit: 100 * CALIBRATION_UNIT,
                     protocol_fee_bps: 0,
@@ -145,7 +145,7 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
                 let before = market.clone();
                 let quote = prepared.quote;
                 let finalized = prepared
-                    .finalize_state(&mut market, 2, 0, ProtocolAuctionSplit::default())
+                    .finalize_state(&mut market, crate::clock::test_clock(3), 0, ProtocolAuctionSplit::default())
                     .unwrap();
                 assert_eq!(finalized.base_rebalance.interest_paid, base_interest);
                 assert_eq!(finalized.quote_rebalance.interest_paid, quote_interest);
@@ -184,10 +184,10 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
 fn native_hlp_still_rejects_unexplained_reserve_changes() {
     let mut market = hlp_market();
     fund_recenter(&mut market);
-    no_accrual(&mut market, 2);
+    no_accrual(&mut market, 3);
     let mut prepared = SwapRequest {
-        current_slot: 2,
-        current_unix_timestamp: 0,
+        current_slot: 3,
+        current_unix_timestamp: 1,
         asset_in: MarketAsset::Base,
         reserve_credit: 100 * CALIBRATION_UNIT,
         protocol_fee_bps: 0,
@@ -196,7 +196,7 @@ fn native_hlp_still_rejects_unexplained_reserve_changes() {
     .unwrap();
     market.base_side.reserves.live_reserve += 4;
     let error = prepared
-        .finalize_state(&mut market, 2, 0, ProtocolAuctionSplit::default())
+        .finalize_state(&mut market, crate::clock::test_clock(3), 0, ProtocolAuctionSplit::default())
         .unwrap_err();
     assert_eq!(error, error!(ErrorCode::BrokenInvariant));
 }

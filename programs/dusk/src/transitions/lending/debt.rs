@@ -15,6 +15,14 @@ impl DebtClearance {
 }
 
 impl Debt {
+    #[inline(always)]
+    pub(crate) fn accrued_at(&self, clock: crate::clock::MarketClock) -> bool {
+        self.base_last_accrual_slot == clock.slot
+            && self.quote_last_accrual_slot == clock.slot
+            && self.base_last_accrual_timestamp_ms == clock.timestamp_ms
+            && self.quote_last_accrual_timestamp_ms == clock.timestamp_ms
+    }
+
     pub fn debt_to_shares(amount: u64, borrow_index_nad: u128) -> Result<u128> {
         require!(amount > 0, ErrorCode::AmountZero);
         ceil_div(

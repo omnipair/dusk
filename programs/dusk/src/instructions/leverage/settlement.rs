@@ -58,9 +58,11 @@ pub(super) fn prepare_leverage_swap(
     request: SwapRequest,
     cash_policy: SwapCashPolicy,
 ) -> Result<PreparedLeverageSwap> {
-    let current_slot = request.current_slot;
     let prepared = request.prepare_with_cash_policy(market, cash_policy)?;
-    market.observe_current_risk(current_slot)?;
+    market.observe_current_risk(crate::clock::MarketClock::from_timestamp(
+        request.current_slot,
+        request.current_unix_timestamp,
+    )?)?;
     Ok(prepared)
 }
 
@@ -794,7 +796,8 @@ pub(crate) fn settle_new_public_hlp_income<'info>(
         collateral_fee_schedule(&assets[0].0, clock.epoch, 0)?,
         collateral_fee_schedule(&assets[1].0, clock.epoch, 0)?,
     ];
-    let receipt = market.settle_new_hlp_public_interest(eligibility, fees, clock.slot)?;
+    let receipt =
+        market.settle_new_hlp_public_interest(eligibility, fees, crate::clock::MarketClock::from_clock(&clock)?)?;
     for t in 0..2 {
         for (i, (mint, reserve)) in assets.iter().enumerate() {
             let gross = receipt.reserve_debit[t][i];

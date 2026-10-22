@@ -75,7 +75,11 @@ between that bucket's independently floored debt at the old and new indexes,
 with shares held constant during accrual. Do not split an aggregate interest
 number proportionally afterward: that can misattribute rounding atoms.
 
-The event carries the asset mint/side, old/new index, and `from_slot`/`to_slot`.
+The event carries the asset mint/side, old/new index, ordering checkpoints
+`from_slot`/`to_slot`, and elapsed-time endpoints
+`from_timestamp_ms`/`to_timestamp_ms`. The timestamp endpoints come from
+`Clock.unix_timestamp` converted to milliseconds; do not infer interest time
+from the slot difference.
 Accrual is lazy: a spot trade, liquidity action, governance action, or lending
 action may checkpoint interest owed by all three sources. Attribute it to the
 debt buckets, never to the instruction triggering the checkpoint. No event is

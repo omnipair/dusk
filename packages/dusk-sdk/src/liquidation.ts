@@ -1,5 +1,5 @@
 import { PublicKey, TransactionMessage, VersionedTransaction, type AddressLookupTableAccount, type TransactionInstruction } from "@solana/web3.js";
-import { DUSK_PROGRAM_ID } from "./constants.js";
+import { DEFAULT_PROTOCOL_REVENUE_SHARE_BPS, DUSK_PROGRAM_ID } from "./constants.js";
 
 const BPS = 10_000n;
 const U64_MAX = (1n << 64n) - 1n;
@@ -16,7 +16,7 @@ export const LIQUIDATION_POLICY = Object.freeze({
   emergencyMaintenanceFractionBps: 7_000,
   recoveryBufferBps: 200,
   solventFeeBps: 100,
-  protocolFeeShareBps: 2_000,
+  protocolFeeShareBps: DEFAULT_PROTOCOL_REVENUE_SHARE_BPS,
   maximumPrincipalCoverageBps: 7_500,
   maximumDailyInsuranceDrawBps: 5_000,
 });
@@ -94,7 +94,7 @@ export function liquidationInsuranceTarget(principal: bigint, hlpIndexedDebt: bi
 export function liquidationFeeAllocation(netDebtRepaid: bigint, insuranceBalance: bigint, target: bigint, surplusCap = U64_MAX) {
   for (const [name, value] of Object.entries({ netDebtRepaid, insuranceBalance, target, surplusCap })) amount(value, name);
   const total = min(netDebtRepaid / 100n, surplusCap);
-  const protocol = total / 5n;
+  const protocol = total * BigInt(LIQUIDATION_POLICY.protocolFeeShareBps) / BPS;
   const designated = total - protocol;
   const shortfall = max(0n, target - insuranceBalance);
   const insurance = target === 0n || shortfall === 0n ? 0n

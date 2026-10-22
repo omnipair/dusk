@@ -82,78 +82,79 @@ pub struct Swap<'info> {
 
 impl<'info> Swap<'info> {
     pub fn handle_swap(mut ctx: Context<'_, '_, '_, 'info, Self>, args: SwapArgs) -> Result<()> {
+        let accounts = &ctx.accounts;
         // Read the sysvar once for the complete swap. In particular, do not
         // call `Market::assert_started`, which would fetch `Clock` a second
-        // time before the slot-driven AMM/debt pipeline begins.
+        // time before the elapsed-time AMM/debt pipeline begins.
         let clock = Clock::get()?;
-        ctx.accounts.market.assert_current_version()?;
+        accounts.market.assert_current_version()?;
         require!(
-            clock.unix_timestamp >= ctx.accounts.market.config.start_time,
+            clock.unix_timestamp >= accounts.market.config.start_time,
             ErrorCode::MarketNotStarted
         );
         require!(args.exact_asset_in > 0, ErrorCode::AmountZero);
         require_gte!(
-            ctx.accounts.trader_asset_in_account.amount,
+            accounts.trader_asset_in_account.amount,
             args.exact_asset_in,
             ErrorCode::InsufficientBalance
         );
-        let asset_in = ctx.accounts.market.asset_for_mint(ctx.accounts.asset_in_mint.key())?;
-        let asset_out = ctx.accounts.market.asset_for_mint(ctx.accounts.asset_out_mint.key())?;
+        let asset_in = accounts.market.asset_for_mint(accounts.asset_in_mint.key())?;
+        let asset_out = accounts.market.asset_for_mint(accounts.asset_out_mint.key())?;
         require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
         enforce_launch_same_transaction_guard(
-            &ctx.accounts.market,
-            ctx.accounts.market.key(),
+            &accounts.market,
+            accounts.market.key(),
             asset_in,
             clock.unix_timestamp,
-            &ctx.accounts.instructions_sysvar.to_account_info(),
+            &accounts.instructions_sysvar.to_account_info(),
         )?;
-        let (market_side_in, market_side_out) = ctx.accounts.market.swap_sides(asset_in);
+        let (market_side_in, market_side_out) = accounts.market.swap_sides(asset_in);
         require_keys_eq!(
             market_side_in.reserve_vault,
-            ctx.accounts.reserve_in_vault.key(),
+            accounts.reserve_in_vault.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
             market_side_out.reserve_vault,
-            ctx.accounts.reserve_out_vault.key(),
+            accounts.reserve_out_vault.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
-            ctx.accounts.reserve_in_vault.mint,
-            ctx.accounts.asset_in_mint.key(),
+            accounts.reserve_in_vault.mint,
+            accounts.asset_in_mint.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
-            ctx.accounts.reserve_out_vault.mint,
-            ctx.accounts.asset_out_mint.key(),
+            accounts.reserve_out_vault.mint,
+            accounts.asset_out_mint.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
-            ctx.accounts.reserve_in_vault.owner,
-            ctx.accounts.market.key(),
+            accounts.reserve_in_vault.owner,
+            accounts.market.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
-            ctx.accounts.reserve_out_vault.owner,
-            ctx.accounts.market.key(),
+            accounts.reserve_out_vault.owner,
+            accounts.market.key(),
             ErrorCode::InvalidVault
         );
         validate_owner_asset_account(
-            ctx.accounts.trader.key(),
-            &ctx.accounts.asset_in_mint,
-            &ctx.accounts.trader_asset_in_account,
+            accounts.trader.key(),
+            &accounts.asset_in_mint,
+            &accounts.trader_asset_in_account,
         )?;
         validate_owner_asset_account(
-            ctx.accounts.trader.key(),
-            &ctx.accounts.asset_out_mint,
-            &ctx.accounts.trader_asset_out_account,
+            accounts.trader.key(),
+            &accounts.asset_out_mint,
+            &accounts.trader_asset_out_account,
         )?;
-        require_supported_asset_mint(&ctx.accounts.asset_in_mint)?;
-        require_supported_asset_mint(&ctx.accounts.asset_out_mint)?;
+        require_supported_asset_mint(&accounts.asset_in_mint)?;
+        require_supported_asset_mint(&accounts.asset_out_mint)?;
         let current_slot = clock.slot;
         let current_epoch = clock.epoch;
         let current_unix_timestamp = clock.unix_timestamp;
-
+        let clock = crate::clock::MarketClock::from_clock(&clock)?;
         // The fixed hLP prefix is checked before transfer-fee, invariant,
         // controller, or hedge math. Only the trailing account slice is ever
         // offered to Token-2022 transfer-hook resolution.
@@ -176,7 +177,7 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            current_slot,
+            clock,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         let mut prepared = SwapRequest {
@@ -189,7 +190,7 @@ impl<'info> Swap<'info> {
         .prepare(&mut ctx.accounts.market)?;
         let finalized = prepared.finalize_state(
             &mut ctx.accounts.market,
-            current_slot,
+            clock,
             protocol_fee_bps,
             protocol_auction_split,
         )?;
@@ -259,24 +260,28 @@ impl<'info> Swap<'info> {
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
 
-        // One call per side and one net token settlement per receipt. A side
+        // Keep empty receipts outside the token-settlement frame. A side
         // can mint or burn yLP, never both, and can transfer interest once.
-        apply_single_hlp_rebalance_token_changes(
-            &mut ctx,
-            &base_rebalance,
-            BASE_HLP_YLP_VAULT_INDEX,
-            QUOTE_INTEREST_VAULT_INDEX,
-            h_lp_accounts,
-            interest_eligibility,
-        )?;
-        apply_single_hlp_rebalance_token_changes(
-            &mut ctx,
-            &quote_rebalance,
-            QUOTE_HLP_YLP_VAULT_INDEX,
-            BASE_INTEREST_VAULT_INDEX,
-            h_lp_accounts,
-            interest_eligibility,
-        )?;
+        if rebalance_executes_token_changes(&base_rebalance) {
+            apply_single_hlp_rebalance_token_changes(
+                &mut ctx,
+                &base_rebalance,
+                BASE_HLP_YLP_VAULT_INDEX,
+                QUOTE_INTEREST_VAULT_INDEX,
+                h_lp_accounts,
+                interest_eligibility,
+            )?;
+        }
+        if rebalance_executes_token_changes(&quote_rebalance) {
+            apply_single_hlp_rebalance_token_changes(
+                &mut ctx,
+                &quote_rebalance,
+                QUOTE_HLP_YLP_VAULT_INDEX,
+                BASE_INTEREST_VAULT_INDEX,
+                h_lp_accounts,
+                interest_eligibility,
+            )?;
+        }
 
         let asset_out_token_program = token_program_for_mint(
             &ctx.accounts.asset_out_mint,
@@ -441,6 +446,7 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
     Ok(())
 }
 
+#[inline(always)]
 fn projected_reserve_vault_balance(
     balance_before: u64,
     net_input_credit: u64,

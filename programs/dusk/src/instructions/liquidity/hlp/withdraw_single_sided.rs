@@ -186,10 +186,10 @@ impl<'info> WithdrawSingleSided<'info> {
             // reserves or debt and must not depend on another vault's health.
             return Ok(());
         }
-        let current_slot = Clock::get()?.slot;
+        let clock = crate::clock::MarketClock::get()?;
         crate::instructions::accounting::accrue_market_interest(
             &mut self.market,
-            current_slot,
+            clock,
             self.event_authority.to_account_info(),
         )?;
         self.market.update()?;
@@ -331,10 +331,8 @@ impl<'info> WithdrawSingleSided<'info> {
                 ErrorCode::BrokenInvariant
             );
         } else {
-            let current_slot = Clock::get()?.slot;
-            ctx.accounts
-                .market
-                .finalize_amm_transition_and_observe_risk(current_slot)?;
+            let clock = crate::clock::MarketClock::get()?;
+            ctx.accounts.market.finalize_amm_transition_and_observe_risk(clock)?;
             let fees = crate::instructions::lending_market_admission_fees(
                 &ctx.accounts.market,
                 &ctx.accounts.base_mint,

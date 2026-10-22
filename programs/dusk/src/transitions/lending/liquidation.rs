@@ -306,16 +306,25 @@ impl Liquidation {
             live_debit,
             principal_credit,
         )?;
-        let insurance_slot = market.last_update_slot;
         if self.insurance_spent > 0 {
-            market
-                .insurance
-                .consume_draw(self.debt_asset, self.insurance_spent, insurance_slot)?;
+            market.insurance.consume_draw(
+                self.debt_asset,
+                self.insurance_spent,
+                crate::clock::MarketClock {
+                    slot: market.last_update_slot,
+                    timestamp_ms: market.last_update_timestamp_ms,
+                },
+            )?;
         }
         if insurance_funded > 0 {
-            market
-                .insurance
-                .credit(self.debt_asset.opposite(), insurance_funded, insurance_slot)?;
+            market.insurance.credit(
+                self.debt_asset.opposite(),
+                insurance_funded,
+                crate::clock::MarketClock {
+                    slot: market.last_update_slot,
+                    timestamp_ms: market.last_update_timestamp_ms,
+                },
+            )?;
         }
 
         market.refresh_risk()?;
@@ -801,7 +810,7 @@ impl Market {
         insurance_credit: u64,
         collateral_consumed: u64,
         caller_bounty: u64,
-        current_slot: u64,
+        clock: crate::clock::MarketClock,
     ) -> Result<InternalLiquidationReceipt> {
         borrow_position.require_idle()?;
         let unpaid_before = self.public_unpaid_interest(debt_asset)?;
@@ -878,7 +887,7 @@ impl Market {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.settle_public_debt_reserves(debt_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
         if insurance_spent > 0 {
-            self.insurance.consume_draw(debt_asset, insurance_spent, current_slot)?;
+            self.insurance.consume_draw(debt_asset, insurance_spent, clock)?;
         }
         borrow_position.set_liquidation_cf_bps(debt_asset, 0);
         borrow_position.clear_referral_binding(debt_asset);

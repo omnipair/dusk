@@ -280,8 +280,8 @@ async function ensureFutarchyAuthority(params: {
   const signature = await params.program.methods
     .initFutarchyAuthority({
       authority: params.payer,
-      swapBps: Number(duskEnv("PROTOCOL_SWAP_BPS") ?? "0"),
-      interestBps: Number(duskEnv("PROTOCOL_INTEREST_BPS") ?? "0"),
+      swapBps: duskEnv("PROTOCOL_SWAP_BPS") == null ? null : Number(duskEnv("PROTOCOL_SWAP_BPS")),
+      interestBps: duskEnv("PROTOCOL_INTEREST_BPS") == null ? null : Number(duskEnv("PROTOCOL_INTEREST_BPS")),
       maxReferralInterestShareBps: Number(duskEnv("MAX_REFERRAL_INTEREST_SHARE_BPS") ?? "5000"),
       futarchyTreasury: params.payer,
       futarchyTreasuryBps: 0,

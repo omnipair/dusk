@@ -90,7 +90,7 @@ impl ProtocolAuctionSplit {
 pub struct ProtocolAuctionParams {
     pub start_multiplier_bps: u16,
     pub floor_multiplier_bps: u16,
-    pub duration_slots: u64,
+    pub duration_ms: u64,
     pub max_reference_age_slots: u64,
 }
 
@@ -99,7 +99,7 @@ impl ProtocolAuctionParams {
         Self {
             start_multiplier_bps: 12_000,
             floor_multiplier_bps: 8_000,
-            duration_slots: 216_000,
+            duration_ms: 86_400_000,
             max_reference_age_slots: 21_600,
         }
     }
@@ -112,7 +112,7 @@ impl ProtocolAuctionParams {
             self.floor_multiplier_bps,
             ErrorCode::InvalidAuctionConfig
         );
-        require!(self.duration_slots > 0, ErrorCode::InvalidAuctionConfig);
+        require!(self.duration_ms > 0, ErrorCode::InvalidAuctionConfig);
         require!(self.max_reference_age_slots > 0, ErrorCode::InvalidAuctionConfig);
         Ok(())
     }
@@ -213,8 +213,8 @@ impl FutarchyAuthority {
     #[allow(clippy::too_many_arguments)]
     pub fn initialize(
         authority: Pubkey,
-        swap_bps: u16,
-        interest_bps: u16,
+        swap_bps: Option<u16>,
+        interest_bps: Option<u16>,
         max_referral_interest_share_bps: u16,
         futarchy_treasury: Pubkey,
         buybacks_vault: Pubkey,
@@ -227,6 +227,10 @@ impl FutarchyAuthority {
         team_treasury_bps: u16,
         bump: u8,
     ) -> Result<Self> {
+        let swap_bps = swap_bps.unwrap_or(DEFAULT_PROTOCOL_REVENUE_SHARE_BPS);
+        let interest_bps = interest_bps.unwrap_or(DEFAULT_PROTOCOL_REVENUE_SHARE_BPS);
+        require_gte!(BPS_DENOMINATOR, swap_bps, ErrorCode::InvalidSwapFeeBps);
+        require_gte!(BPS_DENOMINATOR, interest_bps, ErrorCode::InvalidInterestFeeBps);
         let revenue_distribution = RevenueDistribution {
             futarchy_treasury_bps,
             buybacks_vault_bps,

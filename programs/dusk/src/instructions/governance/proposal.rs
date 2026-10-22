@@ -235,10 +235,11 @@ impl<'info> CreateParameterProposal<'info> {
         )?;
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            clock.slot,
+            crate::clock::MarketClock::from_clock(&clock)?,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        let indexes = carry_forward_governance_yield(&mut ctx.accounts.market, clock.slot)?;
+        let indexes =
+            carry_forward_governance_yield(&mut ctx.accounts.market, crate::clock::MarketClock::from_clock(&clock)?)?;
 
         ctx.accounts.proposal.initialize(
             market_key,
@@ -467,12 +468,13 @@ impl<'info> ExecuteParameterProposal<'info> {
         );
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            clock.slot,
+            crate::clock::MarketClock::from_clock(&clock)?,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        ctx.accounts
-            .market
-            .execute_parameter_updates(&ctx.accounts.proposal.updates, clock.slot)?;
+        ctx.accounts.market.execute_parameter_updates(
+            &ctx.accounts.proposal.updates,
+            crate::clock::MarketClock::from_clock(&clock)?,
+        )?;
         let fees = crate::instructions::lending_market_admission_fees(
             &ctx.accounts.market,
             &ctx.accounts.base_mint,

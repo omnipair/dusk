@@ -265,7 +265,7 @@ pub struct ProtocolAuctionConfigUpdated {
     pub accepted_mint: Pubkey,
     pub start_multiplier_bps: u16,
     pub floor_multiplier_bps: u16,
-    pub duration_slots: u64,
+    pub duration_ms: u64,
     pub max_reference_age_slots: u64,
     pub signer: Pubkey,
 }
@@ -471,6 +471,7 @@ impl MarketSideSnapshot {
     /// Both sides of the market's current state, pricing the curve once. The
     /// swap's own risk observation records the quote's endpoint price, which
     /// can differ from the executable price after the swap, so it is not reused.
+    #[inline(always)]
     pub(crate) fn pair(market: &Market) -> Result<(Self, Self)> {
         let base_price = market.current_base_price_nad()?;
         let side = |asset: MarketAsset| -> Result<Self> {
@@ -489,6 +490,7 @@ impl MarketSideSnapshot {
 
 impl SwapExecuted {
     /// `state` is the market after the swap's final state change.
+    #[inline(always)]
     pub(crate) fn from_amm(
         market: Pubkey,
         trader: Pubkey,
@@ -590,6 +592,8 @@ pub struct BorrowInterestAccrued {
     pub asset_side: u8,
     pub from_slot: u64,
     pub to_slot: u64,
+    pub from_timestamp_ms: u64,
+    pub to_timestamp_ms: u64,
     pub borrow_index_before_nad: u128,
     pub borrow_index_after_nad: u128,
     pub credit_interest: u128,

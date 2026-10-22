@@ -68,7 +68,7 @@ pub enum MarketParameterUpdate {
     CenterController {
         adjustment_threshold_nad: u64,
         adjustment_step_nad: u64,
-        min_adjustment_interval_slots: u64,
+        min_adjustment_interval_ms: u64,
     },
     /// Insurance loss-concentration limits. These governed values can only
     /// select a stricter policy than the protocol-level hard ceilings.

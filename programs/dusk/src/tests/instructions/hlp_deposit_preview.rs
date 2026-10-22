@@ -19,6 +19,18 @@ fn snapshot() -> (Market, Clock) {
     layout.debt.leverage_base_collateral = tags[7];
     let frozen_offset_tag = 0x3197_5bdf_2468_ace0_4286_ace0_1357_9bdf_i128;
     layout.amm.frozen_base_vault_base_offset_nad = frozen_offset_tag;
+    layout.base_side.daily_borrow_bucket.last_decay_timestamp_ms = 12299612057325535232;
+    layout.quote_side.daily_borrow_bucket.last_decay_timestamp_ms = 12299612057325535233;
+    layout.amm.last_observation_timestamp_ms = 12299612057325535234;
+    layout.amm.last_adjustment_timestamp_ms = 12299612057325535235;
+    layout.debt.base_last_accrual_timestamp_ms = 12299612057325535236;
+    layout.debt.quote_last_accrual_timestamp_ms = 12299612057325535237;
+    layout.base_hlp_vault.funding_apr_ema_last_timestamp_ms = 12299612057325535238;
+    layout.quote_hlp_vault.funding_apr_ema_last_timestamp_ms = 12299612057325535239;
+    layout.risk.last_snapshot_timestamp_ms = 12299612057325535240;
+    layout.last_update_timestamp_ms = 12299612057325535241;
+    layout.insurance.base_draw_window.start_timestamp_ms = 12299612057325535242;
+    layout.insurance.quote_draw_window.start_timestamp_ms = 12299612057325535243;
     let mut current = Vec::new();
     layout.try_serialize(&mut current).unwrap();
     let mut insertions: Vec<_> = tags.into_iter().zip([8, 32, 8, 32, 8, 8, 32, 16]).map(|(tag, size)| {
@@ -26,6 +38,18 @@ fn snapshot() -> (Market, Clock) {
     }).collect();
     let frozen_offset = current.windows(16).position(|window| window == frozen_offset_tag.to_le_bytes()).unwrap();
     insertions.push((frozen_offset - 1, 65));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535232_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535233_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535234_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535235_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535236_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535237_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535238_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535239_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535240_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535241_u64.to_le_bytes()).unwrap(), 8));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535242_u64.to_le_bytes()).unwrap() - 1, 9));
+    insertions.push((current.windows(8).position(|w| w == 12299612057325535243_u64.to_le_bytes()).unwrap() - 1, 9));
     insertions.sort_unstable();
     let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
     for (offset, size) in insertions { bytes.splice(offset..offset, vec![0u8; size]); }
@@ -79,7 +103,7 @@ fn native_preview_uses_full_value_hedge_and_quotes_both_funding_limits() {
     assert!(!fits(limit + 1));
     // A real, ordinary-size USDC entry still passes the native transition.
     market.deposit_single_sided(MarketAsset::Quote, 1_000_000, 1).unwrap();
-    market.finalize_amm_transition_and_observe_risk(clock.slot).unwrap();
+    market.finalize_amm_transition_and_observe_risk(crate::clock::MarketClock::from_clock(&clock).unwrap()).unwrap();
 }
 
 #[test]

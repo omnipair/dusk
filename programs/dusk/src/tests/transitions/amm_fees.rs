@@ -23,7 +23,7 @@ fn pre(center: u64, volatility: u64, slot: u64) -> DynamicFeePreState {
     DynamicFeePreState {
         center_price_nad: center,
         volatility_accumulator_nad: volatility,
-        volatility_last_update_slot: slot,
+        volatility_last_update_timestamp_ms: crate::clock::test_clock(slot).timestamp_ms,
     }
 }
 
@@ -33,6 +33,7 @@ fn path(amount: u64, start: u64, end: u64, slot: u64, divergence_surcharge_amoun
         start_price_nad: start,
         end_price_nad: end,
         current_slot: slot,
+        current_timestamp_ms: crate::clock::test_clock(slot).timestamp_ms,
         divergence_surcharge_amount,
     }
 }
@@ -311,7 +312,7 @@ fn chop_builds_volatility_and_charges_the_reversal() {
 
 #[test]
 fn volatility_decays_by_half_after_one_half_life() {
-    let decayed = decay_volatility_nad(NAD, 10, 20, 4_000).unwrap();
+    let decayed = decay_volatility_nad(NAD, 4_000, crate::clock::test_clock(20), 4_000).unwrap();
 
     // The shared bounded exponential approximation is within one ppm here.
     assert!(decayed.abs_diff(NAD / 2) <= 1_000);
@@ -493,8 +494,8 @@ fn fee_rounding_and_invalid_inputs_fail_checked() {
     assert_eq!(hard_total_fee_budget_floor(6), 3);
     assert_eq!(minimum_executable_input(6), 3);
     assert!(symmetric_ratio_distance_nad(0, NAD).is_err());
-    assert!(decay_volatility_nad(NAD, 2, 1, 1_000).is_err());
-    assert!(decay_volatility_nad(NAD, 0, u64::MAX, 1_000).is_err());
+    assert!(decay_volatility_nad(NAD, 2, crate::clock::test_clock(1), 1_000).is_err());
+    assert_eq!(decay_volatility_nad(NAD, 0, crate::clock::test_clock(u64::MAX), 1_000).unwrap(), 0);
 
     let mut invalid = default_config();
     invalid.base_fee_bps = 5_001;

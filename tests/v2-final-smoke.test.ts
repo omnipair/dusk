@@ -57,6 +57,7 @@ import {
 import { expect } from "chai";
 import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
 import {
+  DEFAULT_PROTOCOL_REVENUE_SHARE_BPS,
   buildLpTransferHookAccountMetas,
   buildLpTransferHookValidationAccountData,
   buildYieldTransferHookValidationAccountData,
@@ -247,7 +248,7 @@ function marketConfig() {
       volatilityHalfLifeMs: new BN(60_000),
       adjustmentThresholdNad: new BN(0),
       adjustmentStepNad: new BN(0),
-      minAdjustmentIntervalSlots: new BN(0),
+      minAdjustmentIntervalMs: new BN(0),
       volatilityShockCapNad: new BN(0),
       volatilityCapNad: new BN(0),
       divergenceFeeCoefficientNad: new BN(0),
@@ -369,7 +370,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const auctionParams = {
       start_multiplier_bps: 12_000,
       floor_multiplier_bps: 8_000,
-      duration_slots: new BN(216_000),
+      duration_ms: new BN(86_400_000),
       max_reference_age_slots: new BN(21_600),
     };
     const auctionConfig = {
@@ -1648,6 +1649,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(tx, [payer]);
   }
 
+  // Explicit test time: warpToSlot alone deliberately does not imply time.
+  function advanceElapsedSeconds(seconds: bigint, slots: bigint = seconds * 5n) {
+    const clock = svm.getClock();
+    clock.slot += slots;
+    clock.unixTimestamp += seconds;
+    svm.setClock(clock);
+  }
+
   function advanceClockByYear() {
     const clock = svm.getClock();
     clock.slot += 78_840_000n;
@@ -1763,62 +1772,87 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(svm.getAccount(baseClassBaseYield)).to.equal(null);
   });
 
-  it("initializes the Dusk futarchy authority from upgradeable ProgramData", async function () {
-    const { isolatedSvm, isolatedConnection, isolatedPayer, isolatedProgram } =
-      await createIsolatedProgram();
-    const [isolatedFutarchyAuthority] = deriveFutarchyAuthorityAddress();
-    const [programData] = PublicKey.findProgramAddressSync(
-      [DUSK_PROGRAM_ID.toBuffer()],
-      BPF_LOADER_UPGRADEABLE_PROGRAM_ID
-    );
-    const programDataBytes = upgradeableProgramData(isolatedPayer.publicKey);
-    isolatedSvm.setAccount(programData, {
-      lamports: Number(isolatedSvm.minimumBalanceForRentExemption(BigInt(programDataBytes.length))),
-      data: new Uint8Array(programDataBytes),
-      owner: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
-      executable: false,
-      rentEpoch: 0,
+  for (const [swapBps, interestBps] of [[null, null], [0, null], [125, 250]] as const) {
+    it(`initializes the Dusk futarchy authority with shares ${swapBps ?? "default"}/${interestBps ?? "default"}`, async function () {
+      const { isolatedSvm, isolatedConnection, isolatedPayer, isolatedProgram } =
+        await createIsolatedProgram();
+      const [isolatedFutarchyAuthority] = deriveFutarchyAuthorityAddress();
+      const [programData] = PublicKey.findProgramAddressSync(
+        [DUSK_PROGRAM_ID.toBuffer()],
+        BPF_LOADER_UPGRADEABLE_PROGRAM_ID
+      );
+      const programDataBytes = upgradeableProgramData(isolatedPayer.publicKey);
+      isolatedSvm.setAccount(programData, {
+        lamports: Number(isolatedSvm.minimumBalanceForRentExemption(BigInt(programDataBytes.length))),
+        data: new Uint8Array(programDataBytes),
+        owner: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+        executable: false,
+        rentEpoch: 0,
+      });
+
+      const tx = await isolatedProgram.methods
+        .initFutarchyAuthority({
+          authority: isolatedPayer.publicKey,
+          swapBps,
+          interestBps,
+          maxReferralInterestShareBps: 2_500,
+          futarchyTreasury: isolatedPayer.publicKey,
+          futarchyTreasuryBps: 5_000,
+          buybacksVault: isolatedPayer.publicKey,
+          buybacksVaultBps: 2_000,
+          teamTreasury: isolatedPayer.publicKey,
+          teamTreasuryBps: 3_000,
+          stakingVault: isolatedPayer.publicKey,
+          feeAuctionAcceptedMint: NATIVE_MINT,
+          buybackAuctionAcceptedMint: NATIVE_MINT,
+        })
+        .accounts({
+          deployer: isolatedPayer.publicKey,
+          futarchyAuthority: isolatedFutarchyAuthority,
+          programData,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction();
+      await isolatedConnection.sendTransaction(tx, [isolatedPayer]);
+      trackV2Instruction("initFutarchyAuthority", this.test?.title);
+
+      const authorityAccount = isolatedSvm.getAccount(isolatedFutarchyAuthority);
+      expect(authorityAccount).to.not.equal(null);
+      const authority = accountCoder.decode(
+        "FutarchyAuthority",
+        Buffer.from(authorityAccount!.data)
+      ) as any;
+      expect(authority.authority.toString()).to.equal(isolatedPayer.publicKey.toString());
+      expect(authority.revenue_share.swap_bps).to.equal(swapBps ?? DEFAULT_PROTOCOL_REVENUE_SHARE_BPS);
+      expect(authority.revenue_share.interest_bps).to.equal(interestBps ?? DEFAULT_PROTOCOL_REVENUE_SHARE_BPS);
+      expect(authority.revenue_distribution.futarchy_treasury_bps).to.equal(5_000);
+      expect(authority.revenue_distribution.buybacks_vault_bps).to.equal(2_000);
+      expect(authority.revenue_distribution.team_treasury_bps).to.equal(3_000);
+
+      const update = await isolatedProgram.methods
+        .updateProtocolRevenue({
+          swapBps: 1_500,
+          interestBps: 0,
+          maxReferralInterestShareBps: null,
+          revenueDistribution: null,
+          protocolAuctionSplit: null,
+        })
+        .accounts({
+          authoritySigner: isolatedPayer.publicKey,
+          futarchyAuthority: isolatedFutarchyAuthority,
+          eventAuthority: eventAuthority(),
+          program: DUSK_PROGRAM_ID,
+        })
+        .transaction();
+      await isolatedConnection.sendTransaction(update, [isolatedPayer]);
+      const updated = accountCoder.decode(
+        "FutarchyAuthority",
+        Buffer.from(isolatedSvm.getAccount(isolatedFutarchyAuthority)!.data)
+      ) as any;
+      expect(updated.revenue_share.swap_bps).to.equal(1_500);
+      expect(updated.revenue_share.interest_bps).to.equal(0);
     });
-
-    const tx = await isolatedProgram.methods
-      .initFutarchyAuthority({
-        authority: isolatedPayer.publicKey,
-        swapBps: 125,
-        interestBps: 250,
-        maxReferralInterestShareBps: 2_500,
-        futarchyTreasury: isolatedPayer.publicKey,
-        futarchyTreasuryBps: 5_000,
-        buybacksVault: isolatedPayer.publicKey,
-        buybacksVaultBps: 2_000,
-        teamTreasury: isolatedPayer.publicKey,
-        teamTreasuryBps: 3_000,
-        stakingVault: isolatedPayer.publicKey,
-        feeAuctionAcceptedMint: NATIVE_MINT,
-        buybackAuctionAcceptedMint: NATIVE_MINT,
-      })
-      .accounts({
-        deployer: isolatedPayer.publicKey,
-        futarchyAuthority: isolatedFutarchyAuthority,
-        programData,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction();
-    await isolatedConnection.sendTransaction(tx, [isolatedPayer]);
-    trackV2Instruction("initFutarchyAuthority", this.test?.title);
-
-    const authorityAccount = isolatedSvm.getAccount(isolatedFutarchyAuthority);
-    expect(authorityAccount).to.not.equal(null);
-    const authority = accountCoder.decode(
-      "FutarchyAuthority",
-      Buffer.from(authorityAccount!.data)
-    ) as any;
-    expect(authority.authority.toString()).to.equal(isolatedPayer.publicKey.toString());
-    expect(authority.revenue_share.swap_bps).to.equal(125);
-    expect(authority.revenue_share.interest_bps).to.equal(250);
-    expect(authority.revenue_distribution.futarchy_treasury_bps).to.equal(5_000);
-    expect(authority.revenue_distribution.buybacks_vault_bps).to.equal(2_000);
-    expect(authority.revenue_distribution.team_treasury_bps).to.equal(3_000);
-  });
+  }
 
   for (const [baseDecimals, quoteDecimals, token2022, concentrated, groupedUi] of [
     [12, 6, false, false],
@@ -2127,14 +2161,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(swapPreview.reserveOutLiveReserve.toNumber()).to.equal(198_026);
   });
 
-  // About 36.5 days of slots: enough for the fixtures' 5,000-atom quote debt
-  // to accrue whole interest atoms, so the swap's own refresh commits one.
-  const SWAP_ACCRUAL_SLOTS = 7_884_000n;
+  // 36.5 elapsed days: enough for the fixture debt to accrue whole atoms.
+  const SWAP_ACCRUAL_SECONDS = 3_153_600n;
 
   it("records the post-swap market in the swap event after an interest accrual", async function () {
     const fixture = await addBalancedLiquidity(140);
     await protectionBorrow(fixture);
-    svm.warpToSlot(svm.getClock().slot + SWAP_ACCRUAL_SLOTS);
+    const beforeSlotOnly = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    const unchangedTime = svm.getClock().unixTimestamp;
+    svm.warpToSlot(svm.getClock().slot + 1_000n);
+    const slotOnlySwap = await swapBaseForQuote(fixture);
+    expect(svm.getClock().unixTimestamp).to.equal(unchangedTime);
+    expect(cpiEvents(slotOnlySwap.transaction).filter((event) => event.name === "borrowInterestAccrued")).to.have.length(0);
+    const afterSlotOnly = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    expect(afterSlotOnly.debt.quote_borrow_index_nad.toString()).to.equal(beforeSlotOnly.debt.quote_borrow_index_nad.toString());
+    advanceElapsedSeconds(SWAP_ACCRUAL_SECONDS);
     svm.expireBlockhash();
     const before = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
     const pricesBefore = decodePreviewMarketReturnData(
@@ -2152,6 +2193,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(accruals).to.have.length(1);
     expect(accruals[0].assetSide).to.equal(1);
     expect(accruals[0].toSlot.toString()).to.equal(swap.slot.toString());
+    expect(BigInt(accruals[0].toTimestampMs.toString()) - BigInt(accruals[0].fromTimestampMs.toString()))
+      .to.equal(SWAP_ACCRUAL_SECONDS * 1_000n);
     expect(accruals[0].borrowIndexAfterNad.toString()).to.equal(state.debt.quote_borrow_index_nad.toString());
 
     // Selling base lowers its price. Only the fee asset's swap-fee index moves.
@@ -2173,7 +2216,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const fixture = await addBalancedLiquidity(141);
     await openBaseHedge(fixture);
     await protectionBorrow(fixture);
-    svm.warpToSlot(svm.getClock().slot + SWAP_ACCRUAL_SLOTS);
+    advanceElapsedSeconds(SWAP_ACCRUAL_SECONDS);
     svm.expireBlockhash();
 
     const { transaction } = await swapQuoteForBase(fixture, hlpSwapAccounts(fixture));
@@ -3805,7 +3848,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("10000000");
     config.amm.adjustmentStepNad = new BN("10000000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    config.amm.minAdjustmentIntervalMs = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     const fixture = await addBalancedLiquidity(76, config, {
       baseDeposit: 100_000_000,
@@ -3960,10 +4003,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const armed = accountCoder.decode("Market", Buffer.from(armedAccount!.data)) as any;
     expect(armed.amm.volatility_accumulator_nad.gt(new BN(0))).to.equal(true);
 
-    // Decay is slot-driven. Advance the clock and explicitly rotate the
+    // Decay uses elapsed time. Advance the clock and explicitly rotate the
     // LiteSVM blockhash because the two swap transactions are otherwise
     // byte-identical.
-    svm.warpToSlot(svm.getClock().slot + 1n);
+    advanceElapsedSeconds(1n);
     svm.expireBlockhash();
 
     const preview = decodePreviewSwapReturnData(
@@ -4038,7 +4081,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     retainedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     retainedConfig.amm.adjustmentThresholdNad = new BN("1000");
     retainedConfig.amm.adjustmentStepNad = new BN("1000");
-    retainedConfig.amm.minAdjustmentIntervalSlots = new BN(1);
+    retainedConfig.amm.minAdjustmentIntervalMs = new BN(1);
     const retained = await addBalancedLiquidity(82, retainedConfig, amounts, 9);
     await swapBaseForQuote(retained, [], grossInput, 1);
     trackV2Instruction("swap", this.test?.title);
@@ -4085,7 +4128,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       if (retained) {
         config.amm.adjustmentThresholdNad = new BN("1000");
         config.amm.adjustmentStepNad = new BN("1000");
-        config.amm.minAdjustmentIntervalSlots = new BN(1);
+        config.amm.minAdjustmentIntervalMs = new BN(1);
       }
       return config;
     };
@@ -4206,7 +4249,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    config.amm.minAdjustmentIntervalMs = new BN(1);
     const grossInput = 7_000_000_000_000_000n;
     const fixture = await addBalancedLiquidity(93, config, {
       baseDeposit: 100_000_000n,
@@ -4282,7 +4325,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    config.amm.minAdjustmentIntervalMs = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     const fixture = await addBalancedLiquidity(77, config, {
       baseDeposit: 100_000_000,
@@ -4325,7 +4368,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const recenterSlot = BigInt(
       funded.amm.last_observation_slot.add(new BN(1)).toString()
     );
-    svm.warpToSlot(recenterSlot);
+    advanceElapsedSeconds(1n, recenterSlot - svm.getClock().slot);
 
     const oldCenter = funded.amm.center_price_nad;
     const beforeRejectedProbe = svm.getAccount(fixture.market);
@@ -4390,7 +4433,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    config.amm.minAdjustmentIntervalMs = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     const fixture = await addBalancedLiquidity(79, config, {
       baseDeposit: 100_000_000,
@@ -4438,7 +4481,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const recenterSlot = BigInt(
       funded.amm.last_adjustment_slot.add(new BN(1)).toString()
     );
-    svm.warpToSlot(recenterSlot);
+    advanceElapsedSeconds(1n, recenterSlot - svm.getClock().slot);
 
     const oldCenter = funded.amm.center_price_nad;
     const measurement = await swapBaseForQuote(fixture, hLpAccounts, 1_000_000, 1);
@@ -4718,7 +4761,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("10000000");
     config.amm.adjustmentStepNad = new BN("1000000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
+    config.amm.minAdjustmentIntervalMs = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     config.amm.compoundingFeeBps = 4_000;
     const fixture = await addBalancedLiquidity(99, config, {
@@ -4765,7 +4808,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config.amm.fadeWidthBps = 400;
         config.amm.adjustmentThresholdNad = new BN("10000000");
         config.amm.adjustmentStepNad = new BN("1000000");
-        config.amm.minAdjustmentIntervalSlots = new BN(150);
+        config.amm.minAdjustmentIntervalMs = new BN(60_000);
         config.amm.volatilityShockCapNad = new BN("50000000");
         config.amm.volatilityCapNad = new BN("100000000");
         config.amm.divergenceFeeCoefficientNad = new BN("100000000");
@@ -4789,7 +4832,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         ].map(async address => (await getAccount(connection as any, address)).amount));
         const balancesBefore = await readBalances();
         // Exercise actual slot-based accrual, without editing debt indexes or balances.
-        if (ageSeconds > 0) svm.warpToSlot(svm.getClock().slot + BigInt(ageSeconds * 5 / 2));
+        if (ageSeconds > 0) advanceElapsedSeconds(BigInt(ageSeconds));
         const exactAssetIn = assetIn === "base" ? 500_000_000 : 100_000_000;
         const preview = decodePreviewSwapReturnData(await simulateReturnData(
           await program.methods.previewSwap({ exactAssetIn: new BN(exactAssetIn) }).accounts({
@@ -6016,6 +6059,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         program: DUSK_PROGRAM_ID,
       })
       .transaction();
+    const wrongVaultTx = new Transaction().add(...tx.instructions.map((ix) => new TransactionInstruction({
+      ...ix,
+      keys: ix.keys.map((meta) => meta.pubkey.equals(fixture.quoteInterestVault)
+        ? { ...meta, pubkey: fixture.quoteReserveVault } : meta),
+    })));
+    let vaultRejection: unknown;
+    try { await connection.sendTransaction(wrongVaultTx, [payer]); } catch (error) { vaultRejection = error; }
+    expect(String(vaultRejection)).to.include("InvalidVault");
+    expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(terminalData)).to.equal(true);
     await connection.sendTransaction(tx, [payer]);
     trackV2Instruction("closeInsolventHlp", this.test?.title);
 
@@ -7184,8 +7236,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(debtMarketBefore).to.not.equal(null);
     const debtBefore = accountCoder.decode("Market", Buffer.from(debtMarketBefore!.data)) as any;
     const quoteBorrowIndexBefore = debtBefore.debt.quote_borrow_index_nad;
-    const activeDebtAccrualSlot = svm.getClock().slot + 10_000n;
-    svm.warpToSlot(activeDebtAccrualSlot);
+    advanceElapsedSeconds(4_000n);
+    const activeDebtAccrualSlot = svm.getClock().slot;
     svm.expireBlockhash();
 
     const activeDebtSwapInput = new BN(1_000);
@@ -11041,7 +11093,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           lpAmount: new BN(12_000), maxLpPerExecution: new BN(10_000), maxPaymentPerExecution: new BN(10_000),
           triggerHealthBps: new BN(action === 1 ? 40_000 : partialLeverage ? 20_000 : 1_000_000),
           targetHealthBps: new BN(action === 1 ? 40_001 : partialLeverage ? 25_000 : 1_000_001),
-          minPaymentPerLpNad: new BN(100_000_000), keeperFeeBps: 100, expiresAt: new BN(svm.getClock().unixTimestamp.toString()).addn(3_600),
+          minPaymentPerLpNad: new BN(100_000_000), keeperFeeBps: 100, expiresAt: new BN(svm.getClock().unixTimestamp.toString()).addn((accrue ? 400_000 : 0) + 3_600),
         }).accounts({ market: f.market, borrowPosition, leveragePosition, lpMint, baseMint: f.baseMint, quoteMint: f.quoteMint,
           order, ownerLpAccount, custodyLpAccount, ...yieldAccounts, owner: payer.publicKey, duskEventAuthority: eventAuthority(),
           duskProgram: DUSK_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
@@ -11060,7 +11112,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .remainingAccounts(hookAccounts(payer.publicKey, order)).transaction();
         await connection.sendTransaction(fund, [payer]);
         expectLpTransferred(fund, lpTransfer(payer.publicKey, order, 1_000n));
-        if (accrue) svm.warpToSlot(svm.getClock().slot + 1_000_000n);
+        if (accrue) advanceElapsedSeconds(400_000n);
         const feeRecipient = await orderFeeRecipient(paymentMint);
         const executeAccounts = { protocolFee: { feeRecipient }, order, market: f.market, futarchyAuthority, borrowPosition, leveragePosition, positionOwner: payer.publicKey,
           baseMint: f.baseMint, quoteMint: f.quoteMint, lpMint, ylpMint: f.ylpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,

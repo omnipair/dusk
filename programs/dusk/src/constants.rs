@@ -13,6 +13,11 @@ pub const YIELD_GROWTH_SCALE_Q64: u128 = 1_u128 << 64;
 pub const YIELD_GROWTH_FRACTION_MASK_Q64: u128 = YIELD_GROWTH_SCALE_Q64 - 1;
 #[constant]
 pub const BPS_DENOMINATOR: u16 = 10_000;
+/// Initial DAO share of base swap fees and paid interest, and the protocol
+/// share of liquidation fees. Governance can override swap and interest shares.
+#[constant]
+pub const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS: u16 = 2_000;
+const _: () = assert!(DEFAULT_PROTOCOL_REVENUE_SHARE_BPS <= BPS_DENOMINATOR);
 #[constant]
 pub const MAX_COLLATERAL_FACTOR_BPS: u16 = 8_500;
 #[constant]
@@ -53,10 +58,11 @@ pub const LIQUIDATION_AUCTION_DURATION_SECONDS: i64 = 5 * 60;
 pub const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS: u16 = 7_500;
 #[constant]
 pub const MAX_INSURANCE_DRAW_PER_DAY_BPS: u16 = 5_000;
+#[cfg(test)]
 pub const INSURANCE_DRAW_WINDOW_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
 #[constant]
 pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
-#[constant]
+#[cfg(test)]
 pub const TARGET_MS_PER_SLOT: u64 = 400;
 /// Direct-yLP parameter governance thresholds and wall-clock lifecycle.
 #[constant]
@@ -150,10 +156,10 @@ pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// Serialized `Market` account layout discriminator.
 ///
-/// Layout 3 adds per-asset cash-funded public-interest advances and escrow.
+/// Layout 6 adds elapsed-time checkpoints and replaces auction slot timers.
 /// Earlier serialized accounts must not decode as this expanded structure.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 5;
+pub const MARKET_LAYOUT_VERSION: u8 = 6;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

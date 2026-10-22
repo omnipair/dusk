@@ -65,7 +65,9 @@ struct Totals {
 
 fn no_accrual(market: &mut Market, slot: u64) {
     market.debt.base_last_accrual_slot = slot;
+    market.debt.base_last_accrual_timestamp_ms = crate::clock::test_clock(slot).timestamp_ms;
     market.debt.quote_last_accrual_slot = slot;
+    market.debt.quote_last_accrual_timestamp_ms = crate::clock::test_clock(slot).timestamp_ms;
 }
 
 fn initialize(case: Case) -> Market {
@@ -79,7 +81,7 @@ fn initialize(case: Case) -> Market {
     if case.controller {
         market.config.amm.adjustment_threshold_nad = NAD / 100;
         market.config.amm.adjustment_step_nad = NAD / 1_000;
-        market.config.amm.min_adjustment_interval_slots = 1;
+        market.config.amm.min_adjustment_interval_ms = 1;
         market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
     }
     market.config.target_hlp_leverage_bps = 20_000;
@@ -90,14 +92,14 @@ fn initialize(case: Case) -> Market {
                 .deposit_single_sided(asset, 10_000 * CALIBRATION_UNIT, 1)
                 .unwrap();
         }
-        market.finalize_amm_transition_and_observe_risk(1).unwrap();
+        market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
     }
     market.config.amm.validate().unwrap();
     market.insurance.principal_coverage_bps = crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS;
     market.insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
     market
         .insurance
-        .credit(case.debt_asset, 1_000 * CALIBRATION_UNIT, 1)
+        .credit(case.debt_asset, 1_000 * CALIBRATION_UNIT, crate::clock::test_clock(1))
         .unwrap();
     market.assert_market_invariants().unwrap();
     market
@@ -136,7 +138,7 @@ fn price(market: &Market, collateral: MarketAsset) -> u64 {
 // Failure to reach a target is surfaced; no reserves or price are overwritten.
 fn stress_to(market: &mut Market, asset: MarketAsset, target: u64, slot: u64) -> std::result::Result<(), String> {
     if price(market, asset) <= target {
-        market.observe_current_risk(slot).map_err(error_name)?;
+        market.observe_current_risk(crate::clock::test_clock(slot)).map_err(error_name)?;
         return Ok(());
     }
     let mut low = 1;
@@ -254,7 +256,7 @@ fn one_case_with_policy(case: Case, policy: Policy) -> Totals {
             let shares = trial.base_side.shares.ylp_supply * case.withdrawal / 10_000;
             if let Err(e) = trial
                 .remove_liquidity(shares)
-                .and_then(|_| trial.finalize_amm_transition_and_observe_risk(slot))
+                .and_then(|_| trial.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(slot)))
             {
                 totals.blocked = format!("withdrawal:{}", error_name(e));
                 break;
@@ -465,7 +467,7 @@ fn native_cushion_quote_is_not_a_spendable_cash_guarantee() {
         1_000 * CALIBRATION_UNIT,
     );
     let quote = market
-        .quote_leverage_swap(MarketAsset::Base, position.collateral_amount, 1)
+        .quote_leverage_swap(MarketAsset::Base, position.collateral_amount, crate::clock::test_clock(1))
         .unwrap();
     assert!(quote.amount_out > market.quote_side.reserves.cash_reserve);
     let before = market.clone();
