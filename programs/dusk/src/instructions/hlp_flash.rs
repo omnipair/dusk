@@ -69,6 +69,13 @@ pub struct HlpFlashSettled {
     pub market: Pubkey,
     pub buyer: Pubkey,
     pub quote: HlpFlashQuote,
+    /// Internal yLP changes made by this flash recovery. They are not user
+    /// liquidity deposits or exits and are included here to avoid a second
+    /// event CPI on the compute-constrained atomic settlement path.
+    pub base_hlp_ylp_minted: u64,
+    pub base_hlp_ylp_burned: u64,
+    pub quote_hlp_ylp_minted: u64,
+    pub quote_hlp_ylp_burned: u64,
     pub funding_interest_paid: [u64; 2],
     pub loss: LiquidationLossAllocation,
     pub insurance_debit: u64,
@@ -453,6 +460,10 @@ impl<'info> SettleHlpFlash<'info> {
                 market: a.market.key(),
                 buyer: a.buyer.key(),
                 quote: q,
+                base_hlp_ylp_minted: base.ylp_mint_amount,
+                base_hlp_ylp_burned: base.ylp_burn_amount,
+                quote_hlp_ylp_minted: quote.ylp_mint_amount,
+                quote_hlp_ylp_burned: quote.ylp_burn_amount,
                 funding_interest_paid: [base.interest_paid, quote.interest_paid],
                 loss: terminal.loss,
                 insurance_debit: terminal.insurance_debit,

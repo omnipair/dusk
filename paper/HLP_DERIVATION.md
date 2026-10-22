@@ -2,7 +2,7 @@
 
 **The short version:** a constant-product LP has half the local price sensitivity of its base token. Maintaining 2× gross exposure restores that sensitivity in an ideal, costless model. With concentration, the LP's token weights can change, so Dusk matches the opposite-token claim with debt; its gross leverage follows those weights.
 
-This walkthrough accompanies PR #45 at `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`. The same derivation is in [the shared whitepaper](main.tex#L261), under **From Yield Basis's square-root intuition to Dusk's hedge**. The [expanded appendix](appendices.tex) contains the complete native trade and reconstruction trace. [SOURCES.md](SOURCES.md) distinguishes current behavior from incoming #52 accounting and recovery work.
+This walkthrough accompanies the integration candidate of PR #45 at `04941f19` and PR #52 at `2f46e0e7`. The same derivation is in [the shared whitepaper](main.tex), under **From Yield Basis's square-root intuition to Dusk's hedge**. The [expanded appendix](appendices.tex) contains a historical native trade and reconstruction trace. [SOURCES.md](SOURCES.md) separates that earlier replay from the current accounting and recovery implementation.
 
 ## 1. Start with `xy = k`
 
@@ -89,7 +89,7 @@ This is a local sensitivity and balance-sheet identity. Dusk's finite trade and 
 
 ## 5. A real Dusk trade: who bears the difference?
 
-The retained [native replay](simulations/native-hlp-flow.json) executes #45's benchmark API, including owned hLP share settlement. Here is its fee-free concentrated case:
+The retained [native replay](simulations/native-hlp-flow.json) executes the earlier #45 benchmark API at `5c0aca7f`, including owned hLP share settlement. Here is its fee-free concentrated case; it is an inventory example, not a quote from the integrated branch:
 
 - Ordinary yLP starts with 100 META + 100 USDC.
 - META hLP contributes 50 META; USDC hLP contributes 50 USDC.
@@ -109,4 +109,4 @@ Ordinary yLP's original `100 META + 100 USDC`, simply held, would be worth $171.
 
 The earlier **$2** example uses a simpler shifted-product curve, not this native configuration: `(x+100)(y+100)=40,000`, starting at `(100,100)`. Selling `22.222222` META gives 20 USDC and ends at price $0.81. Ordinary LP value becomes $179 versus $181 for holding; the trader's input is worth $18 and output $20. The $2 is the finite-move trading loss against that end-price benchmark. It is distinct from the $1 static-funded CPMM tracking gap in section 2.
 
-With fees, funding or changing geometry, those allocations change. The expanded appendix includes the native 0.3% fee and compounding variants, and identifies the current inventory-ratio fee conversion that the incoming accounting work is intended to replace. These examples are accounting explanations, not a guarantee of fixed token redemption or a profitability backtest.
+With fees, funding or changing geometry, those allocations change. The expanded appendix includes the historical 0.3% fee and compounding variants, including the former inventory-ratio fee conversion. The integrated branch marks that conversion at the concentrated marginal price. These examples are accounting explanations, not a guarantee of fixed token redemption or a profitability backtest.

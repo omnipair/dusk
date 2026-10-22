@@ -7608,179 +7608,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "rescueHlp",
-      "docs": [
-        "Permissionless critical hLP recovery. The caller supplies the hLP's",
-        "borrowed asset and receives target collateral through the same exact",
-        "O(1) swap/hedge transition as an ordinary recovery swap. It is live in",
-        "reduce-only mode and rejects unless the selected vault is at or beyond",
-        "the 9/8 funding-stress boundary."
-      ],
-      "discriminator": [
-        239,
-        94,
-        221,
-        13,
-        146,
-        4,
-        109,
-        34
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "futarchyAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  117,
-                  116,
-                  97,
-                  114,
-                  99,
-                  104,
-                  121,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "trader",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "assetInMint"
-        },
-        {
-          "name": "assetOutMint"
-        },
-        {
-          "name": "reserveInVault",
-          "writable": true
-        },
-        {
-          "name": "reserveOutVault",
-          "writable": true
-        },
-        {
-          "name": "traderAssetInAccount",
-          "writable": true
-        },
-        {
-          "name": "traderAssetOutAccount",
-          "writable": true
-        },
-        {
-          "name": "instructionsSysvar",
-          "docs": [
-            "during the configured launch rate-limit window."
-          ],
-          "address": "Sysvar1nstructions1111111111111111111111111"
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "eventAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "swapArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "setGlobalReduceOnly",
       "discriminator": [
         242,
@@ -11454,6 +11281,19 @@ export type Dusk = {
         151,
         236,
         84
+      ]
+    },
+    {
+      "name": "hlpRebalanced",
+      "discriminator": [
+        48,
+        237,
+        118,
+        177,
+        48,
+        168,
+        104,
+        6
       ]
     },
     {
@@ -15767,6 +15607,27 @@ export type Dusk = {
             }
           },
           {
+            "name": "baseHlpYlpMinted",
+            "docs": [
+              "Internal yLP changes made by this flash recovery. They are not user",
+              "liquidity deposits or exits and are included here to avoid a second",
+              "event CPI on the compute-constrained atomic settlement path."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpYlpBurned",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpMinted",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpBurned",
+            "type": "u64"
+          },
+          {
             "name": "fundingInterestPaid",
             "type": {
               "array": [
@@ -15949,6 +15810,102 @@ export type Dusk = {
           {
             "name": "fundingAprEmaNad",
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpRebalanced",
+      "docs": [
+        "Internal vault-owned yLP changes from one completed hLP hedge transition.",
+        "Ordinary yLP deposits and exits continue to use `LiquidityAdded` and",
+        "`LiquidityRemoved`. This event includes both vaults because one operation",
+        "can burn shares in one vault and mint them in the other. Debt changes are",
+        "indexed-debt changes; funding interest is also reported by the canonical",
+        "`BorrowInterestPaid` event and must not be counted twice as revenue."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpYlpMinted",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpYlpBurned",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpMinted",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpBurned",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpYlpSharesAfter",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpYlpSharesAfter",
+            "type": "u64"
+          },
+          {
+            "name": "ylpSupplyAfter",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpDebtIncrease",
+            "docs": [
+              "Quote-token debt of the base-target hLP."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpDebtDecrease",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpDebtAfter",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpDebtIncrease",
+            "docs": [
+              "Base-token debt of the quote-target hLP."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpDebtDecrease",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpDebtAfter",
+            "type": "u64"
+          },
+          {
+            "name": "baseHlpFundingInterestPaid",
+            "docs": [
+              "Gross quote tokens paid from reserve cash to the interest vault."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteHlpFundingInterestPaid",
+            "docs": [
+              "Gross base tokens paid from reserve cash to the interest vault."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -20946,9 +20903,6 @@ export type Dusk = {
         "variants": [
           {
             "name": "spot"
-          },
-          {
-            "name": "hlpRescue"
           },
           {
             "name": "leverageOpen"

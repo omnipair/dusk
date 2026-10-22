@@ -25,11 +25,13 @@ fn market_for_flash(amplification: u64, target: MarketAsset, funding_bps: u128) 
 }
 
 #[test]
-fn frozen_vault_can_get_funded_rescue_after_critical_gap_has_receded() {
+fn solvent_vault_can_get_funded_rescue_before_critical_gap() {
     for target in [MarketAsset::Base, MarketAsset::Quote] {
         let mut market = market_for_flash(4, target, 100);
         let fee = LeverageCollateralFee::default();
-        assert!(market.quote_hlp_flash_recovery(target, fee, fee).is_err());
+        let early = market.quote_hlp_flash_recovery(target, fee, fee).unwrap();
+        assert!(!early.full);
+        assert!(early.payment > 0 && early.collateral_debit > 0);
         market.amm.frozen_hlp_mask = if target == MarketAsset::Base { 1 } else { 2 };
         let quote = market.quote_hlp_flash_recovery(target, fee, fee).unwrap();
         assert!(!quote.full);
@@ -51,7 +53,7 @@ fn frozen_vault_can_get_funded_rescue_after_critical_gap_has_receded() {
 fn flash_recovery_preserves_other_holders_and_restores_hedge() {
     for amp in [1, 4, 10] {
         for target in [MarketAsset::Base, MarketAsset::Quote] {
-            for funding_bps in [1250, 2500, 7500] {
+            for funding_bps in [50, 100, 500, 1250, 2500, 7500] {
                 let mut m = market_for_flash(amp, target, funding_bps);
                 let fee = LeverageCollateralFee::default();
                 let q = m.quote_hlp_flash_recovery(target, fee, fee).unwrap();
@@ -229,5 +231,203 @@ fn flash_receivables_compose_with_same_market_swaps_and_independent_recovery() {
         assert_eq!(m.base_side.reserves.flash_receivable, 0);
         assert_eq!(m.quote_side.reserves.flash_receivable, 0);
         m.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
+fn spot_swap_carries_hlp_interest_when_cash_only_covers_trader_output() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+
+    for amp in [1, 4] {
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            for compounding_bps in [0, 10_000] {
+            let mut market = market_for_flash(amp, target, 100);
+            market.config.amm.compounding_fee_bps = compounding_bps;
+            let borrowed = target.opposite();
+            let principal = 1_019_000_000_000_u64;
+            match borrowed {
+                MarketAsset::Base => {
+                    market.debt.fixed_base_shares = u128::from(principal);
+                    market.debt.fixed_base_principal = principal;
+                }
+                MarketAsset::Quote => {
+                    market.debt.fixed_quote_shares = u128::from(principal);
+                    market.debt.fixed_quote_principal = principal;
+                }
+            }
+            let public_interest = market.unrealized_interest(borrowed).unwrap() as u64;
+            market.side_mut(borrowed).reserves.cash_reserve -= principal;
+            market.side_mut(borrowed).reserves.live_reserve += public_interest;
+            market.assert_market_invariants().unwrap();
+            let vault_before = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
+            let debt_before = Debt::shares_to_debt(vault_before.debt_shares, market.debt.borrow_index(borrowed)).unwrap();
+            let interest_before = debt_before - u128::from(vault_before.debt_principal);
+            let mut swap = SwapRequest {
+                current_slot: 1,
+                current_unix_timestamp: 0,
+                asset_in: target,
+                reserve_credit: 900_000_000,
+                protocol_fee_bps: 0,
+            }
+            .prepare(&mut market)
+            .unwrap_or_else(|e| panic!("amp={amp} target={target:?} prepare: {e}"));
+            let quote = swap.leverage_quote();
+            let credit = LeverageSwapFeeCredit::from_total_actual_credit(&quote, swap.quote.fee.claimable_fee_debit).unwrap();
+            let output = swap.quote.gross_amount_out;
+            let trader_output = swap.quote.amount_out;
+            let cash_before = market.side(borrowed).reserves.cash_reserve;
+            assert!(cash_before >= output);
+            assert!(cash_before - output < interest_before as u64,
+                "amp={amp} target={target:?} cash={cash_before} output={output} interest={interest_before}");
+            let result = swap.apply(&mut market, SwapCashPolicy::Spot, credit, crate::clock::test_clock(1), 0,
+                ProtocolAuctionSplit::default(), None)
+                .unwrap_or_else(|e| panic!("amp={amp} target={target:?} apply: {e}"));
+            let vault_after = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
+            let debt_after = Debt::shares_to_debt(vault_after.debt_shares, market.debt.borrow_index(borrowed)).unwrap();
+            assert_eq!(debt_after - u128::from(vault_after.debt_principal), interest_before);
+            assert_eq!(market.side(borrowed).reserves.cash_reserve, cash_before - output);
+            assert_eq!(result.base_rebalance.interest_paid + result.quote_rebalance.interest_paid, 0);
+            market.assert_market_invariants().unwrap();
+
+            // A keeper can instead supply the missing token atomically while
+            // the original cash shortage persists.
+            let mut rescued = market.clone();
+            let fee = LeverageCollateralFee::default();
+            let rescue = rescued.quote_hlp_flash_recovery(target, fee, fee).unwrap();
+            assert!(!rescue.full);
+            rescued.begin_hlp_flash_recovery(rescue).unwrap();
+            rescued.settle_hlp_flash_recovery(rescue, crate::clock::test_clock(2)).unwrap();
+            let rescued_vault = if target == MarketAsset::Base { rescued.base_hlp_vault } else { rescued.quote_hlp_vault };
+            let rescued_debt = Debt::shares_to_debt(rescued_vault.debt_shares, rescued.debt.borrow_index(borrowed)).unwrap();
+            assert_eq!(rescued_debt, u128::from(rescued_vault.debt_principal));
+            rescued.assert_market_invariants().unwrap();
+
+            // Crossing the cash threshold must not let a same-slot trader
+            // extract target tokens by reversing the ordinary spot swap.
+            let mut reversed = market.clone();
+            let mut reverse = SwapRequest {
+                current_slot: 1,
+                current_unix_timestamp: 0,
+                asset_in: borrowed,
+                reserve_credit: trader_output,
+                protocol_fee_bps: 0,
+            }
+            .prepare(&mut reversed).unwrap();
+            let reverse_user_output = reverse.quote.amount_out;
+            let reverse_quote = reverse.leverage_quote();
+            let reverse_credit = LeverageSwapFeeCredit::from_total_actual_credit(
+                &reverse_quote, reverse.quote.fee.claimable_fee_debit,
+            ).unwrap();
+            reverse.apply(&mut reversed, SwapCashPolicy::Spot, reverse_credit, crate::clock::test_clock(1), 0,
+                ProtocolAuctionSplit::default(), None).unwrap();
+            assert!(reverse_user_output <= 900_000_000,
+                "amp={amp} target={target:?} compounding={compounding_bps} round trip output={reverse_user_output}");
+            reversed.assert_market_invariants().unwrap();
+
+            // A later trade replenishes the borrowed asset. Interest remains
+            // indexed until a subsequent safe settlement pays it once.
+            let mut replenish = SwapRequest {
+                current_slot: 2,
+                current_unix_timestamp: 0,
+                asset_in: borrowed,
+                reserve_credit: 1_000_000_000,
+                protocol_fee_bps: 0,
+            }
+            .prepare(&mut market)
+            .unwrap_or_else(|e| panic!("amp={amp} target={target:?} replenish prepare: {e}"));
+            let replenish_quote = replenish.leverage_quote();
+            let replenish_credit = LeverageSwapFeeCredit::from_total_actual_credit(
+                &replenish_quote, replenish.quote.fee.claimable_fee_debit,
+            ).unwrap();
+            replenish.apply(&mut market, SwapCashPolicy::Spot, replenish_credit, crate::clock::test_clock(2), 0,
+                ProtocolAuctionSplit::default(), None)
+                .unwrap_or_else(|e| panic!("amp={amp} target={target:?} replenish apply: {e}"));
+            market.assert_market_invariants().unwrap();
+
+            // Inventory and writeoff flows rebuild the hLP endpoint from an
+            // already materialized market instead of consuming the swap plan.
+            let mut rebuilt = market.clone();
+            let current = crate::transitions::liquidity::prepare_concentrated_hlp_transition_at_current_state(&rebuilt)
+                .unwrap_or_else(|e| panic!("amp={amp} target={target:?} rebuild: {e}"));
+            current.consume(&mut rebuilt)
+                .unwrap_or_else(|e| panic!("amp={amp} target={target:?} rebuild consume: {e}"));
+            rebuilt.assert_market_invariants().unwrap();
+
+            let mut settle = SwapRequest {
+                current_slot: 3,
+                current_unix_timestamp: 0,
+                asset_in: target,
+                reserve_credit: 100_000_000,
+                protocol_fee_bps: 0,
+            }
+            .prepare(&mut market)
+            .unwrap_or_else(|e| panic!("amp={amp} target={target:?} settle prepare: {e}"));
+            let settle_quote = settle.leverage_quote();
+            let settle_credit = LeverageSwapFeeCredit::from_total_actual_credit(
+                &settle_quote, settle.quote.fee.claimable_fee_debit,
+            ).unwrap();
+            let settled = settle.apply(&mut market, SwapCashPolicy::Spot, settle_credit, crate::clock::test_clock(3), 0,
+                ProtocolAuctionSplit::default(), None)
+                .unwrap_or_else(|e| panic!("amp={amp} target={target:?} settle apply: {e}"));
+            assert!(settled.base_rebalance.interest_paid + settled.quote_rebalance.interest_paid > 0);
+            let final_vault = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
+            let final_debt = Debt::shares_to_debt(final_vault.debt_shares, market.debt.borrow_index(borrowed)).unwrap();
+            assert_eq!(final_debt, u128::from(final_vault.debt_principal));
+            market.assert_market_invariants().unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn cash_constrained_swap_carries_both_hlp_funding_liabilities() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+
+    for amp in [1, 4] {
+        let mut market = market_for_flash(amp, MarketAsset::Base, 100);
+        market.debt.base_borrow_index_nad = u128::from(NAD) * 101 / 100;
+        let principal = 1_019_000_000_000_u64;
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            match asset {
+                MarketAsset::Base => {
+                    market.debt.fixed_base_shares = u128::from(principal);
+                    market.debt.fixed_base_principal = principal;
+                }
+                MarketAsset::Quote => {
+                    market.debt.fixed_quote_shares = u128::from(principal);
+                    market.debt.fixed_quote_principal = principal;
+                }
+            }
+            let public_interest = market.unrealized_interest(asset).unwrap() as u64;
+            market.side_mut(asset).reserves.cash_reserve -= principal;
+            market.side_mut(asset).reserves.live_reserve += public_interest;
+        }
+        market.assert_market_invariants().unwrap();
+        let due_before = [MarketAsset::Base, MarketAsset::Quote].map(|target| {
+            let vault = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
+            Debt::shares_to_debt(vault.debt_shares, market.debt.borrow_index(target.opposite())).unwrap()
+                - u128::from(vault.debt_principal)
+        });
+        let mut swap = SwapRequest {
+            current_slot: 1,
+            current_unix_timestamp: 0,
+            asset_in: MarketAsset::Base,
+            reserve_credit: 900_000_000,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut market).unwrap();
+        let quote = swap.leverage_quote();
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(&quote, swap.quote.fee.claimable_fee_debit).unwrap();
+        let result = swap.apply(&mut market, SwapCashPolicy::Spot, credit, crate::clock::test_clock(1), 0,
+            ProtocolAuctionSplit::default(), None).unwrap();
+        assert_eq!(result.base_rebalance.interest_paid, 0);
+        assert_eq!(result.quote_rebalance.interest_paid, 0);
+        for (i, target) in [MarketAsset::Base, MarketAsset::Quote].into_iter().enumerate() {
+            let vault = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
+            let due = Debt::shares_to_debt(vault.debt_shares, market.debt.borrow_index(target.opposite())).unwrap()
+                - u128::from(vault.debt_principal);
+            assert_eq!(due, due_before[i]);
+        }
+        market.assert_market_invariants().unwrap();
     }
 }

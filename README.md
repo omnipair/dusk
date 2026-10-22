@@ -244,7 +244,6 @@ set_yield_recipient
 set_harvest_authority
 harvest
 swap
-rescue_hlp
 close_insolvent_hlp
 deposit_collateral
 withdraw_collateral

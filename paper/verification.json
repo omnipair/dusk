@@ -1,20 +1,20 @@
 {
-  "reviewed_commit": "5c0aca7fcb582418f1c5b99061d4ff7605b6f185",
-  "incoming_commit": "2bf53910aef2277b044e83bece8a13c555582039",
-  "updated_at": "2026-10-19",
-  "revision": "Align both whitepapers with #45; add square-root/maintained-2x/inventory-weight derivation, native hLP flows, and explicit unfinished #52 boundary.",
+  "reviewed_commit": "integration candidate: 04941f1934cb8dd1a73ac877c6d00cafcae82435 + 2f46e0e7db6bb5458af8f9602daea1f7344fa894",
+  "historical_native_replay_commit": "5c0aca7fcb582418f1c5b99061d4ff7605b6f185",
+  "updated_at": "2026-10-23",
+  "revision": "Reconcile the #45 derivations with #52 hLP accounting, cash carry, harvest and flash recovery; label the retained native replay as historical.",
   "outputs": [
     {
       "path": "paper/dusk-v2-whitepaper.pdf",
       "pages": 21,
-      "sha256": "2879a487f0c92a18a49853551f0bbe8d82619e2e216ed43db1d695c61a033885",
+      "sha256": "6d02d70f7c9afc82970705ff02e750184ed72652ed65cb175c3510ee855f36eb",
       "rendered_pages": 21,
       "visual_review": "passed; all pages inspected in contact sheets, derivation/native example pages inspected at full size, final table correction rendered and inspected"
     },
     {
       "path": "paper/dusk-v2-whitepaper-expanded.pdf",
       "pages": 39,
-      "sha256": "25f821e41d98aca8405e4203ce4a9e6d641ac89aa309121e8e7526ec3c6ea710",
+      "sha256": "fa60ba7d1ef7fa1629aa0ad7dba9adfdb33232cc2d3b44b0aab528264fee2135",
       "rendered_pages": 39,
       "visual_review": "passed; all pages inspected in contact sheets, derivation/native example pages inspected at full size, final table correction rendered and inspected"
     }
@@ -57,7 +57,7 @@
     "missing_glyph_warnings": 0,
     "visual_review": "All 60 pages reviewed; only expanded page 31 changed in the final table-layout rebuild and was inspected separately.",
     "tex_notes": "Three non-fatal underfull paragraph warnings remain in expanded appendix A; no clipping, overlap or unresolved references.",
-    "full_local_ci": "Passed; see precommit-verification.json"
+    "full_local_ci": "Passed on the combined candidate: 543 Dusk tests in default and production profiles; 16 delegate tests, 1 faucet test, 1 benchmark invariant, 76 SDK tests, and 140 strict LiteSVM tests with 74/74 instructions exercised. Formatting, hygiene, code shape, Clippy, production check, TypeScript, LiteSVM builds, and clean-build identity also passed. precommit-verification.json is the historical October 19 receipt"
   },
-  "scope": "Documentation and paper evidence only. No protocol/SDK change, merge or deployment. Incoming approved accounting/recovery work is not declared complete."
+  "scope": "Integrated #45/#52 candidate documentation. The hLP program and SDK changes require final combined-branch review; no deployment or main merge is declared."
 }

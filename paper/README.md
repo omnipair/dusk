@@ -2,17 +2,17 @@
 
 **Start with [the hLP derivation and worked examples](HLP_DERIVATION.md).** It explains `xy=k`, `√p`, continuously maintained 2× leverage and the inventory-dependent hedge for concentration.
 
-These research drafts were revised on October 19, 2026 against PR #45 at `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`. Incoming #52 and agreed unfinished accounting work are explicitly identified. This is an implementation snapshot, not a production deployment or audit certification.
+These research drafts were revised on October 23, 2026 for the integration candidate combining PR #45 at `04941f19` and PR #52 at `2f46e0e7`. The hLP accounting, harvest, cash-carry and flash-recovery mechanisms are described as implemented; final combined review remains pending. This is not a production deployment or audit certification.
 
 ## Read
 
 - [Compact paper](dusk-v2-whitepaper.pdf): shared derivations and current mechanisms.
 - [Expanded paper](dusk-v2-whitepaper-expanded.pdf): additional proofs, complete numerical trade/rebalance trace and source mapping.
-- [Source map and pending-work boundary](SOURCES.md): code anchors and what #52 still needs to implement.
+- [Source map and validation boundary](SOURCES.md): code anchors, historical replay scope and remaining review.
 - [Verification](verification.json): current PDF and arithmetic checks; [local CI receipt](precommit-verification.json).
 - [Historical comparison](COMPARISON.md): unchanged July drafts and prior revisions.
 
-Both papers explain flash liquidation, affordable partial-fill discounts, EMA-priced emergency execution with smoothed depth, stored margins/crowding, position actions, insurance and reusable governance delegation. The hLP accounting/harvest/flash-recovery changes still under development are labeled as pending, rather than described as current runtime behavior.
+Both papers explain flash liquidation, affordable partial-fill discounts, EMA-priced emergency execution with smoothed depth, stored margins/crowding, position actions, insurance, reusable governance delegation, and integrated hLP accounting/recovery. The retained native numerical replay predates the integrated hLP fee-marking change and is labeled as historical; current program behavior is covered separately by native and instruction tests.
 
 ## Build
 

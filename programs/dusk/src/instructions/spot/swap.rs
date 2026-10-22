@@ -12,7 +12,7 @@ use crate::{
     generate_market_seeds,
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
-    transitions::{HlpRebalanceReceipt, HlpRecoveryBreakdown},
+    transitions::HlpRebalanceReceipt,
 };
 
 use crate::instructions::accounts::{
@@ -28,12 +28,6 @@ use crate::instructions::{enforce_launch_same_transaction_guard, rebalance_execu
 pub struct SwapArgs {
     pub exact_asset_in: u64,
     pub min_asset_out: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SwapExecutionMode {
-    Ordinary,
-    HlpRecovery,
 }
 
 #[event_cpi]
@@ -87,68 +81,76 @@ pub struct Swap<'info> {
 }
 
 impl<'info> Swap<'info> {
-    pub(crate) fn validate_and_read_clock(&self, args: &SwapArgs) -> Result<(Clock, MarketAsset)> {
+    pub fn handle_swap(mut ctx: Context<'_, '_, '_, 'info, Self>, args: SwapArgs) -> Result<()> {
+        let accounts = &ctx.accounts;
         // Read the sysvar once for the complete swap. In particular, do not
         // call `Market::assert_started`, which would fetch `Clock` a second
         // time before the elapsed-time AMM/debt pipeline begins.
         let clock = Clock::get()?;
-        self.market.assert_current_version()?;
+        accounts.market.assert_current_version()?;
         require!(
-            clock.unix_timestamp >= self.market.config.start_time,
+            clock.unix_timestamp >= accounts.market.config.start_time,
             ErrorCode::MarketNotStarted
         );
         require!(args.exact_asset_in > 0, ErrorCode::AmountZero);
         require_gte!(
-            self.trader_asset_in_account.amount,
+            accounts.trader_asset_in_account.amount,
             args.exact_asset_in,
             ErrorCode::InsufficientBalance
         );
-        let asset_in = self.market.asset_for_mint(self.asset_in_mint.key())?;
-        let asset_out = self.market.asset_for_mint(self.asset_out_mint.key())?;
+        let asset_in = accounts.market.asset_for_mint(accounts.asset_in_mint.key())?;
+        let asset_out = accounts.market.asset_for_mint(accounts.asset_out_mint.key())?;
         require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
         enforce_launch_same_transaction_guard(
-            &self.market,
-            self.market.key(),
+            &accounts.market,
+            accounts.market.key(),
             asset_in,
             clock.unix_timestamp,
-            &self.instructions_sysvar.to_account_info(),
+            &accounts.instructions_sysvar.to_account_info(),
         )?;
-        let (market_side_in, market_side_out) = self.market.swap_sides(asset_in);
+        let (market_side_in, market_side_out) = accounts.market.swap_sides(asset_in);
         require_keys_eq!(
             market_side_in.reserve_vault,
-            self.reserve_in_vault.key(),
+            accounts.reserve_in_vault.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
             market_side_out.reserve_vault,
-            self.reserve_out_vault.key(),
+            accounts.reserve_out_vault.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
-            self.reserve_in_vault.mint,
-            self.asset_in_mint.key(),
+            accounts.reserve_in_vault.mint,
+            accounts.asset_in_mint.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
-            self.reserve_out_vault.mint,
-            self.asset_out_mint.key(),
+            accounts.reserve_out_vault.mint,
+            accounts.asset_out_mint.key(),
             ErrorCode::InvalidVault
         );
-        require_keys_eq!(self.reserve_in_vault.owner, self.market.key(), ErrorCode::InvalidVault);
-        require_keys_eq!(self.reserve_out_vault.owner, self.market.key(), ErrorCode::InvalidVault);
-        validate_owner_asset_account(self.trader.key(), &self.asset_in_mint, &self.trader_asset_in_account)?;
-        validate_owner_asset_account(self.trader.key(), &self.asset_out_mint, &self.trader_asset_out_account)?;
-        require_supported_asset_mint(&self.asset_in_mint)?;
-        require_supported_asset_mint(&self.asset_out_mint)?;
-        Ok((clock, asset_in))
-    }
-
-    pub(crate) fn handle_swap(
-        mut ctx: Context<'_, '_, '_, 'info, Self>,
-        args: SwapArgs,
-        (clock, asset_in): (Clock, MarketAsset),
-        mode: SwapExecutionMode,
-    ) -> Result<()> {
+        require_keys_eq!(
+            accounts.reserve_in_vault.owner,
+            accounts.market.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            accounts.reserve_out_vault.owner,
+            accounts.market.key(),
+            ErrorCode::InvalidVault
+        );
+        validate_owner_asset_account(
+            accounts.trader.key(),
+            &accounts.asset_in_mint,
+            &accounts.trader_asset_in_account,
+        )?;
+        validate_owner_asset_account(
+            accounts.trader.key(),
+            &accounts.asset_out_mint,
+            &accounts.trader_asset_out_account,
+        )?;
+        require_supported_asset_mint(&accounts.asset_in_mint)?;
+        require_supported_asset_mint(&accounts.asset_out_mint)?;
         let current_slot = clock.slot;
         let current_epoch = clock.epoch;
         let current_unix_timestamp = clock.unix_timestamp;
@@ -186,9 +188,6 @@ impl<'info> Swap<'info> {
             protocol_fee_bps,
         }
         .prepare(&mut ctx.accounts.market)?;
-        if mode == SwapExecutionMode::HlpRecovery {
-            require_hlp_recovery_swap(prepared.quote.recovery, asset_in)?;
-        }
         let finalized = prepared.finalize_state(
             &mut ctx.accounts.market,
             clock,
@@ -310,15 +309,23 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(asset_out_credit, args.min_asset_out, ErrorCode::SlippageExceeded);
 
+        // Keep the ordinary no-hLP swap path below its hard compute ceiling.
+        if ctx.accounts.market.base_hlp_vault.hlp_supply > 0 || ctx.accounts.market.quote_hlp_vault.hlp_supply > 0 {
+            crate::instructions::accounting::emit_hlp_rebalanced(
+                &ctx.accounts.market,
+                base_rebalance,
+                quote_rebalance,
+                current_slot,
+                ctx.accounts.event_authority.to_account_info(),
+            )?;
+        }
+
         emit_cpi!(SwapExecuted::from_amm(
             market_key,
             trader_key,
             trader_key,
             None,
-            match mode {
-                SwapExecutionMode::Ordinary => SwapOrigin::Spot,
-                SwapExecutionMode::HlpRecovery => SwapOrigin::HlpRescue,
-            },
+            SwapOrigin::Spot,
             current_slot,
             quote,
             &ctx.accounts.market,
@@ -326,17 +333,6 @@ impl<'info> Swap<'info> {
 
         Ok(())
     }
-}
-
-fn require_hlp_recovery_swap(recovery: HlpRecoveryBreakdown, asset_in: MarketAsset) -> Result<()> {
-    require!(
-        recovery.critical
-            && recovery.matched_input > 0
-            && recovery.bonus_output > 0
-            && recovery.target_asset == asset_in.opposite().code(),
-        ErrorCode::HlpNotLiquidatable
-    );
-    Ok(())
 }
 
 fn apply_single_hlp_rebalance_token_changes<'info>(

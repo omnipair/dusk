@@ -1,7 +1,7 @@
 use crate::{
     errors::ErrorCode,
-    state::{Market, MarketAsset, MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
-    transitions::{lending::SidePrices, AmmSwapQuote, LeverageSwapFeeCredit, LeverageSwapQuote},
+    state::{Debt, Market, MarketAsset, MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
+    transitions::{lending::SidePrices, AmmSwapQuote, HlpRebalanceReceipt, LeverageSwapFeeCredit, LeverageSwapQuote},
 };
 use anchor_lang::prelude::*;
 
@@ -109,6 +109,102 @@ pub struct LiquidityRemoved {
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
     pub metadata: MarketEventMetadata,
+}
+
+/// Internal vault-owned yLP changes from one completed hLP hedge transition.
+/// Ordinary yLP deposits and exits continue to use `LiquidityAdded` and
+/// `LiquidityRemoved`. This event includes both vaults because one operation
+/// can burn shares in one vault and mint them in the other. Debt changes are
+/// indexed-debt changes; funding interest is also reported by the canonical
+/// `BorrowInterestPaid` event and must not be counted twice as revenue.
+#[event]
+pub struct HlpRebalanced {
+    pub market: Pubkey,
+    pub slot: u64,
+    pub base_hlp_ylp_minted: u64,
+    pub base_hlp_ylp_burned: u64,
+    pub quote_hlp_ylp_minted: u64,
+    pub quote_hlp_ylp_burned: u64,
+    pub base_hlp_ylp_shares_after: u64,
+    pub quote_hlp_ylp_shares_after: u64,
+    pub ylp_supply_after: u64,
+    /// Quote-token debt of the base-target hLP.
+    pub base_hlp_debt_increase: u64,
+    pub base_hlp_debt_decrease: u64,
+    pub base_hlp_debt_after: u64,
+    /// Base-token debt of the quote-target hLP.
+    pub quote_hlp_debt_increase: u64,
+    pub quote_hlp_debt_decrease: u64,
+    pub quote_hlp_debt_after: u64,
+    /// Gross quote tokens paid from reserve cash to the interest vault.
+    pub base_hlp_funding_interest_paid: u64,
+    /// Gross base tokens paid from reserve cash to the interest vault.
+    pub quote_hlp_funding_interest_paid: u64,
+}
+
+impl HlpRebalanced {
+    pub(crate) fn from_receipts(
+        market_key: Pubkey,
+        market: &Market,
+        base: HlpRebalanceReceipt,
+        quote: HlpRebalanceReceipt,
+        slot: u64,
+    ) -> Result<Option<Self>> {
+        require!(
+            base.target_asset == MarketAsset::Base && quote.target_asset == MarketAsset::Quote,
+            ErrorCode::BrokenInvariant
+        );
+        let changed = |receipt: HlpRebalanceReceipt| {
+            receipt.ylp_mint_amount > 0
+                || receipt.ylp_burn_amount > 0
+                || receipt.debt_delta != 0
+                || receipt.interest_paid > 0
+        };
+        if !changed(base) && !changed(quote) {
+            return Ok(None);
+        }
+        let split_debt_delta = |delta: i128| -> Result<(u64, u64)> {
+            if delta >= 0 {
+                Ok((u64::try_from(delta).map_err(|_| ErrorCode::DebtMathOverflow)?, 0))
+            } else {
+                Ok((
+                    0,
+                    u64::try_from(delta.unsigned_abs()).map_err(|_| ErrorCode::DebtMathOverflow)?,
+                ))
+            }
+        };
+        let (base_hlp_debt_increase, base_hlp_debt_decrease) = split_debt_delta(base.debt_delta)?;
+        let (quote_hlp_debt_increase, quote_hlp_debt_decrease) = split_debt_delta(quote.debt_delta)?;
+        let base_hlp_debt_after = u64::try_from(Debt::shares_to_debt(
+            market.base_hlp_vault.debt_shares,
+            market.debt.quote_borrow_index_nad,
+        )?)
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let quote_hlp_debt_after = u64::try_from(Debt::shares_to_debt(
+            market.quote_hlp_vault.debt_shares,
+            market.debt.base_borrow_index_nad,
+        )?)
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        Ok(Some(Self {
+            market: market_key,
+            slot,
+            base_hlp_ylp_minted: base.ylp_mint_amount,
+            base_hlp_ylp_burned: base.ylp_burn_amount,
+            quote_hlp_ylp_minted: quote.ylp_mint_amount,
+            quote_hlp_ylp_burned: quote.ylp_burn_amount,
+            base_hlp_ylp_shares_after: market.base_hlp_vault.ylp_shares,
+            quote_hlp_ylp_shares_after: market.quote_hlp_vault.ylp_shares,
+            ylp_supply_after: market.base_side.shares.ylp_supply,
+            base_hlp_debt_increase,
+            base_hlp_debt_decrease,
+            base_hlp_debt_after,
+            quote_hlp_debt_increase,
+            quote_hlp_debt_decrease,
+            quote_hlp_debt_after,
+            base_hlp_funding_interest_paid: base.interest_paid,
+            quote_hlp_funding_interest_paid: quote.interest_paid,
+        }))
+    }
 }
 
 /// One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints
@@ -299,7 +395,6 @@ pub struct ProtocolAuctionSettled {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwapOrigin {
     Spot,
-    HlpRescue,
     LeverageOpen,
     LeverageIncrease,
     LeverageDecrease,

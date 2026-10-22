@@ -159,11 +159,30 @@ fn concentrated_hlp_receipt(
 
 /// Chooses indexed debt within one raw atom of the vault's proportional
 /// opposite-asset yLP claim at the final reserve point.
+#[cfg(test)]
 fn canonical_debt_for_proportional_claim(
     non_debt_reserve: u64,
     hlp_ylp_shares: u64,
     total_ylp_supply: u64,
     borrow_index_nad: u128,
+    quoted_debt: Option<u64>,
+) -> Result<(u128, u64)> {
+    canonical_debt_for_proportional_claim_with_carry(
+        non_debt_reserve,
+        hlp_ylp_shares,
+        total_ylp_supply,
+        borrow_index_nad,
+        0,
+        quoted_debt,
+    )
+}
+
+fn canonical_debt_for_proportional_claim_with_carry(
+    non_debt_reserve: u64,
+    hlp_ylp_shares: u64,
+    total_ylp_supply: u64,
+    borrow_index_nad: u128,
+    interest_carried: u64,
     quoted_debt: Option<u64>,
 ) -> Result<(u128, u64)> {
     if hlp_ylp_shares == 0 {
@@ -175,13 +194,17 @@ fn canonical_debt_for_proportional_claim(
     require!(ordinary_and_other_shares > 0, ErrorCode::SupplyUnderflow);
     require!(borrow_index_nad >= NAD as u128, ErrorCode::DebtShareDivisionOverflow);
 
-    let max_debt = u128::from(u64::MAX - non_debt_reserve);
-    let continuous = mul_div_u128(
+    let max_live = u128::from(u64::MAX - non_debt_reserve);
+    let continuous_live = mul_div_u128(
         non_debt_reserve as u128,
         hlp_ylp_shares as u128,
         ordinary_and_other_shares as u128,
     )?
-    .min(max_debt);
+    .min(max_live);
+    let continuous = continuous_live
+        .checked_add(u128::from(interest_carried))
+        .ok_or(ErrorCode::DebtMathOverflow)?
+        .min(u128::from(u64::MAX));
     // Retain a valid quoted endpoint. Otherwise test the indexed debts
     // bracketing the fixed point, rather than raw amounts that can all round
     // to the same share count after interest accrues. The signed error
@@ -196,15 +219,19 @@ fn canonical_debt_for_proportional_claim(
     {
         let debt = Debt::shares_to_debt(debt_shares, borrow_index_nad)?;
         // An upper candidate may exceed capacity while its predecessor fits.
-        if debt > max_debt {
+        if debt > u128::from(u64::MAX) || debt < u128::from(interest_carried) {
+            continue;
+        }
+        let live = debt - u128::from(interest_carried);
+        if live > max_live {
             continue;
         }
         let claim = mul_div_u128(
-            non_debt_reserve as u128 + debt,
+            non_debt_reserve as u128 + live,
             hlp_ylp_shares as u128,
             total_ylp_supply as u128,
         )?;
-        if debt.abs_diff(claim) <= 1 {
+        if live.abs_diff(claim) <= 1 {
             return Ok((debt_shares, debt as u64));
         }
     }
@@ -741,16 +768,24 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
         market.debt.base_borrow_index_nad,
     )?)
     .map_err(|_| ErrorCode::DebtMathOverflow)?;
-    let base_interest_paid = if frozen_mask & 1 != 0 {
+    let base_interest_due = if frozen_mask & 1 != 0 {
         0
     } else {
         current_base_debt.saturating_sub(market.base_hlp_vault.debt_principal)
     };
-    let quote_interest_paid = if frozen_mask & 2 != 0 {
+    let quote_interest_due = if frozen_mask & 2 != 0 {
         0
     } else {
         current_quote_debt.saturating_sub(market.quote_hlp_vault.debt_principal)
     };
+    let base_interest_carried = end.base_hlp_quote_carry;
+    let quote_interest_carried = end.quote_hlp_base_carry;
+    let base_interest_paid = base_interest_due
+        .checked_sub(base_interest_carried)
+        .ok_or(ErrorCode::BrokenInvariant)?;
+    let quote_interest_paid = quote_interest_due
+        .checked_sub(quote_interest_carried)
+        .ok_or(ErrorCode::BrokenInvariant)?;
 
     let (base_non_debt_reserve, quote_non_debt_reserve) = if preserve_current_ordinary_reserves {
         // Changing hLP ownership/debt around an already materialized reserve
@@ -768,6 +803,7 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
                 .live_reserve
                 .checked_sub(old_base_hlp_live)
                 .and_then(|value| value.checked_sub(quote_interest_paid))
+                .and_then(|value| value.checked_add(quote_interest_carried))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
             market
                 .side(MarketAsset::Quote)
@@ -775,6 +811,7 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
                 .live_reserve
                 .checked_sub(old_quote_hlp_live)
                 .and_then(|value| value.checked_sub(base_interest_paid))
+                .and_then(|value| value.checked_add(base_interest_carried))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
         )
     } else {
@@ -784,14 +821,23 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
         let ordinary_quote = market.denormalize_amount_floor(book_quote, market.quote_side.asset_decimals)?;
         let base_equity = market.denormalize_amount_floor(end.base_hlp_equity, market.base_side.asset_decimals)?;
         let quote_equity = market.denormalize_amount_floor(end.quote_hlp_equity, market.quote_side.asset_decimals)?;
-        (
-            ordinary_base
-                .checked_add(base_equity)
-                .ok_or(ErrorCode::ReserveUnderflow)?,
-            ordinary_quote
-                .checked_add(quote_equity)
-                .ok_or(ErrorCode::ReserveUnderflow)?,
-        )
+        let mut base = ordinary_base
+            .checked_add(base_equity)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
+        let mut quote = ordinary_quote
+            .checked_add(quote_equity)
+            .ok_or(ErrorCode::ReserveUnderflow)?;
+        if quote_interest_carried > 0 {
+            base = base
+                .checked_add(quote_interest_carried)
+                .ok_or(ErrorCode::ReserveUnderflow)?;
+        }
+        if base_interest_carried > 0 {
+            quote = quote
+                .checked_add(base_interest_carried)
+                .ok_or(ErrorCode::ReserveUnderflow)?;
+        }
+        (base, quote)
     };
     // Integer yLP ownership can move the opposite-asset claim by more than
     // one token atom, especially when the mints have different decimals.
@@ -800,11 +846,12 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
     let (final_base_debt_shares, final_base_debt) = if frozen_mask & 1 != 0 {
         (market.base_hlp_vault.debt_shares, current_base_debt)
     } else {
-        canonical_debt_for_proportional_claim(
+        canonical_debt_for_proportional_claim_with_carry(
             quote_non_debt_reserve,
             ownership.base_hlp_ylp_shares,
             ownership.total_ylp_supply,
             market.debt.quote_borrow_index_nad,
+            base_interest_carried,
             if certify_proportional_claim {
                 None
             } else {
@@ -815,11 +862,12 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
     let (final_quote_debt_shares, final_quote_debt) = if frozen_mask & 2 != 0 {
         (market.quote_hlp_vault.debt_shares, current_quote_debt)
     } else {
-        canonical_debt_for_proportional_claim(
+        canonical_debt_for_proportional_claim_with_carry(
             base_non_debt_reserve,
             ownership.quote_hlp_ylp_shares,
             ownership.total_ylp_supply,
             market.debt.base_borrow_index_nad,
+            quote_interest_carried,
             if certify_proportional_claim {
                 None
             } else {
@@ -829,13 +877,21 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
     };
     let final_base_hlp_live = if frozen_mask & 1 != 0 {
         market.base_hlp_vault.hlp_live_reserve(MarketAsset::Quote)
+    } else if base_interest_carried == 0 {
+        final_base_debt
     } else {
         final_base_debt
+            .checked_sub(base_interest_carried)
+            .ok_or(ErrorCode::BrokenInvariant)?
     };
     let final_quote_hlp_live = if frozen_mask & 2 != 0 {
         market.quote_hlp_vault.hlp_live_reserve(MarketAsset::Base)
+    } else if quote_interest_carried == 0 {
+        final_quote_debt
     } else {
         final_quote_debt
+            .checked_sub(quote_interest_carried)
+            .ok_or(ErrorCode::BrokenInvariant)?
     };
     // Under the debug flag, print the reconstruction's own inputs. The
     // identity's two sides disagree in the ordinary (non-debt) portion, and
@@ -1089,10 +1145,10 @@ impl ConcentratedHlpTransition {
         market.base_hlp_vault.debt_shares = self.final_base_debt_shares;
         market.quote_hlp_vault.debt_shares = self.final_quote_debt_shares;
         if self.frozen_hlp_mask & 1 == 0 {
-            market.base_hlp_vault.debt_principal = self.final_base_debt;
+            market.base_hlp_vault.debt_principal = self.final_base_hlp_live;
         }
         if self.frozen_hlp_mask & 2 == 0 {
-            market.quote_hlp_vault.debt_principal = self.final_quote_debt;
+            market.quote_hlp_vault.debt_principal = self.final_quote_hlp_live;
         }
         market.base_hlp_vault.base_hlp_live_reserve = 0;
         market.base_hlp_vault.quote_hlp_live_reserve = self.final_base_hlp_live;

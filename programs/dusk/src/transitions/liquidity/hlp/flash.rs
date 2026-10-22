@@ -50,13 +50,10 @@ impl Market {
         let opposite = engine::ylp_live_underlying_amount(self, borrowed, vault.ylp_shares)?;
         let target_claim = engine::ylp_live_underlying_amount(self, target, vault.ylp_shares)?;
         let gap = debt.saturating_sub(opposite);
-        require!(
-            self.hlp_frozen(target)
-                || (gap > 0
-                    && u128::from(debt) * recovery::HLP_RECOVERY_CRITICAL_DENOMINATOR
-                        >= u128::from(opposite) * recovery::HLP_RECOVERY_CRITICAL_NUMERATOR),
-            ErrorCode::HlpNotLiquidatable
-        );
+        // A solvent vault need not wait for the native recovery swap's
+        // critical-stress boundary. The fixed payment repairs the funding gap
+        // while the affordable-discount check below preserves positive NAV.
+        require!(self.hlp_frozen(target) || gap > 0, ErrorCode::HlpNotLiquidatable);
         let prices = current_hlp_curve_prices(self)?;
         let collateral_value =
             engine::asset_value_in_target_nad_with_prices(self, prices, target, target_claim, borrowed)?;
@@ -69,7 +66,7 @@ impl Market {
         if full {
             self.require_hlp_ema_insolvent(target)?;
         }
-        // Reuse the native rescue incentive's health bands. Payment is frozen
+        // Reuse the native recovery incentive's health bands. Payment is frozen
         // against the symmetric EMA, independently of the route's execution.
         let discount = if opposite == 0 {
             recovery::HLP_RECOVERY_MAX_DISCOUNT_BPS

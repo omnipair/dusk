@@ -14,7 +14,7 @@ python3 paper/simulations/verify_native.py
 
 ## Re-execute the native trace
 
-Use Dusk source commit `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`, not the unmerged accounting candidate. Create a temporary directory containing that commit's `git archive` under `source/`, and a separate Rust binary crate under `runner/`. Copy `native_hlp_flow.rs` to `runner/src/main.rs`. Its manifest is:
+This retained trace records the earlier #45 implementation at Dusk source commit `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`; its numbers are not a replay of the later hLP interest-accounting implementation. To reproduce the historical trace, create a temporary directory containing that commit's `git archive` under `source/`, and a separate Rust binary crate under `runner/`. Copy `native_hlp_flow.rs` to `runner/src/main.rs`. Its manifest is:
 
 ```toml
 [package]

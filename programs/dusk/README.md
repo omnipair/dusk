@@ -37,7 +37,7 @@ Dusk exposes the current market instruction set:
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
 - `set_yield_recipient`, `set_harvest_authority`, `harvest`
-- `swap`, `rescue_hlp`, `close_insolvent_hlp`
+- `swap`, `close_insolvent_hlp`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
 - `observe_liquidation`, `preview_flash_liquidation`, `begin_flash_liquidation`, `settle_flash_liquidation`, `preview_emergency_liquidation`, `emergency_liquidation`

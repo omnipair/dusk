@@ -451,13 +451,15 @@ impl SwapRequest {
             self.current_unix_timestamp,
             pre_state,
         )?;
-        let (integrated_start, mut concentrated) = market.prepare_current_hlp_quote_with_distress_freeze(
+        let (mut integrated_start, mut concentrated) = market.prepare_current_hlp_quote_with_distress_freeze(
             self.asset_in,
             self.reserve_credit,
             preliminary,
             self.protocol_fee_bps,
         )?;
-        if cash_policy == SwapCashPolicy::Spot {
+        if cash_policy == SwapCashPolicy::Spot
+            && (market.base_hlp_vault.debt_shares > 0 || market.quote_hlp_vault.debt_shares > 0)
+        {
             crate::transitions::liquidity::apply_concentrated_hlp_recovery(
                 market,
                 self.asset_in,
@@ -468,7 +470,35 @@ impl SwapRequest {
         if concentrated.recovery.bonus_output > 0 {
             market.finalize_concentrated_book_curve(integrated_start, &mut concentrated, self.asset_in)?;
         }
-        let transition = prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
+        let mut transition =
+            prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
+        // The funding payment belongs to hLP, not to this spot trader. If
+        // paying it in full would consume the trader's output cash, quote the
+        // same swap with the unpaid amount still on indexed hLP debt. Keep at
+        // least one raw atom of residual reserve cash on each side.
+        if cash_policy == SwapCashPolicy::Spot
+            && (market.base_hlp_vault.debt_shares > 0 || market.quote_hlp_vault.debt_shares > 0)
+        {
+            let floors = transition.interest_cash_floors(self.asset_in, concentrated.gross_amount_out);
+            if !floors.available_amounts(
+                market.base_side.reserves.cash_reserve.saturating_sub(1),
+                market.quote_side.reserves.cash_reserve.saturating_sub(1),
+            ) {
+                let (carry_start, carry_quote) = market.prepare_current_hlp_quote(
+                    self.asset_in,
+                    self.reserve_credit,
+                    preliminary,
+                    self.protocol_fee_bps,
+                    true,
+                )?;
+                integrated_start = carry_start;
+                concentrated = carry_quote;
+                // A carried payment cannot fund a recovery bonus. The whole
+                // trader input still follows the ordinary curve.
+                transition =
+                    prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
+            }
+        }
         let has_advance = market
             .side(self.asset_in.opposite())
             .fees

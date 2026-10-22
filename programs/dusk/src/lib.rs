@@ -284,9 +284,7 @@ pub mod dusk {
 
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
-        let mode = SwapExecutionMode::Ordinary;
-        let validated = ctx.accounts.validate_and_read_clock(&args)?;
-        Swap::handle_swap(ctx, args, validated, mode)
+        Swap::handle_swap(ctx, args)
     }
 
     /// Quote the fixed net payment for vault-wide atomic external hLP recovery.
@@ -309,17 +307,6 @@ pub mod dusk {
     /// Verify the fixed payment and restore the vault's opposite-token hedge.
     pub fn settle_hlp_flash<'info>(ctx: Context<'_, '_, '_, 'info, SettleHlpFlash<'info>>) -> Result<()> {
         SettleHlpFlash::handle(ctx)
-    }
-
-    /// Permissionless critical hLP recovery. The caller supplies the hLP's
-    /// borrowed asset and receives target collateral through the same exact
-    /// O(1) swap/hedge transition as an ordinary recovery swap. It is live in
-    /// reduce-only mode and rejects unless the selected vault is at or beyond
-    /// the 9/8 funding-stress boundary.
-    pub fn rescue_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
-        let mode = SwapExecutionMode::HlpRecovery;
-        let validated = ctx.accounts.validate_and_read_clock(&args)?;
-        Swap::handle_swap(ctx, args, validated, mode)
     }
 
     /// Permissionlessly closes an hLP whose full marked backing cannot cover

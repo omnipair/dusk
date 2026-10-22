@@ -4508,6 +4508,56 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(recentered.curve_revision.gt(recentered.risk_revision)).to.equal(true);
   });
 
+  it("keeps spot swaps live when hLP funding interest exceeds spare output cash", async function () {
+    const unit = 1_000_000;
+    const config = marketConfig();
+    config.amm.peakAmplificationNad = new BN(4_000_000_000);
+    config.amm.coreHalfWidthBps = 100;
+    config.amm.fadeWidthBps = 400;
+    const f = await addBalancedLiquidity(276, config, {
+      baseDeposit: 1_000_000 * unit, quoteDeposit: 1_000_000 * unit,
+      minYlp: 1, baseMint: 3_000_000 * unit, quoteMint: 3_000_000 * unit,
+    });
+    await openBaseHedge(f, 20_000 * unit);
+    const account = svm.getAccount(f.market)!;
+    const accrued = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+    // Construct the same market balances as a previously funded fixed loan.
+    // The transfer and borrower account are outside the swap's account set;
+    // both the market ledger and SPL reserve custody are reduced together.
+    const principal = BigInt(accrued.quote_side.reserves.cash_reserve.toString()) - 1_000_000_000n;
+    accrued.debt.fixed_quote_shares = new BN(principal.toString());
+    accrued.debt.fixed_quote_principal = new BN(principal.toString());
+    accrued.quote_side.reserves.cash_reserve = new BN("1000000000");
+    accrued.debt.quote_borrow_index_nad = new BN("1010000000");
+    const publicInterest = principal / 100n;
+    accrued.quote_side.reserves.live_reserve = accrued.quote_side.reserves.live_reserve.add(new BN(publicInterest.toString()));
+    const layout = (accountCoder as any).accountLayouts.get("Market").layout;
+    const body = Buffer.alloc(account.data.length - 8);
+    const length = layout.encode(accrued, body);
+    svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, length),
+    ])) });
+    const reserve = svm.getAccount(f.quoteReserveVault)!;
+    const reserveData = Buffer.from(reserve.data);
+    reserveData.writeBigUInt64LE(reserveData.readBigUInt64LE(64) - principal, 64);
+    svm.setAccount(f.quoteReserveVault, { ...reserve, data: new Uint8Array(reserveData) });
+    const before = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+    const cashBefore = BigInt(before.quote_side.reserves.cash_reserve.toString());
+    const interestBefore = BigInt(before.base_hlp_vault.debt_shares.toString()) * 101n / 100n
+      - BigInt(before.base_hlp_vault.debt_principal.toString());
+    const measured = await swapBaseForQuote(f, hlpSwapAccounts(f), 900 * unit, 1);
+    recordSwapComputeScenario("hlp_cash_carry", measured);
+    const executed = cpiEvent(measured.transaction, "swapExecuted");
+    const output = BigInt(executed.grossAmountOut.toString());
+    expect(cashBefore >= output && cashBefore - output < interestBefore).to.equal(true);
+    const after = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+    const interestAfter = BigInt(after.base_hlp_vault.debt_shares.toString()) * 101n / 100n
+      - BigInt(after.base_hlp_vault.debt_principal.toString());
+    expect(interestAfter).to.equal(interestBefore);
+    expect(measured.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
+    trackV2Instruction("swap", this.test?.title);
+  });
+
   it("settles public-interest hLP round trips within the transaction budget", async function () {
     this.timeout(120_000);
     const raw = (value: any) => BigInt(value.toString());
@@ -5653,6 +5703,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const activeHlpMeasurement = await swapBaseForQuote(fixture, hlpSwapAccounts(fixture));
     recordSwapComputeScenario("hlp_active", activeHlpMeasurement);
     await expectSwapMarketState(cpiEvent(activeHlpMeasurement.transaction, "swapExecuted"), fixture.market);
+    const rebalance = cpiEvent(activeHlpMeasurement.transaction, "hlpRebalanced");
+    expect(rebalance.market.equals(fixture.market)).to.equal(true);
+    expect(rebalance.baseHlpYlpMinted.isZero()).to.equal(true);
+    expect(rebalance.baseHlpYlpBurned.gt(new BN(0))).to.equal(true);
+    expect(rebalance.quoteHlpYlpMinted.isZero()).to.equal(true);
+    expect(rebalance.quoteHlpYlpBurned.isZero()).to.equal(true);
+    expect(cpiEvents(activeHlpMeasurement.transaction).filter((event) =>
+      event.name === "liquidityAdded" || event.name === "liquidityRemoved"
+    )).to.have.length(0);
     trackV2Instruction("swap", this.test?.title);
 
     const ylpAfter = await getAccount(
@@ -5662,6 +5721,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
     expect(ylpAfter.amount < ylpBefore.amount).to.equal(true);
+    expect(BigInt(rebalance.baseHlpYlpBurned.toString())).to.equal(ylpBefore.amount - ylpAfter.amount);
+    expect(BigInt(rebalance.baseHlpYlpSharesAfter.toString())).to.equal(ylpAfter.amount);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
@@ -5676,7 +5737,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
   });
 
-  it("executes critical hLP recovery through rescueHlp", async function () {
+  it("executes critical hLP recovery through an ordinary swap", async function () {
     const fixture = await addBalancedLiquidity(124, marketConfig(), {
       baseDeposit: 100_000_000,
       quoteDeposit: 200_000_000,
@@ -5707,7 +5768,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
 
     const tx = await program.methods
-      .rescueHlp({
+      .swap({
         exactAssetIn: new BN(350_000),
         minAssetOut: new BN(1),
       })
@@ -5730,7 +5791,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .remainingAccounts(hlpSwapAccounts(fixture))
       .transaction();
     await connection.sendTransaction(tx, [payer]);
-    trackV2Instruction("rescueHlp", this.test?.title);
+    trackV2Instruction("swap", this.test?.title);
+    const recovery = cpiEvent(tx, "swapExecuted");
+    expect(recovery.origin).to.deep.equal({ spot: {} });
+    expect(recovery.hlpRecoveryCritical).to.equal(true);
+    expect(recovery.hlpRecoveryMatchedInput.toNumber()).to.be.greaterThan(0);
+    expect(recovery.hlpRecoveryBonusOutput.toNumber()).to.be.greaterThan(0);
   });
 
 
@@ -5756,7 +5822,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const m = accountCoder.decode("Market", Buffer.from(account.data)) as any;
       const borrowed = target === "base" ? "quote" : "base";
       const indexName = `${borrowed}_borrow_index_nad`;
-      m.debt[indexName] = new BN((raw(m.debt[indexName]) * (mode === "full" ? 12n : 5n) / 4n).toString());
+      const earlyRescue = !fees && amp === 1 && target === "base" && mode === "inventory";
+      m.debt[indexName] = new BN((raw(m.debt[indexName]) * (earlyRescue ? 101n : mode === "full" ? 300n : 125n) / 100n).toString());
       const layout = (accountCoder as any).accountLayouts.get("Market").layout;
       const body = Buffer.alloc(account.data.length - 8);
       const length = layout.encode(m, body);
@@ -5796,6 +5863,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const decodedPreview = sdk.program.coder.types.decode("hlpFlashQuote", measuredPreview) as any;
       expect(decodedPreview.payment.toString()).to.equal(built.quote.payment.toString());
       expect(built.quote.full).to.equal(mode === "full");
+      if (earlyRescue) expect(raw(built.quote.payment) > 0n).to.equal(true);
       if (mode === "full") {
         let rejected: unknown;
         try { await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, route: paymentRoute }); }
@@ -5857,6 +5925,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const debt = (raw(v.debt_shares) * raw(after.debt[`${other}_borrow_index_nad`]) + 999_999_999n) / 1_000_000_000n;
         if (mode !== "full") expect((debt > claim ? debt - claim : claim - debt) <= 2n).to.equal(true);
         if (mode === "full" && side === target) {
+          expect(raw(e[`${side}HlpYlpBurned`]) > 0n).to.equal(true);
           expect(raw(v.ylp_shares)).to.equal(0n); expect(raw(v.debt_shares)).to.equal(0n);
           expect(raw(v.hlp_supply)).to.equal(raw(m[`${side}_hlp_vault`].hlp_supply));
           expect(raw(e.loss.insuranceCredit)).to.equal(0n);

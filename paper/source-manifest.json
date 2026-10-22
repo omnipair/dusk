@@ -1,45 +1,42 @@
 {
-  "reviewed_commit": "5c0aca7fcb582418f1c5b99061d4ff7605b6f185",
-  "updated_at": "2026-10-19",
-  "incoming_pr": 52,
-  "incoming_commit": "2bf53910aef2277b044e83bece8a13c555582039",
-  "incoming_work_status": "Committed cleanup and SDK fixes; full-value accounting candidate and agreed future recovery/harvest work are explicitly separate in the paper.",
+  "reviewed_commit": "integration candidate: 04941f1934cb8dd1a73ac877c6d00cafcae82435 + 2f46e0e7db6bb5458af8f9602daea1f7344fa894",
+  "updated_at": "2026-10-23",
   "source_files": [
     {
       "path": "programs/dusk/src/transitions/ledger.rs",
-      "sha256": "b5f713a8b1b6f56489a447cf10cb0cac97b477ebf9418309f494362f750d90e9"
+      "sha256": "9a59e87ce655eb739ebb6116c33f0b256ba86b80248eff6ef555e5fdeb0011f8"
     },
     {
       "path": "programs/dusk/src/state/market.rs",
-      "sha256": "4f017a80b7c716c9c9cfcfee5a0db6c6e5e27bdec69965f39584b7f9f5f05c33"
+      "sha256": "5760c7a4b860bfe4d51d0563c88155b9b4e0baaaebf11eda802222d1dc628ada"
     },
     {
       "path": "programs/dusk/src/transitions/amm/mod.rs",
-      "sha256": "8d089227b5797e170febd8c419bc0f26a147146f7669f03e9ca795440d2345db"
+      "sha256": "64cd750ab95031ccb7053679267028735a8f791a99260d09a08b8358ef6a2838"
     },
     {
       "path": "programs/dusk/src/instructions/accounts.rs",
-      "sha256": "68ac9b70be452a72e4acbed2e502d433217e66cf19b1de3b0a43d237c5a98759"
+      "sha256": "d4a69e0c925b8398b11e6a2a25f023dba3b34c1e2f6ce183773014b25ac6a411"
     },
     {
       "path": "programs/dusk/src/transitions/amm/curve.rs",
-      "sha256": "17ef3b4a566f98529ca80d173de26891b41fe5cf46fa24b25cbd145701966fa0"
+      "sha256": "95f366e379e8aee212120651f3d33d13df851605599cdc5b53600c24c7282b9a"
     },
     {
       "path": "programs/dusk/src/instructions/prepare_swap.rs",
-      "sha256": "214f354903f34406b41c853806ea2e093ecd5458a941c30cbb2043250c7c05eb"
+      "sha256": "5e37f97e003466c2d225a99ccbf21d454185257213f0a9663e631fa2972562bf"
     },
     {
       "path": "programs/dusk/src/transitions/amm/fees.rs",
-      "sha256": "75a9302855059538618813cb37be24ec3fd3733888fdf2a0dcc46450e34b674e"
+      "sha256": "937f7684906c12ced818cbf7f68ddfccbd7d1f52b353311781b9d5efed71dd16"
     },
     {
       "path": "programs/dusk/src/transitions/liquidity/hlp/integrated.rs",
-      "sha256": "0b5123016cb077f57602909ffcdbb6637b97313e494ea4bab2c95c194043e840"
+      "sha256": "64f6e944f27b0e36c00d52f8bde40c0c3a9c4f99c85ee46addaf917c83b36d45"
     },
     {
       "path": "programs/dusk/src/transitions/liquidity/hlp/engine.rs",
-      "sha256": "282751e5ecda71ca64ede13d9fb3bf5fbae99d3e2d00afc79eedb298e4b6fceb"
+      "sha256": "a8b835ece5173a3b3da8cb44d0dae8dcc4edc50c1513415a284863e5c9f462ce"
     },
     {
       "path": "programs/dusk/src/transitions/liquidity/hlp/recovery.rs",
@@ -47,27 +44,27 @@
     },
     {
       "path": "programs/dusk/src/instructions/spot/close_insolvent_hlp.rs",
-      "sha256": "d9f643fd1de26d919db0fdccad4c786fdf62756b7d793008cecca126c6e21ab9"
+      "sha256": "83ff3405cb2e60a0aa0fc044cedeb26eba6ac9c55f1ecc0d63a95996e11a65f4"
     },
     {
       "path": "programs/dusk/src/transitions/lending/mod.rs",
-      "sha256": "b64f046428bfc2ab7d62230d2c734d3016dc7bfb35b777c1d458df39331c538b"
+      "sha256": "1d095d10051488d8cf18dd28ef5e7584413648dde5f4ecec202caf6f48a5897f"
     },
     {
       "path": "programs/dusk/src/math/risk.rs",
-      "sha256": "937f09406c871652e9da550b5d85379c5eaca9ecb02248681b73c2c6e9018961"
+      "sha256": "e3ea32a64a497c636b4d33d21302d3248188fe9c9f824d6c8ddf97333c19bb1d"
     },
     {
       "path": "programs/dusk/src/constants.rs",
-      "sha256": "b40c9f5584a6f296a38eb77d723ec9f2ca13d83b15d598d93ee6d303e56adf26"
+      "sha256": "30fa6fed5f17b53ce6f18f723c58d932715005e00e0bc215651e9dcc53573be3"
     },
     {
       "path": "programs/dusk/src/transitions/lending/liquidation.rs",
-      "sha256": "5604d01eaa5c8008bf892f301493d3ced5289d091844a2c7b259cb3806b0b374"
+      "sha256": "8d1ff58d7f6cde005cc5ea082b86df63f7190487768568b0bfc6413e07871928"
     },
     {
       "path": "programs/dusk/src/transitions/leverage.rs",
-      "sha256": "9b884174cf3e47b003adfe599e6b0ac8fe893f9eacd733febb5ef1158c0ec906"
+      "sha256": "740a3c4305c55b1a69cd1a024625846c5fbfc433f0158fe786350bbd054d54ed"
     },
     {
       "path": "programs/leverage_delegate/src/lib.rs",
@@ -83,27 +80,27 @@
     },
     {
       "path": "programs/dusk/src/state/parameter_proposal.rs",
-      "sha256": "39a7361e5db84695b9d04a241b731087a89ab005796aab646714907074ff614e"
+      "sha256": "6daf94da2f27b060f0048bc8e1ce6433a851192ed7b7ba741fd9de603f4afca0"
     },
     {
       "path": "programs/dusk/src/transitions/liquidation_policy.rs",
-      "sha256": "80b40007c8383b3efe8816d8cf09c5673be2ad50c7a290787b4f479688d9d152"
+      "sha256": "f8bb06aa6abcf6f6b922b39a6cc70bfab401425a98dd606c3fe9ed920e14e288"
     },
     {
       "path": "programs/dusk/src/transitions/amm/liquidation.rs",
-      "sha256": "ce5d939a92ef581d8eee7532a61ee7d1659bcb38ddc97665d3607f5a21d5078e"
+      "sha256": "cbec7bd239dcba1b5a5a54ede43aa80f117f803ee463eab0e123ebfdc650b952"
     },
     {
       "path": "programs/dusk/src/instructions/flash_liquidation.rs",
-      "sha256": "833ea241a148ebcd7031ea18bf2b91f34adf03ea7c6dd25cec655e8df5df07e4"
+      "sha256": "83125fe84610cb28ee081e4ed621f597dee3f7719f7d55fc082504fc1da05bb1"
     },
     {
       "path": "programs/dusk/src/instructions/flash_amm_settlement.rs",
-      "sha256": "0b073d19b6211525c3c403537a68b87d7ebc259c4aef6ff32d17a45c5e1307b3"
+      "sha256": "bbc36ce2e7eac7ea07041272460eea819c64461c0e528598f430ea10218538ae"
     },
     {
       "path": "programs/dusk/src/instructions/emergency_liquidation.rs",
-      "sha256": "aa138ae568de2ed3404f059f90707e3f6fe735a83996554b28ccc142821542a6"
+      "sha256": "5eb476c867b7252a2b8ef4c97635109aab77bf604d5d2acfb91c11f084527bdf"
     },
     {
       "path": "programs/dusk/src/state/leverage_position.rs",
@@ -119,7 +116,7 @@
     },
     {
       "path": "programs/dusk/src/instructions/governance/balance.rs",
-      "sha256": "0ab2c2fbab4bb2c44d63e43ced67ca9d06c766750fd4b3cad8de1a775fc114a1"
+      "sha256": "6bf599e9a6d04db443baef3a521fb1ced1eb1112fc631dfb6a3cf1312771cef7"
     },
     {
       "path": "programs/dusk/src/instructions/governance/delegated.rs",
@@ -127,11 +124,11 @@
     },
     {
       "path": "programs/dusk/src/instructions/market/initialization.rs",
-      "sha256": "59d3537dde9d29be9194a460bb5548cd67c04d352cdb5b50dc8900d8bce79675"
+      "sha256": "5645afc0caab3714b1951a7ebe49c6f45c3811a1b79f10e3fe726fd6d6e20c2a"
     },
     {
       "path": "programs/dusk/src/token.rs",
-      "sha256": "cf3d708551641d9a1084108e8ee4af64445beaf44491dabde232a79368a01664"
+      "sha256": "d16dcf63e32145451c2833a4388d1aaf3b12ec0d67b74ebd55555a5965ac94b7"
     },
     {
       "path": "docs/STORED_LEVERAGE_MARGINS.md",
@@ -143,11 +140,12 @@
     },
     {
       "path": "docs/FLASH_LIQUIDATION_CONTRACT.md",
-      "sha256": "5e22fa95d3817d80bf26101ed1ce358c9b45ce407f414e302bed09f8432cd1b9"
+      "sha256": "f6a4435acf1707accb8fd23be58fea32a884f516892f0eba527368495553dc96"
     },
     {
       "path": "docs/calibration/EMA_SETTLEMENT_CLOSEOUT.md",
       "sha256": "ef5f01031c94c35ab31bdff37b15f5ee91064b7dfb647ac801ecdfa0dd026d75"
     }
-  ]
+  ],
+  "integration_status": "hLP accounting, cash-funded interest, spot carry and flash recovery implemented; final combined review pending"
 }

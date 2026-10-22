@@ -31,6 +31,7 @@ export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
   "token_2022_swap",
   "public_interest_hlp_cpmm",
   "public_interest_hlp_concentrated",
+  "hlp_cash_carry",
 ] as const;
 
 export type SwapComputeScenario = (typeof REQUIRED_SWAP_COMPUTE_SCENARIOS)[number];
@@ -65,24 +66,25 @@ export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
 const COMPUTE_SCENARIO_BASELINES: Partial<
   Record<SwapComputeScenario, ComputeScenarioBaseline>
 > = {
-  cpmm_same_slot: { measuredMaximum: 97_627n, ceiling: 102_509n },
-  cpmm_advanced_slot: { measuredMaximum: 132_773n, ceiling: 139_412n },
-  cpmm_active_debt: { measuredMaximum: 141_586n, ceiling: 148_666n },
-  concentrated_centered: { measuredMaximum: 188_344n, ceiling: 197_762n },
-  concentrated_transition: { measuredMaximum: 189_097n, ceiling: 198_552n },
-  concentrated_tail: { measuredMaximum: 186_784n, ceiling: 196_124n },
-  dynamic_fee_divergence_stress: { measuredMaximum: 290_448n, ceiling: 304_971n },
-  dynamic_fee_volatility_stress: { measuredMaximum: 144_467n, ceiling: 151_691n },
-  retained_surcharge: { measuredMaximum: 291_609n, ceiling: 306_190n },
-  controller_due_recenter: { measuredMaximum: 416_063n, ceiling: 436_867n },
-  concentrated_hlp_active: { measuredMaximum: 835_599n, ceiling: 877_379n },
-  concentrated_hlp_funding_interest: { measuredMaximum: 835_599n, ceiling: 877_379n },
-  joint_shock_hlp_same_slot: { measuredMaximum: 765_516n, ceiling: 803_792n },
-  joint_shock_hlp_one_day: { measuredMaximum: 876_743n, ceiling: 920_581n },
-  hlp_active: { measuredMaximum: 123_337n, ceiling: 129_504n },
-  token_2022_swap: { measuredMaximum: 111_223n, ceiling: 116_785n },
-  public_interest_hlp_cpmm: { measuredMaximum: 262_981n, ceiling: 276_131n },
-  public_interest_hlp_concentrated: { measuredMaximum: 881_839n, ceiling: 925_931n },
+  cpmm_same_slot: { measuredMaximum: 99_929n, ceiling: 104_926n },
+  cpmm_advanced_slot: { measuredMaximum: 135_075n, ceiling: 141_829n },
+  cpmm_active_debt: { measuredMaximum: 143_882n, ceiling: 151_077n },
+  concentrated_centered: { measuredMaximum: 190_646n, ceiling: 200_179n },
+  concentrated_transition: { measuredMaximum: 191_399n, ceiling: 200_969n },
+  concentrated_tail: { measuredMaximum: 189_086n, ceiling: 198_541n },
+  dynamic_fee_divergence_stress: { measuredMaximum: 292_750n, ceiling: 307_388n },
+  dynamic_fee_volatility_stress: { measuredMaximum: 146_769n, ceiling: 154_108n },
+  retained_surcharge: { measuredMaximum: 294_010n, ceiling: 308_711n },
+  controller_due_recenter: { measuredMaximum: 418_464n, ceiling: 439_388n },
+  concentrated_hlp_active: { measuredMaximum: 853_378n, ceiling: 896_047n },
+  concentrated_hlp_funding_interest: { measuredMaximum: 853_378n, ceiling: 896_047n },
+  joint_shock_hlp_same_slot: { measuredMaximum: 782_879n, ceiling: 822_023n },
+  joint_shock_hlp_one_day: { measuredMaximum: 894_757n, ceiling: 939_495n },
+  hlp_active: { measuredMaximum: 139_972n, ceiling: 146_971n },
+  token_2022_swap: { measuredMaximum: 113_525n, ceiling: 119_202n },
+  public_interest_hlp_cpmm: { measuredMaximum: 280_728n, ceiling: 294_765n },
+  public_interest_hlp_concentrated: { measuredMaximum: 899_586n, ceiling: 944_566n },
+  hlp_cash_carry: { measuredMaximum: 1_104_813n, ceiling: 1_160_054n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {
@@ -156,7 +158,6 @@ const DUSK_INSTRUCTIONS = [
   "settleHlpFlash",
   "harvest",
   "swap",
-  "rescueHlp",
   "closeInsolventHlp",
   "depositCollateral",
   "donateCollateral",

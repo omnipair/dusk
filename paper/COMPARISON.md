@@ -1,6 +1,6 @@
 # Whitepaper comparison
 
-The October 19 revision updates the shared mechanism text and derivations for #45, while identifying unfinished incoming #52 work. Both historical July drafts remain unchanged under `previous/`.
+The October 23 revision updates the shared mechanism text for the #45 + #52 integration candidate. Both historical July drafts remain unchanged under `previous/`.
 
 | Paper | Previous July draft | Current October paper |
 | --- | --- | --- |
@@ -18,6 +18,6 @@ d61ad24670da411bc4f705c132c9e8b893035250ddf9a1fc6a5754d890bee183  dusk-v2-whitep
 
 All 39 pages of the historical renders were visually reviewed. The [archive verification record](previous/verification.json) records page counts and hashes as they stood at commit `d9efadc`. Original historical float placement and paragraph spacing are retained. The current PDF hashes, page counts, and checks are in [the current verification record](verification.json).
 
-The October 19 revision describes PR #45 at `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`. It adds the full square-root/2×/inventory-weight derivation, native trade and hLP reconstruction examples, and replaces the obsolete auction and fixed-margin descriptions. Incoming #52 accounting and recovery work is explicitly separated from implemented behavior. See [SOURCES.md](SOURCES.md).
+The October 19 revision added the full square-root/2×/inventory-weight derivation, native trade and hLP reconstruction examples, and replaced obsolete auction and fixed-margin descriptions. This revision incorporates #52's full-value hLP accounting, cash-funded harvest, spot cash carry and flash recovery. The retained numerical replay is explicitly pinned to the earlier #45 source; see [SOURCES.md](SOURCES.md).
 
-The historical `previous/` bundle remains unchanged. The current [pre-commit receipt](precommit-verification.json) records the new complete local CI run; earlier receipts remain in Git history.
+The historical `previous/` bundle remains unchanged. The [October 19 pre-commit receipt](precommit-verification.json) belongs to that earlier documentation update; combined-branch validation is separate.

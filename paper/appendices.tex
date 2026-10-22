@@ -178,7 +178,7 @@ At a five-percent discount, an amount with fair target value $v$ buys total targ
 
 \subsection{Revenue can change the incentive without changing the critical flag}
 
-For example, let $D=1{,}130{,}000$, $A=1{,}000{,}000$, and usable revenue $Y=120{,}000$. Actual debt exceeds $9A/8$, so the critical flag is true. The net gap is only 10,000, giving an 80-basis-point discount before the other caps. If usable revenue covers the entire excess, the net gap is zero and no positive recovery bonus is produced, even though the actual-debt critical test remains true. A rescue instruction requiring a positive critical tranche must satisfy both conditions.
+For example, let $D=1{,}130{,}000$, $A=1{,}000{,}000$, and usable revenue $Y=120{,}000$. Actual debt exceeds $9A/8$, so the critical flag is true. The net gap is only 10,000, giving an 80-basis-point discount before the other caps. If usable revenue covers the entire excess, the net gap is zero and no positive recovery bonus is produced, even though the actual-debt critical test remains true. The flag is diagnostic; an ordinary swap can earn a bonus whenever the net gap and matching input support one.
 
 When the claim is zero, actual debt can still imply critical stress, but ordinary recovery pricing returns no positive incentive from the ratio formula. This avoids dividing by zero or using an undefined conversion to fund an output. Terminal closeout and the broader state checks, rather than an extrapolation of equation~\eqref{eq:discount}, determine the admissible next action.
 
@@ -277,7 +277,7 @@ Let $a$ be the amount credited to reserve custody after an input token transfer.
 
 These definitions matter when quoting a minimum received amount. A bound on protocol fee share does not bound AMM price impact. It also does not erase a Token-2022 transfer fee. A margin entry limit uses the all-in relation between paid notional and collateral actually obtained, with direction-appropriate rounding. A client that treats gross output, fee-net output, and final token credit as the same amount can accept a worse trade than the user intended.
 
-Fees also need correct ownership timing. The trade's eligible ordinary supply and vault-owned yLP balances are captured before later reconstruction changes those balances. Claimable yield is published through its liability indexes. Compounded yield increases principal and changes the target equities through the integrated fee allocation. In the committed \#45 baseline, conversion of an opposite-token hLP fee uses the endpoint inventory ratio; under concentration that need not equal the marginal price. The local full-value candidate uses the actual curve mark. These revisions must not be conflated when comparing fee allocations. Protected recenter funds remain a separate custody claim. These are three different destinations for collected value, each with a different effect on future quotes and redemptions.
+Fees also need correct ownership timing. The trade's eligible ordinary supply and vault-owned yLP balances are captured before later reconstruction changes those balances. Claimable yield is published through its liability indexes. Compounded yield increases principal and changes the target equities through the integrated fee allocation. The integrated hLP full-value path marks opposite-token fee conversion at the actual concentrated marginal price. The retained native replay below used the earlier endpoint-inventory-ratio conversion; its fee-allocation numbers are historical and must not be substituted for current quotes. Protected recenter funds remain a separate custody claim. These are three different destinations for collected value, each with a different effect on future quotes and redemptions.
 
 \subsection{Margin and delegated orders}
 
@@ -296,7 +296,7 @@ This division is useful for program-owned positions and automated collection. It
 \section{Native Trade, hLP Reconstruction, and Who Bears the Difference}
 \label{app:native-hlp}
 
-The companion \src{simulations/native-hlp-flow.json} records eight executions of committed \#45 using the native benchmark API. It tests amplification one and four, matched runs with/without both hLPs, and zero/30-basis-point base fees with claimable/compounded LP allocations. Tokens have nine decimals; the trades use the same slot, so funding accrual is zero. Dynamic surcharge and token transfer fees are zero in this isolated comparison. This is native state/share settlement, not token-CPI or validator execution. The separate full CI receipt covers the repository's transaction suite.
+The companion \src{simulations/native-hlp-flow.json} retains eight executions of the earlier \#45 source snapshot \texttt{5c0aca7f} using the native benchmark API. It tests amplification one and four, matched runs with/without both hLPs, and zero/30-basis-point base fees with claimable/compounded LP allocations. Tokens have nine decimals; the trades use the same slot, so funding accrual is zero. Dynamic surcharge and token transfer fees are zero in this isolated comparison. These values illustrate the inventory and holder-value identities; they are not current integrated-branch fee quotes, token-CPI tests or validator execution. The combined-branch instruction tests are separate evidence.
 
 \subsection{The illustrative two-dollar shortfall}
 
@@ -322,12 +322,12 @@ Holding the ordinary depositor's original assets would be worth 171.185302. Its 
 
 With a 30-bps base fee and 20\% protocol share, the same gross input pays approximately 0.066667 META. Before ownership reconstruction, the initial ordinary/META-hLP/USDC-hLP shares split the LP allocation 50/25/25. With compounding disabled, ordinary yLP receives a 0.026667-META entitlement, each hLP 0.013333 META, and protocol 0.013333 META. Final holder values including these pro-rata claims are approximately 167.764783, 35.644084 and 50.009503 USDC at the new final mark 0.712691622.
 
-With LP compounding enabled, the committed reserve-ratio conversion credits USDC hLP 0.008807 USDC for its opposite-token fee, compared with approximately 0.009503 at the frozen marginal price; the difference stays in ordinary inventory. The report preserves this baseline behavior. Funding accrual, public receivables, rescue rewards, market recentering and debt losses are separate transitions and cannot be inferred to be costless from the zero-accrual examples. The full-value candidate and its remaining validation are described in Section~\ref{sec:incoming}.
+With LP compounding enabled in this historical replay, the former reserve-ratio conversion credits USDC hLP 0.008807 USDC for its opposite-token fee, compared with approximately 0.009503 at the frozen marginal price; the difference stays in ordinary inventory. The integrated branch uses the concentrated marginal mark instead. Funding accrual, public receivables, recovery rewards, market recentering and debt losses are separate transitions and cannot be inferred to be costless from the zero-accrual examples. The current accounting and validation boundary is described in Section~\ref{sec:hlp-accounting}.
 
 \section{Implementation Evidence and Reproducibility}
 \label{app:evidence}
 
-The runtime review snapshot is PR \#45 at \texttt{5c0aca7fcb58}; the incoming committed \#52 snapshot is \texttt{2bf53910aef2}. The complete identifier is recorded in \src{paper/SOURCES.md} and generated data metadata. The table below identifies semantic entry points; it is not a substitute for the surrounding account checks and caller ordering.
+The runtime integration candidate combines PR \#45 at \texttt{04941f19} and PR \#52 at \texttt{2f46e0e7}. The retained numerical replay uses earlier \#45 source at \texttt{5c0aca7f}; its identifier is recorded in \src{paper/SOURCES.md} and generated data metadata. The table below identifies semantic entry points in the integrated candidate; it is not a substitute for the surrounding account checks and caller ordering.
 \begin{center}\small
 \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}X@{}}
 \toprule
@@ -354,7 +354,7 @@ Run the generator from the repository root with a Python environment containing 
 
 Compile either top-level LaTeX source from the \src{paper/} directory using Tectonic. Both files include the same \src{main.tex} and \src{preamble.tex}; the expanded version enables additional discussion and includes these appendices. This organization prevents a parameter correction in one paper from leaving the other with an incompatible equation. The bibliography contains only sources actually used in this revision.
 
-The numerical checks establish properties of the disclosed illustrations. They are not differential tests between Python and every Rust instruction. The source review and the repository's Rust tests provide additional implementation evidence, recorded separately in the verification receipt. This documentation update makes no changes to program logic or SDK interfaces.
+The numerical checks establish properties of the disclosed illustrations. They are not differential tests between Python and every Rust instruction. The source review and the repository's Rust and instruction tests provide separate implementation evidence; the historical CI receipt belongs to its original revision. This integrated revision changes the program interface by removing the dedicated rescue instruction.
 
 \subsection{What a stronger evaluation would measure}
 
@@ -362,6 +362,6 @@ A useful replay should run the exact current program through multiple boundary c
 
 Adversarial sequences should include favorable price manipulation before drawing credit, temporary depth provision, collateral withdrawal after a stored-factor update, many small accrual intervals, scarce cash during hLP interest settlement, and concurrent fee compounding with a large spot trade. A review should distinguish a rejected transaction from a successful but loss-making one. Rejection can preserve accounting while reducing market availability; a successful transaction can preserve every identity while transferring economic value between participants.
 
-For flash liquidation and recovery, participation must be modeled explicitly. An attractive theoretical price does not ensure a filler has the required asset or can profit after execution costs. Measure time to an admissible fill, remaining collateral, realized output, available insurance, and the residual loss. For hLP terminal closeout, separately verify the interest-only insolvency precondition and preservation of published yield.
+For flash liquidation and recovery, participation must be modeled explicitly. An attractive theoretical price does not ensure a filler has the required asset or can profit after execution costs. Measure time to an admissible fill, remaining collateral, realized output, available insurance, and the residual loss. For hLP terminal closeout, separately verify the full marked-value and EMA insolvency preconditions, principal-first loss waterfall and preservation of funded holder yield.
 
 No claim of current comparative performance is imported from the earlier constant-product or prototype concentrated-curve studies. Those experiments evaluated different mechanisms. A new comparison would need a common workload, precisely matched capital and risk assumptions, current executable artifacts, and a disclosed source revision for every system. Until then, the external references in this paper provide mathematical and architectural context rather than a performance ranking.

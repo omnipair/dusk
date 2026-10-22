@@ -57,8 +57,10 @@ export interface HlpNativeCloseAndExitParams extends HlpRecoveryParams {
   closeRemainingAccounts?: readonly AccountMeta[];
 }
 
-/** Atomic vault recovery. Keeps a fixed payment obligation and permits an
- * explicit external route or inventory payment; never signs or submits. */
+/** Atomic vault recovery. A solvent funding gap can be rescued before the
+ * native critical-stress boundary; a full quote still requires insolvency.
+ * Keeps a fixed payment obligation and permits an external route, Dusk swap,
+ * or inventory payment. Never signs or submits. */
 export class DuskHlpLiquidations {
   readonly write: DuskWrite;
   readonly get: DuskGet;
@@ -78,7 +80,9 @@ export class DuskHlpLiquidations {
   }
 
   /** Uses the program's full-value eligibility, EMA payment quote, transfer
-   * fees and affordable incentive. It does not reserve liquidity or payment. */
+   * fees and affordable incentive. A positive funding gap or frozen vault can
+   * quote a solvent rescue; inspect quote.full before building a transaction.
+   * It does not reserve liquidity or payment. */
   async preview(params: HlpRecoveryParams): Promise<HlpFlashQuote> {
     const r = await this.resolve(params);
     const instruction = await this.write.instruction("previewHlpFlash", [r.target], {

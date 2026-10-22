@@ -1,6 +1,6 @@
 # Implementation sources for the whitepapers
 
-Reviewed source: PR #45 at `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`, October 19, 2026. This is a code snapshot, not a deployment claim. Paths below are relative to the repository root. Active callers were checked; historical comments and test-only helpers were not treated as current mechanism specifications.
+Reviewed source: integration candidate of PR #45 at `04941f19` and PR #52 at `2f46e0e7`, October 23, 2026. This is a code snapshot, not a deployment claim. Paths below are relative to the repository root. The separate numerical replay is pinned to earlier #45 source `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`.
 
 | Paper claim | Implementation source and semantic anchor |
 | --- | --- |
@@ -15,7 +15,9 @@ Reviewed source: PR #45 at `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`, October 1
 | Depth without spot motion: fixed-shape ordinary scaling and distinct radial hLP ownership | `programs/dusk/src/transitions/amm/curve.rs`: `prepare_concentrated_cache_at_point` and homothetic branch selection; `programs/dusk/src/transitions/liquidity/hlp/integrated.rs`: `quote_integrated_exact_in`, `reconstruct_hlp_endpoint`; existing concentrated-liquidity scaling test in `programs/dusk/src/tests/transitions/amm.rs` |
 | Deposit funding headroom, cash floors, endpoint tolerance | `programs/dusk/src/transitions/liquidity/hlp/engine.rs`: `require_hlp_borrow_headroom`, `ConcentratedHlpTransition::consume`, `interest_cash_floors`; `programs/dusk/src/instructions/prepare_swap.rs` |
 | hLP funding recovery, activation, discount, critical ratio, bonus | `programs/dusk/src/transitions/liquidity/hlp/recovery.rs`: `quote_hlp_recovery`; `programs/dusk/src/transitions/liquidity/hlp/engine.rs` |
-| Interest-only terminal hLP waterfall, senior insurance, caller bounds, surviving yield | `programs/dusk/src/transitions/liquidity/hlp/engine.rs`: terminal waterfall preparation/consume; `programs/dusk/src/instructions/spot/close_insolvent_hlp.rs` |
+| Full-value hLP terminal waterfall, principal-only insurance, caller bounds, surviving funded yield | `programs/dusk/src/transitions/liquidity/hlp/flash_terminal.rs`; `programs/dusk/src/instructions/spot/close_insolvent_hlp.rs` |
+| Cash-funded interest, hLP harvest and carry on constrained swaps | `programs/dusk/src/transitions/liquidity/hlp/harvest.rs`; `programs/dusk/src/transitions/amm/swap.rs`; `programs/dusk/src/instructions/liquidity/fund_interest.rs` |
+| Atomic hLP flash recovery | `programs/dusk/src/instructions/hlp_flash.rs`; `programs/dusk/src/transitions/liquidity/hlp/flash.rs`; `packages/dusk-sdk/src/hlp-liquidation-client.ts` |
 | Public admission, stored factor, shadow risk curve, daily bucket | `programs/dusk/src/transitions/lending/mod.rs`; `programs/dusk/src/math/risk.rs`; `programs/dusk/src/state/market.rs`; lending borrow/withdraw handlers |
 | Index accrual before anchor update; all debt domains in utilization | `programs/dusk/src/transitions/lending/mod.rs`: `accrue_side`; `programs/dusk/src/math/risk.rs`: `utilization_bps`, `instantaneous_rate_apr_nad`, `adapt_rate_at_target_nad` |
 | Defaults and bounds | `programs/dusk/src/constants.rs`; `programs/dusk/src/state/market.rs`: `IrmConfig`, `DEFAULT_IRM_*`, `MAX_DAILY_BORROW_BPS` |
@@ -36,15 +38,13 @@ Reviewed source: PR #45 at `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`, October 1
 
 The chain is `xy=k` → `W=2√(kp)` → static versus continuously maintained 2× leverage → `dW=x dp` → inventory weight → target gross leverage `1/w`. The continuously rebalanced benchmark assumes a smooth price path, self-financing adjustments and no costs. Fixed debt does not deliver the same payoff. The concentration formula describes a local hedge; it does not promise fee-free finite-move tracking.
 
-`simulations/generate.py` produces mathematical illustrations. `simulations/native-hlp-flow.json` separately records eight runs of the native benchmark API at the pinned #45 source. The runner is `simulations/native_hlp_flow.rs`; reproduction instructions are in `simulations/README.md`. These runs include 1×/4× concentration, both hLPs, no-fee controls and 0.3% fees with/without compounding. They do not exercise token CPIs, elapsed funding, transfer fees or external prices. The final marginal pool price is the valuation mark, not an independently observed market price.
+`simulations/generate.py` produces mathematical illustrations. `simulations/native-hlp-flow.json` separately retains eight runs of the native benchmark API at the pinned earlier #45 source. The runner is `simulations/native_hlp_flow.rs`; reproduction instructions are in `simulations/README.md`. These runs include 1×/4× concentration, both hLPs, no-fee controls and 0.3% fees with/without compounding. They do not exercise current hLP fee marking, token CPIs, elapsed funding, transfer fees or external prices. The final marginal pool price is the valuation mark, not an independently observed market price.
 
-## Incoming #52 and approved work
+## Integrated #52 and remaining review
 
-Incoming committed snapshot: `2bf53910aef2277b044e83bece8a13c555582039`, PR #52 targeting #45. It contains retired-hLP cleanup and SDK flash-simulation fixes. It does **not** establish that the full accounting redesign is complete.
+PR #52 now implements full-value hLP entry and reconstruction, actual concentrated marginal-price fee marking, cash-funded interest advances, funding-first hLP harvest, spot-swap cash carry, and atomic external hLP flash recovery. The redundant `rescue_hlp` instruction is removed; native recovery remains in `swap`. Tests cover both vaults, concentration, repayment, writeoffs, fee-bearing tokens, rollback and compute limits. These implementation tests do not replace the final combined-branch audit or route-specific simulation.
 
-The local full-value accounting candidate separates book ownership from executable reserves and prices fees at the actual concentrated marginal price. Native and SDK checks exist, but its full instruction suite still has compute-limit failures. Cash-funded harvesting of unpaid interest, advance settlement/writeoff accounting, funding-first treatment of newly accrued hLP yield and external hLP flash recovery remain unfinished. The paper's **Incoming Accounting Work and Merge Boundary** section records these explicitly. Refresh this status and the source hashes when that implementation lands.
-
-The selected accounting policy keeps unpaid claims in share value, excludes them from swap pricing, and leaves no detached unpaid claim after exit. Paying an accrued claim from available cash still requires balanced advance/revenue accounting; ordinary cash availability alone is not proof of a safe payout. The selected hLP recovery target is the opposite-token hedge, which is 2× only at balanced value weights.
+The selected accounting policy keeps unpaid claims in share value, excludes them from swap pricing, and leaves no detached unpaid claim after exit. Cash-funded interest uses frozen allocation and advance/revenue accounting to prevent a second payout. The selected hLP recovery target is the opposite-token hedge, which is 2× only at balanced value weights.
 
 ## External references
 
@@ -52,4 +52,4 @@ Primary sources include Omnipair's GAMM documentation, Curve's StableSwap/Crypto
 
 ## Verification
 
-`source-manifest.json` hashes the mapped source files. `verification.json` records current illustration checks, PDF compilation, page counts, hashes and visual review. `precommit-verification.json` records the complete required local CI for this documentation update. None of these documents authorizes deployment or asserts that pending #52 functionality is implemented.
+`source-manifest.json` hashes the mapped source files. `verification.json` records illustration checks, PDF compilation, page counts, hashes and visual review. `precommit-verification.json` records the historical whitepaper update's CI and must not be read as a new combined-branch receipt. None of these documents authorizes deployment or declares the final audit complete.

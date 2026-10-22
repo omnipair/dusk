@@ -140,12 +140,11 @@ output is paid by reducing the stressed hLP's target equity; ordinary yLP shares
 and published fee claims are untouched. The final transition pays accrued
 funding interest and selects debt directly from the final proportional yLP
 claim, using a fixed adjacent-atom rounding certificate rather than an
-iterative solver. At the 9/8 critical boundary, anyone may submit the same
-transition through `rescue_hlp`. It remains available in reduce-only mode,
-uses the ordinary swap account layout, and rejects unless the caller's input
-actually receives a critical hLP-funded recovery tranche. Existing arbitrage
-and liquidation bots can therefore recover idle markets without a dedicated
-keeper.
+iterative solver. Ordinary `swap` remains available in reduce-only mode and
+can receive the hLP recovery bonus whenever its input matches a funding gap;
+the 9/8 critical flag is reported for monitoring, not required for recovery.
+Existing arbitrage and liquidation bots can therefore recover idle markets
+without a dedicated keeper instruction.
 
 If passive funding consumes all marked hLP collateral before that recovery
 executes, `close_insolvent_hlp` closes the vault through a terminal

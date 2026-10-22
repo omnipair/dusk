@@ -360,6 +360,9 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // Pure event construction is tested without Anchor account fixtures; the
+  // instruction helper emits the result through the shared self-CPI path.
+  ["programs/dusk/src/events.rs", new Set(["from_receipts"])],
   // New hLP income allocation is a pure transition boundary: economic tests
   // exercise conservation without custody CPIs; the instruction moves exactly
   // its returned debits and credits atomically.
@@ -386,7 +389,6 @@ const acceptedOneUseHelpers = new Map([
     "programs/dusk/src/instructions/prepare_swap.rs",
     new Set(["rebalance_executes_token_changes"]),
   ],
-  ["programs/dusk/src/instructions/spot/swap.rs", new Set(["require_hlp_recovery_swap"])],
   [
     "programs/dusk/src/transitions/amm/curve.rs",
     // Oracle geometry construction has independent price/depth inputs, unlike
