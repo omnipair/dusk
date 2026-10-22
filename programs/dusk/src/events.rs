@@ -852,7 +852,9 @@ pub struct HlpTerminalLiquidated {
     /// Borrowed-asset amount credited to the caller after transfer fees.
     pub caller_bounty: u64,
     pub insurance_drawn: u64,
+    /// Principal loss after insurance. Unpaid interest is reported separately.
     pub socialized_loss: u64,
+    pub interest_canceled: u64,
     /// Existing holder tokens remain burnable for zero principal while their
     /// already-checkpointed fee claims remain independently claimable.
     pub remaining_hlp_supply: u64,

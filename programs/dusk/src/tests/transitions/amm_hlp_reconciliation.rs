@@ -119,11 +119,11 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
                 let state = market.integrated_curve_state_nad().unwrap();
                 let reserves = market.curve_reserves_nad().unwrap();
                 assert_eq!(
-                    state.ordinary_base + state.base_hlp_equity + state.quote_hlp_base_debt,
+                    state.book_ordinary().unwrap().0 + state.base_hlp_equity + state.quote_hlp_base_debt - state.base_unpaid_interest,
                     reserves.base
                 );
                 assert_eq!(
-                    state.ordinary_quote + state.quote_hlp_equity + state.base_hlp_quote_debt,
+                    state.book_ordinary().unwrap().1 + state.quote_hlp_equity + state.base_hlp_quote_debt - state.quote_unpaid_interest,
                     reserves.quote
                 );
                 let base_debt =

@@ -8,21 +8,17 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated},
-    generate_market_seeds,
     instructions::leverage_collateral_fee,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
     token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
 };
 
 use crate::instructions::accounts::{
-    require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
-    validate_interest_accounts,
+    require_reserve_custody, require_supported_asset_mint, token_program_for_mint, validate_interest_accounts,
 };
 
 use super::accounts::validate_debt_reserve_accounts;
-use crate::instructions::referral::accounting::{
-    accrue_referral_interest, referral_interest_accrued_event_at_slot, validate_referral_binding,
-};
+use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct RepayArgs {
@@ -211,60 +207,30 @@ impl<'info> Repay<'info> {
                 )?,
             )?;
 
-            // Move paid interest before splitting referral and protocol shares.
-            let referral_receipt = if debt_receipt.interest_paid > 0 {
-                let interest_vault_balance_before = accounts.interest_vault.amount;
-                transfer_checked_with_remaining_accounts(
-                    accounts.market.to_account_info(),
-                    accounts.reserve_vault.to_account_info(),
-                    accounts.interest_vault.to_account_info(),
-                    accounts.debt_asset_mint.to_account_info(),
-                    debt_token_program,
-                    debt_receipt.interest_paid,
-                    accounts.debt_asset_mint.decimals,
-                    &[&generate_market_seeds!(accounts.market)[..]],
-                    remaining_accounts,
-                )?;
-                accounts.reserve_vault.reload()?;
-                accounts.interest_vault.reload()?;
-                let interest_vault_credit =
-                    token_account_credit(interest_vault_balance_before, &accounts.interest_vault)?;
-
-                let revenue_share_interest_bps = accounts.futarchy_authority.revenue_share.interest_bps;
-                let protocol_auction_split = accounts.futarchy_authority.protocol_auction_split;
-                let referral_receipt = accrue_referral_interest(
-                    expected_referral_partner,
-                    referral_interest_share_bps,
-                    &accounts.futarchy_authority,
-                    accounts.referral_partner.as_deref(),
-                    accounts.referral_accrual.as_deref_mut(),
-                    market_key,
-                    &accounts.debt_asset_mint,
-                    debt_receipt.interest_paid,
-                    interest_vault_credit,
-                    revenue_share_interest_bps,
-                )?;
-                accounts.market.side_mut(repay_asset).record_interest_credit(
-                    interest_vault_credit,
-                    revenue_share_interest_bps,
-                    protocol_auction_split,
-                    referral_receipt.quote.referral_amount,
-                )?;
-                referral_receipt
-            } else {
-                accrue_referral_interest(
-                    expected_referral_partner,
-                    referral_interest_share_bps,
-                    &accounts.futarchy_authority,
-                    accounts.referral_partner.as_deref(),
-                    accounts.referral_accrual.as_deref_mut(),
-                    market_key,
-                    &accounts.debt_asset_mint,
-                    0,
-                    0,
-                    accounts.futarchy_authority.revenue_share.interest_bps,
-                )?
+            let eligibility = crate::transitions::HlpYieldEligibility {
+                ylp_supply: accounts.market.base_side.shares.ylp_supply,
+                base_hlp_ylp_shares: accounts.market.base_hlp_vault.ylp_shares,
+                quote_hlp_ylp_shares: accounts.market.quote_hlp_vault.ylp_shares,
             };
+            let referral_receipt = crate::instructions::leverage::settlement::record_leverage_interest(
+                &mut accounts.market,
+                repay_asset,
+                &accounts.debt_asset_mint,
+                &mut accounts.reserve_vault,
+                &mut accounts.interest_vault,
+                &accounts.token_program,
+                &accounts.token_2022_program,
+                &accounts.futarchy_authority,
+                expected_referral_partner,
+                referral_interest_share_bps,
+                accounts.referral_partner.as_deref(),
+                accounts.referral_accrual.as_deref_mut(),
+                debt_receipt.interest_paid,
+                eligibility,
+                remaining_accounts,
+                accounts.event_authority.to_account_info(),
+            )?;
+            accounts.reserve_vault.reload()?;
 
             // Principal and interest movements must leave reserve custody solvent.
             require_reserve_custody(accounts.reserve_vault.amount, accounts.market.side(repay_asset))?;

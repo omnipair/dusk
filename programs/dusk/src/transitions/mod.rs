@@ -4,6 +4,7 @@ mod amounts;
 pub(crate) mod flash_liquidation;
 pub(crate) mod flash_settlement;
 pub(crate) mod governance;
+pub(crate) mod interest_advance;
 pub(crate) mod ledger;
 pub(crate) mod lending;
 mod leverage;

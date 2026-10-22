@@ -9,6 +9,8 @@ type TypeNamed<N extends Dusk["types"][number]["name"]> = Extract<
   { name: N }
 >;
 type DuskAccountTypes = [
+  TypeNamed<"hlpFlashQuote">,
+  TypeNamed<"hlpFlashSession">,
   TypeNamed<"governanceBalance">,
   TypeNamed<"governanceSupport">,
   TypeNamed<"liquidationDistress">,
@@ -26,6 +28,7 @@ type DuskAccountTypes = [
   TypeNamed<"deferredControllerTarget">,
   TypeNamed<"feeProfile">,
   TypeNamed<"fees">,
+  TypeNamed<"publicInterestAdvance">,
   TypeNamed<"futarchyAuthority">,
   TypeNamed<"hlpVault">,
   TypeNamed<"insurance">,
@@ -73,6 +76,12 @@ type DuskEventTypes = [
   TypeNamed<"emergencyLiquidationSettled">,
   TypeNamed<"liquidationObserved">,
   TypeNamed<"ammConfig">,
+  TypeNamed<"fundInterestReceipt">,
+  TypeNamed<"publicInterestFunded">,
+  TypeNamed<"hlpInterestAllocated">,
+  TypeNamed<"hlpFlashQuote">,
+  TypeNamed<"hlpFlashStarted">,
+  TypeNamed<"hlpFlashSettled">,
   TypeNamed<"borrowInterestAccrued">,
   TypeNamed<"borrowInterestPaid">,
   TypeNamed<"borrowPositionLiquidated">,
@@ -207,3 +216,9 @@ export type GovernanceBalance = IdlTypes<DuskAccountIdl>["governanceBalance"];
 export type GovernanceSupport = IdlTypes<DuskAccountIdl>["governanceSupport"];
 export type GovernanceBalanceUpdated = IdlTypes<DuskEventIdl>["governanceBalanceUpdated"];
 export type GovernanceSupportChanged = IdlTypes<DuskEventIdl>["governanceSupportChanged"];
+
+export type HlpFlashSession = IdlTypes<DuskAccountIdl>["hlpFlashSession"];
+export type HlpFlashStarted = IdlTypes<DuskEventIdl>["hlpFlashStarted"];
+export type HlpFlashSettled = IdlTypes<DuskEventIdl>["hlpFlashSettled"];
+export type HlpInterestAllocated = IdlTypes<DuskEventIdl>["hlpInterestAllocated"];
+export type PublicInterestFunded = IdlTypes<DuskEventIdl>["publicInterestFunded"];

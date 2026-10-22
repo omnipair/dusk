@@ -671,6 +671,167 @@ export type Dusk = {
       ]
     },
     {
+      "name": "beginHlpFlash",
+      "docs": [
+        "Release hLP target collateral, bound to an exact top-level settlement",
+        "later in this same transaction. No routing program is privileged."
+      ],
+      "discriminator": [
+        41,
+        207,
+        247,
+        103,
+        180,
+        58,
+        131,
+        13
+      ],
+      "accounts": [
+        {
+          "name": "accounts",
+          "accounts": [
+            {
+              "name": "market",
+              "writable": true
+            },
+            {
+              "name": "futarchyAuthority"
+            },
+            {
+              "name": "buyer",
+              "writable": true,
+              "signer": true
+            },
+            {
+              "name": "targetMint"
+            },
+            {
+              "name": "borrowedMint"
+            },
+            {
+              "name": "targetReserve",
+              "writable": true
+            },
+            {
+              "name": "borrowedReserve",
+              "writable": true
+            },
+            {
+              "name": "buyerCollateralAccount",
+              "writable": true
+            },
+            {
+              "name": "buyerRefundAccount",
+              "writable": true
+            },
+            {
+              "name": "insuranceVault",
+              "writable": true
+            },
+            {
+              "name": "tokenProgram",
+              "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+            },
+            {
+              "name": "token2022Program",
+              "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+            },
+            {
+              "name": "borrowedTokenProgram"
+            }
+          ]
+        },
+        {
+          "name": "session",
+          "writable": true
+        },
+        {
+          "name": "repaymentVault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  45,
+                  102,
+                  108,
+                  97,
+                  115,
+                  104,
+                  45,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "beginHlpFlashArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "borrow",
       "discriminator": [
         228,
@@ -1059,11 +1220,11 @@ export type Dusk = {
     {
       "name": "closeInsolventHlp",
       "docs": [
-        "Permissionlessly closes an hLP after passive funding has exhausted its",
-        "marked collateral. Insurance reimburses the borrowed-asset shortfall",
-        "first. The caller receives a bounded reward from recovered funding",
-        "interest, and only the caller-capped remainder is socialized as unpaid",
-        "funding interest. Ordinary swaps retain their existing account list."
+        "Permissionlessly closes an hLP whose full marked backing cannot cover",
+        "funding debt. Recovery protects principal first; insurance covers only",
+        "principal loss and unpaid interest is canceled. Realized funding interest",
+        "is cash-limited and funds the bounded caller reward. Existing funded",
+        "holder claims remain claimable after terminal receipt cleanup."
       ],
       "discriminator": [
         158,
@@ -3631,6 +3792,113 @@ export type Dusk = {
           }
         }
       ]
+    },
+    {
+      "name": "fundInterest",
+      "docs": [
+        "Fund accrued public LP interest from available cash, settle both hLP",
+        "funding gaps from their new income, and publish remaining holder yield."
+      ],
+      "discriminator": [
+        108,
+        148,
+        82,
+        224,
+        231,
+        52,
+        86,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchyAuthority"
+        },
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "baseMint"
+        },
+        {
+          "name": "quoteMint"
+        },
+        {
+          "name": "baseReserveVault",
+          "writable": true
+        },
+        {
+          "name": "quoteReserveVault",
+          "writable": true
+        },
+        {
+          "name": "baseInterestVault",
+          "writable": true
+        },
+        {
+          "name": "quoteInterestVault",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "fundInterestArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "fundInterestReceipt"
+        }
+      }
     },
     {
       "name": "growYieldAccount",
@@ -6425,6 +6693,47 @@ export type Dusk = {
       }
     },
     {
+      "name": "previewHlpFlash",
+      "docs": [
+        "Quote the fixed net payment for vault-wide atomic external hLP recovery."
+      ],
+      "discriminator": [
+        26,
+        164,
+        118,
+        84,
+        231,
+        86,
+        157,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "futarchyAuthority"
+        },
+        {
+          "name": "targetMint"
+        },
+        {
+          "name": "borrowedMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "targetAsset",
+          "type": "u8"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "hlpFlashQuote"
+        }
+      }
+    },
+    {
       "name": "previewHlpOrderTrigger",
       "discriminator": [
         98,
@@ -8247,6 +8556,153 @@ export type Dusk = {
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "settleHlpFlash",
+      "docs": [
+        "Verify the fixed payment and restore the vault's opposite-token hedge."
+      ],
+      "discriminator": [
+        215,
+        124,
+        153,
+        104,
+        195,
+        91,
+        118,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "accounts",
+          "accounts": [
+            {
+              "name": "market",
+              "writable": true
+            },
+            {
+              "name": "futarchyAuthority"
+            },
+            {
+              "name": "buyer",
+              "writable": true,
+              "signer": true
+            },
+            {
+              "name": "targetMint"
+            },
+            {
+              "name": "borrowedMint"
+            },
+            {
+              "name": "targetReserve",
+              "writable": true
+            },
+            {
+              "name": "borrowedReserve",
+              "writable": true
+            },
+            {
+              "name": "buyerCollateralAccount",
+              "writable": true
+            },
+            {
+              "name": "buyerRefundAccount",
+              "writable": true
+            },
+            {
+              "name": "insuranceVault",
+              "writable": true
+            },
+            {
+              "name": "tokenProgram",
+              "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+            },
+            {
+              "name": "token2022Program",
+              "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+            },
+            {
+              "name": "borrowedTokenProgram"
+            }
+          ]
+        },
+        {
+          "name": "session",
+          "writable": true
+        },
+        {
+          "name": "repaymentVault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  45,
+                  102,
+                  108,
+                  97,
+                  115,
+                  104,
+                  45,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ]
+          }
         },
         {
           "name": "instructions",
@@ -10674,6 +11130,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "hlpFlashSession",
+      "discriminator": [
+        212,
+        216,
+        161,
+        138,
+        241,
+        116,
+        166,
+        126
+      ]
+    },
+    {
       "name": "leverageDelegation",
       "discriminator": [
         49,
@@ -10933,6 +11402,45 @@ export type Dusk = {
         203,
         111,
         235
+      ]
+    },
+    {
+      "name": "hlpFlashSettled",
+      "discriminator": [
+        255,
+        193,
+        57,
+        138,
+        48,
+        64,
+        138,
+        37
+      ]
+    },
+    {
+      "name": "hlpFlashStarted",
+      "discriminator": [
+        203,
+        97,
+        249,
+        187,
+        226,
+        119,
+        141,
+        71
+      ]
+    },
+    {
+      "name": "hlpInterestAllocated",
+      "discriminator": [
+        12,
+        174,
+        16,
+        115,
+        243,
+        133,
+        131,
+        49
       ]
     },
     {
@@ -11323,6 +11831,19 @@ export type Dusk = {
         110,
         234,
         249
+      ]
+    },
+    {
+      "name": "publicInterestFunded",
+      "discriminator": [
+        34,
+        55,
+        82,
+        224,
+        42,
+        7,
+        154,
+        156
       ]
     },
     {
@@ -12543,6 +13064,35 @@ export type Dusk = {
             }
           },
           {
+            "name": "frozenHlpMask",
+            "docs": [
+              "A distressed hLP cannot be reconstructed as positive one-sided equity.",
+              "Each bit freezes only that vault's share/debt hedge during swaps."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "frozenBaseVaultBaseOffsetNad",
+            "docs": [
+              "Fixed virtual-coordinate adjustment captured when the vault freezes.",
+              "It preserves the pre-freeze executable price without treating the",
+              "vault's negative equity as spendable token inventory."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "frozenBaseVaultQuoteOffsetNad",
+            "type": "i128"
+          },
+          {
+            "name": "frozenQuoteVaultBaseOffsetNad",
+            "type": "i128"
+          },
+          {
+            "name": "frozenQuoteVaultQuoteOffsetNad",
+            "type": "i128"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
@@ -12582,6 +13132,46 @@ export type Dusk = {
           {
             "name": "full",
             "type": "bool"
+          },
+          {
+            "name": "settleIndex",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "beginHlpFlashArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          },
+          {
+            "name": "maxPayment",
+            "type": "u64"
+          },
+          {
+            "name": "allowFull",
+            "type": "bool"
+          },
+          {
+            "name": "maxInsuranceDraw",
+            "type": "u64"
+          },
+          {
+            "name": "maxSocializedLoss",
+            "type": "u64"
+          },
+          {
+            "name": "maxCollateralDebit",
+            "type": "u64"
+          },
+          {
+            "name": "minCollateralCredit",
+            "type": "u64"
           },
           {
             "name": "settleIndex",
@@ -14115,6 +14705,14 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
+            "name": "publicInterestAdvance",
+            "type": {
+              "defined": {
+                "name": "publicInterestAdvance"
+              }
+            }
+          },
+          {
             "name": "swapFeeGrowthIndexQ64",
             "type": "u128"
           },
@@ -14433,6 +15031,96 @@ export type Dusk = {
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fundInterestArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "maxBaseGross",
+            "docs": [
+              "Gross public interest to fund, including the frozen protocol allocation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "maxQuoteGross",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fundInterestReceipt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "grossFunded",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "lpCustodyCredit",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "hlpYieldPublished",
+            "docs": [
+              "[hLP target side][income side], after covering the funding gap."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "hlpCapitalGross",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "hlpCapitalCredit",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
           }
         ]
       }
@@ -14926,6 +15614,239 @@ export type Dusk = {
           },
           {
             "name": "noNetDeposit"
+          },
+          {
+            "name": "frozen"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpFlashQuote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          },
+          {
+            "name": "collateralDebit",
+            "type": "u64"
+          },
+          {
+            "name": "collateralCredit",
+            "type": "u64"
+          },
+          {
+            "name": "payment",
+            "docs": [
+              "Spendable atoms required in the session's payment vault; includes the",
+              "transfer fee from that vault to the market reserve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserveCredit",
+            "type": "u64"
+          },
+          {
+            "name": "discountBps",
+            "type": "u16"
+          },
+          {
+            "name": "full",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpFlashSession",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "hlpFlashQuote"
+              }
+            }
+          },
+          {
+            "name": "maxInsuranceDraw",
+            "type": "u64"
+          },
+          {
+            "name": "maxSocializedLoss",
+            "type": "u64"
+          },
+          {
+            "name": "paymentBalanceBefore",
+            "type": "u64"
+          },
+          {
+            "name": "hlpSupply",
+            "type": "u64"
+          },
+          {
+            "name": "beginIndex",
+            "type": "u16"
+          },
+          {
+            "name": "settleIndex",
+            "type": "u16"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpFlashSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "hlpFlashQuote"
+              }
+            }
+          },
+          {
+            "name": "fundingInterestPaid",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "loss",
+            "type": {
+              "defined": {
+                "name": "liquidationLossAllocation"
+              }
+            }
+          },
+          {
+            "name": "insuranceDebit",
+            "type": "u64"
+          },
+          {
+            "name": "surplusCredit",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpFlashStarted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "hlpFlashQuote"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpInterestAllocated",
+      "docs": [
+        "Fresh public repayment follows the same funding-before-yield policy as a",
+        "cash advance. The standard hLP prefix is followed by both mints/reserves."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "published",
+            "docs": [
+              "[hLP target side][income asset]. Historical holder growth is unchanged."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "capitalDebit",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "capitalCredit",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
           }
         ]
       }
@@ -15050,6 +15971,13 @@ export type Dusk = {
           },
           {
             "name": "socializedLoss",
+            "docs": [
+              "Principal loss after insurance. Unpaid interest is reported separately."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "interestCanceled",
             "type": "u64"
           },
           {
@@ -15068,6 +15996,14 @@ export type Dusk = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flashCollateralDebit",
+            "docs": [
+              "Collateral committed to one atomic flash recovery. Receipt supply is",
+              "fixed until settlement; retail operations on other positions may run."
+            ],
+            "type": "u64"
+          },
           {
             "name": "ylpVault",
             "type": "pubkey"
@@ -15266,11 +16202,21 @@ export type Dusk = {
           },
           {
             "name": "swapBps",
-            "type": "u16"
+            "docs": [
+              "None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share."
+            ],
+            "type": {
+              "option": "u16"
+            }
           },
           {
             "name": "interestBps",
-            "type": "u16"
+            "docs": [
+              "None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share."
+            ],
+            "type": {
+              "option": "u16"
+            }
           },
           {
             "name": "maxReferralInterestShareBps",
@@ -19018,6 +19964,67 @@ export type Dusk = {
       }
     },
     {
+      "name": "publicInterestAdvance",
+      "docs": [
+        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "held in the reserve vault until repayment, so cancellation can return it",
+        "to executable cash without a transfer or a second transfer fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outstandingGross",
+            "type": "u64"
+          },
+          {
+            "name": "protocolEscrow",
+            "type": "u64"
+          },
+          {
+            "name": "repaymentCreditPending",
+            "docs": [
+              "Native repayment has already restored this cash; its token handler",
+              "must exclude it from the new interest-vault transfer."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocolReleasePending",
+            "docs": [
+              "Frozen protocol allocation released by repayment, still held in the",
+              "reserve vault until the same instruction completes token settlement."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "publicInterestFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "receipt",
+            "type": {
+              "defined": {
+                "name": "fundInterestReceipt"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "referralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -19360,6 +20367,14 @@ export type Dusk = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flashReceivable",
+            "docs": [
+              "Same-transaction collateral receivable. Included in backing, excluded",
+              "from cash available to swaps, loans and withdrawals."
+            ],
+            "type": "u64"
+          },
           {
             "name": "liveReserve",
             "type": "u64"
@@ -20731,6 +21746,15 @@ export type Dusk = {
       "value": "10000"
     },
     {
+      "name": "defaultProtocolRevenueShareBps",
+      "docs": [
+        "Initial DAO share of base swap fees and paid interest, and the protocol",
+        "share of liquidation fees. Governance can override swap and interest shares."
+      ],
+      "type": "u16",
+      "value": "2000"
+    },
+    {
       "name": "futarchyAuthoritySeedPrefix",
       "type": "bytes",
       "value": "[102, 117, 116, 97, 114, 99, 104, 121, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121]"
@@ -20843,11 +21867,11 @@ export type Dusk = {
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 2 adds aggregate leverage collateral to Debt. It must not decode",
-        "existing layout-1 bytes as the expanded structure."
+        "Layout 3 adds per-asset cash-funded public-interest advances and escrow.",
+        "Earlier serialized accounts must not decode as this expanded structure."
       ],
       "type": "u8",
-      "value": "2"
+      "value": "5"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

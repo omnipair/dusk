@@ -12,6 +12,28 @@ TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
 targets Dusk market layout v2, including aggregate leverage exposure and stored
 position margin terms. Regenerate clients and use matching account layouts.
 
+## Protocol revenue defaults
+
+`DEFAULT_PROTOCOL_REVENUE_SHARE_BPS` is exported from the generated program IDL.
+Its initial value is 2,000 bps (20%): the protocol share of base swap fees,
+paid borrowing/leverage/hLP interest, and liquidation fees. Dynamic swap
+surcharges remain excluded. Liquidation's total charge is still 1% of net debt
+repaid, subject to available surplus; the shared constant sets the protocol's
+share of that charge.
+
+`initFutarchyAuthority` now accepts nullable `swapBps` and `interestBps`. Pass
+`null` for the program default, or a number for an explicit override, including
+zero. Governance can subsequently change either share and the auction split.
+The bootstrap script uses the program defaults when `DUSK_PROTOCOL_SWAP_BPS` and
+`DUSK_PROTOCOL_INTEREST_BPS` are unset. Regenerate clients for this instruction change.
+Changing the Rust default affects new authorities and liquidation allocations;
+existing authorities retain their configured swap and interest shares.
+
+The initial auction split remains 100% fee auctions / 0% buybacks. Referral
+commissions come out of the protocol interest share before the auction split.
+The separate voluntary-order service charge and flat market-creation charge
+are not revenue-share percentages and are outside this default.
+
 ## Stored leverage margins
 
 ```typescript
@@ -45,6 +67,14 @@ decoders, a small write/read facade over the Dusk program, and an indexer client
 for historical API data.
 
 ## Flash and emergency liquidations
+
+`get.simulateWithContext(plan.instructions, { requireReturnData: false, lookupTables })`
+preserves the absolute begin/settle indices in a built flash plan. Existing
+compute budgets are retained (or explicitly overridden in place). A flash plan
+missing either budget is rejected rather than silently shifted. Ordinary
+previews receive a budget prefix. Set `preserveInstructionIndices: true` for
+other programs with index-bound plans. Do not prepend instructions after `buildFlash`; pass
+setup instructions through its `prefixInstructions` argument instead.
 
 The auction start/fill/backstop and old full leverage-liquidation instructions
 have been replaced. Use `dusk.liquidations` for either borrowing or leverage:
@@ -939,3 +969,112 @@ See [the fee policy and keeper rollout dependency](../../docs/mutable-transfer-f
 #287160 has implemented notice-window mitigation; timely confirmed keeper execution
 remains an operational assumption. Fee-authority revocation is not a missing
 agreed fix.
+
+### hLP funding capacity
+
+Use `dusk.get.previewHlpDepositCapacity({ market, baseMint, quoteMint, targetHlpMint })`
+to read the native entry status and gross/net funding ceilings. It accrues the
+market in a read-only simulation and prices the underlying yLP purchase and
+hedge using full live-reserve value, including public unpaid interest. These
+receivables remain excluded from swap-pricing reserves.
+
+`Ready` and the capacity ceiling do not guarantee execution for every amount.
+Simulate the completed deposit transaction to check rounding, cash custody,
+transfer fees and slippage. Under concentration, an opposite-token-neutral
+hLP need not have a literal 2x gross-value/equity ratio.
+
+### Public-interest cash advance calculations
+
+`quoteInterestAdvanceAmounts` computes the cash-capped gross advance, frozen
+protocol escrow, LP transfer debit and measured-fee-adjusted LP credit. Pass
+amounts as `bigint` and the current `TransferFeeNotice`; pending transfer fees
+are reported separately by that notice and do not replace the effective fee.
+`allocateRepaidInterest` splits measured repayment custody credit between
+fresh LP/protocol revenue and the already-frozen protocol portion. Already
+funded LP interest must be excluded from `freshGrossInterest`.
+
+For transaction composition, use the vault-aware yield client:
+
+```ts
+const quote = await dusk.yield.previewFunding({ market, caller });
+const plan = await dusk.yield.buildHarvest({
+  market, owner, caller, kind: "baseHlp", asset: "quote",
+  // Optional per-asset gross advance caps, in raw atoms:
+  maxBaseGross: 0n, maxQuoteGross: 1_000_000n,
+});
+// Simulate the complete plan.transaction before signing and sending.
+```
+
+`kind` accepts `ylp`, `baseHlp` and `quoteHlp`. The builder reads the owner's
+YieldAccount, respects its configured recipient and creates that recipient's
+ATA if needed. Existing yield accounts are required. Builders never sign or send.
+Set `fundAccruedInterest: false` to harvest existing funded claims without a new
+funding/rebalance attempt. `fundInstruction` is the standalone funding builder.
+
+Funding moves only available cash. Newly earned hLP income first covers the
+vault-wide funding gap; existing funded holder claims are protected. The hedge
+reconstruction can change the AMM mark; the cash advance alone leaves swap
+reserves unchanged. `HlpInterestAllocated` distinguishes new holder yield from
+capital returned to reserves. Subtract its capital debits from gross
+`BorrowInterestPaid` credits when reconciling net interest-vault changes.
+
+Repayment builders supply the canonical accounts needed for both hLP vaults.
+Raw callers must include the five existing hLP accounts followed by both asset
+mints and reserve vaults when fresh public interest is settled with active hLP.
+The Market layout is version 5 with `fees.publicInterestAdvance` on both sides,
+per-vault flash locks, and non-cash `reserves.flashReceivable`;
+use the regenerated IDL. It also records a frozen hLP mask and per-vault
+curve offsets; older snapshots are incompatible.
+
+
+### Vault-wide hLP flash recovery
+
+```ts
+const quote = await dusk.hlpLiquidations.preview({ market, targetAsset: "base" });
+const plan = await dusk.hlpLiquidations.buildFlash({
+  market, targetAsset: "base", buyer,
+  allowFull: false, // explicit opt-in is required for an insolvent full closure
+  route: async ({ buyerCollateralAccount, repaymentVault, requiredPaymentCredit,
+                  collateralMint, debtMint, collateralTokenProgram, debtTokenProgram }) => {
+    // Return an external route, a Dusk swap, or explicit inventory payment.
+    // Deliver requiredPaymentCredit NET atoms into repaymentVault; gross up
+    // its incoming transfer fee. The quote already includes vault→reserve fees.
+    return buildRecoveryRoute({ buyerCollateralAccount, repaymentVault,
+      requiredPaymentCredit, collateralMint, debtMint, collateralTokenProgram, debtTokenProgram });
+  },
+});
+// Compile plan.instructions with a prepared address lookup table when needed.
+// Do not insert/reorder instructions: begin binds the exact settle index.
+```
+
+The helpers never sign, submit, or silently top up from the keeper's wallet.
+The quote is current-bank only. `maxPayment`, collateral limits, insurance and
+principal-loss caps protect the submitted plan against state drift. Prefix
+instructions must be supplied through `prefixInstructions` before building.
+An affected hLP cohort cannot mint/redeem between begin and settle; swaps and
+independent market operations remain composable subject to cash and accounting
+checks. The SDK's complete-plan simulator preserves bound instruction indices.
+`HlpFlashSettled.loss` separates principal recovery, principal insurance,
+principal writeoff and canceled interest; a partial recovery has an empty loss
+allocation. Native `HlpTerminalLiquidated.socializedLoss` now denotes principal
+loss only, with `interestCanceled` reported separately.
+
+If an hLP vault has negative executable value, ordinary spot swaps continue.
+Only that vault's automatic hedge is frozen; the opposite vault remains active.
+`state.amm.frozenHlpMask` uses bit 1 for base hLP and bit 2 for quote hLP.
+The frozen vault cannot make an ordinary withdrawal that leaves its deficit to
+the other holders. A terminal close requires insolvency at both the spot curve
+and the symmetric EMA, so a spot-only price move cannot write off the vault.
+
+An eligible holder can build `hlpLiquidations.buildNativeCloseAndExit({ market,
+targetAsset, exit: { hlpAmount, options } })`. The helper places the permissionless
+native close before `withdrawSingleSided` in one transaction; `options` are the
+normal hLP withdrawal accounts and the owner signs. It burns the closed vault's
+receipts for zero principal payout. The flash builder also accepts `exit`,
+appending an owner-signed withdrawal after settlement. For a solvent rescue,
+set `exit.minTargetAmountOut` to protect the holder's payout. A terminal quote
+still requires `allowFull` and pays zero principal. A vault with only a
+transient spot deficit must recover or receive funded rescue before its holders
+can withdraw. Once its executable value recovers, a frozen vault can quote a
+funded flash rescue even if its debt gap has fallen below the ordinary rescue
+threshold; a fully covered gap uses a minimal zero-discount payment.

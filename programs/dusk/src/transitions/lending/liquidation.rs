@@ -129,6 +129,7 @@ impl Liquidation {
 
     pub fn apply(self, market: &mut Market, borrow_position: &mut BorrowPosition) -> Result<LiquidationReceipt> {
         borrow_position.require_idle()?;
+        let unpaid_before = market.public_unpaid_interest(self.debt_asset)?;
         let debt_before = position_debt(market, borrow_position, self.debt_asset)?;
         require_gte!(debt_before, self.repay_credit as u128, ErrorCode::InsufficientDebt);
         require_gte!(
@@ -294,23 +295,17 @@ impl Liquidation {
             }
         }
 
-        {
-            let debt_side = market.side_mut(self.debt_asset);
-            let live_debit = debt_clearance
-                .aggregate_debt_reduction
-                .checked_sub(principal_credit)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            debt_side.reserves.live_reserve = debt_side
-                .reserves
-                .live_reserve
-                .checked_sub(live_debit)
-                .ok_or(ErrorCode::ReserveUnderflow)?;
-            debt_side.reserves.cash_reserve = debt_side
-                .reserves
-                .cash_reserve
-                .checked_add(principal_credit)
-                .ok_or(ErrorCode::ReserveOverflow)?;
-        }
+        let live_debit = debt_clearance
+            .aggregate_debt_reduction
+            .checked_sub(principal_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        market.settle_public_debt_reserves(
+            self.debt_asset,
+            unpaid_before,
+            interest_paid,
+            live_debit,
+            principal_credit,
+        )?;
         let insurance_slot = market.last_update_slot;
         if self.insurance_spent > 0 {
             market
@@ -809,6 +804,7 @@ impl Market {
         current_slot: u64,
     ) -> Result<InternalLiquidationReceipt> {
         borrow_position.require_idle()?;
+        let unpaid_before = self.public_unpaid_interest(debt_asset)?;
         require_gte!(insurance_spent, insurance_credit, ErrorCode::BrokenInvariant);
         let collateral_before = position_collateral(borrow_position, debt_asset);
         require_eq!(collateral_consumed, collateral_before, ErrorCode::BrokenInvariant);
@@ -876,23 +872,11 @@ impl Market {
                     .ok_or(ErrorCode::DebtShareMathOverflow)?;
             }
         }
-        let debt_side = self.side_mut(debt_asset);
-        debt_side.reserves.live_reserve = debt_side
-            .reserves
-            .live_reserve
-            .checked_sub(
-                full_repayment
-                    .cash_repaid
-                    .checked_sub(principal_credit)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or(ErrorCode::ReserveUnderflow)?;
-        debt_side.reserves.cash_reserve = debt_side
-            .reserves
-            .cash_reserve
-            .checked_add(principal_credit)
-            .ok_or(ErrorCode::ReserveOverflow)?;
-
+        let live_debit = full_repayment
+            .cash_repaid
+            .checked_sub(principal_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.settle_public_debt_reserves(debt_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
         if insurance_spent > 0 {
             self.insurance.consume_draw(debt_asset, insurance_spent, current_slot)?;
         }

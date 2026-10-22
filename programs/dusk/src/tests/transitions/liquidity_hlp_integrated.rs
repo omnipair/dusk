@@ -10,6 +10,7 @@ fn virtual_concentration_and_continuous_hlp_hedge_are_one_pass() {
         quote_hlp_equity: 2_250 * scale,
         base_hlp_quote_debt: 2_250 * scale,
         quote_hlp_base_debt: 20 * scale,
+        ..IntegratedCurveState::default()
     };
     let concentrated = ConcentratedCurveGeometry {
         inner_liquidity: 4_000 * scale,
@@ -166,7 +167,9 @@ fn compounded_fee_reconstructs_perfect_hedges_for_cpmm_and_concentration() {
         let base_equity_before = quote.executable.end.base_hlp_equity;
         let quote_equity_before = quote.executable.end.quote_hlp_equity;
 
-        apply_compounded_ylp_fee(state, &mut quote, true, 1_000, 1_000, 200, 300).unwrap();
+        let mark = geometry.spot_price_nad_prevalidated(quote.executable.curve.end).unwrap();
+        apply_compounded_ylp_fee(state, &mut quote, true, 1_000, mark, 1_000, 200, 300).unwrap();
+        assert_eq!(quote.executable.end.quote_hlp_equity - quote_equity_before, mul_div_u128(300, mark, crate::constants::NAD as u128).unwrap());
 
         assert_eq!(
             quote.executable.hlp.total_base - quote.executable.hlp.quote_hlp_base_debt,

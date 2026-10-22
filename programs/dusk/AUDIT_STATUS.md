@@ -1,5 +1,10 @@
 # Dusk audit status
 
+**2026-10-18:** #45 is not ready to merge/deploy. The later model review's
+hLP solvency/receivable finding remains open. Current follow-up fixes and
+unverified candidates are listed in
+[MODEL_REVIEW_CLOSEOUT.md](../../docs/audit/MODEL_REVIEW_CLOSEOUT.md).
+
 **Current through:** 2026-10-17; runtime `5a9abcb3`, PR #45.
 
 This is the current disposition summary. Dated reports describe their reviewed

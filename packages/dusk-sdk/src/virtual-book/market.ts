@@ -2,7 +2,7 @@ import { DEFAULT_READONLY_PUBLIC_KEY } from "../address.js";
 import type { Program } from "@coral-xyz/anchor";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { address as publicKey, type AddressLike } from "../address.js";
-import { deriveMarketAddress } from "../constants.js";
+import { deriveMarketAddress, MARKET_LAYOUT_VERSION } from "../constants.js";
 import { decodePreviewMarketReturnData } from "../preview.js";
 import type { Market } from "../type-aliases.js";
 import type { Dusk } from "../types_v2.js";
@@ -65,7 +65,7 @@ export async function previewVirtualBookSnapshot(
   );
   if (
     preview.slot.toString() !== String(slot) ||
-    account.version !== 2 ||
+    account.version !== MARKET_LAYOUT_VERSION ||
     !address.equals(new PublicKey(market)) ||
     account.bump !== bump ||
     !preview.amm.initialized ||

@@ -118,6 +118,7 @@ impl Market {
         let current = self.liquidation_debt_allocation(&position.as_ref(), asset, allocation.shares)?;
         require!(current == allocation, ErrorCode::InvalidLiquidationSession);
         let before_curve = self.curve_reserves_nad()?;
+        let unpaid_before = self.public_unpaid_interest(asset)?;
         let collateral_before = position.as_ref().collateral(asset);
         require!(
             collateral_debit > 0 && collateral_debit <= collateral_before,
@@ -160,15 +161,6 @@ impl Market {
             .debt
             .checked_sub(principal_credit)
             .ok_or(ErrorCode::ReserveUnderflow)?;
-        let reserves = &mut self.side_mut(asset).reserves;
-        reserves.live_reserve = reserves
-            .live_reserve
-            .checked_sub(live_debit)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
-        reserves.cash_reserve = reserves
-            .cash_reserve
-            .checked_add(principal_credit)
-            .ok_or(ErrorCode::ReserveOverflow)?;
         let (aggregate_shares, aggregate_principal) =
             match (matches!(position, LiquidationPositionMut::Leverage(_)), asset) {
                 (false, MarketAsset::Base) => (&mut self.debt.fixed_base_shares, &mut self.debt.fixed_base_principal),
@@ -190,8 +182,10 @@ impl Market {
         *aggregate_principal = aggregate_principal
             .checked_sub(allocation.principal)
             .ok_or(ErrorCode::DebtMathOverflow)?;
+        let advanced =
+            self.settle_public_debt_reserves(asset, unpaid_before, loss.interest_paid, live_debit, principal_credit)?;
         self.apply_liquidation_position(position, asset, allocation, collateral_debit, full)?;
-        if loss.principal_written_off > 0 {
+        if loss.principal_written_off > 0 || advanced.canceled > advanced.protocol_returned {
             self.finalize_amm_socialized_loss_and_observe_risk(slot)?;
         } else {
             self.finalize_debt_repayment(slot, before_curve)?;

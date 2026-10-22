@@ -2774,6 +2774,35 @@
             }
           },
           {
+            "name": "frozen_hlp_mask",
+            "docs": [
+              "A distressed hLP cannot be reconstructed as positive one-sided equity.",
+              "Each bit freezes only that vault's share/debt hedge during swaps."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "frozen_base_vault_base_offset_nad",
+            "docs": [
+              "Fixed virtual-coordinate adjustment captured when the vault freezes.",
+              "It preserves the pre-freeze executable price without treating the",
+              "vault's negative equity as spendable token inventory."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "frozen_base_vault_quote_offset_nad",
+            "type": "i128"
+          },
+          {
+            "name": "frozen_quote_vault_base_offset_nad",
+            "type": "i128"
+          },
+          {
+            "name": "frozen_quote_vault_quote_offset_nad",
+            "type": "i128"
+          },
+          {
             "name": "_reserved",
             "type": {
               "array": [
@@ -3357,6 +3386,14 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "public_interest_advance",
+            "type": {
+              "defined": {
+                "name": "PublicInterestAdvance"
+              }
+            }
+          },
+          {
             "name": "swap_fee_growth_index_q64",
             "type": "u128"
           },
@@ -3648,6 +3685,14 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flash_collateral_debit",
+            "docs": [
+              "Collateral committed to one atomic flash recovery. Receipt supply is",
+              "fixed until settlement; retail operations on other positions may run."
+            ],
+            "type": "u64"
+          },
           {
             "name": "ylp_vault",
             "type": "pubkey"
@@ -4938,6 +4983,43 @@
       }
     },
     {
+      "name": "PublicInterestAdvance",
+      "docs": [
+        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "held in the reserve vault until repayment, so cancellation can return it",
+        "to executable cash without a transfer or a second transfer fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outstanding_gross",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_escrow",
+            "type": "u64"
+          },
+          {
+            "name": "repayment_credit_pending",
+            "docs": [
+              "Native repayment has already restored this cash; its token handler",
+              "must exclude it from the new interest-vault transfer."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocol_release_pending",
+            "docs": [
+              "Frozen protocol allocation released by repayment, still held in the",
+              "reserve vault until the same instruction completes token settlement."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "ReferralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -5016,6 +5098,14 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flash_receivable",
+            "docs": [
+              "Same-transaction collateral receivable. Included in backing, excluded",
+              "from cash available to swaps, loans and withdrawals."
+            ],
+            "type": "u64"
+          },
           {
             "name": "live_reserve",
             "type": "u64"

@@ -360,6 +360,18 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // New hLP income allocation is a pure transition boundary: economic tests
+  // exercise conservation without custody CPIs; the instruction moves exactly
+  // its returned debits and credits atomically.
+  ["programs/dusk/src/transitions/liquidity/hlp/harvest.rs", new Set(["settle_new_hlp_public_interest"])],
+  // Flash session boundaries are pure accounting kernels, separately exercised
+  // without token CPIs; instructions bind them to custody and atomic settlement.
+  ["programs/dusk/src/transitions/liquidity/hlp/flash.rs", new Set(["begin_hlp_flash_recovery", "settle_hlp_flash_recovery"])],
+  ["programs/dusk/src/transitions/liquidity/hlp/flash_terminal.rs", new Set(["settle_terminal_hlp_flash"])],
+  // The advance ledger's funding and one-shot payment consumption boundaries
+  // own the frozen fee and transient-credit invariants. Keep these independently
+  // testable from reserve mutation and Token-2022 CPIs.
+  ["programs/dusk/src/transitions/interest_advance.rs", new Set(["fund", "take_payment"])],
   // Off-chain historical auction replay; compiled only with feature benchmark.
   ["programs/dusk/src/transitions/amm/swap.rs", new Set(["settle_backstop_swap"])],
   // Emergency inventory preparation must remain separate from executable
@@ -389,6 +401,13 @@ const acceptedOneUseHelpers = new Map([
     "programs/dusk/src/transitions/amm/mod.rs",
     new Set([
       // Complete swaps now have one caller for these AMM-owned ledger/observation kernels.
+      // These freeze a complete book/curve quote and isolate temporary geometry
+      // so neither routine's caller exceeds the SBF stack-frame limit.
+      "prepare_current_hlp_quote",
+      // The rare distress retry stays in its own SBF frame; placing the
+      // returned integrated quote and error on the swap frame overflows it.
+      "prepare_current_hlp_quote_with_distress_freeze",
+      "prepare_book_curve_mark",
       "credit_protected_recenter_reserve",
       "finalize_amm_trade_after_inventory_checkpoint",
       "liquidity_nad",
@@ -449,6 +468,9 @@ const acceptedOneUseHelpers = new Map([
       "target_asset",
       "prepare_terminal_hlp_waterfall",
       "prepare_concentrated_hlp_transition_at_current_state",
+      // Quote finalization must derive its point from the private, atom-rounded
+      // ownership/debt plan rather than duplicate that accounting in the AMM.
+      "final_ordinary_point_nad",
       "debt_deltas",
       "interest_cash_floors",
       "hlp_valuation_from_values",

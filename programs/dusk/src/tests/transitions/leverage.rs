@@ -2710,3 +2710,61 @@ fn protection_closeout_matches_full_swap_quote_across_fee_modes() {
         }
     }
 }
+
+#[test]
+fn advanced_interest_can_be_repaid_in_a_swap_with_no_starting_cash() {
+    for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = test_market(10_000, 10_000);
+        let shares = market.debt.add_isolated_debt(debt_asset, 900).unwrap();
+        match debt_asset {
+            MarketAsset::Base => market.debt.base_borrow_index_nad = (NAD as u128) * 2,
+            MarketAsset::Quote => market.debt.quote_borrow_index_nad = (NAD as u128) * 2,
+        }
+        // 900 isolated principal + 8,200 fixed principal use all cash except
+        // the 900 which will fund the accrued isolated interest.
+        match debt_asset {
+            MarketAsset::Base => { market.debt.fixed_base_shares = 4_100; market.debt.fixed_base_principal = 8_200; }
+            MarketAsset::Quote => { market.debt.fixed_quote_shares = 4_100; market.debt.fixed_quote_principal = 8_200; }
+        }
+        market.side_mut(debt_asset).reserves.cash_reserve -= 9_100;
+        let unpaid = market.public_unpaid_interest(debt_asset).unwrap();
+        let gross = u64::try_from(unpaid).unwrap();
+        market.side_mut(debt_asset).reserves.live_reserve += gross;
+        market.fund_public_interest(debt_asset, gross, 2_000).unwrap();
+        assert_eq!(market.side(debt_asset).reserves.cash_reserve, 0);
+        market.assert_virtual_reserve_invariant(debt_asset).unwrap();
+        let total = market.debt.isolated_debt(debt_asset).unwrap() as u64;
+        let plan = derive_leverage_lifecycle_plan_from_state(
+            LeverageLifecycleState::capture(&market),
+            SwapCashPolicy::Close { debt_asset, debt_shares: shares, debt_principal: 900, shares_to_burn: shares },
+            debt_asset.opposite(), 100, total, total, None,
+        ).unwrap();
+        let quoted_cash = market.preview_leverage_settlement_cash(plan.policy, plan.asset_in, plan.amount_in_after_fee, plan.amount_out, plan.gross_amount_out).unwrap();
+        assert_eq!(quoted_cash, (plan.post.base_cash_reserve, plan.post.quote_cash_reserve));
+        let mut settled = market.clone();
+        commit_leverage_lifecycle_state(&mut settled, plan.post);
+        settled.assert_market_invariants().unwrap();
+        let mut after = plan.post;
+        assert_eq!(*after.cash_reserve_mut(debt_asset), 0);
+        let ledger = match debt_asset {
+            MarketAsset::Base => &mut after.base_interest_advance,
+            MarketAsset::Quote => &mut after.quote_interest_advance,
+        };
+        assert_eq!(ledger.take_payment(plan.transition.clearance.interest_paid).unwrap(), (0, gross / 5));
+        assert_eq!(plan.transition.removed_unrealized_interest, 0);
+        let policy = SwapCashPolicy::Decrease { debt_asset, debt_shares: shares, debt_principal: 900 };
+        let mut prepared = SwapRequest { current_slot: 0, current_unix_timestamp: 0,
+            // Output is 100, an exact two-atom debt-share repayment. An odd
+            // output would leave one real owner-surplus atom needing cash.
+            asset_in: debt_asset.opposite(), reserve_credit: 102, protocol_fee_bps: 0 }
+            .prepare_with_cash_policy(&mut market, policy).unwrap();
+        assert_eq!(prepared.quote.amount_out, 100);
+        let quote = prepared.leverage_quote();
+        let fees = LeverageSwapFeeCredit::from_total_actual_credit(&quote, prepared.quote.fee.claimable_fee_debit).unwrap();
+        let result = prepared.apply(&mut market, policy, fees, 0, 0, ProtocolAuctionSplit::default(), None).unwrap();
+        assert!(result.lifecycle.clearance.interest_paid > 0);
+        assert_eq!(market.side(debt_asset).reserves.cash_reserve, 0);
+        assert_eq!(market.side_mut(debt_asset).fees.public_interest_advance.take_payment(result.lifecycle.clearance.interest_paid).unwrap().0, 0);
+        market.assert_market_invariants().unwrap();
+    }
+}

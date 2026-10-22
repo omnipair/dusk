@@ -2780,6 +2780,35 @@ export type LeverageDelegate = {
             }
           },
           {
+            "name": "frozenHlpMask",
+            "docs": [
+              "A distressed hLP cannot be reconstructed as positive one-sided equity.",
+              "Each bit freezes only that vault's share/debt hedge during swaps."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "frozenBaseVaultBaseOffsetNad",
+            "docs": [
+              "Fixed virtual-coordinate adjustment captured when the vault freezes.",
+              "It preserves the pre-freeze executable price without treating the",
+              "vault's negative equity as spendable token inventory."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "frozenBaseVaultQuoteOffsetNad",
+            "type": "i128"
+          },
+          {
+            "name": "frozenQuoteVaultBaseOffsetNad",
+            "type": "i128"
+          },
+          {
+            "name": "frozenQuoteVaultQuoteOffsetNad",
+            "type": "i128"
+          },
+          {
             "name": "reserved",
             "type": {
               "array": [
@@ -3363,6 +3392,14 @@ export type LeverageDelegate = {
         "kind": "struct",
         "fields": [
           {
+            "name": "publicInterestAdvance",
+            "type": {
+              "defined": {
+                "name": "publicInterestAdvance"
+              }
+            }
+          },
+          {
             "name": "swapFeeGrowthIndexQ64",
             "type": "u128"
           },
@@ -3654,6 +3691,14 @@ export type LeverageDelegate = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flashCollateralDebit",
+            "docs": [
+              "Collateral committed to one atomic flash recovery. Receipt supply is",
+              "fixed until settlement; retail operations on other positions may run."
+            ],
+            "type": "u64"
+          },
           {
             "name": "ylpVault",
             "type": "pubkey"
@@ -4944,6 +4989,43 @@ export type LeverageDelegate = {
       }
     },
     {
+      "name": "publicInterestAdvance",
+      "docs": [
+        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "held in the reserve vault until repayment, so cancellation can return it",
+        "to executable cash without a transfer or a second transfer fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outstandingGross",
+            "type": "u64"
+          },
+          {
+            "name": "protocolEscrow",
+            "type": "u64"
+          },
+          {
+            "name": "repaymentCreditPending",
+            "docs": [
+              "Native repayment has already restored this cash; its token handler",
+              "must exclude it from the new interest-vault transfer."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocolReleasePending",
+            "docs": [
+              "Frozen protocol allocation released by repayment, still held in the",
+              "reserve vault until the same instruction completes token settlement."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "referralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -5022,6 +5104,14 @@ export type LeverageDelegate = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flashReceivable",
+            "docs": [
+              "Same-transaction collateral receivable. Included in backing, excluded",
+              "from cash available to swaps, loans and withdrawals."
+            ],
+            "type": "u64"
+          },
           {
             "name": "liveReserve",
             "type": "u64"

@@ -27,6 +27,8 @@ const program = new anchor.Program(IDL, provider);
 program.account.market.fetch = async () => ({
   baseSide: { assetMint: baseMint },
   quoteSide: { assetMint: quoteMint },
+  baseHlpVault: { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0), ylpShares: new anchor.BN(0), debtShares: new anchor.BN(0) },
+  quoteHlpVault: { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0), ylpShares: new anchor.BN(0), debtShares: new anchor.BN(0) },
 });
 const write = new DuskWrite(program);
 

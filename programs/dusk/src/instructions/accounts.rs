@@ -117,8 +117,21 @@ impl<'info> TryFrom<(&Market, &[AccountInfo<'info>])> for HlpSwapAccountLayout {
                 ErrorCode::InvalidTokenProgram
             );
         }
+        // Fresh public-interest settlement also needs both mints/reserves.
+        // Recognize this canonical extension before exposing the callback/hook
+        // suffix. Older callers may supply these keys later in their suffix;
+        // settlement locates them by identity, while callback ordering stays intact.
+        let assets = [
+            market.base_side.asset_mint,
+            market.quote_side.asset_mint,
+            market.base_side.reserve_vault,
+            market.quote_side.reserve_vault,
+        ];
+        let extended = accounts
+            .get(HLP_SWAP_ACCOUNT_PREFIX_LEN..HLP_SWAP_ACCOUNT_PREFIX_LEN + 4)
+            .is_some_and(|tail| tail.iter().zip(assets).all(|(account, key)| account.key() == key));
         Ok(Self {
-            prefix_len: HLP_SWAP_ACCOUNT_PREFIX_LEN,
+            prefix_len: HLP_SWAP_ACCOUNT_PREFIX_LEN + if extended { 4 } else { 0 },
         })
     }
 }
@@ -228,6 +241,8 @@ pub(crate) fn require_reserve_custody(vault_balance: u64, market_side: &MarketSi
         .reserves
         .cash_reserve
         .checked_add(market_side.fees.swap_fee_custody_balance)
+        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.protocol_escrow))
+        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.protocol_release_pending))
         .and_then(|value| value.checked_add(hlp_backing_inventory))
         .and_then(|value| value.checked_add(market_side.reserves.protected_recenter_reserve))
         .ok_or(ErrorCode::MarketMathOverflow)?;

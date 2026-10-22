@@ -1,3 +1,5 @@
+mod fund_interest;
+pub use fund_interest::*;
 mod grow_yield_account;
 mod harvest;
 mod hlp;

@@ -665,6 +665,167 @@
       ]
     },
     {
+      "name": "begin_hlp_flash",
+      "docs": [
+        "Release hLP target collateral, bound to an exact top-level settlement",
+        "later in this same transaction. No routing program is privileged."
+      ],
+      "discriminator": [
+        41,
+        207,
+        247,
+        103,
+        180,
+        58,
+        131,
+        13
+      ],
+      "accounts": [
+        {
+          "name": "accounts",
+          "accounts": [
+            {
+              "name": "market",
+              "writable": true
+            },
+            {
+              "name": "futarchy_authority"
+            },
+            {
+              "name": "buyer",
+              "writable": true,
+              "signer": true
+            },
+            {
+              "name": "target_mint"
+            },
+            {
+              "name": "borrowed_mint"
+            },
+            {
+              "name": "target_reserve",
+              "writable": true
+            },
+            {
+              "name": "borrowed_reserve",
+              "writable": true
+            },
+            {
+              "name": "buyer_collateral_account",
+              "writable": true
+            },
+            {
+              "name": "buyer_refund_account",
+              "writable": true
+            },
+            {
+              "name": "insurance_vault",
+              "writable": true
+            },
+            {
+              "name": "token_program",
+              "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+            },
+            {
+              "name": "token_2022_program",
+              "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+            },
+            {
+              "name": "borrowed_token_program"
+            }
+          ]
+        },
+        {
+          "name": "session",
+          "writable": true
+        },
+        {
+          "name": "repayment_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  45,
+                  102,
+                  108,
+                  97,
+                  115,
+                  104,
+                  45,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "BeginHlpFlashArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "borrow",
       "discriminator": [
         228,
@@ -1053,11 +1214,11 @@
     {
       "name": "close_insolvent_hlp",
       "docs": [
-        "Permissionlessly closes an hLP after passive funding has exhausted its",
-        "marked collateral. Insurance reimburses the borrowed-asset shortfall",
-        "first. The caller receives a bounded reward from recovered funding",
-        "interest, and only the caller-capped remainder is socialized as unpaid",
-        "funding interest. Ordinary swaps retain their existing account list."
+        "Permissionlessly closes an hLP whose full marked backing cannot cover",
+        "funding debt. Recovery protects principal first; insurance covers only",
+        "principal loss and unpaid interest is canceled. Realized funding interest",
+        "is cash-limited and funds the bounded caller reward. Existing funded",
+        "holder claims remain claimable after terminal receipt cleanup."
       ],
       "discriminator": [
         158,
@@ -3625,6 +3786,113 @@
           }
         }
       ]
+    },
+    {
+      "name": "fund_interest",
+      "docs": [
+        "Fund accrued public LP interest from available cash, settle both hLP",
+        "funding gaps from their new income, and publish remaining holder yield."
+      ],
+      "discriminator": [
+        108,
+        148,
+        82,
+        224,
+        231,
+        52,
+        86,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "futarchy_authority"
+        },
+        {
+          "name": "caller",
+          "signer": true
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "base_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "quote_reserve_vault",
+          "writable": true
+        },
+        {
+          "name": "base_interest_vault",
+          "writable": true
+        },
+        {
+          "name": "quote_interest_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "FundInterestArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "FundInterestReceipt"
+        }
+      }
     },
     {
       "name": "grow_yield_account",
@@ -6419,6 +6687,47 @@
       }
     },
     {
+      "name": "preview_hlp_flash",
+      "docs": [
+        "Quote the fixed net payment for vault-wide atomic external hLP recovery."
+      ],
+      "discriminator": [
+        26,
+        164,
+        118,
+        84,
+        231,
+        86,
+        157,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "futarchy_authority"
+        },
+        {
+          "name": "target_mint"
+        },
+        {
+          "name": "borrowed_mint"
+        }
+      ],
+      "args": [
+        {
+          "name": "target_asset",
+          "type": "u8"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "HlpFlashQuote"
+        }
+      }
+    },
+    {
       "name": "preview_hlp_order_trigger",
       "discriminator": [
         98,
@@ -8241,6 +8550,153 @@
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "settle_hlp_flash",
+      "docs": [
+        "Verify the fixed payment and restore the vault's opposite-token hedge."
+      ],
+      "discriminator": [
+        215,
+        124,
+        153,
+        104,
+        195,
+        91,
+        118,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "accounts",
+          "accounts": [
+            {
+              "name": "market",
+              "writable": true
+            },
+            {
+              "name": "futarchy_authority"
+            },
+            {
+              "name": "buyer",
+              "writable": true,
+              "signer": true
+            },
+            {
+              "name": "target_mint"
+            },
+            {
+              "name": "borrowed_mint"
+            },
+            {
+              "name": "target_reserve",
+              "writable": true
+            },
+            {
+              "name": "borrowed_reserve",
+              "writable": true
+            },
+            {
+              "name": "buyer_collateral_account",
+              "writable": true
+            },
+            {
+              "name": "buyer_refund_account",
+              "writable": true
+            },
+            {
+              "name": "insurance_vault",
+              "writable": true
+            },
+            {
+              "name": "token_program",
+              "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+            },
+            {
+              "name": "token_2022_program",
+              "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+            },
+            {
+              "name": "borrowed_token_program"
+            }
+          ]
+        },
+        {
+          "name": "session",
+          "writable": true
+        },
+        {
+          "name": "repayment_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  45,
+                  102,
+                  108,
+                  97,
+                  115,
+                  104,
+                  45,
+                  112,
+                  97,
+                  121,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "session"
+              }
+            ]
+          }
         },
         {
           "name": "instructions",
@@ -10668,6 +11124,19 @@
       ]
     },
     {
+      "name": "HlpFlashSession",
+      "discriminator": [
+        212,
+        216,
+        161,
+        138,
+        241,
+        116,
+        166,
+        126
+      ]
+    },
+    {
       "name": "LeverageDelegation",
       "discriminator": [
         49,
@@ -10927,6 +11396,45 @@
         203,
         111,
         235
+      ]
+    },
+    {
+      "name": "HlpFlashSettled",
+      "discriminator": [
+        255,
+        193,
+        57,
+        138,
+        48,
+        64,
+        138,
+        37
+      ]
+    },
+    {
+      "name": "HlpFlashStarted",
+      "discriminator": [
+        203,
+        97,
+        249,
+        187,
+        226,
+        119,
+        141,
+        71
+      ]
+    },
+    {
+      "name": "HlpInterestAllocated",
+      "discriminator": [
+        12,
+        174,
+        16,
+        115,
+        243,
+        133,
+        131,
+        49
       ]
     },
     {
@@ -11317,6 +11825,19 @@
         110,
         234,
         249
+      ]
+    },
+    {
+      "name": "PublicInterestFunded",
+      "discriminator": [
+        34,
+        55,
+        82,
+        224,
+        42,
+        7,
+        154,
+        156
       ]
     },
     {
@@ -12537,6 +13058,35 @@
             }
           },
           {
+            "name": "frozen_hlp_mask",
+            "docs": [
+              "A distressed hLP cannot be reconstructed as positive one-sided equity.",
+              "Each bit freezes only that vault's share/debt hedge during swaps."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "frozen_base_vault_base_offset_nad",
+            "docs": [
+              "Fixed virtual-coordinate adjustment captured when the vault freezes.",
+              "It preserves the pre-freeze executable price without treating the",
+              "vault's negative equity as spendable token inventory."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "frozen_base_vault_quote_offset_nad",
+            "type": "i128"
+          },
+          {
+            "name": "frozen_quote_vault_base_offset_nad",
+            "type": "i128"
+          },
+          {
+            "name": "frozen_quote_vault_quote_offset_nad",
+            "type": "i128"
+          },
+          {
             "name": "_reserved",
             "type": {
               "array": [
@@ -12576,6 +13126,46 @@
           {
             "name": "full",
             "type": "bool"
+          },
+          {
+            "name": "settle_index",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BeginHlpFlashArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "target_asset",
+            "type": "u8"
+          },
+          {
+            "name": "max_payment",
+            "type": "u64"
+          },
+          {
+            "name": "allow_full",
+            "type": "bool"
+          },
+          {
+            "name": "max_insurance_draw",
+            "type": "u64"
+          },
+          {
+            "name": "max_socialized_loss",
+            "type": "u64"
+          },
+          {
+            "name": "max_collateral_debit",
+            "type": "u64"
+          },
+          {
+            "name": "min_collateral_credit",
+            "type": "u64"
           },
           {
             "name": "settle_index",
@@ -14109,6 +14699,14 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "public_interest_advance",
+            "type": {
+              "defined": {
+                "name": "PublicInterestAdvance"
+              }
+            }
+          },
+          {
             "name": "swap_fee_growth_index_q64",
             "type": "u128"
           },
@@ -14427,6 +15025,96 @@
           {
             "name": "amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FundInterestArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "max_base_gross",
+            "docs": [
+              "Gross public interest to fund, including the frozen protocol allocation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_quote_gross",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FundInterestReceipt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gross_funded",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "lp_custody_credit",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "hlp_yield_published",
+            "docs": [
+              "[hLP target side][income side], after covering the funding gap."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "hlp_capital_gross",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "hlp_capital_credit",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
           }
         ]
       }
@@ -14920,6 +15608,239 @@
           },
           {
             "name": "NoNetDeposit"
+          },
+          {
+            "name": "Frozen"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpFlashQuote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "target_asset",
+            "type": "u8"
+          },
+          {
+            "name": "collateral_debit",
+            "type": "u64"
+          },
+          {
+            "name": "collateral_credit",
+            "type": "u64"
+          },
+          {
+            "name": "payment",
+            "docs": [
+              "Spendable atoms required in the session's payment vault; includes the",
+              "transfer fee from that vault to the market reserve."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reserve_credit",
+            "type": "u64"
+          },
+          {
+            "name": "discount_bps",
+            "type": "u16"
+          },
+          {
+            "name": "full",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpFlashSession",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "HlpFlashQuote"
+              }
+            }
+          },
+          {
+            "name": "max_insurance_draw",
+            "type": "u64"
+          },
+          {
+            "name": "max_socialized_loss",
+            "type": "u64"
+          },
+          {
+            "name": "payment_balance_before",
+            "type": "u64"
+          },
+          {
+            "name": "hlp_supply",
+            "type": "u64"
+          },
+          {
+            "name": "begin_index",
+            "type": "u16"
+          },
+          {
+            "name": "settle_index",
+            "type": "u16"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpFlashSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "HlpFlashQuote"
+              }
+            }
+          },
+          {
+            "name": "funding_interest_paid",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "loss",
+            "type": {
+              "defined": {
+                "name": "LiquidationLossAllocation"
+              }
+            }
+          },
+          {
+            "name": "insurance_debit",
+            "type": "u64"
+          },
+          {
+            "name": "surplus_credit",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpFlashStarted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote",
+            "type": {
+              "defined": {
+                "name": "HlpFlashQuote"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "HlpInterestAllocated",
+      "docs": [
+        "Fresh public repayment follows the same funding-before-yield policy as a",
+        "cash advance. The standard hLP prefix is followed by both mints/reserves."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "published",
+            "docs": [
+              "[hLP target side][income asset]. Historical holder growth is unchanged."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "capital_debit",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "capital_credit",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    2
+                  ]
+                },
+                2
+              ]
+            }
           }
         ]
       }
@@ -15044,6 +15965,13 @@
           },
           {
             "name": "socialized_loss",
+            "docs": [
+              "Principal loss after insurance. Unpaid interest is reported separately."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "interest_canceled",
             "type": "u64"
           },
           {
@@ -15062,6 +15990,14 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flash_collateral_debit",
+            "docs": [
+              "Collateral committed to one atomic flash recovery. Receipt supply is",
+              "fixed until settlement; retail operations on other positions may run."
+            ],
+            "type": "u64"
+          },
           {
             "name": "ylp_vault",
             "type": "pubkey"
@@ -15260,11 +16196,21 @@
           },
           {
             "name": "swap_bps",
-            "type": "u16"
+            "docs": [
+              "None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share."
+            ],
+            "type": {
+              "option": "u16"
+            }
           },
           {
             "name": "interest_bps",
-            "type": "u16"
+            "docs": [
+              "None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share."
+            ],
+            "type": {
+              "option": "u16"
+            }
           },
           {
             "name": "max_referral_interest_share_bps",
@@ -19012,6 +19958,67 @@
       }
     },
     {
+      "name": "PublicInterestAdvance",
+      "docs": [
+        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "held in the reserve vault until repayment, so cancellation can return it",
+        "to executable cash without a transfer or a second transfer fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "outstanding_gross",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_escrow",
+            "type": "u64"
+          },
+          {
+            "name": "repayment_credit_pending",
+            "docs": [
+              "Native repayment has already restored this cash; its token handler",
+              "must exclude it from the new interest-vault transfer."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "protocol_release_pending",
+            "docs": [
+              "Frozen protocol allocation released by repayment, still held in the",
+              "reserve vault until the same instruction completes token settlement."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PublicInterestFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "receipt",
+            "type": {
+              "defined": {
+                "name": "FundInterestReceipt"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "ReferralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -19354,6 +20361,14 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "flash_receivable",
+            "docs": [
+              "Same-transaction collateral receivable. Included in backing, excluded",
+              "from cash available to swaps, loans and withdrawals."
+            ],
+            "type": "u64"
+          },
           {
             "name": "live_reserve",
             "type": "u64"
@@ -20725,6 +21740,15 @@
       "value": "10000"
     },
     {
+      "name": "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS",
+      "docs": [
+        "Initial DAO share of base swap fees and paid interest, and the protocol",
+        "share of liquidation fees. Governance can override swap and interest shares."
+      ],
+      "type": "u16",
+      "value": "2000"
+    },
+    {
       "name": "FUTARCHY_AUTHORITY_SEED_PREFIX",
       "type": "bytes",
       "value": "[102, 117, 116, 97, 114, 99, 104, 121, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121]"
@@ -20837,11 +21861,11 @@
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 2 adds aggregate leverage collateral to Debt. It must not decode",
-        "existing layout-1 bytes as the expanded structure."
+        "Layout 3 adds per-asset cash-funded public-interest advances and escrow.",
+        "Earlier serialized accounts must not decode as this expanded structure."
       ],
       "type": "u8",
-      "value": "2"
+      "value": "5"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

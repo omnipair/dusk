@@ -209,6 +209,16 @@ pub struct AmmState {
     pub retention_target_stale: bool,
     /// Exact unfunded controller target retried by later real operations.
     pub deferred_controller_target: DeferredControllerTarget,
+    /// A distressed hLP cannot be reconstructed as positive one-sided equity.
+    /// Each bit freezes only that vault's share/debt hedge during swaps.
+    pub frozen_hlp_mask: u8,
+    /// Fixed virtual-coordinate adjustment captured when the vault freezes.
+    /// It preserves the pre-freeze executable price without treating the
+    /// vault's negative equity as spendable token inventory.
+    pub frozen_base_vault_base_offset_nad: i128,
+    pub frozen_base_vault_quote_offset_nad: i128,
+    pub frozen_quote_vault_base_offset_nad: i128,
+    pub frozen_quote_vault_quote_offset_nad: i128,
     pub _reserved: [u8; AMM_STATE_RESERVED_BYTES],
 }
 
@@ -234,6 +244,11 @@ impl Default for AmmState {
             retention_target_saturated: false,
             retention_target_stale: false,
             deferred_controller_target: DeferredControllerTarget::default(),
+            frozen_hlp_mask: 0,
+            frozen_base_vault_base_offset_nad: 0,
+            frozen_base_vault_quote_offset_nad: 0,
+            frozen_quote_vault_base_offset_nad: 0,
+            frozen_quote_vault_quote_offset_nad: 0,
             _reserved: [0; AMM_STATE_RESERVED_BYTES],
         }
     }
@@ -353,8 +368,24 @@ pub struct Debt {
     pub leverage_quote_collateral: u64,
 }
 
+/// Reserve-cash funding of public borrower interest. The protocol portion is
+/// held in the reserve vault until repayment, so cancellation can return it
+/// to executable cash without a transfer or a second transfer fee.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct PublicInterestAdvance {
+    pub outstanding_gross: u64,
+    pub protocol_escrow: u64,
+    /// Native repayment has already restored this cash; its token handler
+    /// must exclude it from the new interest-vault transfer.
+    pub repayment_credit_pending: u64,
+    /// Frozen protocol allocation released by repayment, still held in the
+    /// reserve vault until the same instruction completes token settlement.
+    pub protocol_release_pending: u64,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Fees {
+    pub public_interest_advance: PublicInterestAdvance,
     pub swap_fee_growth_index_q64: u128,
     pub interest_growth_index_q64: u128,
     /// Scaled fee entitlement not yet representable by the integer growth
@@ -406,6 +437,9 @@ pub struct ProtocolAuctionEpoch {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct HlpVault {
+    /// Collateral committed to one atomic flash recovery. Receipt supply is
+    /// fixed until settlement; retail operations on other positions may run.
+    pub flash_collateral_debit: u64,
     pub ylp_vault: Pubkey,
     pub ylp_shares: u64,
     /// hLP-owned live reserve depth that is not backed by reserve cash or
@@ -674,6 +708,9 @@ pub struct ReserveShares {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Reserves {
+    /// Same-transaction collateral receivable. Included in backing, excluded
+    /// from cash available to swaps, loans and withdrawals.
+    pub flash_receivable: u64,
     // Virtual Reserves (r_virtual = r_cash + r_cash_backed_debt + r_hlp_live)
     pub live_reserve: u64,
     // Cash Reserves (r_cash)

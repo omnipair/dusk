@@ -123,7 +123,7 @@ fn settle_and_check(market: &mut Market, asset: MarketAsset, slot: u64) {
         } else {
             &market.base_hlp_vault
         };
-        let claim = market.curve_reserve(side).unwrap() as u128 * settled_vault.ylp_shares as u128
+        let claim = market.side(side).reserves.live_reserve as u128 * settled_vault.ylp_shares as u128
             / market.side(side).shares.ylp_supply as u128;
         let debt = Debt::shares_to_debt(settled_vault.debt_shares, market.debt.borrow_index(side)).unwrap();
         assert!(claim.abs_diff(debt) <= 3, "side={side:?}, claim={claim}, debt={debt}");
@@ -142,14 +142,14 @@ fn joint_shock_sol_usdc_preserves_recorded_starting_debt() {
             // With no accrued interest the starting ledger must agree exactly,
             // even when the two mints and the yLP shares round differently.
             assert_eq!(
-                state.ordinary_base + state.base_hlp_equity,
+                state.book_ordinary().unwrap().0 + state.base_hlp_equity - state.base_unpaid_interest,
                 reserve.base
                     - market
                         .normalize_amount(market.hlp_live_reserve(MarketAsset::Base).unwrap(), 9)
                         .unwrap()
             );
             assert_eq!(
-                state.ordinary_quote + state.quote_hlp_equity,
+                state.book_ordinary().unwrap().1 + state.quote_hlp_equity - state.quote_unpaid_interest,
                 reserve.quote
                     - market
                         .normalize_amount(market.hlp_live_reserve(MarketAsset::Quote).unwrap(), 6)
@@ -177,11 +177,11 @@ fn joint_shock_sol_usdc_pays_funding_once_and_preserves_opposite_claims() {
                 let state = market.integrated_curve_state_nad().unwrap();
                 let reserve = market.curve_reserves_nad().unwrap();
                 assert_eq!(
-                    state.ordinary_base + state.base_hlp_equity + state.quote_hlp_base_debt,
+                    state.book_ordinary().unwrap().0 + state.base_hlp_equity + state.quote_hlp_base_debt - state.base_unpaid_interest,
                     reserve.base
                 );
                 assert_eq!(
-                    state.ordinary_quote + state.quote_hlp_equity + state.base_hlp_quote_debt,
+                    state.book_ordinary().unwrap().1 + state.quote_hlp_equity + state.base_hlp_quote_debt - state.quote_unpaid_interest,
                     reserve.quote
                 );
                 settle_and_check(&mut market, asset, slot);

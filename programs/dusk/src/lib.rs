@@ -252,6 +252,15 @@ pub mod dusk {
         GrowYieldAccount::handle_grow(ctx)
     }
 
+    /// Fund accrued public LP interest from available cash, settle both hLP
+    /// funding gaps from their new income, and publish remaining holder yield.
+    pub fn fund_interest<'info>(
+        ctx: Context<'_, '_, '_, 'info, FundInterest<'info>>,
+        args: FundInterestArgs,
+    ) -> Result<FundInterestReceipt> {
+        FundInterest::handle(ctx, args)
+    }
+
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn harvest<'info>(ctx: Context<'_, '_, '_, 'info, Harvest<'info>>, args: HarvestArgs) -> Result<()> {
         Harvest::handle_harvest(ctx, args)
@@ -275,9 +284,30 @@ pub mod dusk {
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         let mode = SwapExecutionMode::Ordinary;
-        let (current_slot, current_epoch, current_unix_timestamp) =
-            ctx.accounts.validate_and_read_clock(&args, mode)?;
+        let (current_slot, current_epoch, current_unix_timestamp) = ctx.accounts.validate_and_read_clock(&args)?;
         Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
+    }
+
+    /// Quote the fixed net payment for vault-wide atomic external hLP recovery.
+    pub fn preview_hlp_flash(
+        ctx: Context<PreviewHlpFlash>,
+        target_asset: u8,
+    ) -> Result<transitions::liquidity::HlpFlashQuote> {
+        PreviewHlpFlash::handle(ctx, target_asset)
+    }
+
+    /// Release hLP target collateral, bound to an exact top-level settlement
+    /// later in this same transaction. No routing program is privileged.
+    pub fn begin_hlp_flash<'info>(
+        ctx: Context<'_, '_, '_, 'info, BeginHlpFlash<'info>>,
+        args: BeginHlpFlashArgs,
+    ) -> Result<()> {
+        BeginHlpFlash::handle(ctx, args)
+    }
+
+    /// Verify the fixed payment and restore the vault's opposite-token hedge.
+    pub fn settle_hlp_flash<'info>(ctx: Context<'_, '_, '_, 'info, SettleHlpFlash<'info>>) -> Result<()> {
+        SettleHlpFlash::handle(ctx)
     }
 
     /// Permissionless critical hLP recovery. The caller supplies the hLP's
@@ -287,16 +317,15 @@ pub mod dusk {
     /// the 9/8 funding-stress boundary.
     pub fn rescue_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         let mode = SwapExecutionMode::HlpRecovery;
-        let (current_slot, current_epoch, current_unix_timestamp) =
-            ctx.accounts.validate_and_read_clock(&args, mode)?;
+        let (current_slot, current_epoch, current_unix_timestamp) = ctx.accounts.validate_and_read_clock(&args)?;
         Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
     }
 
-    /// Permissionlessly closes an hLP after passive funding has exhausted its
-    /// marked collateral. Insurance reimburses the borrowed-asset shortfall
-    /// first. The caller receives a bounded reward from recovered funding
-    /// interest, and only the caller-capped remainder is socialized as unpaid
-    /// funding interest. Ordinary swaps retain their existing account list.
+    /// Permissionlessly closes an hLP whose full marked backing cannot cover
+    /// funding debt. Recovery protects principal first; insurance covers only
+    /// principal loss and unpaid interest is canceled. Realized funding interest
+    /// is cash-limited and funds the bounded caller reward. Existing funded
+    /// holder claims remain claimable after terminal receipt cleanup.
     pub fn close_insolvent_hlp<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
         args: CloseInsolventHlpArgs,

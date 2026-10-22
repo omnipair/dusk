@@ -140,12 +140,17 @@ fn ema_reference_uses_collateral_direction_even_when_price_emas_are_not_reciproc
 
 #[test]
 fn ema_emergency_pays_accrued_hlp_funding_from_real_cash_and_cancels_unpaid_loan_interest() {
-    for amp in [1, 4, 10] { for asset in [MarketAsset::Base, MarketAsset::Quote] {
+    for amp in [1, 4, 10] { for asset in [MarketAsset::Base, MarketAsset::Quote] { for advanced in [false, true] {
         let mut m = market(amp, true);
         let mut p = seeded_position(&mut m, asset, 1_100_000, 1_000_000);
         let slot = 1_000_001;
         m.accrue_interest_to_slot(slot).unwrap();
         m.observe_current_risk(slot).unwrap();
+        let held_protocol = if advanced {
+            let (gross, lp) = m.fund_public_interest(asset, u64::MAX, 2_000).unwrap();
+            assert!(gross > 0);
+            gross - lp
+        } else { 0 };
         let fee = LeverageCollateralFee::default();
         let mut prepared = m.prepare_emergency_liquidation(&Ref::Leverage(&p), asset, p.collateral_amount,
             true, fee, fee, fee, 400_000, slot, 2_000).unwrap();
@@ -160,8 +165,10 @@ fn ema_emergency_pays_accrued_hlp_funding_from_real_cash_and_cancels_unpaid_loan
         assert_eq!(q.loss.interest_paid, 0);
         let output_fee = if f.fee_asset == asset.code() { f.claimable_fee_debit + f.retained_surcharge } else {0};
         assert_eq!(m.side(asset).reserves.cash_reserve,
-            before - q.reward_debit - q.owner_debit - q.insurance_fee_debit - q.revenue_fee_debit - output_fee - funding);
+            before + held_protocol - q.reward_debit - q.owner_debit - q.insurance_fee_debit - q.revenue_fee_debit - output_fee - funding);
         assert_eq!(p.debt_shares, 0);
         m.assert_market_invariants().unwrap();
-    } }
+        assert_eq!(m.side_mut(asset).fees.public_interest_advance.take_payment(0).unwrap(), (0, 0));
+        assert_eq!(m.side(asset).fees.public_interest_advance, crate::state::PublicInterestAdvance::default());
+    } } }
 }

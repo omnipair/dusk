@@ -35,3 +35,9 @@ export * from "./protection.js";
 export * from "./governance-client.js";
 
 export * from "./transfer-fees.js";
+
+export * from "./interest-accounting.js";
+
+export * from "./yield-client.js";
+
+export * from "./hlp-liquidation-client.js";
