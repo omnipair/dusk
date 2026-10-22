@@ -5694,7 +5694,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
   });
 
-  it("executes critical hLP recovery through rescueHlp", async function () {
+  it("executes critical hLP recovery through an ordinary swap", async function () {
     const fixture = await addBalancedLiquidity(124, marketConfig(), {
       baseDeposit: 100_000_000,
       quoteDeposit: 200_000_000,
@@ -5725,7 +5725,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
 
     const tx = await program.methods
-      .rescueHlp({
+      .swap({
         exactAssetIn: new BN(350_000),
         minAssetOut: new BN(1),
       })
@@ -5748,7 +5748,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .remainingAccounts(hlpSwapAccounts(fixture))
       .transaction();
     await connection.sendTransaction(tx, [payer]);
-    trackV2Instruction("rescueHlp", this.test?.title);
+    trackV2Instruction("swap", this.test?.title);
+    const recovery = cpiEvent(tx, "swapExecuted");
+    expect(recovery.origin).to.deep.equal({ spot: {} });
+    expect(recovery.hlpRecoveryCritical).to.equal(true);
+    expect(recovery.hlpRecoveryMatchedInput.toNumber()).to.be.greaterThan(0);
+    expect(recovery.hlpRecoveryBonusOutput.toNumber()).to.be.greaterThan(0);
   });
 
 

@@ -1008,8 +1008,9 @@ curve offsets; older snapshots are incompatible.
 ### Vault-wide hLP flash recovery
 
 For a solvent vault, this is a **flash rescue** of its funding hedge. A positive
-funding gap can be quoted before the native `rescue_hlp` swap's 112.5% critical
-boundary. The on-chain quote caps the discount to retain positive vault value;
+funding gap can be quoted before the 112.5% critical-stress marker. Ordinary
+swaps can also earn a recovery bonus below that marker. The on-chain flash
+quote caps the discount to retain positive vault value;
 it may offer no discount for a tiny gap. A frozen vault can also quote a funded
 rescue after its gap falls. Full flash closeout remains restricted to insolvency
 at both the executable curve mark and symmetric EMA.

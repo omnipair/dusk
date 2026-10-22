@@ -389,7 +389,6 @@ const acceptedOneUseHelpers = new Map([
     "programs/dusk/src/instructions/prepare_swap.rs",
     new Set(["rebalance_executes_token_changes"]),
   ],
-  ["programs/dusk/src/instructions/spot/swap.rs", new Set(["require_hlp_recovery_swap"])],
   [
     "programs/dusk/src/transitions/amm/curve.rs",
     // Oracle geometry construction has independent price/depth inputs, unlike

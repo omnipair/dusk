@@ -158,7 +158,6 @@ const DUSK_INSTRUCTIONS = [
   "settleHlpFlash",
   "harvest",
   "swap",
-  "rescueHlp",
   "closeInsolventHlp",
   "depositCollateral",
   "donateCollateral",

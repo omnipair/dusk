@@ -395,7 +395,6 @@ pub struct ProtocolAuctionSettled {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwapOrigin {
     Spot,
-    HlpRescue,
     LeverageOpen,
     LeverageIncrease,
     LeverageDecrease,

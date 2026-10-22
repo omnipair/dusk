@@ -166,7 +166,7 @@ At a five-percent discount, an amount with fair target value $v$ buys total targ
 
 \subsection{Revenue can change the incentive without changing the critical flag}
 
-For example, let $D=1{,}130{,}000$, $A=1{,}000{,}000$, and usable revenue $Y=120{,}000$. Actual debt exceeds $9A/8$, so the critical flag is true. The net gap is only 10,000, giving an 80-basis-point discount before the other caps. If usable revenue covers the entire excess, the net gap is zero and no positive recovery bonus is produced, even though the actual-debt critical test remains true. A rescue instruction requiring a positive critical tranche must satisfy both conditions.
+For example, let $D=1{,}130{,}000$, $A=1{,}000{,}000$, and usable revenue $Y=120{,}000$. Actual debt exceeds $9A/8$, so the critical flag is true. The net gap is only 10,000, giving an 80-basis-point discount before the other caps. If usable revenue covers the entire excess, the net gap is zero and no positive recovery bonus is produced, even though the actual-debt critical test remains true. The flag is diagnostic; an ordinary swap can earn a bonus whenever the net gap and matching input support one.
 
 When the claim is zero, actual debt can still imply critical stress, but ordinary recovery pricing returns no positive incentive from the ratio formula. This avoids dividing by zero or using an undefined conversion to fund an output. Terminal closeout and the broader state checks, rather than an extrapolation of equation~\eqref{eq:discount}, determine the admissible next action.
 

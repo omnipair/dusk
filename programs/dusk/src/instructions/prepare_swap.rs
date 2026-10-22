@@ -43,7 +43,6 @@ pub(crate) fn enforce_launch_same_transaction_guard(
             || discriminator == crate::instruction::CloseLeverage::DISCRIMINATOR
             || discriminator == crate::instruction::DelegatedCloseLeverage::DISCRIMINATOR
             || discriminator == crate::instruction::EmergencyLiquidation::DISCRIMINATOR
-            || discriminator == crate::instruction::RescueHlp::DISCRIMINATOR
             || (ix.data.get(..8) == Some(crate::instruction::SettleFlashLiquidation::DISCRIMINATOR)
                 && ix.accounts.iter().any(|m| m.pubkey == market.base_side.reserve_vault)
                 && ix.accounts.iter().any(|m| m.pubkey == market.quote_side.reserve_vault))
