@@ -40,11 +40,11 @@ loss conservation and event-level holder allocations. Required insurance is
 computed from the fully insured path, because injections change subsequent AMM
 execution, and verified at the exact integer boundary and one atom less.
 
-With event losses `L_i`, no insurance credits during the liquidation window and
-prior losses `C_i`, the current 20% event and 50% daily limits require:
+With event losses `L_i`, no insurance credits during the liquidation window,
+and all floors within one 24-hour draw window, the current 50% daily limit requires:
 
 ```text
-opening reserve = max(2 * sum(L_i), max(C_i + 5 * L_i))
+opening reserve = 2 * sum(L_i)
 ```
 
 Results include raw JSONL traces, `scenario-summary.csv`, `main-results.csv`,

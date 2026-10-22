@@ -73,7 +73,6 @@ fn make(c: &Value) -> R<Sim> {
     let amp = f(c, "amplification", 5.) as u64;
     let dynamic = text(c, "fee_profile", "mild") == "mild";
     let config = MarketConfig {
-        liquidation: Default::default(),
         swap_fee_bps: 3,
         divergence_fee_share_cap_bps: if dynamic { 20 } else { 0 },
         volatility_fee_share_cap_bps: if dynamic { 20 } else { 0 },
@@ -743,15 +742,11 @@ fn run(c: &Value) -> R<Value> {
     let floors: Vec<_> = s.events.iter().filter(|x| x["kind"] == "floor").collect();
     let sum = |k: &str| -> u64 { floors.iter().map(|x| x[k].as_u64().unwrap()).sum() };
     let sumf = |k: &str| -> f64 { floors.iter().map(|x| x[k].as_f64().unwrap()).sum() };
-    let mut running = 0u128;
-    let mut needed = 0u128;
-    for event in &floors {
-        let gap = event["shortfall_atoms"].as_u64().unwrap() as u128;
-        needed =
-            needed.max(running + (gap * 10_000).div_ceil(MAX_INSURANCE_DRAW_PER_EVENT_BPS as u128));
-        running += gap;
-    }
-    needed = needed.max((running * 10_000).div_ceil(MAX_INSURANCE_DRAW_PER_DAY_BPS as u128));
+    let total_shortfall = sum("shortfall_atoms") as u128;
+    // The floor path has no per-event reserve cap. All draws occur within one
+    // 24-hour window, so its opening reserve must cover the daily draw limit.
+    let needed = (total_shortfall * BPS_DENOMINATOR as u128)
+        .div_ceil(MAX_INSURANCE_DRAW_PER_DAY_BPS as u128);
     let h = f(c, "hlp_each_usd", 100_000.);
     let ordinary = CAPITAL - 2. * h;
     let ordinary_hold = ordinary / 2. * (1. + last_p / P0);
