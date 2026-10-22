@@ -62,7 +62,7 @@ use super::*;
         );
 
         params = ProtocolAuctionParams::default_epoch();
-        params.duration_slots = 0;
+        params.duration_ms = 0;
         assert_eq!(
             params.validate().unwrap_err(),
             error!(ErrorCode::InvalidAuctionConfig)

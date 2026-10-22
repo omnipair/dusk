@@ -312,7 +312,7 @@ fn settle_netted(
         &mut trial,
         policy,
         full_fee_credit(&quote),
-        slot,
+        crate::clock::test_clock(slot),
         0,
         ProtocolAuctionSplit::default(),
         None,
@@ -332,13 +332,13 @@ fn settle_netted(
         ..Paid::default()
     };
     if paid.contribution > 0 {
-        trial.insurance.credit(debt_asset, paid.contribution, slot)?;
+        trial.insurance.credit(debt_asset, paid.contribution, crate::clock::test_clock(slot))?;
     }
     if fill.kind > 0 && next.debt_shares > 0 {
         let remaining = next.debt_amount(&trial.debt)?;
         let spent = trial
             .insurance
-            .draw_capacity(debt_asset, slot)?
+            .draw_capacity(debt_asset, crate::clock::test_clock(slot))?
             .min(fee.effective_gross_for_credit(remaining)?);
         let credit = fee.unwind_credit(spent)?;
         let receipt = trial.liquidate_leverage_position(
@@ -349,7 +349,7 @@ fn settle_netted(
             LeverageInsuranceDraw { spent, credit },
             0,
             ProtocolAuctionSplit::default(),
-            slot,
+            crate::clock::test_clock(slot),
         )?;
         paid.insurance = receipt.insurance_drawn;
         paid.loss = receipt.principal_written_off;
@@ -408,7 +408,7 @@ fn run(scenario: Scenario) -> Outcome {
             let shares = trial.base_side.shares.ylp_supply * case.withdrawal / 10_000;
             if let Err(e) = trial
                 .remove_liquidity(shares)
-                .and_then(|_| trial.finalize_amm_transition_and_observe_risk(slot))
+                .and_then(|_| trial.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(slot)))
             {
                 o.totals.blocked = format!("withdrawal:{}", error_name(e));
                 break;

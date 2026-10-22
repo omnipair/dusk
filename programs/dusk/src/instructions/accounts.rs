@@ -33,7 +33,7 @@ macro_rules! market_update_and_validate {
         pub fn update_and_validate(&mut self, args: &$args) -> Result<()> {
             crate::instructions::accounting::accrue_market_interest(
                 &mut self.market,
-                Clock::get()?.slot,
+                crate::clock::MarketClock::get()?,
                 self.event_authority.to_account_info(),
             )?;
             self.market.update()?;
@@ -44,7 +44,7 @@ macro_rules! market_update_and_validate {
         pub fn update_and_validate(&mut self) -> Result<()> {
             crate::instructions::accounting::accrue_market_interest(
                 &mut self.market,
-                Clock::get()?.slot,
+                crate::clock::MarketClock::get()?,
                 self.event_authority.to_account_info(),
             )?;
             self.market.update()?;
@@ -142,6 +142,7 @@ impl HlpSwapAccountLayout {
     }
 }
 
+#[inline(always)]
 pub fn token_program_for_mint<'info>(
     mint: &InterfaceAccount<'info, Mint>,
     token_program: &Program<'info, Token>,
@@ -157,6 +158,7 @@ pub fn token_program_for_mint<'info>(
     }
 }
 
+#[inline(always)]
 pub fn require_supported_asset_mint(mint: &InterfaceAccount<Mint>) -> Result<()> {
     // A freeze authority can freeze any protocol vault for this asset after the
     // market opens, which can make collateral exits and liquidation impossible.
@@ -235,6 +237,7 @@ pub fn token_account_debit(balance_before: u64, token_account: &InterfaceAccount
 /// read after their final reserve-vault token movement (or a deterministically
 /// projected post-CPI balance on the optimized swap path). The lower bound
 /// tolerates unsolicited token donations, which remain non-executable.
+#[inline(always)]
 pub(crate) fn require_reserve_custody(vault_balance: u64, market_side: &MarketSide) -> Result<()> {
     let hlp_backing_inventory = market_side.reserves.total_hlp_backing_inventory()?;
     let required = market_side
@@ -285,6 +288,7 @@ pub fn validate_side_vault_accounts<'info>(
     Ok(())
 }
 
+#[inline(always)]
 pub fn validate_owner_asset_account(
     owner: Pubkey,
     asset_mint: &InterfaceAccount<Mint>,

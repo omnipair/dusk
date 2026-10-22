@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{BPS_DENOMINATOR, MAX_INTEREST_ACCRUAL_MS, MS_PER_YEAR, NAD, NATURAL_LOG_OF_TWO_NAD, TAYLOR_TERMS},
     errors::ErrorCode,
-    math::{slots_to_ms, taylor_exp},
+    math::taylor_exp,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -24,15 +24,21 @@ pub(crate) fn health_bps(utilized_collateral_value_nad: u128, effective_debt_nad
     u64::try_from(health).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-pub(crate) fn ema_u64(last_ema: u64, input: u64, last_slot: u64, current_slot: u64, half_life_ms: u64) -> u64 {
+pub(crate) fn ema_u64(
+    last_ema: u64,
+    input: u64,
+    last_timestamp_ms: u64,
+    current_timestamp_ms: u64,
+    half_life_ms: u64,
+) -> u64 {
     if last_ema == 0 || input == 0 {
         return input;
     }
     u64::try_from(ema_u128(
         last_ema as u128,
         input as u128,
-        last_slot,
-        current_slot,
+        last_timestamp_ms,
+        current_timestamp_ms,
         half_life_ms,
     ))
     .unwrap_or(u64::MAX)
@@ -41,21 +47,33 @@ pub(crate) fn ema_u64(last_ema: u64, input: u64, last_slot: u64, current_slot: u
 pub(crate) fn directional_ema_u64(
     last_ema: u64,
     input: u64,
-    last_slot: u64,
-    current_slot: u64,
+    last_timestamp_ms: u64,
+    current_timestamp_ms: u64,
     half_life_ms: u64,
 ) -> u64 {
     if last_ema == 0 || input == 0 {
         return input;
     }
-    input.min(ema_u64(last_ema, input, last_slot, current_slot, half_life_ms))
+    input.min(ema_u64(
+        last_ema,
+        input,
+        last_timestamp_ms,
+        current_timestamp_ms,
+        half_life_ms,
+    ))
 }
 
-pub(crate) fn ema_u128(last_ema: u128, input: u128, last_slot: u64, current_slot: u64, half_life_ms: u64) -> u128 {
+pub(crate) fn ema_u128(
+    last_ema: u128,
+    input: u128,
+    last_timestamp_ms: u64,
+    current_timestamp_ms: u64,
+    half_life_ms: u64,
+) -> u128 {
     if last_ema == 0 || input == 0 {
         return input;
     }
-    let Some(dt) = slots_to_ms(last_slot, current_slot) else {
+    let Some(dt) = current_timestamp_ms.checked_sub(last_timestamp_ms) else {
         return last_ema;
     };
     if dt == 0 || half_life_ms == 0 {
@@ -75,19 +93,16 @@ pub(crate) fn ema_u128(last_ema: u128, input: u128, last_slot: u64, current_slot
 }
 
 /// EMA variant for signals where zero is a real observation rather than an
-/// uninitialized sentinel. Initialization is bound to `last_slot`, allowing a
-/// funding-rate signal to decay toward zero over its configured half-life.
+/// uninitialized sentinel. The caller initializes the first observation; later
+/// observations can decay toward zero over the configured elapsed half-life.
 pub(crate) fn ema_u128_including_zero(
     last_ema: u128,
     input: u128,
-    last_slot: u64,
-    current_slot: u64,
+    last_timestamp_ms: u64,
+    current_timestamp_ms: u64,
     half_life_ms: u64,
 ) -> u128 {
-    if last_slot == 0 {
-        return input;
-    }
-    let Some(dt) = slots_to_ms(last_slot, current_slot) else {
+    let Some(dt) = current_timestamp_ms.checked_sub(last_timestamp_ms) else {
         return last_ema;
     };
     if dt == 0 || half_life_ms == 0 {

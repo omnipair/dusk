@@ -9,7 +9,7 @@ fn market(amp: u64, hlp: bool) -> Market {
         for side in [MarketAsset::Base, MarketAsset::Quote] {
             m.deposit_single_sided(side, 10_000 * CALIBRATION_UNIT, 1).unwrap();
         }
-        m.finalize_amm_transition_and_observe_risk(1).unwrap();
+        m.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
     }
     m
 }
@@ -26,7 +26,7 @@ fn ema_emergency_quote_ignores_same_slot_spot_and_observed_depth_in_both_directi
         let spot_before = m.current_concentrated_spot_price_nad().unwrap().unwrap();
         let mut trade = SwapRequest { current_slot: 1, current_unix_timestamp: 120, asset_in: asset.opposite(),
             reserve_credit: 5_000_000, protocol_fee_bps: 2_000 }.prepare(&mut m).unwrap();
-        trade.finalize_state(&mut m, 1, 2_000, ProtocolAuctionSplit::default()).unwrap();
+        trade.finalize_state(&mut m, crate::clock::test_clock(1), 2_000, ProtocolAuctionSplit::default()).unwrap();
         assert_ne!(spot_before, m.current_concentrated_spot_price_nad().unwrap().unwrap());
         m.risk.observed_curve_depth_nad /= 2;
         let after = quote(&m);
@@ -59,7 +59,7 @@ fn ema_emergency_concentration_hlp_fees_and_real_cash_settle_without_virtual_res
         let token_fee = LeverageCollateralFee::new(Some(TransferFee {
             epoch: 0.into(), maximum_fee: 300_u64.into(), transfer_fee_basis_points: 50_u16.into(),
         }));
-        m.insurance.credit(asset, 100_000, 1).unwrap();
+        m.insurance.credit(asset, 100_000, crate::clock::test_clock(1)).unwrap();
         let sold = if full { p.collateral_amount } else { 50_000 };
         let mut prepared = m.prepare_emergency_liquidation(&Ref::Leverage(&p), asset, sold, full,
             token_fee, token_fee, token_fee, 120, 1, 2_000).unwrap();
@@ -103,7 +103,7 @@ fn ema_health_and_reference_survive_proportional_lp_withdrawal() {
         let (reference, state) = m.ema_liquidation_curve(MarketAsset::Base).unwrap();
         let shares = m.base_side.shares.ylp_supply / 4;
         m.remove_liquidity(shares).unwrap();
-        m.finalize_amm_transition_and_observe_risk(1).unwrap();
+        m.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
         let after = m.flash_liquidation_health(&Ref::Leverage(&p), MarketAsset::Quote, LeverageCollateralFee::default()).unwrap();
         assert_eq!(before, after);
         assert!(!after.eligible().unwrap());
@@ -112,6 +112,7 @@ fn ema_health_and_reference_survive_proportional_lp_withdrawal() {
         assert_eq!(reference.amm.concentrated_curve_cache, next.amm.concentrated_curve_cache);
         // Time incorporates the withdrawn depth without changing price/health.
         m.last_update_slot = 151;
+    m.last_update_timestamp_ms = crate::clock::test_clock(151).timestamp_ms;
         let risk = m.current_risk().unwrap();
         assert!(risk.curve_depth_ema_nad < m.risk.curve_depth_ema_nad);
         assert!(risk.curve_depth_ema_nad > m.risk.observed_curve_depth_nad);
@@ -144,8 +145,8 @@ fn ema_emergency_pays_accrued_hlp_funding_from_real_cash_and_cancels_unpaid_loan
         let mut m = market(amp, true);
         let mut p = seeded_position(&mut m, asset, 1_100_000, 1_000_000);
         let slot = 1_000_001;
-        m.accrue_interest_to_slot(slot).unwrap();
-        m.observe_current_risk(slot).unwrap();
+        m.accrue_interest_to_clock(crate::clock::test_clock(slot)).unwrap();
+        m.observe_current_risk(crate::clock::test_clock(slot)).unwrap();
         let held_protocol = if advanced {
             let (gross, lp) = m.fund_public_interest(asset, u64::MAX, 2_000).unwrap();
             assert!(gross > 0);

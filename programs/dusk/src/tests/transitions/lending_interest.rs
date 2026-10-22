@@ -44,7 +44,9 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
             base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
             quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
             base_last_accrual_slot: 0,
+        base_last_accrual_timestamp_ms: crate::clock::test_clock(0).timestamp_ms,
             quote_last_accrual_slot: 0,
+        quote_last_accrual_timestamp_ms: crate::clock::test_clock(0).timestamp_ms,
             ..Debt::default()
         },
         base_hlp_vault: HlpVault::default(),
@@ -59,6 +61,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         curve_revision: 0,
         risk_revision: 0,
         last_update_slot: 0,
+        last_update_timestamp_ms: crate::clock::test_clock(0).timestamp_ms,
         reduce_only: false,
         bump: 255,
     }
@@ -85,7 +88,7 @@ fn accrual_receipt_separates_credit_margin_and_hlp_at_the_shared_index() {
     market.debt.base_rate_at_target_nad = NAD as u128 / 10;
     // At target utilization, one year at 10% grows credit 300 -> 330,
     // margin 200 -> 220, and hLP funding 200 -> 220.
-    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slots_for_ms(MS_PER_YEAR))
+    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, crate::clock::test_clock(slots_for_ms(MS_PER_YEAR)))
         .unwrap()
         .unwrap();
     assert_eq!(receipt.credit_interest, 30);
@@ -95,7 +98,7 @@ fn accrual_receipt_separates_credit_margin_and_hlp_at_the_shared_index() {
     assert_eq!(market.base_side.reserves.cash_reserve, 300);
     assert_eq!(receipt.from_slot, 0);
     assert_eq!(receipt.to_slot, slots_for_ms(MS_PER_YEAR));
-    assert!(accrue_side::<true>(&mut market, MarketAsset::Base, receipt.to_slot).unwrap().is_none());
+    assert!(accrue_side::<true>(&mut market, MarketAsset::Base, crate::clock::test_clock(receipt.to_slot)).unwrap().is_none());
 }
 
 #[test]
@@ -106,9 +109,9 @@ fn short_checkpoints_preserve_fractional_borrow_interest() {
     let mut single = frequent.clone();
 
     for slot in 1..=100 {
-        accrue_side::<false>(&mut frequent, MarketAsset::Base, slot).unwrap();
+        accrue_side::<false>(&mut frequent, MarketAsset::Base, crate::clock::test_clock(slot)).unwrap();
     }
-    accrue_side::<false>(&mut single, MarketAsset::Base, 100).unwrap();
+    accrue_side::<false>(&mut single, MarketAsset::Base, crate::clock::test_clock(100)).unwrap();
 
     assert!(frequent.debt.base_borrow_index_nad > NAD as u128);
     assert_eq!(frequent.debt.base_borrow_index_nad, single.debt.base_borrow_index_nad);
@@ -124,7 +127,7 @@ fn accrual_receipts_preserve_each_buckets_rounding_boundary() {
     market.quote_hlp_vault.base_hlp_live_reserve = 2;
     market.base_side.reserves.live_reserve = 10;
     market.debt.base_rate_at_target_nad = NAD as u128 / 2;
-    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slots_for_ms(MS_PER_YEAR))
+    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, crate::clock::test_clock(slots_for_ms(MS_PER_YEAR)))
         .unwrap()
         .unwrap();
     assert_eq!(receipt.credit_interest, 1);
@@ -137,8 +140,10 @@ fn accrual_receipts_preserve_each_buckets_rounding_boundary() {
 fn no_time_elapsed_is_a_noop() {
     let mut market = test_market(1_000, 1_000);
     market.debt.base_last_accrual_slot = 100;
+    market.debt.base_last_accrual_timestamp_ms = crate::clock::test_clock(100).timestamp_ms;
     market.debt.quote_last_accrual_slot = 100;
-    market.accrue_interest_to_slot(100).unwrap();
+    market.debt.quote_last_accrual_timestamp_ms = crate::clock::test_clock(100).timestamp_ms;
+    market.accrue_interest_to_clock(crate::clock::test_clock(100)).unwrap();
     assert_eq!(market.debt.quote_borrow_index_nad, NAD as u128);
     assert_eq!(
         market.debt.quote_rate_at_target_nad,
@@ -152,7 +157,7 @@ fn no_time_elapsed_is_a_noop() {
 fn idle_side_drifts_anchor_down_toward_min() {
     // Cash present, zero debt -> utilization 0 -> error -1 -> anchor falls.
     let mut market = test_market(1_000_000, 1_000_000);
-    market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
+    market.accrue_interest_to_clock(crate::clock::test_clock(slots_for_ms(MS_PER_YEAR))).unwrap();
     assert!(market.debt.quote_rate_at_target_nad < INTEREST_INITIAL_RATE_AT_TARGET_NAD);
     assert!(market.debt.quote_rate_at_target_nad >= INTEREST_MIN_RATE_AT_TARGET_NAD);
 }
@@ -166,7 +171,7 @@ fn high_utilization_raises_anchor_and_accrues_index() {
     market.base_hlp_vault.debt_shares = 850;
     market.base_hlp_vault.quote_hlp_live_reserve = 850;
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-    market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
+    market.accrue_interest_to_clock(crate::clock::test_clock(slots_for_ms(MS_PER_YEAR))).unwrap();
     // 10% APR over one year compounds the index to 1.10.
     assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
     // Anchor drifted up (util above target).
@@ -185,7 +190,7 @@ fn hlp_funding_interest_does_not_grow_virtual_reserve() {
     market.base_hlp_vault.debt_principal = 850;
     market.base_hlp_vault.quote_hlp_live_reserve = 850;
 
-    market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
+    market.accrue_interest_to_clock(crate::clock::test_clock(slots_for_ms(MS_PER_YEAR))).unwrap();
 
     assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
     assert_eq!(market.quote_side.reserves.cash_reserve, 150);
@@ -202,7 +207,7 @@ fn cash_backed_interest_increases_virtual_reserve_with_debt() {
     market.debt.fixed_quote_shares = 850;
     market.debt.fixed_quote_principal = 850;
 
-    market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
+    market.accrue_interest_to_clock(crate::clock::test_clock(slots_for_ms(MS_PER_YEAR))).unwrap();
 
     assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
     assert_eq!(market.quote_side.reserves.cash_reserve, 150);
@@ -221,7 +226,7 @@ fn margin_and_hlp_debt_both_count_toward_utilization() {
     market.base_hlp_vault.debt_shares = 480;
     market.base_hlp_vault.quote_hlp_live_reserve = 480;
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-    market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
+    market.accrue_interest_to_clock(crate::clock::test_clock(slots_for_ms(MS_PER_YEAR))).unwrap();
     assert!(market.debt.quote_rate_at_target_nad > INTEREST_INITIAL_RATE_AT_TARGET_NAD);
 }
 
@@ -236,7 +241,7 @@ fn anchor_saturates_at_max_under_sustained_pressure() {
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
     for year in 1..=15u64 {
         market
-            .accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR * year))
+            .accrue_interest_to_clock(crate::clock::test_clock(slots_for_ms(MS_PER_YEAR * year)))
             .unwrap();
     }
     assert_eq!(market.debt.quote_rate_at_target_nad, INTEREST_MAX_RATE_AT_TARGET_NAD);
@@ -248,6 +253,7 @@ fn mixed_active_and_idle_sides_accrue_independently_with_three_conversions() {
     let mut market = test_market(300, 1_000);
     configure_active_base_side(&mut market);
     market.debt.quote_last_accrual_slot = current_slot / 2;
+    market.debt.quote_last_accrual_timestamp_ms = crate::clock::test_clock(current_slot / 2).timestamp_ms;
     let quote_elapsed_ms = (current_slot - market.debt.quote_last_accrual_slot).saturating_mul(TARGET_MS_PER_SLOT);
     let expected_quote_rate = adapt_rate_at_target_nad(
         INTEREST_INITIAL_RATE_AT_TARGET_NAD,
@@ -262,7 +268,7 @@ fn mixed_active_and_idle_sides_accrue_independently_with_three_conversions() {
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
 
     Debt::reset_shares_to_debt_call_count();
-    market.accrue_interest_to_slot(current_slot).unwrap();
+    market.accrue_interest_to_clock(crate::clock::test_clock(current_slot)).unwrap();
 
     // The active base side performs one hLP conversion before accrual and
     // one conversion for each cash-backed bucket afterward. The idle quote
@@ -302,7 +308,7 @@ fn debt_free_sides_skip_all_debt_and_index_work() {
     .unwrap();
 
     Debt::reset_shares_to_debt_call_count();
-    market.accrue_interest_to_slot(current_slot).unwrap();
+    market.accrue_interest_to_clock(crate::clock::test_clock(current_slot)).unwrap();
 
     assert_eq!(Debt::shares_to_debt_call_count(), 0);
     assert_eq!(market.debt.base_borrow_index_nad, u128::MAX);
@@ -323,7 +329,7 @@ fn long_slot_gap_charges_the_full_elapsed_interval() {
 
     Debt::reset_shares_to_debt_call_count();
     let current_slot = slots_for_ms(2 * MS_PER_YEAR);
-    market.accrue_interest_to_slot(current_slot).unwrap();
+    market.accrue_interest_to_clock(crate::clock::test_clock(current_slot)).unwrap();
 
     // At target utilization, two years at the 4% initial rate grow the index
     // by 8% even when no other operation checkpoints the market in between.
@@ -333,4 +339,61 @@ fn long_slot_gap_charges_the_full_elapsed_interval() {
     assert_eq!(market.debt.base_last_accrual_slot, current_slot);
     assert_eq!(market.debt.quote_last_accrual_slot, current_slot);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+}
+
+#[test]
+fn elapsed_interest_is_identical_at_different_slot_speeds() {
+    use crate::clock::MarketClock;
+    let mut initial = test_market(300, 1_000);
+    configure_active_base_side(&mut initial);
+    initial.debt.base_rate_at_target_nad = NAD as u128 / 10;
+    initial.debt.base_last_accrual_slot = 10;
+    initial.debt.base_last_accrual_timestamp_ms = 1_000;
+    let end_seconds = 1 + (MS_PER_YEAR / 1_000) as i64;
+    for slot_delta in [1, MS_PER_YEAR / 400, MS_PER_YEAR / 200] {
+        let mut market = initial.clone();
+        let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, MarketClock::from_timestamp(10 + slot_delta, end_seconds).unwrap()).unwrap().unwrap();
+        assert_eq!((receipt.credit_interest, receipt.margin_interest, receipt.hlp_interest), (30, 20, 20));
+        assert_eq!(receipt.to_timestamp_ms - receipt.from_timestamp_ms, MS_PER_YEAR);
+        assert_eq!(market.debt.base_borrow_index_nad, 11 * NAD as u128 / 10);
+    }
+}
+
+#[test]
+fn repeated_timestamps_do_not_accrue_interest_or_adapt_rates() {
+    use crate::clock::MarketClock;
+    let mut market = test_market(300, 1_000);
+    configure_active_base_side(&mut market);
+    market.debt.base_last_accrual_slot = 10;
+    market.debt.base_last_accrual_timestamp_ms = 1_000;
+    let original_rate = market.debt.base_rate_at_target_nad;
+    for slot in 11..=20 {
+        accrue_side::<false>(&mut market, MarketAsset::Base, MarketClock::from_timestamp(slot, 1).unwrap()).unwrap();
+        assert_eq!(market.debt.base_borrow_index_nad, NAD as u128);
+        assert_eq!(market.debt.base_rate_at_target_nad, original_rate);
+    }
+    let before = market.try_to_vec().unwrap();
+    assert!(accrue_side::<false>(&mut market, MarketAsset::Base, MarketClock::from_timestamp(21, 0).unwrap()).is_err());
+    assert_eq!(market.try_to_vec().unwrap(), before);
+    assert!(accrue_side::<false>(&mut market, MarketAsset::Base, MarketClock::from_timestamp(19, 2).unwrap()).is_err());
+    assert_eq!(market.try_to_vec().unwrap(), before);
+}
+
+#[test]
+fn repeated_complete_clock_is_idempotent_and_later_time_still_accrues() {
+    use crate::clock::MarketClock;
+    let mut market = test_market(300, 1_000);
+    configure_active_base_side(&mut market);
+    let first = MarketClock::from_timestamp(10, 1).unwrap();
+    market.accrue_interest_to_clock(first).unwrap();
+    let snapshot = market.try_to_vec().unwrap();
+    market.accrue_interest_to_clock(first).unwrap();
+    assert_eq!(market.try_to_vec().unwrap(), snapshot);
+    assert!(market.accrue_interest_to_clock(MarketClock::from_timestamp(10, 0).unwrap()).is_err());
+    assert_eq!(market.try_to_vec().unwrap(), snapshot);
+    let index = market.debt.base_borrow_index_nad;
+    market.accrue_interest_to_clock(MarketClock::from_timestamp(11, 1 + (MS_PER_YEAR / 1_000) as i64).unwrap()).unwrap();
+    assert!(market.debt.base_borrow_index_nad > index);
+    assert_eq!(market.debt.base_last_accrual_timestamp_ms, 1_000 + MS_PER_YEAR);
+    assert_eq!(market.debt.quote_last_accrual_timestamp_ms, 1_000 + MS_PER_YEAR);
 }

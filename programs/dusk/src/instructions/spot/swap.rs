@@ -87,10 +87,10 @@ pub struct Swap<'info> {
 }
 
 impl<'info> Swap<'info> {
-    pub(crate) fn validate_and_read_clock(&self, args: &SwapArgs) -> Result<(u64, u64, i64)> {
+    pub(crate) fn validate_and_read_clock(&self, args: &SwapArgs) -> Result<(Clock, MarketAsset)> {
         // Read the sysvar once for the complete swap. In particular, do not
         // call `Market::assert_started`, which would fetch `Clock` a second
-        // time before the slot-driven AMM/debt pipeline begins.
+        // time before the elapsed-time AMM/debt pipeline begins.
         let clock = Clock::get()?;
         self.market.assert_current_version()?;
         require!(
@@ -140,17 +140,19 @@ impl<'info> Swap<'info> {
         validate_owner_asset_account(self.trader.key(), &self.asset_out_mint, &self.trader_asset_out_account)?;
         require_supported_asset_mint(&self.asset_in_mint)?;
         require_supported_asset_mint(&self.asset_out_mint)?;
-        Ok((clock.slot, clock.epoch, clock.unix_timestamp))
+        Ok((clock, asset_in))
     }
 
     pub(crate) fn handle_swap(
         mut ctx: Context<'_, '_, '_, 'info, Self>,
         args: SwapArgs,
-        current_slot: u64,
-        current_epoch: u64,
-        current_unix_timestamp: i64,
+        (clock, asset_in): (Clock, MarketAsset),
         mode: SwapExecutionMode,
     ) -> Result<()> {
+        let current_slot = clock.slot;
+        let current_epoch = clock.epoch;
+        let current_unix_timestamp = clock.unix_timestamp;
+        let clock = crate::clock::MarketClock::from_clock(&clock)?;
         // The fixed hLP prefix is checked before transfer-fee, invariant,
         // controller, or hedge math. Only the trailing account slice is ever
         // offered to Token-2022 transfer-hook resolution.
@@ -160,7 +162,6 @@ impl<'info> Swap<'info> {
         };
         let market_key = ctx.accounts.market.key();
         let trader_key = ctx.accounts.trader.key();
-        let asset_in = ctx.accounts.market.asset_for_mint(ctx.accounts.asset_in_mint.key())?;
         let protocol_fee_bps = ctx.accounts.futarchy_authority.revenue_share.swap_bps;
         let protocol_auction_split = ctx.accounts.futarchy_authority.protocol_auction_split;
 
@@ -174,7 +175,7 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            current_slot,
+            clock,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         let mut prepared = SwapRequest {
@@ -190,7 +191,7 @@ impl<'info> Swap<'info> {
         }
         let finalized = prepared.finalize_state(
             &mut ctx.accounts.market,
-            current_slot,
+            clock,
             protocol_fee_bps,
             protocol_auction_split,
         )?;
@@ -260,24 +261,28 @@ impl<'info> Swap<'info> {
             h_lp_accounts.hook_accounts(ctx.remaining_accounts),
         )?;
 
-        // One call per side and one net token settlement per receipt. A side
+        // Keep empty receipts outside the token-settlement frame. A side
         // can mint or burn yLP, never both, and can transfer interest once.
-        apply_single_hlp_rebalance_token_changes(
-            &mut ctx,
-            &base_rebalance,
-            BASE_HLP_YLP_VAULT_INDEX,
-            QUOTE_INTEREST_VAULT_INDEX,
-            h_lp_accounts,
-            interest_eligibility,
-        )?;
-        apply_single_hlp_rebalance_token_changes(
-            &mut ctx,
-            &quote_rebalance,
-            QUOTE_HLP_YLP_VAULT_INDEX,
-            BASE_INTEREST_VAULT_INDEX,
-            h_lp_accounts,
-            interest_eligibility,
-        )?;
+        if rebalance_executes_token_changes(&base_rebalance) {
+            apply_single_hlp_rebalance_token_changes(
+                &mut ctx,
+                &base_rebalance,
+                BASE_HLP_YLP_VAULT_INDEX,
+                QUOTE_INTEREST_VAULT_INDEX,
+                h_lp_accounts,
+                interest_eligibility,
+            )?;
+        }
+        if rebalance_executes_token_changes(&quote_rebalance) {
+            apply_single_hlp_rebalance_token_changes(
+                &mut ctx,
+                &quote_rebalance,
+                QUOTE_HLP_YLP_VAULT_INDEX,
+                BASE_INTEREST_VAULT_INDEX,
+                h_lp_accounts,
+                interest_eligibility,
+            )?;
+        }
 
         let asset_out_token_program = token_program_for_mint(
             &ctx.accounts.asset_out_mint,
@@ -445,6 +450,7 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
     Ok(())
 }
 
+#[inline(always)]
 fn projected_reserve_vault_balance(
     balance_before: u64,
     net_input_credit: u64,

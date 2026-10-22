@@ -142,7 +142,7 @@ impl<'info> InitializeYieldAccounts<'info> {
         // New accounts start at current indices so they cannot claim historical yield.
         crate::instructions::accounting::accrue_market_interest(
             market,
-            Clock::get()?.slot,
+            crate::clock::MarketClock::get()?,
             event_authority.to_account_info(),
         )?;
         let contexts = current_yield_contexts(market, lp_mint)?.ok_or_else(|| error!(ErrorCode::InvalidLpMintKey))?;

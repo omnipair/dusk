@@ -342,7 +342,7 @@ impl<'info> CloseLeverage<'info> {
     pub fn handle_close(
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: CloseLeverageArgs,
-        current_slot: u64,
+        clock: crate::clock::MarketClock,
         current_epoch: u64,
         current_unix_timestamp: i64,
     ) -> Result<()> {
@@ -353,7 +353,7 @@ impl<'info> CloseLeverage<'info> {
             None,
             CloseMode::Owner,
             close_bps,
-            current_slot,
+            clock,
             current_epoch,
             current_unix_timestamp,
         )
@@ -362,7 +362,7 @@ impl<'info> CloseLeverage<'info> {
     pub fn handle_delegated_close(
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: DelegatedCloseLeverageArgs,
-        current_slot: u64,
+        clock: crate::clock::MarketClock,
         current_epoch: u64,
         current_unix_timestamp: i64,
     ) -> Result<()> {
@@ -376,7 +376,7 @@ impl<'info> CloseLeverage<'info> {
             Some(args.delegated),
             CloseMode::Delegate,
             args.close_bps,
-            current_slot,
+            clock,
             current_epoch,
             current_unix_timestamp,
         )
@@ -388,10 +388,11 @@ impl<'info> CloseLeverage<'info> {
         delegated: Option<DelegatedCpiArgs>,
         mode: CloseMode,
         close_bps: u16,
-        current_slot: u64,
+        clock: crate::clock::MarketClock,
         current_epoch: u64,
         current_unix_timestamp: i64,
     ) -> Result<()> {
+        let current_slot = clock.slot;
         let remaining_accounts = ctx.remaining_accounts;
         let market_key = ctx.accounts.market.key();
         let h_lp_accounts = {
@@ -415,16 +416,16 @@ impl<'info> CloseLeverage<'info> {
         // the delegate callback and committed lifecycle share one basis.
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            current_slot,
+            clock,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         let close_slice = ctx
             .accounts
             .market
             .leverage_close_slice(&ctx.accounts.leverage_position, close_bps)?;
-        ctx.accounts.market.prepare_amm_for_swap(current_slot)?;
-        ctx.accounts.market.advance_one_amm_controller_target(current_slot)?;
-        ctx.accounts.market.observe_current_risk(current_slot)?;
+        ctx.accounts.market.prepare_amm_for_swap(clock)?;
+        ctx.accounts.market.advance_one_amm_controller_target(clock)?;
+        ctx.accounts.market.observe_current_risk(clock)?;
         let collateral_sold = close_slice.collateral_amount;
         let is_full_close = close_bps == BPS_DENOMINATOR;
         // Price the selected close before an optional delegated approval callback.
@@ -446,7 +447,7 @@ impl<'info> CloseLeverage<'info> {
             let close_quote = ctx.accounts.market.quote_leverage_swap_at_time(
                 collateral_asset,
                 expected_collateral_reserve_credit,
-                current_slot,
+                clock,
                 current_unix_timestamp,
             )?;
             require_gte!(close_quote.amount_out, debt_amount, ErrorCode::InsufficientAmount);
@@ -606,7 +607,7 @@ impl<'info> CloseLeverage<'info> {
                 swap_fee_credit,
                 ctx.accounts.futarchy_authority.revenue_share.swap_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
-                current_slot,
+                clock,
                 leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
             )?
         } else {
@@ -618,7 +619,7 @@ impl<'info> CloseLeverage<'info> {
                 swap_fee_credit,
                 ctx.accounts.futarchy_authority.revenue_share.swap_bps,
                 ctx.accounts.futarchy_authority.protocol_auction_split,
-                current_slot,
+                clock,
                 current_unix_timestamp,
                 leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
             )?
@@ -770,7 +771,7 @@ impl<'info> CloseLeverage<'info> {
             owner_key,
             authority_key,
             debt_mint_key,
-            current_slot,
+            (clock).slot,
         )? {
             emit_cpi!(event);
         }

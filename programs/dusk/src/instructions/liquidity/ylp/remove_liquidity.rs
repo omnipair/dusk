@@ -184,10 +184,8 @@ impl<'info> RemoveLiquidity<'info> {
 
         // Commit the reserve withdrawal and refresh solvency before payout.
         let receipt = ctx.accounts.market.remove_liquidity(args.ylp_amount)?;
-        let current_slot = Clock::get()?.slot;
-        ctx.accounts
-            .market
-            .finalize_amm_transition_and_observe_risk(current_slot)?;
+        let clock = crate::clock::MarketClock::get()?;
+        ctx.accounts.market.finalize_amm_transition_and_observe_risk(clock)?;
         let fees = crate::instructions::lending_market_admission_fees(
             &ctx.accounts.market,
             &ctx.accounts.base_mint,

@@ -67,7 +67,9 @@ for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.t
     "flashReceivable", "flashCollateralDebit",
     "frozenHlpMask", "frozenBaseVaultBaseOffsetNad", "frozenBaseVaultQuoteOffsetNad",
     "frozenQuoteVaultBaseOffsetNad", "frozenQuoteVaultQuoteOffsetNad",
-  ].includes(f.name));
+  ].includes(f.name)
+    && !(f.name.endsWith("TimestampMs") && type.name !== "protocolAuctionEpoch")
+    && !(type.name === "insuranceDrawWindow" && f.name === "initialized"));
 const BorshAccountsCoder = Reflect.get(anchor, "BorshAccountsCoder") ?? Reflect.get(anchor, "default").BorshAccountsCoder;
 const oldAccount = new BorshAccountsCoder(oldIdl).decode("market", currentMarketBytes);
 oldAccount.version = MARKET_LAYOUT_VERSION;
@@ -80,7 +82,24 @@ oldAccount.amm.frozenBaseVaultBaseOffsetNad = new BN(0);
 oldAccount.amm.frozenBaseVaultQuoteOffsetNad = new BN(0);
 oldAccount.amm.frozenQuoteVaultBaseOffsetNad = new BN(0);
 oldAccount.amm.frozenQuoteVaultQuoteOffsetNad = new BN(0);
-const body = Buffer.alloc(currentMarketBytes.length + 128);
+// Add the elapsed-time checkpoints introduced by layout 6. The saved fixture
+// only drives SDK projection/decoding; it does not execute an on-chain clock.
+oldAccount.baseSide.dailyBorrowBucket.lastDecayTimestampMs = new BN(0);
+oldAccount.quoteSide.dailyBorrowBucket.lastDecayTimestampMs = new BN(0);
+oldAccount.amm.lastObservationTimestampMs = new BN(0);
+oldAccount.amm.lastAdjustmentTimestampMs = new BN(0);
+oldAccount.debt.baseLastAccrualTimestampMs = new BN(0);
+oldAccount.debt.quoteLastAccrualTimestampMs = new BN(0);
+oldAccount.baseHlpVault.fundingAprEmaLastTimestampMs = new BN(0);
+oldAccount.quoteHlpVault.fundingAprEmaLastTimestampMs = new BN(0);
+oldAccount.risk.lastSnapshotTimestampMs = new BN(0);
+oldAccount.lastUpdateTimestampMs = new BN(0);
+for (const window of [oldAccount.insurance.baseDrawWindow, oldAccount.insurance.quoteDrawWindow]) {
+  window.initialized = false;
+  window.startTimestampMs = new BN(0);
+}
+oldAccount.config.amm.minAdjustmentIntervalMs = oldAccount.config.amm.minAdjustmentIntervalMs.muln(400);
+const body = Buffer.alloc(currentMarketBytes.length + 256);
 const entry = fixtureProgram.coder.accounts.accountLayouts.get("market");
 const size = entry.layout.encode(oldAccount, body);
 fixture.result.value.accounts[0].data[0] = Buffer.concat([currentMarketBytes.subarray(0, 8), body.subarray(0, size)]).toString("base64");

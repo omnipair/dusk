@@ -195,7 +195,7 @@ impl Market {
     pub(crate) fn settle_hlp_flash_recovery(
         &mut self,
         quote: HlpFlashQuote,
-        slot: u64,
+        clock: crate::clock::MarketClock,
     ) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
         require!(!quote.full, ErrorCode::InvalidLiquidationSession);
         let target = MarketAsset::try_from_code(quote.target_asset)?;
@@ -276,7 +276,7 @@ impl Market {
         vault.flash_collateral_debit = 0;
         let plan = engine::prepare_concentrated_hlp_transition_from_end(self, end, false, true, 0, 0)?;
         let receipts = plan.consume(self)?;
-        self.finalize_amm_transition_and_observe_risk(slot)?;
+        self.finalize_amm_transition_and_observe_risk(clock)?;
         self.assert_market_invariants()?;
         Ok(receipts)
     }

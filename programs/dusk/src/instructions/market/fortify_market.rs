@@ -100,7 +100,7 @@ impl<'info> FortifyMarket<'info> {
         require!(actual_credit > 0, ErrorCode::AmountZero);
         ctx.accounts
             .market
-            .credit_insurance_donation(asset, actual_credit, Clock::get()?.slot)?;
+            .credit_insurance_donation(asset, actual_credit, crate::clock::MarketClock::get()?)?;
 
         emit_cpi!(InsuranceDonated {
             market: market_key,

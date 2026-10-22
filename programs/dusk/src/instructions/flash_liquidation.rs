@@ -313,7 +313,7 @@ impl<'info> BeginFlashLiquidation<'info> {
         let a = &mut ctx.accounts.accounts;
         crate::instructions::accounting::accrue_market_interest(
             &mut a.market,
-            clock.slot,
+            crate::clock::MarketClock::from_clock(&clock)?,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         a.market.update()?;
@@ -566,7 +566,9 @@ impl<'info> SettleFlashLiquidation<'info> {
             .ok_or(ErrorCode::BrokenInvariant)?;
         let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
         let gross_capacity = if quote.full {
-            a.market.insurance.draw_capacity(asset, clock.slot)?
+            a.market
+                .insurance
+                .draw_capacity(asset, crate::clock::MarketClock::from_clock(&clock)?)?
         } else {
             0
         };
@@ -711,7 +713,9 @@ impl<'info> SettleFlashLiquidation<'info> {
         // Credit new insurance only after consuming the preexisting claim
         // budget, so a liquidation cannot fund its own loss coverage.
         if fee.insurance > 0 {
-            a.market.insurance.credit(asset, fee.insurance, clock.slot)?;
+            a.market
+                .insurance
+                .credit(asset, fee.insurance, crate::clock::MarketClock::from_clock(&clock)?)?;
         }
         a.interest_vault.reload()?;
         let eligibility = crate::transitions::HlpYieldEligibility {

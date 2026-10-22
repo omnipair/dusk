@@ -272,9 +272,9 @@ impl Market {
                     let preliminary = executable.preliminary_swap_inputs_at_reference_price(
                         asset.opposite(),
                         credit,
-                        slot,
+                        crate::clock::MarketClock::from_timestamp(slot, now)?,
                         now,
-                        executable.dynamic_fee_pre_state(slot)?,
+                        executable.dynamic_fee_pre_state(crate::clock::MarketClock::from_timestamp(slot, now)?)?,
                         executable.amm.center_price_nad,
                     )?;
                     let (output, _) = executable.evaluate_concentrated_swap(

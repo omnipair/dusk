@@ -93,7 +93,7 @@ fn make(c: &Value) -> R<Sim> {
             volatility_half_life_ms: 60_000,
             adjustment_threshold_nad: NAD / 100,
             adjustment_step_nad: NAD / 1000,
-            min_adjustment_interval_slots: 150,
+            min_adjustment_interval_ms: 150,
             volatility_shock_cap_nad: NAD / 20,
             volatility_cap_nad: NAD / 10,
             divergence_fee_coefficient_nad: if dynamic { NAD / 10 } else { 0 },
