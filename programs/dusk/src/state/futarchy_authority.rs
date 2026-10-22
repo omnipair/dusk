@@ -90,7 +90,7 @@ impl ProtocolAuctionSplit {
 pub struct ProtocolAuctionParams {
     pub start_multiplier_bps: u16,
     pub floor_multiplier_bps: u16,
-    pub duration_slots: u64,
+    pub duration_ms: u64,
     pub max_reference_age_slots: u64,
 }
 
@@ -99,7 +99,7 @@ impl ProtocolAuctionParams {
         Self {
             start_multiplier_bps: 12_000,
             floor_multiplier_bps: 8_000,
-            duration_slots: 216_000,
+            duration_ms: 86_400_000,
             max_reference_age_slots: 21_600,
         }
     }
@@ -112,7 +112,7 @@ impl ProtocolAuctionParams {
             self.floor_multiplier_bps,
             ErrorCode::InvalidAuctionConfig
         );
-        require!(self.duration_slots > 0, ErrorCode::InvalidAuctionConfig);
+        require!(self.duration_ms > 0, ErrorCode::InvalidAuctionConfig);
         require!(self.max_reference_age_slots > 0, ErrorCode::InvalidAuctionConfig);
         Ok(())
     }

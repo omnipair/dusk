@@ -272,7 +272,7 @@ impl<'info> InitializeMarket<'info> {
     }
 
     pub fn handle_initialize(ctx: Context<Self>, args: InitializeMarketArgs) -> Result<()> {
-        let current_slot = Clock::get()?.slot;
+        let clock = crate::clock::MarketClock::get()?;
         let market_key = ctx.accounts.market.key();
         let payer_key = ctx.accounts.payer.key();
         let base_mint = ctx.accounts.base_mint.key();
@@ -436,7 +436,7 @@ impl<'info> InitializeMarket<'info> {
             payer_key,
             args.bootstrap_price_nad,
             args.launch_fee_progress_offset,
-            current_slot,
+            clock,
             ctx.bumps.market,
         )?;
 

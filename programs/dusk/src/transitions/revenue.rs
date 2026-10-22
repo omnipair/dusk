@@ -23,8 +23,8 @@ pub(crate) fn quote_protocol_auction_settlement(
     reference_price_nad: u64,
     start_multiplier_bps: u16,
     floor_multiplier_bps: u16,
-    elapsed_slots: u64,
-    duration_slots: u64,
+    elapsed_ms: u64,
+    duration_ms: u64,
     staking_vault_bps: u16,
 ) -> Result<ProtocolAuctionSettlementQuote> {
     require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
@@ -39,8 +39,8 @@ pub(crate) fn quote_protocol_auction_settlement(
     let decay = start_price
         .checked_sub(floor_price)
         .ok_or(ErrorCode::MarketMathOverflow)?
-        .checked_mul(elapsed_slots.min(duration_slots) as u128)
-        .and_then(|value| value.checked_div(duration_slots as u128))
+        .checked_mul(elapsed_ms.min(duration_ms) as u128)
+        .and_then(|value| value.checked_div(duration_ms as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let auction_price_nad = u64::try_from(start_price.checked_sub(decay).ok_or(ErrorCode::MarketMathOverflow)?)
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
@@ -96,7 +96,7 @@ impl Fees {
         &self,
         lane: ProtocolAuctionLane,
         source: ProtocolRevenueSource,
-        current_slot: u64,
+        clock: crate::clock::MarketClock,
     ) -> ProtocolAuctionEpoch {
         let liability = self.protocol_auction_liability(lane, source);
         let stored = match (lane, source) {
@@ -105,9 +105,9 @@ impl Fees {
             (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Swap) => self.buyback_swap_auction_epoch,
             (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Interest) => self.buyback_interest_auction_epoch,
         };
-        if stored.start_slot == 0 || liability > stored.tracked_inventory {
+        if stored.tracked_inventory == 0 || liability > stored.tracked_inventory {
             ProtocolAuctionEpoch {
-                start_slot: current_slot,
+                start_timestamp_ms: clock.timestamp_ms,
                 tracked_inventory: liability,
             }
         } else {
@@ -182,7 +182,7 @@ impl Fees {
         lane: ProtocolAuctionLane,
         source: ProtocolRevenueSource,
         amount: u64,
-        epoch_start_slot: u64,
+        epoch_start_timestamp_ms: u64,
     ) -> Result<()> {
         require!(amount > 0, ErrorCode::AmountZero);
         let liability = match (lane, source) {
@@ -211,7 +211,7 @@ impl Fees {
             ProtocolAuctionEpoch::default()
         } else {
             ProtocolAuctionEpoch {
-                start_slot: epoch_start_slot,
+                start_timestamp_ms: epoch_start_timestamp_ms,
                 tracked_inventory: remaining,
             }
         };

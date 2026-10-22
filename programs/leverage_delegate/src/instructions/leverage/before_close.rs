@@ -102,7 +102,6 @@ impl<'info> BeforeLeverageOrder<'info> {
             LeverageDelegateError::InvalidOrder
         );
         let clock = Clock::get()?;
-        let current_slot = clock.slot;
         let debt_asset = ctx.accounts.leverage_position.debt_asset()?;
         let collateral_asset = debt_asset.opposite();
         let debt_mint = ctx.accounts.market.side(debt_asset).asset_mint;
@@ -124,7 +123,7 @@ impl<'info> BeforeLeverageOrder<'info> {
             .market
             .leverage_closeout_value_at_time_with_fee(
                 &ctx.accounts.leverage_position,
-                current_slot,
+                dusk::clock::MarketClock::from_clock(&clock)?,
                 clock.unix_timestamp,
                 dusk::instructions::leverage_collateral_fee(
                     &ctx.accounts.collateral_mint,
@@ -178,7 +177,7 @@ impl<'info> BeforeLeverageOrder<'info> {
         let close_quote = ctx.accounts.market.quote_leverage_swap_at_time(
             collateral_asset,
             collateral_credit,
-            current_slot,
+            dusk::clock::MarketClock::from_clock(&clock)?,
             clock.unix_timestamp,
         )?;
         let cash_repaid = ctx

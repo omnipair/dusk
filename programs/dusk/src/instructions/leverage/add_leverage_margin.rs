@@ -117,10 +117,11 @@ impl<'info> AddLeverageMargin<'info> {
     pub fn handle_add_margin(
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: AddLeverageMarginArgs,
-        current_slot: u64,
+        clock: crate::clock::MarketClock,
         current_epoch: u64,
         quote_closeout: bool,
     ) -> Result<()> {
+        let current_slot = clock.slot;
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.leverage_position.owner;
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
@@ -133,10 +134,10 @@ impl<'info> AddLeverageMargin<'info> {
         };
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            current_slot,
+            clock,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
+        ctx.accounts.market.prepare_leverage_margin_operation(clock)?;
         let interest_eligibility = HlpYieldEligibility {
             ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
             base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
@@ -197,14 +198,14 @@ impl<'info> AddLeverageMargin<'info> {
             ctx.accounts.market.add_leverage_margin(
                 &mut ctx.accounts.leverage_position,
                 repay_credit,
-                current_slot,
+                clock,
                 leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
             )?
         } else {
             ctx.accounts.market.repay_leverage_debt_from_curve(
                 &mut ctx.accounts.leverage_position,
                 repay_credit,
-                current_slot,
+                clock,
                 before_accrual,
             )?
         };
@@ -253,7 +254,7 @@ impl<'info> AddLeverageMargin<'info> {
             owner_key,
             ctx.accounts.owner.key(),
             debt_mint_key,
-            current_slot,
+            (clock).slot,
         )? {
             emit_cpi!(event);
         }

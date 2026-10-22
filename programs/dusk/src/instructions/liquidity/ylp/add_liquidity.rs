@@ -380,13 +380,11 @@ impl<'info> AddLiquidity<'info> {
             .market
             .add_liquidity(base_reserve_credit, quote_reserve_credit)?;
         require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
-        let current_slot = Clock::get()?.slot;
+        let clock = crate::clock::MarketClock::get()?;
         // Adding depth cannot consume an underwriting shape in this
         // instruction. One canonical curve evaluation finalizes curve depth and the
         // exact observation; pessimistic lending shapes remain lazy.
-        ctx.accounts
-            .market
-            .finalize_amm_transition_and_observe_risk(current_slot)?;
+        ctx.accounts.market.finalize_amm_transition_and_observe_risk(clock)?;
         require_reserve_custody(ctx.accounts.base_reserve_vault.amount, &ctx.accounts.market.base_side)?;
         require_reserve_custody(ctx.accounts.quote_reserve_vault.amount, &ctx.accounts.market.quote_side)?;
 

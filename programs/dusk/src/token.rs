@@ -224,6 +224,7 @@ pub fn get_transfer_fee(mint_info: &AccountInfo, pre_fee_amount: u64) -> Result<
 }
 
 /// Calculate the fee for an input amount at a caller-supplied epoch.
+#[inline(always)]
 pub fn get_transfer_fee_for_epoch(mint_info: &AccountInfo, pre_fee_amount: u64, epoch: u64) -> Result<u64> {
     if *mint_info.owner == Token::id() {
         return Ok(0);

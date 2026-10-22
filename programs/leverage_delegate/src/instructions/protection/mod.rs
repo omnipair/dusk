@@ -117,7 +117,8 @@ pub(super) fn protection_health_of(
     collateral_fee: LeverageCollateralFee,
 ) -> Result<u64> {
     if refresh {
-        market.prepare_position_protection_snapshot(clock.slot)?;
+        market
+            .prepare_position_protection_snapshot(dusk::clock::MarketClock::from_clock(clock)?)?;
     }
     if action < 2 {
         require!(leverage.is_none(), LeverageDelegateError::InvalidOrder);

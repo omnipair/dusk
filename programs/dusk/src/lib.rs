@@ -4,6 +4,7 @@ use anchor_lang::prelude::*;
 pub mod account;
 #[cfg(feature = "benchmark")]
 pub mod benchmark_api;
+pub mod clock;
 pub mod constants;
 pub mod errors;
 pub mod events;
@@ -284,8 +285,8 @@ pub mod dusk {
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         let mode = SwapExecutionMode::Ordinary;
-        let (current_slot, current_epoch, current_unix_timestamp) = ctx.accounts.validate_and_read_clock(&args)?;
-        Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
+        let validated = ctx.accounts.validate_and_read_clock(&args)?;
+        Swap::handle_swap(ctx, args, validated, mode)
     }
 
     /// Quote the fixed net payment for vault-wide atomic external hLP recovery.
@@ -317,8 +318,8 @@ pub mod dusk {
     /// the 9/8 funding-stress boundary.
     pub fn rescue_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         let mode = SwapExecutionMode::HlpRecovery;
-        let (current_slot, current_epoch, current_unix_timestamp) = ctx.accounts.validate_and_read_clock(&args)?;
-        Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
+        let validated = ctx.accounts.validate_and_read_clock(&args)?;
+        Swap::handle_swap(ctx, args, validated, mode)
     }
 
     /// Permissionlessly closes an hLP whose full marked backing cannot cover
@@ -330,8 +331,8 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
         args: CloseInsolventHlpArgs,
     ) -> Result<()> {
-        let current_slot = ctx.accounts.update_and_validate(&args)?;
-        CloseInsolventHlp::handle(ctx, args, current_slot)
+        let clock = ctx.accounts.update_and_validate(&args)?;
+        CloseInsolventHlp::handle(ctx, args, clock)
     }
 
     pub fn begin_flash_liquidation<'info>(
@@ -433,7 +434,13 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        OpenLeverage::handle_open(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        OpenLeverage::handle_open(
+            ctx,
+            args,
+            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.epoch,
+            clock.unix_timestamp,
+        )
     }
 
     pub fn close_leverage<'info>(
@@ -442,7 +449,13 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        CloseLeverage::handle_close(
+            ctx,
+            args,
+            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.epoch,
+            clock.unix_timestamp,
+        )
     }
 
     pub fn delegated_close_leverage<'info>(
@@ -451,7 +464,13 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_delegated_at(&args, clock.unix_timestamp)?;
-        CloseLeverage::handle_delegated_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        CloseLeverage::handle_delegated_close(
+            ctx,
+            args,
+            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.epoch,
+            clock.unix_timestamp,
+        )
     }
 
     pub fn increase_leverage<'info>(
@@ -460,7 +479,13 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        IncreaseLeverage::handle_increase(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        IncreaseLeverage::handle_increase(
+            ctx,
+            args,
+            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.epoch,
+            clock.unix_timestamp,
+        )
     }
 
     pub fn decrease_leverage<'info>(
@@ -469,7 +494,12 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        DecreaseLeverage::handle_decrease(ctx, args, clock.slot, clock.unix_timestamp)
+        DecreaseLeverage::handle_decrease(
+            ctx,
+            args,
+            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.unix_timestamp,
+        )
     }
 
     pub fn add_leverage_margin<'info>(
@@ -478,7 +508,13 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, true)
+        AddLeverageMargin::handle_add_margin(
+            ctx,
+            args,
+            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.epoch,
+            true,
+        )
     }
 
     /// Repays leverage from the signer's tokens without quoting or selling collateral.
@@ -489,7 +525,13 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, false)
+        AddLeverageMargin::handle_add_margin(
+            ctx,
+            args,
+            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.epoch,
+            false,
+        )
     }
 
     #[access_control(ctx.accounts.validate(&args))]

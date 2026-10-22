@@ -2530,7 +2530,7 @@
             "type": "u64"
           },
           {
-            "name": "min_adjustment_interval_slots",
+            "name": "min_adjustment_interval_ms",
             "type": "u64"
           },
           {
@@ -2680,7 +2680,15 @@
             "type": "u64"
           },
           {
+            "name": "last_observation_timestamp_ms",
+            "type": "u64"
+          },
+          {
             "name": "last_adjustment_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_adjustment_timestamp_ms",
             "type": "u64"
           },
           {
@@ -3188,6 +3196,10 @@
             "type": "u64"
           },
           {
+            "name": "last_decay_timestamp_ms",
+            "type": "u64"
+          },
+          {
             "name": "decay_remainder_ms",
             "docs": [
               "Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed",
@@ -3254,7 +3266,15 @@
             "type": "u64"
           },
           {
+            "name": "base_last_accrual_timestamp_ms",
+            "type": "u64"
+          },
+          {
             "name": "quote_last_accrual_slot",
+            "type": "u64"
+          },
+          {
+            "name": "quote_last_accrual_timestamp_ms",
             "type": "u64"
           },
           {
@@ -3849,6 +3869,10 @@
           {
             "name": "funding_apr_ema_last_slot",
             "type": "u64"
+          },
+          {
+            "name": "funding_apr_ema_last_timestamp_ms",
+            "type": "u64"
           }
         ]
       }
@@ -3911,10 +3935,18 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "start_timestamp_ms",
+            "type": "u64"
+          },
+          {
             "name": "start_slot",
             "docs": [
-              "Slot at which the current 24-hour accounting window began. A zero",
-              "value means no draw window has been opened yet."
+              "Ordering checkpoint for the current 24-hour accounting window.",
+              "`initialized` distinguishes an unopened window from timestamp/slot zero."
             ],
             "type": "u64"
           },
@@ -4553,6 +4585,10 @@
             "type": "u64"
           },
           {
+            "name": "last_update_timestamp_ms",
+            "type": "u64"
+          },
+          {
             "name": "reduce_only",
             "type": "bool"
           },
@@ -4903,7 +4939,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "start_slot",
+            "name": "start_timestamp_ms",
             "type": "u64"
           },
           {
@@ -4932,7 +4968,7 @@
             "type": "u16"
           },
           {
-            "name": "duration_slots",
+            "name": "duration_ms",
             "type": "u64"
           },
           {
@@ -5249,6 +5285,10 @@
           },
           {
             "name": "last_snapshot_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_snapshot_timestamp_ms",
             "type": "u64"
           }
         ]
