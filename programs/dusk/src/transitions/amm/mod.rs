@@ -1241,6 +1241,8 @@ impl Market {
             } else {
                 quote_hlp_base_debt
             },
+            base_hlp_quote_carry: 0,
+            quote_hlp_base_carry: 0,
             ordinary_base_book_offset: base_book_offset,
             ordinary_quote_book_offset: quote_book_offset,
             base_unpaid_interest: base_interest,
@@ -1395,8 +1397,23 @@ impl Market {
         reserve_credit: u64,
         preliminary: PreliminarySwapInputs,
         protocol_fee_bps: u16,
+        carry_interest: bool,
     ) -> Result<(IntegratedCurveState, ConcentratedIntegratedAmmQuote)> {
-        let (state, mark) = self.integrated_curve_state_with_mark_nad()?;
+        let (mut state, mark) = self.integrated_curve_state_with_mark_nad()?;
+        if carry_interest {
+            let base_debt = Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?;
+            let quote_debt = Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)?;
+            if !self.hlp_frozen(MarketAsset::Base) {
+                state.base_hlp_quote_carry =
+                    u64::try_from(base_debt.saturating_sub(u128::from(self.base_hlp_vault.debt_principal)))
+                        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+            }
+            if !self.hlp_frozen(MarketAsset::Quote) {
+                state.quote_hlp_base_carry =
+                    u64::try_from(quote_debt.saturating_sub(u128::from(self.quote_hlp_vault.debt_principal)))
+                        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+            }
+        }
         let quote = self
             .evaluate_concentrated_swap_with_mark(
                 asset_in,
@@ -1423,7 +1440,7 @@ impl Market {
         preliminary: PreliminarySwapInputs,
         protocol_fee_bps: u16,
     ) -> Result<(IntegratedCurveState, ConcentratedIntegratedAmmQuote)> {
-        match self.prepare_current_hlp_quote(asset_in, reserve_credit, preliminary, protocol_fee_bps) {
+        match self.prepare_current_hlp_quote(asset_in, reserve_credit, preliminary, protocol_fee_bps, false) {
             Ok(quote) => Ok(quote),
             Err(original_error) => {
                 let before = self.amm.frozen_hlp_mask;
@@ -1431,7 +1448,7 @@ impl Market {
                 if self.amm.frozen_hlp_mask == before {
                     return Err(original_error);
                 }
-                self.prepare_current_hlp_quote(asset_in, reserve_credit, preliminary, protocol_fee_bps)
+                self.prepare_current_hlp_quote(asset_in, reserve_credit, preliminary, protocol_fee_bps, false)
             }
         }
     }

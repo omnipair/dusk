@@ -32,6 +32,10 @@ pub(crate) struct IntegratedCurveState {
     pub quote_hlp_equity: u128,
     pub base_hlp_quote_debt: u128,
     pub quote_hlp_base_debt: u128,
+    /// Indexed hLP funding interest kept as debt when this transition cannot
+    /// safely pay it from reserve cash. It is not executable AMM principal.
+    pub base_hlp_quote_carry: u64,
+    pub quote_hlp_base_carry: u64,
     // Book ownership includes accrued public interest; the trading coordinates
     // above do not. Offsets are frozen for one quote, so trader cash moves both
     // ledgers equally without inserting an unpaid receivable into the curve.
@@ -264,9 +268,29 @@ pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Resul
     require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
     if state.frozen_hlp_mask & 2 == 0 {
         state.quote_hlp_base_debt = mul_div_u128(state.quote_hlp_equity, base, quote)?;
+        if state.quote_hlp_base_carry > 0 {
+            state.quote_hlp_base_debt = state
+                .quote_hlp_base_debt
+                .checked_add(
+                    u128::from(state.quote_hlp_base_carry)
+                        .checked_mul(state.base_atom_nad)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+        }
     }
     if state.frozen_hlp_mask & 1 == 0 {
         state.base_hlp_quote_debt = mul_div_u128(state.base_hlp_equity, quote, base)?;
+        if state.base_hlp_quote_carry > 0 {
+            state.base_hlp_quote_debt = state
+                .base_hlp_quote_debt
+                .checked_add(
+                    u128::from(state.base_hlp_quote_carry)
+                        .checked_mul(state.quote_atom_nad)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+        }
     }
     materialized_hlp_endpoint(state)
 }
@@ -466,7 +490,11 @@ pub(crate) fn quote_integrated_exact_in(
         IntegratedSwapDirection::QuoteToBase => ConcentratedCurveDirection::QuoteToBase,
     };
     if state.uses_book_hedge()
-        && (state.base_unpaid_interest > 0 || state.quote_unpaid_interest > 0 || state.frozen_hlp_mask != 0)
+        && (state.base_unpaid_interest > 0
+            || state.quote_unpaid_interest > 0
+            || state.base_hlp_quote_carry > 0
+            || state.quote_hlp_base_carry > 0
+            || state.frozen_hlp_mask != 0)
     {
         let start = state
             .reconstructed_curve_point()?

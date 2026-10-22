@@ -1007,6 +1007,13 @@ curve offsets; older snapshots are incompatible.
 
 ### Vault-wide hLP flash recovery
 
+For a solvent vault, this is a **flash rescue** of its funding hedge. A positive
+funding gap can be quoted before the native `rescue_hlp` swap's 112.5% critical
+boundary. The on-chain quote caps the discount to retain positive vault value;
+it may offer no discount for a tiny gap. A frozen vault can also quote a funded
+rescue after its gap falls. Full flash closeout remains restricted to insolvency
+at both the executable curve mark and symmetric EMA.
+
 ```ts
 const quote = await dusk.hlpLiquidations.preview({ market, targetAsset: "base" });
 const plan = await dusk.hlpLiquidations.buildFlash({
@@ -1056,3 +1063,11 @@ transient spot deficit must recover or receive funded rescue before its holders
 can withdraw. Once its executable value recovers, a frozen vault can quote a
 funded flash rescue even if its debt gap has fallen below the ordinary rescue
 threshold; a fully covered gap uses a minimal zero-discount payment.
+
+Spot swap previews use the same cash policy as execution. If paying all accrued
+hLP funding interest would consume the cash needed for trader output or the
+last reserve atom, Dusk requotes the swap while carrying both active hLP
+funding-interest amounts on their indexed debts. That swap pays no hLP funding
+interest and offers no hLP recovery bonus. A later swap with sufficient reserve
+cash can settle the carried interest. The trader's output still requires
+spendable reserve cash; this fallback does not create liquidity.

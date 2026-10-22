@@ -31,6 +31,7 @@ export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
   "token_2022_swap",
   "public_interest_hlp_cpmm",
   "public_interest_hlp_concentrated",
+  "hlp_cash_carry",
 ] as const;
 
 export type SwapComputeScenario = (typeof REQUIRED_SWAP_COMPUTE_SCENARIOS)[number];
@@ -83,6 +84,7 @@ const COMPUTE_SCENARIO_BASELINES: Partial<
   token_2022_swap: { measuredMaximum: 113_525n, ceiling: 119_202n },
   public_interest_hlp_cpmm: { measuredMaximum: 280_728n, ceiling: 294_765n },
   public_interest_hlp_concentrated: { measuredMaximum: 899_586n, ceiling: 944_566n },
+  hlp_cash_carry: { measuredMaximum: 1_104_813n, ceiling: 1_160_054n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {
