@@ -1,4 +1,4 @@
-"""Rebuild a source-hashed native replay and verify every insurance boundary.
+"""Rebuild a source-hashed historical auction replay and verify its boundaries.
 
 The adapter is included only in a copied benchmark engine under target. It
 never edits the program or substitutes AMM, underwriting or settlement math.
@@ -32,8 +32,20 @@ def write_csv(path, rows):
 
 
 def minimum_fund(losses):
-    # Every floor in this one-hour replay shares the same 50% daily draw window.
+    # Historical auction floor only. Live liquidation has a principal coverage cap.
     return 2 * sum(losses)
+
+
+def same_recovery_policy_ceiling(event):
+    """Current coverage bound at the historical floor's recovery, not a live replay."""
+    principal = event['principal_atoms']
+    recovery = event['swap_output_atoms']
+    coverage_bps = event['principal_coverage_bps']
+    assert 0 <= coverage_bps <= 10_000
+    assert principal <= event['debt_atoms']
+    ceiling = max(0, principal - recovery) * coverage_bps // 10_000
+    assert ceiling == event['current_policy_same_recovery_ceiling_atoms']
+    return ceiling
 
 
 def run(output):
@@ -59,7 +71,7 @@ def run(output):
     manifest = {'head': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                 'program_files': files, 'adapter_sha256': hashlib.sha256(adapter).hexdigest(),
                 'scenario_sha256': hashlib.sha256((HERE / 'scenarios.json').read_bytes()).hexdigest(),
-                'scope': 'Host-native benchmark; not validator/SVM execution'}
+                'scope': 'Historical host-native auction benchmark; not live liquidation or validator/SVM execution'}
     write_json(output / 'engine-manifest.json', manifest)
     shutil.copy2(HERE / 'native/Cargo.lock', output / 'native/Cargo.lock')
     env = dict(os.environ, CARGO_TARGET_DIR=str(ROOT / 'target/joint-shock-build'))
@@ -95,10 +107,17 @@ def run(output):
     assert {r['id'] for r in scenarios if r['status'] != 'complete'} == {'admission-150000', 'admission-200000'}
     funded = replay('funded', [dict(r['config'], id=r['id'] + '-funded', insurance_usd=1e6)
                               for r in scenarios if r['status'] == 'complete' and r['losses']['shortfall_atoms'] > 0])
+    policy_contrast = replay('policy-contrast', [dict(id='policy-contrast-severe-shock',
+        hlp_each_usd=100_000, borrow_usd=75_000, shock=-.95, insurance_usd=1e6,
+        horizon_s=3600, keeper_delay_s=0, withdraw_fraction=0)])
+    assert len(policy_contrast) == 1 and policy_contrast[0]['status'] == 'complete'
+    contrast_floors = [e for e in policy_contrast[0]['events'] if e['kind'] == 'floor']
+    assert contrast_floors and any(e['insurance_atoms'] > same_recovery_policy_ceiling(e)
+                                   for e in contrast_floors)
     boundaries = []
     for r in funded:
         assert r['status'] == 'complete' and r['losses']['socialized_atoms'] == 0
-        required = int(r['path_implied_cap_reserve_atoms'])
+        required = int(r['historical_auction_minimum_opening_reserve_atoms'])
         for delta in [0, -1]:
             c = dict(r['config'], id=r['id'] + f'-capital{delta}', insurance_atoms=required + delta)
             c.pop('insurance_usd', None)
@@ -107,7 +126,7 @@ def run(output):
     for r in capital:
         assert r['status'] == 'complete'
         assert (r['losses']['socialized_atoms'] == 0) == r['id'].endswith('capital0'), r['id']
-    all_rows = scenarios + controls + funded + capital
+    all_rows = scenarios + controls + funded + capital + policy_contrast
     floors = 0
     for r in all_rows:
         if 'losses' not in r:
@@ -115,14 +134,31 @@ def run(output):
         losses = r['losses']
         assert losses['insurance_drawn_atoms'] + losses['socialized_atoms'] == losses['shortfall_atoms']
         events = [e for e in r['events'] if e['kind'] == 'floor']
-        assert minimum_fund([e['shortfall_atoms'] for e in events]) == int(r['path_implied_cap_reserve_atoms'])
+        assert r['model_scope'] == 'historical_auction_benchmark'
+        assert minimum_fund([e['shortfall_atoms'] for e in events]) == int(r['historical_auction_minimum_opening_reserve_atoms'])
         for e in events:
             assert e['debt_atoms'] - min(e['swap_output_atoms'], e['debt_atoms']) == e['shortfall_atoms']
             assert e['insurance_atoms'] + e['socialized_atoms'] == e['shortfall_atoms']
+            same_recovery_policy_ceiling(e)
             unit_value = e['external_price'] / 1e9 if r['config'].get('debt_asset') == 'base' else 1e-6
             allocation = sum(e[k] for k in ['ordinary_credit_loss_usd', 'base_hlp_credit_loss_usd', 'quote_hlp_credit_loss_usd'])
             assert abs(allocation - e['socialized_atoms'] * unit_value) < 1e-6
             floors += 1
+    policy_rows = []
+    for r in funded + policy_contrast:
+        for e in r['events']:
+            if e['kind'] != 'floor':
+                continue
+            ceiling = same_recovery_policy_ceiling(e)
+            policy_rows.append(dict(id=r['id'], borrower=e['borrower'], t=e['t'],
+                debt_asset='SOL' if r['config'].get('debt_asset') == 'base' else 'USDC',
+                principal_atoms=e['principal_atoms'], debt_atoms=e['debt_atoms'],
+                configured_principal_coverage_bps=e['principal_coverage_bps'],
+                historical_recovery_atoms=e['swap_output_atoms'],
+                historical_insurance_draw_atoms=e['insurance_atoms'],
+                current_policy_same_recovery_ceiling_atoms=ceiling,
+                historical_draw_above_same_recovery_ceiling_atoms=max(0, e['insurance_atoms'] - ceiling)))
+    write_csv(output / 'policy-contrast.csv', policy_rows)
     original = {r['id']: r for r in scenarios}
     insured = {r['id']: r for r in funded}
     reference = {float(r['sol_decline_pct']): r for r in csv.DictReader((HERE / 'analysis-reference.csv').open())}
@@ -130,28 +166,33 @@ def run(output):
     for shock in [-.1, -.3, -.5, -.7]:
         r = original[f'h100000-s{shock}-w0-k0']
         f = insured.get(r['id'] + '-funded')
-        required = int(f['path_implied_cap_reserve_atoms']) / 1e6 if f else 0
+        required = int(f['historical_auction_minimum_opening_reserve_atoms']) / 1e6 if f else 0
         main.append(dict(sol_decline_pct=-shock * 100,
-                         uninsured_loss_usdc=r['losses']['socialized_usd'],
-                         insurance_paid_usdc=f['losses']['insurance_drawn_usd'] if f else 0,
-                         opening_insurance_usdc=required,
-                         loss_change_from_analysis_usdc=r['losses']['socialized_usd'] - float(reference[-shock * 100]['uninsured_credit_loss_usdc']),
-                         capital_change_from_analysis_usdc=required - float(reference[-shock * 100]['minimum_opening_insurance_usdc'])))
+                         historical_auction_uninsured_loss_usdc=r['losses']['socialized_usd'],
+                         historical_auction_insurance_paid_usdc=f['losses']['insurance_drawn_usd'] if f else 0,
+                         historical_auction_opening_insurance_usdc=required,
+                         historical_loss_change_from_analysis_usdc=r['losses']['socialized_usd'] - float(reference[-shock * 100]['uninsured_credit_loss_usdc']),
+                         historical_capital_change_from_analysis_usdc=required - float(reference[-shock * 100]['minimum_opening_insurance_usdc'])))
     write_csv(output / 'main-results.csv', main)
     capital_reference = {r['id']: r for r in csv.DictReader((HERE / 'analysis-capital-reference.csv').open())}
     requirements = []
     for r in funded:
         scale = 1e9 if r['config'].get('debt_asset') == 'base' else 1e6
         requirements.append(dict(id=r['id'], debt_asset='SOL' if scale == 1e9 else 'USDC',
-                                 insurance_spend_tokens=r['losses']['insurance_drawn_atoms'] / scale,
-                                 minimum_opening_tokens=int(r['path_implied_cap_reserve_atoms']) / scale,
-                                 change_from_analysis_tokens=int(r['path_implied_cap_reserve_atoms']) / scale - float(capital_reference[r['id']]['minimum_opening_tokens'])))
+                                 historical_auction_insurance_spend_tokens=r['losses']['insurance_drawn_atoms'] / scale,
+                                 historical_auction_minimum_opening_tokens=int(r['historical_auction_minimum_opening_reserve_atoms']) / scale,
+                                 historical_capital_change_from_analysis_tokens=int(r['historical_auction_minimum_opening_reserve_atoms']) / scale - float(capital_reference[r['id']]['minimum_opening_tokens'])))
     write_csv(output / 'insurance-requirements.csv', requirements)
-    write_csv(output / 'scenario-summary.csv', [dict(id=r['id'], status=r['status'],
-              liquidations=r.get('liquidated_positions'), credit_loss_usd=r.get('losses', {}).get('socialized_usd'),
+    write_csv(output / 'scenario-summary.csv', [dict(id=r['id'], model_scope='historical_auction_benchmark', status=r['status'],
+              liquidations=r.get('liquidated_positions'), historical_auction_credit_loss_usd=r.get('losses', {}).get('socialized_usd'),
               remaining_debt_usd=r.get('final', {}).get('remaining_debt_usd')) for r in scenarios])
     validation = dict(scenarios=len(scenarios), complete=102, admission_rejections=2, settlement_blocked=0,
+                      scope='historical_auction_benchmark_not_live_liquidation',
                       funded_paths=len(funded), boundary_checks=len(capital), total_replays=len(all_rows),
+                      policy_contrast_replays=len(policy_contrast),
+                      policy_comparison_events=len(policy_rows),
+                      historical_draws_above_current_same_recovery_ceiling=sum(
+                          row['historical_draw_above_same_recovery_ceiling_atoms'] > 0 for row in policy_rows),
                       focused_probes=len(probes), liquidations_reconciled=floors,
                       custody_and_preview_checks=sum(r.get('accounting_checks', 0) for r in all_rows))
     write_json(output / 'validation.json', validation)
