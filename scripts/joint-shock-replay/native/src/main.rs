@@ -1,5 +1,5 @@
 use anchor_lang::prelude::Pubkey;
-use dusk::{benchmark_api::*, constants::*, state::*};
+use dusk::{benchmark_api::*, constants::*, state::*, transitions::liquidation_policy::LiquidationLossAllocation};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs, io::Write};
 
@@ -43,6 +43,7 @@ fn text<'a>(v: &'a Value, k: &str, d: &'a str) -> &'a str {
 
 struct Borrower {
     position: BenchmarkBorrowPosition,
+    principal_atoms: u64,
     proceeds: u64,
     residual: u64,
     eligible_at: Option<i64>,
@@ -319,6 +320,7 @@ fn make(c: &Value) -> R<Sim> {
             .map_err(err)?;
         borrowers.push(Borrower {
             position,
+            principal_atoms: amount,
             proceeds: amount,
             residual: 0,
             eligible_at: None,
@@ -675,6 +677,8 @@ impl Sim {
                 protocol_swap_fee_bps: 2000,
                 protocol_auction_split: ProtocolAuctionSplit::default(),
             };
+            let principal_atoms = self.borrowers[i].principal_atoms;
+            let principal_coverage_bps = self.market.market().insurance.principal_coverage_bps;
             match self.market.stress_floor_with_hlp(
                 &mut self.borrowers[i].position,
                 &mut self.base_hlp,
@@ -693,9 +697,20 @@ impl Sim {
                     };
                     self.bounty[j] += x.plan.caller_bounty;
                     let loss = x.native.socialized_loss;
+                    let current_policy_same_recovery_ceiling = LiquidationLossAllocation::quote_with_coverage(
+                        principal_atoms,
+                        x.plan.terms.max_repay_amount,
+                        x.plan.swap_output,
+                        u64::MAX,
+                        principal_coverage_bps,
+                    )
+                    .map_err(err)?
+                    .insurance_credit;
                     let bshare = r.pre_loss_hlp_shares[0] as f64 / r.pre_loss_supply as f64;
                     let qshare = r.pre_loss_hlp_shares[1] as f64 / r.pre_loss_supply as f64;
                     self.events.push(json!({"kind":"floor","borrower":i,"t":t-self.start,"external_price":p,"debt_atoms":x.plan.terms.max_repay_amount,"swap_output_atoms":x.plan.swap_output,
+                        "principal_atoms":principal_atoms,"principal_coverage_bps":principal_coverage_bps,
+                        "current_policy_same_recovery_ceiling_atoms":current_policy_same_recovery_ceiling,
                         "insurance_atoms":x.native.insurance_drawn,"socialized_atoms":loss,"shortfall_atoms":x.native.insurance_drawn+loss,
                         "ordinary_credit_loss_usd":value(loss as u128,self.debt_asset,p)*(1.-bshare-qshare),"base_hlp_credit_loss_usd":value(loss as u128,self.debt_asset,p)*bshare,
                         "quote_hlp_credit_loss_usd":value(loss as u128,self.debt_asset,p)*qshare,"owner_residual_atoms":x.owner_residual,
@@ -753,14 +768,14 @@ fn run(c: &Value) -> R<Value> {
     let pnl = |key: &str| final_book[key].as_f64().unwrap() - initial[key].as_f64().unwrap();
     let arb = s.arb_wallet[0] as f64 / 1e9 * last_p + s.arb_wallet[1] as f64 / 1e6;
     Ok(
-        json!({"id":c["id"],"config":c,"status":if s.failures.is_empty(){"complete"}else{"execution_blocked"},"initial":initial,"initial_positions":initial_positions,"final_positions":final_positions,"final":final_book,"price_final":last_p,
+        json!({"id":c["id"],"config":c,"model_scope":"historical_auction_benchmark","status":if s.failures.is_empty(){"complete"}else{"execution_blocked"},"initial":initial,"initial_positions":initial_positions,"final_positions":final_positions,"final":final_book,"price_final":last_p,
         "losses":{"socialized_atoms":sum("socialized_atoms"),"insurance_drawn_atoms":sum("insurance_atoms"),"shortfall_atoms":sum("shortfall_atoms"),
         "socialized_usd":value(sum("socialized_atoms") as u128,s.debt_asset,last_p),"insurance_drawn_usd":value(sum("insurance_atoms") as u128,s.debt_asset,last_p),
         "ordinary_credit_loss_usd":sumf("ordinary_credit_loss_usd"),"base_hlp_credit_loss_usd":sumf("base_hlp_credit_loss_usd"),"quote_hlp_credit_loss_usd":sumf("quote_hlp_credit_loss_usd")},
         "pnl":{"ordinary_usd":pnl("ordinary_total_usd"),"base_hlp_usd":pnl("base_hlp_total_usd"),"quote_hlp_usd":pnl("quote_hlp_total_usd"),"borrower_usd":pnl("borrower_wealth_usd"),
             "ordinary_vs_hold_usd":final_book["ordinary_total_usd"].as_f64().unwrap()-ordinary_hold,"base_hlp_vs_hold_usd":final_book["base_hlp_total_usd"].as_f64().unwrap()-h*last_p/P0,
             "quote_hlp_vs_hold_usd":final_book["quote_hlp_total_usd"].as_f64().unwrap()-h,"arbitrage_marked_profit_usd":arb},
-        "path_implied_cap_reserve_atoms":needed.to_string(),"liquidated_positions":floors.len(),"events":s.events,"trace":s.trace,"failures":s.failures,"accounting_checks":s.accounting_checks,
+        "historical_auction_minimum_opening_reserve_atoms":needed.to_string(),"liquidated_positions":floors.len(),"events":s.events,"trace":s.trace,"failures":s.failures,"accounting_checks":s.accounting_checks,
         "withdrawn_base_atoms":s.withdrawn[0],"withdrawn_quote_atoms":s.withdrawn[1]}),
     )
 }

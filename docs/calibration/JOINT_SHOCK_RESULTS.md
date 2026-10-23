@@ -1,9 +1,22 @@
 # hLP accounting regressions and joint-shock replay
 
+**Scope correction:** the joint-shock insurance figures below come from the
+benchmark-only historical auction floor. They are **not** current emergency or
+flash liquidation capital estimates. The historical floor can insure unpaid
+interest and 100% of a principal gap subject to draw capacity; current full
+liquidation cancels unpaid interest and covers at most the configured 75% of a
+principal gap. The companion `policy-contrast.csv` reports the difference at
+each funded historical floor's observed recovery. Because the live liquidation
+can have a different recovery and execution path, the contrast is a policy
+bound, not a live-path loss or capital projection.
+
 ## Scope and implementation already present in #45
 
-This replay targets `0b2c53f`, the head of #45 at the start of this work. That
-branch already contains `3162901` (`fix: reconcile hLP quotes with recorded debt`)
+The original hLP regressions targeted `0b2c53f`, the head of #45 when this
+report began. The refreshed joint-shock replay and policy contrast use the
+later `c32575c8` program tree with this replay correction; the generated
+manifest records exact source hashes. The earlier branch already contained
+`3162901` (`fix: reconcile hLP quotes with recorded debt`)
 with mixed-decimal/ownership rounding corrections. Both bugs found in
 the earlier `22114ad` analysis snapshot are already corrected here:
 
@@ -66,43 +79,61 @@ loans total $75k USDC. These rows request no withdrawals or extra keeper delay.
 All ten loans liquidate at the 30%, 50% and 70% gaps. At 10%, no credit shortfall
 is realized during the one-hour horizon.
 
-| SOL gap | Uninsured credit loss, USDC | Funded payout, USDC | Required opening USDC | Change from prior capital estimate |
+| SOL gap | Historical uninsured credit loss, USDC | Historical funded payout, USDC | Historical auction opening USDC | Change from prior historical estimate |
 |---|---:|---:|---:|---:|
 | -10% | 0.00 | 0.00 | 0.00 | 0.00 |
-| -30% | 3,860.34 | 3,771.63 | 9,177.15 | -0.17 |
-| -50% | 26,202.66 | 25,064.75 | 50,129.51 | -0.65 |
-| -70% | 45,014.11 | 43,716.75 | 87,433.49 | -0.52 |
+| -30% | 3,861.80 | 3,774.07 | 7,548.13 | -1,629.18 |
+| -50% | 26,200.98 | 25,071.69 | 50,143.38 | +13.23 |
+| -70% | 45,018.55 | 43,726.89 | 87,453.78 | +19.77 |
 
-The exact maximum USDC requirement is **87,433.490576 USDC**: round up to 87,434
-whole USDC. The earlier 87,435-USDC planning balance still covers this replay.
-The three main credit-loss changes are below $0.25, and capital changes below
-$0.65. Across all other load/control variants, the largest absolute USDC capital
-change is $6.110666; the largest SOL capital change is 0.030942406 SOL. These are
-explicit comparisons between engine versions, not bit-for-bit equivalence.
+The maximum historical-auction USDC requirement in these rows is
+**87,453.777248 USDC**: round up to 87,454 whole USDC. The earlier 87,435-USDC
+historical planning balance no longer covers this run. None of these numbers
+establish a live-policy capital requirement. The changes from the older analysis
+reflect the merged engine, including elapsed-time accounting; they are not
+bit-for-bit equivalence claims. Across the funded corpus, the largest absolute
+USDC capital change is $1,629.183687 and the largest SOL change is
+1.022368566 SOL.
 
 Insurance restores reserves during liquidation and changes later execution.
-Required capital is therefore sized on the funded path and verified with a new
+Historical-auction capital is sized on the funded path and verified with a
 native replay, rather than inferred by multiplying the uninsured loss. The
-current caps are 20% of remaining insurance per event and 50% per day; no new
-insurance credits arrive during the modeled liquidation window. The 30% main
-case binds an individual-event cap; the 50%/70% cases bind the daily cap.
+historical floor uses the configured 50% daily draw limit; no new insurance
+credits arrive during the modeled liquidation window. The 30%, 50% and 70%
+main funded cases are verified at that daily-cap boundary.
 
-At -50%, the uninsured credit loss is allocated to ordinary LPs (16,736.905249
-USDC), base hLP (2,582.781005) and quote hLP (6,882.970667), using ownership at each
-loss event. Collateral pays first, then insurance; uncovered losses reduce the
-shared reserve. hLP is not a first-loss protection tranche.
+At -50%, the historical uninsured credit loss is allocated to ordinary LPs
+(16,731.100808 USDC), base hLP (2,588.345432) and quote hLP (6,881.530969),
+using ownership at each loss event. Collateral pays first, then insurance;
+uncovered losses reduce the shared reserve. hLP is not a first-loss protection
+tranche.
 
 Those credit losses are already included in holder P&L. With sufficient
-insurance, ordinary LP dollar P&L at -50% is still -243,494.55, base hLP is
--49,940.58 and quote hLP is +116.72. Credit insurance does not remove SOL exposure
+insurance, ordinary LP dollar P&L at -50% is still -243,514.98, base hLP is
+-49,944.10 and quote hLP is +117.97. Credit insurance does not remove SOL exposure
 or AMM inventory repricing.
 
-The continuing decline to -51%, with a 900-second keeper delay and a blocked
-50% withdrawal request, realizes 24,188.755525 USDC of uninsured credit loss.
-For SOL public debt, the +100% price shock needs 250.648196306 SOL insurance in
-the main hLP configuration. The largest SOL requirement across hLP loads is
-264.852096822 SOL. These are different borrowing books, not a combined
+For SOL public debt, the historical +100% price shock can require hundreds of
+SOL in this corpus. The largest historical SOL requirement across hLP loads is
+265.085429680 SOL. These are different borrowing books, not a combined
 simultaneous two-sided capital requirement.
+
+## Current-policy coverage bound at historical recovery
+
+The runner now records principal and configured coverage for every historical
+floor, then compares its payout with the current policy's 75%-of-principal-gap
+ceiling at that floor's observed swap recovery. Across 670 funded-floor events,
+597 historical insurance draws exceed this same-recovery ceiling. This does not
+predict the actual live liquidation's recovery or writeoff.
+
+The severe-shock control makes the discrepancy explicit. Its first borrower has
+7,500,000,000 principal atoms and 7,500,002,205 debt atoms. The historical floor
+recovers 568,776,768 atoms and draws 6,931,225,437 insurance atoms. At that
+same recovery, the current 75% principal-gap ceiling is 5,198,417,424 atoms:
+the historical payout exceeds it by 1,732,808,013 atoms (1,732.808013 USDC).
+Even with zero recovery, live insurance could not exceed 5,625,000,000 atoms
+for that principal. A separate replay through current emergency or flash
+liquidation is needed for live-policy capital estimates.
 
 ## Replay coverage and reproduction
 
@@ -113,18 +144,19 @@ All 66 positive-shortfall paths were funded and rerun at the calculated minimum
 and one raw debt-token atom less. **All 132 boundaries pass:** the exact minimum
 leaves no socialization, while one atom less leaves a positive shortfall.
 
-Across 326 native replays, 2,840 liquidation events and 8,091 custody/preview
+Across 327 native replays, 2,850 liquidation events and 8,078 custody/preview
 checks reconcile. All 32 focused probes pass; the starting gap is zero and the
 largest final opposite-asset residual is one token atom.
 
 Run `python3 scripts/joint-shock-replay/run.py`. Its README records assumptions
-and outputs. The adapter invokes the current atomic backstop transition and
+and outputs. The adapter invokes the benchmark-only atomic backstop transition and
 existing hLP token-settlement helpers in a copied benchmark engine. Raw results,
-source hashes and logs remain under `target/joint-shock-results`; summary CSVs
-and validations are checked in alongside this report.
+source hashes and logs remain under `target/joint-shock-results`; summary CSVs,
+including the same-recovery policy contrast, and validation results are checked
+in alongside this report.
 
-The replay is a deterministic native model, while the SVM tests verify actual
-program/token execution on the focused fixtures. Neither establishes scenario
-probabilities, historical tail frequencies, insurance premiums, repeated-shock
-capital, multi-market contagion, or coverage for transfer-fee assets. No program
-has been deployed or merged by this work.
+The auction replay is a deterministic native historical model, while the SVM
+tests verify actual program/token execution on the focused fixtures. Neither
+establishes scenario probabilities, historical tail frequencies, insurance
+premiums, repeated-shock
+capital, multi-market contagion, or coverage for transfer-fee assets.
