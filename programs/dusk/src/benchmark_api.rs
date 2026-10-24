@@ -1486,6 +1486,8 @@ impl BenchmarkBorrowPosition {
             quote_referral_interest_share_bps: 0,
             fixed_base_shares: 0,
             fixed_quote_shares: 0,
+            fixed_base_principal: 0,
+            fixed_quote_principal: 0,
             auction_debt_asset: u8::MAX,
             auction_start_time: 0,
             auction_start_price_nad: 0,

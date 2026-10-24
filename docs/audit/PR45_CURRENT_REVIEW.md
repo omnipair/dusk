@@ -27,13 +27,11 @@ receipt cleanup resolved the suspected gaps.
 
 ## Verified behavior and disposition
 
-### Public principal is pooled across borrowers
+### Public principal follows each borrower
 
-`BorrowPosition` stores shares but no principal. Public borrowing increments
-`Debt.fixed_*_principal`; repayment calls `realize_margin_liquidation`, which
-splits cash at the **aggregate** principal/debt ratio. Flash liquidation also
-derives the position's principal from that aggregate ratio. Thus the amount
-insured as principal for one borrower depends on unrelated borrowers' actions.
+The review identified that `BorrowPosition` stored shares but no principal.
+Repayment and flash liquidation classified one position using the **aggregate**
+principal/debt ratio, allowing unrelated loans to change its insured principal.
 
 Ignoring atom rounding: Alice borrows 1,000 and accrues debt to 1,250. Bob
 borrows and immediately repays 1,000. The side now has 2,250 debt and 2,000
@@ -44,13 +42,14 @@ received 1,000 principal. If Alice's collateral later realizes 900, a 75%
 principal-loss policy can draw 159 of insurance rather than 75, subject to
 the fund's draw limit. This is classification drift, not newly created debt.
 
-The code path is `lending/mod.rs::borrow` → `Debt::add_margin_principal` →
-`lending/mod.rs::repay_with_finalization_and_fee` →
-`Debt::realize_margin_liquidation` →
-`flash_settlement.rs::liquidation_debt_allocation` →
-`LiquidationLossAllocation::quote_with_coverage`. Whether principal protection
-should follow each borrow position is a product/accounting decision; no source
-change is claimed here.
+The remedy records `fixed_base_principal` and `fixed_quote_principal` on each
+borrow position. Borrow increases both the position and market totals; repay,
+legacy liquidation, flash liquidation and emergency settlement reduce both by
+the same position-derived amount. Debt shares, the borrow index, utilization
+and reserves remain pooled. The SDK exposes `borrowDebtBreakdown` for displaying
+one position's principal and accrued interest. A regression opens Alice's old
+loan, accrues interest, opens and fully repays Bob's fresh loan, then checks
+Alice's principal and principal-only insurance quote in both asset directions.
 
 ### Retired hLP receipts and new deposits
 
@@ -77,14 +76,14 @@ pass with 76/76 instructions exercised and the strict compute baseline.
 
 The original OR-NM-004 negative curve-only equity fixture now passes with
 positive full-value hLP backing. The full default and production Dusk suites
-each pass 536 tests on the integrated branch. The hLP flash tests cover both
+each pass 534 tests on the integrated branch. The hLP flash tests cover both
 sides, 1x/4x/10x
 concentration, funded solvent recovery, terminal principal-only insurance,
 frozen-vault rescue and coexisting flash sessions. These tests and this scoped
 review do not prove universal route availability, economic profitability or
 all possible transaction compositions. Delegate tests pass 16, faucet passes
-one, SDK previews pass 76, and the current LiteSVM run passes 141 tests.
+one, SDK previews pass 77, and the current LiteSVM run passes 141 tests.
 Formatting, hygiene, code shape, Clippy, production compilation and TypeScript
 also pass. The final LiteSVM build, regenerated SDK interface check, SDK
 preview suite and strict complete-CU LiteSVM run also pass on this source.
-The public-principal classification issue above remains a separate decision.
+The public-principal classification issue above is included in this remedy.

@@ -1,7 +1,32 @@
 import { transferFeeCredit, type TransferFeeNotice } from "./transfer-fees.js";
+import type { BorrowPosition, Market } from "./type-aliases.js";
 
 const U64_MAX = (1n << 64n) - 1n;
 const U128_MAX = (1n << 128n) - 1n;
+const NAD = 1_000_000_000n;
+
+/** Position-local public principal and indexed debt, in raw token atoms.
+ * Read the position and market from the same slot. The market's fixed
+ * principal is an aggregate and must not be used to split this loan's payoff
+ * or insured loss. A one-atom share-floor phase can leave recorded principal
+ * briefly above displayed position debt, so accrued interest is floored at 0.
+ */
+export function borrowDebtBreakdown(
+  position: Pick<BorrowPosition, "fixedBaseShares" | "fixedQuoteShares" | "fixedBasePrincipal" | "fixedQuotePrincipal">,
+  market: Pick<Market, "debt">,
+  asset: "base" | "quote",
+) {
+  const shares = BigInt((asset === "base" ? position.fixedBaseShares : position.fixedQuoteShares).toString());
+  const principal = BigInt((asset === "base" ? position.fixedBasePrincipal : position.fixedQuotePrincipal).toString());
+  const index = BigInt((asset === "base" ? market.debt.baseBorrowIndexNad : market.debt.quoteBorrowIndexNad).toString());
+  amount(shares, U128_MAX);
+  amount(principal);
+  amount(index, U128_MAX);
+  if (index < NAD) throw new RangeError("Invalid borrow index");
+  const debt = shares * index / NAD;
+  amount(debt, U128_MAX);
+  return { debt, principal, accruedInterest: debt > principal ? debt - principal : 0n };
+}
 function amount(value: bigint, max = U64_MAX): void {
   if (value < 0n || value > max) throw new RangeError("Interest amount is out of range");
 }

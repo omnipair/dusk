@@ -13745,6 +13745,20 @@ export type Dusk = {
             "type": "u128"
           },
           {
+            "name": "fixedBasePrincipal",
+            "docs": [
+              "Original base borrowed by this position that has not been repaid or written off."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fixedQuotePrincipal",
+            "docs": [
+              "Original quote borrowed by this position that has not been repaid or written off."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "activeLiquidationSession",
             "type": "pubkey"
           },

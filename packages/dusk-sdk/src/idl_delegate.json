@@ -2880,6 +2880,20 @@
             "type": "u128"
           },
           {
+            "name": "fixed_base_principal",
+            "docs": [
+              "Original base borrowed by this position that has not been repaid or written off."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fixed_quote_principal",
+            "docs": [
+              "Original quote borrowed by this position that has not been repaid or written off."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "active_liquidation_session",
             "type": "pubkey"
           },

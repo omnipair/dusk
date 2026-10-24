@@ -254,14 +254,13 @@ impl Liquidation {
         // Track the principal/interest split for cash-backed repayment without
         // treating socialized loss or share-rounding writeoff as received
         // interest.
-        let interest_paid = market.debt.realize_margin_liquidation(
+        let (interest_paid, principal_credit) = market.clear_fixed_position_principal(
+            borrow_position,
             self.debt_asset,
             cash_repaid,
+            debt_clearance.shares_to_burn,
             debt_clearance.aggregate_debt_reduction,
         )?;
-        let principal_credit = cash_repaid
-            .checked_sub(interest_paid)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
         match self.debt_asset {
             MarketAsset::Base => {
                 borrow_position.quote_collateral = borrow_position
@@ -845,12 +844,13 @@ impl Market {
             .cash_repaid
             .checked_sub(cash_repaid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let interest_paid =
-            self.debt
-                .realize_margin_liquidation(debt_asset, cash_repaid, full_repayment.cash_repaid)?;
-        let principal_credit = cash_repaid
-            .checked_sub(interest_paid)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let (interest_paid, principal_credit) = self.clear_fixed_position_principal(
+            borrow_position,
+            debt_asset,
+            cash_repaid,
+            position_shares,
+            full_repayment.cash_repaid,
+        )?;
 
         match debt_asset {
             MarketAsset::Base => {

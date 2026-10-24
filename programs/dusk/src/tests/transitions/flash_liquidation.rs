@@ -199,6 +199,8 @@ fn full_borrow_recovery_preserves_the_other_debt_leg() {
     let mut position = crate::state::BorrowPosition::default();
     position.fixed_base_shares = 1_000;
     position.fixed_quote_shares = 500;
+    position.fixed_base_principal = 1_000;
+    position.fixed_quote_principal = 500;
     position.base_collateral = 2_000;
     position.quote_collateral = 800;
     position.base_liquidation_cf_bps = 9_000;
@@ -454,6 +456,7 @@ fn emergency_fallback_can_close_despite_a_useful_flash_partial() {
                         market.debt.isolated_base_shares = 0;
                         market.debt.isolated_base_principal = 0;
                         borrow.fixed_base_shares = leverage.debt_shares;
+                        borrow.fixed_base_principal = leverage.debt_principal as u64;
                         market.debt.leverage_quote_collateral -= leverage.collateral_amount;
                         borrow.quote_collateral = leverage.collateral_amount;
                     }
@@ -463,6 +466,7 @@ fn emergency_fallback_can_close_despite_a_useful_flash_partial() {
                         market.debt.isolated_quote_shares = 0;
                         market.debt.isolated_quote_principal = 0;
                         borrow.fixed_quote_shares = leverage.debt_shares;
+                        borrow.fixed_quote_principal = leverage.debt_principal as u64;
                         market.debt.leverage_base_collateral -= leverage.collateral_amount;
                         borrow.base_collateral = leverage.collateral_amount;
                     }

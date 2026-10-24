@@ -303,12 +303,14 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                         market.debt.fixed_base_shares = shares;
                         market.debt.fixed_base_principal = 400_000 * UNIT;
                         position.fixed_base_shares = shares;
+                        position.fixed_base_principal = 400_000 * UNIT;
                         position.quote_collateral = 50_000 * UNIT;
                     }
                     MarketAsset::Quote => {
                         market.debt.fixed_quote_shares = shares;
                         market.debt.fixed_quote_principal = 400_000 * UNIT;
                         position.fixed_quote_shares = shares;
+                        position.fixed_quote_principal = 400_000 * UNIT;
                         position.base_collateral = 50_000 * UNIT;
                     }
                 }

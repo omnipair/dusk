@@ -105,6 +105,8 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         quote_referral_interest_share_bps: 0,
         fixed_base_shares: 0,
         fixed_quote_shares: 100,
+        fixed_base_principal: 0,
+        fixed_quote_principal: 100,
         auction_debt_asset: u8::MAX,
         auction_start_time: 0,
         auction_start_price_nad: 0,
@@ -170,6 +172,8 @@ fn market_with_cash_backed_debt(
         quote_referral_interest_share_bps: 0,
         fixed_base_shares: 0,
         fixed_quote_shares: 0,
+        fixed_base_principal: 0,
+        fixed_quote_principal: 0,
         auction_debt_asset: u8::MAX,
         auction_start_time: 0,
         auction_start_price_nad: 0,
@@ -194,6 +198,7 @@ fn market_with_cash_backed_debt(
             debt.fixed_base_principal = borrow_amount;
             debt.global_health_quote_contribution_for_base_debt = collateral_amount;
             borrow_position.fixed_base_shares = shares;
+            borrow_position.fixed_base_principal = borrow_amount;
             borrow_position.quote_collateral = collateral_amount;
             borrow_position.global_health_quote_contribution_for_base_debt = collateral_amount;
         }
@@ -213,6 +218,7 @@ fn market_with_cash_backed_debt(
             debt.fixed_quote_principal = borrow_amount;
             debt.global_health_base_contribution_for_quote_debt = collateral_amount;
             borrow_position.fixed_quote_shares = shares;
+            borrow_position.fixed_quote_principal = borrow_amount;
             borrow_position.base_collateral = collateral_amount;
             borrow_position.global_health_base_contribution_for_quote_debt = collateral_amount;
         }

@@ -1636,6 +1636,10 @@ impl Market {
             }
         }
         self.debt.add_margin_principal(borrow_asset, borrow_amount)?;
+        *borrow_position.principal_mut(borrow_asset) = borrow_position
+            .principal(borrow_asset)
+            .checked_add(borrow_amount)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
         self.reconcile_global_health_contribution(borrow_position, borrow_asset, target_contribution)?;
         borrow_position.set_liquidation_cf_bps(borrow_asset, terms.liquidation_cf_bps);
         let market_health = self.market_health()?;
@@ -1718,60 +1722,45 @@ impl Market {
         // unaccounted donation if state changed unexpectedly.
         require_eq!(repayment.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
         borrow_position.require_idle()?;
-        let (interest_paid, debt_reduction, live_debit, principal_credit) = match repay_asset {
+        let aggregate_debt_reduction = self
+            .debt
+            .fixed_debt_reduction_for_shares(repay_asset, repayment.shares_to_burn)?;
+        let (interest_paid, principal_credit) = self.clear_fixed_position_principal(
+            borrow_position,
+            repay_asset,
+            repay_credit,
+            repayment.shares_to_burn,
+            aggregate_debt_reduction,
+        )?;
+        let live_debit = aggregate_debt_reduction
+            .checked_sub(principal_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        match repay_asset {
             MarketAsset::Base => {
-                let shares_to_burn = repayment.shares_to_burn;
-                let debt_reduction = repayment.position_debt_reduced;
-                let aggregate_debt_reduction =
-                    self.debt.fixed_debt_reduction_for_shares(repay_asset, shares_to_burn)?;
-                let interest_paid =
-                    self.debt
-                        .realize_margin_liquidation(repay_asset, repay_credit, aggregate_debt_reduction)?;
-                let principal_credit = repay_credit
-                    .checked_sub(interest_paid)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                let live_debit = aggregate_debt_reduction
-                    .checked_sub(principal_credit)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
                 borrow_position.fixed_base_shares = borrow_position
                     .fixed_base_shares
-                    .checked_sub(shares_to_burn)
+                    .checked_sub(repayment.shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.debt.fixed_base_shares = self
                     .debt
                     .fixed_base_shares
-                    .checked_sub(shares_to_burn)
+                    .checked_sub(repayment.shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                (interest_paid, debt_reduction, live_debit, principal_credit)
             }
             MarketAsset::Quote => {
-                let shares_to_burn = repayment.shares_to_burn;
-                let debt_reduction = repayment.position_debt_reduced;
-                let aggregate_debt_reduction =
-                    self.debt.fixed_debt_reduction_for_shares(repay_asset, shares_to_burn)?;
-                let interest_paid =
-                    self.debt
-                        .realize_margin_liquidation(repay_asset, repay_credit, aggregate_debt_reduction)?;
-                let principal_credit = repay_credit
-                    .checked_sub(interest_paid)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                let live_debit = aggregate_debt_reduction
-                    .checked_sub(principal_credit)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
                 borrow_position.fixed_quote_shares = borrow_position
                     .fixed_quote_shares
-                    .checked_sub(shares_to_burn)
+                    .checked_sub(repayment.shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 self.debt.fixed_quote_shares = self
                     .debt
                     .fixed_quote_shares
-                    .checked_sub(shares_to_burn)
+                    .checked_sub(repayment.shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                (interest_paid, debt_reduction, live_debit, principal_credit)
             }
-        };
+        }
         self.settle_public_debt_reserves(repay_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
-        let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
+        let debt_delta = -i64::try_from(repayment.position_debt_reduced).map_err(|_| ErrorCode::Overflow)?;
         if let Some(slot) = finalize_at_slot {
             self.finalize_debt_repayment(slot, curve_reserves_before)?;
         } else {
@@ -1823,6 +1812,31 @@ impl Market {
             ),
         };
         Debt::repayment_for_max(position_shares, aggregate_shares, borrow_index_nad, max_repay_amount)
+    }
+
+    /// Realize a public borrower's own principal. Market shares and liquidity
+    /// remain pooled; only the principal/interest classification is local.
+    pub(crate) fn clear_fixed_position_principal(
+        &mut self,
+        position: &mut BorrowPosition,
+        asset: MarketAsset,
+        cash_repaid: u64,
+        shares_to_burn: u128,
+        aggregate_debt_reduction: u64,
+    ) -> Result<(u64, u64)> {
+        require_gte!(aggregate_debt_reduction, cash_repaid, ErrorCode::DebtMathOverflow);
+        let removed = position.principal_for_share_burn(&self.debt, asset, shares_to_burn, aggregate_debt_reduction)?;
+        *position.principal_mut(asset) = position
+            .principal(asset)
+            .checked_sub(removed)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        let aggregate = match asset {
+            MarketAsset::Base => &mut self.debt.fixed_base_principal,
+            MarketAsset::Quote => &mut self.debt.fixed_quote_principal,
+        };
+        *aggregate = aggregate.checked_sub(removed).ok_or(ErrorCode::DebtMathOverflow)?;
+        let principal_credit = removed.min(cash_repaid);
+        Ok((cash_repaid - principal_credit, principal_credit))
     }
 
     /// Point-in-time lending utilization used by both the IRM and parameter

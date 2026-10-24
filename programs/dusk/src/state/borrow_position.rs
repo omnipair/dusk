@@ -39,6 +39,10 @@ pub struct BorrowPosition {
     pub quote_referral_interest_share_bps: u16,
     pub fixed_base_shares: u128,
     pub fixed_quote_shares: u128,
+    /// Original base borrowed by this position that has not been repaid or written off.
+    pub fixed_base_principal: u64,
+    /// Original quote borrowed by this position that has not been repaid or written off.
+    pub fixed_quote_principal: u64,
     pub active_liquidation_session: Pubkey,
     pub base_distress: crate::state::LiquidationDistress,
     pub quote_distress: crate::state::LiquidationDistress,
@@ -88,6 +92,8 @@ impl BorrowPosition {
             && self.quote_referral_interest_share_bps == 0
             && self.fixed_base_shares == 0
             && self.fixed_quote_shares == 0
+            && self.fixed_base_principal == 0
+            && self.fixed_quote_principal == 0
             && self.active_liquidation_session == Pubkey::default()
             && !self.has_active_liquidation_auction()
             && self.auction_start_time == 0
@@ -119,6 +125,53 @@ impl BorrowPosition {
             MarketAsset::Base => self.fixed_base_shares,
             MarketAsset::Quote => self.fixed_quote_shares,
         }
+    }
+
+    pub fn principal(&self, asset: MarketAsset) -> u64 {
+        match asset {
+            MarketAsset::Base => self.fixed_base_principal,
+            MarketAsset::Quote => self.fixed_quote_principal,
+        }
+    }
+
+    pub fn principal_mut(&mut self, asset: MarketAsset) -> &mut u64 {
+        match asset {
+            MarketAsset::Base => &mut self.fixed_base_principal,
+            MarketAsset::Quote => &mut self.fixed_quote_principal,
+        }
+    }
+
+    /// Allocate a share burn against this borrower's own original loan. The
+    /// aggregate debt delta is the canonical cash charge; its floor phase can
+    /// differ from the position's displayed debt by one atom. A full burn
+    /// always clears this position's entire principal.
+    pub fn principal_for_share_burn(
+        &self,
+        debt: &Debt,
+        asset: MarketAsset,
+        shares_to_burn: u128,
+        aggregate_debt_reduction: u64,
+    ) -> Result<u64> {
+        let shares = self.debt_shares(asset);
+        require!(
+            shares_to_burn > 0 && shares_to_burn <= shares,
+            ErrorCode::InsufficientDebt
+        );
+        let principal = self.principal(asset);
+        if shares_to_burn == shares {
+            require_gte!(aggregate_debt_reduction, principal, ErrorCode::DebtMathOverflow);
+            return Ok(principal);
+        }
+        let position_debt = Debt::shares_to_debt(shares, debt.borrow_index(asset))?;
+        require!(position_debt > 0, ErrorCode::DebtMathOverflow);
+        let amount = u128::from(aggregate_debt_reduction).min(position_debt);
+        let reduced = u128::from(principal)
+            .checked_mul(amount)
+            .and_then(|value| value.checked_div(position_debt))
+            .ok_or(ErrorCode::DebtMathOverflow)?
+            .min(u128::from(aggregate_debt_reduction))
+            .min(u128::from(principal));
+        u64::try_from(reduced).map_err(|_| ErrorCode::DebtMathOverflow.into())
     }
 
     pub fn distress(&self, asset: MarketAsset) -> crate::state::LiquidationDistress {

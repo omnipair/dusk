@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { quoteInterestAdvanceAmounts, allocateRepaidInterest } from "../dist/interest-accounting.js";
+import { quoteInterestAdvanceAmounts, allocateRepaidInterest, borrowDebtBreakdown } from "../dist/interest-accounting.js";
 import { transferFeeNotice } from "../dist/transfer-fees.js";
 
 const zero = transferFeeNotice(null, 1n);
+test("public borrower debt breakdown reads position principal, not the market ratio", () => {
+  const market = { debt: { baseBorrowIndexNad: 1_100_000_000n, quoteBorrowIndexNad: 1_000_000_000n,
+    fixedBasePrincipal: 2_000n } };
+  const alice = { fixedBaseShares: 1_000n, fixedQuoteShares: 0n, fixedBasePrincipal: 1_000n, fixedQuotePrincipal: 0n };
+  assert.deepEqual(borrowDebtBreakdown(alice, market, "base"), { debt: 1_100n, principal: 1_000n, accruedInterest: 100n });
+});
 test("cash funding freezes the split and respects cash, request and unfunded limits", () => {
   const input = { unpaidPublicInterest: 1_000n, outstandingGrossAdvance: 300n, reserveCash: 600n, maxGross: 900n, protocolBps: 2_000, transferFee: zero };
   assert.deepEqual(quoteInterestAdvanceAmounts(input), { grossAdvance: 600n, protocolEscrow: 120n, lpVaultDebit: 480n, lpVaultCredit: 480n, transferFee: 0n });

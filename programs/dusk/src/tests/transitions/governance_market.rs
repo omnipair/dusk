@@ -200,6 +200,8 @@ fn borrow_position_for_debt(debt_asset: MarketAsset, collateral_amount: u64) -> 
         quote_referral_interest_share_bps: 0,
         fixed_base_shares: 0,
         fixed_quote_shares: 0,
+        fixed_base_principal: 0,
+        fixed_quote_principal: 0,
         auction_debt_asset: u8::MAX,
         auction_start_time: 0,
         auction_start_price_nad: 0,
@@ -262,6 +264,8 @@ fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
         quote_referral_interest_share_bps: 0,
         fixed_base_shares: 0,
         fixed_quote_shares: 0,
+        fixed_base_principal: 0,
+        fixed_quote_principal: 0,
         auction_debt_asset: u8::MAX,
         auction_start_time: 0,
         auction_start_price_nad: 0,
@@ -279,6 +283,42 @@ fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
     assert_eq!(market.base_side.daily_borrow_bucket.borrowed_bucket, 100_000);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+#[test]
+fn new_borrower_cannot_reclassify_older_borrowers_principal_or_insurance_loss() {
+    use crate::transitions::flash_liquidation::LiquidationPositionRef;
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        let mut alice = borrow_position_for_debt(asset, 10_000);
+        market.borrow(&mut alice, asset, 1_000, 0, 0).unwrap();
+        let alice_shares = alice.debt_shares(asset);
+        set_borrow_index(&mut market, asset, (NAD as u128) * 11 / 10);
+        add_accrued_cash_backed_interest_to_live_reserve(&mut market, asset, alice_shares, 1_000);
+
+        let mut bob = borrow_position_for_debt(asset, 10_000);
+        market.borrow(&mut bob, asset, 1_100, 0, 0).unwrap();
+        let repayment = market.repay(&mut bob, asset, 1_100).unwrap();
+        assert_eq!(repayment.interest_paid, 0);
+        assert_eq!(bob.principal(asset), 0);
+        assert_eq!(alice.principal(asset), 1_000);
+        assert_eq!(market.public_unpaid_interest(asset).unwrap(), 100);
+        let allocation = market
+            .liquidation_debt_allocation(&LiquidationPositionRef::Borrow(&alice), asset, alice_shares)
+            .unwrap();
+        assert_eq!(allocation.debt, 1_100);
+        assert_eq!(allocation.principal, 1_000);
+        let loss = crate::LiquidationLossAllocation::quote_with_coverage(
+            allocation.principal,
+            allocation.debt,
+            900,
+            75,
+            7_500,
+        )
+        .unwrap();
+        assert_eq!(loss.principal_written_off, 25);
+        market.assert_virtual_reserve_invariant(asset).unwrap();
+    }
 }
 
 #[test]
@@ -1148,6 +1188,8 @@ fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
         quote_referral_interest_share_bps: 0,
         fixed_base_shares: 100,
         fixed_quote_shares: 0,
+        fixed_base_principal: 100,
+        fixed_quote_principal: 0,
         auction_debt_asset: u8::MAX,
         auction_start_time: 0,
         auction_start_price_nad: 0,

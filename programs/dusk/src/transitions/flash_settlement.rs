@@ -64,12 +64,9 @@ impl Market {
             }
         };
         let debt = Debt::aggregate_debt_reduction_for_shares(aggregate, shares, index)?;
-        let aggregate_debt = Debt::shares_to_debt(aggregate, index)?;
         let remaining_debt = Debt::shares_to_debt(position_shares - shares, index)?;
         let removed_principal = match position {
-            LiquidationPositionRef::Borrow(_) => {
-                realized_interest_split(debt, aggregate_debt, u128::from(principal).min(aggregate_debt))?.0
-            }
+            LiquidationPositionRef::Borrow(p) => p.principal_for_share_burn(&self.debt, asset, shares, debt)?,
             LiquidationPositionRef::Leverage(p) => {
                 if shares == position_shares {
                     u64::try_from(p.debt_principal).map_err(|_| ErrorCode::DebtMathOverflow)?
@@ -236,6 +233,10 @@ impl Market {
         }
         match position {
             LiquidationPositionMut::Borrow(p) => {
+                *p.principal_mut(asset) = p
+                    .principal(asset)
+                    .checked_sub(allocation.principal)
+                    .ok_or(ErrorCode::DebtMathOverflow)?;
                 let (position_shares, collateral) = match asset {
                     MarketAsset::Base => (&mut p.fixed_base_shares, &mut p.quote_collateral),
                     MarketAsset::Quote => (&mut p.fixed_quote_shares, &mut p.base_collateral),
