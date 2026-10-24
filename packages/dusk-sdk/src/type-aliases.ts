@@ -30,6 +30,7 @@ type DuskAccountTypes = [
   TypeNamed<"fees">,
   TypeNamed<"publicInterestAdvance">,
   TypeNamed<"futarchyAuthority">,
+  TypeNamed<"hlpCohort">,
   TypeNamed<"hlpVault">,
   TypeNamed<"insurance">,
   TypeNamed<"insuranceDrawWindow">,
@@ -90,8 +91,10 @@ type DuskEventTypes = [
   TypeNamed<"feeProfile">,
   TypeNamed<"harvestAuthorityUpdated">,
   TypeNamed<"hlpClosed">,
+  TypeNamed<"hlpCohortRotated">,
   TypeNamed<"hlpOpened">,
   TypeNamed<"hlpRebalanced">,
+  TypeNamed<"hlpRetiredReceiptBurned">,
   TypeNamed<"hlpTerminalLiquidated">,
   TypeNamed<"insuranceDonated">,
   TypeNamed<"irmConfig">,
@@ -172,8 +175,11 @@ export type ParameterProposal = IdlTypes<DuskAccountIdl>["parameterProposal"];
 export type ProposalSupport = IdlTypes<DuskAccountIdl>["proposalSupport"];
 
 export type HlpClosed = IdlTypes<DuskEventIdl>["hlpClosed"];
+export type HlpCohort = IdlTypes<DuskAccountIdl>["hlpCohort"];
+export type HlpCohortRotated = IdlTypes<DuskEventIdl>["hlpCohortRotated"];
 export type HlpOpened = IdlTypes<DuskEventIdl>["hlpOpened"];
 export type HlpRebalanced = IdlTypes<DuskEventIdl>["hlpRebalanced"];
+export type HlpRetiredReceiptBurned = IdlTypes<DuskEventIdl>["hlpRetiredReceiptBurned"];
 export type LiquidationAuctionCancelled = IdlTypes<DuskEventIdl>["liquidationAuctionCancelled"];
 export type LiquidationAuctionStarted = IdlTypes<DuskEventIdl>["liquidationAuctionStarted"];
 export type LiquidityAdded = IdlTypes<DuskEventIdl>["liquidityAdded"];

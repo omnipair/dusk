@@ -1,5 +1,6 @@
 pub mod borrow_position;
 pub mod futarchy_authority;
+pub mod hlp_cohort;
 mod leverage_delegation;
 pub mod leverage_position;
 pub mod liquidation_session;
@@ -14,6 +15,7 @@ pub mod yield_account;
 pub use crate::transitions::liquidation_policy::*;
 pub use borrow_position::*;
 pub use futarchy_authority::*;
+pub use hlp_cohort::*;
 pub use leverage_delegation::*;
 pub use leverage_position::*;
 pub use liquidation_session::*;

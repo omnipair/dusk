@@ -347,6 +347,31 @@ fn canonical_extra_meta_schema_contains_both_asset_streams() {
 }
 
 #[test]
+fn hlp_hook_always_resolves_its_mint_specific_cohort() {
+    let market = Pubkey::new_unique();
+    let hlp_mint = Pubkey::new_unique();
+    let state = Market {
+        ylp_mint: Pubkey::new_unique(),
+        base_side: crate::state::MarketSide {
+            asset_mint: Pubkey::new_unique(),
+            hlp_mint,
+            ..Default::default()
+        },
+        quote_side: crate::state::MarketSide {
+            asset_mint: Pubkey::new_unique(),
+            hlp_mint: Pubkey::new_unique(),
+            ..Default::default()
+        },
+        ..Market::default()
+    };
+    let metas = canonical_lp_transfer_hook_metas(market, &state, hlp_mint).unwrap();
+    assert_eq!(metas.len(), 10);
+    assert_eq!(metas[9].discriminator, 1);
+    assert!(!bool::from(metas[9].is_writable));
+    assert!(!bool::from(metas[9].is_signer));
+}
+
+#[test]
 fn transfer_checkpoint_rejects_readonly_yield_accounts_before_deserializing() {
     let program_id = Pubkey::new_unique();
     let base_key = Pubkey::new_unique();

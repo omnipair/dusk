@@ -74,6 +74,7 @@ import {
   deriveLeveragePositionAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
+  deriveHlpCohortAddress,
   deriveTokenMetadataAddress,
   TOKEN_METADATA_PROGRAM_ID,
 } from "../packages/dusk-sdk/src/constants.js";
@@ -431,6 +432,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     lpMint: PublicKey,
     tokenKind: "ylp" | "hlp",
     forceProgramReentry = false,
+    retiredCohort?: PublicKey,
   ) {
     const baseYieldAccount = deriveYieldAccountAddress(
       fixture.market,
@@ -479,6 +481,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         quoteYieldAccount,
         systemProgram: SystemProgram.programId,
       })
+      .remainingAccounts(retiredCohort
+        ? [{ pubkey: retiredCohort, isSigner: false, isWritable: false }]
+        : [])
       .transaction();
     await connection.sendTransaction(tx, [payer]);
     trackV2Instruction("initializeYieldAccounts");
@@ -490,6 +495,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     lpMint: PublicKey,
   ) {
     const validationAccount = deriveYieldTransferHookValidationAddress(lpMint)[0];
+    const marketState = accountCoder.decode(
+      "Market", Buffer.from(svm.getAccount(fixture.market)!.data)
+    ) as any;
+    const isHlp = !lpMint.equals(marketState.ylp_mint);
     const tx = await program.methods
       .initializeLpTransferHook()
       .accounts({
@@ -499,6 +508,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         validationAccount,
         systemProgram: SystemProgram.programId,
       })
+      .remainingAccounts(isHlp
+        ? [{ pubkey: deriveHlpCohortAddress(fixture.market, lpMint)[0], isSigner: false, isWritable: true }]
+        : [])
       .transaction();
     await connection.sendTransaction(tx, [payer]);
     trackV2Instruction("initializeLpTransferHook");
@@ -6093,6 +6105,162 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect((await getAccount(connection as any, fixture.ownerBaseAccount)).amount).to.equal(ownerBefore.amount);
     expect((await getAccount(connection as any, hedge.ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
     trackV2Instruction("withdrawSingleSided", this.test?.title);
+  });
+
+  it("restarts a terminal hLP vault with a new receipt cohort without assigning old receipts new backing", async function () {
+    const fixture = await addBalancedLiquidity(126, marketConfig(), {
+      baseDeposit: 100_000_000,
+      quoteDeposit: 200_000_000,
+      minYlp: 1,
+      baseMint: 500_000_000,
+      quoteMint: 500_000_000,
+    });
+    const oldHedge = await openBaseHedge(fixture, 10_000_000);
+    await initializeLpTransferHook(fixture, fixture.baseHlpMint);
+    await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 1_000_000, 1);
+
+    const originalAccount = svm.getAccount(fixture.market)!;
+    const terminal = accountCoder.decode("Market", Buffer.from(originalAccount.data)) as any;
+    const ylpSupply = BigInt(terminal.base_side.shares.ylp_supply.toString());
+    const vaultShares = BigInt(terminal.base_hlp_vault.ylp_shares.toString());
+    const targetClaim = BigInt(terminal.base_side.reserves.live_reserve.toString()) * vaultShares / ylpSupply;
+    const borrowedClaim = BigInt(terminal.quote_side.reserves.live_reserve.toString()) * vaultShares / ylpSupply;
+    const preview = decodePreviewMarketReturnData(await simulateReturnData(
+      await program.methods.previewMarket().accounts({ market: fixture.market }).transaction()
+    )) as any;
+    const targetValue = targetClaim * BigInt(preview.amm.executableQuoteReserve.toString()) /
+      BigInt(preview.amm.executableBaseReserve.toString());
+    const grossClaim = borrowedClaim + targetValue;
+    const desiredDebt = grossClaim + grossClaim / 10n;
+    const debtShares = BigInt(terminal.base_hlp_vault.debt_shares.toString());
+    terminal.debt.quote_borrow_index_nad = new BN(
+      ((desiredDebt * 1_000_000_000n + debtShares - 1n) / debtShares).toString()
+    );
+    const layout = (accountCoder as any).accountLayouts.get("Market");
+    const body = Buffer.alloc(originalAccount.data.length - 8);
+    const encoded = layout.layout.encode(terminal, body);
+    svm.setAccount(fixture.market, {
+      ...originalAccount,
+      data: new Uint8Array(Buffer.concat([
+        (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, encoded),
+      ])),
+    });
+
+    await connection.sendTransaction(await program.methods.closeInsolventHlp({
+      targetAsset: 0,
+      maxInsuranceDraw: new BN(0),
+      maxSocializedLoss: new BN("18446744073709551615"),
+      minCallerBountyOut: new BN(1),
+    }).accounts({
+      market: fixture.market, futarchyAuthority, caller: payer.publicKey,
+      borrowedMint: fixture.quoteMint, borrowedReserveVault: fixture.quoteReserveVault,
+      borrowedInterestVault: fixture.quoteInterestVault, insuranceVault: fixture.quoteInsuranceVault,
+      callerBountyAccount: fixture.ownerQuoteAccount, ylpMint: fixture.ylpMint,
+      targetHlpYlpVault: fixture.baseHlpYlpVault, tokenProgram: TOKEN_PROGRAM_ID,
+      token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+
+    const freshMint = await createHookedLpMint(fixture.market);
+    const oldCohort = deriveHlpCohortAddress(fixture.market, fixture.baseHlpMint)[0];
+    await connection.sendTransaction(await program.methods.rotateHlpCohort({
+      targetAsset: 0,
+      metadata: { name: "Omnipair V2 (Dusk) Base hLP 2", symbol: "hLP", uri: "https://omnipair.fi/metadata/dusk/base-hlp-2.json" },
+    }).accounts({
+      payer: payer.publicKey, market: fixture.market, oldHlpMint: fixture.baseHlpMint,
+      newHlpMint: freshMint, oldCohort, newTokenMetadata: deriveTokenMetadataAddress(freshMint)[0],
+      sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY, token2022Program: TOKEN_2022_PROGRAM_ID,
+      tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID, systemProgram: SystemProgram.programId,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    trackV2Instruction("rotateHlpCohort", this.test?.title);
+
+    const oldFrozen = accountCoder.decode("HlpCohort", Buffer.from(svm.getAccount(oldCohort)!.data)) as any;
+    expect(oldFrozen.retired).to.equal(true);
+    expect(oldFrozen.final_vault.hlp_supply.toString()).to.equal("10000000");
+    const rotated = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    expect(rotated.base_side.hlp_mint.equals(freshMint)).to.equal(true);
+    expect(rotated.base_hlp_vault.hlp_supply.isZero()).to.equal(true);
+
+    const retiredRecipient = Keypair.generate();
+    await connection.requestAirdrop(retiredRecipient.publicKey, LAMPORTS_PER_SOL);
+    const retiredRecipientAccount = await createToken2022Ata(fixture.baseHlpMint, retiredRecipient.publicKey);
+    await initializeYieldAccounts(
+      fixture, retiredRecipient.publicKey, fixture.baseHlpMint, "hlp", false, oldCohort
+    );
+    await connection.sendTransaction(new Transaction().add(
+      await createTransferCheckedWithTransferHookInstruction(
+        connection as any, oldHedge.ownerBaseHlpAccount, fixture.baseHlpMint,
+        retiredRecipientAccount, payer.publicKey, 1_000_000n, 6, [], undefined, TOKEN_2022_PROGRAM_ID
+      )
+    ), [payer]);
+    expect((await getAccount(connection as any, retiredRecipientAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount)
+      .to.equal(1_000_000n);
+
+    await initializeLpTransferHook(fixture, freshMint);
+    const freshOwnerAccount = await createToken2022Ata(freshMint, payer.publicKey);
+    const freshBaseYieldAccount = deriveYieldAccountAddress(fixture.market, payer.publicKey, freshMint, fixture.baseMint, "hlp")[0];
+    const freshQuoteYieldAccount = deriveYieldAccountAddress(fixture.market, payer.publicKey, freshMint, fixture.quoteMint, "hlp")[0];
+    await initializeYieldAccounts(fixture, payer.publicKey, freshMint, "hlp");
+    await connection.sendTransaction(await program.methods.depositSingleSided({
+      depositAmount: new BN(1_000_000), minHlpAmount: new BN(1),
+    }).accounts({
+      market: fixture.market, futarchyAuthority, owner: payer.publicKey,
+      baseMint: fixture.baseMint, quoteMint: fixture.quoteMint, ylpMint: fixture.ylpMint,
+      targetHlpMint: freshMint, baseReserveVault: fixture.baseReserveVault,
+      quoteReserveVault: fixture.quoteReserveVault, ownerTargetAccount: fixture.ownerBaseAccount,
+      ownerHlpAccount: freshOwnerAccount,
+      hlpYlpAccount: deriveHlpYlpVaultAddress(fixture.market, freshMint, fixture.ylpMint)[0],
+      baseYieldAccount: freshBaseYieldAccount, quoteYieldAccount: freshQuoteYieldAccount,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    expect((await getAccount(connection as any, freshOwnerAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount > 0n).to.equal(true);
+    expect((await getAccount(connection as any, oldHedge.ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount)
+      .to.equal(9_000_000n);
+
+    await connection.sendTransaction(await program.methods.burnRetiredHlpReceipt({
+      amount: new BN(9_000_000),
+    }).accounts({
+      market: fixture.market, owner: payer.publicKey, retiredMint: fixture.baseHlpMint,
+      cohort: oldCohort, ownerHlpAccount: oldHedge.ownerBaseHlpAccount,
+      baseYieldAccount: oldHedge.baseYieldAccount, quoteYieldAccount: oldHedge.quoteYieldAccount,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction(), [payer]);
+    trackV2Instruction("burnRetiredHlpReceipt", this.test?.title);
+    const recipientBurn = await program.methods.burnRetiredHlpReceipt({
+      amount: new BN(1_000_000),
+    }).accounts({
+      market: fixture.market, owner: retiredRecipient.publicKey, retiredMint: fixture.baseHlpMint,
+      cohort: oldCohort, ownerHlpAccount: retiredRecipientAccount,
+      baseYieldAccount: deriveYieldAccountAddress(fixture.market, retiredRecipient.publicKey, fixture.baseHlpMint, fixture.baseMint, "hlp")[0],
+      quoteYieldAccount: deriveYieldAccountAddress(fixture.market, retiredRecipient.publicKey, fixture.baseHlpMint, fixture.quoteMint, "hlp")[0],
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction();
+    recipientBurn.feePayer = retiredRecipient.publicKey;
+    await connection.sendTransaction(recipientBurn, [retiredRecipient]);
+    const retired = accountCoder.decode("HlpCohort", Buffer.from(svm.getAccount(oldCohort)!.data)) as any;
+    expect(retired.final_vault.hlp_supply.isZero()).to.equal(true);
+    expect((await getAccount(connection as any, oldHedge.ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount)
+      .to.equal(0n);
+    const active = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    expect(active.base_hlp_vault.hlp_supply.isZero()).to.equal(false);
+    const oldYield = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(oldHedge.baseYieldAccount)!.data)) as any;
+    const oldYieldClaim = BigInt(oldYield.accrued_swap_fee_amount.toString()) +
+      BigInt(oldYield.accrued_interest_amount.toString());
+    expect(oldYieldClaim > 0n).to.equal(true);
+    const ownerBeforeHarvest = (await getAccount(connection as any, fixture.ownerBaseAccount)).amount;
+    await connection.sendTransaction(await program.methods.harvest({ tokenKind: { hlp: {} } }).accounts({
+      market: fixture.market, owner: payer.publicKey, caller: payer.publicKey,
+      assetMint: fixture.baseMint, lpMint: fixture.baseHlpMint,
+      ownerLpAccount: oldHedge.ownerBaseHlpAccount,
+      reserveVault: fixture.baseReserveVault, interestVault: fixture.baseInterestVault,
+      recipientAssetAccount: fixture.ownerBaseAccount, yieldAccount: oldHedge.baseYieldAccount,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).remainingAccounts([{ pubkey: oldCohort, isSigner: false, isWritable: false }]).transaction(), [payer]);
+    expect((await getAccount(connection as any, fixture.ownerBaseAccount)).amount > ownerBeforeHarvest).to.equal(true);
   });
 
   it("keeps an active base hLP vault exactly hedged through large opposite-direction swaps", async function () {

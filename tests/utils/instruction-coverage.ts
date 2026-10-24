@@ -135,6 +135,8 @@ const DUSK_INSTRUCTIONS = [
   "initializeMarket",
   "initializeYieldAccounts",
   "initializeLpTransferHook",
+  "rotateHlpCohort",
+  "burnRetiredHlpReceipt",
   "setMarketReduceOnly",
   "createParameterProposal",
   "supportParameterProposal",

@@ -1,4 +1,6 @@
+mod burn_retired_receipt;
 mod deposit_single_sided;
+mod rotate_cohort;
 mod withdraw_single_sided;
 
 use anchor_lang::prelude::*;
@@ -10,7 +12,9 @@ use crate::{
     transitions::HlpYieldEligibility,
 };
 
+pub use burn_retired_receipt::*;
 pub use deposit_single_sided::*;
+pub use rotate_cohort::*;
 pub use withdraw_single_sided::*;
 
 /// Validate the two program authorities outside Anchor's generated account

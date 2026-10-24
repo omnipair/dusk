@@ -142,6 +142,26 @@ pub struct HlpRebalanced {
     pub quote_hlp_funding_interest_paid: u64,
 }
 
+/// A terminal hLP cohort retains its funded yield rights while a new mint
+/// becomes the receipt for future single-sided deposits on the same market.
+#[event]
+pub struct HlpCohortRotated {
+    pub market: Pubkey,
+    pub target_asset: u8,
+    pub retired_mint: Pubkey,
+    pub new_mint: Pubkey,
+    pub retired_supply: u64,
+}
+
+#[event]
+pub struct HlpRetiredReceiptBurned {
+    pub market: Pubkey,
+    pub owner: Pubkey,
+    pub mint: Pubkey,
+    pub amount: u64,
+    pub remaining_supply: u64,
+}
+
 impl HlpRebalanced {
     pub(crate) fn from_receipts(
         market_key: Pubkey,

@@ -1094,3 +1094,24 @@ funding-interest amounts on their indexed debts. That swap pays no hLP funding
 interest and offers no hLP recovery bonus. A later swap with sufficient reserve
 cash can settle the carried interest. The trader's output still requires
 spendable reserve cash; this fallback does not create liquidity.
+
+### Restarting after a terminal hLP close
+
+When a terminal close leaves old hLP receipts outstanding, a new deposit needs
+a fresh receipt mint. Create a zero-supply hooked hLP mint with the market as
+mint authority, then call `write.rotateHlpCohortInstruction` with the old and
+new mints, target side and Metaplex metadata. The old mint's transfer hook must
+be initialized first; `write.initializeLpTransferHookInstruction` accepts
+`tokenKind: "hlp"` when composing that setup without an RPC market fetch.
+Initialize the new mint's hook, then deposit using the new mint. The other hLP
+side and yLP mint do not rotate.
+
+The old mint remains transferable but owns no new principal. Its holder yield
+indexes are frozen in `deriveHlpCohortAddress(market, oldMint)`. A holder can
+initialize an old mint's yield accounts with
+`write.initializeYieldAccountsInstruction({ ..., retired: true })`, claim
+funded yield through `yield.buildHarvest({ ..., retiredHlpMint: oldMint })`, and
+burn old receipts with `write.burnRetiredHlpReceiptInstruction`. If the asset
+has a Token-2022 transfer hook, pass its extra accounts as
+`transferHookAccounts` to the harvest builder. Burning never forfeits yield
+already checkpointed in the holder's yield accounts.

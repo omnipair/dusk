@@ -524,6 +524,9 @@ acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm_liquidation.rs", ne
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/liquidation_sizing.rs", new Set(["executable_liquidation_market"]));
 // Separate SBF frame for the all-smaller-share recovery certificate.
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/flash_liquidation.rs", new Set(["require_first_flash_recovery"]));
+// The retired-cohort decoder needs its own SBF frame. Inlining it into the
+// generic transfer-hook account mutation exceeded the 4 KiB stack limit.
+acceptedOneUseHelpers.set("programs/dusk/src/instructions/transfer_hook.rs", new Set(["retired_hlp_yield_contexts"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
 );

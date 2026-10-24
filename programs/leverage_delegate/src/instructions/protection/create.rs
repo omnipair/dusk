@@ -171,14 +171,18 @@ impl<'info> CreateProtectionOrder<'info> {
                 },
             )?;
         }
-        let mut hook_accounts = vec![
+        // Token-2022's hLP hook includes a mint-specific cohort account.
+        // Reserve the full account list once: SBF's bump allocator cannot
+        // reclaim the first Vec allocation if extend triggers a growth.
+        let mut hook_accounts = Vec::with_capacity(6 + ctx.remaining_accounts.len());
+        hook_accounts.extend([
             a.market.to_account_info(),
             a.base_mint.to_account_info(),
             a.quote_mint.to_account_info(),
             a.base_yield_account.to_account_info(),
             a.quote_yield_account.to_account_info(),
             a.dusk_program.to_account_info(),
-        ];
+        ]);
         hook_accounts.extend_from_slice(ctx.remaining_accounts);
         let before = a.custody_lp_account.amount;
         transfer_checked(

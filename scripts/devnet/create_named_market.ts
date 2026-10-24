@@ -258,7 +258,12 @@ async function main() {
   const hookSig = await send(
     await Promise.all(
       MARKET_LP_MINT_KINDS.map((kind) =>
-        dusk.write.initializeLpTransferHookInstruction({ payer: owner, market, lpMint: mints[kind] })
+        dusk.write.initializeLpTransferHookInstruction({
+          payer: owner,
+          market,
+          lpMint: mints[kind],
+          tokenKind: kind === "ylp" ? "ylp" : "hlp",
+        })
       )
     )
   );

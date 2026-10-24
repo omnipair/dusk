@@ -99,8 +99,10 @@ impl<'info> Swap<'info> {
             ErrorCode::InsufficientBalance
         );
         let asset_in = accounts.market.asset_for_mint(accounts.asset_in_mint.key())?;
-        let asset_out = accounts.market.asset_for_mint(accounts.asset_out_mint.key())?;
-        require!(asset_out == asset_in.opposite(), ErrorCode::InvalidMint);
+        require!(
+            accounts.asset_out_mint.key() == accounts.market.side(asset_in.opposite()).asset_mint,
+            ErrorCode::InvalidMint
+        );
         enforce_launch_same_transaction_guard(
             &accounts.market,
             accounts.market.key(),

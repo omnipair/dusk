@@ -145,6 +145,7 @@ pub const PROPOSAL_SUPPORT_SEED_PREFIX: &[u8] = b"proposal_support";
 pub const TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX: &[u8] = b"extra-account-metas";
 #[constant]
 pub const HLP_YLP_VAULT_SEED_PREFIX: &[u8] = b"hlp_ylp_vault";
+pub const HLP_COHORT_SEED_PREFIX: &[u8] = b"hlp_cohort";
 #[constant]
 pub const METADATA_SEED_PREFIX: &[u8] = b"metadata";
 #[constant]

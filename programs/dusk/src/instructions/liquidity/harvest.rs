@@ -10,7 +10,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketEventMetadata, YieldClaimed},
     generate_market_seeds,
-    state::{Market, YieldAccount, YieldTokenKind},
+    state::{HlpCohort, Market, YieldAccount, YieldTokenKind},
     token::transfer_checked_with_remaining_accounts,
     transitions::YieldClaimReceipt,
 };
@@ -90,7 +90,8 @@ impl<'info> Harvest<'info> {
                 require_keys_eq!(self.market.ylp_mint, self.lp_mint.key(), ErrorCode::InvalidMint)
             }
             YieldTokenKind::Hlp => {
-                self.market.asset_for_hlp_mint(self.lp_mint.key())?;
+                // A retired mint supplies its cohort PDA in remaining accounts;
+                // the handler validates it before touching yield or custody.
             }
         }
         validate_owner_lp_account(self.owner.key(), &self.lp_mint, &self.owner_lp_account)?;
@@ -162,6 +163,26 @@ impl<'info> Harvest<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let swap_fee_custody_balance = ctx.accounts.market.side(market_asset).fees.swap_fee_custody_balance;
+        let retired_cohort = if args.token_kind == YieldTokenKind::Hlp
+            && ctx
+                .accounts
+                .market
+                .asset_for_hlp_mint(ctx.accounts.lp_mint.key())
+                .is_err()
+        {
+            Some(HlpCohort::from_remaining(
+                ctx.remaining_accounts.first().ok_or(ErrorCode::InvalidLpMintKey)?,
+                market_key,
+                ctx.accounts.lp_mint.key(),
+            )?)
+        } else {
+            None
+        };
+        let transfer_remaining = if retired_cohort.is_some() {
+            &ctx.remaining_accounts[1..]
+        } else {
+            ctx.remaining_accounts
+        };
 
         // Materialize claimable yield from the appropriate LP growth indexes.
         let receipt = match args.token_kind {
@@ -175,10 +196,16 @@ impl<'info> Harvest<'info> {
                 )?
             }
             YieldTokenKind::Hlp => {
-                let hlp_asset = ctx.accounts.market.asset_for_hlp_mint(ctx.accounts.lp_mint.key())?;
-                ctx.accounts.market.checkpoint_hlp_yield_from_ylp(hlp_asset)?;
                 let (swap_fee_growth_index_q64, interest_growth_index_q64) =
-                    ctx.accounts.market.hlp_yield_growth_indexes(hlp_asset, market_asset);
+                    if let Ok(hlp_asset) = ctx.accounts.market.asset_for_hlp_mint(ctx.accounts.lp_mint.key()) {
+                        ctx.accounts.market.checkpoint_hlp_yield_from_ylp(hlp_asset)?;
+                        ctx.accounts.market.hlp_yield_growth_indexes(hlp_asset, market_asset)
+                    } else {
+                        retired_cohort
+                            .as_ref()
+                            .ok_or(ErrorCode::InvalidLpMintKey)?
+                            .yield_indexes(market_asset)
+                    };
                 ctx.accounts.yield_account.accrue(
                     ctx.accounts.owner_lp_account.amount,
                     swap_fee_growth_index_q64,
@@ -218,7 +245,7 @@ impl<'info> Harvest<'info> {
                 receipt.swap_fee_amount,
                 ctx.accounts.asset_mint.decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
-                ctx.remaining_accounts,
+                transfer_remaining,
             )?;
             ctx.accounts.reserve_vault.reload()?;
         }
@@ -232,7 +259,7 @@ impl<'info> Harvest<'info> {
                 receipt.interest_amount,
                 ctx.accounts.asset_mint.decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
-                ctx.remaining_accounts,
+                transfer_remaining,
             )?;
         }
         ctx.accounts.recipient_asset_account.reload()?;

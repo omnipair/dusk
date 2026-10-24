@@ -58,6 +58,7 @@ export const SEEDS = {
   LEVERAGE_DELEGATION: Buffer.from("leverage_delegation_v2"),
   YIELD_ACCOUNT: Buffer.from("yield"),
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
+  HLP_COHORT: Buffer.from("hlp_cohort"),
   INSURANCE: Buffer.from("insurance"),
   EVENT_AUTHORITY: Buffer.from("__event_authority"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
@@ -381,6 +382,18 @@ export function deriveYieldTransferHookValidationAddress(
   );
 }
 
+/** Mint-specific hLP cohort; retired mints retain their frozen yield state. */
+export function deriveHlpCohortAddress(
+  market: PublicKey,
+  hlpMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.HLP_COHORT, market.toBuffer(), hlpMint.toBuffer()],
+    programId
+  );
+}
+
 function assertU8(value: number, label: string): void {
   if (!Number.isInteger(value) || value < 0 || value > 255) {
     throw new Error(`${label} must fit in a u8, got ${value}`);
@@ -561,6 +574,18 @@ export function buildLpTransferHookValidationAccountData({
       true
     ),
     ...eventMetas,
+    ...(yieldTokenKindCode(tokenKind) === 1 && !legacyLayout
+      ? [
+          pdaTransferHookMeta(
+            [
+              { kind: "literal", bytes: SEEDS.HLP_COHORT },
+              { kind: "accountKey", index: TRANSFER_HOOK_MARKET_ACCOUNT_INDEX },
+              { kind: "accountKey", index: 1 },
+            ],
+            false
+          ),
+        ]
+      : []),
   ]);
 }
 
@@ -630,6 +655,9 @@ export function buildLpTransferHookAccountMetas({
     { pubkey: destinationQuoteYieldAccount, isSigner: false, isWritable: true },
     { pubkey: deriveEventAuthorityAddress(programId)[0], isSigner: false, isWritable: false },
     { pubkey: programId, isSigner: false, isWritable: false },
+    ...(yieldTokenKindCode(tokenKind) === 1
+      ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, programId)[0], isSigner: false, isWritable: false }]
+      : []),
     { pubkey: validationAccount, isSigner: false, isWritable: false },
   ];
 }

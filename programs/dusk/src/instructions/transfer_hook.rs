@@ -9,11 +9,11 @@ use anchor_spl::token_2022::{
 use spl_transfer_hook_interface::{get_extra_account_metas_address, instruction::TransferHookInstruction};
 
 use crate::{
-    constants::YIELD_ACCOUNT_SEED_PREFIX,
+    constants::{HLP_COHORT_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
     errors::ErrorCode,
     events::LpTransferred,
     instructions::{accounting::emit_accounting_event, accounts::validate_canonical_lp_token_account_key},
-    state::{Market, YieldAccount, YieldTokenKind},
+    state::{HlpCohort, Market, YieldAccount, YieldTokenKind},
 };
 
 /// Accounts of the legacy layout; newer mints append the event authority and
@@ -100,7 +100,10 @@ pub fn handle_transfer_hook<'info>(
         mutate_program_owned_account::<Market, _, _>(&accounts[5], ErrorCode::InvalidMarket, |market| {
             require_keys_eq!(*accounts[6].key, market.base_side.asset_mint, ErrorCode::InvalidMint);
             require_keys_eq!(*accounts[7].key, market.quote_side.asset_mint, ErrorCode::InvalidMint);
-            let contexts = current_yield_contexts(market, lp_mint)?.ok_or_else(|| error!(ErrorCode::InvalidMint))?;
+            let contexts = match current_yield_contexts(market, lp_mint)? {
+                Some(contexts) => contexts,
+                None => retired_hlp_yield_contexts(market_key, market, lp_mint, accounts)?,
+            };
             Ok((
                 contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?,
                 contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?,
@@ -146,6 +149,51 @@ pub fn handle_transfer_hook<'info>(
         )?;
     }
     Ok(())
+}
+
+#[inline(never)]
+fn retired_hlp_yield_contexts(
+    market_key: Pubkey,
+    market: &Market,
+    lp_mint: Pubkey,
+    accounts: &[AccountInfo],
+) -> Result<YieldContexts> {
+    let cohort_info = accounts.get(14).ok_or(ErrorCode::InvalidArgument)?;
+    let (expected, bump) = Pubkey::find_program_address(
+        &[HLP_COHORT_SEED_PREFIX, market_key.as_ref(), lp_mint.as_ref()],
+        &crate::ID,
+    );
+    require_keys_eq!(*cohort_info.key, expected, ErrorCode::InvalidArgument);
+    require_keys_eq!(*cohort_info.owner, crate::ID, ErrorCode::InvalidArgument);
+    let data = cohort_info.try_borrow_data()?;
+    let mut data_slice: &[u8] = &data;
+    let cohort = HlpCohort::try_deserialize(&mut data_slice)?;
+    cohort.assert_identity(
+        market_key,
+        lp_mint,
+        crate::state::MarketAsset::try_from_code(cohort.target_asset)?,
+    )?;
+    require_eq!(cohort.bump, bump, ErrorCode::InvalidArgument);
+    require!(cohort.retired, ErrorCode::InvalidArgument);
+    let vault = &cohort.final_vault;
+    Ok(YieldContexts {
+        items: [
+            Some(YieldContext {
+                lp_mint,
+                asset_mint: market.base_side.asset_mint,
+                token_kind: YieldTokenKind::Hlp,
+                swap_fee_growth_index_q64: vault.base_swap_fee_growth_index_q64,
+                interest_growth_index_q64: vault.base_interest_growth_index_q64,
+            }),
+            Some(YieldContext {
+                lp_mint,
+                asset_mint: market.quote_side.asset_mint,
+                token_kind: YieldTokenKind::Hlp,
+                swap_fee_growth_index_q64: vault.quote_swap_fee_growth_index_q64,
+                interest_growth_index_q64: vault.quote_interest_growth_index_q64,
+            }),
+        ],
+    })
 }
 
 /// Reusable SBF stack boundary for mutable raw Anchor accounts supplied to the

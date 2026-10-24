@@ -36,6 +36,7 @@ import {
   deriveProposalSupportAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
+  deriveHlpCohortAddress,
   deriveReferralPartnerAddress,
   type YieldTokenKind,
 } from "./constants.js";
@@ -705,6 +706,8 @@ export class DuskWrite {
     baseMint: AddressLike;
     quoteMint: AddressLike;
     tokenKind: YieldTokenKind;
+    /** Supply the retired mint's cohort when initializing claims after rotation. */
+    retired?: boolean;
   }): Promise<TransactionInstruction> {
     const payer = address(params.payer);
     const owner = address(params.owner);
@@ -738,6 +741,9 @@ export class DuskWrite {
         )[0],
         systemProgram: SystemProgram.programId,
       },
+      remainingAccounts: params.retired
+        ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false }]
+        : [],
     });
   }
 
@@ -751,16 +757,30 @@ export class DuskWrite {
     payer: AddressLike;
     market: AddressLike;
     lpMint: AddressLike;
+    /** Pass this when composing market creation and hook setup in one transaction. */
+    tokenKind?: YieldTokenKind;
   }): Promise<TransactionInstruction> {
     const lpMint = address(params.lpMint);
+    const market = address(params.market);
+    let tokenKind = params.tokenKind;
+    if (tokenKind === undefined) {
+      const state = await this.program.account.market.fetch(market);
+      if (lpMint.equals(state.ylpMint)) tokenKind = "ylp";
+      else if (lpMint.equals(state.baseSide.hlpMint) || lpMint.equals(state.quoteSide.hlpMint)) tokenKind = "hlp";
+      else throw new Error("LP mint does not belong to the market");
+    }
+    const isHlp = tokenKind === "hlp" || tokenKind === 1;
     return this.instruction("initializeLpTransferHook" as DuskInstructionName, undefined, {
       accounts: {
         payer: address(params.payer),
-        market: address(params.market),
+        market,
         lpMint,
         validationAccount: deriveYieldTransferHookValidationAddress(lpMint, this.program.programId)[0],
         systemProgram: SystemProgram.programId,
       },
+      remainingAccounts: isHlp
+        ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: true }]
+        : [],
     });
   }
 
@@ -1246,6 +1266,72 @@ export class DuskWrite {
 
   withdrawSingleSided(args: Record<string, unknown>, options: HlpLiquidityBuildOptions) {
     return this.hlpLiquidityAction("withdrawSingleSided", args, options);
+  }
+
+  /** Begin a fresh hLP receipt cohort after the current vault has terminally closed. */
+  rotateHlpCohortInstruction(params: {
+    payer: AddressLike;
+    market: AddressLike;
+    oldHlpMint: AddressLike;
+    newHlpMint: AddressLike;
+    targetAsset: "base" | "quote";
+    metadata: { name: string; symbol: string; uri: string };
+  }): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const oldHlpMint = address(params.oldHlpMint);
+    const newHlpMint = address(params.newHlpMint);
+    return this.instruction("rotateHlpCohort" as DuskInstructionName, {
+      targetAsset: params.targetAsset === "base" ? 0 : 1,
+      metadata: params.metadata,
+    }, {
+      accounts: {
+        payer: address(params.payer),
+        market,
+        oldHlpMint,
+        newHlpMint,
+        oldCohort: deriveHlpCohortAddress(market, oldHlpMint, this.program.programId)[0],
+        newTokenMetadata: deriveTokenMetadataAddress(newHlpMint)[0],
+        sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      },
+    });
+  }
+
+  /** Burn old hLP receipts after terminal closure while preserving earned yield. */
+  burnRetiredHlpReceiptInstruction(params: {
+    market: AddressLike;
+    owner: AddressLike;
+    retiredMint: AddressLike;
+    baseMint: AddressLike;
+    quoteMint: AddressLike;
+    amount: GovernanceIntegerLike;
+    ownerHlpAccount?: AddressLike;
+  }): Promise<TransactionInstruction> {
+    const market = address(params.market);
+    const owner = address(params.owner);
+    const retiredMint = address(params.retiredMint);
+    return this.instruction("burnRetiredHlpReceipt" as DuskInstructionName, {
+      amount: governanceIntegerBN(params.amount),
+    }, {
+      accounts: {
+        market,
+        owner,
+        retiredMint,
+        cohort: deriveHlpCohortAddress(market, retiredMint, this.program.programId)[0],
+        ownerHlpAccount: params.ownerHlpAccount
+          ? address(params.ownerHlpAccount)
+          : getAssociatedTokenAddressSync(retiredMint, owner, true, TOKEN_2022_PROGRAM_ID),
+        baseYieldAccount: deriveYieldAccountAddress(
+          market, owner, retiredMint, address(params.baseMint), "hlp", this.program.programId
+        )[0],
+        quoteYieldAccount: deriveYieldAccountAddress(
+          market, owner, retiredMint, address(params.quoteMint), "hlp", this.program.programId
+        )[0],
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+      },
+    });
   }
 
   async configureReferralPartnerInstruction(params: {

@@ -58,9 +58,7 @@ impl<'info> SetYieldRecipient<'info> {
             YieldTokenKind::Ylp => {
                 require_keys_eq!(self.lp_mint.key(), self.market.ylp_mint, ErrorCode::InvalidMint)
             }
-            YieldTokenKind::Hlp => {
-                self.market.asset_for_hlp_mint(self.lp_mint.key())?;
-            }
+            YieldTokenKind::Hlp => {}
         }
         self.yield_account.assert_account(
             self.owner.key(),

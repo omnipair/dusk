@@ -506,7 +506,7 @@ impl<'info> InitializeMarket<'info> {
 }
 
 #[cfg(feature = "production")]
-fn require_vanity_suffix(mint: &InterfaceAccount<Mint>, suffix: &str) -> Result<()> {
+pub(crate) fn require_vanity_suffix(mint: &InterfaceAccount<Mint>, suffix: &str) -> Result<()> {
     let mint_key = mint.key().to_string();
     let start_idx = mint_key
         .len()
@@ -517,7 +517,7 @@ fn require_vanity_suffix(mint: &InterfaceAccount<Mint>, suffix: &str) -> Result<
 }
 
 #[cfg(not(feature = "production"))]
-fn require_vanity_suffix(_mint: &InterfaceAccount<Mint>, _suffix: &str) -> Result<()> {
+pub(crate) fn require_vanity_suffix(_mint: &InterfaceAccount<Mint>, _suffix: &str) -> Result<()> {
     Ok(())
 }
 
@@ -552,7 +552,7 @@ pub struct InitializeLpMetadataArgs {
     pub uri: String,
 }
 
-fn validate_lp_metadata_args(args: &InitializeLpMetadataArgs) -> Result<()> {
+pub(crate) fn validate_lp_metadata_args(args: &InitializeLpMetadataArgs) -> Result<()> {
     require!(!args.name.is_empty() && args.name.len() <= 32, ErrorCode::InvalidLpName);
     require!(args.name.is_ascii(), ErrorCode::InvalidLpName);
     require!(
@@ -568,7 +568,7 @@ fn validate_lp_metadata_args(args: &InitializeLpMetadataArgs) -> Result<()> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_lp_metadata<'info>(
+pub(crate) fn create_lp_metadata<'info>(
     market: &Account<'info, Market>,
     payer: &Signer<'info>,
     lp_mint: &InterfaceAccount<'info, Mint>,

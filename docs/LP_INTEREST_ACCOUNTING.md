@@ -23,6 +23,18 @@ are also integrated into that PR.
 The previously proposed historical claim ledger and proportional funding
 policy are superseded. They are not part of this implementation.
 
+## Terminal hLP receipt cohorts
+
+A terminal hLP close can leave old receipts in wallets after the vault's yLP
+backing and funding debt have reached zero. Starting a new deposit against the
+same supply would give old receipts a claim on the new deposit. Dusk instead
+rotates that side to a fresh hLP mint. The old mint's final yield indexes are
+frozen in its cohort PDA, so old receipts retain funded yield already earned
+without sharing in later deposits. Holders may transfer, harvest and burn old
+receipts; the new mint has a separate vault, supply and yield-account namespace.
+Rotation is permissionless only after terminal closure and does not alter the
+other hLP side or the yLP mint.
+
 ## Full-value controller accounting (2026-10-19)
 
 The accounting implementation uses live-reserve claims consistently for hLP deposit

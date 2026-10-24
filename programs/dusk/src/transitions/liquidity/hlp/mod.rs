@@ -284,6 +284,49 @@ fn credit_hlp_growth(
     Ok(())
 }
 
+/// The last receipt of either a live or retired hLP cohort receives any
+/// sub-atom carry that could not be distributed through its growth indexes.
+pub(crate) fn drain_hlp_vault_unallocated_yield(
+    vault: &mut HlpVault,
+    base_yield_account: &mut YieldAccount,
+    quote_yield_account: &mut YieldAccount,
+) -> Result<()> {
+    require_eq!(vault.hlp_supply, 0, ErrorCode::BrokenInvariant);
+    base_yield_account.credit_unallocated(
+        vault.unallocated_base_swap_fee_amount,
+        vault.unallocated_base_interest_amount,
+        (vault.base_swap_fee_remainder_q64 as u128)
+            .checked_add(vault.base_swap_fee_growth_remainder_scaled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        (vault.base_interest_remainder_q64 as u128)
+            .checked_add(vault.base_interest_growth_remainder_scaled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+    )?;
+    quote_yield_account.credit_unallocated(
+        vault.unallocated_quote_swap_fee_amount,
+        vault.unallocated_quote_interest_amount,
+        (vault.quote_swap_fee_remainder_q64 as u128)
+            .checked_add(vault.quote_swap_fee_growth_remainder_scaled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        (vault.quote_interest_remainder_q64 as u128)
+            .checked_add(vault.quote_interest_growth_remainder_scaled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+    )?;
+    vault.unallocated_base_swap_fee_amount = 0;
+    vault.unallocated_base_interest_amount = 0;
+    vault.unallocated_quote_swap_fee_amount = 0;
+    vault.unallocated_quote_interest_amount = 0;
+    vault.base_swap_fee_remainder_q64 = 0;
+    vault.base_interest_remainder_q64 = 0;
+    vault.quote_swap_fee_remainder_q64 = 0;
+    vault.quote_interest_remainder_q64 = 0;
+    vault.base_swap_fee_growth_remainder_scaled = 0;
+    vault.base_interest_growth_remainder_scaled = 0;
+    vault.quote_swap_fee_growth_remainder_scaled = 0;
+    vault.quote_interest_growth_remainder_scaled = 0;
+    Ok(())
+}
+
 impl Market {
     pub fn has_active_hlp(&self) -> bool {
         self.base_hlp_vault.hlp_supply > 0
@@ -309,40 +352,7 @@ impl Market {
             MarketAsset::Base => &mut self.base_hlp_vault,
             MarketAsset::Quote => &mut self.quote_hlp_vault,
         };
-        require_eq!(vault.hlp_supply, 0, ErrorCode::BrokenInvariant);
-        base_yield_account.credit_unallocated(
-            vault.unallocated_base_swap_fee_amount,
-            vault.unallocated_base_interest_amount,
-            (vault.base_swap_fee_remainder_q64 as u128)
-                .checked_add(vault.base_swap_fee_growth_remainder_scaled as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            (vault.base_interest_remainder_q64 as u128)
-                .checked_add(vault.base_interest_growth_remainder_scaled as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )?;
-        quote_yield_account.credit_unallocated(
-            vault.unallocated_quote_swap_fee_amount,
-            vault.unallocated_quote_interest_amount,
-            (vault.quote_swap_fee_remainder_q64 as u128)
-                .checked_add(vault.quote_swap_fee_growth_remainder_scaled as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            (vault.quote_interest_remainder_q64 as u128)
-                .checked_add(vault.quote_interest_growth_remainder_scaled as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )?;
-        vault.unallocated_base_swap_fee_amount = 0;
-        vault.unallocated_base_interest_amount = 0;
-        vault.unallocated_quote_swap_fee_amount = 0;
-        vault.unallocated_quote_interest_amount = 0;
-        vault.base_swap_fee_remainder_q64 = 0;
-        vault.base_interest_remainder_q64 = 0;
-        vault.quote_swap_fee_remainder_q64 = 0;
-        vault.quote_interest_remainder_q64 = 0;
-        vault.base_swap_fee_growth_remainder_scaled = 0;
-        vault.base_interest_growth_remainder_scaled = 0;
-        vault.quote_swap_fee_growth_remainder_scaled = 0;
-        vault.quote_interest_growth_remainder_scaled = 0;
-        Ok(())
+        drain_hlp_vault_unallocated_yield(vault, base_yield_account, quote_yield_account)
     }
 
     /// Validate that the current hLP hedge state admits new capital without

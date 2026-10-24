@@ -548,6 +548,17 @@ pub mod dusk {
     }
 
     // HLP instructions
+    pub fn rotate_hlp_cohort(ctx: Context<RotateHlpCohort>, args: RotateHlpCohortArgs) -> Result<()> {
+        RotateHlpCohort::handle_rotate(ctx, args)
+    }
+
+    pub fn burn_retired_hlp_receipt(
+        ctx: Context<BurnRetiredHlpReceipt>,
+        args: BurnRetiredHlpReceiptArgs,
+    ) -> Result<()> {
+        BurnRetiredHlpReceipt::handle_burn(ctx, args)
+    }
+
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn deposit_single_sided<'info>(
         ctx: Context<'_, '_, '_, 'info, DepositSingleSided<'info>>,

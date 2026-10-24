@@ -1036,6 +1036,155 @@ export type Dusk = {
       ]
     },
     {
+      "name": "burnRetiredHlpReceipt",
+      "discriminator": [
+        186,
+        145,
+        76,
+        141,
+        32,
+        30,
+        63,
+        95
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "retiredMint",
+          "writable": true
+        },
+        {
+          "name": "cohort",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  95,
+                  99,
+                  111,
+                  104,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "retiredMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ownerHlpAccount",
+          "writable": true
+        },
+        {
+          "name": "baseYieldAccount",
+          "writable": true
+        },
+        {
+          "name": "quoteYieldAccount",
+          "writable": true
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "burnRetiredHlpReceiptArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "claimReferralInterest",
       "discriminator": [
         16,
@@ -7608,6 +7757,225 @@ export type Dusk = {
       ]
     },
     {
+      "name": "rotateHlpCohort",
+      "discriminator": [
+        163,
+        66,
+        186,
+        91,
+        40,
+        131,
+        194,
+        235
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "oldHlpMint"
+        },
+        {
+          "name": "newHlpMint",
+          "writable": true
+        },
+        {
+          "name": "oldCohort",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  108,
+                  112,
+                  95,
+                  99,
+                  111,
+                  104,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "oldHlpMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "newTokenMetadata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  11,
+                  112,
+                  101,
+                  177,
+                  227,
+                  209,
+                  124,
+                  69,
+                  56,
+                  157,
+                  82,
+                  127,
+                  107,
+                  4,
+                  195,
+                  205,
+                  88,
+                  184,
+                  108,
+                  115,
+                  26,
+                  160,
+                  253,
+                  181,
+                  73,
+                  182,
+                  209,
+                  188,
+                  3,
+                  248,
+                  41,
+                  70
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "newHlpMint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                11,
+                112,
+                101,
+                177,
+                227,
+                209,
+                124,
+                69,
+                56,
+                157,
+                82,
+                127,
+                107,
+                4,
+                195,
+                205,
+                88,
+                184,
+                108,
+                115,
+                26,
+                160,
+                253,
+                181,
+                73,
+                182,
+                209,
+                188,
+                3,
+                248,
+                41,
+                70
+              ]
+            }
+          }
+        },
+        {
+          "name": "sysvarInstructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "tokenMetadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "rotateHlpCohortArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "setGlobalReduceOnly",
       "discriminator": [
         242,
@@ -10957,6 +11325,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "hlpCohort",
+      "discriminator": [
+        224,
+        89,
+        199,
+        90,
+        126,
+        101,
+        43,
+        215
+      ]
+    },
+    {
       "name": "hlpFlashSession",
       "discriminator": [
         212,
@@ -11232,6 +11613,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "hlpCohortRotated",
+      "discriminator": [
+        46,
+        134,
+        13,
+        57,
+        117,
+        44,
+        226,
+        81
+      ]
+    },
+    {
       "name": "hlpFlashSettled",
       "discriminator": [
         255,
@@ -11294,6 +11688,19 @@ export type Dusk = {
         168,
         104,
         6
+      ]
+    },
+    {
+      "name": "hlpRetiredReceiptBurned",
+      "discriminator": [
+        31,
+        252,
+        3,
+        205,
+        166,
+        215,
+        14,
+        49
       ]
     },
     {
@@ -13666,6 +14073,18 @@ export type Dusk = {
       }
     },
     {
+      "name": "burnRetiredHlpReceiptArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "closeInsolventHlpArgs",
       "type": {
         "kind": "struct",
@@ -15368,6 +15787,80 @@ export type Dusk = {
       }
     },
     {
+      "name": "hlpCohort",
+      "docs": [
+        "The mint-specific lifetime of one hLP receipt cohort. While current, the",
+        "market vault owns the live accounting. After terminal recovery, this account",
+        "holds the final yield indexes and supply so old receipts can be transferred,",
+        "harvested and burned without acquiring backing from a new deposit cohort."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          },
+          {
+            "name": "retired",
+            "type": "bool"
+          },
+          {
+            "name": "finalVault",
+            "type": {
+              "defined": {
+                "name": "hlpVault"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpCohortRotated",
+      "docs": [
+        "A terminal hLP cohort retains its funded yield rights while a new mint",
+        "becomes the receipt for future single-sided deposits on the same market."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          },
+          {
+            "name": "retiredMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "newMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "retiredSupply",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "hlpDepositCapacityPreview",
       "type": {
         "kind": "struct",
@@ -15877,6 +16370,34 @@ export type Dusk = {
             "docs": [
               "Gross base tokens paid from reserve cash to the interest vault."
             ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hlpRetiredReceiptBurned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remainingSupply",
             "type": "u64"
           }
         ]
@@ -20483,6 +21004,26 @@ export type Dusk = {
           {
             "name": "lastSnapshotSlot",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rotateHlpCohortArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "targetAsset",
+            "type": "u8"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "initializeLpMetadataArgs"
+              }
+            }
           }
         ]
       }
