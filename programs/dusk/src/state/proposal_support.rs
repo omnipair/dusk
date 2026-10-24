@@ -56,6 +56,16 @@ impl VirtualYieldLedger {
         Ok(())
     }
 
+    /// Move earned yield exactly once while retaining the current checkpoints.
+    pub fn drain_into(&mut self, yield_account: &mut YieldAccount) -> Result<()> {
+        self.merge_into(yield_account)?;
+        self.accrued_swap_fee_amount = 0;
+        self.accrued_interest_amount = 0;
+        self.swap_fee_remainder_q64 = 0;
+        self.interest_remainder_q64 = 0;
+        Ok(())
+    }
+
     pub fn merge_into(self, yield_account: &mut YieldAccount) -> Result<()> {
         yield_account.credit_unallocated(
             self.accrued_swap_fee_amount,

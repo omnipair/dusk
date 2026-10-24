@@ -142,6 +142,7 @@ async function main() {
         const signature = await send([
           await dusk.write.repayInstruction({
             debtAssetMint: debtIsBase ? baseMint : quoteMint,
+            collateralAssetMint: debtIsBase ? quoteMint : baseMint,
             market,
             owner: keypair.publicKey,
             ownerDebtAccount: getAssociatedTokenAddressSync(

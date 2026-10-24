@@ -1,16 +1,22 @@
 mod engine;
+mod flash;
+mod flash_terminal;
+pub use flash::HlpFlashQuote;
+pub(crate) use flash_terminal::HlpFlashTerminalSettlement;
+mod harvest;
 pub(crate) mod integrated;
 pub(crate) mod recovery;
 pub(crate) mod solver;
 
 pub use engine::*;
+pub(crate) use harvest::HlpNewInterestSettlement;
 pub(crate) use integrated::*;
 pub(crate) use recovery::*;
 pub(crate) use solver::*;
 
 use super::*;
 use crate::transitions::{
-    amm::{ConcentratedCurveDirection, ConcentratedCurvePoint, ConcentratedIntegratedAmmQuote},
+    amm::{ConcentratedCurveDirection, ConcentratedIntegratedAmmQuote},
     DebtClearance, DebtRepaymentQuote, HlpRecoveryBreakdown,
 };
 use crate::{constants::*, math::*, state::*};
@@ -278,6 +284,49 @@ fn credit_hlp_growth(
     Ok(())
 }
 
+/// The last receipt of either a live or retired hLP cohort receives any
+/// sub-atom carry that could not be distributed through its growth indexes.
+pub(crate) fn drain_hlp_vault_unallocated_yield(
+    vault: &mut HlpVault,
+    base_yield_account: &mut YieldAccount,
+    quote_yield_account: &mut YieldAccount,
+) -> Result<()> {
+    require_eq!(vault.hlp_supply, 0, ErrorCode::BrokenInvariant);
+    base_yield_account.credit_unallocated(
+        vault.unallocated_base_swap_fee_amount,
+        vault.unallocated_base_interest_amount,
+        (vault.base_swap_fee_remainder_q64 as u128)
+            .checked_add(vault.base_swap_fee_growth_remainder_scaled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        (vault.base_interest_remainder_q64 as u128)
+            .checked_add(vault.base_interest_growth_remainder_scaled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+    )?;
+    quote_yield_account.credit_unallocated(
+        vault.unallocated_quote_swap_fee_amount,
+        vault.unallocated_quote_interest_amount,
+        (vault.quote_swap_fee_remainder_q64 as u128)
+            .checked_add(vault.quote_swap_fee_growth_remainder_scaled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        (vault.quote_interest_remainder_q64 as u128)
+            .checked_add(vault.quote_interest_growth_remainder_scaled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+    )?;
+    vault.unallocated_base_swap_fee_amount = 0;
+    vault.unallocated_base_interest_amount = 0;
+    vault.unallocated_quote_swap_fee_amount = 0;
+    vault.unallocated_quote_interest_amount = 0;
+    vault.base_swap_fee_remainder_q64 = 0;
+    vault.base_interest_remainder_q64 = 0;
+    vault.quote_swap_fee_remainder_q64 = 0;
+    vault.quote_interest_remainder_q64 = 0;
+    vault.base_swap_fee_growth_remainder_scaled = 0;
+    vault.base_interest_growth_remainder_scaled = 0;
+    vault.quote_swap_fee_growth_remainder_scaled = 0;
+    vault.quote_interest_growth_remainder_scaled = 0;
+    Ok(())
+}
+
 impl Market {
     pub fn has_active_hlp(&self) -> bool {
         self.base_hlp_vault.hlp_supply > 0
@@ -303,45 +352,13 @@ impl Market {
             MarketAsset::Base => &mut self.base_hlp_vault,
             MarketAsset::Quote => &mut self.quote_hlp_vault,
         };
-        require_eq!(vault.hlp_supply, 0, ErrorCode::BrokenInvariant);
-        base_yield_account.credit_unallocated(
-            vault.unallocated_base_swap_fee_amount,
-            vault.unallocated_base_interest_amount,
-            (vault.base_swap_fee_remainder_q64 as u128)
-                .checked_add(vault.base_swap_fee_growth_remainder_scaled as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            (vault.base_interest_remainder_q64 as u128)
-                .checked_add(vault.base_interest_growth_remainder_scaled as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )?;
-        quote_yield_account.credit_unallocated(
-            vault.unallocated_quote_swap_fee_amount,
-            vault.unallocated_quote_interest_amount,
-            (vault.quote_swap_fee_remainder_q64 as u128)
-                .checked_add(vault.quote_swap_fee_growth_remainder_scaled as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            (vault.quote_interest_remainder_q64 as u128)
-                .checked_add(vault.quote_interest_growth_remainder_scaled as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )?;
-        vault.unallocated_base_swap_fee_amount = 0;
-        vault.unallocated_base_interest_amount = 0;
-        vault.unallocated_quote_swap_fee_amount = 0;
-        vault.unallocated_quote_interest_amount = 0;
-        vault.base_swap_fee_remainder_q64 = 0;
-        vault.base_interest_remainder_q64 = 0;
-        vault.quote_swap_fee_remainder_q64 = 0;
-        vault.quote_interest_remainder_q64 = 0;
-        vault.base_swap_fee_growth_remainder_scaled = 0;
-        vault.base_interest_growth_remainder_scaled = 0;
-        vault.quote_swap_fee_growth_remainder_scaled = 0;
-        vault.quote_interest_growth_remainder_scaled = 0;
-        Ok(())
+        drain_hlp_vault_unallocated_yield(vault, base_yield_account, quote_yield_account)
     }
 
     /// Validate that the current hLP hedge state admits new capital without
     /// exposing rebalance-engine intermediates outside the hLP domain.
     pub fn assert_hlp_entry_available(&self, target_asset: MarketAsset) -> Result<()> {
+        require!(!self.hlp_frozen(target_asset), ErrorCode::HlpSettlementUnavailable);
         let prices = current_hlp_curve_prices(self)?;
         let entry = current_hlp_entry_state_with_prices(self, target_asset, prices)?;
         require!(entry.disposition.admits_entry(), ErrorCode::HlpSettlementUnavailable);
@@ -359,17 +376,17 @@ impl Market {
         checkpoint_hlp_yield_from_ylp(self, MarketAsset::Quote)?;
         let base_active = self.base_hlp_vault.hlp_supply > 0 || self.base_hlp_vault.residual_exposure != 0;
         let quote_active = self.quote_hlp_vault.hlp_supply > 0 || self.quote_hlp_vault.residual_exposure != 0;
-        let base_delta = if base_active {
+        let base_delta = if base_active && !self.hlp_frozen(MarketAsset::Base) {
             checkpoint_one_hlp_with_prices(self, MarketAsset::Base, prices)?
         } else {
             0
         };
-        let quote_delta = if quote_active {
+        let quote_delta = if quote_active && !self.hlp_frozen(MarketAsset::Quote) {
             checkpoint_one_hlp_with_prices(self, MarketAsset::Quote, prices)?
         } else {
             0
         };
-        Ok((base_delta, quote_delta, prices.for_asset(MarketAsset::Base) as u64))
+        Ok((base_delta, quote_delta, prices.base_in_quote_nad() as u64))
     }
 
     pub fn checkpoint_hlp_yield_from_ylp(&mut self, target_asset: MarketAsset) -> Result<()> {

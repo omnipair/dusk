@@ -272,6 +272,13 @@ impl<'info> DepositSingleSided<'info> {
         ctx.accounts
             .market
             .finalize_amm_transition_and_observe_risk(current_slot)?;
+        let fees = crate::instructions::lending_market_admission_fees(
+            &ctx.accounts.market,
+            &ctx.accounts.base_mint,
+            &ctx.accounts.quote_mint,
+            Clock::get()?.epoch,
+        )?;
+        ctx.accounts.market.assert_market_health_with_fees(fees)?;
         require_reserve_custody(ctx.accounts.base_reserve_vault.amount, &ctx.accounts.market.base_side)?;
         require_reserve_custody(ctx.accounts.quote_reserve_vault.amount, &ctx.accounts.market.quote_side)?;
         let (base_swap_growth, base_interest_growth) = ctx

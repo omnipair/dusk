@@ -13,6 +13,8 @@ import {
 } from "@solana/spl-token";
 import {
   Dusk,
+  IDL,
+  MARKET_LAYOUT_VERSION,
   decodeDuskVirtualBookBatch,
   decodePreviewSwapReturnData,
   combineVirtualBookBatches,
@@ -24,6 +26,69 @@ const BN = Reflect.get(anchor, "BN") ?? Reflect.get(anchor, "default").BN;
 const fixture = JSON.parse(
   readFileSync(new URL("./fixtures/virtual-book-batch-devnet-20260920.json", import.meta.url))
 );
+// This saved account predates the two fractional borrow-index carries in Debt.
+// Add zero-valued carries at the fixed fixture's Debt offset for current IDL
+// decoding; the network response and its original observations stay the same.
+const savedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
+assert.equal(savedMarketBytes.length, 2917);
+const borrowIndexEnd = 1623;
+fixture.result.value.accounts[0].data[0] = Buffer.concat([
+  savedMarketBytes.subarray(0, borrowIndexEnd),
+  Buffer.alloc(32),
+  savedMarketBytes.subarray(borrowIndexEnd),
+]).toString("base64");
+// The immutable network capture also predates leverage exposure counters.
+const carriedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
+const debtEnd = borrowIndexEnd + 32 + 128;
+const exposureMarketBytes = Buffer.concat([
+  carriedMarketBytes.subarray(0, debtEnd), Buffer.alloc(16), carriedMarketBytes.subarray(debtEnd),
+]);
+// Layout 3 adds a 32-byte advance ledger at the start of each Fees struct.
+// These offsets refer to this historical fixture after its Debt adaptations.
+const baseFeesOffset = 250;
+const quoteFeesOffset = 755;
+const currentMarketBytes = Buffer.concat([
+  exposureMarketBytes.subarray(0, baseFeesOffset), Buffer.alloc(32),
+  exposureMarketBytes.subarray(baseFeesOffset, quoteFeesOffset), Buffer.alloc(32),
+  exposureMarketBytes.subarray(quoteFeesOffset),
+]);
+currentMarketBytes[8] = 3;
+// Adapt the immutable layout-3 fixture through its explicit old schema. This
+// is test data conversion, not a production account migration.
+const fixtureProgram = new Dusk({ connection: new Connection("http://localhost:8899"), programId: fixture.programId }).program;
+assert.equal(
+  MARKET_LAYOUT_VERSION,
+  Number(IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION").value),
+  "SDK market layout version must match the generated program IDL"
+);
+const oldIdl = structuredClone(fixtureProgram.idl);
+for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.type.fields.filter(f =>
+  ![
+    "flashReceivable", "flashCollateralDebit",
+    "frozenHlpMask", "frozenBaseVaultBaseOffsetNad", "frozenBaseVaultQuoteOffsetNad",
+    "frozenQuoteVaultBaseOffsetNad", "frozenQuoteVaultQuoteOffsetNad",
+  ].includes(f.name) && !(type.name === "insuranceDrawWindow" && f.name === "initialized"));
+const BorshAccountsCoder = Reflect.get(anchor, "BorshAccountsCoder") ?? Reflect.get(anchor, "default").BorshAccountsCoder;
+const oldAccount = new BorshAccountsCoder(oldIdl).decode("market", currentMarketBytes);
+oldAccount.version = MARKET_LAYOUT_VERSION;
+oldAccount.baseSide.reserves.flashReceivable = new BN(0);
+oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
+oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);
+oldAccount.quoteHlpVault.flashCollateralDebit = new BN(0);
+oldAccount.amm.frozenHlpMask = 0;
+oldAccount.amm.frozenBaseVaultBaseOffsetNad = new BN(0);
+oldAccount.amm.frozenBaseVaultQuoteOffsetNad = new BN(0);
+oldAccount.amm.frozenQuoteVaultBaseOffsetNad = new BN(0);
+oldAccount.amm.frozenQuoteVaultQuoteOffsetNad = new BN(0);
+// Slot zero is a valid window start in the current layout. The historical
+// capture predates the explicit initialization flags, so add them after decode.
+for (const window of [oldAccount.insurance.baseDrawWindow, oldAccount.insurance.quoteDrawWindow]) {
+  window.initialized = false;
+}
+const body = Buffer.alloc(currentMarketBytes.length + 128);
+const entry = fixtureProgram.coder.accounts.accountLayouts.get("market");
+const size = entry.layout.encode(oldAccount, body);
+fixture.result.value.accounts[0].data[0] = Buffer.concat([currentMarketBytes.subarray(0, 8), body.subarray(0, size)]).toString("base64");
 const slot = fixture.result.context.slot;
 const prefix = `Program return: ${fixture.programId} `;
 // The saved devnet snapshot predates the two trailing output-fee fields.
@@ -366,7 +431,8 @@ test("full curve sampling batches both directions and retains original observati
   const sent = [];
   t.mock.method(h.connection, "simulateTransaction", async (tx, options) => {
     const response = h.response();
-    const returns = tx.message.compiledInstructions.slice(2).map((ix) => {
+    const returns = tx.message.compiledInstructions.filter(ix =>
+      tx.message.staticAccountKeys[ix.programIdIndex].equals(h.dusk.program.programId)).map((ix) => {
       const decoded = h.dusk.program.coder.instruction.decode(Buffer.from(ix.data));
       assert.equal(decoded.name, "previewSwap");
       const mint = tx.message.staticAccountKeys[ix.accountKeyIndexes[2]];

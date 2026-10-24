@@ -1,6 +1,6 @@
 # Implementation sources for the whitepapers
 
-Reviewed source: `263c1635ad87ee36ffd9bf0b970457e4be965326`, September 10, 2026. This is a code snapshot, not a deployment claim. Paths below are relative to the repository root. Active callers were checked; historical comments and test-only helpers were not treated as current mechanism specifications.
+Reviewed source: integration candidate of PR #45 at `04941f19` and PR #52 at `2f46e0e7`, October 23, 2026. This is a code snapshot, not a deployment claim. Paths below are relative to the repository root. The separate numerical replay is pinned to earlier #45 source `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`.
 
 | Paper claim | Implementation source and semantic anchor |
 | --- | --- |
@@ -12,37 +12,44 @@ Reviewed source: `263c1635ad87ee36ffd9bf0b970457e4be965326`, September 10, 2026.
 | Active gross-path divergence, bounded fee basis, input/output collection | `programs/dusk/src/transitions/amm/mod.rs`; `programs/dusk/src/transitions/amm/fees.rs`: `gross_path_divergence_fee_raw`, `hard_total_fee_budget_floor` |
 | Fee compounding and frozen yLP eligibility | `programs/dusk/src/transitions/liquidity/hlp/integrated.rs`: `apply_compounded_ylp_fee`; `programs/dusk/src/transitions/ledger.rs`; `programs/dusk/src/state/market.rs`: `FeeProfile` |
 | Algebraic ordinary-tranche quote and endpoint ownership | `programs/dusk/src/transitions/liquidity/hlp/integrated.rs`: `IntegratedCurveState`, `reconstruct_hlp_endpoint`, `reconstruct_hlp_ownership` |
+| Depth without spot motion: fixed-shape ordinary scaling and distinct radial hLP ownership | `programs/dusk/src/transitions/amm/curve.rs`: `prepare_concentrated_cache_at_point` and homothetic branch selection; `programs/dusk/src/transitions/liquidity/hlp/integrated.rs`: `quote_integrated_exact_in`, `reconstruct_hlp_endpoint`; existing concentrated-liquidity scaling test in `programs/dusk/src/tests/transitions/amm.rs` |
 | Deposit funding headroom, cash floors, endpoint tolerance | `programs/dusk/src/transitions/liquidity/hlp/engine.rs`: `require_hlp_borrow_headroom`, `ConcentratedHlpTransition::consume`, `interest_cash_floors`; `programs/dusk/src/instructions/prepare_swap.rs` |
 | hLP funding recovery, activation, discount, critical ratio, bonus | `programs/dusk/src/transitions/liquidity/hlp/recovery.rs`: `quote_hlp_recovery`; `programs/dusk/src/transitions/liquidity/hlp/engine.rs` |
-| Interest-only terminal hLP waterfall, senior insurance, caller bounds, surviving yield | `programs/dusk/src/transitions/liquidity/hlp/engine.rs`: terminal waterfall preparation/consume; `programs/dusk/src/instructions/spot/close_insolvent_hlp.rs` |
+| Full-value hLP terminal waterfall, principal-only insurance, caller bounds, surviving funded yield | `programs/dusk/src/transitions/liquidity/hlp/flash_terminal.rs`; `programs/dusk/src/instructions/spot/close_insolvent_hlp.rs` |
+| Cash-funded interest, hLP harvest and carry on constrained swaps | `programs/dusk/src/transitions/liquidity/hlp/harvest.rs`; `programs/dusk/src/transitions/amm/swap.rs`; `programs/dusk/src/instructions/liquidity/fund_interest.rs` |
+| Atomic hLP flash recovery | `programs/dusk/src/instructions/hlp_flash.rs`; `programs/dusk/src/transitions/liquidity/hlp/flash.rs`; `packages/dusk-sdk/src/hlp-liquidation-client.ts` |
 | Public admission, stored factor, shadow risk curve, daily bucket | `programs/dusk/src/transitions/lending/mod.rs`; `programs/dusk/src/math/risk.rs`; `programs/dusk/src/state/market.rs`; lending borrow/withdraw handlers |
 | Index accrual before anchor update; all debt domains in utilization | `programs/dusk/src/transitions/lending/mod.rs`: `accrue_side`; `programs/dusk/src/math/risk.rs`: `utilization_bps`, `instantaneous_rate_apr_nad`, `adapt_rate_at_target_nad` |
 | Defaults and bounds | `programs/dusk/src/constants.rs`; `programs/dusk/src/state/market.rs`: `IrmConfig`, `DEFAULT_IRM_*`, `MAX_DAILY_BORROW_BPS` |
-| Public liquidation trigger and auction floor/fill/expired backstop | `programs/dusk/src/transitions/lending/mod.rs`; `programs/dusk/src/transitions/lending/liquidation.rs`; `programs/dusk/src/instructions/lending/liquidation/start_liquidation_auction.rs`, `programs/dusk/src/instructions/lending/liquidation/fill_liquidation_auction.rs`, `programs/dusk/src/instructions/lending/liquidation/backstop_liquidation_auction.rs`, `programs/dusk/src/instructions/lending/liquidation/settlement.rs` |
-| Isolated leverage, entry limits, cash settlement and closeout health | `programs/dusk/src/transitions/leverage.rs`; `programs/dusk/src/instructions/leverage/` |
-| Conditional entries, leverage exits, hLP stops, escrow yield/bounty | `programs/leverage_delegate/src/lib.rs` and its modules |
+| Flash liquidation, affordable discount, fees and emergency gating | `programs/dusk/src/instructions/flash_liquidation.rs`, `emergency_liquidation.rs`; `programs/dusk/src/transitions/liquidation_policy.rs` |
+| EMA-priced internal execution and smoothed depth | `programs/dusk/src/transitions/amm/liquidation.rs`; `docs/calibration/EMA_SETTLEMENT_CLOSEOUT.md` |
+| Isolated margin, entry limits, cash settlement and closeout health | `programs/dusk/src/transitions/leverage.rs`; `programs/dusk/src/instructions/leverage/` |
+| Conditional entries, margin exits, hLP stops, escrow yield/bounty | `programs/leverage_delegate/src/lib.rs` and its modules |
 | Harvest owner/recipient/authority, canonical destination | `programs/dusk/src/state/yield_account.rs`; `programs/dusk/src/instructions/liquidity/harvest.rs`, `set_yield_recipient.rs`, `set_harvest_authority.rs` |
+| Reusable governance balance and revocable delegation | `programs/dusk/src/state/governance_balance.rs`; `programs/dusk/src/instructions/governance/balance.rs`, `delegated.rs` |
+| Atomic LP metadata creation | `programs/dusk/src/instructions/market/initialization.rs` |
+| Stored margin terms, aggregate entry charge and position actions | `programs/dusk/src/transitions/leverage_margins.rs`; `programs/dusk/src/state/leverage_position.rs`; `docs/STORED_LEVERAGE_MARGINS.md`, `docs/LEVERAGE_POSITION_ACTIONS.md` |
 | Seven governance families | `programs/dusk/src/state/parameter_proposal.rs`: `ParameterFamily`, `MarketParameterUpdate` |
 
-## Corrections from the recovered July drafts
 
-1. Replaced universal CPMM pricing with the implemented nested concentrated path and distinguished marginal price from inventory ratio.
-2. Separated raw live reserves, unpaid-interest-adjusted reserves, ordinary trader inventory, and physical custody.
-3. Included isolated debt in cash-backed debt without counting it twice in utilization.
-4. Replaced synthetic-depth and iterative pre-rebalance claims with ordinary-tranche execution and algebraic hLP reconstruction; restricted the two-times statement to the balanced CPMM case.
-5. Scoped hLP funding headroom to deposit admission and documented cash rejection, recovery, and terminal interest-only insolvency.
-6. Added fee denomination, optional LP compounding, retained recenter funding, launch controls, and the current harvest authority.
-7. Corrected the utilization target to 70%, anchor-versus-APR bounds, update order, and cadence-dependent numerical examples.
-8. Distinguished admission, liquidation eligibility, auction floor, and realized backstop recovery; removed generic close-factor and bounded-LP-loss claims.
-9. Replaced obsolete simulations, repeated prototype appendices, unsupported volume statistics, stale API descriptions, and deployment recommendations with current derivations and explicit evidence limits.
+## Derivations and numerical evidence
+
+[HLP_DERIVATION.md](HLP_DERIVATION.md) is the GitHub-readable walkthrough. The same derivation appears in `main.tex`, under **From Yield Basis's square-root intuition to Dusk's hedge**. The expanded appendix contains the complete native trade and reconstruction trace.
+
+The chain is `xy=k` → `W=2√(kp)` → static versus continuously maintained 2× leverage → `dW=x dp` → inventory weight → target gross leverage `1/w`. The continuously rebalanced benchmark assumes a smooth price path, self-financing adjustments and no costs. Fixed debt does not deliver the same payoff. The concentration formula describes a local hedge; it does not promise fee-free finite-move tracking.
+
+`simulations/generate.py` produces mathematical illustrations. `simulations/native-hlp-flow.json` separately retains eight runs of the native benchmark API at the pinned earlier #45 source. The runner is `simulations/native_hlp_flow.rs`; reproduction instructions are in `simulations/README.md`. These runs include 1×/4× concentration, both hLPs, no-fee controls and 0.3% fees with/without compounding. They do not exercise current hLP fee marking, token CPIs, elapsed funding, transfer fees or external prices. The final marginal pool price is the valuation mark, not an independently observed market price.
+
+## Integrated #52 and remaining review
+
+PR #52 now implements full-value hLP entry and reconstruction, actual concentrated marginal-price fee marking, cash-funded interest advances, funding-first hLP harvest, spot-swap cash carry, and atomic external hLP flash recovery. The redundant `rescue_hlp` instruction is removed; native recovery remains in `swap`. Tests cover both vaults, concentration, repayment, writeoffs, fee-bearing tokens, rollback and compute limits. These implementation tests do not replace the final combined-branch audit or route-specific simulation.
+
+The selected accounting policy keeps unpaid claims in share value, excludes them from swap pricing, and leaves no detached unpaid claim after exit. Cash-funded interest uses frozen allocation and advance/revenue accounting to prevent a second payout. The selected hLP recovery target is the opposite-token hedge, which is 2× only at balanced value weights.
 
 ## External references
 
-The bibliography retains primary sources for GAMM lineage, Curve's StableSwap and dynamic-peg work, Morpho's adaptive rate-at-target mechanism, and Egorov/Yield Basis leveraged liquidity. Online references were checked on September 10, 2026. The supplied June 12, 2025 Egorov manuscript was read as theoretical context. None is used as authority for current Dusk runtime behavior or as a performance benchmark.
+Primary sources include Omnipair's GAMM documentation, Curve's StableSwap/CryptoSwap papers, Morpho's adaptive rate model and Egorov/Yield Basis leveraged liquidity. The Yield Basis paper and official compounding/leverage documentation were checked on October 19, 2026. They explain the theoretical lineage; Dusk runtime statements are grounded in the pinned code. Yield Basis already uses concentrated Curve pools, so this paper does not claim that concentrated leveraged liquidity is new or that its constant-product idealization applies to every curve unchanged.
 
-## Verification scope
+## Verification
 
-- `cargo test -p dusk --lib`: 362 passed, zero failures on the reviewed source.
-- `simulations/generate.py`: disclosed illustration checks pass; these are not full Python/Rust differential tests.
-- LaTeX compilation, bibliography resolution, page rendering, and final visual checks are recorded in `verification.json` after PDF QA.
-- No code or interface changes; no commit or push. The complete pre-commit CI sequence was not required or represented as run.
+`source-manifest.json` hashes the mapped source files. `verification.json` records illustration checks, PDF compilation, page counts, hashes and visual review. `precommit-verification.json` records the historical whitepaper update's CI and must not be read as a new combined-branch receipt. None of these documents authorizes deployment or declares the final audit complete.

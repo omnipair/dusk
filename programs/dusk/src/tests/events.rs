@@ -1,6 +1,56 @@
 use super::*;
 
 #[test]
+fn hlp_rebalance_event_preserves_both_vault_changes() {
+    let mut market = Market::default();
+    market.debt.base_borrow_index_nad = crate::constants::NAD as u128;
+    market.debt.quote_borrow_index_nad = crate::constants::NAD as u128;
+    market.base_side.shares.ylp_supply = 1_202;
+    market.base_hlp_vault.ylp_shares = 95;
+    market.quote_hlp_vault.ylp_shares = 107;
+    market.base_hlp_vault.debt_shares = 2_223;
+    market.quote_hlp_vault.debt_shares = 22;
+    let base = HlpRebalanceReceipt {
+        target_asset: MarketAsset::Base,
+        ylp_burn_amount: 5,
+        debt_delta: -27,
+        interest_paid: 10,
+        ..HlpRebalanceReceipt::default()
+    };
+    let quote = HlpRebalanceReceipt {
+        target_asset: MarketAsset::Quote,
+        ylp_mint_amount: 7,
+        debt_delta: 2,
+        ..HlpRebalanceReceipt::default()
+    };
+    let event = HlpRebalanced::from_receipts(Pubkey::new_unique(), &market, base, quote, 42)
+        .unwrap()
+        .unwrap();
+    assert_eq!((event.base_hlp_ylp_minted, event.base_hlp_ylp_burned), (0, 5));
+    assert_eq!((event.quote_hlp_ylp_minted, event.quote_hlp_ylp_burned), (7, 0));
+    assert_eq!((event.base_hlp_ylp_shares_after, event.quote_hlp_ylp_shares_after), (95, 107));
+    assert_eq!((event.base_hlp_debt_increase, event.base_hlp_debt_decrease), (0, 27));
+    assert_eq!((event.quote_hlp_debt_increase, event.quote_hlp_debt_decrease), (2, 0));
+    assert_eq!((event.base_hlp_debt_after, event.quote_hlp_debt_after), (2_223, 22));
+    assert_eq!((event.base_hlp_funding_interest_paid, event.quote_hlp_funding_interest_paid), (10, 0));
+    assert_eq!(event.ylp_supply_after, 1_202);
+    assert_eq!(event.slot, 42);
+
+    assert!(HlpRebalanced::from_receipts(
+        Pubkey::new_unique(),
+        &market,
+        HlpRebalanceReceipt::default(),
+        HlpRebalanceReceipt {
+            target_asset: MarketAsset::Quote,
+            ..HlpRebalanceReceipt::default()
+        },
+        43,
+    )
+    .unwrap()
+    .is_none());
+}
+
+#[test]
 fn indexer_receipts_remain_compact() {
     let side = MarketSideSnapshot {
         spot_price_nad: 1,

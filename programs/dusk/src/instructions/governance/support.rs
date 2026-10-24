@@ -13,13 +13,18 @@ use crate::{
 };
 
 use super::{
-    carry_forward_governance_yield, checkpoint_supporter_yield, current_parameter_revision, direct_ylp_eligible_supply,
+    carry_forward_governance_yield, checkpoint_supporter_yield, direct_ylp_eligible_supply,
     validate_governance_token_accounts, validate_market_pda, validate_supporter_accounts,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SupportParameterProposalArgs {
     pub amount: u64,
+    /// Digest of the proposal the supporter reviewed. A proposal never
+    /// changes and its address never holds another one (it ends as a
+    /// tombstone), so this is defence in depth: a support names exactly the
+    /// updates and metadata its sender saw.
+    pub digest: [u8; 32],
 }
 
 #[event_cpi]
@@ -105,13 +110,13 @@ impl<'info> SupportParameterProposal<'info> {
             ErrorCode::InsufficientBalance
         );
         self.proposal.assert_account(self.market.key(), self.proposal.key())?;
+        require!(self.proposal.digest == args.digest, ErrorCode::ProposalDigestMismatch);
         require!(
             self.proposal.status == ParameterProposalStatus::Collecting,
             ErrorCode::ProposalNotCollecting
         );
-        require_eq!(
-            current_parameter_revision(&self.market, self.proposal.family),
-            self.proposal.family_revision,
+        require!(
+            self.proposal.revisions_current(&self.market.parameter_revisions),
             ErrorCode::ProposalStale
         );
         validate_governance_token_accounts(
@@ -228,6 +233,12 @@ impl<'info> SupportParameterProposal<'info> {
     }
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct WithdrawParameterSupportArgs {
+    /// None releases all support; Some releases only this amount.
+    pub amount: Option<u64>,
+}
+
 #[event_cpi]
 #[derive(Accounts)]
 pub struct WithdrawParameterSupport<'info> {
@@ -246,12 +257,22 @@ pub struct WithdrawParameterSupport<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    /// CHECK: The parameter proposal, opened and saved by the handler rather
+    /// than by Anchor: when its last supporter withdraws it shrinks to a
+    /// `ParameterProposalTombstone`, which a typed account would overwrite with
+    /// the full proposal on exit. `validate` checks its owner, discriminator,
+    /// address and digest.
     #[account(mut)]
-    pub proposal: Box<Account<'info, ParameterProposal>>,
+    pub proposal: UncheckedAccount<'info>,
+
+    /// CHECK: The proposer who paid the proposal's rent, checked against the
+    /// proposal in `validate`. Only receives lamports: the rent above the
+    /// tombstone's own when the last supporter withdraws.
+    #[account(mut)]
+    pub proposer: UncheckedAccount<'info>,
 
     #[account(
         mut,
-        close = supporter,
         seeds = [
             PROPOSAL_SUPPORT_SEED_PREFIX,
             proposal.key().as_ref(),
@@ -299,11 +320,18 @@ pub struct WithdrawParameterSupport<'info> {
 }
 
 impl<'info> WithdrawParameterSupport<'info> {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<ParameterProposal> {
         validate_market_pda(&self.market, self.market.key())?;
         require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)?;
-        self.proposal.assert_account(self.market.key(), self.proposal.key())?;
+        require_keys_eq!(*self.proposal.owner, crate::ID, ErrorCode::InvalidParameterProposal);
+        let proposal = ParameterProposal::try_deserialize(&mut &self.proposal.try_borrow_data()?[..])?;
+        proposal.assert_account(self.market.key(), self.proposal.key())?;
+        require_keys_eq!(
+            self.proposer.key(),
+            proposal.proposer,
+            ErrorCode::InvalidParameterProposal
+        );
         self.proposal_support
             .assert_account(self.proposal.key(), self.supporter.key(), self.proposal_support.bump)?;
         require!(
@@ -317,23 +345,27 @@ impl<'info> WithdrawParameterSupport<'info> {
             &self.supporter_ylp_account,
             &self.base_yield_account,
             &self.quote_yield_account,
-        )
+        )?;
+        Ok(proposal)
     }
 
-    pub fn handle_withdraw(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
-        ctx.accounts.validate()?;
+    pub fn handle_withdraw(ctx: Context<'_, '_, '_, 'info, Self>, args: WithdrawParameterSupportArgs) -> Result<()> {
+        let mut proposal = ctx.accounts.validate()?;
         let clock = Clock::get()?;
-        let current_revision = current_parameter_revision(&ctx.accounts.market, ctx.accounts.proposal.family);
-        ctx.accounts.proposal.mark_stale_if_revision_changed(current_revision);
-        ctx.accounts
-            .proposal
-            .mark_expired_if_past_deadline(clock.unix_timestamp);
+        proposal.mark_stale_if_revision_changed(&ctx.accounts.market.parameter_revisions);
+        proposal.mark_expired_if_past_deadline(clock.unix_timestamp);
         require!(
-            ctx.accounts.proposal.status != ParameterProposalStatus::Queued,
+            proposal.status != ParameterProposalStatus::Queued,
             ErrorCode::ProposalSupportFrozen
         );
 
-        let amount = ctx.accounts.proposal_support.locked_amount;
+        let amount = args.amount.unwrap_or(ctx.accounts.proposal_support.locked_amount);
+        require!(amount > 0, ErrorCode::AmountZero);
+        require_gte!(
+            ctx.accounts.proposal_support.locked_amount,
+            amount,
+            ErrorCode::InvalidProposalSupport
+        );
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
             clock.slot,
@@ -355,15 +387,13 @@ impl<'info> WithdrawParameterSupport<'info> {
         ctx.accounts
             .proposal_support
             .base_yield
-            .merge_into(&mut ctx.accounts.base_yield_account)?;
+            .drain_into(&mut ctx.accounts.base_yield_account)?;
         ctx.accounts
             .proposal_support
             .quote_yield
-            .merge_into(&mut ctx.accounts.quote_yield_account)?;
+            .drain_into(&mut ctx.accounts.quote_yield_account)?;
 
-        ctx.accounts.proposal.total_locked = ctx
-            .accounts
-            .proposal
+        proposal.total_locked = proposal
             .total_locked
             .checked_sub(amount)
             .ok_or(ErrorCode::InvalidProposalSupport)?;
@@ -373,7 +403,7 @@ impl<'info> WithdrawParameterSupport<'info> {
             .governance_locked_ylp
             .checked_sub(amount)
             .ok_or(ErrorCode::InvalidProposalSupport)?;
-        ctx.accounts.proposal.cancel_if_below_sponsorship_floor();
+        proposal.cancel_if_below_sponsorship_floor();
 
         let market_seeds = generate_market_seeds!(ctx.accounts.market);
         token_mint_to(
@@ -384,13 +414,31 @@ impl<'info> WithdrawParameterSupport<'info> {
             amount,
             &[&market_seeds[..]],
         )?;
+        // Support only reaches zero once the proposal has ended: a collecting
+        // proposal below its sponsorship floor was cancelled above, and queued
+        // support cannot be withdrawn. Nothing reads the proposal after its
+        // last supporter leaves, so it becomes a tombstone: the discriminator
+        // alone, kept rent-exempt so the address can never hold another
+        // proposal, with the rest of its rent returned to the proposer.
+        let proposal_tombstoned = proposal.total_locked == 0;
         emit_cpi!(ParameterProposalSupportWithdrawn {
             proposal: ctx.accounts.proposal.key(),
             supporter: ctx.accounts.supporter.key(),
             amount,
-            total_locked: ctx.accounts.proposal.total_locked,
-            status: ctx.accounts.proposal.status.code(),
+            total_locked: proposal.total_locked,
+            status: proposal.status.code(),
+            proposal_tombstoned,
         });
-        Ok(())
+        ctx.accounts.proposal_support.locked_amount -= amount;
+        if ctx.accounts.proposal_support.locked_amount == 0 {
+            ctx.accounts
+                .proposal_support
+                .close(ctx.accounts.supporter.to_account_info())?;
+        }
+        super::save_released_proposal(
+            &proposal,
+            &ctx.accounts.proposal.to_account_info(),
+            &ctx.accounts.proposer.to_account_info(),
+        )
     }
 }

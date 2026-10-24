@@ -3,7 +3,9 @@ use anchor_spl::{
     token,
     token_2022::{self, Token2022},
 };
-use spl_token_2022::extension::{transfer_hook, StateWithExtensions};
+use spl_token_2022::extension::{
+    transfer_fee::TransferFeeConfig, transfer_hook, BaseStateWithExtensions, StateWithExtensions,
+};
 
 pub(crate) fn token_program_for_mint<'info>(
     mint: &AccountInfo<'info>,
@@ -113,4 +115,38 @@ pub(crate) fn close_token_account<'info>(
             signer_seeds,
         ))
     }
+}
+
+/// Transfer-fee mints leave withheld fees in the destination account even
+/// after its spendable balance reaches zero. Harvest them before closing an
+/// order vault; the mint's configured fee authority owns the harvested fees.
+pub(crate) fn close_token_account_with_fee_harvest<'info>(
+    token_program: AccountInfo<'info>,
+    account: AccountInfo<'info>,
+    mint: AccountInfo<'info>,
+    destination: AccountInfo<'info>,
+    authority: AccountInfo<'info>,
+    signer_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    if *token_program.key == Token2022::id() {
+        let has_transfer_fee = {
+            let mint_data = mint.try_borrow_data()?;
+            let mint_state =
+                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+            mint_state.get_extension::<TransferFeeConfig>().is_ok()
+        };
+        if has_transfer_fee {
+            let instruction = spl_token_2022::extension::transfer_fee::instruction::harvest_withheld_tokens_to_mint(
+                token_program.key,
+                mint.key,
+                &[account.key],
+            )?;
+            invoke_signed(
+                &instruction,
+                &[mint.clone(), account.clone(), token_program.clone()],
+                &[],
+            )?;
+        }
+    }
+    close_token_account(token_program, account, destination, authority, signer_seeds)
 }

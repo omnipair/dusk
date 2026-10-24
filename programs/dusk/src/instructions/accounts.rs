@@ -117,8 +117,21 @@ impl<'info> TryFrom<(&Market, &[AccountInfo<'info>])> for HlpSwapAccountLayout {
                 ErrorCode::InvalidTokenProgram
             );
         }
+        // Fresh public-interest settlement also needs both mints/reserves.
+        // Recognize this canonical extension before exposing the callback/hook
+        // suffix. Older callers may supply these keys later in their suffix;
+        // settlement locates them by identity, while callback ordering stays intact.
+        let assets = [
+            market.base_side.asset_mint,
+            market.quote_side.asset_mint,
+            market.base_side.reserve_vault,
+            market.quote_side.reserve_vault,
+        ];
+        let extended = accounts
+            .get(HLP_SWAP_ACCOUNT_PREFIX_LEN..HLP_SWAP_ACCOUNT_PREFIX_LEN + 4)
+            .is_some_and(|tail| tail.iter().zip(assets).all(|(account, key)| account.key() == key));
         Ok(Self {
-            prefix_len: HLP_SWAP_ACCOUNT_PREFIX_LEN,
+            prefix_len: HLP_SWAP_ACCOUNT_PREFIX_LEN + if extended { 4 } else { 0 },
         })
     }
 }
@@ -129,6 +142,7 @@ impl HlpSwapAccountLayout {
     }
 }
 
+#[inline(always)]
 pub fn token_program_for_mint<'info>(
     mint: &InterfaceAccount<'info, Mint>,
     token_program: &Program<'info, Token>,
@@ -144,7 +158,11 @@ pub fn token_program_for_mint<'info>(
     }
 }
 
+#[inline(always)]
 pub fn require_supported_asset_mint(mint: &InterfaceAccount<Mint>) -> Result<()> {
+    // A freeze authority can freeze any protocol vault for this asset after the
+    // market opens, which can make collateral exits and liquidation impossible.
+    require!(mint.freeze_authority == COption::None, ErrorCode::FreezableAssetMint);
     let mint_info = mint.to_account_info();
     let supported = if *mint_info.owner == Token::id() {
         true
@@ -219,12 +237,15 @@ pub fn token_account_debit(balance_before: u64, token_account: &InterfaceAccount
 /// read after their final reserve-vault token movement (or a deterministically
 /// projected post-CPI balance on the optimized swap path). The lower bound
 /// tolerates unsolicited token donations, which remain non-executable.
+#[inline(always)]
 pub(crate) fn require_reserve_custody(vault_balance: u64, market_side: &MarketSide) -> Result<()> {
     let hlp_backing_inventory = market_side.reserves.total_hlp_backing_inventory()?;
     let required = market_side
         .reserves
         .cash_reserve
         .checked_add(market_side.fees.swap_fee_custody_balance)
+        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.protocol_escrow))
+        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.protocol_release_pending))
         .and_then(|value| value.checked_add(hlp_backing_inventory))
         .and_then(|value| value.checked_add(market_side.reserves.protected_recenter_reserve))
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -267,6 +288,7 @@ pub fn validate_side_vault_accounts<'info>(
     Ok(())
 }
 
+#[inline(always)]
 pub fn validate_owner_asset_account(
     owner: Pubkey,
     asset_mint: &InterfaceAccount<Mint>,

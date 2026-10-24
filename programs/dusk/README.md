@@ -33,16 +33,16 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 
 Dusk exposes the current market instruction set:
 
-- `initialize_market`, `initialize_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
+- `initialize_market` (including all three LP metadata records), `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
 - `set_yield_recipient`, `set_harvest_authority`, `harvest`
-- `swap`, `rescue_hlp`, `close_insolvent_hlp`
+- `swap`, `close_insolvent_hlp`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
-- `start_liquidation_auction`, `fill_liquidation_auction`, `backstop_liquidation_auction`
+- `observe_liquidation`, `preview_flash_liquidation`, `begin_flash_liquidation`, `settle_flash_liquidation`, `preview_emergency_liquidation`, `emergency_liquidation`
 - `deposit_single_sided`, `withdraw_single_sided`
-- `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `remove_leverage_margin`, `liquidate_leverage_position`
+- `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `repay_leverage`, `withdraw_repaid_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
 - `preview_market`, `preview_hlp_order_trigger`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position`
 - Futarchy and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `update_protocol_auction_route`, `set_global_reduce_only`, `settle_protocol_auction`
@@ -73,16 +73,36 @@ already locked in governance. A lock continues earning both reserve-side yield
 streams through a proposal-local virtual ledger. Queued support cannot be
 withdrawn; after execution, expiry, staleness, or cancellation,
 `withdraw_parameter_support` remints the exact locked amount and merges its
-yield into the holder's normal `YieldAccount`s.
+yield into the holder's normal `YieldAccount`s. When the last supporter
+withdraws, whoever sends that withdrawal, the proposal becomes a tombstone
+(`ParameterProposalTombstone`): the account shrinks to its 8-byte
+discriminator and stays rent-exempt, so its address can never hold another
+proposal, and the rest of its rent returns to the proposer.
+`support_parameter_proposal` also carries the digest the supporter reviewed
+and fails with `ProposalDigestMismatch` if it does not match.
 
-Each proposal changes exactly one of seven families: the complete fee profile,
-concentration shape plus its 216,000–1,512,000-slot ramp duration, IRM, the four
-EMA half-lives, the daily borrow limit, the center controller, or insurance
-draw caps. Independent family revisions make
-competing proposals stale instead of silently combining them. Execution first
-checkpoints old interest/EMA/risk state and rejects at 80% utilization.
-`ParameterProposalCreated` carries the typed update and the proposal metadata
-exactly as stored, so indexers can reconstruct a proposal from events alone.
+A proposal changes one or more of seven families: the complete fee profile,
+concentration shape, IRM, the four EMA half-lives, the daily borrow limit, the
+center controller, and insurance draw caps. It names each family at most once, in ascending family order, so a
+set of updates has exactly one encoding and one digest. Every family must be a
+real change within its own bounds, and the configuration they produce together
+must be valid. One sponsorship and one vote cover the whole set, and it
+executes atomically: all families apply or none do. Concentration parameters
+apply immediately at execution; there is no concentration ramp.
+
+Each proposal binds the revision of every family it changes. Executing any
+proposal advances the revision of each family it touched, so a competing
+proposal on any of those families goes stale instead of silently combining
+with it; proposals on other families are unaffected. Execution first
+checkpoints old interest/EMA/risk state and rejects at 80% utilization. Every
+family then closes its elapsed windows under the old values (the daily borrow
+buckets refill at the old rate, the insurance draw windows open under the old
+caps) before any value moves, and the curve and controller side effects run
+once against the final configuration.
+`ParameterProposalCreated` carries the typed updates, their family revisions
+and the proposal metadata exactly as stored, so indexers can reconstruct a
+proposal from events alone. `ParameterProposalExecuted` lists the families that
+changed and the market's revisions afterwards.
 
 Parameter bounds are enforced on creation and again on execution. Aggregate
 base/divergence/volatility fee budgets are capped at 5,000 bps; the daily borrow
@@ -108,13 +128,13 @@ Each market records three Token-2022 LP mints:
 - `hLP_base`: one-sided hedged LP shares targeting base exposure.
 - `hLP_quote`: one-sided hedged LP shares targeting quote exposure.
 
-yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_lp_metadata` creates Metaplex metadata for each LP mint with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints accepted by the shared mint validator.
+yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_market` creates all three immutable Metaplex records atomically, with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
 
 ### LP mint addresses, names and metadata
 
 The suffix rule is satisfied without a second keypair: each LP mint is a `create_with_seed` account of the market creator, `sha256(creator ‖ seed ‖ Token-2022)`, and the seed is ground until the base58 address ends in `yLP` or `hLP`. The vanity server (omnipair/vanity-server, `GET /grind?base=<creator>&suffix=yLP&owner=TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`) grinds a three-character suffix in well under a second; the SDK's `grindMarketLpMintSeeds` re-derives every answer before use, and `createHookedLpMintWithSeedInstructions` builds the mint so only the creator signs.
 
-Names and symbols are written once by `initialize_lp_metadata` and cannot be changed, so they follow one scheme (`lpTokenNaming` in the SDK), with no brand in the name:
+Names and symbols are written once by `initialize_market` and cannot be changed, so they follow one scheme (`lpTokenNaming` in the SDK), with no brand in the name:
 
 | Mint | Name | Symbol |
 | --- | --- | --- |
@@ -249,7 +269,7 @@ bound_referral_share      = min(partner.interest_share_bps, max_referral_interes
 referral_accrual          = floor(protocol_interest_revenue * bound_referral_share / 10_000)
 ```
 
-The runtime cap is governed through `update_protocol_revenue` and applies when a new binding is admitted; later cap or partner changes do not reprice existing debt. `ReferralAccrual` records the claimable liability for one partner, market, and debt mint while the backing tokens remain in the market interest vault. `claim_referral_interest` pays the partner's current recipient. Realization and claims support legacy SPL Token and Token-2022 assets, including transfer fees and transfer hooks.
+The runtime cap is governed through `update_protocol_revenue` and applies when a new binding is admitted; later cap or partner changes do not reprice existing debt. `ReferralAccrual` records the claimable liability for one partner, market, and debt mint while the backing tokens remain in the market interest vault. `claim_referral_interest` pays the partner's current recipient. Realization and claims support legacy SPL Token and admitted Token-2022 assets, including transfer fees.
 
 ## Swaps And Rebalancing
 
@@ -286,7 +306,7 @@ hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and fundi
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
-yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. LP metadata is created in follow-up `initialize_lp_metadata` calls, one mint per transaction. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
+yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. All three LP metadata records are created in that transaction; clients prepare an address lookup table first to fit the account list. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
 
 Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
 
@@ -315,9 +335,9 @@ authority, referral-recipient, and referral-claim events likewise expose their
 authority or signer directly because they are not tied to one market.
 
 Lending events carry each written borrow position's post-instruction state:
-collateral and withdrawal receipts, debt updates, liquidations, and auction
-start and cancellation events together let an indexer rebuild every
-`BorrowPosition` without reading accounts. See
+collateral and withdrawal receipts, debt updates, flash liquidation observations
+and settlements let an indexer rebuild every `BorrowPosition` without reading
+accounts. Historical auction events describe the removed interface. See
 [`ACCOUNTING_EVENTS.md`](./ACCOUNTING_EVENTS.md#borrow-positions).
 
 `LpTransferred` records each yLP or hLP transfer that runs the Dusk transfer
@@ -369,11 +389,11 @@ different.
 - A physical reserve vault must contain at least executable `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory + protected_recenter_reserve`; protocol transitions conserve that accounted total exactly, while unsolicited token donations are tolerated but remain non-executable. Interest liabilities must be backed by the interest vault.
 - Base fees and lending interest never fund concentration recentering.
 - A normal trade checkpoints the current curve as economically neutral; retained dynamic surcharge is the only swap path that creates protected recentering budget.
-- Recenter and parameter-ramp points are admitted only when their curve-depth-per-share impairment is funded.
+- Recenter and parameter-update endpoints are admitted only when their curve-depth-per-share impairment is funded.
 - Swaps, previews, leverage, and predictive hLP positioning use the live
   applied curve. Public borrowing deliberately uses a stricter full-range-tail
   CPMM shadow curve.
-- Every hLP funding increase leaves projected aggregate indexed funding debt no greater than current borrowed-asset cash; the cap never blocks debt-reducing paths, and terminal recovery is handled separately by `close_insolvent_hlp`.
+- Every hLP funding increase leaves projected aggregate indexed funding debt no greater than current borrowed-asset cash; the cap never blocks debt-reducing paths. Solvent vaults can use external flash recovery; terminal closure uses native `close_insolvent_hlp` or full hLP flash settlement.
 - hLP debt shares stay matched to aggregate hLP vault debt.
 - hLP operations never use yLP-denominated debt.
 - Isolated leverage debt contributes to utilization without entering normal borrower health.
@@ -381,11 +401,11 @@ different.
 - Delegated close must validate both the delegate's close approval and settlement approval return data.
 - Individual borrower health uses all position collateral and the position's stored liquidation CF.
 - Global-health contributions are debt-capped underwriting signals and never prevent collateral withdrawal or change another position's stored terms.
-- Pessimistic risk depth uses the lower of observed curve depth and its EMA. Public borrowing uses only full-range CPMM tail liquidity; the lending liquidation trigger is linear at the symmetric price EMA; the external-auction floor reconstructs the complete concentrated curve, while the expired-auction backstop executes on the live concentrated curve.
+- Pessimistic risk depth uses the lower of observed curve depth and its EMA. Public borrowing uses only full-range CPMM tail liquidity. Borrowing and leverage liquidation eligibility use symmetric price EMA; internal emergency settlement uses the EMA price and smoothed depth with the configured concentrated curve and full fees.
 - Referral binding never changes requested principal, debt, interest, health, or liquidation terms; accruals are carved only from realized protocol interest revenue.
 - Referral-interest claims are bounded by realized protocol revenue and pay only the partner's current designated recipient.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
-- External liquidation bids run for five minutes. The expired-auction backstop pays a 0.5% collateral bounty, internally swaps the remainder, draws capped insurance, and automatically socializes any residual debt.
+- Atomic flash liquidation has no auction wait. A fixed net payment releases collateral for a caller-chosen route, with useful partial fills and a bounded incentive. At critical EMA health, the internal emergency path first seeks a restorative partial settlement and can close the position under the documented fallback rule. Full closures use principal-only capped insurance and socialize uncovered principal; unpaid interest is canceled.
 
 ## Verification
 
@@ -430,10 +450,12 @@ even above 18 decimals.
 ## Token-2022 asset extensions
 
 Asset mints may use `TransferFeeConfig`, `MetadataPointer`, `TokenMetadata`,
-`TransferHook`, `GroupPointer`, `TokenGroup`, `GroupMemberPointer`,
+`GroupPointer`, `TokenGroup`, `GroupMemberPointer`,
 `TokenGroupMember`, `InterestBearingConfig`, and `ScaledUiAmount`. Other mint
-extensions remain rejected. Group metadata describes membership; Dusk does not
-use it as an authorization or collateral-value signal.
+extensions remain rejected, as do mints with a freeze authority. A Transfer Hook
+extension is rejected even when its program is currently unset, because its
+authority could configure a hook after market creation. Group metadata describes
+membership; Dusk does not use it as an authorization or collateral-value signal.
 
 Interest-bearing and scaled-UI extensions change the token program's displayed
 amounts, not raw balances or supply. Dusk settles, prices, and measures risk in
@@ -444,8 +466,9 @@ current UI representation at their input/display boundary, including when
 showing prices; a UI multiplier is not additional collateral or earned Dusk
 yield. See the [SDK amount guidance](../../packages/dusk-sdk/README.md#token-amounts-and-ui-extensions).
 
-Transfer-fee mints remain excluded from leverage collateral on risk-increasing
-paths and from auction payment, even when the configured fee is currently zero.
-Hooks still require their extra accounts and may reject transfers. LP receipt
-mints keep a separate, narrower policy: only `MetadataPointer`, `TokenMetadata`,
+Transfer-fee mints are supported as leverage collateral, including when the fee
+authority can change the rate. Borrow capacity uses the collateral expected to
+reach reserves on unwind at the current fee; liquidation measures the actual
+reserve credit. Auction payment remains excluded for transfer-fee mints.
+LP receipt mints keep a separate, narrower policy: only `MetadataPointer`, `TokenMetadata`,
 and the mandatory immutable Dusk `TransferHook` are allowed.

@@ -92,8 +92,8 @@ fn group_and_ui_extensions_are_assets_but_not_lp_receipts() {
         ExtensionType::ScaledUiAmount,
     ] {
         for with_fee in [false, true] {
-            // Put the new TLV first: older parsers can miss hooks or fees after it.
-            let mut extensions = vec![extension, ExtensionType::TransferHook];
+            // Put the new TLV first: older parsers can miss fees after it.
+            let mut extensions = vec![extension];
             if with_fee {
                 extensions.push(ExtensionType::TransferFeeConfig);
             }
@@ -122,6 +122,7 @@ fn asset_extension_support_keeps_transfer_control_restrictions() {
         ExtensionType::DefaultAccountState,
         ExtensionType::MintCloseAuthority,
         ExtensionType::NonTransferable,
+        ExtensionType::TransferHook,
     ] {
         let mut data = extended_asset_mint_data(&[ExtensionType::ScaledUiAmount, extension], Pubkey::new_unique());
         let key = Pubkey::new_unique();
@@ -192,6 +193,52 @@ fn live_market_assets_accept_high_decimal_mints() {
 }
 
 #[test]
+fn freezable_asset_mints_are_rejected_under_both_token_programs() {
+    let freeze_authority = Pubkey::new_unique();
+    for mint_owner in [spl_token::ID, spl_token_2022::ID] {
+        let mut mint_data = if mint_owner == spl_token::ID {
+            let mut data = vec![0_u8; SplToken2022Mint::LEN];
+            SplToken2022Mint {
+                mint_authority: COption::Some(Pubkey::new_unique()),
+                supply: 0,
+                decimals: 6,
+                is_initialized: true,
+                freeze_authority: COption::Some(freeze_authority),
+            }
+            .pack_into_slice(&mut data);
+            data
+        } else {
+            // Transfer fees and hooks are independent of freeze authority.
+            let mut data = extended_asset_mint_data(
+                &[ExtensionType::TransferFeeConfig, ExtensionType::TransferHook],
+                Pubkey::new_unique(),
+            );
+            let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack(&mut data).unwrap();
+            mint.base.freeze_authority = COption::Some(freeze_authority);
+            mint.pack_base();
+            data
+        };
+        let mint_key = Pubkey::new_unique();
+        let mut lamports = 1;
+        let mint_info = AccountInfo::new(
+            &mint_key,
+            false,
+            false,
+            &mut lamports,
+            &mut mint_data,
+            &mint_owner,
+            false,
+            0,
+        );
+        let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
+        assert_eq!(
+            require_supported_asset_mint(&mint).unwrap_err(),
+            error!(ErrorCode::FreezableAssetMint)
+        );
+    }
+}
+
+#[test]
 fn lp_mint_requires_an_immutable_dusk_transfer_hook() {
     let market = Pubkey::new_unique();
     for (hook_authority, accepted) in [(Some(Pubkey::new_unique()), false), (None, true)] {
@@ -248,4 +295,37 @@ fn reserve_custody_covers_cash_fees_and_hlp_backing_without_rejecting_donations(
         require_reserve_custody(u64::MAX, &side).unwrap_err(),
         error!(ErrorCode::MarketMathOverflow)
     );
+}
+
+#[test]
+fn interest_asset_extension_does_not_shift_delegate_callback_accounts() {
+    let mut market = Market::default();
+    market.base_hlp_vault.hlp_supply = 1;
+    market.ylp_mint = Pubkey::new_unique();
+    market.base_hlp_vault.ylp_vault = Pubkey::new_unique();
+    market.quote_hlp_vault.ylp_vault = Pubkey::new_unique();
+    market.base_side.interest_vault = Pubkey::new_unique();
+    market.quote_side.interest_vault = Pubkey::new_unique();
+    market.base_side.asset_mint = Pubkey::new_unique();
+    market.quote_side.asset_mint = Pubkey::new_unique();
+    market.base_side.reserve_vault = Pubkey::new_unique();
+    market.quote_side.reserve_vault = Pubkey::new_unique();
+    let info = |key| AccountInfo::new(Box::leak(Box::new(key)), false, true,
+        Box::leak(Box::new(1)), Box::leak(Vec::new().into_boxed_slice()),
+        Box::leak(Box::new(Token2022::id())), false, 0);
+    let prefix = [market.ylp_mint, market.base_hlp_vault.ylp_vault,
+        market.quote_hlp_vault.ylp_vault, market.base_side.interest_vault,
+        market.quote_side.interest_vault].map(info);
+    let assets = [market.base_side.asset_mint, market.quote_side.asset_mint,
+        market.base_side.reserve_vault, market.quote_side.reserve_vault].map(info);
+    let callback = info(Pubkey::new_unique());
+    for with_extension in [false, true] {
+        let mut accounts = prefix.to_vec();
+        if with_extension { accounts.extend(assets.iter().cloned()); }
+        accounts.push(callback.clone());
+        if !with_extension { accounts.extend(assets.iter().cloned()); }
+        let layout = HlpSwapAccountLayout::try_from((&market, accounts.as_slice())).unwrap();
+        assert_eq!(layout.hook_accounts(&accounts)[0].key(), callback.key());
+        assert_eq!(layout.prefix_len, if with_extension { 9 } else { 5 });
+    }
 }

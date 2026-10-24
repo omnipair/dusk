@@ -188,7 +188,13 @@ impl<'info> RemoveLiquidity<'info> {
         ctx.accounts
             .market
             .finalize_amm_transition_and_observe_risk(current_slot)?;
-        ctx.accounts.market.assert_market_health()?;
+        let fees = crate::instructions::lending_market_admission_fees(
+            &ctx.accounts.market,
+            &ctx.accounts.base_mint,
+            &ctx.accounts.quote_mint,
+            Clock::get()?.epoch,
+        )?;
+        ctx.accounts.market.assert_market_health_with_fees(fees)?;
 
         // Transfer both reserve outputs and measure the owner's actual credits.
         let base_reserve_balance_before = ctx.accounts.base_reserve_vault.amount;
@@ -262,6 +268,8 @@ impl<'info> RemoveLiquidity<'info> {
             quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,
         });
+        // Event contribution fields mirror the stored gross debt ledger.
+        // The fee-adjusted snapshot above is only the admission guard.
         let health = ctx.accounts.market.market_health()?;
         emit_cpi!(MarketHealthUpdated {
             market: market_key,

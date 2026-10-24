@@ -180,20 +180,19 @@ impl<'info> WithdrawSingleSided<'info> {
     pub fn update_and_validate(&mut self, args: &WithdrawSingleSidedArgs) -> Result<()> {
         self.validate(args)?;
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
+        reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
+        if self.market.hlp_terminally_closed(target_asset) {
+            // This operation only burns a retired receipt. It does not change
+            // reserves or debt and must not depend on another vault's health.
+            return Ok(());
+        }
         let current_slot = Clock::get()?.slot;
         crate::instructions::accounting::accrue_market_interest(
             &mut self.market,
             current_slot,
             self.event_authority.to_account_info(),
         )?;
-        reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
-        if self.market.hlp_terminally_closed(target_asset) {
-            // A retired zero-principal token must remain burnable even if an
-            // ordinary hLP settlement/controller checkpoint is unavailable.
-            self.market.advance_amm_clock(current_slot)?;
-        } else {
-            self.market.update()?;
-        }
+        self.market.update()?;
         Ok(())
     }
 
@@ -204,6 +203,7 @@ impl<'info> WithdrawSingleSided<'info> {
             .accounts
             .market
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
+        let terminal_burn = ctx.accounts.market.hlp_terminally_closed(target_asset);
         let interest_eligibility = HlpYieldEligibility {
             ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
             base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
@@ -322,11 +322,27 @@ impl<'info> WithdrawSingleSided<'info> {
                 &mut ctx.accounts.quote_yield_account,
             )?;
         }
-        let current_slot = Clock::get()?.slot;
-        ctx.accounts
-            .market
-            .finalize_amm_transition_and_observe_risk(current_slot)?;
-        ctx.accounts.market.assert_market_health()?;
+        if terminal_burn {
+            require!(
+                receipt.ylp_amount == 0
+                    && receipt.target_amount_out == 0
+                    && receipt.debt_repaid == 0
+                    && receipt.interest_paid == 0,
+                ErrorCode::BrokenInvariant
+            );
+        } else {
+            let current_slot = Clock::get()?.slot;
+            ctx.accounts
+                .market
+                .finalize_amm_transition_and_observe_risk(current_slot)?;
+            let fees = crate::instructions::lending_market_admission_fees(
+                &ctx.accounts.market,
+                &ctx.accounts.base_mint,
+                &ctx.accounts.quote_mint,
+                Clock::get()?.epoch,
+            )?;
+            ctx.accounts.market.assert_market_health_with_fees(fees)?;
+        }
 
         // Burn backing yLP and transfer the released target asset to the owner.
         let ylp_program = token_program_for_mint(

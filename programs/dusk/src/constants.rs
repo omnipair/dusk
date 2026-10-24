@@ -13,6 +13,11 @@ pub const YIELD_GROWTH_SCALE_Q64: u128 = 1_u128 << 64;
 pub const YIELD_GROWTH_FRACTION_MASK_Q64: u128 = YIELD_GROWTH_SCALE_Q64 - 1;
 #[constant]
 pub const BPS_DENOMINATOR: u16 = 10_000;
+/// Initial DAO share of base swap fees and paid interest, and the protocol
+/// share of liquidation fees. Governance can override swap and interest shares.
+#[constant]
+pub const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS: u16 = 2_000;
+const _: () = assert!(DEFAULT_PROTOCOL_REVENUE_SHARE_BPS <= BPS_DENOMINATOR);
 #[constant]
 pub const MAX_COLLATERAL_FACTOR_BPS: u16 = 8_500;
 #[constant]
@@ -50,14 +55,18 @@ pub const LIQUIDATION_AUCTION_DURATION_SECONDS: i64 = 5 * 60;
 /// governance may lower either limit, including to zero, but may never raise
 /// them above these values.
 #[constant]
-pub const MAX_INSURANCE_DRAW_PER_EVENT_BPS: u16 = 2_000;
+pub const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS: u16 = 7_500;
 #[constant]
 pub const MAX_INSURANCE_DRAW_PER_DAY_BPS: u16 = 5_000;
 pub const INSURANCE_DRAW_WINDOW_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
 #[constant]
 pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
+/// Economic timers use a deterministic nominal slot cadence instead of the
+/// leader-influenced `Clock.unix_timestamp`. Solana's 200 ms slot rollout is
+/// separate from Alpenglow's finality change. Revisit this protocol constant
+/// if the cluster's scheduled slot duration changes again.
 #[constant]
-pub const TARGET_MS_PER_SLOT: u64 = 400;
+pub const TARGET_MS_PER_SLOT: u64 = 200;
 /// Direct-yLP parameter governance thresholds and wall-clock lifecycle.
 #[constant]
 pub const PARAMETER_PROPOSAL_SPONSOR_BPS: u16 = 100; // 1%
@@ -67,6 +76,8 @@ pub const PARAMETER_PROPOSAL_SUPPORT_BPS: u16 = 5_000; // strict >50%
 pub const PARAMETER_PROPOSAL_TIMELOCK_SECONDS: i64 = 7 * 24 * 60 * 60;
 #[constant]
 pub const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
+/// A proposal changes one to this many families, at most one update each.
+pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 7;
 #[constant]
 pub const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS: u64 = 8_000;
 
@@ -105,8 +116,8 @@ pub const INTEREST_INITIAL_RATE_AT_TARGET_NAD: u128 = (NAD as u128) * 4 / 100; /
 /// Cap on the per-accrual exponent (NAD), bounding the anchor's move in a single
 /// step so a stale market can't jump violently (clamped further by min/max).
 pub const INTEREST_MAX_ADAPTATION_STEP_NAD: i128 = (NAD as i128) / 2;
-/// Upper bound on the elapsed time charged in a single accrual, to bound
-/// index growth (and therefore overflow / abuse) for very stale markets.
+/// Upper bound on the elapsed time used for one adaptive-rate anchor update.
+/// Borrow-index growth charges the full elapsed interval.
 pub const MAX_INTEREST_ACCRUAL_MS: u64 = MS_PER_YEAR;
 
 #[constant]
@@ -134,6 +145,7 @@ pub const PROPOSAL_SUPPORT_SEED_PREFIX: &[u8] = b"proposal_support";
 pub const TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX: &[u8] = b"extra-account-metas";
 #[constant]
 pub const HLP_YLP_VAULT_SEED_PREFIX: &[u8] = b"hlp_ylp_vault";
+pub const HLP_COHORT_SEED_PREFIX: &[u8] = b"hlp_cohort";
 #[constant]
 pub const METADATA_SEED_PREFIX: &[u8] = b"metadata";
 #[constant]
@@ -146,19 +158,17 @@ pub const LEVERAGE_DELEGATION_SEED_PREFIX: &[u8] = b"leverage_delegation_v2";
 pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 #[constant]
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
-#[constant]
-pub const LEVERAGE_MAX_UNWIND_IMPACT_BPS: u16 = 200; // 2%
-#[constant]
-pub const LEVERAGE_INITIAL_MARGIN_BPS: u16 = 1_000; // 10%
-#[constant]
-pub const LEVERAGE_MAINTENANCE_BUFFER_BPS: u16 = 700; // 7%
 /// Serialized `Market` account layout discriminator.
 ///
-/// Dusk is still pre-launch, so CONCENTRATED ships in the first deployable layout.
-/// Increment this only for an incompatible account-layout change after
-/// deployment, never for ordinary feature work or product naming.
+/// Layout 6 keeps an explicit insurance-window initialization flag while
+/// economic checkpoints use slots. Earlier development layouts must not
+/// decode as this structure.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 1;
+pub const MARKET_LAYOUT_VERSION: u8 = 6;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");
+
+/// Reusable owner governance balance and per-proposal allocation.
+pub const GOVERNANCE_BALANCE_SEED_PREFIX: &[u8] = b"governance_balance";
+pub const GOVERNANCE_SUPPORT_SEED_PREFIX: &[u8] = b"governance_support";

@@ -8,19 +8,31 @@ import {
   anchorParameterUpdate,
   assertProposalTitle,
   assertProposalUri,
+  canonicalParameterUpdates,
+  centerControllerParameterUpdate,
   computeParameterProposalDigest,
+  concentrationParameterUpdate,
   createProposalMetadata,
+  dailyBorrowLimitParameterUpdate,
+  emaHalfLivesParameterUpdate,
   feeParameterUpdate,
+  insuranceDrawCapsParameterUpdate,
+  irmParameterUpdate,
+  NAD,
+  PARAMETER_PROPOSAL_DIGEST_DOMAIN,
+  updatedFamilyRevisions,
   standardLaunchFeeParameterUpdate,
   resolveProposalDescriptionUri,
   tryFetchProposalDescription,
 } from "../dist/governance.js";
 import { deriveYieldAccountAddress } from "../dist/constants.js";
 import IDL from "../dist/idl_v2.js";
+import { DuskGovernance } from "../dist/governance-client.js";
+import { deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress } from "../dist/constants.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 1_021;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_123;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -174,24 +186,74 @@ assert.throws(() =>
     launchRateLimitAsset: 1,
   })
 );
-const digestNonce = new anchor.BN(7);
-const familyRevision = new anchor.BN(11);
-const updateBytes = program.coder.types.encode(
-  "marketParameterUpdate",
-  anchorParameterUpdate(update)
+// One update per family, deliberately out of order: the SDK sends them in
+// ascending family order, the only order the program accepts.
+const everyFamily = [
+  insuranceDrawCapsParameterUpdate({ principalCoverageBps: 1_000, perDayBps: 3_000 }),
+  centerControllerParameterUpdate({
+    adjustmentThresholdNad: NAD / 100n,
+    adjustmentStepNad: NAD / 1_000n,
+    minAdjustmentIntervalSlots: 100,
+  }),
+  dailyBorrowLimitParameterUpdate(3_000),
+  emaHalfLivesParameterUpdate({
+    priceMs: 120_000,
+    directionalPriceMs: 180_000,
+    curveDepthMs: 240_000,
+    centerPriceMs: 300_000,
+  }),
+  irmParameterUpdate({
+    targetUtilizationBps: 6_500,
+    curveSteepnessNad: 6n * NAD,
+    adjustmentSpeedPerYear: 12,
+  }),
+  concentrationParameterUpdate({
+    peakAmplificationNad: 4n * NAD,
+    coreHalfWidthBps: 100,
+    fadeWidthBps: 400,
+  }),
+  update,
+];
+const canonical = canonicalParameterUpdates(everyFamily);
+assert.deepEqual(
+  canonical.map(({ kind }) => kind),
+  ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insuranceDrawCaps"],
+  "updates must be sent in ascending family order"
 );
+assert.throws(() => canonicalParameterUpdates([]), /at least one/);
+assert.throws(
+  () => canonicalParameterUpdates([dailyBorrowLimitParameterUpdate(1_000), dailyBorrowLimitParameterUpdate(2_000)]),
+  /more than once/
+);
+assert.throws(() => insuranceDrawCapsParameterUpdate({ principalCoverageBps: 7_501, perDayBps: 5_000 }));
+
+const marketRevisions = [11, 12, 13, 14, 15, 16, 17];
+assert.deepEqual(
+  updatedFamilyRevisions([dailyBorrowLimitParameterUpdate(1_000)], marketRevisions),
+  [0n, 0n, 0n, 0n, 15n, 0n, 0n],
+  "families a proposal leaves alone bind revision zero"
+);
+const familyRevisions = updatedFamilyRevisions(everyFamily, marketRevisions);
+const digestNonce = new anchor.BN(7);
+const updatesBytes = Buffer.concat([
+  Buffer.from(Uint32Array.of(canonical.length).buffer),
+  ...canonical.map((value) =>
+    program.coder.types.encode("marketParameterUpdate", anchorParameterUpdate(value))
+  ),
+]);
 const metadataBytes = program.coder.types.encode("proposalMetadataV1", verifiedMetadata);
-const u64Le = (value) => value.toArrayLike(Buffer, "le", 8);
+const u64Le = (value) => new anchor.BN(value.toString()).toArrayLike(Buffer, "le", 8);
+assert.equal(PARAMETER_PROPOSAL_DIGEST_DOMAIN, "DUSK_PARAMETER_PROPOSAL_V2");
 const expectedDigest = createHash("sha256")
   .update(
     Buffer.concat([
-      Buffer.from("DUSK_PARAMETER_PROPOSAL_V1"),
+      Buffer.from(PARAMETER_PROPOSAL_DIGEST_DOMAIN),
       program.programId.toBuffer(),
       keys[1].toBuffer(),
       keys[0].toBuffer(),
       u64Le(digestNonce),
-      u64Le(familyRevision),
-      updateBytes,
+      ...familyRevisions.map(u64Le),
+      updatesBytes,
       metadataBytes,
     ])
   )
@@ -201,8 +263,8 @@ const actualDigest = await computeParameterProposalDigest({
   market: keys[1],
   proposer: keys[0],
   nonce: digestNonce,
-  familyRevision,
-  update,
+  familyRevisions,
+  updates: everyFamily,
   metadata: verifiedMetadata,
 });
 assert.deepEqual(Buffer.from(actualDigest), expectedDigest, "proposal digest must match Anchor Borsh");
@@ -211,7 +273,7 @@ const build = await new DuskWrite(program).createParameterProposal({
   proposer: keys[0],
   market: keys[1],
   nonce: "18446744073709551615",
-  update,
+  updates: everyFamily,
   metadata,
   initialSupport: "18446744073709551615",
   holderYlpAccount: keys[7],
@@ -243,7 +305,7 @@ const alternateBuild = await alternateWriter.createParameterProposal({
   proposer: keys[0],
   market: keys[1],
   nonce: 8,
-  update,
+  updates: [update],
   metadata: verifiedMetadata,
   initialSupport: 1,
   holderYlpAccount: keys[7],
@@ -274,3 +336,43 @@ for (const expected of [alternateBaseYield, alternateQuoteYield]) {
 console.log(
   `governance transaction-size check passed: ${serializedSize}/${SOLANA_TRANSACTION_LIMIT} bytes`
 );
+
+// Reusable governance builders preserve amounts alongside canonical sorting.
+const governance = new DuskGovernance(program);
+const balanceAddress = deriveGovernanceBalanceAddress(keys[1], keys[0], program.programId)[0];
+const deposited = await governance.deposit({ market: keys[1], owner: keys[0], amount: 500n });
+assert.equal(deposited.governanceBalance.toString(), balanceAddress.toString());
+const depositDecoded = program.coder.instruction.decode(deposited.instruction.data);
+assert.equal(depositDecoded.name, "manageGovernanceBalance");
+assert.equal(depositDecoded.data.action.deposit.amount.toString(), "500");
+const revoke = await governance.setDelegate({ market: keys[1], owner: keys[0], delegate: null });
+assert.equal(program.coder.instruction.decode(revoke.instruction.data).data.delegate.toString(), PublicKey.default.toString());
+const batch = await governance.createProposal({ market: keys[1], proposer: keys[7], nonce: 89,
+  updates: [dailyBorrowLimitParameterUpdate(1900)], metadata: verifiedMetadata,
+  contributions: [{ owner: keys[8], amount: 600 }, { owner: keys[0], amount: 700 }],
+});
+const batchDecoded = program.coder.instruction.decode(batch.instruction.data);
+assert.equal(batchDecoded.name, "createGovernanceProposal");
+assert.equal(batch.supports.length, 2);
+assert(Buffer.compare(batch.supports[0].governanceBalance.toBuffer(), batch.supports[1].governanceBalance.toBuffer()) < 0);
+for (const [index, support] of batch.supports.entries()) {
+  assert.equal(batchDecoded.data.args.contributions[index].toString(), support.owner.equals(keys[8]) ? "600" : "700");
+  assert.equal(support.governanceSupport.toString(), deriveGovernanceSupportAddress(batch.proposal, support.governanceBalance, program.programId)[0].toString());
+}
+await assert.rejects(governance.createProposal({ market: keys[1], proposer: keys[7], nonce: 90,
+  updates: [dailyBorrowLimitParameterUpdate(1900)], metadata: verifiedMetadata,
+  contributions: [{ owner: keys[0], amount: 600 }, { owner: keys[0], amount: 700 }],
+}), /Duplicate governance owner/);
+assert.throws(() => governance.deposit({ market: keys[1], owner: keys[0], amount: 0 }), /positive/);
+const released = await governance.withdrawSupport({ market: keys[1], proposal: batch.proposal,
+  owner: keys[0], authority: keys[7], amount: 50, proposer: keys[7], rentRefund: keys[7],
+});
+assert.equal(program.coder.instruction.decode(released.instruction.data).data.args.amount.toString(), "50");
+console.log("Reusable governance builders: passed");
+
+program.account.governanceSupport.all = async (filters) => {
+  assert.equal(filters[0].memcmp.offset, 40);
+  assert.equal(filters[0].memcmp.bytes, balanceAddress.toBase58());
+  return [];
+};
+assert.deepEqual(await governance.listSupport(keys[1], keys[0]), []);

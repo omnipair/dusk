@@ -15,7 +15,7 @@ from reportlab.lib.colors import HexColor
 
 ROOT = Path(__file__).resolve().parent
 DATA, FIGURES = ROOT / "data", ROOT / "figures"
-SNAPSHOT = "263c1635ad87ee36ffd9bf0b970457e4be965326"
+SNAPSHOT = "5c0aca7fcb582418f1c5b99061d4ff7605b6f185"
 NAD = 1_000_000_000
 YEAR_MS = 365 * 24 * 60 * 60 * 1000
 DAY_MS = YEAR_MS // 365
@@ -144,6 +144,23 @@ def main():
         reserves.append(dict(marginal_price=p, ordinary_base=u, ordinary_quote=v, inventory_ratio=v/u, active_liquidity=active))
     write_csv("concentrated_curve.csv", reserves)
 
+    # Hold initial price and input fixed; vary only ordinary CPMM liquidity.
+    depth_rows = []
+    for scale in (1, 2, 4):
+        u = v = scale * 1000
+        output = 50 * v / (u + 50)
+        depth_rows.append(dict(scale=scale, ordinary_base=u, ordinary_quote=v,
+                               input_base=50, output_quote=output,
+                               average_price_shortfall_bps=(1-output/50)*10000))
+    write_csv("depth_without_spot_motion.csv", depth_rows)
+    lines = [r"\begin{center}\small", r"\begin{tabular}{@{}rrrr@{}}", r"\toprule",
+             r"Scale $\lambda$ & Ordinary reserves & Quote output & Shortfall (bps) \\", r"\midrule"]
+    for r in depth_rows:
+        lines.append(f"{r['scale']} & ({r['ordinary_base']:,}, {r['ordinary_quote']:,}) & "
+                     f"{r['output_quote']:.5f} & {r['average_price_shortfall_bps']:.2f} \\\\")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{center}"]
+    (DATA / "depth_table.tex").write_text("\n".join(lines)+"\n")
+
     recovery_rows = []
     for debt in sorted(set(list(range(1_000_000, 1_150_001, 250)) + [1_002_499,1_002_500,1_062_500,1_125_000])):
         gap,discount,bonus,critical = recovery(debt)
@@ -154,7 +171,7 @@ def main():
 
     summary = [r for r in rates if r["day"] == 30]
     lines = [r"\begin{center}", r"\begin{tabular}{@{}lrr@{}}", r"\toprule",
-             r"Fixed utilization & Day-30 anchor APR & Day-30 borrower APR \\", r"\midrule"]
+             r"Fixed utilization & Day-30 anchor APR & Day-30 debt APR \\", r"\midrule"]
     for r in summary:
         lines.append(f"{r['utilization_bps']/100:g}\\% & {r['anchor_nad']/NAD*100:.4f}\\% & {r['borrow_apr_percent']:.4f}\\% \\\\")
     lines += [r"\bottomrule",r"\end{tabular}",r"\end{center}"]
@@ -179,7 +196,7 @@ def main():
     c.save()
 
     c = make_canvas("adaptive_irm.pdf")
-    point = panel(c,(65,57,510,221),(0,30),(0.1,100),list(range(0,31,5)),[0.1,1,10,100],"Days (one update per day)","Borrow APR percent (log scale)",log_y=True)
+    point = panel(c,(65,57,510,221),(0,30),(0.1,100),list(range(0,31,5)),[0.1,1,10,100],"Days (one update per day)","Debt APR percent (log scale)",log_y=True)
     for name,color,x in [("idle",ORANGE,70),("target",TEAL,230),("full",BLUE,410)]:
         curve(c,point,[(r['day'],r['borrow_apr_percent']) for r in rates if r['scenario']==name],color)
         legend(c,x,305,{"idle":"0% utilization","target":"70% utilization","full":"100% utilization"}[name],color)
@@ -208,12 +225,52 @@ def main():
     assert all(NAD//1000 <= r['anchor_nad'] <= 2*NAD for r in rates)
     assert next(r for r in summary if r['scenario']=='target')['anchor_nad']==4*NAD//100
     assert 900+110-10==1000 and 1000+0-0==1000
+
+    # Independent identities for the restored explanatory sections.
+    # (cash, indexed debt, hLP ledger entry, unpaid interest, live, executable).
+    for cash, debt, h, unpaid, live, executable in [
+        (1000,0,0,0,1000,1000), (900,100,0,0,1000,1000),
+        (900,110,0,10,1010,1000), (1000,0,0,0,1000,1000),
+    ]:
+        assert cash+debt+h == live and live-unpaid == executable
+    for z in (0.7,0.9,1.0,1.1,1.3):
+        u,v,active=inventory(z)
+        # Recover the regional offsets directly from each range's state.
+        alpha=beta=0.0
+        for liquidity,lower,upper in LAYERS:
+            if z <= lower:
+                alpha += liquidity*(1/lower-1/upper)
+            elif z >= upper:
+                beta += liquidity*(upper-lower)
+            else:
+                alpha -= liquidity/upper
+                beta -= liquidity*lower
+        assert math.isclose((u-alpha)*(v-beta),active**2,rel_tol=1e-12)
+        for scale in (0.5,2,4):
+            assert math.isclose((scale*u-scale*alpha)*(scale*v-scale*beta),(scale*active)**2,rel_tol=1e-12)
+            assert math.isclose(-(inventory(z+1e-6)[1]-inventory(z-1e-6)[1]) /
+                                (inventory(z+1e-6)[0]-inventory(z-1e-6)[0]),z*z,rel_tol=1e-9)
+        for eb,eq in ((100,0),(0,50),(100,50)):
+            xb,xq=u+eb+eq*u/v,v+eq+eb*v/u
+            omega=1+eb/u+eq/v
+            assert math.isclose(xb,omega*u) and math.isclose(xq,omega*v)
+            assert math.isclose(xq/xb,v/u)
+            assert math.isclose(eb*z*z+eb*v/u-eb*v/u,eb*z*z)
+    assert all(a['output_quote'] < b['output_quote'] for a,b in zip(depth_rows,depth_rows[1:]))
+    assert math.isclose(depth_rows[0]['output_quote'],47.61904761904762)
+    assert math.isclose(50*1150/(1150+50),47.916666666666664)
+    for ratio in (0.25,0.5,1,2,4):
+        assert math.isclose(ratio-(2*math.sqrt(ratio)-1),(math.sqrt(ratio)-1)**2,abs_tol=1e-12)
+    assert math.isclose(1+1000/(1000*1),2)
     metadata = dict(reviewed_commit=SNAPSHOT, target_utilization_bps=TARGET_BPS, steepness=STEEPNESS,
                     speed_per_year=SPEED, update_ms=DAY_MS, initial_anchor_nad=4*NAD//100,
                     curve_tail=TAIL, curve_layers=LAYERS, recovery_claim=1_000_000,
-                    recovery_conversion="1 target atom per opposite atom", scope="Mathematical illustrations; not a full program emulator")
+                    recovery_conversion="1 target atom per opposite atom",
+                    depth_comparison=dict(starting_base=1000,starting_quote=1000,input_base=50,scales=[1,2,4],fees=0,sufficient_output_cash=True),
+                    lp_tracking="Static 2x CPMM benchmark with no funding interest, fees, or adjustment during the price move",
+                    scope="Mathematical illustrations; not a full program emulator")
     (DATA / "assumptions.json").write_text(json.dumps(metadata,indent=2)+"\n")
-    (DATA / "validation.json").write_text(json.dumps(dict(status="passed", checks=["range boundary continuity", "center inventory", "recovery activation/max/critical boundaries", "integer bonus arithmetic", "revenue netting distinction", "equity cap", "rate anchor bounds", "target equilibrium", "unpaid-interest exclusion"]),indent=2)+"\n")
+    (DATA / "validation.json").write_text(json.dumps(dict(status="passed", checks=["range boundary continuity", "center inventory", "recovery activation/max/critical boundaries", "integer bonus arithmetic", "revenue netting distinction", "equity cap", "rate anchor bounds", "target equilibrium", "unpaid-interest exclusion", "GAMM borrow/accrual/repayment ledger", "regional shifted-product invariant", "homothetic liquidity scaling", "marginal derivative price", "radial hLP ownership identity", "canonical hLP NAV", "ordinary depth and finite-trade impact", "static leveraged-LP tracking gap"]),indent=2)+"\n")
     print(json.dumps(dict(status="passed", day30=summary),indent=2))
 
 

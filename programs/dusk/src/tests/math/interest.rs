@@ -149,10 +149,11 @@ fn index_unchanged_with_no_time_or_zero_rate() {
 }
 
 #[test]
-fn index_elapsed_time_is_capped() {
-    let capped = accrued_index_nad(nad(1), nad(10) / 100, MS_PER_YEAR * 100).unwrap();
+fn index_charges_the_full_elapsed_time() {
+    let long_gap = accrued_index_nad(nad(1), nad(10) / 100, MS_PER_YEAR * 100).unwrap();
     let one_year = accrued_index_nad(nad(1), nad(10) / 100, MS_PER_YEAR).unwrap();
-    assert_eq!(capped, one_year);
+    assert_eq!(long_gap, nad(11));
+    assert_eq!(one_year, nad(110) / 100);
 }
 
 #[test]

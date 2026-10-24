@@ -277,7 +277,7 @@ async function main() {
   ]);
   record("borrow", "5 quote", borrowSignature);
 
-  const [position] = deriveBorrowPositionAddress(market, positionId);
+  const [position] = deriveBorrowPositionAddress(market, keypair.publicKey, positionId);
   const positionAccount = await connection.getAccountInfo(position, "confirmed");
   record(
     "borrow_position",

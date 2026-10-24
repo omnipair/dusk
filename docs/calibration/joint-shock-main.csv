@@ -1,0 +1,5 @@
+sol_decline_pct,historical_auction_uninsured_loss_usdc,historical_auction_insurance_paid_usdc,historical_auction_opening_insurance_usdc,historical_loss_change_from_analysis_usdc,historical_capital_change_from_analysis_usdc
+10.0,0.0,0,0,0.0,0.0
+30.0,3861.80195,3774.067122,7548.134244,1.3888350000001992,-1629.1836869999997
+50.0,26200.977208,25071.690842,50143.381684,-1.9285669999990205,13.226501999997708
+70.0,45018.548226,43726.888624,87453.777248,4.2365869999994175,19.771133999995072

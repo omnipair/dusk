@@ -1,4 +1,10 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
+import IDL from "./idl_v2.js";
+
+/** Shared on-chain default; regenerated from the program instead of duplicated here. */
+export const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS = Number(
+  IDL.constants.find(({ name }) => name === "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS")!.value
+);
 
 const DEFAULT_PROGRAM_ID = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
@@ -15,6 +21,10 @@ function getProgramIdFromEnv(fallback: string): string {
 export const DUSK_PROGRAM_ID = new PublicKey(getProgramIdFromEnv(DEFAULT_PROGRAM_ID));
 
 export const PROGRAM_ID = DUSK_PROGRAM_ID;
+/** Current development Market account layout. */
+export const MARKET_LAYOUT_VERSION = Number(
+  IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION")!.value
+);
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
 /** Direct-yLP parameter-governance constants. These values are immutable for Dusk market layout v1. */
@@ -28,9 +38,11 @@ export const PROPOSAL_METADATA_VERSION = 1;
 export const MAX_PROPOSAL_TITLE_BYTES = 96;
 export const MAX_PROPOSAL_DESCRIPTION_URI_BYTES = 200;
 export const MAX_PROPOSAL_DESCRIPTION_BYTES = 32_768;
-export const DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS = 216_000;
-export const MIN_CONCENTRATION_RAMP_DURATION_SLOTS = 216_000;
-export const MAX_CONCENTRATION_RAMP_DURATION_SLOTS = 1_512_000;
+// Nominal 1-7 day ramp at Solana's current 200 ms scheduled slot cadence.
+// Update with the on-chain timing constant if the network cadence changes.
+export const DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS = 432_000;
+export const MIN_CONCENTRATION_RAMP_DURATION_SLOTS = 432_000;
+export const MAX_CONCENTRATION_RAMP_DURATION_SLOTS = 3_024_000;
 
 /**
  * PDA seeds used by the program
@@ -46,6 +58,7 @@ export const SEEDS = {
   LEVERAGE_DELEGATION: Buffer.from("leverage_delegation_v2"),
   YIELD_ACCOUNT: Buffer.from("yield"),
   HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
+  HLP_COHORT: Buffer.from("hlp_cohort"),
   INSURANCE: Buffer.from("insurance"),
   EVENT_AUTHORITY: Buffer.from("__event_authority"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
@@ -74,8 +87,8 @@ function normalizeParamsHash(paramsHash: Uint8Array | Buffer | number[]): Buffer
 /**
  * Derive Futarchy Authority PDA address
  */
-export function deriveFutarchyAuthorityAddress(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], DUSK_PROGRAM_ID);
+export function deriveFutarchyAuthorityAddress(programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([SEEDS.FUTARCHY_AUTHORITY], programId);
 }
 
 /** Derive the protocol-wide referral partner for a referrer authority. */
@@ -90,7 +103,8 @@ export function deriveReferralPartnerAddress(authority: PublicKey): [PublicKey, 
 export function deriveReferralAccrualAddress(
   referralPartner: PublicKey,
   market: PublicKey,
-  assetMint: PublicKey
+  assetMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
@@ -99,7 +113,7 @@ export function deriveReferralAccrualAddress(
       market.toBuffer(),
       assetMint.toBuffer(),
     ],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -196,11 +210,12 @@ export function deriveMarketReserveVaultAddress(
 /** Per-market collateral custody for leverage positions. */
 export function deriveLeverageCollateralVaultAddress(
   market: PublicKey,
-  collateralMint: PublicKey
+  collateralMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.LEVERAGE_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -232,10 +247,11 @@ export function deriveMarketInterestVaultAddress(
  */
 export function deriveBorrowPositionAddress(
   market: PublicKey,
+  owner: PublicKey,
   positionId: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.BORROW_POSITION, market.toBuffer(), positionId.toBuffer()],
+    [SEEDS.BORROW_POSITION, market.toBuffer(), owner.toBuffer(), positionId.toBuffer()],
     DUSK_PROGRAM_ID
   );
 }
@@ -255,10 +271,18 @@ export function deriveLeverageDelegationAddress(
 
 export function deriveLeveragePositionAddress(
   market: PublicKey,
-  positionId: PublicKey
+  positionOwner: PublicKey,
+  positionId: PublicKey,
+  namespaceAuthority: PublicKey = positionOwner
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.LEVERAGE_POSITION, market.toBuffer(), positionId.toBuffer()],
+    [
+      SEEDS.LEVERAGE_POSITION,
+      market.toBuffer(),
+      positionOwner.toBuffer(),
+      namespaceAuthority.toBuffer(),
+      positionId.toBuffer(),
+    ],
     DUSK_PROGRAM_ID
   );
 }
@@ -354,6 +378,18 @@ export function deriveYieldTransferHookValidationAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from("extra-account-metas"), lpMint.toBuffer()],
+    programId
+  );
+}
+
+/** Mint-specific hLP cohort; retired mints retain their frozen yield state. */
+export function deriveHlpCohortAddress(
+  market: PublicKey,
+  hlpMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.HLP_COHORT, market.toBuffer(), hlpMint.toBuffer()],
     programId
   );
 }
@@ -538,6 +574,18 @@ export function buildLpTransferHookValidationAccountData({
       true
     ),
     ...eventMetas,
+    ...(yieldTokenKindCode(tokenKind) === 1 && !legacyLayout
+      ? [
+          pdaTransferHookMeta(
+            [
+              { kind: "literal", bytes: SEEDS.HLP_COHORT },
+              { kind: "accountKey", index: TRANSFER_HOOK_MARKET_ACCOUNT_INDEX },
+              { kind: "accountKey", index: 1 },
+            ],
+            false
+          ),
+        ]
+      : []),
   ]);
 }
 
@@ -607,6 +655,9 @@ export function buildLpTransferHookAccountMetas({
     { pubkey: destinationQuoteYieldAccount, isSigner: false, isWritable: true },
     { pubkey: deriveEventAuthorityAddress(programId)[0], isSigner: false, isWritable: false },
     { pubkey: programId, isSigner: false, isWritable: false },
+    ...(yieldTokenKindCode(tokenKind) === 1
+      ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, programId)[0], isSigner: false, isWritable: false }]
+      : []),
     { pubkey: validationAccount, isSigner: false, isWritable: false },
   ];
 }
@@ -635,10 +686,20 @@ export function deriveHlpYlpVaultAddress(
  */
 export function deriveInsuranceAddress(
   market: PublicKey,
-  assetMint: PublicKey
+  assetMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.INSURANCE, market.toBuffer(), assetMint.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
+}
+
+/** Owner-specific reusable governance balance; program ID overrides are supported. */
+export function deriveGovernanceBalanceAddress(market: PublicKey, owner: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("governance_balance"), market.toBuffer(), owner.toBuffer()], programId);
+}
+
+export function deriveGovernanceSupportAddress(proposal: PublicKey, balance: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("governance_support"), proposal.toBuffer(), balance.toBuffer()], programId);
 }

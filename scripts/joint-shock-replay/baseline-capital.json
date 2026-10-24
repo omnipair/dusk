@@ -1,0 +1,132 @@
+[
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.3-w0-k0-funded-capital0",
+    "keeper_delay_s": 0,
+    "shock": -0.3,
+    "withdraw_fraction": 0,
+    "insurance_atoms": 11343704582
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.3-w0-k0-funded-capital-1",
+    "keeper_delay_s": 0,
+    "shock": -0.3,
+    "withdraw_fraction": 0,
+    "insurance_atoms": 11343704581
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.5-w0-k0-funded-capital0",
+    "keeper_delay_s": 0,
+    "shock": -0.5,
+    "withdraw_fraction": 0,
+    "insurance_atoms": 52271433840
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.5-w0-k0-funded-capital-1",
+    "keeper_delay_s": 0,
+    "shock": -0.5,
+    "withdraw_fraction": 0,
+    "insurance_atoms": 52271433839
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.5-w0.5-k900-funded-capital0",
+    "keeper_delay_s": 900,
+    "shock": -0.5,
+    "withdraw_fraction": 0.5,
+    "insurance_atoms": 52270860934
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.5-w0.5-k900-funded-capital-1",
+    "keeper_delay_s": 900,
+    "shock": -0.5,
+    "withdraw_fraction": 0.5,
+    "insurance_atoms": 52270860933
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.7-w0-k0-funded-capital0",
+    "keeper_delay_s": 0,
+    "shock": -0.7,
+    "withdraw_fraction": 0,
+    "insurance_atoms": 87122213668
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.7-w0-k0-funded-capital-1",
+    "keeper_delay_s": 0,
+    "shock": -0.7,
+    "withdraw_fraction": 0,
+    "insurance_atoms": 87122213667
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.7-w0.5-k900-funded-capital0",
+    "keeper_delay_s": 900,
+    "shock": -0.7,
+    "withdraw_fraction": 0.5,
+    "insurance_atoms": 87121599520
+  },
+  {
+    "borrow_usd": 75000,
+    "group": "primary",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "h0-s-0.7-w0.5-k900-funded-capital-1",
+    "keeper_delay_s": 900,
+    "shock": -0.7,
+    "withdraw_fraction": 0.5,
+    "insurance_atoms": 87121599519
+  },
+  {
+    "borrow_usd": 75000,
+    "debt_asset": "base",
+    "group": "upside",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "up-h0-s1.0-funded-capital0",
+    "shock": 1.0,
+    "insurance_atoms": 261357530916
+  },
+  {
+    "borrow_usd": 75000,
+    "debt_asset": "base",
+    "group": "upside",
+    "hlp_each_usd": 0,
+    "horizon_s": 3600,
+    "id": "up-h0-s1.0-funded-capital-1",
+    "shock": 1.0,
+    "insurance_atoms": 261357530915
+  }
+]

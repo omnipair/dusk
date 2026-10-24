@@ -36,25 +36,34 @@ impl Insurance {
         }
     }
 
-    pub(crate) fn checkpoint_draw_window(&mut self, asset: MarketAsset, current_slot: u64) {
+    pub(crate) fn checkpoint_draw_window(&mut self, asset: MarketAsset, current_slot: u64) -> Result<()> {
         let available = self.available(asset);
         let window = self.draw_window_mut(asset);
-        if window.start_slot == 0
-            || current_slot.saturating_sub(window.start_slot) >= crate::constants::INSURANCE_DRAW_WINDOW_SLOTS
-        {
+        let elapsed_slots = if window.initialized {
+            current_slot
+                .checked_sub(window.start_slot)
+                .ok_or(ErrorCode::InvalidArgument)?
+        } else {
+            0
+        };
+        // The budget resets after a deterministic number of scheduled slots.
+        // Leader-selected Clock timestamps do not move the 24-hour boundary.
+        if !window.initialized || elapsed_slots >= crate::constants::INSURANCE_DRAW_WINDOW_SLOTS {
             *window = InsuranceDrawWindow {
-                start_slot: current_slot.max(1),
+                initialized: true,
+                start_slot: current_slot,
                 opening_available: available,
                 credited: 0,
                 drawn: 0,
             };
         }
+        Ok(())
     }
 
     pub fn draw_capacity(&mut self, asset: MarketAsset, current_slot: u64) -> Result<u64> {
         use crate::constants::BPS_DENOMINATOR;
 
-        self.checkpoint_draw_window(asset, current_slot);
+        self.checkpoint_draw_window(asset, current_slot)?;
         let available = self.available(asset);
         let window = *self.draw_window(asset);
         let daily_basis = window
@@ -69,19 +78,12 @@ impl Insurance {
         )
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
         let daily_remaining = daily_limit.saturating_sub(window.drawn);
-        let event_limit = u64::try_from(
-            (available as u128)
-                .checked_mul(self.per_event_draw_bps as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-                / BPS_DENOMINATOR as u128,
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        Ok(available.min(event_limit).min(daily_remaining))
+        Ok(available.min(daily_remaining))
     }
 
     pub fn credit(&mut self, asset: MarketAsset, actual_credit: u64, current_slot: u64) -> Result<()> {
         require!(actual_credit > 0, ErrorCode::AmountZero);
-        self.checkpoint_draw_window(asset, current_slot);
+        self.checkpoint_draw_window(asset, current_slot)?;
         let available = self.available_mut(asset);
         *available = available
             .checked_add(actual_credit)
@@ -169,6 +171,7 @@ impl Reserves {
         }
     }
 
+    #[inline(always)]
     pub fn total_hlp_backing_inventory(&self) -> Result<u64> {
         self.base_hlp_backing_inventory
             .checked_add(self.quote_hlp_backing_inventory)
@@ -229,6 +232,43 @@ impl MarketAsset {
 }
 
 impl MarketSide {
+    /// Liquidation's protocol share is already selected before insurance is
+    /// funded. Distribute the remaining LP amount once, over ordinary yLP
+    /// ownership (including the yLP backing hLP), without another protocol cut.
+    pub(crate) fn record_liquidation_fee_credit(
+        &mut self,
+        lp: u64,
+        protocol: u64,
+        split: ProtocolAuctionSplit,
+        eligible_ylp_supply: u64,
+    ) -> Result<()> {
+        let credit = lp.checked_add(protocol).ok_or(ErrorCode::FeeMathOverflow)?;
+        let (fee, buyback) = split_protocol_auction_fee(protocol, &split)?;
+        self.fees.interest_vault_balance = self
+            .fees
+            .interest_vault_balance
+            .checked_add(credit)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.fees.interest_protocol_fee_liability = self
+            .fees
+            .interest_protocol_fee_liability
+            .checked_add(fee)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.fees.interest_buyback_fee_liability = self
+            .fees
+            .interest_buyback_fee_liability
+            .checked_add(buyback)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.fees.unallocated_interest_liability = self
+            .fees
+            .unallocated_interest_liability
+            .checked_add(lp)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
+        self.carry_forward_interest_with_supply(eligible_ylp_supply)?;
+        self.fees.assert_backed()
+    }
+
+    #[inline(always)]
     pub fn assert_share_backing(&self) -> Result<()> {
         if self.shares.ylp_supply == 0 {
             require_eq!(self.reserves.live_reserve, 0, ErrorCode::BrokenInvariant);
@@ -424,7 +464,27 @@ impl MarketSide {
         if interest_credit == 0 {
             return FeesReceipt::from_side(self);
         }
-        let (protocol_fee, lp_interest) = split_revenue(interest_credit, protocol_fee_bps)?;
+        let (protocol_fee, _) = split_revenue(interest_credit, protocol_fee_bps)?;
+        self.record_interest_credit_allocation(
+            interest_credit,
+            protocol_fee,
+            protocol_auction_split,
+            referral_interest_amount,
+            eligible_ylp_supply,
+        )
+    }
+
+    pub(crate) fn record_interest_credit_allocation(
+        &mut self,
+        interest_credit: u64,
+        protocol_fee: u64,
+        protocol_auction_split: ProtocolAuctionSplit,
+        referral_interest_amount: u64,
+        eligible_ylp_supply: u64,
+    ) -> Result<FeesReceipt> {
+        let lp_interest = interest_credit
+            .checked_sub(protocol_fee)
+            .ok_or(ErrorCode::FeeMathOverflow)?;
         require_gte!(protocol_fee, referral_interest_amount, ErrorCode::FeeMathOverflow);
         let remaining_protocol_fee = protocol_fee
             .checked_sub(referral_interest_amount)
@@ -728,6 +788,15 @@ impl Market {
                 total_cash_backed_borrowed(self, asset, self.debt.quote_borrow_index_nad)?,
             ),
         };
+        let flash_collateral = match asset {
+            MarketAsset::Base => self.base_hlp_vault.flash_collateral_debit,
+            MarketAsset::Quote => self.quote_hlp_vault.flash_collateral_debit,
+        };
+        require_eq!(
+            side.reserves.flash_receivable,
+            flash_collateral,
+            ErrorCode::BrokenInvariant
+        );
         let hlp_live = self.hlp_live_reserve(asset)?;
         // Invariants:
         // 1. x_virtual * y_virtual = k (Constant product invariant)
@@ -738,6 +807,7 @@ impl Market {
         // not same-side cash-backed reserve debt.
         let expected_live_reserve = (side.reserves.cash_reserve as u128)
             .checked_add(cash_backed_debt)
+            .and_then(|value| value.checked_add(u128::from(side.reserves.flash_receivable)))
             .and_then(|value| value.checked_add(hlp_live))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_eq!(

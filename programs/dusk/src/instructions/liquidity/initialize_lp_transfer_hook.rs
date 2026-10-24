@@ -9,15 +9,17 @@ use spl_transfer_hook_interface::{
 };
 
 use crate::{
-    constants::{TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
+    account::{get_size_with_discriminator, initialize_pda_account_if_needed},
+    constants::{HLP_COHORT_SEED_PREFIX, TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
     errors::ErrorCode,
     instructions::accounts::validate_lp_mint,
-    state::{Market, MarketAsset, YieldTokenKind},
+    state::{HlpCohort, Market, MarketAsset, YieldTokenKind},
 };
 
 /// Market, both asset mints, four yield accounts, then the event authority and
 /// Dusk program the hook needs to publish `LpTransferred` by self-CPI.
 const LP_TRANSFER_HOOK_META_COUNT: usize = 9;
+const HLP_TRANSFER_HOOK_META_COUNT: usize = LP_TRANSFER_HOOK_META_COUNT + 1;
 /// Mints initialized before the event accounts existed store only the first
 /// seven entries; they stay transferable and publish no receipt.
 const LEGACY_LP_TRANSFER_HOOK_META_COUNT: usize = 7;
@@ -70,8 +72,58 @@ impl<'info> InitializeLpTransferHook<'info> {
         } = ctx.accounts;
         let lp_mint = lp_mint.key();
         let validation_info = validation_account.to_account_info();
-        let account_size = ExtraAccountMetaList::size_of(LP_TRANSFER_HOOK_META_COUNT)
-            .map_err(|_| error!(ErrorCode::MarketMathOverflow))?;
+        let cohort_asset = if lp_mint == market.ylp_mint {
+            None
+        } else {
+            Some(market.asset_for_hlp_mint(lp_mint)?)
+        };
+        if let Some(target_asset) = cohort_asset {
+            let cohort_info = ctx.remaining_accounts.first().ok_or(ErrorCode::InvalidArgument)?;
+            let market_key = market.key();
+            let (cohort_key, cohort_bump) = Pubkey::find_program_address(
+                &[HLP_COHORT_SEED_PREFIX, market_key.as_ref(), lp_mint.as_ref()],
+                &crate::ID,
+            );
+            require_keys_eq!(*cohort_info.key, cohort_key, ErrorCode::InvalidArgument);
+            require!(cohort_info.is_writable, ErrorCode::InvalidArgument);
+            let bump_seed = [cohort_bump];
+            let created = initialize_pda_account_if_needed(
+                payer.to_account_info(),
+                cohort_info.clone(),
+                system_program.to_account_info(),
+                get_size_with_discriminator::<HlpCohort>(),
+                &[
+                    HLP_COHORT_SEED_PREFIX,
+                    market_key.as_ref(),
+                    lp_mint.as_ref(),
+                    &bump_seed,
+                ],
+            )?;
+            let mut data = cohort_info.try_borrow_mut_data()?;
+            if created {
+                HlpCohort {
+                    market: market_key,
+                    mint: lp_mint,
+                    target_asset: target_asset.code(),
+                    retired: false,
+                    final_vault: Default::default(),
+                    bump: cohort_bump,
+                }
+                .try_serialize(&mut &mut data[..])?;
+            } else {
+                let mut data_slice: &[u8] = &data;
+                let cohort = HlpCohort::try_deserialize(&mut data_slice)?;
+                cohort.assert_identity(market_key, lp_mint, target_asset)?;
+                require_eq!(cohort.bump, cohort_bump, ErrorCode::InvalidArgument);
+            }
+        }
+        let meta_count = if cohort_asset.is_some() {
+            HLP_TRANSFER_HOOK_META_COUNT
+        } else {
+            LP_TRANSFER_HOOK_META_COUNT
+        };
+        let account_size =
+            ExtraAccountMetaList::size_of(meta_count).map_err(|_| error!(ErrorCode::MarketMathOverflow))?;
 
         // Create or adopt the canonical validation PDA.
         if validation_info.owner == &System::id() {
@@ -132,7 +184,7 @@ impl<'info> InitializeLpTransferHook<'info> {
         // stored seven entries instead of migrating the account.
         let legacy_size = ExtraAccountMetaList::size_of(LEGACY_LP_TRANSFER_HOOK_META_COUNT)
             .map_err(|_| error!(ErrorCode::MarketMathOverflow))?;
-        if validation_info.data_len() == legacy_size {
+        if cohort_asset.is_none() && validation_info.data_len() == legacy_size {
             let mut legacy = vec![0_u8; legacy_size];
             ExtraAccountMetaList::init::<ExecuteInstruction>(
                 &mut legacy,
@@ -165,14 +217,14 @@ pub(crate) fn canonical_lp_transfer_hook_metas(
     market_key: Pubkey,
     market: &Market,
     lp_mint: Pubkey,
-) -> Result<[ExtraAccountMeta; LP_TRANSFER_HOOK_META_COUNT]> {
+) -> Result<Vec<ExtraAccountMeta>> {
     let token_kind = if lp_mint == market.ylp_mint {
         YieldTokenKind::Ylp
     } else {
         market.asset_for_hlp_mint(lp_mint)?;
         YieldTokenKind::Hlp
     };
-    Ok([
+    let mut metas = vec![
         ExtraAccountMeta::new_with_pubkey(&market_key, false, true).map_err(|_| error!(ErrorCode::InvalidArgument))?,
         ExtraAccountMeta::new_with_pubkey(&market.base_side.asset_mint, false, false)
             .map_err(|_| error!(ErrorCode::InvalidArgument))?,
@@ -189,7 +241,26 @@ pub(crate) fn canonical_lp_transfer_hook_metas(
         )
         .map_err(|_| error!(ErrorCode::InvalidArgument))?,
         ExtraAccountMeta::new_with_pubkey(&crate::ID, false, false).map_err(|_| error!(ErrorCode::InvalidArgument))?,
-    ])
+    ];
+    if token_kind == YieldTokenKind::Hlp {
+        metas.push(
+            ExtraAccountMeta::new_with_seeds(
+                &[
+                    Seed::Literal {
+                        bytes: HLP_COHORT_SEED_PREFIX.to_vec(),
+                    },
+                    Seed::AccountKey {
+                        index: TRANSFER_HOOK_MARKET_INDEX,
+                    },
+                    Seed::AccountKey { index: 1 },
+                ],
+                false,
+                false,
+            )
+            .map_err(|_| error!(ErrorCode::InvalidArgument))?,
+        );
+    }
+    Ok(metas)
 }
 
 fn yield_account_extra_meta(

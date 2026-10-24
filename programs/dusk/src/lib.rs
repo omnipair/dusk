@@ -15,6 +15,7 @@ pub mod transitions;
 
 pub use instructions::*;
 pub use state::*;
+use transitions::amm_liquidation::EmergencyLiquidationQuote;
 
 #[cfg(not(feature = "no-entrypoint"))]
 use solana_security_txt::security_txt;
@@ -121,11 +122,6 @@ pub mod dusk {
         InitializeMarket::handle_initialize(ctx, args)
     }
 
-    #[access_control(ctx.accounts.validate(&args))]
-    pub fn initialize_lp_metadata(ctx: Context<InitializeLpMetadata>, args: InitializeLpMetadataArgs) -> Result<()> {
-        InitializeLpMetadata::handle_initialize(ctx, args)
-    }
-
     #[access_control(ctx.accounts.validate())]
     pub fn set_market_reduce_only(ctx: Context<SetMarketReduceOnly>, args: SetMarketReduceOnlyArgs) -> Result<()> {
         SetMarketReduceOnly::handle_set(ctx, args)
@@ -164,8 +160,44 @@ pub mod dusk {
 
     pub fn withdraw_parameter_support<'info>(
         ctx: Context<'_, '_, '_, 'info, WithdrawParameterSupport<'info>>,
+        args: WithdrawParameterSupportArgs,
     ) -> Result<()> {
-        WithdrawParameterSupport::handle_withdraw(ctx)
+        WithdrawParameterSupport::handle_withdraw(ctx, args)
+    }
+
+    pub fn manage_governance_balance<'info>(
+        ctx: Context<'_, '_, '_, 'info, ManageGovernanceBalance<'info>>,
+        action: GovernanceBalanceAction,
+    ) -> Result<()> {
+        ManageGovernanceBalance::handle(ctx, action)
+    }
+
+    pub fn set_governance_delegate<'info>(
+        ctx: Context<'_, '_, '_, 'info, SetGovernanceDelegate<'info>>,
+        delegate: Pubkey,
+    ) -> Result<()> {
+        SetGovernanceDelegate::handle(ctx, delegate)
+    }
+
+    pub fn create_governance_proposal<'info>(
+        ctx: Context<'_, '_, '_, 'info, CreateGovernanceProposal<'info>>,
+        args: CreateGovernanceProposalArgs,
+    ) -> Result<()> {
+        CreateGovernanceProposal::handle(ctx, args)
+    }
+
+    pub fn support_governance_proposal<'info>(
+        ctx: Context<'_, '_, '_, 'info, SupportGovernanceProposal<'info>>,
+        args: SupportGovernanceProposalArgs,
+    ) -> Result<()> {
+        SupportGovernanceProposal::handle(ctx, args)
+    }
+
+    pub fn withdraw_governance_support<'info>(
+        ctx: Context<'_, '_, '_, 'info, WithdrawGovernanceSupport<'info>>,
+        args: WithdrawParameterSupportArgs,
+    ) -> Result<()> {
+        WithdrawGovernanceSupport::handle(ctx, args)
     }
 
     // Liquidity instructions
@@ -220,6 +252,15 @@ pub mod dusk {
         GrowYieldAccount::handle_grow(ctx)
     }
 
+    /// Fund accrued public LP interest from available cash, settle both hLP
+    /// funding gaps from their new income, and publish remaining holder yield.
+    pub fn fund_interest<'info>(
+        ctx: Context<'_, '_, '_, 'info, FundInterest<'info>>,
+        args: FundInterestArgs,
+    ) -> Result<FundInterestReceipt> {
+        FundInterest::handle(ctx, args)
+    }
+
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn harvest<'info>(ctx: Context<'_, '_, '_, 'info, Harvest<'info>>, args: HarvestArgs) -> Result<()> {
         Harvest::handle_harvest(ctx, args)
@@ -242,35 +283,80 @@ pub mod dusk {
 
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
-        let mode = SwapExecutionMode::Ordinary;
-        let (current_slot, current_epoch, current_unix_timestamp) =
-            ctx.accounts.validate_and_read_clock(&args, mode)?;
-        Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
+        Swap::handle_swap(ctx, args)
     }
 
-    /// Permissionless critical hLP recovery. The caller supplies the hLP's
-    /// borrowed asset and receives target collateral through the same exact
-    /// O(1) swap/hedge transition as an ordinary recovery swap. It is live in
-    /// reduce-only mode and rejects unless the selected vault is at or beyond
-    /// the 9/8 funding-stress boundary.
-    pub fn rescue_hlp<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
-        let mode = SwapExecutionMode::HlpRecovery;
-        let (current_slot, current_epoch, current_unix_timestamp) =
-            ctx.accounts.validate_and_read_clock(&args, mode)?;
-        Swap::handle_swap(ctx, args, current_slot, current_epoch, current_unix_timestamp, mode)
+    /// Quote the fixed net payment for vault-wide atomic external hLP recovery.
+    pub fn preview_hlp_flash(
+        ctx: Context<PreviewHlpFlash>,
+        target_asset: u8,
+    ) -> Result<transitions::liquidity::HlpFlashQuote> {
+        PreviewHlpFlash::handle(ctx, target_asset)
     }
 
-    /// Permissionlessly closes an hLP after passive funding has exhausted its
-    /// marked collateral. Insurance reimburses the borrowed-asset shortfall
-    /// first. The caller receives a bounded reward from recovered funding
-    /// interest, and only the caller-capped remainder is socialized as unpaid
-    /// funding interest. Ordinary swaps retain their existing account list.
+    /// Release hLP target collateral, bound to an exact top-level settlement
+    /// later in this same transaction. No routing program is privileged.
+    pub fn begin_hlp_flash<'info>(
+        ctx: Context<'_, '_, '_, 'info, BeginHlpFlash<'info>>,
+        args: BeginHlpFlashArgs,
+    ) -> Result<()> {
+        BeginHlpFlash::handle(ctx, args)
+    }
+
+    /// Verify the fixed payment and restore the vault's opposite-token hedge.
+    pub fn settle_hlp_flash<'info>(ctx: Context<'_, '_, '_, 'info, SettleHlpFlash<'info>>) -> Result<()> {
+        SettleHlpFlash::handle(ctx)
+    }
+
+    /// Permissionlessly closes an hLP whose full marked backing cannot cover
+    /// funding debt. Recovery protects principal first; insurance covers only
+    /// principal loss and unpaid interest is canceled. Realized funding interest
+    /// is cash-limited and funds the bounded caller reward. Existing funded
+    /// holder claims remain claimable after terminal receipt cleanup.
     pub fn close_insolvent_hlp<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
         args: CloseInsolventHlpArgs,
     ) -> Result<()> {
         let current_slot = ctx.accounts.update_and_validate(&args)?;
         CloseInsolventHlp::handle(ctx, args, current_slot)
+    }
+
+    pub fn begin_flash_liquidation<'info>(
+        ctx: Context<'_, '_, '_, 'info, BeginFlashLiquidation<'info>>,
+        args: BeginFlashLiquidationArgs,
+    ) -> Result<()> {
+        BeginFlashLiquidation::handle(ctx, args)
+    }
+
+    pub fn preview_flash_liquidation(
+        ctx: Context<PreviewFlashLiquidation>,
+        args: PreviewFlashLiquidationArgs,
+    ) -> Result<FlashLiquidationQuote> {
+        PreviewFlashLiquidation::handle(ctx, args)
+    }
+
+    pub fn emergency_liquidation<'info>(
+        ctx: Context<'_, '_, '_, 'info, EmergencyLiquidation<'info>>,
+        args: EmergencyLiquidationArgs,
+    ) -> Result<()> {
+        EmergencyLiquidation::handle(ctx, args)
+    }
+
+    pub fn preview_emergency_liquidation(
+        ctx: Context<PreviewEmergencyLiquidation>,
+        args: PreviewEmergencyLiquidationArgs,
+    ) -> Result<EmergencyLiquidationQuote> {
+        PreviewEmergencyLiquidation::handle(ctx, args)
+    }
+
+    pub fn observe_liquidation(ctx: Context<ObserveLiquidation>, debt_asset: u8) -> Result<LiquidationHealth> {
+        ObserveLiquidation::handle(ctx, debt_asset)
+    }
+
+    pub fn settle_flash_liquidation<'info>(
+        ctx: Context<'_, '_, '_, 'info, SettleFlashLiquidation<'info>>,
+    ) -> Result<()> {
+        SettleFlashLiquidation::handle(ctx)
     }
 
     // Lending instructions
@@ -393,24 +479,6 @@ pub mod dusk {
         AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, false)
     }
 
-    pub fn remove_leverage_margin<'info>(
-        ctx: Context<'_, '_, '_, 'info, RemoveLeverageMargin<'info>>,
-        args: RemoveLeverageMarginArgs,
-    ) -> Result<()> {
-        let clock = Clock::get()?;
-        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        RemoveLeverageMargin::handle_remove_margin(ctx, args, clock.slot, clock.unix_timestamp)
-    }
-
-    pub fn liquidate_leverage_position<'info>(
-        ctx: Context<'_, '_, '_, 'info, LiquidateLeveragePosition<'info>>,
-        args: LiquidateLeveragePositionArgs,
-    ) -> Result<()> {
-        let clock = Clock::get()?;
-        ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        LiquidateLeveragePosition::handle_liquidate_position(ctx, args, clock.slot, clock.unix_timestamp)
-    }
-
     #[access_control(ctx.accounts.validate(&args))]
     pub fn create_leverage_delegation(
         ctx: Context<CreateLeverageDelegation>,
@@ -432,12 +500,6 @@ pub mod dusk {
         args: CloseLeverageDelegationArgs,
     ) -> Result<()> {
         CloseLeverageDelegation::handle_close(ctx, args)
-    }
-
-    // Liquidation auction start
-    #[access_control(ctx.accounts.update_and_validate())]
-    pub fn start_liquidation_auction(ctx: Context<StartLiquidationAuction>) -> Result<()> {
-        StartLiquidationAuction::handle_start(ctx)
     }
 
     // Preview instructions
@@ -485,24 +547,18 @@ pub mod dusk {
         PreviewBorrowPosition::handle_preview(ctx)
     }
 
-    // Liquidation auction fills and backstop execution
-    #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn fill_liquidation_auction<'info>(
-        ctx: Context<'_, '_, '_, 'info, FillLiquidationAuction<'info>>,
-        args: FillLiquidationAuctionArgs,
-    ) -> Result<()> {
-        FillLiquidationAuction::handle_fill(ctx, args)
-    }
-
-    #[access_control(ctx.accounts.update_and_validate(&args))]
-    pub fn backstop_liquidation_auction<'info>(
-        ctx: Context<'_, '_, '_, 'info, BackstopLiquidationAuction<'info>>,
-        args: BackstopLiquidationAuctionArgs,
-    ) -> Result<()> {
-        BackstopLiquidationAuction::handle_backstop(ctx, args)
-    }
-
     // HLP instructions
+    pub fn rotate_hlp_cohort(ctx: Context<RotateHlpCohort>, args: RotateHlpCohortArgs) -> Result<()> {
+        RotateHlpCohort::handle_rotate(ctx, args)
+    }
+
+    pub fn burn_retired_hlp_receipt(
+        ctx: Context<BurnRetiredHlpReceipt>,
+        args: BurnRetiredHlpReceiptArgs,
+    ) -> Result<()> {
+        BurnRetiredHlpReceipt::handle_burn(ctx, args)
+    }
+
     #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn deposit_single_sided<'info>(
         ctx: Context<'_, '_, '_, 'info, DepositSingleSided<'info>>,

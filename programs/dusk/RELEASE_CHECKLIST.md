@@ -22,10 +22,10 @@ mainnet launch or upgrade.
   for the release.
 - Confirm soft borrow and soft liquidation remain disabled unless a separate
   reviewed spec has been merged.
-- Confirm LLAMMA-style liquidation, Jupiter/external aggregator conversion
-  routing, explicit hedge premium pricing, user-selectable settlement side, and
-  stale locked collateral-factor machinery remain out of scope unless separate
-  reviewed specs have been merged.
+- Confirm LLAMMA-style liquidation, automatic Jupiter route selection inside
+  Dusk, explicit hedge premium pricing, user-selectable settlement side, and
+  stale locked collateral-factor machinery remain outside the reviewed scope.
+  Atomic flash settlement already permits caller-supplied external routes.
 - Confirm direct-yLP parameter execution cannot run at or above 80% utilization
   and cannot retroactively apply new parameters to elapsed interest or EMA state.
 
@@ -52,9 +52,12 @@ mainnet launch or upgrade.
   claims, is sourced from the payer's burn legs (including exact target-side
   shortfall conversion), and cannot become an additional shared-live debit.
   Include retained surcharge and cap/fail-closed paths.
-- Re-check passive interest-driven hLP insolvency and terminal loss recovery:
-  `close_insolvent_hlp` must honor caller-supplied insurance/socialized-loss
-  bounds and pay only the bounded caller bounty from recovered funding interest.
+- Re-check hLP cash-funded interest, pay-and-carry swaps, frozen-vault swap
+  liveness, solvent external flash recovery and both terminal paths. Native
+  `close_insolvent_hlp` and full hLP flash settlement must honor caller-supplied
+  insurance/socialized-loss bounds, protect principal first and cancel unpaid
+  funding interest. A retired receipt must remain burnable without requiring
+  the other hLP vault to recover first.
 - Reconcile reserve custody as executable cash + swap-fee custody + both
   source-scoped hLP backing inventories. Re-run the exact 25,631-atom CPMM and
   37,886-atom concentrated conservation regressions and the indexed
@@ -62,8 +65,8 @@ mainnet launch or upgrade.
 - Re-check public borrowing preserves debt-capped recognized aggregate
   collateral while valuing both aggregate health and position capacity on the
   pessimistic full-range-tail CPMM. Re-check lending liquidatability remains a
-  linear symmetric-EMA test and floor execution uses the live concentrated
-  curve.
+  linear symmetric-EMA test. Internal emergency settlement uses EMA price and
+  smoothed depth with the configured concentrated curve and full fees.
 - Re-check the lower/upper Dusk Concentrated AMM invariant bounds, exact-in/out reserve bounds,
   marginal-price proof, and low-notional fail-closed behavior.
 - Re-check funded parameter ramps and center adjustments cannot consume more
@@ -83,18 +86,21 @@ mainnet launch or upgrade.
   user slippage bounds, pro-rata burn math, and reserve/share invariants.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
-- Confirm the liquidation policy documented in `CONCENTRATION.md`: external
-  repay-and-seize bids run for five minutes, then
-  `backstop_liquidation_auction` fully unwinds through the live concentrated
-  curve with a 0.5% caller bounty. Test recovery cancellation, floor timing,
-  AMM execution, automatic insurance limits, and automatic socialization.
+- Confirm the flash/emergency policy in `docs/FLASH_LIQUIDATION_CONTRACT.md`:
+  borrowing and leverage use symmetric-EMA eligibility, atomic collateral
+  release and fixed net payment; useful partial fills remain available. Check
+  the two-minute incentive ramp, 70%-of-maintenance emergency boundary,
+  EMA/smoothed-depth internal settlement, principal-only insurance, unpaid
+  interest cancellation and socialization. Include Token-2022 fee notice and
+  both hLP flash and native terminal paths.
 - Re-check fee liabilities: yLP, hLP, protocol, and unallocated carry-forward
   buckets. Swap-fee liabilities must remain reserve-custodied
   outside executable cash; interest liabilities must remain interest-vault-custodied.
-- Re-check direct-yLP governance across 1% sponsorship, strict-majority support,
-  hLP-vault exclusion, seven-day timelock/window, independent family revisions,
-  utilization rejection, stale/expired/cancelled paths, virtual yield, and
-  exact terminal remint.
+- Re-check direct and delegated yLP governance across reusable locked balance,
+  proposal creation/support, partial withdrawal before queue, strict-majority
+  support, hLP-vault exclusion, seven-day timelock/window, independent family
+  revisions, utilization rejection, stale/expired/cancelled paths, virtual
+  yield, and exact terminal remint.
 - Re-check Token-2022 mint constraints and transfer-fee inventory accounting.
 - Record SBF compute units for CPMM, concentrated, retained-surcharge,
   hLP-correction, preview, leverage, and liquidation paths with explicit
@@ -137,8 +143,8 @@ typecheck gates.
   `target/idl/leverage_delegate.json` exist before running the delegated close
   LiteSVM smoke path.
 - Confirm `target/types/dusk.ts` exists and matches the same build.
-- Confirm `initialize_lp_metadata` passes the deterministic LiteSVM
-  CreateV1-compatible CPI fixture and has also been exercised against the real
+- Confirm `initialize_market` creates all three LP metadata records in the
+  deterministic LiteSVM CreateV1-compatible CPI fixture and has also been exercised against the real
   Metaplex Token Metadata program on the target cluster. For the focused local
   fixture path:
 
@@ -222,6 +228,6 @@ target/types/dusk.ts
   match the deployed binary.
 - Confirm the app, SDK, and indexers are using the deployed Dusk program ID.
 - Smoke-test market initialization, add/remove liquidity, swap, borrow/repay,
-  liquidation rejection while healthy, yield claims, protocol fee claims,
-  hLP entry/exit, and the full direct-yLP proposal lifecycle on the target
-  cluster.
+  liquidation rejection while healthy, borrowing/leverage flash and emergency
+  settlement, cash-funded yield claims, protocol fee claims, hLP entry/exit and
+  recovery, and direct/delegated yLP governance on the target cluster.

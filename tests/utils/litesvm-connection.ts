@@ -1,4 +1,4 @@
-import { PublicKey, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, VersionedTransaction, Signer, SendOptions } from "@solana/web3.js";
+import { PublicKey, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, Message, VersionedTransaction, Signer, SendOptions } from "@solana/web3.js";
 import { LiteSVM } from "litesvm";
 import { recordTransactionComputeUnits } from "./instruction-coverage.js";
 
@@ -239,6 +239,10 @@ export class LiteSVMConnection extends Connection {
     };
   }
 
+  async getAccountInfoAndContext(address: PublicKey, config?: any): Promise<any> {
+    return { context: { slot: Number(this.svm.getClock().slot) }, value: await this.getAccountInfo(address, config) };
+  }
+
   async getBalance(address: PublicKey, _commitment?: Commitment): Promise<number> {
     const balance = this.svm.getBalance(address);
     return balance ? Number(balance) : 0;
@@ -257,8 +261,30 @@ export class LiteSVMConnection extends Connection {
     };
   }
 
-  // Override simulateTransaction
-  async simulateTransaction(): Promise<any> {
-    return { value: { err: null } };
+  // Execute SDK preview RPCs against the actual SVM bank without committing.
+  async simulateTransaction(message: Transaction | VersionedTransaction | Message, config?: any): Promise<any> {
+    const transaction = message instanceof Message ? Transaction.populate(message) : message;
+    const slot = Number(this.svm.getClock().slot);
+    if (config?.minContextSlot !== undefined && slot < config.minContextSlot) throw new Error("Minimum context slot not reached");
+    if (config?.accounts || config?.innerInstructions) throw new Error("Account/inner-instruction RPC snapshots are not implemented in this adapter");
+    if (config?.replaceRecentBlockhash) {
+      if (transaction instanceof VersionedTransaction) transaction.message.recentBlockhash = this.svm.latestBlockhash();
+      else transaction.recentBlockhash = this.svm.latestBlockhash();
+    }
+    if (Array.isArray(config) && transaction instanceof Transaction) transaction.sign(...config);
+    this.svm.withSigverify(config?.sigVerify !== false);
+    try {
+      const result = this.svm.simulateTransaction(transaction) as any;
+      const meta = result.meta();
+      const returned = meta.returnData();
+      return { context: { slot }, value: {
+        err: typeof result.err === "function" ? result.err().toString() : null,
+        logs: meta.logs(), unitsConsumed: Number(meta.computeUnitsConsumed()),
+        returnData: returned ? { programId: new PublicKey(returned.programId()).toBase58(),
+          data: [Buffer.from(returned.data()).toString("base64"), "base64"] } : null,
+      } };
+    } finally {
+      this.svm.withSigverify(true);
+    }
   }
 }

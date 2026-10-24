@@ -15,8 +15,37 @@ use crate::{
     errors::ErrorCode,
     math::*,
     state::{BorrowPosition, CollateralReceipt, DailyBorrowBucket, Debt, Market, MarketAsset, Risk},
-    transitions::amm::{ConcentratedCurveDirection, ConcentratedCurveGeometry, ConcentratedCurvePoint},
+    transitions::{
+        amm::{ConcentratedCurveDirection, ConcentratedCurveGeometry, ConcentratedCurvePoint},
+        LeverageCollateralFee,
+    },
 };
+
+/// Stored health contributions are gross collateral units. A mint fee turns
+/// them into less exit value, so every read that underwrites debt discounts
+/// the aggregate by the current (and any scheduled) fee rate.
+pub(crate) fn fee_discounted_contribution(contribution: u64, haircut_bps: u16) -> u64 {
+    let retained_bps = BPS_DENOMINATOR.saturating_sub(haircut_bps.min(BPS_DENOMINATOR));
+    ((contribution as u128) * (retained_bps as u128) / (BPS_DENOMINATOR as u128)) as u64
+}
+
+/// Mint fees are external to Market state and can change without a Dusk
+/// instruction. Admission and liquidity exits must read both mints and apply
+/// their current (and scheduled, for admission) fee schedules at the gate.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LendingCollateralFees {
+    pub base: LeverageCollateralFee,
+    pub quote: LeverageCollateralFee,
+}
+
+impl LendingCollateralFees {
+    pub fn for_asset(self, asset: MarketAsset) -> LeverageCollateralFee {
+        match asset {
+            MarketAsset::Base => self.base,
+            MarketAsset::Quote => self.quote,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct DynamicBorrowTerms {
@@ -50,6 +79,7 @@ impl Market {
         borrow_position: &BorrowPosition,
         market_asset: MarketAsset,
         projected_collateral: u64,
+        collateral_fee: LeverageCollateralFee,
     ) -> Result<PositionWithdrawalProjection> {
         let debt_asset = market_asset.opposite();
         let position_debt = match debt_asset {
@@ -58,15 +88,18 @@ impl Market {
         };
         let target_contribution =
             self.debt_capped_global_health_contribution(debt_asset, position_debt, projected_collateral, &self.risk)?;
+        let collateral_exit_credit = collateral_fee.unwind_credit(projected_collateral)?;
 
         let (liquidation_cf_bps, max_debt) = if position_debt > 0 {
             let total_debt_nad = self.total_fixed_debt_nad(debt_asset)?;
             let external_debt_nad = self.external_fixed_debt_nad(borrow_position, debt_asset)?;
-            let projected_aggregate =
-                self.projected_aggregate_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
+            let projected_aggregate = fee_discounted_contribution(
+                self.projected_aggregate_global_health_contribution(borrow_position, debt_asset, target_contribution)?,
+                collateral_fee.haircut_bps(),
+            );
             let terms = self.dynamic_borrow_terms(
                 debt_asset,
-                projected_collateral,
+                collateral_exit_credit,
                 external_debt_nad,
                 total_debt_nad,
                 projected_aggregate,
@@ -78,7 +111,7 @@ impl Market {
             let liquidation_cf_bps = borrow_position
                 .liquidation_cf_bps(debt_asset)
                 .max(terms.liquidation_cf_bps);
-            let collateral_value_nad = self.collateral_value_nad(market_asset, projected_collateral, &self.risk)?;
+            let collateral_value_nad = self.collateral_value_nad(market_asset, collateral_exit_credit, &self.risk)?;
             let max_debt_nad = collateral_value_nad
                 .checked_mul(max_cf_bps_from_liquidation_cf(liquidation_cf_bps) as u128)
                 .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
@@ -104,6 +137,7 @@ impl Market {
         borrow_asset: MarketAsset,
         borrow_amount: u64,
         collateral_amount: u64,
+        collateral_fee: LeverageCollateralFee,
         risk: &Risk,
     ) -> Result<PositionBorrowProjection> {
         // The V1 curve prices debt already issued to other positions. Counting
@@ -159,13 +193,15 @@ impl Market {
             collateral_amount,
             risk,
         )?;
-        let projected_aggregate =
-            self.projected_aggregate_global_health_contribution(borrow_position, borrow_asset, target_contribution)?;
+        let projected_aggregate = fee_discounted_contribution(
+            self.projected_aggregate_global_health_contribution(borrow_position, borrow_asset, target_contribution)?,
+            collateral_fee.haircut_bps(),
+        );
         let projected_total_debt_nad =
             self.normalize_amount(projected_total_debt, self.side(borrow_asset).asset_decimals)?;
         let terms = self.dynamic_borrow_terms(
             borrow_asset,
-            collateral_amount,
+            collateral_fee.unwind_credit(collateral_amount)?,
             external_debt_nad,
             projected_total_debt_nad,
             projected_aggregate,
@@ -185,26 +221,38 @@ impl Market {
     }
 
     pub fn market_health_from_risk(&self, risk: &Risk) -> Result<MarketHealth> {
+        self.market_health_from_risk_with_fees(risk, LendingCollateralFees::default())
+    }
+
+    pub fn market_health_from_risk_with_fees(&self, risk: &Risk, fees: LendingCollateralFees) -> Result<MarketHealth> {
         let total_base_debt_nad = self.total_fixed_debt_nad(MarketAsset::Base)?;
         let total_quote_debt_nad = self.total_fixed_debt_nad(MarketAsset::Quote)?;
+        let quote_contribution = fee_discounted_contribution(
+            self.debt.global_health_quote_contribution_for_base_debt,
+            fees.quote.haircut_bps(),
+        );
+        let base_contribution = fee_discounted_contribution(
+            self.debt.global_health_base_contribution_for_quote_debt,
+            fees.base.haircut_bps(),
+        );
         let (effective_base_debt_nad, base_debt_health_bps) = self.global_side_health(
             MarketAsset::Base,
             total_base_debt_nad,
             total_base_debt_nad,
-            self.debt.global_health_quote_contribution_for_base_debt,
+            quote_contribution,
             risk,
         )?;
         let (effective_quote_debt_nad, quote_debt_health_bps) = self.global_side_health(
             MarketAsset::Quote,
             total_quote_debt_nad,
             total_quote_debt_nad,
-            self.debt.global_health_base_contribution_for_quote_debt,
+            base_contribution,
             risk,
         )?;
 
         Ok(MarketHealth {
-            global_health_base_contribution_for_quote_debt: self.debt.global_health_base_contribution_for_quote_debt,
-            global_health_quote_contribution_for_base_debt: self.debt.global_health_quote_contribution_for_base_debt,
+            global_health_base_contribution_for_quote_debt: base_contribution,
+            global_health_quote_contribution_for_base_debt: quote_contribution,
             effective_base_debt_nad,
             effective_quote_debt_nad,
             base_debt_health_bps,
@@ -223,13 +271,11 @@ impl Market {
             .tail_liquidity
             .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        let quote_price_nad = u64::try_from(
-            (NAD as u128)
-                .checked_mul(NAD as u128)
-                .and_then(|value| value.checked_div(price_nad as u128))
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        // NAD² fits u64, so the exact reciprocal avoids a costly wide divide.
+        let quote_price_nad = NAD
+            .checked_mul(NAD)
+            .and_then(|value| value.checked_div(price_nad))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         self.risk
             .refreshed(price_nad, quote_price_nad, curve_depth_nad, &self.config, current_slot)
     }
@@ -237,6 +283,7 @@ impl Market {
     /// O(1) risk observation for the concentrated tail+band curve. The quote has
     /// already evaluated the exact final marginal price; total concentrated
     /// liquidity replaces the legacy balanced-equivalent root.
+    #[inline(always)]
     pub(crate) fn observe_risk_from_concentrated_curve(
         &mut self,
         current_base_price_nad: u64,
@@ -247,10 +294,10 @@ impl Market {
             current_base_price_nad > 0 && current_curve_depth_nad > 0,
             ErrorCode::InsufficientLiquidity
         );
-        let current_quote_price_nad = (NAD as u128)
-            .checked_mul(NAD as u128)
-            .and_then(|value| value.checked_div(current_base_price_nad as u128))
-            .and_then(|value| u64::try_from(value).ok())
+        // NAD² fits u64; keep this exact reciprocal on the swap hot path.
+        let current_quote_price_nad = NAD
+            .checked_mul(NAD)
+            .and_then(|value| value.checked_div(current_base_price_nad))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.risk = self.risk.refreshed(
             current_base_price_nad,
@@ -347,7 +394,7 @@ impl Market {
     }
 
     /// Rebuilds the full concentrated curve at the pessimistic price and
-    /// depth. This is used to price the external-liquidation auction floor.
+    /// depth. This supplies opening and live references for external bids.
     pub(crate) fn pessimistic_concentrated_curve(
         &self,
         collateral_asset: MarketAsset,
@@ -564,12 +611,33 @@ impl Market {
         Ok(total_collateral.min(collateral_cap))
     }
 
+    #[cfg(test)]
     pub(crate) fn is_position_liquidatable_with_risk(
         &self,
         borrow_position: &BorrowPosition,
         debt_asset: MarketAsset,
         risk: &Risk,
     ) -> Result<bool> {
+        self.is_position_liquidatable_with_risk_and_credit(
+            borrow_position,
+            debt_asset,
+            borrow_position.collateral(debt_asset.opposite()),
+            risk,
+        )
+    }
+
+    pub(crate) fn is_position_liquidatable_with_risk_and_credit(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        collateral_exit_credit: u64,
+        risk: &Risk,
+    ) -> Result<bool> {
+        require_gte!(
+            borrow_position.collateral(debt_asset.opposite()),
+            collateral_exit_credit,
+            ErrorCode::BrokenInvariant
+        );
         let debt_nad = self.normalize_amount(
             match debt_asset {
                 MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
@@ -585,11 +653,8 @@ impl Market {
             return Ok(true);
         }
         let collateral_asset = debt_asset.opposite();
-        let collateral_value_nad = self.linear_liquidation_collateral_value_nad(
-            collateral_asset,
-            borrow_position.collateral(collateral_asset),
-            risk,
-        )?;
+        let collateral_value_nad =
+            self.linear_liquidation_collateral_value_nad(collateral_asset, collateral_exit_credit, risk)?;
         Ok(debt_nad.saturating_mul(BPS_DENOMINATOR as u128)
             >= collateral_value_nad.saturating_mul(liquidation_cf_bps as u128))
     }
@@ -598,6 +663,17 @@ impl Market {
     /// orders. Uses the same linear collateral valuation as borrow liquidation.
     /// Debt-free sides return u64::MAX. Call update before observing this value.
     pub fn borrow_protection_health_bps(&self, position: &BorrowPosition, asset: MarketAsset) -> Result<u64> {
+        self.borrow_protection_health_bps_with_credit(position, asset, position.collateral(asset.opposite()))
+    }
+
+    /// Protection orders must value the amount a collateral transfer can
+    /// actually deliver under the mint's current transfer-fee schedule.
+    pub fn borrow_protection_health_bps_with_credit(
+        &self,
+        position: &BorrowPosition,
+        asset: MarketAsset,
+        collateral_exit_credit: u64,
+    ) -> Result<u64> {
         let debt = match asset {
             MarketAsset::Base => position.fixed_base_debt(&self.debt)?,
             MarketAsset::Quote => position.fixed_quote_debt(&self.debt)?,
@@ -611,7 +687,7 @@ impl Market {
         }
         let value = self.linear_liquidation_collateral_value_nad(
             asset.opposite(),
-            position.collateral(asset.opposite()),
+            collateral_exit_credit,
             &self.current_risk()?,
         )?;
         let capacity = value
@@ -621,14 +697,54 @@ impl Market {
     }
 
     pub fn is_position_liquidatable(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<bool> {
-        self.is_position_liquidatable_with_risk(borrow_position, debt_asset, &self.current_risk()?)
+        self.is_position_liquidatable_with_risk_and_credit(
+            borrow_position,
+            debt_asset,
+            borrow_position.collateral(debt_asset.opposite()),
+            &self.current_risk()?,
+        )
+    }
+
+    pub fn is_position_liquidatable_with_credit(
+        &self,
+        borrow_position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        collateral_exit_credit: u64,
+    ) -> Result<bool> {
+        self.is_position_liquidatable_with_risk_and_credit(
+            borrow_position,
+            debt_asset,
+            collateral_exit_credit,
+            &self.current_risk()?,
+        )
     }
 
     pub fn reconcile_liquidation_auction(&self, borrow_position: &mut BorrowPosition) -> Result<()> {
         let Some(debt_asset) = borrow_position.active_liquidation_auction_asset()? else {
             return Ok(());
         };
-        if !self.is_position_liquidatable(borrow_position, debt_asset)? {
+        // Callers without the collateral mint cannot know its current transfer
+        // fee. Preserve the auction until a settlement instruction can check
+        // the actual exit credit. Zero debt is unconditionally recovered.
+        let debt = match debt_asset {
+            MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
+            MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
+        };
+        if debt == 0 {
+            borrow_position.clear_liquidation_auction();
+        }
+        Ok(())
+    }
+
+    pub fn reconcile_liquidation_auction_with_credit(
+        &self,
+        borrow_position: &mut BorrowPosition,
+        collateral_exit_credit: u64,
+    ) -> Result<()> {
+        let Some(debt_asset) = borrow_position.active_liquidation_auction_asset()? else {
+            return Ok(());
+        };
+        if !self.is_position_liquidatable_with_credit(borrow_position, debt_asset, collateral_exit_credit)? {
             borrow_position.clear_liquidation_auction();
         }
         Ok(())
@@ -636,6 +752,10 @@ impl Market {
 
     pub fn assert_market_health(&self) -> Result<()> {
         self.assert_market_health_snapshot(&self.market_health()?)
+    }
+
+    pub fn assert_market_health_with_fees(&self, fees: LendingCollateralFees) -> Result<()> {
+        self.assert_market_health_snapshot(&self.market_health_from_risk_with_fees(&self.risk, fees)?)
     }
 
     pub fn assert_market_health_snapshot(&self, health: &MarketHealth) -> Result<()> {
@@ -835,7 +955,7 @@ impl Market {
         })
     }
 
-    fn pessimistic_collateral_price_nad(
+    pub(crate) fn pessimistic_collateral_price_nad(
         &self,
         collateral_asset: MarketAsset,
         risk: &Risk,
@@ -941,9 +1061,10 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     asset: MarketAsset,
     current_slot: u64,
 ) -> Result<Option<InterestAccrualReceipt>> {
-    let (index, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
+    let (index, index_remainder, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
         MarketAsset::Base => (
             market.debt.base_borrow_index_nad,
+            market.debt.base_borrow_index_remainder,
             market.debt.base_rate_at_target_nad,
             market.debt.base_last_accrual_slot,
             market.debt.fixed_base_shares,
@@ -951,19 +1072,20 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         ),
         MarketAsset::Quote => (
             market.debt.quote_borrow_index_nad,
+            market.debt.quote_borrow_index_remainder,
             market.debt.quote_rate_at_target_nad,
             market.debt.quote_last_accrual_slot,
             market.debt.fixed_quote_shares,
             market.debt.isolated_quote_shares,
         ),
     };
-    if current_slot <= last_accrual_slot {
+    require_gte!(current_slot, last_accrual_slot, ErrorCode::InvalidArgument);
+    if current_slot == last_accrual_slot {
         return Ok(None);
     }
-    let dt_ms = current_slot
-        .checked_sub(last_accrual_slot)
-        .ok_or(ErrorCode::MarketMathOverflow)?
-        .saturating_mul(TARGET_MS_PER_SLOT);
+    // Interest and the adaptive rate advance with scheduled slot progress,
+    // never with the leader-controlled Unix timestamp in the Clock sysvar.
+    let dt_ms = slots_to_ms(last_accrual_slot, current_slot).ok_or(ErrorCode::MarketMathOverflow)?;
 
     let hlp_shares = match asset {
         MarketAsset::Base => market.quote_hlp_vault.debt_shares,
@@ -983,10 +1105,12 @@ pub(crate) fn accrue_side<const REPORT: bool>(
             MarketAsset::Base => {
                 market.debt.base_rate_at_target_nad = next_rate_at_target;
                 market.debt.base_last_accrual_slot = current_slot;
+                market.debt.base_borrow_index_remainder = 0;
             }
             MarketAsset::Quote => {
                 market.debt.quote_rate_at_target_nad = next_rate_at_target;
                 market.debt.quote_last_accrual_slot = current_slot;
+                market.debt.quote_borrow_index_remainder = 0;
             }
         }
         return Ok(None);
@@ -1004,6 +1128,7 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     let hlp_live = market.hlp_live_reserve(asset)?;
     let cash_backed_before = live
         .checked_sub(cash)
+        .and_then(|value| value.checked_sub(u128::from(market.side(asset).reserves.flash_receivable)))
         .and_then(|value| value.checked_sub(hlp_live))
         .ok_or(ErrorCode::BrokenInvariant)?;
     if fixed_shares == 0 && isolated_shares == 0 {
@@ -1038,23 +1163,23 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         );
         vault.funding_apr_ema_last_slot = current_slot;
     }
-    let next_index = if index == 0 || dt_ms == 0 || rate == 0 {
-        index
+    let (next_index, next_remainder) = if index == 0 || dt_ms == 0 || rate == 0 {
+        (index, index_remainder)
     } else {
-        let elapsed_ms = dt_ms.min(MAX_INTEREST_ACCRUAL_MS) as u128;
-        let growth_nad = rate
-            .checked_mul(elapsed_ms)
-            .and_then(|value| value.checked_div(MS_PER_YEAR as u128))
+        let denominator = (NAD as u128)
+            .checked_mul(MS_PER_YEAR as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        if growth_nad == 0 {
+        let numerator = index
+            .checked_mul(rate)
+            .and_then(|value| value.checked_mul(dt_ms as u128))
+            .and_then(|value| value.checked_add(index_remainder))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        (
             index
-        } else {
-            let delta = index
-                .checked_mul(growth_nad)
-                .and_then(|value| value.checked_div(NAD as u128))
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            index.checked_add(delta).ok_or(ErrorCode::MarketMathOverflow)?
-        }
+                .checked_add(numerator / denominator)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            numerator % denominator,
+        )
     };
     let next_rate_at_target = adapt_rate_at_target_nad(
         rate_at_target,
@@ -1094,11 +1219,13 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     match asset {
         MarketAsset::Base => {
             market.debt.base_borrow_index_nad = next_index;
+            market.debt.base_borrow_index_remainder = next_remainder;
             market.debt.base_rate_at_target_nad = next_rate_at_target;
             market.debt.base_last_accrual_slot = current_slot;
         }
         MarketAsset::Quote => {
             market.debt.quote_borrow_index_nad = next_index;
+            market.debt.quote_borrow_index_remainder = next_remainder;
             market.debt.quote_rate_at_target_nad = next_rate_at_target;
             market.debt.quote_last_accrual_slot = current_slot;
         }
@@ -1175,16 +1302,18 @@ impl Market {
         self.accrue_interest_to_slot(current_slot)
     }
 
-    /// Refreshes only inputs consumed by position-risk previews on a disposable
-    /// market copy. Borrow valuation refreshes its own scalar risk, and leverage
-    /// closeout derives hLP equity from live claims and indexed debt, not cached
-    /// hLP NAV or yield checkpoints. Never use this to settle persistent state.
+    /// Refreshes position-risk inputs on a disposable market copy. Both borrow
+    /// and leverage protection must read the current symmetric EMA after the
+    /// AMM clock advances. The snapshot does not settle hLP NAV or yield.
+    /// Never use this to settle persistent state.
     pub fn prepare_position_protection_snapshot(&mut self, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
         self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             self.advance_amm_clock(current_slot)?;
+            self.freeze_negative_hlp_vaults()?;
         }
+        self.refresh_risk_at_slot(current_slot)?;
         Ok(())
     }
 
@@ -1197,6 +1326,7 @@ impl Market {
             // remains gated while a due concentrated controller target would
             // otherwise price the mint against a stale NAV basis.
             self.advance_amm_clock(current_slot)?;
+            self.freeze_negative_hlp_vaults()?;
             let (_, _, price_nad) = self.checkpoint_hlp_vaults_with_price()?;
             let curve_depth_nad = self
                 .amm
@@ -1210,7 +1340,13 @@ impl Market {
         Ok(())
     }
 
+    #[inline(always)]
     pub(crate) fn accrue_interest_to_slot(&mut self, current_slot: u64) -> Result<()> {
+        // Most scratch quotes share the already-closed slot. Avoid two full
+        // debt-kernel calls while preserving their backward-slot checks.
+        if self.debt.base_last_accrual_slot == current_slot && self.debt.quote_last_accrual_slot == current_slot {
+            return Ok(());
+        }
         accrue_side::<false>(self, MarketAsset::Base, current_slot)?;
         accrue_side::<false>(self, MarketAsset::Quote, current_slot)?;
         Ok(())
@@ -1222,11 +1358,28 @@ impl Market {
         market_asset: MarketAsset,
         collateral_credit: u64,
     ) -> Result<CollateralReceipt> {
+        self.deposit_collateral_with_fee(
+            borrow_position,
+            market_asset,
+            collateral_credit,
+            LeverageCollateralFee::default(),
+        )
+    }
+
+    pub fn deposit_collateral_with_fee(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        market_asset: MarketAsset,
+        collateral_credit: u64,
+        collateral_fee: LeverageCollateralFee,
+    ) -> Result<CollateralReceipt> {
+        borrow_position.require_idle()?;
         require!(collateral_credit > 0, ErrorCode::AmountZero);
         let projected_collateral = borrow_position
             .collateral(market_asset)
             .checked_add(collateral_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        let collateral_exit_credit = collateral_fee.unwind_credit(projected_collateral)?;
         let debt_asset = market_asset.opposite();
         let projected_debt = match debt_asset {
             MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
@@ -1240,7 +1393,7 @@ impl Market {
             MarketAsset::Quote => borrow_position.quote_collateral = projected_collateral,
         }
         self.reconcile_global_health_contribution(borrow_position, debt_asset, target_contribution)?;
-        self.reconcile_liquidation_auction(borrow_position)?;
+        self.reconcile_liquidation_auction_with_credit(borrow_position, collateral_exit_credit)?;
 
         Ok(CollateralReceipt {
             collateral_credit,
@@ -1263,18 +1416,44 @@ impl Market {
         collateral_debit: u64,
         min_liquidation_cf_bps: u16,
     ) -> Result<CollateralReceipt> {
+        self.withdraw_collateral_with_fee(
+            borrow_position,
+            market_asset,
+            collateral_debit,
+            LeverageCollateralFee::default(),
+            min_liquidation_cf_bps,
+        )
+    }
+
+    pub fn withdraw_collateral_with_fee(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        market_asset: MarketAsset,
+        collateral_debit: u64,
+        collateral_fee: LeverageCollateralFee,
+        min_liquidation_cf_bps: u16,
+    ) -> Result<CollateralReceipt> {
+        borrow_position.require_idle()?;
         require!(collateral_debit > 0, ErrorCode::AmountZero);
         let projected_collateral = borrow_position
             .collateral(market_asset)
             .checked_sub(collateral_debit)
             .ok_or(ErrorCode::InsufficientBalance)?;
+        let collateral_exit_credit = collateral_fee.unwind_credit(projected_collateral)?;
         let debt_asset = market_asset.opposite();
+        if collateral_exit_credit == 0 {
+            let debt = match debt_asset {
+                MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
+                MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
+            };
+            require!(debt == 0, ErrorCode::InsufficientMarketHealth);
+        }
         let PositionWithdrawalProjection {
             position_debt,
             target_contribution,
             liquidation_cf_bps,
             max_debt,
-        } = self.position_withdrawal_projection(borrow_position, market_asset, projected_collateral)?;
+        } = self.position_withdrawal_projection(borrow_position, market_asset, projected_collateral, collateral_fee)?;
         if position_debt > 0 {
             require_gte!(max_debt as u128, position_debt, ErrorCode::InsufficientMarketHealth);
             require_gte!(liquidation_cf_bps, min_liquidation_cf_bps, ErrorCode::SlippageExceeded);
@@ -1309,13 +1488,68 @@ impl Market {
         min_liquidation_cf_bps: u16,
         current_slot: u64,
     ) -> Result<DebtReceipt> {
+        self.borrow_with_collateral_fee(
+            borrow_position,
+            borrow_asset,
+            borrow_amount,
+            LeverageCollateralFee::default(),
+            min_liquidation_cf_bps,
+            current_slot,
+        )
+    }
+
+    pub fn borrow_with_collateral_fee(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        borrow_asset: MarketAsset,
+        borrow_amount: u64,
+        collateral_fee: LeverageCollateralFee,
+        min_liquidation_cf_bps: u16,
+        current_slot: u64,
+    ) -> Result<DebtReceipt> {
+        let fees = match borrow_asset.opposite() {
+            MarketAsset::Base => LendingCollateralFees {
+                base: collateral_fee,
+                ..Default::default()
+            },
+            MarketAsset::Quote => LendingCollateralFees {
+                quote: collateral_fee,
+                ..Default::default()
+            },
+        };
+        self.borrow_with_market_fees(
+            borrow_position,
+            borrow_asset,
+            borrow_amount,
+            fees,
+            min_liquidation_cf_bps,
+            current_slot,
+        )
+    }
+
+    pub fn borrow_with_market_fees(
+        &mut self,
+        borrow_position: &mut BorrowPosition,
+        borrow_asset: MarketAsset,
+        borrow_amount: u64,
+        fees: LendingCollateralFees,
+        min_liquidation_cf_bps: u16,
+        current_slot: u64,
+    ) -> Result<DebtReceipt> {
+        borrow_position.require_idle()?;
+        let collateral_fee = fees.for_asset(borrow_asset.opposite());
         require!(borrow_amount > 0, ErrorCode::AmountZero);
+        let collateral_amount = borrow_position.collateral(borrow_asset.opposite());
+        require!(
+            collateral_fee.unwind_credit(collateral_amount)? > 0,
+            ErrorCode::InsufficientMarketHealth
+        );
         let debt_delta = i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?;
         if self.risk.curve_depth_ema_nad == 0 {
             self.refresh_risk_at_slot(current_slot)?;
         }
         let risk = self.risk;
-        let current_health = self.market_health_from_risk(&risk)?;
+        let current_health = self.market_health_from_risk_with_fees(&risk, fees)?;
         self.assert_market_health_snapshot(&current_health)?;
         let PositionBorrowProjection {
             debt_shares,
@@ -1327,7 +1561,8 @@ impl Market {
             borrow_position,
             borrow_asset,
             borrow_amount,
-            borrow_position.collateral(borrow_asset.opposite()),
+            collateral_amount,
+            collateral_fee,
             &risk,
         )?;
         require_gte!(
@@ -1455,26 +1690,35 @@ impl Market {
         repay_asset: MarketAsset,
         repay_credit: u64,
     ) -> Result<DebtReceipt> {
-        self.repay_with_finalization(borrow_position, repay_asset, repay_credit, None)
+        self.repay_with_finalization_and_fee(
+            borrow_position,
+            repay_asset,
+            repay_credit,
+            LeverageCollateralFee::default(),
+            None,
+        )
     }
 
     /// Native repayment finalizes the curve once, before calculating its final
     /// health contribution. Interest-vault distribution changes only yield
     /// ledgers, so it needs no second curve/risk evaluation.
-    pub(crate) fn repay_with_finalization(
+    pub(crate) fn repay_with_finalization_and_fee(
         &mut self,
         borrow_position: &mut BorrowPosition,
         repay_asset: MarketAsset,
         repay_credit: u64,
+        collateral_fee: LeverageCollateralFee,
         finalize_at_slot: Option<u64>,
     ) -> Result<DebtReceipt> {
         let curve_reserves_before = self.curve_reserves_nad()?;
+        let unpaid_before = self.public_unpaid_interest(repay_asset)?;
         let repayment = self.fixed_repayment_for_max(borrow_position, repay_asset, repay_credit)?;
         // Instruction handlers preview this amount before moving tokens. Keep
         // the state boundary exact so no transferred atom can become an
         // unaccounted donation if state changed unexpectedly.
         require_eq!(repayment.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
-        let (interest_paid, debt_reduction) = match repay_asset {
+        borrow_position.require_idle()?;
+        let (interest_paid, debt_reduction, live_debit, principal_credit) = match repay_asset {
             MarketAsset::Base => {
                 let shares_to_burn = repayment.shares_to_burn;
                 let debt_reduction = repayment.position_debt_reduced;
@@ -1498,19 +1742,7 @@ impl Market {
                     .fixed_base_shares
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.base_side.reserves.live_reserve = self
-                    .base_side
-                    .reserves
-                    .live_reserve
-                    .checked_sub(live_debit)
-                    .ok_or(ErrorCode::ReserveUnderflow)?;
-                self.base_side.reserves.cash_reserve = self
-                    .base_side
-                    .reserves
-                    .cash_reserve
-                    .checked_add(principal_credit)
-                    .ok_or(ErrorCode::ReserveOverflow)?;
-                (interest_paid, debt_reduction)
+                (interest_paid, debt_reduction, live_debit, principal_credit)
             }
             MarketAsset::Quote => {
                 let shares_to_burn = repayment.shares_to_burn;
@@ -1535,21 +1767,10 @@ impl Market {
                     .fixed_quote_shares
                     .checked_sub(shares_to_burn)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.quote_side.reserves.live_reserve = self
-                    .quote_side
-                    .reserves
-                    .live_reserve
-                    .checked_sub(live_debit)
-                    .ok_or(ErrorCode::ReserveUnderflow)?;
-                self.quote_side.reserves.cash_reserve = self
-                    .quote_side
-                    .reserves
-                    .cash_reserve
-                    .checked_add(principal_credit)
-                    .ok_or(ErrorCode::ReserveOverflow)?;
-                (interest_paid, debt_reduction)
+                (interest_paid, debt_reduction, live_debit, principal_credit)
             }
         };
+        self.settle_public_debt_reserves(repay_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
         let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
         if let Some(slot) = finalize_at_slot {
             self.finalize_debt_repayment(slot, curve_reserves_before)?;
@@ -1560,18 +1781,18 @@ impl Market {
             MarketAsset::Base => borrow_position.fixed_base_debt(&self.debt)?,
             MarketAsset::Quote => borrow_position.fixed_quote_debt(&self.debt)?,
         };
-        let target_contribution = self.debt_capped_global_health_contribution(
-            repay_asset,
-            debt_after,
-            borrow_position.collateral(repay_asset.opposite()),
-            &self.risk,
-        )?;
+        let collateral_amount = borrow_position.collateral(repay_asset.opposite());
+        let target_contribution =
+            self.debt_capped_global_health_contribution(repay_asset, debt_after, collateral_amount, &self.risk)?;
         self.reconcile_global_health_contribution(borrow_position, repay_asset, target_contribution)?;
         if debt_after == 0 {
             borrow_position.set_liquidation_cf_bps(repay_asset, 0);
             borrow_position.clear_referral_binding(repay_asset);
         }
-        self.reconcile_liquidation_auction(borrow_position)?;
+        self.reconcile_liquidation_auction_with_credit(
+            borrow_position,
+            collateral_fee.unwind_credit(collateral_amount)?,
+        )?;
         let market_health = self.market_health()?;
         DebtReceipt::from_market(
             self,
