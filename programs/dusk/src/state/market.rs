@@ -11,7 +11,8 @@ pub const MAX_AMM_VOLATILITY_NAD: u64 = 10 * NAD;
 /// Governance/arithmetic bound on signal sensitivity. Separate fee-share caps
 /// bound the Huberized divergence marginal and the volatility debit.
 pub const MAX_AMM_FEE_COEFFICIENT_NAD: u64 = 100 * NAD;
-pub const MAX_AMM_ADJUSTMENT_INTERVAL_MS: u64 = 86_400_000;
+/// One nominal day at the protocol's 200 ms scheduled slot cadence.
+pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
 /// Fixed configuration extension room retained for future typed AMM controls.
 ///
 /// Keep this wire-carried reserve compact: the complete `MarketConfig` is also
@@ -70,7 +71,7 @@ pub struct AmmConfig {
     pub volatility_half_life_ms: u64,
     pub adjustment_threshold_nad: u64,
     pub adjustment_step_nad: u64,
-    pub min_adjustment_interval_ms: u64,
+    pub min_adjustment_interval_slots: u64,
     pub volatility_shock_cap_nad: u64,
     pub volatility_cap_nad: u64,
     pub divergence_fee_coefficient_nad: u64,
@@ -116,7 +117,7 @@ impl Default for AmmConfig {
             volatility_half_life_ms: MIN_HALF_LIFE_MS,
             adjustment_threshold_nad: 0,
             adjustment_step_nad: 0,
-            min_adjustment_interval_ms: 0,
+            min_adjustment_interval_slots: 0,
             volatility_shock_cap_nad: 0,
             volatility_cap_nad: 0,
             divergence_fee_coefficient_nad: 0,
@@ -178,9 +179,7 @@ pub struct AmmState {
     pub price_ema_nad: u64,
     pub last_trade_price_nad: u64,
     pub last_observation_slot: u64,
-    pub last_observation_timestamp_ms: u64,
     pub last_adjustment_slot: u64,
-    pub last_adjustment_timestamp_ms: u64,
     /// Immutable launch price reference bound by the first fully-backed
     /// liquidity seed. Zero is allowed only before that seed.
     pub launch_reference_price_nad: u64,
@@ -233,9 +232,7 @@ impl Default for AmmState {
             price_ema_nad: 0,
             last_trade_price_nad: 0,
             last_observation_slot: 0,
-            last_observation_timestamp_ms: 0,
             last_adjustment_slot: 0,
-            last_adjustment_timestamp_ms: 0,
             launch_reference_price_nad: 0,
             launch_fee_progress_offset: 0,
             volatility_accumulator_nad: 0,
@@ -348,9 +345,7 @@ pub struct Debt {
     pub global_health_base_contribution_for_quote_debt: u64,
     pub global_health_quote_contribution_for_base_debt: u64,
     pub base_last_accrual_slot: u64,
-    pub base_last_accrual_timestamp_ms: u64,
     pub quote_last_accrual_slot: u64,
-    pub quote_last_accrual_timestamp_ms: u64,
     // Debt tracking (r_debt)
     /// Aggregate outstanding *principal* (borrowed token amount, excluding
     /// accrued interest) backing fixed margin debt on each side. Accrued
@@ -434,7 +429,7 @@ pub struct Fees {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
 pub struct ProtocolAuctionEpoch {
-    pub start_timestamp_ms: u64,
+    pub start_slot: u64,
     /// Liability remaining immediately after the preceding fill. A larger
     /// current liability proves that new inventory arrived and starts a new
     /// epoch instead of inheriting an old floor price.
@@ -493,7 +488,6 @@ pub struct HlpVault {
     /// The fixed twelve-hour half-life gives Stop Rate orders stable semantics.
     pub funding_apr_ema_nad: u128,
     pub funding_apr_ema_last_slot: u64,
-    pub funding_apr_ema_last_timestamp_ms: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
@@ -504,7 +498,6 @@ pub struct DailyBorrowBucket {
     /// a full burst after idle and then refills at the configured daily rate.
     pub borrowed_bucket: u64,
     pub last_decay_slot: u64,
-    pub last_decay_timestamp_ms: u64,
     /// Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed
     /// absolute limit, carrying it makes refill independent of how often the
     /// bucket is checkpointed. The bps-derived absolute limit can still move
@@ -514,10 +507,10 @@ pub struct DailyBorrowBucket {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace, PartialEq, Eq)]
 pub struct InsuranceDrawWindow {
+    /// `start_slot` may legitimately be zero in a test or newly started bank;
+    /// keep initialization separate rather than using a sentinel slot.
     pub initialized: bool,
-    pub start_timestamp_ms: u64,
-    /// Ordering checkpoint for the current 24-hour accounting window.
-    /// `initialized` distinguishes an unopened window from timestamp/slot zero.
+    /// Start of the nominal 24-hour window, measured in consensus slots.
     pub start_slot: u64,
     /// Available insurance at the start of the window, before any draws.
     pub opening_available: u64,
@@ -594,7 +587,6 @@ pub struct Market {
     /// Curve revision represented by the materialized lending-risk snapshot.
     pub risk_revision: u64,
     pub last_update_slot: u64,
-    pub last_update_timestamp_ms: u64,
     pub reduce_only: bool,
     pub bump: u8,
 }
@@ -710,7 +702,6 @@ pub struct Risk {
     /// EMA of total active curve depth in market amount units (see Market).
     pub curve_depth_ema_nad: u128,
     pub last_snapshot_slot: u64,
-    pub last_snapshot_timestamp_ms: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]

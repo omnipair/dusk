@@ -39,9 +39,9 @@ use spl_token_2022::extension::transfer_fee::TransferFee;
 
 /// Canonical clock inputs frozen for one replay operation.
 ///
-/// Unix timestamps drive economic elapsed time; slots order operations.
-/// Both values must come from the same historical block. Repeated timestamps
-/// across successive slots are valid and do not accrue interest or decay signals.
+/// Slots drive protocol accrual and controller state. Unix timestamps are
+/// used only by time-based launch fee policy and should come from the same
+/// historical block as `slot`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BenchmarkClock {
     pub slot: u64,
@@ -1564,7 +1564,7 @@ impl BenchmarkMarket {
             init.initial_liquidity_authority,
             init.bootstrap_price_nad,
             init.launch_fee_progress_offset,
-            crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
+            clock.slot,
             init.bump,
         )?;
         Ok(Self {
@@ -1667,10 +1667,7 @@ impl BenchmarkMarket {
     pub fn advance_to(&mut self, clock: BenchmarkClock) -> Result<()> {
         require_gte!(clock.slot, self.clock.slot, ErrorCode::InvalidArgument);
         let mut next = clone_market(&self.market)?;
-        advance_market_to_clock(
-            &mut next,
-            crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next, clock.slot)?;
         *self.market = next;
         self.clock = clock;
         Ok(())
@@ -1772,10 +1769,7 @@ impl BenchmarkMarket {
         projected_borrow_amount: Option<u64>,
     ) -> Result<BorrowCapacityPreview> {
         let mut preview = clone_market(&self.market)?;
-        advance_market_to_clock(
-            &mut preview,
-            crate::clock::MarketClock::from_timestamp(self.clock.slot, self.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut preview, self.clock.slot)?;
         require!(collateral_amount > 0, ErrorCode::AmountZero);
         let debt_asset = collateral_asset.opposite();
         let collateral_side = preview.side(collateral_asset);
@@ -1787,10 +1781,7 @@ impl BenchmarkMarket {
         let collateral_value_nad = preview.collateral_value_nad(collateral_asset, collateral_exit_credit, &risk)?;
         let max_debt_by_cash = debt_side.reserves.cash_reserve;
         let daily_limit = preview.daily_limit_for_side(debt_asset, preview.config.max_daily_borrow_bps)?;
-        let max_debt_by_daily_limit = debt_side.daily_borrow_bucket.remaining(
-            daily_limit,
-            crate::clock::MarketClock::from_timestamp(self.clock.slot, self.clock.unix_timestamp)?,
-        )?;
+        let max_debt_by_daily_limit = debt_side.daily_borrow_bucket.remaining(daily_limit, self.clock.slot)?;
         let preview_context = NewPositionCapacityContext {
             market: &preview,
             debt_asset,
@@ -1893,17 +1884,14 @@ impl BenchmarkMarket {
         self.require_monotonic_clock(clock)?;
         self.assert_position_market(position)?;
         let mut preview = clone_market(&self.market)?;
-        advance_market_to_clock(
-            &mut preview,
-            crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut preview, clock.slot)?;
         preview.assert_started_at(clock.unix_timestamp)?;
         existing_borrow_capacity_preview(
             &preview,
             &position.position,
             debt_asset,
             self.admission_market_fees(),
-            crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
+            clock.slot,
             global_reduce_only,
         )
     }
@@ -1922,10 +1910,7 @@ impl BenchmarkMarket {
         self.require_monotonic_clock(clock)?;
         self.assert_position_market(position)?;
         let mut preview = clone_market(&self.market)?;
-        advance_market_to_clock(
-            &mut preview,
-            crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut preview, clock.slot)?;
         preview.assert_started_at(clock.unix_timestamp)?;
         let market_fees = self.admission_market_fees();
         let collateral_fee = market_fees.for_asset(debt_asset.opposite());
@@ -1934,7 +1919,7 @@ impl BenchmarkMarket {
             &position.position,
             debt_asset,
             market_fees,
-            crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
+            clock.slot,
             global_reduce_only,
         )?;
         require_gte!(
@@ -2415,10 +2400,7 @@ impl BenchmarkMarket {
             );
         }
         let mut prepared_market = clone_market(&self.market)?;
-        prepared_market.accrue_interest_to_clock(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
+        prepared_market.accrue_interest_to_slot(request.clock.slot)?;
         let slice = prepared_market.leverage_close_slice(&leverage.position, BPS_DENOMINATOR)?;
         require_eq!(
             request.collateral_transfer.source_debit,
@@ -2435,18 +2417,9 @@ impl BenchmarkMarket {
             request.collateral_transfer.source_debit,
             ErrorCode::InsufficientBalance
         );
-        prepared_market.prepare_amm_for_swap(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
-        prepared_market.advance_one_amm_controller_target(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
-        prepared_market.observe_current_risk(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
+        prepared_market.prepare_amm_for_swap(request.clock.slot)?;
+        prepared_market.advance_one_amm_controller_target(request.clock.slot)?;
+        prepared_market.observe_current_risk(request.clock.slot)?;
         let debt_asset = leverage.position.debt_asset()?;
         let collateral_asset = debt_asset.opposite();
         let debt_amount = prepared_market
@@ -2494,7 +2467,7 @@ impl BenchmarkMarket {
             full_leverage_swap_fee_credit(prepared_swap.leverage_quote())?,
             request.policy.protocol_swap_fee_bps,
             request.policy.protocol_auction_split,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
+            request.clock.slot,
             self.mint_transfer_fee(leverage.position.collateral_asset()?).exit(),
         )?;
         require_eq!(
@@ -2569,10 +2542,7 @@ impl BenchmarkMarket {
             full_leverage_swap_fee_credit(prepared.quote.swap)?,
             prepared.request.policy.protocol_swap_fee_bps,
             prepared.request.policy.protocol_auction_split,
-            crate::clock::MarketClock::from_timestamp(
-                prepared.request.clock.slot,
-                prepared.request.clock.unix_timestamp,
-            )?,
+            prepared.request.clock.slot,
             self.mint_transfer_fee(close_collateral_asset).exit(),
         )?;
         require_eq!(
@@ -3027,10 +2997,7 @@ impl BenchmarkMarket {
                 &mut next_external.quote_yield_account,
             )?;
         }
-        next_market.finalize_amm_transition_and_observe_risk(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
+        next_market.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
         next_market.assert_market_health_with_fees(self.admission_market_fees())?;
 
         next_external.hlp_vault_ylp_balance = next_external
@@ -3077,10 +3044,7 @@ impl BenchmarkMarket {
         self.require_monotonic_clock(request.clock)?;
         let revenue_before = self.revenue_checkpoint();
         let mut next = clone_market(&self.market)?;
-        advance_market_to_clock(
-            &mut next,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next, request.clock.slot)?;
         require!(
             !request.global_reduce_only && !next.reduce_only,
             ErrorCode::ReduceOnlyMode
@@ -3089,10 +3053,7 @@ impl BenchmarkMarket {
         carry_forward_all_ylp_revenue(&mut next)?;
         let receipt = next.add_liquidity(request.base_reserve_credit, request.quote_reserve_credit)?;
         require_gte!(receipt.ylp_amount, request.min_ylp_amount, ErrorCode::SlippageExceeded);
-        next.finalize_amm_transition_and_observe_risk(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
+        next.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
 
         let mut cash = BenchmarkCashFlow::default();
         cash.base.reserve_vault_credit = receipt.base_reserve_credit;
@@ -3115,10 +3076,7 @@ impl BenchmarkMarket {
         self.require_monotonic_clock(request.clock)?;
         let revenue_before = self.revenue_checkpoint();
         let mut next = clone_market(&self.market)?;
-        advance_market_to_clock(
-            &mut next,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next, request.clock.slot)?;
         next.assert_started_at(request.clock.unix_timestamp)?;
         require_gte!(
             request.owner_ylp_balance_before,
@@ -3137,10 +3095,7 @@ impl BenchmarkMarket {
             request.min_quote_recipient_credit,
             ErrorCode::SlippageExceeded
         );
-        next.finalize_amm_transition_and_observe_risk(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
+        next.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
         next.assert_market_health_with_fees(self.admission_market_fees())?;
 
         let mut cash = BenchmarkCashFlow::default();
@@ -3167,10 +3122,7 @@ impl BenchmarkMarket {
         let revenue_before = self.revenue_checkpoint();
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
-        advance_market_to_clock(
-            &mut next_market,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         let receipt = next_market.deposit_collateral_with_fee(
             &mut next_position,
@@ -3201,10 +3153,7 @@ impl BenchmarkMarket {
         let revenue_before = self.revenue_checkpoint();
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
-        advance_market_to_clock(
-            &mut next_market,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         require_gte!(
             request.collateral_vault_balance_before,
@@ -3255,10 +3204,7 @@ impl BenchmarkMarket {
         let revenue_before = self.revenue_checkpoint();
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
-        advance_market_to_clock(
-            &mut next_market,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         require!(
             !request.global_reduce_only && !next_market.reduce_only,
@@ -3320,16 +3266,10 @@ impl BenchmarkMarket {
             request.borrow_amount,
             self.admission_market_fees(),
             request.min_liquidation_cf_bps,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
+            request.clock.slot,
         )?;
-        next_market.finalize_amm_transition(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
-        next_market.refresh_risk_at_clock(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
+        next_market.finalize_amm_transition(request.clock.slot)?;
+        next_market.refresh_risk_at_slot(request.clock.slot)?;
 
         let mut cash = BenchmarkCashFlow::default();
         let side = cash.side_mut(request.debt_asset);
@@ -3363,10 +3303,7 @@ impl BenchmarkMarket {
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
         let mut next_referral = referral.as_ref().map(|state| state.try_fork()).transpose()?;
-        advance_market_to_clock(
-            &mut next_market,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         let referral_binding = referral_binding(&next_position, request.debt_asset);
         let repayment =
@@ -3408,14 +3345,8 @@ impl BenchmarkMarket {
                 request.referral_interest_amount,
             )?;
         }
-        next_market.finalize_amm_transition(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
-        next_market.refresh_risk_at_clock(crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?)?;
+        next_market.finalize_amm_transition(request.clock.slot)?;
+        next_market.refresh_risk_at_slot(request.clock.slot)?;
 
         let mut cash = BenchmarkCashFlow::default();
         let side = cash.side_mut(request.debt_asset);
@@ -3450,10 +3381,7 @@ impl BenchmarkMarket {
         let revenue_before = self.revenue_checkpoint();
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
-        advance_market_to_clock(
-            &mut next_market,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         let reference_price_nad = next_market.liquidation_reference_price_nad(&next_position, request.debt_asset)?;
         let collateral_exit_credit = self
@@ -3517,10 +3445,7 @@ impl BenchmarkMarket {
         self.assert_position_market(position)?;
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
-        advance_market_to_clock(
-            &mut next_market,
-            crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next_market, request.clock.slot)?;
         next_market.assert_started_at(request.clock.unix_timestamp)?;
         liquidation_plan(&mut next_market, &mut next_position, request, self.transfer_fees)
     }
@@ -3563,10 +3488,7 @@ impl BenchmarkMarket {
         self.assert_position_market(position)?;
         let mut next_market = clone_market(&self.market)?;
         let mut next_position = clone_borrow_position(&position.position)?;
-        advance_market_to_clock(
-            &mut next_market,
-            crate::clock::MarketClock::from_timestamp(request.plan.clock.slot, request.plan.clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next_market, request.plan.clock.slot)?;
         next_market.assert_started_at(request.plan.clock.unix_timestamp)?;
         preview_liquidation_on_state(&mut next_market, &mut next_position, request, self.transfer_fees)
     }
@@ -3594,10 +3516,7 @@ impl BenchmarkMarket {
         let mut next_balances = *token_balances;
         let mut next_referral = referral.as_ref().map(|state| state.try_fork()).transpose()?;
         let clock = request.preview.plan.clock;
-        advance_market_to_clock(
-            &mut next_market,
-            crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
-        )?;
+        advance_market_to_slot(&mut next_market, clock.slot)?;
         next_market.assert_started_at(clock.unix_timestamp)?;
         let preview = preview_liquidation_on_state(
             &mut next_market,
@@ -3847,14 +3766,8 @@ impl BenchmarkMarket {
         };
         credit_balance(owner_balance, request.owner_residual_transfer.destination_credit)?;
         if preview.plan.phase == BenchmarkLiquidationPhase::Bid {
-            next_market.finalize_amm_transition(crate::clock::MarketClock::from_timestamp(
-                clock.slot,
-                clock.unix_timestamp,
-            )?)?;
-            next_market.refresh_risk_at_clock(crate::clock::MarketClock::from_timestamp(
-                clock.slot,
-                clock.unix_timestamp,
-            )?)?;
+            next_market.finalize_amm_transition(clock.slot)?;
+            next_market.refresh_risk_at_slot(clock.slot)?;
         }
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             let reserve_balance = match asset {
@@ -4132,10 +4045,7 @@ fn prepare_floor_liquidation_plan(
     } else {
         market
             .insurance
-            .draw_capacity(
-                request.debt_asset,
-                crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp)?,
-            )?
+            .draw_capacity(request.debt_asset, request.clock.slot)?
             .min(remaining_debt)
     };
     // A 100% debt-mint fee credits the reserve nothing; the instruction skips
@@ -4195,7 +4105,7 @@ fn preview_liquidation_on_state(
                 collateral_consumed: plan.collateral_consumed,
                 caller_bounty: plan.caller_bounty,
             },
-            crate::clock::MarketClock::from_timestamp(request.plan.clock.slot, request.plan.clock.unix_timestamp)?,
+            request.plan.clock.slot,
             request.plan.protocol_swap_fee_bps,
             request.plan.protocol_auction_split,
         )?;
@@ -4295,22 +4205,13 @@ fn prepare_hlp_entry_market(
     market.assert_current_version()?;
     market.assert_started_at(clock.unix_timestamp)?;
     require!(!global_reduce_only && !market.reduce_only, ErrorCode::ReduceOnlyMode);
-    market.accrue_interest_to_clock(crate::clock::MarketClock::from_timestamp(
-        clock.slot,
-        clock.unix_timestamp,
-    )?)?;
+    market.accrue_interest_to_slot(clock.slot)?;
     reconcile_live_hlp_supply(market, target_asset, live_hlp_mint_supply)?;
     if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
-        market.advance_amm_clock(crate::clock::MarketClock::from_timestamp(
-            clock.slot,
-            clock.unix_timestamp,
-        )?)?;
+        market.advance_amm_clock(clock.slot)?;
         market.checkpoint_hlp_vaults()?;
         market.assert_hlp_entry_available(target_asset)?;
-        market.observe_current_risk(crate::clock::MarketClock::from_timestamp(
-            clock.slot,
-            clock.unix_timestamp,
-        )?)?;
+        market.observe_current_risk(clock.slot)?;
     }
     Ok(())
 }
@@ -4327,10 +4228,7 @@ fn apply_hlp_entry_after_prepare(
         request.target_transfer.destination_credit,
         request.min_hlp_amount,
     )?;
-    market.finalize_amm_transition_and_observe_risk(crate::clock::MarketClock::from_timestamp(
-        request.clock.slot,
-        request.clock.unix_timestamp,
-    )?)?;
+    market.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
 
     let (base_swap_growth, base_interest_growth) =
         market.hlp_yield_growth_indexes(external.target_asset, MarketAsset::Base);
@@ -4372,26 +4270,14 @@ fn prepare_hlp_withdraw_market(
 ) -> Result<()> {
     market.assert_current_version()?;
     market.assert_started_at(clock.unix_timestamp)?;
-    market.accrue_interest_to_clock(crate::clock::MarketClock::from_timestamp(
-        clock.slot,
-        clock.unix_timestamp,
-    )?)?;
+    market.accrue_interest_to_slot(clock.slot)?;
     reconcile_live_hlp_supply(market, target_asset, live_hlp_mint_supply)?;
     if market.hlp_terminally_closed(target_asset) {
-        market.advance_amm_clock(crate::clock::MarketClock::from_timestamp(
-            clock.slot,
-            clock.unix_timestamp,
-        )?)?;
+        market.advance_amm_clock(clock.slot)?;
     } else if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
-        market.advance_amm_clock(crate::clock::MarketClock::from_timestamp(
-            clock.slot,
-            clock.unix_timestamp,
-        )?)?;
+        market.advance_amm_clock(clock.slot)?;
         market.checkpoint_hlp_vaults()?;
-        market.refresh_risk_at_clock(crate::clock::MarketClock::from_timestamp(
-            clock.slot,
-            clock.unix_timestamp,
-        )?)?;
+        market.refresh_risk_at_slot(clock.slot)?;
     }
     Ok(())
 }
@@ -4688,11 +4574,9 @@ fn prepare_benchmark_leverage_swap(
     request: SwapRequest,
     cash_policy: SwapCashPolicy,
 ) -> Result<PreparedLeverageSwap> {
+    let current_slot = request.current_slot;
     let prepared = request.prepare_with_cash_policy(market, cash_policy)?;
-    market.observe_current_risk(crate::clock::MarketClock::from_timestamp(
-        request.current_slot,
-        request.current_unix_timestamp,
-    )?)?;
+    market.observe_current_risk(current_slot)?;
     Ok(prepared)
 }
 
@@ -4834,7 +4718,7 @@ fn leverage_metrics(
     let closeout_quote = market.quote_leverage_swap_at_time(
         collateral_asset,
         position.collateral_amount,
-        crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
+        clock.slot,
         clock.unix_timestamp,
     )?;
     let closeout_value = closeout_quote.amount_out;
@@ -5268,13 +5152,13 @@ fn borrow_position_checkpoint(position: &BorrowPosition, debt: &Debt) -> Result<
     })
 }
 
-fn advance_market_to_clock(market: &mut Market, clock: crate::clock::MarketClock) -> Result<()> {
+fn advance_market_to_slot(market: &mut Market, current_slot: u64) -> Result<()> {
     market.assert_current_version()?;
-    market.accrue_interest_to_clock(clock)?;
+    market.accrue_interest_to_slot(current_slot)?;
     if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
-        market.advance_amm_clock(clock)?;
+        market.advance_amm_clock(current_slot)?;
         market.checkpoint_hlp_vaults()?;
-        market.refresh_risk_at_clock(clock)?;
+        market.refresh_risk_at_slot(current_slot)?;
     }
     Ok(())
 }
@@ -5301,7 +5185,7 @@ fn execute_swap(
     let interest_eligibility = prepared.interest_eligibility;
     let finalized = prepared.finalize_state(
         market,
-        crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp)?,
+        clock.slot,
         request.protocol_fee_bps,
         request.protocol_auction_split,
     )?;
@@ -5455,7 +5339,7 @@ fn existing_borrow_capacity_preview(
     position: &BorrowPosition,
     debt_asset: MarketAsset,
     market_fees: LendingCollateralFees,
-    clock: crate::clock::MarketClock,
+    current_slot: u64,
     global_reduce_only: bool,
 ) -> Result<BenchmarkExistingBorrowCapacity> {
     let risk = market.risk;
@@ -5513,7 +5397,7 @@ fn existing_borrow_capacity_preview(
     let daily_bucket_max_additional = market
         .side(debt_asset)
         .daily_borrow_bucket
-        .remaining(daily_limit, clock)?;
+        .remaining(daily_limit, current_slot)?;
     let market_reduce_only = market.reduce_only;
     let reduce_only_max_additional = if global_reduce_only || market_reduce_only {
         Some(0)
@@ -5856,18 +5740,10 @@ mod tests {
             unix_timestamp: 500,
         };
 
-        native
-            .accrue_interest_to_clock(
-                crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
-        native
-            .advance_amm_clock(crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap())
-            .unwrap();
+        native.accrue_interest_to_slot(clock.slot).unwrap();
+        native.advance_amm_clock(clock.slot).unwrap();
         native.checkpoint_hlp_vaults().unwrap();
-        native
-            .refresh_risk_at_clock(crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap())
-            .unwrap();
+        native.refresh_risk_at_slot(clock.slot).unwrap();
         benchmark.advance_to(clock).unwrap();
 
         assert_eq!(benchmark.clock(), clock);
@@ -5908,8 +5784,7 @@ mod tests {
         let native_finalized = prepared
             .finalize_state(
                 &mut native,
-                crate::clock::MarketClock::from_timestamp(benchmark.clock().slot, benchmark.clock().unix_timestamp)
-                    .unwrap(),
+                benchmark.clock().slot,
                 request.protocol_fee_bps,
                 request.protocol_auction_split,
             )
@@ -5945,7 +5820,7 @@ mod tests {
                     collateral_asset.opposite(),
                     capacity.max_borrow_amount,
                     0,
-                    crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap(),
+                    clock.slot,
                 )
             })
             .unwrap();
@@ -5959,7 +5834,7 @@ mod tests {
                     collateral_asset.opposite(),
                     capacity.max_borrow_amount + 1,
                     0,
-                    crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap(),
+                    clock.slot,
                 )
             })
             .is_err());
@@ -6007,7 +5882,7 @@ mod tests {
                     capacity.max_borrow_amount,
                     admission,
                     0,
-                    crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap(),
+                    clock.slot,
                 )
             })
             .unwrap();
@@ -6021,7 +5896,7 @@ mod tests {
                     capacity.max_borrow_amount + 1,
                     admission,
                     0,
-                    crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap(),
+                    clock.slot,
                 )
             })
             .is_err());
@@ -6421,20 +6296,12 @@ mod tests {
             global_reduce_only: false,
         };
 
-        advance_market_to_clock(
-            &mut native,
-            crate::clock::MarketClock::from_timestamp(add_clock.slot, add_clock.unix_timestamp).unwrap(),
-        )
-        .unwrap();
+        advance_market_to_slot(&mut native, add_clock.slot).unwrap();
         carry_forward_all_ylp_revenue(&mut native).unwrap();
         let native_add = native
             .add_liquidity(add_request.base_reserve_credit, add_request.quote_reserve_credit)
             .unwrap();
-        native
-            .finalize_amm_transition_and_observe_risk(
-                crate::clock::MarketClock::from_timestamp(add_clock.slot, add_clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
+        native.finalize_amm_transition_and_observe_risk(add_clock.slot).unwrap();
 
         let add = benchmark.execute_add_ylp(add_request).unwrap();
         assert_eq!(add.receipt.ylp_amount, native_add.ylp_amount);
@@ -6451,17 +6318,11 @@ mod tests {
             unix_timestamp: 21,
         };
         let ylp_amount = native_add.ylp_amount / 2;
-        advance_market_to_clock(
-            &mut native,
-            crate::clock::MarketClock::from_timestamp(remove_clock.slot, remove_clock.unix_timestamp).unwrap(),
-        )
-        .unwrap();
+        advance_market_to_slot(&mut native, remove_clock.slot).unwrap();
         carry_forward_all_ylp_revenue(&mut native).unwrap();
         let native_remove = native.remove_liquidity(ylp_amount).unwrap();
         native
-            .finalize_amm_transition_and_observe_risk(
-                crate::clock::MarketClock::from_timestamp(remove_clock.slot, remove_clock.unix_timestamp).unwrap(),
-            )
+            .finalize_amm_transition_and_observe_risk(remove_clock.slot)
             .unwrap();
         native.assert_market_health().unwrap();
 
@@ -6510,11 +6371,7 @@ mod tests {
             slot: 2,
             unix_timestamp: 2,
         };
-        advance_market_to_clock(
-            &mut native_market,
-            crate::clock::MarketClock::from_timestamp(deposit_clock.slot, deposit_clock.unix_timestamp).unwrap(),
-        )
-        .unwrap();
+        advance_market_to_slot(&mut native_market, deposit_clock.slot).unwrap();
         native_market.assert_started_at(deposit_clock.unix_timestamp).unwrap();
         let native_deposit = native_market
             .deposit_collateral(&mut native_position, MarketAsset::Quote, 300_000)
@@ -6543,11 +6400,7 @@ mod tests {
             slot: 3,
             unix_timestamp: 3,
         };
-        advance_market_to_clock(
-            &mut native_market,
-            crate::clock::MarketClock::from_timestamp(borrow_clock.slot, borrow_clock.unix_timestamp).unwrap(),
-        )
-        .unwrap();
+        advance_market_to_slot(&mut native_market, borrow_clock.slot).unwrap();
         native_market.assert_started_at(borrow_clock.unix_timestamp).unwrap();
         native_position.set_referral_binding(MarketAsset::Base, referral_partner, 5_000);
         let native_borrow = native_market
@@ -6556,19 +6409,11 @@ mod tests {
                 MarketAsset::Base,
                 borrow_amount,
                 0,
-                crate::clock::MarketClock::from_timestamp(borrow_clock.slot, borrow_clock.unix_timestamp).unwrap(),
+                borrow_clock.slot,
             )
             .unwrap();
-        native_market
-            .finalize_amm_transition(
-                crate::clock::MarketClock::from_timestamp(borrow_clock.slot, borrow_clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
-        native_market
-            .refresh_risk_at_clock(
-                crate::clock::MarketClock::from_timestamp(borrow_clock.slot, borrow_clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
+        native_market.finalize_amm_transition(borrow_clock.slot).unwrap();
+        native_market.refresh_risk_at_slot(borrow_clock.slot).unwrap();
         let borrow = benchmark
             .execute_borrow(
                 &mut position,
@@ -6596,11 +6441,7 @@ mod tests {
             slot: 10_000_003,
             unix_timestamp: 10_000_003,
         };
-        advance_market_to_clock(
-            &mut native_market,
-            crate::clock::MarketClock::from_timestamp(repay_clock.slot, repay_clock.unix_timestamp).unwrap(),
-        )
-        .unwrap();
+        advance_market_to_slot(&mut native_market, repay_clock.slot).unwrap();
         native_market.assert_started_at(repay_clock.unix_timestamp).unwrap();
         let repayment = native_market
             .fixed_repayment_for_max(&native_position, MarketAsset::Base, u64::MAX)
@@ -6628,16 +6469,8 @@ mod tests {
                 )
                 .unwrap();
         }
-        native_market
-            .finalize_amm_transition(
-                crate::clock::MarketClock::from_timestamp(repay_clock.slot, repay_clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
-        native_market
-            .refresh_risk_at_clock(
-                crate::clock::MarketClock::from_timestamp(repay_clock.slot, repay_clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
+        native_market.finalize_amm_transition(repay_clock.slot).unwrap();
+        native_market.refresh_risk_at_slot(repay_clock.slot).unwrap();
 
         let market_before = market_bytes(benchmark.market());
         let position_before = position_bytes(position.position());
@@ -6788,36 +6621,22 @@ mod tests {
             global_reduce_only: false,
         };
 
-        expected_market
-            .accrue_interest_to_clock(
-                crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
+        expected_market.accrue_interest_to_slot(request.clock.slot).unwrap();
         reconcile_live_hlp_supply(
             &mut expected_market,
             MarketAsset::Base,
             expected_external.hlp_mint_supply,
         )
         .unwrap();
-        expected_market
-            .advance_amm_clock(
-                crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
+        expected_market.advance_amm_clock(request.clock.slot).unwrap();
         expected_market.checkpoint_hlp_vaults().unwrap();
         expected_market.assert_hlp_entry_available(MarketAsset::Base).unwrap();
-        expected_market
-            .observe_current_risk(
-                crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
+        expected_market.observe_current_risk(request.clock.slot).unwrap();
         let expected_receipt = expected_market
             .deposit_single_sided(MarketAsset::Base, request.target_transfer.destination_credit, 1)
             .unwrap();
         expected_market
-            .finalize_amm_transition_and_observe_risk(
-                crate::clock::MarketClock::from_timestamp(request.clock.slot, request.clock.unix_timestamp).unwrap(),
-            )
+            .finalize_amm_transition_and_observe_risk(request.clock.slot)
             .unwrap();
         let (base_swap, base_interest) = expected_market.hlp_yield_growth_indexes(MarketAsset::Base, MarketAsset::Base);
         let (quote_swap, quote_interest) =
@@ -7200,8 +7019,7 @@ mod tests {
                 full_leverage_swap_fee_credit(close_quote.swap).unwrap(),
                 0,
                 ProtocolAuctionSplit::default(),
-                crate::clock::MarketClock::from_timestamp(close_request.clock.slot, close_request.clock.unix_timestamp)
-                    .unwrap(),
+                close_request.clock.slot,
                 LeverageCollateralFee::default(),
             )
             .unwrap();
@@ -7375,11 +7193,7 @@ mod tests {
 
         let mut native_market = clone_market(benchmark.market()).unwrap();
         let mut native_position = clone_borrow_position(position.position()).unwrap();
-        advance_market_to_clock(
-            &mut native_market,
-            crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap(),
-        )
-        .unwrap();
+        advance_market_to_slot(&mut native_market, clock.slot).unwrap();
         let native_plan = liquidation_plan(
             &mut native_market,
             &mut native_position,
@@ -7407,14 +7221,8 @@ mod tests {
                 .record_interest_credit(native_receipt.interest_paid, 0, ProtocolAuctionSplit::default(), 0)
                 .unwrap();
         }
-        native_market
-            .finalize_amm_transition(
-                crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap(),
-            )
-            .unwrap();
-        native_market
-            .refresh_risk_at_clock(crate::clock::MarketClock::from_timestamp(clock.slot, clock.unix_timestamp).unwrap())
-            .unwrap();
+        native_market.finalize_amm_transition(clock.slot).unwrap();
+        native_market.refresh_risk_at_slot(clock.slot).unwrap();
 
         let mut balances = benchmark
             .liquidation_token_balances_at_custody_floor(1_000, 0, 0, 300_000)

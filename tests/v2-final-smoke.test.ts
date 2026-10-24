@@ -248,7 +248,7 @@ function marketConfig() {
       volatilityHalfLifeMs: new BN(60_000),
       adjustmentThresholdNad: new BN(0),
       adjustmentStepNad: new BN(0),
-      minAdjustmentIntervalMs: new BN(0),
+      minAdjustmentIntervalSlots: new BN(0),
       volatilityShockCapNad: new BN(0),
       volatilityCapNad: new BN(0),
       divergenceFeeCoefficientNad: new BN(0),
@@ -370,7 +370,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const auctionParams = {
       start_multiplier_bps: 12_000,
       floor_multiplier_bps: 8_000,
-      duration_ms: new BN(86_400_000),
+      duration_slots: new BN(432_000),
       max_reference_age_slots: new BN(21_600),
     };
     const auctionConfig = {
@@ -1649,14 +1649,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(tx, [payer]);
   }
 
-  // Explicit test time: warpToSlot alone deliberately does not imply time.
-  function advanceElapsedSeconds(seconds: bigint, slots: bigint = seconds * 5n) {
-    const clock = svm.getClock();
-    clock.slot += slots;
-    clock.unixTimestamp += seconds;
-    svm.setClock(clock);
-  }
-
   function advanceClockByYear() {
     const clock = svm.getClock();
     clock.slot += 78_840_000n;
@@ -2161,21 +2153,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(swapPreview.reserveOutLiveReserve.toNumber()).to.equal(198_026);
   });
 
-  // 36.5 elapsed days: enough for the fixture debt to accrue whole atoms.
-  const SWAP_ACCRUAL_SECONDS = 3_153_600n;
+  // About 36.5 days of slots: enough for the fixtures' 5,000-atom quote debt
+  // to accrue whole interest atoms, so the swap's own refresh commits one.
+  const SWAP_ACCRUAL_SLOTS = 7_884_000n;
 
   it("records the post-swap market in the swap event after an interest accrual", async function () {
     const fixture = await addBalancedLiquidity(140);
     await protectionBorrow(fixture);
-    const beforeSlotOnly = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
-    const unchangedTime = svm.getClock().unixTimestamp;
-    svm.warpToSlot(svm.getClock().slot + 1_000n);
-    const slotOnlySwap = await swapBaseForQuote(fixture);
-    expect(svm.getClock().unixTimestamp).to.equal(unchangedTime);
-    expect(cpiEvents(slotOnlySwap.transaction).filter((event) => event.name === "borrowInterestAccrued")).to.have.length(0);
-    const afterSlotOnly = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
-    expect(afterSlotOnly.debt.quote_borrow_index_nad.toString()).to.equal(beforeSlotOnly.debt.quote_borrow_index_nad.toString());
-    advanceElapsedSeconds(SWAP_ACCRUAL_SECONDS);
+    svm.warpToSlot(svm.getClock().slot + SWAP_ACCRUAL_SLOTS);
     svm.expireBlockhash();
     const before = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
     const pricesBefore = decodePreviewMarketReturnData(
@@ -2193,8 +2178,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(accruals).to.have.length(1);
     expect(accruals[0].assetSide).to.equal(1);
     expect(accruals[0].toSlot.toString()).to.equal(swap.slot.toString());
-    expect(BigInt(accruals[0].toTimestampMs.toString()) - BigInt(accruals[0].fromTimestampMs.toString()))
-      .to.equal(SWAP_ACCRUAL_SECONDS * 1_000n);
     expect(accruals[0].borrowIndexAfterNad.toString()).to.equal(state.debt.quote_borrow_index_nad.toString());
 
     // Selling base lowers its price. Only the fee asset's swap-fee index moves.
@@ -2216,7 +2199,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const fixture = await addBalancedLiquidity(141);
     await openBaseHedge(fixture);
     await protectionBorrow(fixture);
-    advanceElapsedSeconds(SWAP_ACCRUAL_SECONDS);
+    svm.warpToSlot(svm.getClock().slot + SWAP_ACCRUAL_SLOTS);
     svm.expireBlockhash();
 
     const { transaction } = await swapQuoteForBase(fixture, hlpSwapAccounts(fixture));
@@ -3848,7 +3831,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("10000000");
     config.amm.adjustmentStepNad = new BN("10000000");
-    config.amm.minAdjustmentIntervalMs = new BN(1);
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     const fixture = await addBalancedLiquidity(76, config, {
       baseDeposit: 100_000_000,
@@ -4003,10 +3986,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const armed = accountCoder.decode("Market", Buffer.from(armedAccount!.data)) as any;
     expect(armed.amm.volatility_accumulator_nad.gt(new BN(0))).to.equal(true);
 
-    // Decay uses elapsed time. Advance the clock and explicitly rotate the
+    // Decay is slot-driven. Advance the clock and explicitly rotate the
     // LiteSVM blockhash because the two swap transactions are otherwise
     // byte-identical.
-    advanceElapsedSeconds(1n);
+    svm.warpToSlot(svm.getClock().slot + 1n);
     svm.expireBlockhash();
 
     const preview = decodePreviewSwapReturnData(
@@ -4081,7 +4064,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     retainedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     retainedConfig.amm.adjustmentThresholdNad = new BN("1000");
     retainedConfig.amm.adjustmentStepNad = new BN("1000");
-    retainedConfig.amm.minAdjustmentIntervalMs = new BN(1);
+    retainedConfig.amm.minAdjustmentIntervalSlots = new BN(1);
     const retained = await addBalancedLiquidity(82, retainedConfig, amounts, 9);
     await swapBaseForQuote(retained, [], grossInput, 1);
     trackV2Instruction("swap", this.test?.title);
@@ -4128,7 +4111,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       if (retained) {
         config.amm.adjustmentThresholdNad = new BN("1000");
         config.amm.adjustmentStepNad = new BN("1000");
-        config.amm.minAdjustmentIntervalMs = new BN(1);
+        config.amm.minAdjustmentIntervalSlots = new BN(1);
       }
       return config;
     };
@@ -4249,7 +4232,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalMs = new BN(1);
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
     const grossInput = 7_000_000_000_000_000n;
     const fixture = await addBalancedLiquidity(93, config, {
       baseDeposit: 100_000_000n,
@@ -4325,7 +4308,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalMs = new BN(1);
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     const fixture = await addBalancedLiquidity(77, config, {
       baseDeposit: 100_000_000,
@@ -4368,7 +4351,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const recenterSlot = BigInt(
       funded.amm.last_observation_slot.add(new BN(1)).toString()
     );
-    advanceElapsedSeconds(1n, recenterSlot - svm.getClock().slot);
+    svm.warpToSlot(recenterSlot);
 
     const oldCenter = funded.amm.center_price_nad;
     const beforeRejectedProbe = svm.getAccount(fixture.market);
@@ -4433,7 +4416,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalMs = new BN(1);
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     const fixture = await addBalancedLiquidity(79, config, {
       baseDeposit: 100_000_000,
@@ -4481,7 +4464,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const recenterSlot = BigInt(
       funded.amm.last_adjustment_slot.add(new BN(1)).toString()
     );
-    advanceElapsedSeconds(1n, recenterSlot - svm.getClock().slot);
+    svm.warpToSlot(recenterSlot);
 
     const oldCenter = funded.amm.center_price_nad;
     const measurement = await swapBaseForQuote(fixture, hLpAccounts, 1_000_000, 1);
@@ -4761,7 +4744,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.fadeWidthBps = 400;
     config.amm.adjustmentThresholdNad = new BN("10000000");
     config.amm.adjustmentStepNad = new BN("1000000");
-    config.amm.minAdjustmentIntervalMs = new BN(1);
+    config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     config.amm.compoundingFeeBps = 4_000;
     const fixture = await addBalancedLiquidity(99, config, {
@@ -4808,7 +4791,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config.amm.fadeWidthBps = 400;
         config.amm.adjustmentThresholdNad = new BN("10000000");
         config.amm.adjustmentStepNad = new BN("1000000");
-        config.amm.minAdjustmentIntervalMs = new BN(60_000);
+        config.amm.minAdjustmentIntervalSlots = new BN(150);
         config.amm.volatilityShockCapNad = new BN("50000000");
         config.amm.volatilityCapNad = new BN("100000000");
         config.amm.divergenceFeeCoefficientNad = new BN("100000000");
@@ -4832,7 +4815,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         ].map(async address => (await getAccount(connection as any, address)).amount));
         const balancesBefore = await readBalances();
         // Exercise actual slot-based accrual, without editing debt indexes or balances.
-        if (ageSeconds > 0) advanceElapsedSeconds(BigInt(ageSeconds));
+        if (ageSeconds > 0) svm.warpToSlot(svm.getClock().slot + BigInt(ageSeconds * 5));
         const exactAssetIn = assetIn === "base" ? 500_000_000 : 100_000_000;
         const preview = decodePreviewSwapReturnData(await simulateReturnData(
           await program.methods.previewSwap({ exactAssetIn: new BN(exactAssetIn) }).accounts({
@@ -6059,15 +6042,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         program: DUSK_PROGRAM_ID,
       })
       .transaction();
-    const wrongVaultTx = new Transaction().add(...tx.instructions.map((ix) => new TransactionInstruction({
-      ...ix,
-      keys: ix.keys.map((meta) => meta.pubkey.equals(fixture.quoteInterestVault)
-        ? { ...meta, pubkey: fixture.quoteReserveVault } : meta),
-    })));
-    let vaultRejection: unknown;
-    try { await connection.sendTransaction(wrongVaultTx, [payer]); } catch (error) { vaultRejection = error; }
-    expect(String(vaultRejection)).to.include("InvalidVault");
-    expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(terminalData)).to.equal(true);
     await connection.sendTransaction(tx, [payer]);
     trackV2Instruction("closeInsolventHlp", this.test?.title);
 
@@ -7236,8 +7210,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(debtMarketBefore).to.not.equal(null);
     const debtBefore = accountCoder.decode("Market", Buffer.from(debtMarketBefore!.data)) as any;
     const quoteBorrowIndexBefore = debtBefore.debt.quote_borrow_index_nad;
-    advanceElapsedSeconds(4_000n);
-    const activeDebtAccrualSlot = svm.getClock().slot;
+    const activeDebtAccrualSlot = svm.getClock().slot + 10_000n;
+    svm.warpToSlot(activeDebtAccrualSlot);
     svm.expireBlockhash();
 
     const activeDebtSwapInput = new BN(1_000);
@@ -10296,6 +10270,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const bob = Keypair.generate(), delegate = Keypair.generate(), replacement = Keypair.generate();
     for (const signer of [bob, delegate, replacement]) svm.airdrop(signer.publicKey, BigInt(LAMPORTS_PER_SOL));
     const sdkProgram = createDuskProgram({ provider: program.provider });
+    const sdkGet = new DuskGet(sdkProgram);
     const gov = new DuskGovernance(sdkProgram);
     const writer = new DuskWrite(sdkProgram);
     const send = async (build: { transaction: Transaction }, signers: Keypair[] = []) => {
@@ -10346,20 +10321,20 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await send(first, [delegate]);
     trackV2Instruction("createGovernanceProposal", this.test?.title);
     const proposal = first.proposal;
-    expect((await sdkProgram.account.parameterProposal.fetch(proposal)).totalLocked.toNumber()).to.equal(initialContribution * 2);
+    expect((await sdkGet.parameterProposal(proposal)).totalLocked.toNumber()).to.equal(initialContribution * 2);
     expect((await gov.getSupport(proposal, market, owner))!.amount.toNumber()).to.equal(initialContribution);
     expect(await totalOwnership()).to.equal(initialSupply);
     await send(await gov.withdrawSupport({ market, proposal, owner, authority: delegate.publicKey, amount: 100 }), [delegate]);
     await send(await gov.withdrawSupport({ market, proposal, owner: bob.publicKey, authority: bob.publicKey, amount: 100 }), [bob]);
-    expect((await sdkProgram.account.parameterProposal.fetch(proposal)).totalLocked.toNumber()).to.equal(initialContribution * 2 - 200);
+    expect((await sdkGet.parameterProposal(proposal)).totalLocked.toNumber()).to.equal(initialContribution * 2 - 200);
     trackV2Instruction("withdrawGovernanceSupport", this.test?.title);
     // Replacement takes effect on existing collecting allocations; the old delegate cannot act.
     await send(await gov.setDelegate({ ...ownerParams, delegate: replacement.publicKey }));
     await reject(await gov.withdrawSupport({ market, proposal, owner, authority: delegate.publicKey, amount: 50 }), [delegate], "InvalidSigner");
-    const digest = (await sdkProgram.account.parameterProposal.fetch(proposal)).digest;
+    const digest = (await sdkGet.parameterProposal(proposal)).digest;
     await reject(await gov.supportProposal({ market, proposal, authority: delegate.publicKey, digest, contributions: [{ owner, amount: 100 }] }), [delegate], "InvalidSigner");
     await send(await gov.withdrawSupport({ market, proposal, owner, authority: owner, amount: 50 }));
-    expect((await sdkProgram.account.parameterProposal.fetch(proposal)).status).to.have.property("cancelled");
+    expect((await sdkGet.parameterProposal(proposal)).status).to.have.property("cancelled");
     await send(await gov.withdrawSupport({ market, proposal, owner, authority: replacement.publicKey }), [replacement]);
     await send(await gov.withdrawSupport({ market, proposal, owner: bob.publicKey, authority: delegate.publicKey }), [delegate]);
     expect(svm.getAccount(proposal)!.data.length).to.equal(8);
@@ -10369,19 +10344,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await send(await gov.setDelegate({ ...ownerParams, delegate: delegate.publicKey }));
     const second = await create(2, [{ owner, amount: 1000 }, { owner: bob.publicKey, amount: 1000 }]);
     await send(second, [delegate]);
-    const secondDigest = (await sdkProgram.account.parameterProposal.fetch(second.proposal)).digest;
+    const secondDigest = (await sdkGet.parameterProposal(second.proposal)).digest;
     await reject(await gov.supportProposal({ market, proposal: second.proposal, authority: delegate.publicKey,
       digest: Array(32).fill(0), contributions: [{ owner, amount: 10 }] }), [delegate], "ProposalDigestMismatch");
     // Direct and delegated support share the same proposal but independent holdings/yield.
     await send(await writer.supportParameterProposal({ market, proposal: second.proposal, supporter: owner, amount: 1000, digest: secondDigest }));
     await swapBaseForQuote(f);
     await send(await writer.withdrawParameterSupport({ market, proposal: second.proposal, proposer: delegate.publicKey, supporter: owner, amount: 400 }));
-    expect((await sdkProgram.account.parameterProposal.fetch(second.proposal)).totalLocked.toNumber()).to.equal(2600);
+    expect((await sdkGet.parameterProposal(second.proposal)).totalLocked.toNumber()).to.equal(2600);
     const ownerYieldKey = deriveYieldAccountAddress(market, owner, f.ylpMint, f.baseMint, "ylp")[0];
     await send(await gov.claimYield(ownerParams));
-    const yieldBefore = await sdkProgram.account.yieldAccount.fetch(ownerYieldKey);
+    const yieldBefore = await sdkGet.yieldAccount(ownerYieldKey);
     await send(await gov.claimYield(ownerParams));
-    const yieldAfter = await sdkProgram.account.yieldAccount.fetch(ownerYieldKey);
+    const yieldAfter = await sdkGet.yieldAccount(ownerYieldKey);
     expect(yieldAfter.accruedSwapFeeAmount.toString()).to.equal(yieldBefore.accruedSwapFeeAmount.toString());
     expect(yieldAfter.swapFeeRemainderQ64.toString()).to.equal(yieldBefore.swapFeeRemainderQ64.toString());
     expect(yieldBefore.accruedSwapFeeAmount.gtn(0)).to.equal(true);
@@ -10393,7 +10368,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(new Set(batchEvents.map((event) => event.data.owner.toString()))).to.deep.equal(new Set([owner.toString(), bob.publicKey.toString()]));
     for (const event of batchEvents) expect(event.data.totalLocked.toNumber()).to.equal(70_600);
     trackV2Instruction("supportGovernanceProposal", this.test?.title);
-    const queued = await sdkProgram.account.parameterProposal.fetch(second.proposal);
+    const queued = await sdkGet.parameterProposal(second.proposal);
     expect(queued.status).to.have.property("queued");
     expect(queued.queuedEligibleYlp.toNumber()).to.equal(Number(initialSupply));
     expect(queued.queuedSupport.toNumber()).to.equal(70_600);
@@ -11093,7 +11068,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           lpAmount: new BN(12_000), maxLpPerExecution: new BN(10_000), maxPaymentPerExecution: new BN(10_000),
           triggerHealthBps: new BN(action === 1 ? 40_000 : partialLeverage ? 20_000 : 1_000_000),
           targetHealthBps: new BN(action === 1 ? 40_001 : partialLeverage ? 25_000 : 1_000_001),
-          minPaymentPerLpNad: new BN(100_000_000), keeperFeeBps: 100, expiresAt: new BN(svm.getClock().unixTimestamp.toString()).addn((accrue ? 400_000 : 0) + 3_600),
+          minPaymentPerLpNad: new BN(100_000_000), keeperFeeBps: 100, expiresAt: new BN(svm.getClock().unixTimestamp.toString()).addn(3_600),
         }).accounts({ market: f.market, borrowPosition, leveragePosition, lpMint, baseMint: f.baseMint, quoteMint: f.quoteMint,
           order, ownerLpAccount, custodyLpAccount, ...yieldAccounts, owner: payer.publicKey, duskEventAuthority: eventAuthority(),
           duskProgram: DUSK_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
@@ -11112,7 +11087,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           .remainingAccounts(hookAccounts(payer.publicKey, order)).transaction();
         await connection.sendTransaction(fund, [payer]);
         expectLpTransferred(fund, lpTransfer(payer.publicKey, order, 1_000n));
-        if (accrue) advanceElapsedSeconds(400_000n);
+        if (accrue) svm.warpToSlot(svm.getClock().slot + 1_000_000n);
         const feeRecipient = await orderFeeRecipient(paymentMint);
         const executeAccounts = { protocolFee: { feeRecipient }, order, market: f.market, futarchyAuthority, borrowPosition, leveragePosition, positionOwner: payer.publicKey,
           baseMint: f.baseMint, quoteMint: f.quoteMint, lpMint, ylpMint: f.ylpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,

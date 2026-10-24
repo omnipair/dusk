@@ -108,7 +108,7 @@ export function defaultMarketLaunchConfig(
       volatilityHalfLifeMs: 60_000,
       adjustmentThresholdNad: 0,
       adjustmentStepNad: 0,
-      minAdjustmentIntervalMs: 0,
+      minAdjustmentIntervalSlots: 0,
       volatilityShockCapNad: 0,
       volatilityCapNad: 0,
       divergenceFeeCoefficientNad: 0,

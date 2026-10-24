@@ -159,11 +159,10 @@ impl<'info> OpenLeverage<'info> {
     pub fn handle_open(
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: OpenLeverageArgs,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         current_epoch: u64,
         unix_timestamp: i64,
     ) -> Result<()> {
-        let current_slot = clock.slot;
         let market_key = ctx.accounts.market.key();
         let h_lp_accounts = {
             let market: &Market = &ctx.accounts.market;
@@ -251,7 +250,7 @@ impl<'info> OpenLeverage<'info> {
         ctx.accounts.debt_reserve_vault.reload()?;
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            clock,
+            current_slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         let margin_credit = deposit_credit;

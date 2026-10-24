@@ -151,11 +151,7 @@ impl Market {
             ErrorCode::InsuranceDrawExceeded
         );
         if insurance_debit > 0 {
-            self.insurance.consume_draw(
-                asset,
-                insurance_debit,
-                crate::clock::MarketClock::from_timestamp(slot, now)?,
-            )?;
+            self.insurance.consume_draw(asset, insurance_debit, slot)?;
         }
         let principal_credit = loss
             .principal_repaid
@@ -190,9 +186,9 @@ impl Market {
             self.settle_public_debt_reserves(asset, unpaid_before, loss.interest_paid, live_debit, principal_credit)?;
         self.apply_liquidation_position(position, asset, allocation, collateral_debit, full)?;
         if loss.principal_written_off > 0 || advanced.canceled > advanced.protocol_returned {
-            self.finalize_amm_socialized_loss_and_observe_risk(crate::clock::MarketClock::from_timestamp(slot, now)?)?;
+            self.finalize_amm_socialized_loss_and_observe_risk(slot)?;
         } else {
-            self.finalize_debt_repayment(crate::clock::MarketClock::from_timestamp(slot, now)?, before_curve)?;
+            self.finalize_debt_repayment(slot, before_curve)?;
         }
         self.observe_liquidation_settlement(
             position,

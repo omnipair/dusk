@@ -81,13 +81,13 @@ fn auction_liabilities_settle_by_lane() {
         ..Fees::default()
     };
 
-    fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 125, crate::clock::test_clock(10).timestamp_ms)
+    fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 125, 10)
         .unwrap();
     fees.settle_protocol_auction_liability(
         ProtocolAuctionLane::Buyback,
         ProtocolRevenueSource::Interest,
         50,
-        crate::clock::test_clock(20).timestamp_ms,
+        20,
     )
         .unwrap();
 
@@ -116,18 +116,18 @@ fn protocol_auction_epoch_isolated_by_market_lane_and_source() {
     let first_epoch = first_market.protocol_auction_epoch(
         ProtocolAuctionLane::Fee,
         ProtocolRevenueSource::Swap,
-        crate::clock::test_clock(10),
+        10,
     );
     first_market
         .settle_protocol_auction_liability(
             ProtocolAuctionLane::Fee,
             ProtocolRevenueSource::Swap,
             1,
-            first_epoch.start_timestamp_ms,
+            first_epoch.start_slot,
         )
         .unwrap();
 
-    assert_eq!(first_market.fee_swap_auction_epoch.start_timestamp_ms, 4_000);
+    assert_eq!(first_market.fee_swap_auction_epoch.start_slot, 10);
     assert_eq!(first_market.fee_swap_auction_epoch.tracked_inventory, 99);
     assert_eq!(first_market.fee_interest_auction_epoch, ProtocolAuctionEpoch::default());
     assert_eq!(first_market.buyback_swap_auction_epoch, ProtocolAuctionEpoch::default());
@@ -141,23 +141,23 @@ fn partial_fill_preserves_epoch_but_new_inventory_starts_a_new_one() {
         swap_protocol_fee_liability: 100,
         ..Fees::default()
     };
-    let initial = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, crate::clock::test_clock(10));
+    let initial = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 10);
     fees.settle_protocol_auction_liability(
         ProtocolAuctionLane::Fee,
         ProtocolRevenueSource::Swap,
         99,
-        initial.start_timestamp_ms,
+        initial.start_slot,
     )
     .unwrap();
 
-    let old_inventory = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, crate::clock::test_clock(1_000));
-    assert_eq!(old_inventory.start_timestamp_ms, 4_000);
+    let old_inventory = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1_000);
+    assert_eq!(old_inventory.start_slot, 10);
     assert_eq!(old_inventory.tracked_inventory, 1);
 
     fees.swap_protocol_fee_liability = 101;
     fees.swap_fee_custody_balance = 101;
-    let replenished = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, crate::clock::test_clock(1_000));
-    assert_eq!(replenished.start_timestamp_ms, 400_000);
+    let replenished = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1_000);
+    assert_eq!(replenished.start_slot, 1_000);
     assert_eq!(replenished.tracked_inventory, 101);
 }
 
@@ -168,27 +168,24 @@ fn exhausting_inventory_clears_only_its_epoch() {
         swap_protocol_fee_liability: 1,
         swap_buyback_fee_liability: 1,
         fee_swap_auction_epoch: ProtocolAuctionEpoch {
-
-        start_timestamp_ms: crate::clock::test_clock(10).timestamp_ms,
+            start_slot: 10,
             tracked_inventory: 1,
         },
         buyback_swap_auction_epoch: ProtocolAuctionEpoch {
-
-        start_timestamp_ms: crate::clock::test_clock(20).timestamp_ms,
+            start_slot: 20,
             tracked_inventory: 1,
         },
         ..Fees::default()
     };
 
-    fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1, crate::clock::test_clock(10).timestamp_ms)
+    fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1, 10)
         .unwrap();
 
     assert_eq!(fees.fee_swap_auction_epoch, ProtocolAuctionEpoch::default());
     assert_eq!(
         fees.buyback_swap_auction_epoch,
         ProtocolAuctionEpoch {
-
-        start_timestamp_ms: crate::clock::test_clock(20).timestamp_ms,
+            start_slot: 20,
             tracked_inventory: 1,
         }
     );
@@ -200,13 +197,11 @@ fn governance_route_is_per_lane_and_resets_only_that_lanes_epochs() {
     let buyback_route = Pubkey::new_unique();
     let mut fees = Fees {
         fee_swap_auction_epoch: ProtocolAuctionEpoch {
-
-        start_timestamp_ms: crate::clock::test_clock(10).timestamp_ms,
+            start_slot: 10,
             tracked_inventory: 1,
         },
         buyback_interest_auction_epoch: ProtocolAuctionEpoch {
-
-        start_timestamp_ms: crate::clock::test_clock(20).timestamp_ms,
+            start_slot: 20,
             tracked_inventory: 2,
         },
         ..Fees::default()

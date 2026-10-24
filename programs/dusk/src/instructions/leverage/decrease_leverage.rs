@@ -148,10 +148,9 @@ impl<'info> DecreaseLeverage<'info> {
     pub fn handle_decrease(
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: DecreaseLeverageArgs,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         current_unix_timestamp: i64,
     ) -> Result<()> {
-        let current_slot = clock.slot;
         let h_lp_accounts = {
             let market: &Market = &ctx.accounts.market;
             HlpSwapAccountLayout::try_from((market, ctx.remaining_accounts))?
@@ -192,7 +191,7 @@ impl<'info> DecreaseLeverage<'info> {
         // Quote the credited collateral as a debt repayment.
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            clock,
+            current_slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         let mut prepared_swap = prepare_leverage_swap(
@@ -224,7 +223,7 @@ impl<'info> DecreaseLeverage<'info> {
             swap_fee_credit,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
-            clock,
+            current_slot,
             current_unix_timestamp,
             leverage_collateral_fee(&ctx.accounts.collateral_mint, Clock::get()?.epoch)?,
         )?;
@@ -321,7 +320,7 @@ impl<'info> DecreaseLeverage<'info> {
             owner_key,
             owner_key,
             debt_mint_key,
-            (clock).slot,
+            current_slot,
         )? {
             emit_cpi!(event);
         }

@@ -12,7 +12,7 @@ use crate::{
 use proptest::prelude::*;
 
 fn daily_borrow_remaining(market: &Market, asset: MarketAsset, slot: u64) -> Result<u64> {
-    Ok(market.lending_side_preview(asset, crate::clock::test_clock(slot))?.daily_borrow_remaining)
+    Ok(market.lending_side_preview(asset, slot)?.daily_borrow_remaining)
 }
 
 fn hlp_receipt_mutates_curve_inventory(receipt: &HlpRebalanceReceipt) -> bool {
@@ -94,7 +94,7 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
         curve_depth_ema_nad: 1_000_000_u128 * NAD as u128,
         ..Risk::default()
     };
-    market.prepare_amm_for_swap(crate::clock::test_clock(0)).unwrap();
+    market.prepare_amm_for_swap(0).unwrap();
     market
 }
 
@@ -102,7 +102,7 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
 fn unseeded_market_has_a_zero_spot_preview() {
     let market = Market::default();
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let side = preview_side(&market, asset, crate::clock::test_clock(0)).unwrap();
+        let side = preview_side(&market, asset, 0).unwrap();
         assert_eq!(side.ylp_supply, 0);
         assert_eq!(side.spot_price_nad, 0);
         assert_eq!(side.borrow_index_nad, market.debt.borrow_index(asset));
@@ -130,7 +130,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
         accrue_side::<false>(
             &mut accrued,
             MarketAsset::Quote,
-            crate::clock::test_clock(year * MS_PER_YEAR / TARGET_MS_PER_SLOT),
+            year * MS_PER_YEAR / TARGET_MS_PER_SLOT,
         )
         .unwrap();
     }
@@ -165,7 +165,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
             market.config.volatility_fee_share_cap_bps = 0;
             market.amm = crate::state::AmmState::default();
             market.risk = Risk::default();
-            market.prepare_amm_for_swap(crate::clock::test_clock(0)).unwrap();
+            market.prepare_amm_for_swap(0).unwrap();
             market.refresh_risk().unwrap();
             market.assert_market_invariants().unwrap();
 
@@ -194,7 +194,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
             let cash_out_before = market.side(asset_in.opposite()).reserves.cash_reserve;
             let amount_out = prepared.quote.amount_out;
             prepared
-                .finalize_state(&mut market, crate::clock::test_clock(0), 0, crate::state::ProtocolAuctionSplit::default())
+                .finalize_state(&mut market, 0, 0, crate::state::ProtocolAuctionSplit::default())
                 .unwrap();
             market.assert_market_invariants().unwrap();
             assert_eq!(market.side(asset_in).reserves.cash_reserve, cash_in_before + 2);
@@ -243,7 +243,7 @@ fn active_concentrated_preview_market() -> Market {
         ..AmmConfig::default()
     };
     market.amm = crate::state::AmmState::default();
-    market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+    market.prepare_amm_for_swap(1).unwrap();
     assert!(market.has_active_hlp());
     market
 }
@@ -263,7 +263,7 @@ fn active_reconfigured_concentrated_preview_market() -> Market {
         })
         .unwrap();
     market.amm = crate::state::AmmState::default();
-    market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+    market.prepare_amm_for_swap(1).unwrap();
     market
 }
 
@@ -295,8 +295,8 @@ fn exhausted_hlp_waterfall_cancels_interest_without_spending_principal_insurance
     assert!(shortfall > 600);
     assert!(shortfall <= actual_debt.saturating_sub(market.base_hlp_vault.debt_principal));
     market.insurance.quote_available = 1_200;
-    market.advance_amm_clock(crate::clock::test_clock(1)).unwrap();
-    let plan = market.prepare_terminal_hlp_waterfall(target_asset, 0, crate::transitions::LeverageCollateralFee::default(), crate::clock::test_clock(1)).unwrap();
+    market.advance_amm_clock(1).unwrap();
+    let plan = market.prepare_terminal_hlp_waterfall(target_asset, 0, crate::transitions::LeverageCollateralFee::default(), 1).unwrap();
     assert_eq!(plan.insurance_request(), 0);
     let terminal_price = market.current_concentrated_spot_price_nad().unwrap().unwrap();
     let terminal_collateral = borrowed_claim + u64::try_from(mul_div_u128(u128::from(target_claim), u128::from(terminal_price), u128::from(NAD)).unwrap()).unwrap();
@@ -485,13 +485,13 @@ fn preview_daily_remaining_uses_the_authoritative_bucket_decay() {
     market
         .side_mut(MarketAsset::Base)
         .daily_borrow_bucket
-        .record_borrow(limit / 2, limit, crate::clock::test_clock(0))
+        .record_borrow(limit / 2, limit, 0)
         .unwrap();
     let slot = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT / 4;
 
     assert_eq!(
         daily_borrow_remaining(&market, MarketAsset::Base, slot).unwrap(),
-        market.base_side.daily_borrow_bucket.remaining(limit, crate::clock::test_clock(slot)).unwrap()
+        market.base_side.daily_borrow_bucket.remaining(limit, slot).unwrap()
     );
 }
 
@@ -523,10 +523,10 @@ fn concentrated_hlp_preview_and_execution_share_the_same_accepted_plan_in_both_d
         );
         assert!(preview.quote.amount_out > 0);
         let fast = preview
-            .finalize_state(&mut preview_market, crate::clock::test_clock(request.current_slot), 2_500, protocol_split)
+            .finalize_state(&mut preview_market, request.current_slot, 2_500, protocol_split)
             .unwrap();
         let execution_receipt = execution
-            .finalize_state(&mut execution_market, crate::clock::test_clock(request.current_slot), 2_500, protocol_split)
+            .finalize_state(&mut execution_market, request.current_slot, 2_500, protocol_split)
             .unwrap();
         assert_eq!(fast, execution_receipt, "receipt mismatch for {asset_in:?}");
         assert!(
@@ -582,7 +582,7 @@ fn a_plain_swap_survives_accrued_hlp_interest() {
     prepared
         .finalize_state(
             &mut market,
-            crate::clock::test_clock(request.current_slot),
+            request.current_slot,
             2_500,
             crate::state::ProtocolAuctionSplit {
                 fee_auction_bps: 6_000,
@@ -611,28 +611,24 @@ fn swaps_preserve_cash_backed_unrealized_interest_outside_the_hlp_endpoint() {
                 market.debt.fixed_base_principal = 400;
                 market.debt.base_borrow_index_nad = mul_div_u128(NAD as u128, 17, 16).unwrap();
                 market.debt.base_last_accrual_slot = 1;
-    market.debt.base_last_accrual_timestamp_ms = crate::clock::test_clock(1).timestamp_ms;
             }
             (MarketAsset::Base, true) => {
                 market.debt.isolated_base_shares = 400;
                 market.debt.isolated_base_principal = 400;
                 market.debt.base_borrow_index_nad = mul_div_u128(NAD as u128, 17, 16).unwrap();
                 market.debt.base_last_accrual_slot = 1;
-    market.debt.base_last_accrual_timestamp_ms = crate::clock::test_clock(1).timestamp_ms;
             }
             (MarketAsset::Quote, false) => {
                 market.debt.fixed_quote_shares = 400;
                 market.debt.fixed_quote_principal = 400;
                 market.debt.quote_borrow_index_nad = mul_div_u128(NAD as u128, 17, 16).unwrap();
                 market.debt.quote_last_accrual_slot = 1;
-    market.debt.quote_last_accrual_timestamp_ms = crate::clock::test_clock(1).timestamp_ms;
             }
             (MarketAsset::Quote, true) => {
                 market.debt.isolated_quote_shares = 400;
                 market.debt.isolated_quote_principal = 400;
                 market.debt.quote_borrow_index_nad = mul_div_u128(NAD as u128, 17, 16).unwrap();
                 market.debt.quote_last_accrual_slot = 1;
-    market.debt.quote_last_accrual_timestamp_ms = crate::clock::test_clock(1).timestamp_ms;
             }
         }
         market.side_mut(debt_asset).reserves.cash_reserve -= 400;
@@ -651,7 +647,7 @@ fn swaps_preserve_cash_backed_unrealized_interest_outside_the_hlp_endpoint() {
         prepared
             .finalize_state(
                 &mut market,
-                crate::clock::test_clock(request.current_slot),
+                request.current_slot,
                 2_500,
                 crate::state::ProtocolAuctionSplit {
                     fee_auction_bps: 6_000,
@@ -706,7 +702,7 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
     let receipt = prepared
         .finalize_state(
             &mut stressed,
-            crate::clock::test_clock(request.current_slot),
+            request.current_slot,
             2_500,
             crate::state::ProtocolAuctionSplit {
                 fee_auction_bps: 6_000,
@@ -763,7 +759,7 @@ fn concentrated_spot_reconstructs_both_hlps_without_solver_cells() {
     let finalized = prepared
         .finalize_state(
             &mut market,
-            crate::clock::test_clock(1),
+            1,
             2_500,
             crate::state::ProtocolAuctionSplit {
                 fee_auction_bps: 6_000,
@@ -840,7 +836,7 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
             baseline.config.amm.swap_fee_collect_mode = fee_mode;
             baseline.config.amm.compounding_fee_bps = 0;
             baseline.amm = crate::state::AmmState::default();
-            baseline.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+            baseline.prepare_amm_for_swap(1).unwrap();
             let mut compounded = baseline.clone();
             compounded.config.amm.compounding_fee_bps = 4_000;
             let request = SwapRequest {
@@ -879,10 +875,10 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
             );
 
             baseline_prepared
-                .finalize_state(&mut baseline, crate::clock::test_clock(1), 2_500, protocol_split)
+                .finalize_state(&mut baseline, 1, 2_500, protocol_split)
                 .unwrap();
             compounded_prepared
-                .finalize_state(&mut compounded, crate::clock::test_clock(1), 2_500, protocol_split)
+                .finalize_state(&mut compounded, 1, 2_500, protocol_split)
                 .unwrap();
             assert_eq!(compounded.amm.concentrated_curve_cache, prepared_compounded_cache);
             let fee_asset = MarketAsset::try_from_code(compounded_quote.fee.fee_asset).unwrap();
@@ -961,7 +957,7 @@ fn compounded_swap_observes_final_reserves_for_volatility_and_next_slot_ema() {
                 };
                 market.config.amm.set_concentrated_curve_parameters(parameters).unwrap();
                 market.amm = crate::state::AmmState::default();
-                market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+                market.prepare_amm_for_swap(1).unwrap();
                 let ema_before = market.amm.price_ema_nad;
                 let request = SwapRequest {
                     current_slot: 1,
@@ -982,7 +978,7 @@ fn compounded_swap_observes_final_reserves_for_volatility_and_next_slot_ema() {
                 )
                 .unwrap();
                 prepared
-                    .finalize_state(&mut market, crate::clock::test_clock(1), 0, crate::state::ProtocolAuctionSplit::default())
+                    .finalize_state(&mut market, 1, 0, crate::state::ProtocolAuctionSplit::default())
                     .unwrap();
                 assert_eq!(market.amm.last_trade_price_nad, quote.reserve_end_price_nad);
                 assert_eq!(market.amm.volatility_accumulator_nad, expected_volatility);
@@ -991,11 +987,10 @@ fn compounded_swap_observes_final_reserves_for_volatility_and_next_slot_ema() {
                 assert_eq!(market.amm.price_ema_nad, ema_before);
 
                 let next_slot = 1 + MIN_HALF_LIFE_MS / crate::constants::TARGET_MS_PER_SLOT;
-                let expected_ema = ema_u64(ema_before, quote.reserve_end_price_nad, 0, crate::clock::test_clock(next_slot).timestamp_ms, MIN_HALF_LIFE_MS);
-                let expected_decay = market.amm.decayed_volatility(&market.config.amm, crate::clock::test_clock(next_slot)).unwrap();
+                let expected_ema = ema_u64(ema_before, quote.reserve_end_price_nad, 1, next_slot, MIN_HALF_LIFE_MS);
+                let expected_decay = market.amm.decayed_volatility(&market.config.amm, next_slot).unwrap();
                 let next = SwapRequest {
                     current_slot: next_slot,
-                    current_unix_timestamp: (crate::clock::test_clock(next_slot).timestamp_ms / 1_000) as i64,
                     ..request
                 }
                 .prepare(&mut market)
@@ -1048,10 +1043,10 @@ fn concentrated_swap_preserves_preexisting_fee_and_hlp_yield_state() {
         let mut replay = request.prepare(&mut replay_market).unwrap();
 
         let terminal_receipt = terminal
-            .finalize_state(&mut terminal_market, crate::clock::test_clock(request.current_slot), 2_500, protocol_split)
+            .finalize_state(&mut terminal_market, request.current_slot, 2_500, protocol_split)
             .unwrap();
         let replay_receipt = replay
-            .finalize_state(&mut replay_market, crate::clock::test_clock(request.current_slot), 2_500, protocol_split)
+            .finalize_state(&mut replay_market, request.current_slot, 2_500, protocol_split)
             .unwrap();
 
         assert_eq!(terminal_receipt, replay_receipt, "receipt mismatch for {asset_in:?}");
@@ -1082,7 +1077,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     market.deposit_single_sided(MarketAsset::Quote, 200_000, 1).unwrap();
     market.config.divergence_fee_share_cap_bps = 2_000;
     market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
-    market.checkpoint_amm_neutral_inventory_raw(crate::clock::test_clock(1), None).unwrap();
+    market.checkpoint_amm_neutral_inventory_raw(1, None).unwrap();
     let request = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,
@@ -1102,10 +1097,10 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     assert_prepared_swaps_equal(&preview, &execution);
 
     let preview_finalized = preview
-        .finalize_state(&mut preview_market, crate::clock::test_clock(request.current_slot), 2_500, protocol_split)
+        .finalize_state(&mut preview_market, request.current_slot, 2_500, protocol_split)
         .unwrap();
     let execution_finalized = execution
-        .finalize_state(&mut execution_market, crate::clock::test_clock(request.current_slot), 2_500, protocol_split)
+        .finalize_state(&mut execution_market, request.current_slot, 2_500, protocol_split)
         .unwrap();
 
     assert_eq!(preview_finalized, execution_finalized);
@@ -1142,12 +1137,12 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         fade_width_bps: 400,
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
-        min_adjustment_interval_ms: 1,
+        min_adjustment_interval_slots: 1,
         divergence_fee_coefficient_nad: 10 * NAD,
         ..AmmConfig::default()
     };
     retained_market.amm = crate::state::AmmState::default();
-    retained_market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+    retained_market.prepare_amm_for_swap(1).unwrap();
     let mut first = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,
@@ -1158,7 +1153,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     .prepare(&mut retained_market)
     .unwrap();
     first
-        .finalize_state(&mut retained_market, crate::clock::test_clock(1), 2_500, protocol_split)
+        .finalize_state(&mut retained_market, 1, 2_500, protocol_split)
         .unwrap();
     assert!(retained_market.amm.retain_dynamic_surcharge);
 
@@ -1179,10 +1174,10 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     let curve_before = retained_preview_market.amm.concentrated_curve_cache;
     let depth_before = retained_preview_market.amm.curve_depth_per_share_nad;
     let retained_preview_finalized = retained_preview
-        .finalize_state(&mut retained_preview_market, crate::clock::test_clock(1), 2_500, protocol_split)
+        .finalize_state(&mut retained_preview_market, 1, 2_500, protocol_split)
         .unwrap();
     let retained_execution_finalized = retained_execution
-        .finalize_state(&mut retained_execution_market, crate::clock::test_clock(1), 2_500, protocol_split)
+        .finalize_state(&mut retained_execution_market, 1, 2_500, protocol_split)
         .unwrap();
     assert_eq!(retained_preview_finalized, retained_execution_finalized);
     assert_eq!(retained_preview_market.amm, retained_execution_market.amm);
@@ -1286,22 +1281,22 @@ fn existing_position_capacity_fixture(debt_asset: MarketAsset) -> (Market, Borro
     let mut position = BorrowPosition::default();
     position.clear_liquidation_auction();
     market.deposit_collateral(&mut position, debt_asset.opposite(), 50_000).unwrap();
-    market.borrow(&mut position, debt_asset, 10_000, 0, crate::clock::test_clock(0)).unwrap();
+    market.borrow(&mut position, debt_asset, 10_000, 0, 0).unwrap();
     (market, position)
 }
 
 #[test]
 fn mutable_transfer_fee_reduces_existing_borrow_capacity_and_withdrawal_room() {
     let (market, position) = existing_position_capacity_fixture(MarketAsset::Base);
-    let gross_borrow = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
-    let gross_withdraw = market.position_capacity_quote(&position, MarketAsset::Quote, Some(0), false, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+    let gross_borrow = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
+    let gross_withdraw = market.position_capacity_quote(&position, MarketAsset::Quote, Some(0), false, 0, LeverageCollateralFee::default()).unwrap();
     let fee = LeverageCollateralFee::new(Some(TransferFee {
         epoch: 0_u64.into(),
         maximum_fee: u64::MAX.into(),
         transfer_fee_basis_points: 5_000_u16.into(),
     }));
-    let net_borrow = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, crate::clock::test_clock(0), fee).unwrap();
-    let net_withdraw = market.position_capacity_quote(&position, MarketAsset::Quote, Some(0), false, crate::clock::test_clock(0), fee).unwrap();
+    let net_borrow = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, fee).unwrap();
+    let net_withdraw = market.position_capacity_quote(&position, MarketAsset::Quote, Some(0), false, 0, fee).unwrap();
     assert!(net_borrow.max_borrow_amount.unwrap() < gross_borrow.max_borrow_amount.unwrap());
     assert!(net_withdraw.max_withdraw_amount.unwrap() < gross_withdraw.max_withdraw_amount.unwrap());
     assert!(net_borrow.collateral_value_nad < gross_borrow.collateral_value_nad);
@@ -1311,7 +1306,7 @@ fn mutable_transfer_fee_reduces_existing_borrow_capacity_and_withdrawal_room() {
         transfer_fee_basis_points: 10_000_u16.into(),
     }));
     let zero_credit = market
-        .position_capacity_quote(&position, MarketAsset::Quote, None, true, crate::clock::test_clock(0), confiscatory_fee)
+        .position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, confiscatory_fee)
         .unwrap();
     assert_eq!(zero_credit.max_borrow_amount, Some(0));
     assert_eq!(zero_credit.collateral_value_nad, 0);
@@ -1320,7 +1315,7 @@ fn mutable_transfer_fee_reduces_existing_borrow_capacity_and_withdrawal_room() {
 #[test]
 fn zero_exit_credit_quotes_no_new_borrow_capacity() {
     let market = preview_test_market(0, 0);
-    let quote = market.borrow_capacity_quote(MarketAsset::Quote, 0, LeverageCollateralFee::default(), Some(1), crate::clock::test_clock(0)).unwrap();
+    let quote = market.borrow_capacity_quote(MarketAsset::Quote, 0, LeverageCollateralFee::default(), Some(1), 0).unwrap();
     assert_eq!(quote.max_debt, 0);
     assert_eq!(quote.collateral_value_nad, 0);
 }
@@ -1330,26 +1325,26 @@ fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
     for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
         let (market, position) = existing_position_capacity_fixture(debt_asset);
         let collateral_asset = debt_asset.opposite();
-        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, 0, LeverageCollateralFee::default()).unwrap();
         assert!(quote.max_borrow_amount.unwrap() > 0);
-        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, crate::clock::test_clock(0), LeverageCollateralFee::default())
+        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, 0, LeverageCollateralFee::default())
             .unwrap().max_withdraw_amount.unwrap();
         assert!(quote.max_withdraw_amount.is_none());
         assert!(max_withdraw > 0);
         assert!(quote.borrow_allowed);
         let mut actual_market = market.clone();
         let mut actual_position = position.clone();
-        actual_market.borrow(&mut actual_position, debt_asset, quote.max_borrow_amount.unwrap(), quote.liquidation_cf_bps, crate::clock::test_clock(0)).unwrap();
+        actual_market.borrow(&mut actual_position, debt_asset, quote.max_borrow_amount.unwrap(), quote.liquidation_cf_bps, 0).unwrap();
         assert_eq!(actual_position.liquidation_cf_bps(debt_asset), quote.liquidation_cf_bps);
         let actual_debt = match debt_asset {
             MarketAsset::Base => actual_position.fixed_base_debt(&actual_market.debt).unwrap(),
             MarketAsset::Quote => actual_position.fixed_quote_debt(&actual_market.debt).unwrap(),
         };
         assert_eq!(actual_debt, quote.projected_debt_amount);
-        assert!(market.clone().borrow(&mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap() + 1, 0, crate::clock::test_clock(0)).is_err());
+        assert!(market.clone().borrow(&mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap() + 1, 0, 0).is_err());
         market.clone().withdraw_collateral(&mut position.clone(), collateral_asset, max_withdraw, position.liquidation_cf_bps(debt_asset)).unwrap();
         assert!(market.clone().withdraw_collateral(&mut position.clone(), collateral_asset, max_withdraw + 1, 0).is_err());
-        let too_large = market.position_capacity_quote(&position, collateral_asset, Some(quote.max_borrow_amount.unwrap() + 1), true, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+        let too_large = market.position_capacity_quote(&position, collateral_asset, Some(quote.max_borrow_amount.unwrap() + 1), true, 0, LeverageCollateralFee::default()).unwrap();
         assert!(!too_large.borrow_allowed);
     }
 }
@@ -1358,31 +1353,31 @@ fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
 fn existing_position_capacity_keeps_cash_and_daily_limits_on_additional_debt() {
     let (mut market, position) = existing_position_capacity_fixture(MarketAsset::Base);
     market.base_side.reserves.cash_reserve = 100;
-    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
     assert!(quote.existing_debt > 100);
     assert_eq!(quote.max_borrow_amount.unwrap(), 100);
     let daily_limit = market.daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps).unwrap();
-    let remaining = market.base_side.daily_borrow_bucket.remaining(daily_limit, crate::clock::test_clock(0)).unwrap();
-    market.base_side.daily_borrow_bucket.record_borrow(remaining - 7, daily_limit, crate::clock::test_clock(0)).unwrap();
-    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+    let remaining = market.base_side.daily_borrow_bucket.remaining(daily_limit, 0).unwrap();
+    market.base_side.daily_borrow_bucket.record_borrow(remaining - 7, daily_limit, 0).unwrap();
+    let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
     assert_eq!(quote.max_borrow_amount.unwrap(), 7);
-    market.borrow(&mut position.clone(), MarketAsset::Base, 7, 0, crate::clock::test_clock(0)).unwrap();
+    market.borrow(&mut position.clone(), MarketAsset::Base, 7, 0, 0).unwrap();
 }
 
 #[test]
 fn collateral_only_preview_preserves_issued_terms_and_reconciles_contributions() {
     let (mut market, mut position) = existing_position_capacity_fixture(MarketAsset::Quote);
     let stored_cf = position.liquidation_cf_bps(MarketAsset::Quote);
-    let before = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+    let before = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, 0, LeverageCollateralFee::default()).unwrap();
     market.deposit_collateral(&mut position, MarketAsset::Base, 100_000).unwrap();
-    let after = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+    let after = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), true, 0, LeverageCollateralFee::default()).unwrap();
     assert_eq!(after.liquidation_cf_bps, stored_cf);
     assert_eq!(after.projected_debt_amount, before.existing_debt);
     assert!(after.max_borrow_amount.unwrap() > before.max_borrow_amount.unwrap());
     assert_eq!(position.global_health_base_contribution_for_quote_debt, market.debt.global_health_base_contribution_for_quote_debt);
-    let max_withdraw = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap().max_withdraw_amount.unwrap();
+    let max_withdraw = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0, LeverageCollateralFee::default()).unwrap().max_withdraw_amount.unwrap();
     market.withdraw_collateral(&mut position, MarketAsset::Base, max_withdraw, stored_cf).unwrap();
-    let after_withdrawal = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+    let after_withdrawal = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0, LeverageCollateralFee::default()).unwrap();
     assert!(after_withdrawal.liquidation_cf_bps >= stored_cf);
     assert_eq!(after_withdrawal.max_withdraw_amount, Some(0));
 }
@@ -1394,7 +1389,7 @@ fn debt_free_position_can_withdraw_all_and_zero_draw_remains_zero() {
     let mut position = BorrowPosition::default();
     position.clear_liquidation_auction();
     market.deposit_collateral(&mut position, MarketAsset::Base, 15_000).unwrap();
-    let quote = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+    let quote = market.position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0, LeverageCollateralFee::default()).unwrap();
     assert_eq!(quote.max_withdraw_amount, Some(15_000));
     assert_eq!(quote.projected_borrow_amount, 0);
     assert_eq!(quote.existing_debt, 0);
@@ -1421,7 +1416,7 @@ fn debt_free_withdrawal_capacity_does_not_require_borrow_depth() {
     market.deposit_collateral(&mut position, MarketAsset::Base, 15_000).unwrap();
 
     let quote = market
-        .position_capacity_quote(&position, MarketAsset::Base, Some(0), false, crate::clock::test_clock(0), LeverageCollateralFee::default())
+        .position_capacity_quote(&position, MarketAsset::Base, Some(0), false, 0, LeverageCollateralFee::default())
         .unwrap();
     assert_eq!(quote.max_withdraw_amount, Some(15_000));
     assert_eq!(quote.projected_borrow_amount, 0);
@@ -1451,20 +1446,20 @@ proptest! {
         let mut external = BorrowPosition::default();
         external.clear_liquidation_auction();
         market.deposit_collateral(&mut external, collateral_asset, external_collateral).unwrap();
-        market.borrow(&mut external, debt_asset, external_collateral / 4, 0, crate::clock::test_clock(0)).unwrap();
+        market.borrow(&mut external, debt_asset, external_collateral / 4, 0, 0).unwrap();
         let mut position = BorrowPosition::default();
         position.clear_liquidation_auction();
         market.deposit_collateral(&mut position, collateral_asset, own_collateral).unwrap();
-        market.borrow(&mut position, debt_asset, own_collateral / 4, 0, crate::clock::test_clock(0)).unwrap();
-        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, crate::clock::test_clock(0), LeverageCollateralFee::default()).unwrap();
+        market.borrow(&mut position, debt_asset, own_collateral / 4, 0, 0).unwrap();
+        let quote = market.position_capacity_quote(&position, collateral_asset, None, true, 0, LeverageCollateralFee::default()).unwrap();
         prop_assert!(quote.max_borrow_amount.unwrap() > 0);
         prop_assert!(market.clone().borrow(
-            &mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap(), quote.liquidation_cf_bps, crate::clock::test_clock(0),
+            &mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap(), quote.liquidation_cf_bps, 0,
         ).is_ok());
         prop_assert!(market.clone().borrow(
-            &mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap() + 1, 0, crate::clock::test_clock(0),
+            &mut position.clone(), debt_asset, quote.max_borrow_amount.unwrap() + 1, 0, 0,
         ).is_err());
-        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, crate::clock::test_clock(0), LeverageCollateralFee::default())
+        let max_withdraw = market.position_capacity_quote(&position, collateral_asset, Some(0), false, 0, LeverageCollateralFee::default())
             .unwrap().max_withdraw_amount.unwrap();
         if max_withdraw > 0 {
             prop_assert!(market.clone().withdraw_collateral(

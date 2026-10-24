@@ -14,7 +14,7 @@ fn concentrated_config() -> AmmConfig {
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 1_000,
-        min_adjustment_interval_ms: 1,
+        min_adjustment_interval_slots: 1,
         ..AmmConfig::default()
     }
 }
@@ -101,7 +101,7 @@ fn distressed_hlp_does_not_block_spot_swap() {
             &mut market,
             crate::transitions::liquidity::SwapCashPolicy::Spot,
             credit,
-            crate::clock::test_clock(2),
+            2,
             0,
             crate::state::ProtocolAuctionSplit::default(),
             None,
@@ -122,7 +122,7 @@ fn frozen_hlp_keeps_opposite_hedge_and_cannot_reset_the_swap_price() {
         market.deposit_single_sided(MarketAsset::Base, 20_000 * NAD, 1).unwrap();
         market.deposit_single_sided(MarketAsset::Quote, 20_000 * NAD, 1).unwrap();
         market.debt.quote_borrow_index_nad = 3 * NAD as u128;
-        market.prepare_amm_for_swap(crate::clock::test_clock(2)).unwrap();
+        market.prepare_amm_for_swap(2).unwrap();
         let initial_price = market.current_concentrated_spot_price_nad().unwrap().unwrap();
         let frozen_shares = market.base_hlp_vault.ylp_shares;
         let frozen_debt_shares = market.base_hlp_vault.debt_shares;
@@ -147,7 +147,7 @@ fn frozen_hlp_keeps_opposite_hedge_and_cannot_reset_the_swap_price() {
         )
         .unwrap();
         forward
-            .apply(&mut market, SwapCashPolicy::Spot, credit, crate::clock::test_clock(2), 0, ProtocolAuctionSplit::default(), None)
+            .apply(&mut market, SwapCashPolicy::Spot, credit, 2, 0, ProtocolAuctionSplit::default(), None)
             .unwrap();
         assert_eq!(market.base_hlp_vault.ylp_shares, frozen_shares);
         assert_eq!(market.base_hlp_vault.debt_shares, frozen_debt_shares);
@@ -181,7 +181,7 @@ fn frozen_hlp_keeps_opposite_hedge_and_cannot_reset_the_swap_price() {
         )
         .unwrap();
         reverse
-            .apply(&mut market, SwapCashPolicy::Spot, credit, crate::clock::test_clock(3), 0, ProtocolAuctionSplit::default(), None)
+            .apply(&mut market, SwapCashPolicy::Spot, credit, 3, 0, ProtocolAuctionSplit::default(), None)
             .unwrap();
         assert!(quote_out <= 1_000 * NAD, "round-trip profit: {quote_out}");
         assert_eq!(market.amm.frozen_hlp_mask, 1);
@@ -208,11 +208,11 @@ fn frozen_hlp_terminal_close_restores_ordinary_swaps() {
     market.debt.quote_borrow_index_nad = 3 * NAD as u128;
     market.risk.base_price_ema_nad = NAD;
     market.risk.quote_price_ema_nad = NAD;
-    market.prepare_amm_for_swap(crate::clock::test_clock(2)).unwrap();
+    market.prepare_amm_for_swap(2).unwrap();
     market.freeze_negative_hlp_vaults().unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 1);
     let plan = market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX,
-        LeverageCollateralFee::default(), crate::clock::test_clock(2)).unwrap();
+        LeverageCollateralFee::default(), 2).unwrap();
     let receipt = plan.consume(&mut market, 0, 0, u64::MAX).unwrap();
     assert!(receipt.debt_closed > 0);
     assert_eq!(market.base_hlp_vault.ylp_shares, 0);
@@ -228,7 +228,7 @@ fn frozen_hlp_terminal_close_restores_ordinary_swaps() {
         .prepare(&mut market).unwrap();
     let credit = LeverageSwapFeeCredit::from_total_actual_credit(&prepared.leverage_quote(),
         prepared.quote.fee.claimable_fee_debit).unwrap();
-    prepared.apply(&mut market, SwapCashPolicy::Spot, credit, crate::clock::test_clock(3), 0,
+    prepared.apply(&mut market, SwapCashPolicy::Spot, credit, 3, 0,
         ProtocolAuctionSplit::default(), None).unwrap();
     market.assert_market_invariants().unwrap();
 }
@@ -242,11 +242,11 @@ fn spot_only_hlp_deficit_cannot_write_off_the_vault() {
     market.debt.quote_borrow_index_nad = 3 * NAD as u128;
     market.risk.base_price_ema_nad = 3 * NAD;
     market.risk.quote_price_ema_nad = NAD / 3;
-    market.prepare_amm_for_swap(crate::clock::test_clock(2)).unwrap();
+    market.prepare_amm_for_swap(2).unwrap();
     market.freeze_negative_hlp_vaults().unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 1);
     let fee = LeverageCollateralFee::default();
-    assert!(market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX, fee, crate::clock::test_clock(2)).is_err());
+    assert!(market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX, fee, 2).is_err());
     assert!(market.quote_hlp_flash_recovery(MarketAsset::Base, fee, fee).is_err());
 }
 
@@ -261,13 +261,13 @@ fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
     market.debt.base_borrow_index_nad = 3 * NAD as u128;
     market.risk.base_price_ema_nad = NAD;
     market.risk.quote_price_ema_nad = NAD;
-    market.prepare_amm_for_swap(crate::clock::test_clock(2)).unwrap();
+    market.prepare_amm_for_swap(2).unwrap();
     market.freeze_negative_hlp_vaults().unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 3);
     let quote_shares = market.quote_hlp_vault.ylp_shares;
     let quote_debt = market.quote_hlp_vault.debt_shares;
     let plan = market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX,
-        LeverageCollateralFee::default(), crate::clock::test_clock(2)).unwrap();
+        LeverageCollateralFee::default(), 2).unwrap();
     plan.consume(&mut market, 0, 0, u64::MAX).unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 2);
     assert_eq!(market.quote_hlp_vault.ylp_shares, quote_shares);
@@ -278,7 +278,7 @@ fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
     assert!(prepared.quote.amount_out > 0);
     let credit = LeverageSwapFeeCredit::from_total_actual_credit(&prepared.leverage_quote(),
         prepared.quote.fee.claimable_fee_debit).unwrap();
-    prepared.apply(&mut market, SwapCashPolicy::Spot, credit, crate::clock::test_clock(3), 0,
+    prepared.apply(&mut market, SwapCashPolicy::Spot, credit, 3, 0,
         ProtocolAuctionSplit::default(), None).unwrap();
     assert_eq!(market.quote_hlp_vault.ylp_shares, quote_shares);
     assert_eq!(market.quote_hlp_vault.debt_shares, quote_debt);
@@ -288,7 +288,7 @@ fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
 #[test]
 fn first_liquidity_initializes_center_without_an_oracle() {
     let mut market = market_with_liquidity(concentrated_config());
-    assert!(market.ensure_amm_initialized(crate::clock::test_clock(10)).unwrap());
+    assert!(market.ensure_amm_initialized(10).unwrap());
     assert_eq!(market.amm.center_price_nad, NAD);
     assert_eq!(market.amm.price_ema_nad, NAD);
     assert_eq!(
@@ -301,14 +301,14 @@ fn first_liquidity_initializes_center_without_an_oracle() {
 #[test]
 fn final_user_withdrawal_allows_the_amm_to_reinitialize() {
     let mut market = market_with_liquidity(concentrated_config());
-    market.ensure_amm_initialized(crate::clock::test_clock(10)).unwrap();
+    market.ensure_amm_initialized(10).unwrap();
     let user_shares = market.base_side.shares.ylp_supply - MIN_LIQUIDITY;
     market.remove_liquidity(user_shares).unwrap();
-    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(11)).unwrap();
+    market.finalize_amm_transition_and_observe_risk(11).unwrap();
     assert!(!market.amm.initialized);
 
     market.add_liquidity(100_000 * NAD, 100_000 * NAD).unwrap();
-    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(12)).unwrap();
+    market.finalize_amm_transition_and_observe_risk(12).unwrap();
     assert!(market.amm.initialized);
     assert!(market.current_concentrated_spot_price_nad().unwrap().is_some());
 }
@@ -324,7 +324,7 @@ fn concentrated_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
         })
         .unwrap();
     let mut market = market_with_liquidity(config);
-    market.ensure_amm_initialized(crate::clock::test_clock(10)).unwrap();
+    market.ensure_amm_initialized(10).unwrap();
     assert_eq!(
         market.amm.concentrated_curve_cache.parameters(),
         market.config.amm.concentrated_curve_parameters().unwrap()
@@ -338,9 +338,9 @@ fn concentrated_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
     assert_eq!(quote.executable.curve.boundary_crossings, 0);
     assert!(quote.executable.amount_out > 0);
 
-    let pre_state = market.dynamic_fee_pre_state(crate::clock::test_clock(10)).unwrap();
+    let pre_state = market.dynamic_fee_pre_state(10).unwrap();
     let preliminary = market
-        .preliminary_swap_inputs_for_state(MarketAsset::Base, 10_000 * NAD, crate::clock::test_clock(10), pre_state)
+        .preliminary_swap_inputs_for_state(MarketAsset::Base, 10_000 * NAD, 10, pre_state)
         .unwrap();
     let fee_quote = market
         .quote_concentrated_integrated_with_fee(MarketAsset::Base, 10_000 * NAD, preliminary, 0)
@@ -359,12 +359,12 @@ fn quote_only_fee_is_withheld_from_base_sell_output() {
     config.swap_fee_collect_mode = crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY;
     let mut market = market_with_liquidity(config);
     market.config.swap_fee_bps = 100;
-    market.ensure_amm_initialized(crate::clock::test_clock(10)).unwrap();
+    market.ensure_amm_initialized(10).unwrap();
 
     let reserve_credit = 10_000 * NAD;
-    let pre_state = market.dynamic_fee_pre_state(crate::clock::test_clock(10)).unwrap();
+    let pre_state = market.dynamic_fee_pre_state(10).unwrap();
     let preliminary = market
-        .preliminary_swap_inputs_for_state(MarketAsset::Base, reserve_credit, crate::clock::test_clock(10), pre_state)
+        .preliminary_swap_inputs_for_state(MarketAsset::Base, reserve_credit, 10, pre_state)
         .unwrap();
     let quote = market
         .quote_concentrated_integrated_with_fee(MarketAsset::Base, reserve_credit, preliminary, 0)
@@ -390,7 +390,7 @@ fn concentrated_center_move_reconstructs_unchanged_reserves_in_closed_form() {
     let mut config = AmmConfig {
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
-        min_adjustment_interval_ms: 1_000,
+        min_adjustment_interval_slots: 1,
         ..AmmConfig::default()
     };
     config
@@ -401,18 +401,13 @@ fn concentrated_center_move_reconstructs_unchanged_reserves_in_closed_form() {
         })
         .unwrap();
     let mut market = market_with_liquidity(config);
-    market.ensure_amm_initialized(crate::clock::test_clock(10)).unwrap();
+    market.ensure_amm_initialized(10).unwrap();
     let ordinary_before = market.integrated_curve_state_nad().unwrap();
     let cache_before = market.amm.concentrated_curve_cache;
     market.amm.price_ema_nad = 2 * NAD;
     market.amm.protected_floor_per_share_nad = 0;
 
-    let mut slots_only = market.clone();
-    assert!(!slots_only.advance_one_amm_controller_target(crate::clock::MarketClock::from_timestamp(1_000_000, 4).unwrap()).unwrap());
-    assert_eq!(slots_only.amm.center_price_nad, NAD);
-    assert!(slots_only.advance_one_amm_controller_target(crate::clock::MarketClock::from_timestamp(1_000_001, 5).unwrap()).unwrap());
-    assert!(market.advance_one_amm_controller_target(crate::clock::MarketClock::from_timestamp(11, 5).unwrap()).unwrap());
-    assert_eq!(market.amm.center_price_nad, slots_only.amm.center_price_nad);
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
     assert_eq!(market.integrated_curve_state_nad().unwrap(), ordinary_before);
     assert_ne!(market.amm.concentrated_curve_cache, cache_before);
     assert_eq!(market.amm.center_price_nad, NAD + NAD / 100);
@@ -425,7 +420,7 @@ fn concentrated_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_pri
     let mut config = AmmConfig {
         adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
-        min_adjustment_interval_ms: 1_000,
+        min_adjustment_interval_slots: 1,
         ..AmmConfig::default()
     };
     config
@@ -436,7 +431,7 @@ fn concentrated_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_pri
         })
         .unwrap();
     let mut market = market_with_liquidity(config);
-    market.ensure_amm_initialized(crate::clock::test_clock(10)).unwrap();
+    market.ensure_amm_initialized(10).unwrap();
     market.amm.price_ema_nad = 2 * NAD;
     let depth_before = market.amm.curve_depth_per_share_nad;
     let base_live_before = market.base_side.reserves.live_reserve;
@@ -452,7 +447,7 @@ fn concentrated_center_move_deploys_locked_bucket_only_when_it_preserves_ylp_pri
     assert_eq!(market.base_side.reserves.live_reserve, base_live_before);
     assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before);
 
-    assert!(market.advance_one_amm_controller_target(crate::clock::test_clock(13)).unwrap());
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
     assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
     assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
     assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
@@ -473,19 +468,19 @@ fn concentrated_proportional_liquidity_scales_and_restores_both_tranches() {
         })
         .unwrap();
     let mut market = market_with_liquidity(config);
-    market.ensure_amm_initialized(crate::clock::test_clock(10)).unwrap();
+    market.ensure_amm_initialized(10).unwrap();
     let cache_before = market.amm.concentrated_curve_cache;
     let spot_before = market.current_concentrated_spot_price_nad().unwrap().unwrap();
     let credit = 100_000 * NAD;
     let added = market.add_liquidity(credit, credit).unwrap();
-    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(11)).unwrap();
+    market.finalize_amm_transition_and_observe_risk(11).unwrap();
     assert!(market.amm.concentrated_curve_cache.tail_liquidity > cache_before.tail_liquidity);
     assert!(
         market.amm.concentrated_curve_cache.concentrated_liquidity > cache_before.concentrated_liquidity
     );
 
     market.remove_liquidity(added.ylp_amount).unwrap();
-    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(12)).unwrap();
+    market.finalize_amm_transition_and_observe_risk(12).unwrap();
     assert_eq!(market.amm.concentrated_curve_cache.parameters(), cache_before.parameters());
     assert!(market
         .current_concentrated_spot_price_nad()

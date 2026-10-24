@@ -67,7 +67,7 @@ impl<'info> EmergencyLiquidation<'info> {
         )?;
         crate::instructions::accounting::accrue_market_interest(
             &mut a.market,
-            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         a.market.update()?;
@@ -266,9 +266,7 @@ impl<'info> EmergencyLiquidation<'info> {
             );
         }
         if q.fee.insurance > 0 {
-            a.market
-                .insurance
-                .credit(asset, q.fee.insurance, crate::clock::MarketClock::from_clock(&clock)?)?;
+            a.market.insurance.credit(asset, q.fee.insurance, clock.slot)?;
         }
         a.market.side_mut(asset).record_liquidation_fee_credit(
             q.fee.lp,

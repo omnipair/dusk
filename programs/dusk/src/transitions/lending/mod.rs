@@ -261,13 +261,7 @@ impl Market {
     }
 
     pub fn current_risk(&self) -> Result<Risk> {
-        let clock = match Clock::get() {
-            Ok(clock) => crate::clock::MarketClock::from_clock(&clock)?,
-            Err(_) => crate::clock::MarketClock {
-                slot: self.last_update_slot,
-                timestamp_ms: self.last_update_timestamp_ms,
-            },
-        };
+        let current_slot = Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot);
         let price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -277,12 +271,13 @@ impl Market {
             .tail_liquidity
             .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
+        // NAD² fits u64, so the exact reciprocal avoids a costly wide divide.
         let quote_price_nad = NAD
             .checked_mul(NAD)
             .and_then(|value| value.checked_div(price_nad))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.risk
-            .refreshed(price_nad, quote_price_nad, curve_depth_nad, &self.config, clock)
+            .refreshed(price_nad, quote_price_nad, curve_depth_nad, &self.config, current_slot)
     }
 
     /// O(1) risk observation for the concentrated tail+band curve. The quote has
@@ -293,15 +288,13 @@ impl Market {
         &mut self,
         current_base_price_nad: u64,
         current_curve_depth_nad: u128,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<()> {
-        let current_slot = clock.slot;
         require!(
             current_base_price_nad > 0 && current_curve_depth_nad > 0,
             ErrorCode::InsufficientLiquidity
         );
-        // NAD² is 10^18 and fits u64. The exact integer reciprocal needs no
-        // wide division; this preserves the same floor and overflow checks.
+        // NAD² fits u64; keep this exact reciprocal on the swap hot path.
         let current_quote_price_nad = NAD
             .checked_mul(NAD)
             .and_then(|value| value.checked_div(current_base_price_nad))
@@ -311,18 +304,17 @@ impl Market {
             current_quote_price_nad,
             current_curve_depth_nad,
             &self.config,
-            clock,
+            current_slot,
         )?;
         self.last_marginal_observation_nad = current_base_price_nad;
         self.last_update_slot = current_slot;
-        self.last_update_timestamp_ms = self.risk.last_snapshot_timestamp_ms;
         Ok(())
     }
 
     /// Observes exact current price and curve depth without persisting pessimistic
     /// reserve shapes. Risk consumers reconstruct the applied shape from this
     /// scalar snapshot and the current curve parameters.
-    pub(crate) fn observe_current_risk(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
+    pub(crate) fn observe_current_risk(&mut self, current_slot: u64) -> Result<()> {
         let price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -332,27 +324,20 @@ impl Market {
             .tail_liquidity
             .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, clock)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
 
     pub fn refresh_risk(&mut self) -> Result<()> {
-        let clock = match Clock::get() {
-            Ok(clock) => crate::clock::MarketClock::from_clock(&clock)?,
-            Err(_) => crate::clock::MarketClock {
-                slot: self.last_update_slot,
-                timestamp_ms: self.last_update_timestamp_ms,
-            },
-        };
-        self.refresh_risk_at_clock(clock)
+        let current_slot = Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot);
+        self.refresh_risk_at_slot(current_slot)
     }
 
-    /// Materializes risk at an already-read clock snapshot. Governance uses this before
+    /// Materializes risk at an already-read slot. Governance uses this before
     /// changing time constants so the entire elapsed interval is integrated
     /// under the configuration that was active during that interval.
-    pub(crate) fn refresh_risk_at_clock(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
-        let current_slot = clock.slot;
+    pub(crate) fn refresh_risk_at_slot(&mut self, current_slot: u64) -> Result<()> {
         let curve_reserves = self.curve_reserves_nad()?;
         if curve_reserves.base == 0 || curve_reserves.quote == 0 {
             require!(
@@ -361,12 +346,10 @@ impl Market {
             );
             self.risk.observed_curve_depth_nad = 0;
             self.risk.last_snapshot_slot = current_slot;
-            self.risk.last_snapshot_timestamp_ms = clock.timestamp_ms;
             self.amm.concentrated_curve_cache = Default::default();
             self.last_marginal_observation_nad = 0;
             self.risk_revision = self.curve_revision;
             self.last_update_slot = current_slot;
-            self.last_update_timestamp_ms = self.risk.last_snapshot_timestamp_ms;
             return Ok(());
         }
 
@@ -379,7 +362,7 @@ impl Market {
             .tail_liquidity
             .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
-        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, clock)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -1016,9 +999,8 @@ impl Market {
 }
 
 impl DailyBorrowBucket {
-    pub fn decay_to_clock(&mut self, limit: u64, clock: crate::clock::MarketClock) -> Result<()> {
-        let current_slot = clock.slot;
-        let elapsed_ms = clock.elapsed_ms(self.last_decay_slot, self.last_decay_timestamp_ms)?;
+    pub fn decay_to_slot(&mut self, limit: u64, current_slot: u64) -> Result<()> {
+        let elapsed_ms = slots_to_ms(self.last_decay_slot, current_slot).ok_or(ErrorCode::InvalidArgument)?;
         if self.borrowed_bucket == 0 {
             self.decay_remainder_ms = 0;
         } else if elapsed_ms > 0 {
@@ -1041,12 +1023,11 @@ impl DailyBorrowBucket {
             }
         }
         self.last_decay_slot = current_slot;
-        self.last_decay_timestamp_ms += elapsed_ms;
         Ok(())
     }
 
-    pub fn record_borrow(&mut self, amount: u64, limit: u64, clock: crate::clock::MarketClock) -> Result<()> {
-        self.decay_to_clock(limit, clock)?;
+    pub fn record_borrow(&mut self, amount: u64, limit: u64, current_slot: u64) -> Result<()> {
+        self.decay_to_slot(limit, current_slot)?;
         let next_bucket = self
             .borrowed_bucket
             .checked_add(amount)
@@ -1056,9 +1037,9 @@ impl DailyBorrowBucket {
         Ok(())
     }
 
-    pub fn remaining(&self, limit: u64, clock: crate::clock::MarketClock) -> Result<u64> {
+    pub fn remaining(&self, limit: u64, current_slot: u64) -> Result<u64> {
         let mut decayed = *self;
-        decayed.decay_to_clock(limit, clock)?;
+        decayed.decay_to_slot(limit, current_slot)?;
         Ok(limit.saturating_sub(decayed.borrowed_bucket))
     }
 }
@@ -1068,8 +1049,6 @@ pub(crate) struct InterestAccrualReceipt {
     pub asset: MarketAsset,
     pub from_slot: u64,
     pub to_slot: u64,
-    pub from_timestamp_ms: u64,
-    pub to_timestamp_ms: u64,
     pub index_before: u128,
     pub index_after: u128,
     pub credit_interest: u128,
@@ -1080,9 +1059,8 @@ pub(crate) struct InterestAccrualReceipt {
 pub(crate) fn accrue_side<const REPORT: bool>(
     market: &mut Market,
     asset: MarketAsset,
-    clock: crate::clock::MarketClock,
+    current_slot: u64,
 ) -> Result<Option<InterestAccrualReceipt>> {
-    let current_slot = clock.slot;
     let (index, index_remainder, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
         MarketAsset::Base => (
             market.debt.base_borrow_index_nad,
@@ -1101,14 +1079,13 @@ pub(crate) fn accrue_side<const REPORT: bool>(
             market.debt.isolated_quote_shares,
         ),
     };
-    let last_accrual_timestamp_ms = match asset {
-        MarketAsset::Base => market.debt.base_last_accrual_timestamp_ms,
-        MarketAsset::Quote => market.debt.quote_last_accrual_timestamp_ms,
-    };
-    let dt_ms = clock.elapsed_ms(last_accrual_slot, last_accrual_timestamp_ms)?;
+    require_gte!(current_slot, last_accrual_slot, ErrorCode::InvalidArgument);
     if current_slot == last_accrual_slot {
         return Ok(None);
     }
+    // Interest and the adaptive rate advance with scheduled slot progress,
+    // never with the leader-controlled Unix timestamp in the Clock sysvar.
+    let dt_ms = slots_to_ms(last_accrual_slot, current_slot).ok_or(ErrorCode::MarketMathOverflow)?;
 
     let hlp_shares = match asset {
         MarketAsset::Base => market.quote_hlp_vault.debt_shares,
@@ -1128,13 +1105,11 @@ pub(crate) fn accrue_side<const REPORT: bool>(
             MarketAsset::Base => {
                 market.debt.base_rate_at_target_nad = next_rate_at_target;
                 market.debt.base_last_accrual_slot = current_slot;
-                market.debt.base_last_accrual_timestamp_ms = clock.timestamp_ms;
                 market.debt.base_borrow_index_remainder = 0;
             }
             MarketAsset::Quote => {
                 market.debt.quote_rate_at_target_nad = next_rate_at_target;
                 market.debt.quote_last_accrual_slot = current_slot;
-                market.debt.quote_last_accrual_timestamp_ms = clock.timestamp_ms;
                 market.debt.quote_borrow_index_remainder = 0;
             }
         }
@@ -1179,19 +1154,14 @@ pub(crate) fn accrue_side<const REPORT: bool>(
             MarketAsset::Base => &mut market.quote_hlp_vault,
             MarketAsset::Quote => &mut market.base_hlp_vault,
         };
-        vault.funding_apr_ema_nad = if vault.funding_apr_ema_last_slot == 0 {
-            rate
-        } else {
-            crate::math::risk::ema_u128_including_zero(
-                vault.funding_apr_ema_nad,
-                rate,
-                vault.funding_apr_ema_last_timestamp_ms,
-                clock.timestamp_ms,
-                HLP_FUNDING_APR_EMA_HALF_LIFE_MS,
-            )
-        };
+        vault.funding_apr_ema_nad = crate::math::risk::ema_u128_including_zero(
+            vault.funding_apr_ema_nad,
+            rate,
+            vault.funding_apr_ema_last_slot,
+            current_slot,
+            HLP_FUNDING_APR_EMA_HALF_LIFE_MS,
+        );
         vault.funding_apr_ema_last_slot = current_slot;
-        vault.funding_apr_ema_last_timestamp_ms = clock.timestamp_ms;
     }
     let (next_index, next_remainder) = if index == 0 || dt_ms == 0 || rate == 0 {
         (index, index_remainder)
@@ -1252,14 +1222,12 @@ pub(crate) fn accrue_side<const REPORT: bool>(
             market.debt.base_borrow_index_remainder = next_remainder;
             market.debt.base_rate_at_target_nad = next_rate_at_target;
             market.debt.base_last_accrual_slot = current_slot;
-            market.debt.base_last_accrual_timestamp_ms = clock.timestamp_ms;
         }
         MarketAsset::Quote => {
             market.debt.quote_borrow_index_nad = next_index;
             market.debt.quote_borrow_index_remainder = next_remainder;
             market.debt.quote_rate_at_target_nad = next_rate_at_target;
             market.debt.quote_last_accrual_slot = current_slot;
-            market.debt.quote_last_accrual_timestamp_ms = clock.timestamp_ms;
         }
     }
     if !REPORT {
@@ -1269,8 +1237,6 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         asset,
         from_slot: last_accrual_slot,
         to_slot: current_slot,
-        from_timestamp_ms: last_accrual_timestamp_ms,
-        to_timestamp_ms: clock.timestamp_ms,
         index_before: index,
         index_after: next_index,
         credit_interest: fixed_after
@@ -1332,34 +1298,34 @@ impl Market {
     /// debt-dependent computation in an instruction (borrow/repay, hedge,
     /// liquidation, yield claims, swaps, and liquidity changes).
     pub fn accrue_interest(&mut self) -> Result<()> {
-        let clock = crate::clock::MarketClock::get()?;
-        self.accrue_interest_to_clock(clock)
+        let current_slot = Clock::get()?.slot;
+        self.accrue_interest_to_slot(current_slot)
     }
 
     /// Refreshes position-risk inputs on a disposable market copy. Both borrow
     /// and leverage protection must read the current symmetric EMA after the
     /// AMM clock advances. The snapshot does not settle hLP NAV or yield.
     /// Never use this to settle persistent state.
-    pub fn prepare_position_protection_snapshot(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
+    pub fn prepare_position_protection_snapshot(&mut self, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
-        self.accrue_interest_to_clock(clock)?;
+        self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
-            self.advance_amm_clock(clock)?;
+            self.advance_amm_clock(current_slot)?;
             self.freeze_negative_hlp_vaults()?;
         }
-        self.refresh_risk_at_clock(clock)?;
+        self.refresh_risk_at_slot(current_slot)?;
         Ok(())
     }
 
     pub fn update(&mut self) -> Result<()> {
         self.assert_current_version()?;
-        let clock = crate::clock::MarketClock::get()?;
-        self.accrue_interest_to_clock(clock)?;
+        let current_slot = Clock::get()?.slot;
+        self.accrue_interest_to_slot(current_slot)?;
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             // hLP exposure is checkpointed from actual state. New hLP entry
             // remains gated while a due concentrated controller target would
             // otherwise price the mint against a stale NAV basis.
-            self.advance_amm_clock(clock)?;
+            self.advance_amm_clock(current_slot)?;
             self.freeze_negative_hlp_vaults()?;
             let (_, _, price_nad) = self.checkpoint_hlp_vaults_with_price()?;
             let curve_depth_nad = self
@@ -1368,22 +1334,21 @@ impl Market {
                 .tail_liquidity
                 .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
                 .ok_or(ErrorCode::InvariantOverflow)?;
-            self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, clock)?;
+            self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
             self.risk_revision = self.curve_revision;
         }
         Ok(())
     }
 
     #[inline(always)]
-    pub(crate) fn accrue_interest_to_clock(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
-        // Account preparation and scratch quoting share one clock. An exact
-        // repeat of both closed checkpoints has no elapsed time to integrate;
-        // any changed slot or timestamp still enters the checked kernels.
-        if self.debt.accrued_at(clock) {
+    pub(crate) fn accrue_interest_to_slot(&mut self, current_slot: u64) -> Result<()> {
+        // Most scratch quotes share the already-closed slot. Avoid two full
+        // debt-kernel calls while preserving their backward-slot checks.
+        if self.debt.base_last_accrual_slot == current_slot && self.debt.quote_last_accrual_slot == current_slot {
             return Ok(());
         }
-        accrue_side::<false>(self, MarketAsset::Base, clock)?;
-        accrue_side::<false>(self, MarketAsset::Quote, clock)?;
+        accrue_side::<false>(self, MarketAsset::Base, current_slot)?;
+        accrue_side::<false>(self, MarketAsset::Quote, current_slot)?;
         Ok(())
     }
 
@@ -1521,7 +1486,7 @@ impl Market {
         borrow_asset: MarketAsset,
         borrow_amount: u64,
         min_liquidation_cf_bps: u16,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<DebtReceipt> {
         self.borrow_with_collateral_fee(
             borrow_position,
@@ -1529,7 +1494,7 @@ impl Market {
             borrow_amount,
             LeverageCollateralFee::default(),
             min_liquidation_cf_bps,
-            clock,
+            current_slot,
         )
     }
 
@@ -1540,7 +1505,7 @@ impl Market {
         borrow_amount: u64,
         collateral_fee: LeverageCollateralFee,
         min_liquidation_cf_bps: u16,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<DebtReceipt> {
         let fees = match borrow_asset.opposite() {
             MarketAsset::Base => LendingCollateralFees {
@@ -1558,7 +1523,7 @@ impl Market {
             borrow_amount,
             fees,
             min_liquidation_cf_bps,
-            clock,
+            current_slot,
         )
     }
 
@@ -1569,7 +1534,7 @@ impl Market {
         borrow_amount: u64,
         fees: LendingCollateralFees,
         min_liquidation_cf_bps: u16,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<DebtReceipt> {
         borrow_position.require_idle()?;
         let collateral_fee = fees.for_asset(borrow_asset.opposite());
@@ -1581,7 +1546,7 @@ impl Market {
         );
         let debt_delta = i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?;
         if self.risk.curve_depth_ema_nad == 0 {
-            self.refresh_risk_at_clock(clock)?;
+            self.refresh_risk_at_slot(current_slot)?;
         }
         let risk = self.risk;
         let current_health = self.market_health_from_risk_with_fees(&risk, fees)?;
@@ -1621,9 +1586,11 @@ impl Market {
             ErrorCode::InsufficientBorrowHeadroom
         );
         let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
-        self.side_mut(borrow_asset)
-            .daily_borrow_bucket
-            .record_borrow(borrow_amount, daily_borrow_limit, clock)?;
+        self.side_mut(borrow_asset).daily_borrow_bucket.record_borrow(
+            borrow_amount,
+            daily_borrow_limit,
+            current_slot,
+        )?;
         let debt_side = self.side_mut(borrow_asset);
         debt_side.reserves.cash_reserve = debt_side
             .reserves
@@ -1741,7 +1708,7 @@ impl Market {
         repay_asset: MarketAsset,
         repay_credit: u64,
         collateral_fee: LeverageCollateralFee,
-        finalize_at_clock: Option<crate::clock::MarketClock>,
+        finalize_at_slot: Option<u64>,
     ) -> Result<DebtReceipt> {
         let curve_reserves_before = self.curve_reserves_nad()?;
         let unpaid_before = self.public_unpaid_interest(repay_asset)?;
@@ -1805,7 +1772,7 @@ impl Market {
         };
         self.settle_public_debt_reserves(repay_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
         let debt_delta = -i64::try_from(debt_reduction).map_err(|_| ErrorCode::Overflow)?;
-        if let Some(slot) = finalize_at_clock {
+        if let Some(slot) = finalize_at_slot {
             self.finalize_debt_repayment(slot, curve_reserves_before)?;
         } else {
             self.refresh_risk()?;

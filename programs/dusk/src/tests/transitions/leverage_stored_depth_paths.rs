@@ -5,7 +5,7 @@ use super::stored_depth_schedules::{depth_schedule, stored_cash_depth};
 fn native_spot_sale(market: &mut Market, asset: MarketAsset, amount: u64, slot: u64) -> Result<()> {
     let mut prepared = SwapRequest {
         current_slot: slot,
-        current_unix_timestamp: (slot * 400 / 1_000) as i64,
+        current_unix_timestamp: (slot * crate::constants::TARGET_MS_PER_SLOT / 1_000) as i64,
         asset_in: asset,
         reserve_credit: amount,
         protocol_fee_bps: 0,
@@ -16,7 +16,7 @@ fn native_spot_sale(market: &mut Market, asset: MarketAsset, amount: u64, slot: 
         market,
         SwapCashPolicy::Spot,
         full_fee_credit(&quote),
-        crate::clock::test_clock(slot),
+        slot,
         0,
         ProtocolAuctionSplit::default(),
         None,
@@ -49,7 +49,7 @@ fn profitable_partial_bps(
         let sold = position.collateral_amount * sold_bps / 10_000;
         let sold_value = reference_credit(market, asset, sold);
         let payment = u64::try_from(ceil_div(u128::from(sold_value) * (10_000 - discount), 10_000).unwrap()).unwrap();
-        let Ok(quote) = market.quote_leverage_swap_at_time(asset, sold, crate::clock::test_clock(slot), (slot * 400 / 1_000) as i64) else {
+        let Ok(quote) = market.quote_leverage_swap_at_time(asset, sold, slot, (slot * crate::constants::TARGET_MS_PER_SLOT / 1_000) as i64) else {
             continue;
         };
         if quote.amount_out < payment + 50 {
@@ -89,7 +89,7 @@ fn margin_calibration_native_stored_depth_paths() {
                     let entry_value = reference_credit(&market, asset, position.collateral_amount);
                     let debt = position.debt_amount(&market.debt).unwrap();
                     let entry_exit = market
-                        .quote_leverage_swap(asset, position.collateral_amount, crate::clock::test_clock(2))
+                        .quote_leverage_swap(asset, position.collateral_amount, 2)
                         .unwrap()
                         .amount_out;
                     let schedules = [0, 1, 2, 3].map(|index| depth_schedule(index, stored_depth));
@@ -121,8 +121,8 @@ fn margin_calibration_native_stored_depth_paths() {
                             .quote_leverage_swap_at_time(
                                 asset,
                                 position.collateral_amount,
-                                crate::clock::test_clock(slot),
-                                (slot * 400 / 1_000) as i64,
+                                slot,
+                                (slot * crate::constants::TARGET_MS_PER_SLOT / 1_000) as i64,
                             )
                             .unwrap()
                             .amount_out;

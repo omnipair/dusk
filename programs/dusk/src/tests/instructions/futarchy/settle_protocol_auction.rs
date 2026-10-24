@@ -4,9 +4,9 @@ use crate::state::{ProtocolAuctionConfig, ProtocolAuctionParams, ProtocolAuction
 
 fn decayed_auction_price_nad(
     auction: &crate::state::ProtocolAuctionConfig,
-    epoch_start_timestamp_ms: u64,
+    epoch_start_slot: u64,
     reference_price_nad: u64,
-    current_timestamp_ms: u64,
+    current_slot: u64,
 ) -> Result<u64> {
     require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
     let start_price = (reference_price_nad as u128)
@@ -17,14 +17,14 @@ fn decayed_auction_price_nad(
         .checked_mul(auction.params.floor_multiplier_bps as u128)
         .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let elapsed_ms = current_timestamp_ms
-        .saturating_sub(epoch_start_timestamp_ms)
-        .min(auction.params.duration_ms);
+    let elapsed_slots = current_slot
+        .saturating_sub(epoch_start_slot)
+        .min(auction.params.duration_slots);
     let decay = start_price
         .checked_sub(floor_price)
         .ok_or(ErrorCode::MarketMathOverflow)?
-        .checked_mul(elapsed_ms as u128)
-        .and_then(|value| value.checked_div(auction.params.duration_ms as u128))
+        .checked_mul(elapsed_slots as u128)
+        .and_then(|value| value.checked_div(auction.params.duration_slots as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let price = start_price.checked_sub(decay).ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
@@ -64,7 +64,7 @@ fn auction() -> ProtocolAuctionConfig {
         params: ProtocolAuctionParams {
             start_multiplier_bps: 12_000,
             floor_multiplier_bps: 8_000,
-            duration_ms: 100,
+            duration_slots: 100,
             max_reference_age_slots: 10,
         },
     }

@@ -70,7 +70,7 @@ fn metadata_market() -> MetadataMarketFixture {
             initial_liquidity_authority,
             0,
             0,
-            crate::clock::test_clock(1),
+            1,
             255,
         )
         .unwrap();

@@ -5,6 +5,7 @@ import { address, type AddressLike } from "./address.js";
 import { deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress, deriveParameterProposalAddress, deriveYieldAccountAddress } from "./constants.js";
 import { anchorParameterUpdate, assertProposalMetadata, canonicalParameterUpdates, governanceIntegerBN, type GovernanceIntegerLike, type ParameterUpdate, type ProposalMetadataV1 } from "./governance.js";
 import type { Dusk } from "./types_v2.js";
+import type { GovernanceBalance, GovernanceSupport, Market, ParameterProposal } from "./type-aliases.js";
 import { DuskWrite, type DuskInstructionName, type GovernanceHolderAccountOverrides } from "./write.js";
 
 export interface GovernanceOwnerParams extends GovernanceHolderAccountOverrides {
@@ -48,23 +49,33 @@ export class DuskGovernance {
   private readonly writer: DuskWrite;
   constructor(readonly program: Program<Dusk>) { this.writer = new DuskWrite(program); }
 
+  // Keep account decoding scoped to the requested account. Expanding the
+  // entire generated IDL here exceeds TypeScript's recursive type depth.
+  private accountClient<T>(name: string) {
+    return (this.program.account as unknown as Record<string, {
+      fetch(address: PublicKey): Promise<T>;
+      fetchNullable(address: PublicKey): Promise<T | null>;
+      all(filters?: unknown[]): Promise<Array<{ publicKey: PublicKey; account: T }>>;
+    }>)[name];
+  }
+
   async getBalance(market: AddressLike, owner: AddressLike) {
     const [publicKey] = deriveGovernanceBalanceAddress(address(market), address(owner), this.program.programId);
-    const account = await this.program.account.governanceBalance.fetchNullable(publicKey);
+    const account = await this.accountClient<GovernanceBalance>("governanceBalance").fetchNullable(publicKey);
     return account ? { publicKey, ...account, availableAmount: account.totalAmount.sub(account.committedAmount) } : null;
   }
 
   async getSupport(proposal: AddressLike, market: AddressLike, owner: AddressLike) {
     const [balance] = deriveGovernanceBalanceAddress(address(market), address(owner), this.program.programId);
     const [publicKey] = deriveGovernanceSupportAddress(address(proposal), balance, this.program.programId);
-    const account = await this.program.account.governanceSupport.fetchNullable(publicKey);
+    const account = await this.accountClient<GovernanceSupport>("governanceSupport").fetchNullable(publicKey);
     return account ? { publicKey, ...account } : null;
   }
 
   /** All allocations, including ended proposals awaiting release, for one owner. */
   async listSupport(market: AddressLike, owner: AddressLike) {
     const [balance] = deriveGovernanceBalanceAddress(address(market), address(owner), this.program.programId);
-    return this.program.account.governanceSupport.all([{ memcmp: { offset: 40, bytes: balance.toBase58() } }]);
+    return this.accountClient<GovernanceSupport>("governanceSupport").all([{ memcmp: { offset: 40, bytes: balance.toBase58() } }]);
   }
 
   deposit(params: GovernanceOwnerParams & { amount: GovernanceIntegerLike }) {
@@ -88,7 +99,7 @@ export class DuskGovernance {
 
   private async manage(params: GovernanceOwnerParams, action: unknown) {
     const market = address(params.market), owner = address(params.owner);
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.accountClient<Market>("market").fetch(market);
     const ylpMint = address(params.ylpMint ?? state.ylpMint);
     const [governanceBalance] = deriveGovernanceBalanceAddress(market, owner, this.program.programId);
     const instruction = await this.writer.instruction("manageGovernanceBalance" as DuskInstructionName, action, { accounts: {
@@ -105,7 +116,7 @@ export class DuskGovernance {
     assertProposalMetadata(params.metadata);
     const market = address(params.market), proposer = address(params.proposer);
     const [proposal] = deriveParameterProposalAddress(market, proposer, params.nonce, this.program.programId);
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.accountClient<Market>("market").fetch(market);
     const batch = this.contributions(market, proposal, params.contributions);
     const instruction = await this.writer.instruction("createGovernanceProposal" as DuskInstructionName, {
       nonce: governanceIntegerBN(params.nonce, "nonce"),
@@ -123,7 +134,7 @@ export class DuskGovernance {
     const market = address(params.market), proposal = address(params.proposal);
     const digest = Array.from(params.digest);
     if (digest.length !== 32 || digest.some((v) => !Number.isInteger(v) || v < 0 || v > 255)) throw new Error("Proposal digest must contain 32 bytes");
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.accountClient<Market>("market").fetch(market);
     const batch = this.contributions(market, proposal, params.contributions);
     const instruction = await this.writer.instruction("supportGovernanceProposal" as DuskInstructionName, {
       digest, contributions: batch.amounts,
@@ -138,8 +149,8 @@ export class DuskGovernance {
     const market = address(params.market), proposal = address(params.proposal);
     const [governanceBalance] = deriveGovernanceBalanceAddress(market, address(params.owner), this.program.programId);
     const [governanceSupport] = deriveGovernanceSupportAddress(proposal, governanceBalance, this.program.programId);
-    const proposer = params.proposer ?? (await this.program.account.parameterProposal.fetch(proposal)).proposer;
-    const rentRefund = params.rentRefund ?? (await this.program.account.governanceSupport.fetch(governanceSupport)).rentRefund;
+    const proposer = params.proposer ?? (await this.accountClient<ParameterProposal>("parameterProposal").fetch(proposal)).proposer;
+    const rentRefund = params.rentRefund ?? (await this.accountClient<GovernanceSupport>("governanceSupport").fetch(governanceSupport)).rentRefund;
     const instruction = await this.writer.instruction("withdrawGovernanceSupport" as DuskInstructionName,
       { amount: params.amount === undefined ? null : positiveAmount(params.amount) }, { accounts: {
         authority: address(params.authority), market, proposal, proposer: address(proposer), governanceBalance, governanceSupport, rentRefund: address(rentRefund),

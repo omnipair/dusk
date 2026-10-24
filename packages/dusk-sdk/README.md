@@ -9,27 +9,8 @@ collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
 
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
-targets Dusk market layout v6, including aggregate leverage exposure and stored
+targets Dusk market layout v2, including aggregate leverage exposure and stored
 position margin terms. Regenerate clients and use matching account layouts.
-
-## Time and ordering
-
-Market layout v6 uses `Clock.unix_timestamp` for elapsed interest, EMA and
-volatility half-lives, daily borrowing refill, insurance windows, controller
-cooldowns, and protocol-auction decay. Stored `*TimestampMs` / `*_timestamp_ms`
-fields have millisecond units but whole-second source resolution. Slots remain
-ordering/freshness checks; they are not a duration conversion.
-
-Use `minAdjustmentIntervalMs` in AMM configuration and center-controller
-governance, and `durationMs` (`duration_ms` in raw Anchor arguments) for
-protocol auctions. The controller maximum and default auction duration are
-86,400,000 ms. Adopt the regenerated v6 IDL and these names together; old slot
-counts must not be passed as millisecond values. `BorrowInterestAccrued` adds
-`fromTimestampMs` and `toTimestampMs` for the actual accrual interval.
-
-See [elapsed-time semantics](../../docs/ELAPSED_TIME.md) for timestamp behavior,
-replay inputs, and the separation from slot ordering.
-
 
 ## Protocol revenue defaults
 
@@ -1040,7 +1021,7 @@ capital returned to reserves. Subtract its capital debits from gross
 Repayment builders supply the canonical accounts needed for both hLP vaults.
 Raw callers must include the five existing hLP accounts followed by both asset
 mints and reserve vaults when fresh public interest is settled with active hLP.
-The Market layout is version 6 with `fees.publicInterestAdvance` on both sides,
+The Market layout is version 5 with `fees.publicInterestAdvance` on both sides,
 per-vault flash locks, and non-cash `reserves.flashReceivable`;
 use the regenerated IDL. It also records a frozen hLP mask and per-vault
 curve offsets; older snapshots are incompatible.

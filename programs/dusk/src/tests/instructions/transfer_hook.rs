@@ -156,7 +156,6 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         curve_revision: 0,
         risk_revision: 0,
         last_update_slot: 0,
-        last_update_timestamp_ms: crate::clock::test_clock(0).timestamp_ms,
         reduce_only: false,
         bump: 0,
     };

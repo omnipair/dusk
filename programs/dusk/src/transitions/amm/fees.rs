@@ -1,7 +1,9 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, MAX_PARAMETER_FEE_BPS, NAD, NATURAL_LOG_OF_TWO_NAD, TAYLOR_TERMS},
+    constants::{
+        BPS_DENOMINATOR, MAX_PARAMETER_FEE_BPS, NAD, NATURAL_LOG_OF_TWO_NAD, TARGET_MS_PER_SLOT, TAYLOR_TERMS,
+    },
     errors::ErrorCode,
     math::{ceil_div, taylor_exp},
 };
@@ -113,7 +115,7 @@ pub(crate) struct DynamicFeePreState {
     pub center_price_nad: u64,
     /// Accumulator as committed by the last successful swap.
     pub volatility_accumulator_nad: u64,
-    pub volatility_last_update_timestamp_ms: u64,
+    pub volatility_last_update_slot: u64,
 }
 
 #[cfg(test)]
@@ -123,7 +125,6 @@ pub(crate) struct DynamicFeePath {
     pub start_price_nad: u64,
     pub end_price_nad: u64,
     pub current_slot: u64,
-    pub current_timestamp_ms: u64,
     /// Additive outward-distance fee potential, already expressed in raw
     /// input-token units. The swap engine derives it from the invariant's
     /// input-reserve coordinate before the final curve quote.
@@ -743,8 +744,8 @@ fn u512_to_u128(value: U512) -> Result<u128> {
 
 pub(crate) fn decay_volatility_nad(
     accumulator_nad: u64,
-    last_update_timestamp_ms: u64,
-    clock: crate::clock::MarketClock,
+    last_update_slot: u64,
+    current_slot: u64,
     half_life_ms: u64,
 ) -> Result<u64> {
     if accumulator_nad == 0 {
@@ -753,10 +754,12 @@ pub(crate) fn decay_volatility_nad(
     if half_life_ms == 0 {
         return Ok(0);
     }
-    let elapsed_ms = clock
-        .timestamp_ms
-        .checked_sub(last_update_timestamp_ms)
-        .ok_or(ErrorCode::InvalidArgument)?;
+    let elapsed_slots = current_slot
+        .checked_sub(last_update_slot)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    let elapsed_ms = elapsed_slots
+        .checked_mul(TARGET_MS_PER_SLOT)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
     let exponent = (elapsed_ms as u128)
         .saturating_mul(NATURAL_LOG_OF_TWO_NAD as u128)
         .checked_div(half_life_ms as u128)
@@ -829,11 +832,8 @@ pub(crate) fn quote_dynamic_fee(
         pre_state
             .volatility_accumulator_nad
             .min(config.volatility_accumulator_cap_nad),
-        pre_state.volatility_last_update_timestamp_ms,
-        crate::clock::MarketClock {
-            slot: path.current_slot,
-            timestamp_ms: path.current_timestamp_ms,
-        },
+        pre_state.volatility_last_update_slot,
+        path.current_slot,
         config.volatility_half_life_ms,
     )?;
     let hard_total_budget = hard_total_fee_budget_floor(path.amount_in);

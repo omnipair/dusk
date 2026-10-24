@@ -12654,7 +12654,7 @@
             "type": "u64"
           },
           {
-            "name": "min_adjustment_interval_ms",
+            "name": "min_adjustment_interval_slots",
             "type": "u64"
           },
           {
@@ -12804,15 +12804,7 @@
             "type": "u64"
           },
           {
-            "name": "last_observation_timestamp_ms",
-            "type": "u64"
-          },
-          {
             "name": "last_adjustment_slot",
-            "type": "u64"
-          },
-          {
-            "name": "last_adjustment_timestamp_ms",
             "type": "u64"
           },
           {
@@ -13172,14 +13164,6 @@
           },
           {
             "name": "to_slot",
-            "type": "u64"
-          },
-          {
-            "name": "from_timestamp_ms",
-            "type": "u64"
-          },
-          {
-            "name": "to_timestamp_ms",
             "type": "u64"
           },
           {
@@ -13920,10 +13904,6 @@
             "type": "u64"
           },
           {
-            "name": "last_decay_timestamp_ms",
-            "type": "u64"
-          },
-          {
             "name": "decay_remainder_ms",
             "docs": [
               "Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed",
@@ -13990,15 +13970,7 @@
             "type": "u64"
           },
           {
-            "name": "base_last_accrual_timestamp_ms",
-            "type": "u64"
-          },
-          {
             "name": "quote_last_accrual_slot",
-            "type": "u64"
-          },
-          {
-            "name": "quote_last_accrual_timestamp_ms",
             "type": "u64"
           },
           {
@@ -16139,10 +16111,6 @@
           {
             "name": "funding_apr_ema_last_slot",
             "type": "u64"
-          },
-          {
-            "name": "funding_apr_ema_last_timestamp_ms",
-            "type": "u64"
           }
         ]
       }
@@ -16459,17 +16427,16 @@
         "fields": [
           {
             "name": "initialized",
+            "docs": [
+              "`start_slot` may legitimately be zero in a test or newly started bank;",
+              "keep initialization separate rather than using a sentinel slot."
+            ],
             "type": "bool"
-          },
-          {
-            "name": "start_timestamp_ms",
-            "type": "u64"
           },
           {
             "name": "start_slot",
             "docs": [
-              "Ordering checkpoint for the current 24-hour accounting window.",
-              "`initialized` distinguishes an unopened window from timestamp/slot zero."
+              "Start of the nominal 24-hour window, measured in consensus slots."
             ],
             "type": "u64"
           },
@@ -17826,10 +17793,6 @@
             "type": "u64"
           },
           {
-            "name": "last_update_timestamp_ms",
-            "type": "u64"
-          },
-          {
             "name": "reduce_only",
             "type": "bool"
           },
@@ -18465,7 +18428,7 @@
                 "type": "u64"
               },
               {
-                "name": "min_adjustment_interval_ms",
+                "name": "min_adjustment_interval_slots",
                 "type": "u64"
               }
             ]
@@ -19648,7 +19611,7 @@
             "type": "u16"
           },
           {
-            "name": "duration_ms",
+            "name": "duration_slots",
             "type": "u64"
           },
           {
@@ -19668,7 +19631,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "start_timestamp_ms",
+            "name": "start_slot",
             "type": "u64"
           },
           {
@@ -19711,7 +19674,7 @@
             "type": "u16"
           },
           {
-            "name": "duration_ms",
+            "name": "duration_slots",
             "type": "u64"
           },
           {
@@ -20513,10 +20476,6 @@
           },
           {
             "name": "last_snapshot_slot",
-            "type": "u64"
-          },
-          {
-            "name": "last_snapshot_timestamp_ms",
             "type": "u64"
           }
         ]
@@ -21863,8 +21822,9 @@
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 6 adds elapsed-time checkpoints and replaces auction slot timers.",
-        "Earlier serialized accounts must not decode as this expanded structure."
+        "Layout 6 keeps an explicit insurance-window initialization flag while",
+        "economic checkpoints use slots. Earlier development layouts must not",
+        "decode as this structure."
       ],
       "type": "u8",
       "value": "6"
@@ -21978,6 +21938,17 @@
       "name": "REFERRAL_PARTNER_SEED_PREFIX",
       "type": "bytes",
       "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 97, 114, 116, 110, 101, 114]"
+    },
+    {
+      "name": "TARGET_MS_PER_SLOT",
+      "docs": [
+        "Economic timers use a deterministic nominal slot cadence instead of the",
+        "leader-influenced `Clock.unix_timestamp`. Solana's 200 ms slot rollout is",
+        "separate from Alpenglow's finality change. Revisit this protocol constant",
+        "if the cluster's scheduled slot duration changes again."
+      ],
+      "type": "u64",
+      "value": "200"
     },
     {
       "name": "YIELD_ACCOUNT_SEED_PREFIX",

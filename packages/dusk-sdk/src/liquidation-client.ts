@@ -1,8 +1,9 @@
 import { fetchTransferFeeNotices } from "./transfer-fees.js";
-import type { Program, IdlTypes } from "@coral-xyz/anchor";
+import type { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
+import type { EmergencyLiquidationQuote, FlashLiquidationQuote } from "./type-aliases.js";
 import { address, type AddressLike } from "./address.js";
 import { DuskWrite } from "./write.js";
 import { DuskGet } from "./get.js";
@@ -12,8 +13,7 @@ import { tokenProgramForMint } from "./referral.js";
 import { deriveFutarchyAuthorityAddress, deriveLeverageCollateralVaultAddress, deriveReferralAccrualAddress } from "./constants.js";
 import { deriveLiquidationPaymentAddress, deriveLiquidationSessionAddress } from "./liquidation.js";
 
-export type FlashLiquidationQuote = IdlTypes<DuskIdl>["flashLiquidationQuote"];
-export type EmergencyLiquidationQuote = IdlTypes<DuskIdl>["emergencyLiquidationQuote"];
+export type { FlashLiquidationQuote, EmergencyLiquidationQuote };
 
 export interface LiquidationPositionParams {
   market: AddressLike;
@@ -95,8 +95,8 @@ export class DuskLiquidations {
     const market = address(params.market);
     const position = address(params.position);
     const [state, positionState] = await Promise.all([
-      this.program.account.market.fetch(market),
-      params.kind === "borrow" ? this.program.account.borrowPosition.fetch(position) : this.program.account.leveragePosition.fetch(position),
+      this.get.market(market),
+      params.kind === "borrow" ? this.get.borrowPosition(position) : this.get.leveragePosition(position),
     ]);
     if (!positionState.market.equals(market)) throw new Error("Position belongs to another market");
     const debtAsset = params.debtAsset === "base" ? 0 : 1;

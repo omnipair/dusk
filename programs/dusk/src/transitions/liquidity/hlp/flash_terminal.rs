@@ -21,7 +21,7 @@ impl Market {
         debt_fee: LeverageCollateralFee,
         max_insurance_draw: u64,
         max_socialized_loss: u64,
-        clock: crate::clock::MarketClock,
+        slot: u64,
     ) -> Result<HlpFlashTerminalSettlement> {
         require!(quote.full, ErrorCode::InvalidLiquidationSession);
         let target = MarketAsset::try_from_code(quote.target_asset)?;
@@ -62,7 +62,7 @@ impl Market {
         let recovery = opposite_claim
             .checked_add(quote.reserve_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let capacity = self.insurance.draw_capacity(borrowed, clock)?;
+        let capacity = self.insurance.draw_capacity(borrowed, slot)?;
         let mut loss = LiquidationLossAllocation::quote_with_coverage(
             vault.debt_principal.min(debt),
             debt,
@@ -110,7 +110,7 @@ impl Market {
             .ok_or(ErrorCode::ReserveUnderflow)?;
         self.side_mut(borrowed).credit_reserve(quote.reserve_credit, true)?;
         if insurance_debit > 0 {
-            self.insurance.consume_draw(borrowed, insurance_debit, clock)?;
+            self.insurance.consume_draw(borrowed, insurance_debit, slot)?;
         }
         if loss.insurance_credit > 0 {
             self.side_mut(borrowed).credit_reserve(loss.insurance_credit, true)?;
@@ -156,7 +156,6 @@ impl Market {
         v.cached_settlement_price_nad = 0;
         v.funding_apr_ema_nad = 0;
         v.funding_apr_ema_last_slot = 0;
-        v.funding_apr_ema_last_timestamp_ms = 0;
         let surplus_credit = debt_fee.unwind_credit(loss.surplus)?;
         v.publish_new_interest(borrowed, surplus_credit)?;
         let fees = &mut self.side_mut(borrowed).fees;
@@ -193,7 +192,7 @@ impl Market {
         } else {
             other_quote = target_receipt;
         }
-        self.finalize_amm_transition_and_observe_risk(clock)?;
+        self.finalize_amm_transition_and_observe_risk(slot)?;
         self.assert_market_invariants()?;
         Ok(HlpFlashTerminalSettlement {
             base,

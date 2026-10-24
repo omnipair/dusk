@@ -12660,7 +12660,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "minAdjustmentIntervalMs",
+            "name": "minAdjustmentIntervalSlots",
             "type": "u64"
           },
           {
@@ -12810,15 +12810,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "lastObservationTimestampMs",
-            "type": "u64"
-          },
-          {
             "name": "lastAdjustmentSlot",
-            "type": "u64"
-          },
-          {
-            "name": "lastAdjustmentTimestampMs",
             "type": "u64"
           },
           {
@@ -13178,14 +13170,6 @@ export type Dusk = {
           },
           {
             "name": "toSlot",
-            "type": "u64"
-          },
-          {
-            "name": "fromTimestampMs",
-            "type": "u64"
-          },
-          {
-            "name": "toTimestampMs",
             "type": "u64"
           },
           {
@@ -13926,10 +13910,6 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "lastDecayTimestampMs",
-            "type": "u64"
-          },
-          {
             "name": "decayRemainderMs",
             "docs": [
               "Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed",
@@ -13996,15 +13976,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "baseLastAccrualTimestampMs",
-            "type": "u64"
-          },
-          {
             "name": "quoteLastAccrualSlot",
-            "type": "u64"
-          },
-          {
-            "name": "quoteLastAccrualTimestampMs",
             "type": "u64"
           },
           {
@@ -16145,10 +16117,6 @@ export type Dusk = {
           {
             "name": "fundingAprEmaLastSlot",
             "type": "u64"
-          },
-          {
-            "name": "fundingAprEmaLastTimestampMs",
-            "type": "u64"
           }
         ]
       }
@@ -16465,17 +16433,16 @@ export type Dusk = {
         "fields": [
           {
             "name": "initialized",
+            "docs": [
+              "`start_slot` may legitimately be zero in a test or newly started bank;",
+              "keep initialization separate rather than using a sentinel slot."
+            ],
             "type": "bool"
-          },
-          {
-            "name": "startTimestampMs",
-            "type": "u64"
           },
           {
             "name": "startSlot",
             "docs": [
-              "Ordering checkpoint for the current 24-hour accounting window.",
-              "`initialized` distinguishes an unopened window from timestamp/slot zero."
+              "Start of the nominal 24-hour window, measured in consensus slots."
             ],
             "type": "u64"
           },
@@ -17832,10 +17799,6 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "lastUpdateTimestampMs",
-            "type": "u64"
-          },
-          {
             "name": "reduceOnly",
             "type": "bool"
           },
@@ -18471,7 +18434,7 @@ export type Dusk = {
                 "type": "u64"
               },
               {
-                "name": "minAdjustmentIntervalMs",
+                "name": "minAdjustmentIntervalSlots",
                 "type": "u64"
               }
             ]
@@ -19654,7 +19617,7 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "durationMs",
+            "name": "durationSlots",
             "type": "u64"
           },
           {
@@ -19674,7 +19637,7 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
-            "name": "startTimestampMs",
+            "name": "startSlot",
             "type": "u64"
           },
           {
@@ -19717,7 +19680,7 @@ export type Dusk = {
             "type": "u16"
           },
           {
-            "name": "durationMs",
+            "name": "durationSlots",
             "type": "u64"
           },
           {
@@ -20519,10 +20482,6 @@ export type Dusk = {
           },
           {
             "name": "lastSnapshotSlot",
-            "type": "u64"
-          },
-          {
-            "name": "lastSnapshotTimestampMs",
             "type": "u64"
           }
         ]
@@ -21869,8 +21828,9 @@ export type Dusk = {
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 6 adds elapsed-time checkpoints and replaces auction slot timers.",
-        "Earlier serialized accounts must not decode as this expanded structure."
+        "Layout 6 keeps an explicit insurance-window initialization flag while",
+        "economic checkpoints use slots. Earlier development layouts must not",
+        "decode as this structure."
       ],
       "type": "u8",
       "value": "6"
@@ -21984,6 +21944,17 @@ export type Dusk = {
       "name": "referralPartnerSeedPrefix",
       "type": "bytes",
       "value": "[114, 101, 102, 101, 114, 114, 97, 108, 95, 112, 97, 114, 116, 110, 101, 114]"
+    },
+    {
+      "name": "targetMsPerSlot",
+      "docs": [
+        "Economic timers use a deterministic nominal slot cadence instead of the",
+        "leader-influenced `Clock.unix_timestamp`. Solana's 200 ms slot rollout is",
+        "separate from Alpenglow's finality change. Revisit this protocol constant",
+        "if the cluster's scheduled slot duration changes again."
+      ],
+      "type": "u64",
+      "value": "200"
     },
     {
       "name": "yieldAccountSeedPrefix",

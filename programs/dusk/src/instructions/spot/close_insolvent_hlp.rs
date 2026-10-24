@@ -120,27 +120,23 @@ impl<'info> CloseInsolventHlp<'info> {
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)
     }
 
-    pub fn update_and_validate(&mut self, args: &CloseInsolventHlpArgs) -> Result<crate::clock::MarketClock> {
+    pub fn update_and_validate(&mut self, args: &CloseInsolventHlpArgs) -> Result<u64> {
         self.validate(args)?;
-        let clock = crate::clock::MarketClock::get()?;
+        let current_slot = Clock::get()?.slot;
         crate::instructions::accounting::accrue_market_interest(
             &mut self.market,
-            clock,
+            current_slot,
             self.event_authority.to_account_info(),
         )?;
         // The ordinary `Market::update` checkpoints hLP settlement and must
         // reject an already-insolvent vault. This terminal path instead
         // advances only the debt and clock state needed to value and close it;
         // the successful waterfall reconstructs the curve and risk below.
-        self.market.advance_amm_clock(clock)?;
-        Ok(clock)
+        self.market.advance_amm_clock(current_slot)?;
+        Ok(current_slot)
     }
 
-    pub fn handle(
-        ctx: Context<'_, '_, '_, 'info, Self>,
-        args: CloseInsolventHlpArgs,
-        clock: crate::clock::MarketClock,
-    ) -> Result<()> {
+    pub fn handle(ctx: Context<'_, '_, '_, 'info, Self>, args: CloseInsolventHlpArgs, current_slot: u64) -> Result<()> {
         let target_asset = MarketAsset::try_from_code(args.target_asset)?;
         let borrowed_asset = target_asset.opposite();
         let eligibility = HlpYieldEligibility {
@@ -152,7 +148,7 @@ impl<'info> CloseInsolventHlp<'info> {
             target_asset,
             args.max_insurance_draw,
             crate::instructions::leverage_collateral_fee(&ctx.accounts.borrowed_mint, Clock::get()?.epoch)?,
-            clock,
+            current_slot,
         )?;
         require!(plan.target_asset() == target_asset, ErrorCode::BrokenInvariant);
         let insurance_spent = plan.insurance_request();
@@ -275,7 +271,7 @@ impl<'info> CloseInsolventHlp<'info> {
         )?;
         ctx.accounts
             .market
-            .finalize_amm_socialized_loss_and_observe_risk(clock)?;
+            .finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
         // This is the terminal recovery path for an already-insolvent hLP.
         // A changed fee on either market mint can leave global health below
         // the floor; requiring that floor here would strand the debt instead

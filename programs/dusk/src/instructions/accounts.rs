@@ -33,7 +33,7 @@ macro_rules! market_update_and_validate {
         pub fn update_and_validate(&mut self, args: &$args) -> Result<()> {
             crate::instructions::accounting::accrue_market_interest(
                 &mut self.market,
-                crate::clock::MarketClock::get()?,
+                Clock::get()?.slot,
                 self.event_authority.to_account_info(),
             )?;
             self.market.update()?;
@@ -44,7 +44,7 @@ macro_rules! market_update_and_validate {
         pub fn update_and_validate(&mut self) -> Result<()> {
             crate::instructions::accounting::accrue_market_interest(
                 &mut self.market,
-                crate::clock::MarketClock::get()?,
+                Clock::get()?.slot,
                 self.event_authority.to_account_info(),
             )?;
             self.market.update()?;

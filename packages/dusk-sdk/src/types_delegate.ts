@@ -2536,7 +2536,7 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "minAdjustmentIntervalMs",
+            "name": "minAdjustmentIntervalSlots",
             "type": "u64"
           },
           {
@@ -2686,15 +2686,7 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "lastObservationTimestampMs",
-            "type": "u64"
-          },
-          {
             "name": "lastAdjustmentSlot",
-            "type": "u64"
-          },
-          {
-            "name": "lastAdjustmentTimestampMs",
             "type": "u64"
           },
           {
@@ -3202,10 +3194,6 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "lastDecayTimestampMs",
-            "type": "u64"
-          },
-          {
             "name": "decayRemainderMs",
             "docs": [
               "Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed",
@@ -3272,15 +3260,7 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "baseLastAccrualTimestampMs",
-            "type": "u64"
-          },
-          {
             "name": "quoteLastAccrualSlot",
-            "type": "u64"
-          },
-          {
-            "name": "quoteLastAccrualTimestampMs",
             "type": "u64"
           },
           {
@@ -3875,10 +3855,6 @@ export type LeverageDelegate = {
           {
             "name": "fundingAprEmaLastSlot",
             "type": "u64"
-          },
-          {
-            "name": "fundingAprEmaLastTimestampMs",
-            "type": "u64"
           }
         ]
       }
@@ -3942,17 +3918,16 @@ export type LeverageDelegate = {
         "fields": [
           {
             "name": "initialized",
+            "docs": [
+              "`start_slot` may legitimately be zero in a test or newly started bank;",
+              "keep initialization separate rather than using a sentinel slot."
+            ],
             "type": "bool"
-          },
-          {
-            "name": "startTimestampMs",
-            "type": "u64"
           },
           {
             "name": "startSlot",
             "docs": [
-              "Ordering checkpoint for the current 24-hour accounting window.",
-              "`initialized` distinguishes an unopened window from timestamp/slot zero."
+              "Start of the nominal 24-hour window, measured in consensus slots."
             ],
             "type": "u64"
           },
@@ -4591,10 +4566,6 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "lastUpdateTimestampMs",
-            "type": "u64"
-          },
-          {
             "name": "reduceOnly",
             "type": "bool"
           },
@@ -4945,7 +4916,7 @@ export type LeverageDelegate = {
         "kind": "struct",
         "fields": [
           {
-            "name": "startTimestampMs",
+            "name": "startSlot",
             "type": "u64"
           },
           {
@@ -4974,7 +4945,7 @@ export type LeverageDelegate = {
             "type": "u16"
           },
           {
-            "name": "durationMs",
+            "name": "durationSlots",
             "type": "u64"
           },
           {
@@ -5291,10 +5262,6 @@ export type LeverageDelegate = {
           },
           {
             "name": "lastSnapshotSlot",
-            "type": "u64"
-          },
-          {
-            "name": "lastSnapshotTimestampMs",
             "type": "u64"
           }
         ]

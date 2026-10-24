@@ -193,7 +193,7 @@ const everyFamily = [
   centerControllerParameterUpdate({
     adjustmentThresholdNad: NAD / 100n,
     adjustmentStepNad: NAD / 1_000n,
-    minAdjustmentIntervalMs: 100,
+    minAdjustmentIntervalSlots: 100,
   }),
   dailyBorrowLimitParameterUpdate(3_000),
   emaHalfLivesParameterUpdate({

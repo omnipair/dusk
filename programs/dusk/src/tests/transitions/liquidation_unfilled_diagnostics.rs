@@ -154,7 +154,7 @@ fn diagnose_unfilled(
         for step in 0..=steps {
             let now = 540 + step * 30;
             let slot = 1352 + step as u64 * 75;
-            market.accrue_interest_to_clock(crate::clock::test_clock(slot)).unwrap();
+            market.accrue_interest_to_slot(slot).unwrap();
             if step > 0 {
                 stress_to(&mut market, side.opposite(), mark, slot).unwrap();
             }

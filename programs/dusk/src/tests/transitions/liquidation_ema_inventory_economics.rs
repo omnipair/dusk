@@ -12,7 +12,7 @@ fn cmp_trade(m: &Market, a: MarketAsset, gross: u64, f: LeverageCollateralFee) -
     }
     .prepare(&mut t)?;
     let out = f.unwind_credit(s.quote.amount_out)?;
-    s.finalize_state(&mut t, crate::clock::MarketClock::from_timestamp(2, 120).unwrap(), 2000, ProtocolAuctionSplit::default())?;
+    s.finalize_state(&mut t, 2, 2000, ProtocolAuctionSplit::default())?;
     t.assert_market_invariants()?;
     Ok((t, out))
 }
@@ -222,7 +222,7 @@ fn cmp_v1_inventory(
     // Native ledger kernel ensures no fictional debt-token cash is introduced.
     t.apply_leverage_lifecycle_transition(policy, collateral, credit, a.debt, a.debt)?;
     t.apply_liquidation_position(&mut Mut::Leverage(&mut q), debt, a, seized, full)?;
-    t.finalize_amm_socialized_loss_and_observe_risk(crate::clock::MarketClock::from_timestamp(2, 120).unwrap())?;
+    t.finalize_amm_socialized_loss_and_observe_risk(2)?;
     t.assert_market_invariants()?;
     let after = t.flash_liquidation_health(&Ref::Leverage(&q), debt, f)?;
     let improves = full || health.improves(after)?;
@@ -274,7 +274,7 @@ fn audit_ema_inventory_economic_comparison() {
                                             - m.quote_hlp_vault.ylp_shares;
                                         if let Err(e) = m
                                             .remove_liquidity(ordinary * withdrawal / 10000)
-                                            .and_then(|_| m.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(2)))
+                                            .and_then(|_| m.finalize_amm_transition_and_observe_risk(2))
                                         {
                                             skipped += 1;
                                             println!(
@@ -482,7 +482,7 @@ fn cmp_current_candidate(
                     trial.liquidation_insurance_target(side)?,
                 );
                 let cap = if full {
-                    f.unwind_credit(trial.insurance.draw_capacity(side, crate::clock::MarketClock::from_timestamp(slot, now)?)?)?
+                    f.unwind_credit(trial.insurance.draw_capacity(side, slot)?)?
                 } else {
                     0
                 };
@@ -559,7 +559,7 @@ fn cmp_current_candidate(
                         &mut trial,
                         policy,
                         credit,
-                        crate::clock::MarketClock::from_timestamp(slot, now)?,
+                        slot,
                         2000,
                         ProtocolAuctionSplit::default(),
                         None,
@@ -568,7 +568,7 @@ fn cmp_current_candidate(
                         trial.insurance.consume_draw(
                             side,
                             f.effective_gross_for_credit(loss.insurance_credit)?,
-                            crate::clock::MarketClock::from_timestamp(slot, now)?,
+                            slot,
                         )?;
                     }
                     trial.apply_liquidation_position(
@@ -588,7 +588,7 @@ fn cmp_current_candidate(
                         slot,
                     )?;
                 }
-                cmp_publish_fee(&mut trial, side, fee, crate::clock::MarketClock::from_timestamp(slot, now)?, eligibility)?;
+                cmp_publish_fee(&mut trial, side, fee, slot, eligibility)?;
                 trial.assert_market_invariants()?;
                 t.flash += 1;
                 t.full += u64::from(full);
@@ -658,7 +658,7 @@ fn cmp_current_candidate(
                 2000,
                 ProtocolAuctionSplit::default(),
             )?;
-            cmp_publish_fee(&mut trial, side, q.fee, crate::clock::MarketClock::from_timestamp(slot, now)?, eligibility)?;
+            cmp_publish_fee(&mut trial, side, q.fee, slot, eligibility)?;
             trial.assert_market_invariants()?;
             t.emergency += 1;
             t.full += u64::from(full);
@@ -680,11 +680,11 @@ fn cmp_publish_fee(
     m: &mut Market,
     side: MarketAsset,
     fee: LiquidationFeeAllocation,
-    clock: crate::clock::MarketClock,
+    slot: u64,
     e: HlpYieldEligibility,
 ) -> Result<()> {
     if fee.insurance > 0 {
-        m.insurance.credit(side, fee.insurance, clock)?;
+        m.insurance.credit(side, fee.insurance, slot)?;
     }
     m.side_mut(side).record_liquidation_fee_credit(
         fee.lp,
@@ -724,7 +724,7 @@ fn audit_ema_inventory_withdrawal_does_not_trigger_healthy_position() {
                 let ordinary =
                     m.base_side.shares.ylp_supply - m.base_hlp_vault.ylp_shares - m.quote_hlp_vault.ylp_shares;
                 m.remove_liquidity(ordinary / 4).unwrap();
-                m.finalize_amm_transition_and_observe_risk(crate::clock::MarketClock::from_timestamp(2, 120).unwrap()).unwrap();
+                m.finalize_amm_transition_and_observe_risk(2).unwrap();
                 let after = m.flash_liquidation_health(&Ref::Leverage(&p), debt, fee).unwrap();
                 assert_eq!(before.collateral_value, after.collateral_value);
                 assert_eq!(before.debt, after.debt);

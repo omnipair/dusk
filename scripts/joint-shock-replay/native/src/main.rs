@@ -11,7 +11,9 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 fn clock(seconds: i64) -> BenchmarkClock {
     BenchmarkClock {
-        slot: (seconds as u64) * 5 / 2,
+        // Replay seconds map to scheduled slots; Unix time is kept only for
+        // the separate absolute-time policies in the native benchmark.
+        slot: u64::try_from(seconds).unwrap() * (1_000 / TARGET_MS_PER_SLOT),
         unix_timestamp: seconds,
     }
 }
@@ -93,7 +95,8 @@ fn make(c: &Value) -> R<Sim> {
             volatility_half_life_ms: 60_000,
             adjustment_threshold_nad: NAD / 100,
             adjustment_step_nad: NAD / 1000,
-            min_adjustment_interval_ms: 60_000,
+            // Preserve the 60-second historical preset at 200 ms per slot.
+            min_adjustment_interval_slots: 300,
             volatility_shock_cap_nad: NAD / 20,
             volatility_cap_nad: NAD / 10,
             divergence_fee_coefficient_nad: if dynamic { NAD / 10 } else { 0 },
@@ -333,11 +336,7 @@ fn make(c: &Value) -> R<Sim> {
         market
             .market_mut()
             .insurance
-            .credit(
-                debt_asset,
-                insurance,
-                dusk::clock::MarketClock::from_timestamp(clock(now).slot, now).map_err(err)?,
-            )
+            .credit(debt_asset, insurance, clock(now).slot)
             .map_err(err)?;
     }
     let mut s = Sim {

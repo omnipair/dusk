@@ -41,7 +41,7 @@ fn every_family_update() -> Vec<MarketParameterUpdate> {
         MarketParameterUpdate::CenterController {
             adjustment_threshold_nad: 0,
             adjustment_step_nad: 0,
-            min_adjustment_interval_ms: 0,
+            min_adjustment_interval_slots: 0,
         },
         MarketParameterUpdate::InsuranceDrawCaps {
             principal_coverage_bps: 0,
@@ -204,7 +204,7 @@ fn only_updated_families_carry_a_revision() {
         MarketParameterUpdate::CenterController {
             adjustment_threshold_nad: 1,
             adjustment_step_nad: 1,
-            min_adjustment_interval_ms: 1,
+            min_adjustment_interval_slots: 1,
         },
     ];
     assert_eq!(
@@ -313,7 +313,7 @@ fn any_updated_family_changing_makes_the_proposal_stale() {
             MarketParameterUpdate::CenterController {
                 adjustment_threshold_nad: 1,
                 adjustment_step_nad: 1,
-                min_adjustment_interval_ms: 1,
+                min_adjustment_interval_slots: 1,
             },
         ],
         family_revisions: revisions([0, 2, 0, 0, 0, 6, 0]),

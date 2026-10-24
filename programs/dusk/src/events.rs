@@ -265,7 +265,7 @@ pub struct ProtocolAuctionConfigUpdated {
     pub accepted_mint: Pubkey,
     pub start_multiplier_bps: u16,
     pub floor_multiplier_bps: u16,
-    pub duration_ms: u64,
+    pub duration_slots: u64,
     pub max_reference_age_slots: u64,
     pub signer: Pubkey,
 }
@@ -592,8 +592,6 @@ pub struct BorrowInterestAccrued {
     pub asset_side: u8,
     pub from_slot: u64,
     pub to_slot: u64,
-    pub from_timestamp_ms: u64,
-    pub to_timestamp_ms: u64,
     pub borrow_index_before_nad: u128,
     pub borrow_index_after_nad: u128,
     pub credit_interest: u128,

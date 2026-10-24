@@ -141,11 +141,10 @@ impl<'info> IncreaseLeverage<'info> {
     pub fn handle_increase(
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: IncreaseLeverageArgs,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         current_epoch: u64,
         current_unix_timestamp: i64,
     ) -> Result<()> {
-        let current_slot = clock.slot;
         let h_lp_accounts = {
             let market: &Market = &ctx.accounts.market;
             HlpSwapAccountLayout::try_from((market, ctx.remaining_accounts))?
@@ -160,7 +159,7 @@ impl<'info> IncreaseLeverage<'info> {
         // User funding and borrowed debt are swapped together, just as on entry.
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            clock,
+            current_slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         let margin_credit = if args.margin_amount > 0 {
@@ -250,7 +249,7 @@ impl<'info> IncreaseLeverage<'info> {
             swap_fee_credit,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
-            clock,
+            current_slot,
             current_unix_timestamp,
             leverage_collateral_admission_fee(&ctx.accounts.collateral_mint, current_epoch)?,
         )?;

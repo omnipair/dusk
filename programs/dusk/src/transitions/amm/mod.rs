@@ -143,7 +143,7 @@ impl Market {
 
     /// Lazily initializes the oracle-less AMM from the first complete
     /// two-sided liquidity state. No external price is consulted.
-    pub(crate) fn ensure_amm_initialized(&mut self, clock: crate::clock::MarketClock) -> Result<bool> {
+    pub(crate) fn ensure_amm_initialized(&mut self, current_slot: u64) -> Result<bool> {
         if self.amm.initialized {
             return Ok(false);
         }
@@ -173,7 +173,12 @@ impl Market {
         let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
         let launch_reference_price_nad = self.amm.launch_reference_price_nad;
         let launch_fee_progress_offset = self.amm.launch_fee_progress_offset;
-        let mut state = AmmState::initialize(&self.config.amm, center_price_nad, curve_depth_per_share_nad, clock)?;
+        let mut state = AmmState::initialize(
+            &self.config.amm,
+            center_price_nad,
+            curve_depth_per_share_nad,
+            current_slot,
+        )?;
         state.launch_reference_price_nad = launch_reference_price_nad;
         state.launch_fee_progress_offset = launch_fee_progress_offset;
         state.concentrated_curve_cache = concentrated_curve_cache;
@@ -182,22 +187,16 @@ impl Market {
         Ok(true)
     }
 
-    fn refresh_concentrated_curve_cache(
-        &mut self,
-        clock: crate::clock::MarketClock,
-        loss: bool,
-    ) -> Result<(u64, u128)> {
-        let curve_depth_nad = self.checkpoint_concentrated_curve_cache(clock, loss)?;
+    fn refresh_concentrated_curve_cache(&mut self, current_slot: u64, loss: bool) -> Result<(u64, u128)> {
+        let curve_depth_nad = self.checkpoint_concentrated_curve_cache(current_slot, loss)?;
         let price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
         Ok((price_nad, curve_depth_nad))
     }
 
-    fn checkpoint_concentrated_curve_cache(&mut self, clock: crate::clock::MarketClock, loss: bool) -> Result<u128> {
-        if !self.amm.initialized {
-            self.ensure_amm_initialized(clock)?;
-        }
+    fn checkpoint_concentrated_curve_cache(&mut self, current_slot: u64, loss: bool) -> Result<u128> {
+        self.ensure_amm_initialized(current_slot)?;
         require!(self.amm.initialized, ErrorCode::BrokenInvariant);
         let ordinary = self.ordinary_curve_point_nad()?;
         let cache = prepare_concentrated_cache_at_point(
@@ -226,12 +225,10 @@ impl Market {
     /// the exact cache already prepared from its compounded-fee endpoint.
     pub(crate) fn checkpoint_amm_neutral_inventory_raw(
         &mut self,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         prepared_cache: Option<ConcentratedCurveCache>,
     ) -> Result<()> {
-        if !self.amm.initialized {
-            self.ensure_amm_initialized(clock)?;
-        }
+        self.ensure_amm_initialized(current_slot)?;
         if !self.amm.initialized {
             require!(prepared_cache.is_none(), ErrorCode::BrokenInvariant);
             return Ok(());
@@ -254,7 +251,7 @@ impl Market {
             self.amm.concentrated_curve_cache = cache;
             self.amm.checkpoint_neutral_liquidity(curve_depth_per_share_nad);
         } else {
-            self.checkpoint_concentrated_curve_cache(clock, false)?;
+            self.checkpoint_concentrated_curve_cache(current_slot, false)?;
         }
         Ok(())
     }
@@ -262,28 +259,22 @@ impl Market {
     /// Socialized-loss checkpoint for concentrated curve state. Accrued unpaid interest has already
     /// been removed from curve reserves, so only actual executable-liquidity
     /// loss consumes protected profit.
-    pub(crate) fn checkpoint_amm_socialized_loss_raw(
-        &mut self,
-        clock: crate::clock::MarketClock,
-    ) -> Result<(u64, u128)> {
-        self.refresh_concentrated_curve_cache(clock, true)
+    pub(crate) fn checkpoint_amm_socialized_loss_raw(&mut self, current_slot: u64) -> Result<(u64, u128)> {
+        self.refresh_concentrated_curve_cache(current_slot, true)
     }
 
     /// Finalize an atomic share/reserve haircut. Unlike the raw checkpoint
     /// used inside multi-leg leverage settlement, this is a complete public
     /// transition: retention state, revision, empty-market state, and risk all
     /// advance together.
-    pub(crate) fn finalize_amm_socialized_loss_and_observe_risk(
-        &mut self,
-        clock: crate::clock::MarketClock,
-    ) -> Result<()> {
+    pub(crate) fn finalize_amm_socialized_loss_and_observe_risk(&mut self, current_slot: u64) -> Result<()> {
         if self.base_side.shares.ylp_supply == MIN_LIQUIDITY {
-            return self.finalize_amm_transition_and_observe_risk(clock);
+            return self.finalize_amm_transition_and_observe_risk(current_slot);
         }
-        let (price_nad, curve_depth_nad) = self.checkpoint_amm_socialized_loss_raw(clock)?;
+        let (price_nad, curve_depth_nad) = self.checkpoint_amm_socialized_loss_raw(current_slot)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
-        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, clock)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -291,12 +282,7 @@ impl Market {
     /// Reuse a current risk price only when repayment leaves both the executable
     /// reserves and refreshed curve geometry unchanged. Always checkpoint depth
     /// and the protected floor, including changes from accrued hLP funding.
-    pub(crate) fn finalize_debt_repayment(
-        &mut self,
-        clock: crate::clock::MarketClock,
-        before: CurveReservesNad,
-    ) -> Result<()> {
-        let current_slot = clock.slot;
+    pub(crate) fn finalize_debt_repayment(&mut self, current_slot: u64, before: CurveReservesNad) -> Result<()> {
         if self.amm.initialized
             && self.base_side.shares.ylp_supply > MIN_LIQUIDITY
             && before == self.curve_reserves_nad()?
@@ -304,36 +290,36 @@ impl Market {
             let risk_current =
                 self.risk_revision == self.curve_revision && self.risk.last_snapshot_slot == current_slot;
             let prior_cache = self.amm.concentrated_curve_cache;
-            let curve_depth_nad = self.checkpoint_concentrated_curve_cache(clock, false)?;
+            let curve_depth_nad = self.checkpoint_concentrated_curve_cache(current_slot, false)?;
             self.defer_amm_retention_target()?;
             self.advance_curve_revision()?;
             if risk_current && prior_cache == self.amm.concentrated_curve_cache {
                 self.observe_risk_from_concentrated_curve(
                     self.risk.cached_spot_base_price_nad,
                     curve_depth_nad,
-                    clock,
+                    current_slot,
                 )?;
                 self.risk_revision = self.curve_revision;
             } else {
-                self.refresh_risk_at_clock(clock)?;
+                self.refresh_risk_at_slot(current_slot)?;
             }
             Ok(())
         } else {
-            self.finalize_amm_transition_and_observe_risk(clock)
+            self.finalize_amm_transition_and_observe_risk(current_slot)
         }
     }
 
     /// Finalizes a complete non-trade transition. First liquidity is already fully
     /// checkpointed by initialization and has no stale forward target.
-    pub(crate) fn finalize_amm_transition(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
-        if self.ensure_amm_initialized(clock)? {
+    pub(crate) fn finalize_amm_transition(&mut self, current_slot: u64) -> Result<()> {
+        if self.ensure_amm_initialized(current_slot)? {
             self.advance_curve_revision()?;
             return Ok(());
         }
         if !self.amm.initialized {
             return Ok(());
         }
-        self.checkpoint_amm_neutral_inventory_raw(clock, None)?;
+        self.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
     }
@@ -341,8 +327,7 @@ impl Market {
     /// Finalizes a non-trade reserve/share mutation and records the exact
     /// applied curve from one evaluation, sharing one canonical result between
     /// transition accounting and risk observation.
-    pub(crate) fn finalize_amm_transition_and_observe_risk(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
-        let current_slot = clock.slot;
+    pub(crate) fn finalize_amm_transition_and_observe_risk(&mut self, current_slot: u64) -> Result<()> {
         if self.base_side.shares.ylp_supply == MIN_LIQUIDITY {
             require_eq!(
                 self.base_side.shares.ylp_supply,
@@ -378,7 +363,6 @@ impl Market {
             self.advance_curve_revision()?;
             self.risk_revision = self.curve_revision;
             self.last_update_slot = current_slot;
-            self.last_update_timestamp_ms = clock.timestamp_ms;
             return Ok(());
         }
         let reserves = self.curve_reserves_nad()?;
@@ -392,9 +376,9 @@ impl Market {
         require!(self.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
 
         if !self.amm.initialized {
-            self.ensure_amm_initialized(clock)?;
+            self.ensure_amm_initialized(current_slot)?;
         } else {
-            self.refresh_concentrated_curve_cache(clock, false)?;
+            self.refresh_concentrated_curve_cache(current_slot, false)?;
             self.defer_amm_retention_target()?;
         }
         self.advance_curve_revision()?;
@@ -407,45 +391,43 @@ impl Market {
         let price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
-        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, clock)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
 
-    /// Initializes clock-driven AMM state. Deferred center moves are evaluated
+    /// Initializes slot-driven AMM state. Deferred center moves are evaluated
     /// lazily by genuine user operations.
     #[inline(always)]
-    pub(crate) fn advance_amm_clock(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
-        if self.amm.initialized
-            && self.amm.last_observation_slot == clock.slot
-            && self.amm.last_observation_timestamp_ms == clock.timestamp_ms
-        {
+    pub(crate) fn advance_amm_clock(&mut self, current_slot: u64) -> Result<()> {
+        if self.amm.initialized && self.amm.last_observation_slot == current_slot {
             return Ok(());
         }
-        self.ensure_amm_initialized(clock)?;
+        self.ensure_amm_initialized(current_slot)?;
         if self.amm.initialized {
-            self.amm.observe_clock_from_validated_config(&self.config.amm, clock)?;
+            self.amm
+                .observe_slot_from_validated_config(&self.config.amm, current_slot)?;
         }
         Ok(())
     }
 
-    /// Advances clock-only signals before a swap-like operation. The caller
+    /// Advances slot-derived signals before a swap-like operation. The caller
     /// invokes `advance_one_amm_controller_target` before hLP pre-positioning;
     /// hLP residual safety therefore covers the complete controller-plus-trade
     /// path and positioning observes the applied curve.
     #[inline(always)]
-    pub(crate) fn prepare_amm_for_swap(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
-        self.advance_amm_clock(clock)
+    pub(crate) fn prepare_amm_for_swap(&mut self, current_slot: u64) -> Result<()> {
+        self.advance_amm_clock(current_slot)
     }
 
     /// Lazily advances at most one already-authorized center target. No
     /// transition depends on a keeper or auxiliary instruction.
-    pub(crate) fn advance_one_amm_controller_target(&mut self, clock: crate::clock::MarketClock) -> Result<bool> {
+    pub(crate) fn advance_one_amm_controller_target(&mut self, current_slot: u64) -> Result<bool> {
         if !self.amm.initialized {
             return Ok(false);
         }
         let parameters = self.config.amm.concentrated_curve_parameters()?;
-        self.advance_one_concentrated_controller_target(clock, parameters)
+        self.advance_one_concentrated_controller_target(current_slot, parameters)
     }
 
     /// Applies at most one sticky-center move for the concentrated curve. The
@@ -454,10 +436,9 @@ impl Market {
     /// protected-profit budget. It affects only later swaps.
     fn advance_one_concentrated_controller_target(
         &mut self,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         parameters: ConcentratedCurveParameters,
     ) -> Result<bool> {
-        let current_slot = clock.slot;
         if parameters.is_cpmm() || self.config.amm.adjustment_step_nad == 0 {
             self.amm.deferred_controller_target.clear();
             self.amm
@@ -503,11 +484,10 @@ impl Market {
         if candidate_center == 0 {
             let earliest = self
                 .amm
-                .last_adjustment_timestamp_ms
-                .checked_add(self.config.amm.min_adjustment_interval_ms)
+                .last_adjustment_slot
+                .checked_add(self.config.amm.min_adjustment_interval_slots)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            if current_slot <= self.amm.last_adjustment_slot
-                || clock.timestamp_ms < earliest
+            if current_slot < earliest
                 || symmetric_distance_nad(self.amm.center_price_nad, self.amm.price_ema_nad)?
                     < self.config.amm.adjustment_threshold_nad as u128
             {
@@ -584,10 +564,10 @@ impl Market {
             candidate_cache.geometry()?;
             let earliest = self
                 .amm
-                .last_adjustment_timestamp_ms
-                .checked_add(self.config.amm.min_adjustment_interval_ms)
+                .last_adjustment_slot
+                .checked_add(self.config.amm.min_adjustment_interval_slots)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-            require_gte!(clock.timestamp_ms, earliest, ErrorCode::InvalidArgument);
+            require_gte!(current_slot, earliest, ErrorCode::InvalidArgument);
             if protected_funds_move {
                 let new_base_live = self
                     .base_side
@@ -627,7 +607,7 @@ impl Market {
                 candidate_cache,
                 candidate_curve_depth_per_share,
                 if protected_funds_move { 0 } else { covered },
-                clock,
+                current_slot,
             )?;
             self.defer_amm_retention_target()?;
             return Ok(true);
@@ -655,7 +635,7 @@ impl Market {
     /// Reconstructs a governance-selected concentrated shape from unchanged
     /// ordinary reserves. Parameter changes are admitted only when the
     /// existing protected-profit budget covers any principal impairment.
-    pub(crate) fn apply_concentrated_curve_parameter_update(&mut self, clock: crate::clock::MarketClock) -> Result<()> {
+    pub(crate) fn apply_concentrated_curve_parameter_update(&mut self, current_slot: u64) -> Result<()> {
         let parameters = self.config.amm.concentrated_curve_parameters()?;
         let ordinary = self.ordinary_curve_point_nad()?;
         let cache = prepare_concentrated_cache_at_point(
@@ -680,7 +660,7 @@ impl Market {
         let price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
-        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, clock)?;
+        self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
     }
@@ -692,10 +672,10 @@ impl Market {
         &mut self,
         trade_start_price_nad: u64,
         final_price_nad: u64,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<()> {
-        self.checkpoint_amm_neutral_inventory_raw(clock, None)?;
-        self.finalize_amm_trade_after_inventory_checkpoint(trade_start_price_nad, final_price_nad, clock)?;
+        self.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
+        self.finalize_amm_trade_after_inventory_checkpoint(trade_start_price_nad, final_price_nad, current_slot)?;
         Ok(())
     }
 
@@ -709,13 +689,13 @@ impl Market {
         &mut self,
         trade_start_price_nad: u64,
         final_price_nad: u64,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<()> {
         if !self.amm.initialized {
             return Ok(());
         }
         self.amm
-            .checkpoint_trade(&self.config.amm, trade_start_price_nad, final_price_nad, clock)?;
+            .checkpoint_trade(&self.config.amm, trade_start_price_nad, final_price_nad, current_slot)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
     }
@@ -2094,13 +2074,13 @@ impl Market {
         &self,
         asset_in: MarketAsset,
         reserve_credit: u64,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         pre_state: DynamicFeePreState,
     ) -> Result<PreliminarySwapInputs> {
         self.preliminary_swap_inputs_for_state_at_time(
             asset_in,
             reserve_credit,
-            clock,
+            current_slot,
             self.config.start_time,
             pre_state,
         )
@@ -2110,7 +2090,7 @@ impl Market {
         &self,
         asset_in: MarketAsset,
         reserve_credit: u64,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         current_unix_timestamp: i64,
         pre_state: DynamicFeePreState,
     ) -> Result<PreliminarySwapInputs> {
@@ -2120,7 +2100,7 @@ impl Market {
         self.preliminary_swap_inputs_at_reference_price(
             asset_in,
             reserve_credit,
-            clock,
+            current_slot,
             current_unix_timestamp,
             pre_state,
             price,
@@ -2131,7 +2111,7 @@ impl Market {
         &self,
         asset_in: MarketAsset,
         reserve_credit: u64,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         current_unix_timestamp: i64,
         pre_state: DynamicFeePreState,
         current_base_price_nad: u64,
@@ -2173,8 +2153,8 @@ impl Market {
             pre_state
                 .volatility_accumulator_nad
                 .min(config.volatility_accumulator_cap_nad),
-            pre_state.volatility_last_update_timestamp_ms,
-            clock,
+            pre_state.volatility_last_update_slot,
+            current_slot,
             config.volatility_half_life_ms,
         )?;
         let hard_total_budget = hard_total_fee_budget_floor(reserve_credit);
@@ -2276,7 +2256,7 @@ impl Market {
     }
 
     #[inline(always)]
-    pub(crate) fn dynamic_fee_pre_state(&self, clock: crate::clock::MarketClock) -> Result<DynamicFeePreState> {
+    pub(crate) fn dynamic_fee_pre_state(&self, current_slot: u64) -> Result<DynamicFeePreState> {
         Ok(DynamicFeePreState {
             center_price_nad: self.current_curve_center_price_nad()?,
             volatility_accumulator_nad: if self.amm.initialized {
@@ -2284,10 +2264,10 @@ impl Market {
             } else {
                 0
             },
-            volatility_last_update_timestamp_ms: if self.amm.initialized {
-                self.amm.last_observation_timestamp_ms
+            volatility_last_update_slot: if self.amm.initialized {
+                self.amm.last_observation_slot
             } else {
-                clock.timestamp_ms
+                current_slot
             },
         })
     }
@@ -2343,13 +2323,14 @@ impl AmmConfig {
             ErrorCode::InvalidHalfLife
         );
 
-        let adjustment_disabled =
-            self.adjustment_threshold_nad == 0 && self.adjustment_step_nad == 0 && self.min_adjustment_interval_ms == 0;
+        let adjustment_disabled = self.adjustment_threshold_nad == 0
+            && self.adjustment_step_nad == 0
+            && self.min_adjustment_interval_slots == 0;
         if !adjustment_disabled {
             require!(
                 (MIN_AMM_ADJUSTMENT_NAD..=MAX_AMM_ADJUSTMENT_NAD).contains(&self.adjustment_step_nad)
                     && (self.adjustment_step_nad..=MAX_AMM_ADJUSTMENT_NAD).contains(&self.adjustment_threshold_nad)
-                    && (1..=MAX_AMM_ADJUSTMENT_INTERVAL_MS).contains(&self.min_adjustment_interval_ms),
+                    && (1..=MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS).contains(&self.min_adjustment_interval_slots),
                 ErrorCode::InvalidMarketConfig
             );
         }
@@ -2393,9 +2374,8 @@ impl AmmState {
         config: &AmmConfig,
         initial_price_nad: u64,
         initial_curve_depth_per_share_nad: u128,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<Self> {
-        let current_slot = clock.slot;
         config.validate()?;
         require!(initial_price_nad > 0, ErrorCode::InvalidSettlementPrice);
         Ok(Self {
@@ -2405,9 +2385,7 @@ impl AmmState {
             price_ema_nad: initial_price_nad,
             last_trade_price_nad: initial_price_nad,
             last_observation_slot: current_slot,
-            last_observation_timestamp_ms: clock.timestamp_ms,
             last_adjustment_slot: current_slot,
-            last_adjustment_timestamp_ms: clock.timestamp_ms,
             launch_reference_price_nad: 0,
             launch_fee_progress_offset: 0,
             volatility_accumulator_nad: 0,
@@ -2442,14 +2420,9 @@ impl AmmState {
     /// use this entry point to avoid repeating the full config validation both
     /// before and after one swap.
     #[inline(always)]
-    pub(crate) fn observe_clock_from_validated_config(
-        &mut self,
-        config: &AmmConfig,
-        clock: crate::clock::MarketClock,
-    ) -> Result<()> {
-        let current_slot = clock.slot;
+    pub(crate) fn observe_slot_from_validated_config(&mut self, config: &AmmConfig, current_slot: u64) -> Result<()> {
         require!(self.initialized, ErrorCode::InvalidMarketConfig);
-        clock.elapsed_ms(self.last_observation_slot, self.last_observation_timestamp_ms)?;
+        require_gte!(current_slot, self.last_observation_slot, ErrorCode::InvalidArgument);
 
         if current_slot == self.last_observation_slot {
             return Ok(());
@@ -2458,20 +2431,19 @@ impl AmmState {
         let price_ema_nad = ema_u64(
             self.price_ema_nad,
             self.last_trade_price_nad,
-            self.last_observation_timestamp_ms,
-            clock.timestamp_ms,
+            self.last_observation_slot,
+            current_slot,
             config.center_ema_half_life_ms,
         );
         let volatility_accumulator_nad = decay_volatility_nad(
             self.volatility_accumulator_nad,
-            self.last_observation_timestamp_ms,
-            clock,
+            self.last_observation_slot,
+            current_slot,
             config.volatility_half_life_ms,
         )?;
         self.price_ema_nad = price_ema_nad;
         self.volatility_accumulator_nad = volatility_accumulator_nad;
         self.last_observation_slot = current_slot;
-        self.last_observation_timestamp_ms = clock.timestamp_ms;
         Ok(())
     }
 
@@ -2490,14 +2462,14 @@ impl AmmState {
         config: &AmmConfig,
         start_price_nad: u64,
         end_price_nad: u64,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<()> {
         config.validate()?;
         require!(
             self.initialized && start_price_nad > 0 && end_price_nad > 0,
             ErrorCode::InvalidSettlementPrice
         );
-        self.observe_clock_from_validated_config(config, clock)?;
+        self.observe_slot_from_validated_config(config, current_slot)?;
 
         self.volatility_accumulator_nad = volatility_after_success_nad(
             self.volatility_accumulator_nad,
@@ -2510,16 +2482,12 @@ impl AmmState {
         Ok(())
     }
 
-    pub fn decayed_volatility(&self, config: &AmmConfig, clock: crate::clock::MarketClock) -> Result<u64> {
-        let elapsed_ms = clock.elapsed_ms(self.last_observation_slot, self.last_observation_timestamp_ms)?;
-        let clock = crate::clock::MarketClock {
-            timestamp_ms: self.last_observation_timestamp_ms + elapsed_ms,
-            ..clock
-        };
+    pub fn decayed_volatility(&self, config: &AmmConfig, current_slot: u64) -> Result<u64> {
+        require_gte!(current_slot, self.last_observation_slot, ErrorCode::InvalidArgument);
         decay_volatility_nad(
             self.volatility_accumulator_nad,
-            self.last_observation_timestamp_ms,
-            clock,
+            self.last_observation_slot,
+            current_slot,
             config.volatility_half_life_ms,
         )
     }
@@ -2601,9 +2569,8 @@ impl AmmState {
         new_cache: ConcentratedCurveCache,
         new_curve_depth_per_share_nad: u128,
         covered_actual_impairment_nad: u128,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<()> {
-        let current_slot = clock.slot;
         config.validate()?;
         require!(new_center_price_nad > 0, ErrorCode::InvalidSettlementPrice);
         new_cache.geometry()?;
@@ -2619,21 +2586,14 @@ impl AmmState {
             actual_impairment_nad,
             ErrorCode::BrokenInvariant
         );
-        let earliest_adjustment_timestamp_ms = self
-            .last_adjustment_timestamp_ms
-            .checked_add(config.min_adjustment_interval_ms)
+        let earliest_adjustment_slot = self
+            .last_adjustment_slot
+            .checked_add(config.min_adjustment_interval_slots)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        clock.elapsed_ms(self.last_adjustment_slot, self.last_adjustment_timestamp_ms)?;
-        require!(current_slot > self.last_adjustment_slot, ErrorCode::InvalidArgument);
-        require_gte!(
-            clock.timestamp_ms,
-            earliest_adjustment_timestamp_ms,
-            ErrorCode::InvalidArgument
-        );
+        require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
         self.center_price_nad = new_center_price_nad;
         self.concentrated_curve_cache = new_cache;
         self.last_adjustment_slot = current_slot;
-        self.last_adjustment_timestamp_ms = clock.timestamp_ms;
         self.checkpoint_recenter_or_loss(new_curve_depth_per_share_nad);
         Ok(())
     }
@@ -2707,11 +2667,8 @@ impl Risk {
         current_quote_price_nad: u64,
         current_curve_depth_nad: u128,
         config: &MarketConfig,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<Self> {
-        let current_slot = clock.slot;
-        let elapsed_ms = clock.elapsed_ms(self.last_snapshot_slot, self.last_snapshot_timestamp_ms)?;
-        let timestamp_ms = self.last_snapshot_timestamp_ms + elapsed_ms;
         require!(
             current_base_price_nad > 0 && current_quote_price_nad > 0 && current_curve_depth_nad > 0,
             ErrorCode::InsufficientLiquidity
@@ -2727,60 +2684,39 @@ impl Risk {
             self.observed_curve_depth_nad
         };
 
-        // Whole-second Clock timestamps commonly repeat across slots. Reuse
-        // initialized averages without invoking five decay calculations, while
-        // preserving immediate tightening of the directional bounds.
-        if elapsed_ms == 0
-            && self.base_price_ema_nad > 0
-            && self.quote_price_ema_nad > 0
-            && self.directional_base_price_ema_nad > 0
-            && self.directional_quote_price_ema_nad > 0
-            && self.curve_depth_ema_nad > 0
-        {
-            return Ok(Self {
-                directional_base_price_ema_nad: self.directional_base_price_ema_nad.min(cached_spot_base_price_nad),
-                directional_quote_price_ema_nad: self.directional_quote_price_ema_nad.min(cached_spot_quote_price_nad),
-                cached_spot_base_price_nad: current_base_price_nad,
-                cached_spot_quote_price_nad: current_quote_price_nad,
-                observed_curve_depth_nad: current_curve_depth_nad,
-                last_snapshot_slot: current_slot,
-                ..*self
-            });
-        }
-
         let base_price_ema_nad = ema_u64(
             self.base_price_ema_nad,
             cached_spot_base_price_nad,
-            self.last_snapshot_timestamp_ms,
-            timestamp_ms,
+            self.last_snapshot_slot,
+            current_slot,
             config.ema_half_life_ms,
         );
         let quote_price_ema_nad = ema_u64(
             self.quote_price_ema_nad,
             cached_spot_quote_price_nad,
-            self.last_snapshot_timestamp_ms,
-            timestamp_ms,
+            self.last_snapshot_slot,
+            current_slot,
             config.ema_half_life_ms,
         );
         let directional_base_price_ema_nad = directional_ema_u64(
             self.directional_base_price_ema_nad,
             cached_spot_base_price_nad,
-            self.last_snapshot_timestamp_ms,
-            timestamp_ms,
+            self.last_snapshot_slot,
+            current_slot,
             config.directional_ema_half_life_ms,
         );
         let directional_quote_price_ema_nad = directional_ema_u64(
             self.directional_quote_price_ema_nad,
             cached_spot_quote_price_nad,
-            self.last_snapshot_timestamp_ms,
-            timestamp_ms,
+            self.last_snapshot_slot,
+            current_slot,
             config.directional_ema_half_life_ms,
         );
         let curve_depth_ema_nad = ema_u128(
             self.curve_depth_ema_nad,
             observed_curve_depth_nad,
-            self.last_snapshot_timestamp_ms,
-            timestamp_ms,
+            self.last_snapshot_slot,
+            current_slot,
             config.curve_depth_ema_half_life_ms,
         );
 
@@ -2794,7 +2730,6 @@ impl Risk {
             observed_curve_depth_nad: current_curve_depth_nad,
             curve_depth_ema_nad,
             last_snapshot_slot: current_slot,
-            last_snapshot_timestamp_ms: timestamp_ms,
         })
     }
 }

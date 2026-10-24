@@ -4,7 +4,6 @@ use anchor_lang::prelude::*;
 pub mod account;
 #[cfg(feature = "benchmark")]
 pub mod benchmark_api;
-pub mod clock;
 pub mod constants;
 pub mod errors;
 pub mod events;
@@ -318,8 +317,8 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
         args: CloseInsolventHlpArgs,
     ) -> Result<()> {
-        let clock = ctx.accounts.update_and_validate(&args)?;
-        CloseInsolventHlp::handle(ctx, args, clock)
+        let current_slot = ctx.accounts.update_and_validate(&args)?;
+        CloseInsolventHlp::handle(ctx, args, current_slot)
     }
 
     pub fn begin_flash_liquidation<'info>(
@@ -421,13 +420,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        OpenLeverage::handle_open(
-            ctx,
-            args,
-            crate::clock::MarketClock::from_clock(&clock)?,
-            clock.epoch,
-            clock.unix_timestamp,
-        )
+        OpenLeverage::handle_open(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
     pub fn close_leverage<'info>(
@@ -436,13 +429,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        CloseLeverage::handle_close(
-            ctx,
-            args,
-            crate::clock::MarketClock::from_clock(&clock)?,
-            clock.epoch,
-            clock.unix_timestamp,
-        )
+        CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
     pub fn delegated_close_leverage<'info>(
@@ -451,13 +438,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_delegated_at(&args, clock.unix_timestamp)?;
-        CloseLeverage::handle_delegated_close(
-            ctx,
-            args,
-            crate::clock::MarketClock::from_clock(&clock)?,
-            clock.epoch,
-            clock.unix_timestamp,
-        )
+        CloseLeverage::handle_delegated_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
     pub fn increase_leverage<'info>(
@@ -466,13 +447,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        IncreaseLeverage::handle_increase(
-            ctx,
-            args,
-            crate::clock::MarketClock::from_clock(&clock)?,
-            clock.epoch,
-            clock.unix_timestamp,
-        )
+        IncreaseLeverage::handle_increase(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
     }
 
     pub fn decrease_leverage<'info>(
@@ -481,12 +456,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        DecreaseLeverage::handle_decrease(
-            ctx,
-            args,
-            crate::clock::MarketClock::from_clock(&clock)?,
-            clock.unix_timestamp,
-        )
+        DecreaseLeverage::handle_decrease(ctx, args, clock.slot, clock.unix_timestamp)
     }
 
     pub fn add_leverage_margin<'info>(
@@ -495,13 +465,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        AddLeverageMargin::handle_add_margin(
-            ctx,
-            args,
-            crate::clock::MarketClock::from_clock(&clock)?,
-            clock.epoch,
-            true,
-        )
+        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, true)
     }
 
     /// Repays leverage from the signer's tokens without quoting or selling collateral.
@@ -512,13 +476,7 @@ pub mod dusk {
     ) -> Result<()> {
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        AddLeverageMargin::handle_add_margin(
-            ctx,
-            args,
-            crate::clock::MarketClock::from_clock(&clock)?,
-            clock.epoch,
-            false,
-        )
+        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, false)
     }
 
     #[access_control(ctx.accounts.validate(&args))]

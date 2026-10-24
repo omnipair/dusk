@@ -212,10 +212,7 @@ impl Market {
             );
         }
         let net_capacity = if full {
-            debt_fee.unwind_credit(
-                self.insurance
-                    .draw_capacity(asset, crate::clock::MarketClock::from_timestamp(slot, now)?)?,
-            )?
+            debt_fee.unwind_credit(self.insurance.draw_capacity(asset, slot)?)?
         } else {
             0
         };
@@ -340,21 +337,9 @@ impl Market {
                 &swap.leverage_quote(),
                 swap.quote.fee.claimable_fee_debit,
             )?;
-            let state = swap.apply(
-                self,
-                prepared.policy,
-                fee_credit,
-                crate::clock::MarketClock::from_timestamp(slot, now)?,
-                protocol_fee_bps,
-                split,
-                None,
-            )?;
+            let state = swap.apply(self, prepared.policy, fee_credit, slot, protocol_fee_bps, split, None)?;
             if q.insurance_debit > 0 {
-                self.insurance.consume_draw(
-                    asset,
-                    q.insurance_debit,
-                    crate::clock::MarketClock::from_timestamp(slot, now)?,
-                )?;
+                self.insurance.consume_draw(asset, q.insurance_debit, slot)?;
             }
             self.apply_liquidation_position(position, asset, prepared.allocation, q.collateral_debit, q.full)?;
             self.observe_liquidation_settlement(

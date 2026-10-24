@@ -52,7 +52,7 @@ fn margin_calibration_native_stored_depth_schedules() {
                         let stored_depth = stored_cash_depth(&market, collateral_asset);
                         let debt = position.debt_amount(&market.debt).unwrap();
                         let reference_health = equity_bps(value, debt).unwrap();
-                        let Ok(exit) = market.quote_leverage_swap(collateral_asset, collateral, crate::clock::test_clock(2)) else {
+                        let Ok(exit) = market.quote_leverage_swap(collateral_asset, collateral, 2) else {
                             continue;
                         };
                         let execution_health = equity_bps(exit.amount_out, debt).unwrap();
@@ -94,17 +94,17 @@ fn stored_depth_candidate_rejects_instant_depth_inflation_and_does_not_rebase_on
         let added = market
             .add_liquidity(50_000 * CALIBRATION_UNIT, 50_000 * CALIBRATION_UNIT)
             .unwrap();
-        market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
+        market.finalize_amm_transition_and_observe_risk(1).unwrap();
         let transient = stored_cash_depth(&market, MarketAsset::Base);
         assert!(
             transient.abs_diff(initial) <= 1,
             "immediate added depth inflated capacity: {initial} -> {transient}"
         );
         market.remove_liquidity(added.ylp_amount).unwrap();
-        market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
+        market.finalize_amm_transition_and_observe_risk(1).unwrap();
         let more_shares = market.base_side.shares.ylp_supply / 4;
         market.remove_liquidity(more_shares).unwrap();
-        market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
+        market.finalize_amm_transition_and_observe_risk(1).unwrap();
         let current = stored_cash_depth(&market, MarketAsset::Base);
         assert!(current < initial);
         assert_eq!(schedule.effective_maintenance_bps(position_size).unwrap(), original_mm);

@@ -196,11 +196,10 @@ impl<'info> BeginHlpFlash<'info> {
         let clock = Clock::get()?;
         crate::instructions::accounting::accrue_market_interest(
             &mut a.market,
-            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        a.market
-            .advance_amm_clock(crate::clock::MarketClock::from_clock(&clock)?)?;
+        a.market.advance_amm_clock(clock.slot)?;
         let quote = a.market.quote_hlp_flash_recovery(
             target,
             leverage_collateral_fee(&a.target_mint, clock.epoch)?,
@@ -363,12 +362,10 @@ impl<'info> SettleHlpFlash<'info> {
                 leverage_collateral_fee(&a.borrowed_mint, clock.epoch)?,
                 session.max_insurance_draw,
                 session.max_socialized_loss,
-                crate::clock::MarketClock::from_clock(&clock)?,
+                clock.slot,
             )?
         } else {
-            let (base, quote) = a
-                .market
-                .settle_hlp_flash_recovery(q, crate::clock::MarketClock::from_clock(&clock)?)?;
+            let (base, quote) = a.market.settle_hlp_flash_recovery(q, clock.slot)?;
             crate::transitions::liquidity::HlpFlashTerminalSettlement {
                 base,
                 quote,
@@ -507,10 +504,8 @@ impl PreviewHlpFlash<'_> {
         require_supported_asset_mint(&a.target_mint)?;
         require_supported_asset_mint(&a.borrowed_mint)?;
         let clock = Clock::get()?;
-        a.market
-            .accrue_interest_to_clock(crate::clock::MarketClock::from_clock(&clock)?)?;
-        a.market
-            .advance_amm_clock(crate::clock::MarketClock::from_clock(&clock)?)?;
+        a.market.accrue_interest_to_slot(clock.slot)?;
+        a.market.advance_amm_clock(clock.slot)?;
         a.market.quote_hlp_flash_recovery(
             target,
             leverage_collateral_fee(&a.target_mint, clock.epoch)?,

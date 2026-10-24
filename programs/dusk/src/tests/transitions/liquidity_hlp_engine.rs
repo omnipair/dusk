@@ -58,7 +58,7 @@ fn h_lp_entry_mints_against_current_value_even_if_cached_values_are_stale() {
             ..AmmConfig::default()
         };
         market.amm = AmmState::default();
-        market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+        market.prepare_amm_for_swap(1).unwrap();
 
         let prices = current_hlp_curve_prices(&market).unwrap();
         let supply_before = match target {
@@ -153,7 +153,7 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
             ..AmmConfig::default()
         };
         initial.amm = AmmState::default();
-        initial.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+        initial.prepare_amm_for_swap(1).unwrap();
         initial.config.settlement_divergence_bps = 500;
 
         for target in [MarketAsset::Base, MarketAsset::Quote] {
@@ -182,7 +182,7 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
                     swap.quote.fee.claimable_fee_debit,
                 )
                 .unwrap();
-                swap.apply(&mut market, SwapCashPolicy::Spot, fee_credit, crate::clock::test_clock(2), 0, ProtocolAuctionSplit::default(), None)
+                swap.apply(&mut market, SwapCashPolicy::Spot, fee_credit, 2, 0, ProtocolAuctionSplit::default(), None)
                     .unwrap();
                 let reference = match target {
                     MarketAsset::Base => market.base_hlp_vault.cached_settlement_price_nad,
@@ -217,7 +217,7 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
                         &mut market,
                         SwapCashPolicy::Spot,
                         reverse_credit,
-                        crate::clock::test_clock(3),
+                        3,
                         0,
                         ProtocolAuctionSplit::default(),
                         None,
@@ -386,7 +386,7 @@ proptest! {
 #[cfg(feature = "benchmark")]
 fn captured_vob_market() -> Market {
     // Adapt this historical fixture only: it predates fractional index carry
-    // aggregate leverage collateral, flash accounting and elapsed-time fields. Locate each
+    // and aggregate leverage collateral. Locate each
     // addition in the current Borsh layout using a unique sentinel, then insert
     // its neutral value in serialization order. All captured bytes stay intact.
     let mut layout = Market::default();
@@ -394,33 +394,9 @@ fn captured_vob_market() -> Market {
     layout.debt.quote_borrow_index_remainder = u128::from_le_bytes([0x22; 16]);
     layout.debt.leverage_base_collateral = u64::from_le_bytes([0x33; 8]);
     layout.debt.leverage_quote_collateral = u64::from_le_bytes([0x33; 8]);
-    layout.base_side.daily_borrow_bucket.last_decay_timestamp_ms = 12299612057325535232;
-    layout.quote_side.daily_borrow_bucket.last_decay_timestamp_ms = 12299612057325535233;
-    layout.amm.last_observation_timestamp_ms = 12299612057325535234;
-    layout.amm.last_adjustment_timestamp_ms = 12299612057325535235;
-    layout.debt.base_last_accrual_timestamp_ms = 12299612057325535236;
-    layout.debt.quote_last_accrual_timestamp_ms = 12299612057325535237;
-    layout.base_hlp_vault.funding_apr_ema_last_timestamp_ms = 12299612057325535238;
-    layout.quote_hlp_vault.funding_apr_ema_last_timestamp_ms = 12299612057325535239;
-    layout.risk.last_snapshot_timestamp_ms = 12299612057325535240;
-    layout.last_update_timestamp_ms = 12299612057325535241;
-    layout.insurance.base_draw_window.start_timestamp_ms = 12299612057325535242;
-    layout.insurance.quote_draw_window.start_timestamp_ms = 12299612057325535243;
-    let flash_tags = [0x3197_5bdf_2468_ace0_u64, 0x4286_ace0_1357_9bdf,
-        0x5397_ace0_1357_9bdf, 0x6486_ace0_1357_9bdf,
-        0x7597_ace0_1357_9bdf, 0x8686_ace0_1357_9bdf];
-    layout.base_side.reserves.flash_receivable = flash_tags[0];
-    layout.base_side.fees.public_interest_advance.outstanding_gross = flash_tags[1];
-    layout.quote_side.reserves.flash_receivable = flash_tags[2];
-    layout.quote_side.fees.public_interest_advance.outstanding_gross = flash_tags[3];
-    layout.base_hlp_vault.flash_collateral_debit = flash_tags[4];
-    layout.quote_hlp_vault.flash_collateral_debit = flash_tags[5];
-    let frozen_offset_tag = 0x3197_5bdf_2468_ace0_4286_ace0_1357_9bdf_i128;
-    layout.amm.frozen_base_vault_base_offset_nad = frozen_offset_tag;
     let mut encoded_layout = Vec::new();
     layout.try_serialize(&mut encoded_layout).unwrap();
     let mut captured = include_bytes!("../fixtures/vob-market-20260929.bin").to_vec();
-    let mut insertions = Vec::new();
     for (marker, replacement) in [
         (vec![0x22; 32], vec![0; 32]),
         (vec![0x33; 16], vec![0; 16]),
@@ -431,43 +407,11 @@ fn captured_vob_market() -> Market {
             .filter_map(|(offset, window)| (window == marker).then_some(offset))
             .collect();
         assert_eq!(offsets.len(), 1, "fixture adapter sentinel must be unique");
-        insertions.push((offsets[0], replacement.len()));
+        captured.splice(offsets[0]..offsets[0], replacement);
     }
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535232_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535233_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535234_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535235_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535236_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535237_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535238_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535239_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535240_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535241_u64.to_le_bytes()).unwrap(), 8));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535242_u64.to_le_bytes()).unwrap() - 1, 9));
-    insertions.push((encoded_layout.windows(8).position(|w| w == 12299612057325535243_u64.to_le_bytes()).unwrap() - 1, 9));
-    for (tag, size) in flash_tags.into_iter().zip([8, 32, 8, 32, 8, 8]) {
-        insertions.push((encoded_layout.windows(8).position(|w| w == tag.to_le_bytes()).unwrap(), size));
-    }
-    let frozen_offset = encoded_layout.windows(16).position(|w| w == frozen_offset_tag.to_le_bytes()).unwrap();
-    insertions.push((frozen_offset - 1, 65));
-    insertions.sort_unstable();
-    for (offset, size) in insertions { captured.splice(offset..offset, vec![0u8; size]); }
     let mut market = Market::try_deserialize(&mut captured.as_slice()).unwrap();
     assert_eq!(market.version, 1, "the fixture must retain its original version");
     market.version = MARKET_LAYOUT_VERSION;
-    let timestamp_at_slot = |slot: u64| if slot == 0 { 0 } else { 1_790_677_156_000_u64.saturating_sub(505_496_119_u64.saturating_sub(slot) * 400) / 1_000 * 1_000 };
-    market.base_side.daily_borrow_bucket.last_decay_timestamp_ms = timestamp_at_slot(market.base_side.daily_borrow_bucket.last_decay_slot);
-    market.quote_side.daily_borrow_bucket.last_decay_timestamp_ms = timestamp_at_slot(market.quote_side.daily_borrow_bucket.last_decay_slot);
-    market.amm.last_observation_timestamp_ms = timestamp_at_slot(market.amm.last_observation_slot);
-    market.amm.last_adjustment_timestamp_ms = timestamp_at_slot(market.amm.last_adjustment_slot);
-    market.debt.base_last_accrual_timestamp_ms = timestamp_at_slot(market.debt.base_last_accrual_slot);
-    market.debt.quote_last_accrual_timestamp_ms = timestamp_at_slot(market.debt.quote_last_accrual_slot);
-    market.base_hlp_vault.funding_apr_ema_last_timestamp_ms = timestamp_at_slot(market.base_hlp_vault.funding_apr_ema_last_slot);
-    market.quote_hlp_vault.funding_apr_ema_last_timestamp_ms = timestamp_at_slot(market.quote_hlp_vault.funding_apr_ema_last_slot);
-    market.risk.last_snapshot_timestamp_ms = timestamp_at_slot(market.risk.last_snapshot_slot);
-    market.last_update_timestamp_ms = timestamp_at_slot(market.last_update_slot);
-    market.insurance.base_draw_window.start_timestamp_ms = timestamp_at_slot(market.insurance.base_draw_window.start_slot);
-    market.insurance.quote_draw_window.start_timestamp_ms = timestamp_at_slot(market.insurance.quote_draw_window.start_slot);
     market
 }
 
@@ -555,7 +499,7 @@ fn captured_vob_bid_rejects_unexplained_reserve_drift() {
     let error = prepared
         .finalize_state(
             &mut market,
-            crate::clock::test_clock(505_496_119),
+            505_496_119,
             authority.revenue_share.swap_bps,
             authority.protocol_auction_split,
         )

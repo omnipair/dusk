@@ -81,11 +81,10 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         curve_revision: 0,
         risk_revision: 0,
         last_update_slot: 0,
-        last_update_timestamp_ms: crate::clock::test_clock(0).timestamp_ms,
         reduce_only: false,
         bump: 255,
     };
-    market.prepare_amm_for_swap(crate::clock::test_clock(0)).unwrap();
+    market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
     let borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
@@ -242,11 +241,10 @@ fn market_with_cash_backed_debt(
         curve_revision: 0,
         risk_revision: 0,
         last_update_slot: 0,
-        last_update_timestamp_ms: crate::clock::test_clock(0).timestamp_ms,
         reduce_only: false,
         bump: 255,
     };
-    market.prepare_amm_for_swap(crate::clock::test_clock(0)).unwrap();
+    market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
 
     (market, borrow_position)
@@ -595,7 +593,7 @@ fn internal_floor_uses_insurance_then_socializes_and_closes_without_caller_cap()
             insurance_credit,
             collateral_consumed,
             caller_bounty,
-            crate::clock::test_clock(123),
+            123,
         )
         .unwrap();
 
@@ -635,7 +633,7 @@ fn internal_floor_returns_solvent_swap_residual_to_owner() {
             0,
             collateral_consumed,
             0,
-            crate::clock::test_clock(123),
+            123,
         )
         .unwrap();
 
@@ -731,7 +729,7 @@ fn auction_floor_scales_concentrated_and_tail_depth_together() {
     market.config.amm.fade_width_bps = 1_000;
     market.amm = Default::default();
     market.risk = Risk::default();
-    market.prepare_amm_for_swap(crate::clock::test_clock(0)).unwrap();
+    market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
     borrow_position.base_collateral = 100_000_000;
 

@@ -512,7 +512,7 @@ impl<'info> PreviewBorrowPositionCapacity<'info> {
             collateral_asset,
             args.projected_borrow_amount,
             borrow_capacity,
-            crate::clock::MarketClock::get()?,
+            Clock::get()?.slot,
             fees,
         )?;
         Ok(BorrowPositionCapacityPreview {
@@ -542,6 +542,7 @@ impl<'info> PreviewMarket<'info> {
         ctx.accounts.market.update()?;
         let market: &Market = &ctx.accounts.market;
         let clock = Clock::get()?;
+        let slot = clock.slot;
         let amm = {
             let state = &market.amm;
             let concentrated_parameters = market.config.amm.concentrated_curve_parameters()?;
@@ -558,7 +559,7 @@ impl<'info> PreviewMarket<'info> {
                 last_adjustment_slot: state.last_adjustment_slot,
                 volatility_accumulator_nad: state.volatility_accumulator_nad,
                 decayed_volatility_nad: if state.initialized {
-                    state.decayed_volatility(&market.config.amm, crate::clock::MarketClock::from_clock(&clock)?)?
+                    state.decayed_volatility(&market.config.amm, slot)?
                 } else {
                     0
                 },
@@ -585,17 +586,9 @@ impl<'info> PreviewMarket<'info> {
             }
         };
         Ok(MarketPreview {
-            slot: clock.slot,
-            base: preview_side(
-                market,
-                MarketAsset::Base,
-                crate::clock::MarketClock::from_clock(&clock)?,
-            )?,
-            quote: preview_side(
-                market,
-                MarketAsset::Quote,
-                crate::clock::MarketClock::from_clock(&clock)?,
-            )?,
+            slot,
+            base: preview_side(market, MarketAsset::Base, slot)?,
+            quote: preview_side(market, MarketAsset::Quote, slot)?,
             liquidity_nad: market.liquidity_nad()?,
             health: market.market_health()?,
             amm,
@@ -699,6 +692,7 @@ impl<'info> PreviewSwap<'info> {
         require_supported_asset_mint(&ctx.accounts.asset_out_mint)?;
 
         let clock = Clock::get()?;
+        let slot = clock.slot;
         // This account is intentionally read-only, so Anchor will not persist
         // the in-memory simulation. Reusing its already-deserialized storage
         // avoids allocating a second full Market solely for preview.
@@ -713,7 +707,7 @@ impl<'info> PreviewSwap<'info> {
             .checked_sub(transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let mut prepared = SwapRequest {
-            current_slot: clock.slot,
+            current_slot: slot,
             current_unix_timestamp: clock.unix_timestamp,
             asset_in,
             reserve_credit,
@@ -743,7 +737,7 @@ impl<'info> PreviewSwap<'info> {
             split_claimable_fee_credit(&quote.fee, claimable_fee_credit)?;
         prepared.finalize_state(
             quote_market,
-            crate::clock::MarketClock::from_clock(&clock)?,
+            slot,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             ctx.accounts.futarchy_authority.protocol_auction_split,
         )?;
@@ -827,7 +821,7 @@ impl<'info> PreviewBorrowCapacity<'info> {
         let collateral_asset = market.asset_for_mint(ctx.accounts.collateral_asset_mint.key())?;
         let debt_asset = market.asset_for_mint(ctx.accounts.debt_asset_mint.key())?;
         require!(debt_asset == collateral_asset.opposite(), ErrorCode::InvalidMint);
-        let clock = Clock::get()?;
+        let slot = Clock::get()?.slot;
         let fees = match collateral_asset {
             MarketAsset::Base => crate::instructions::lending_market_admission_fees(
                 market,
@@ -847,7 +841,7 @@ impl<'info> PreviewBorrowCapacity<'info> {
             args.collateral_amount,
             fees,
             args.projected_borrow_amount,
-            crate::clock::MarketClock::from_clock(&clock)?,
+            slot,
         )?;
 
         Ok(BorrowCapacityPreview {
@@ -915,7 +909,7 @@ impl<'info> PreviewBorrowPosition<'info> {
     }
 }
 
-fn preview_side(market: &Market, asset: MarketAsset, clock: crate::clock::MarketClock) -> Result<PreviewSide> {
+fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<PreviewSide> {
     let side = market.side(asset);
     let price_ema_nad = match asset {
         MarketAsset::Base => market.risk.base_price_ema_nad,
@@ -940,7 +934,7 @@ fn preview_side(market: &Market, asset: MarketAsset, clock: crate::clock::Market
             ..PreviewSide::default()
         });
     }
-    let lending = market.lending_side_preview(asset, clock)?;
+    let lending = market.lending_side_preview(asset, slot)?;
     let prices = market.side_prices_at(asset, market.current_base_price_nad()?)?;
 
     Ok(PreviewSide {

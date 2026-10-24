@@ -83,7 +83,7 @@ def run(output):
     probes = json.loads((output / 'regression-probes.json').read_text())
     assert len(probes) == 32
     assert all(p['ok'] for p in probes)
-    # After elapsed-time interest accrual, the starting debt/curve ledger can
+    # After slot-derived nominal-time interest accrual, the starting debt/curve ledger can
     # drift by rounding and earned interest. A swap must not enlarge either
     # opposite-side gap; the fresh (age-zero) cases retain the atom-level check.
     assert all(all(abs(after) <= max(3, abs(before)) for before, after in
