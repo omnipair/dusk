@@ -335,9 +335,9 @@ authority, referral-recipient, and referral-claim events likewise expose their
 authority or signer directly because they are not tied to one market.
 
 Lending events carry each written borrow position's post-instruction state:
-collateral and withdrawal receipts, debt updates, liquidations, and auction
-start and cancellation events together let an indexer rebuild every
-`BorrowPosition` without reading accounts. See
+collateral and withdrawal receipts, debt updates, flash liquidation observations
+and settlements let an indexer rebuild every `BorrowPosition` without reading
+accounts. Historical auction events describe the removed interface. See
 [`ACCOUNTING_EVENTS.md`](./ACCOUNTING_EVENTS.md#borrow-positions).
 
 `LpTransferred` records each yLP or hLP transfer that runs the Dusk transfer
@@ -393,7 +393,7 @@ different.
 - Swaps, previews, leverage, and predictive hLP positioning use the live
   applied curve. Public borrowing deliberately uses a stricter full-range-tail
   CPMM shadow curve.
-- Every hLP funding increase leaves projected aggregate indexed funding debt no greater than current borrowed-asset cash; the cap never blocks debt-reducing paths, and terminal recovery is handled separately by `close_insolvent_hlp`.
+- Every hLP funding increase leaves projected aggregate indexed funding debt no greater than current borrowed-asset cash; the cap never blocks debt-reducing paths. Solvent vaults can use external flash recovery; terminal closure uses native `close_insolvent_hlp` or full hLP flash settlement.
 - hLP debt shares stay matched to aggregate hLP vault debt.
 - hLP operations never use yLP-denominated debt.
 - Isolated leverage debt contributes to utilization without entering normal borrower health.
@@ -401,11 +401,11 @@ different.
 - Delegated close must validate both the delegate's close approval and settlement approval return data.
 - Individual borrower health uses all position collateral and the position's stored liquidation CF.
 - Global-health contributions are debt-capped underwriting signals and never prevent collateral withdrawal or change another position's stored terms.
-- Pessimistic risk depth uses the lower of observed curve depth and its EMA. Public borrowing uses only full-range CPMM tail liquidity; the lending liquidation trigger is linear at the symmetric price EMA; the external-auction floor reconstructs the complete concentrated curve, while the expired-auction backstop executes on the live concentrated curve.
+- Pessimistic risk depth uses the lower of observed curve depth and its EMA. Public borrowing uses only full-range CPMM tail liquidity. Borrowing and leverage liquidation eligibility use symmetric price EMA; internal emergency settlement uses the EMA price and smoothed depth with the configured concentrated curve and full fees.
 - Referral binding never changes requested principal, debt, interest, health, or liquidation terms; accruals are carved only from realized protocol interest revenue.
 - Referral-interest claims are bounded by realized protocol revenue and pay only the partner's current designated recipient.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
-- External liquidation bids run for five minutes. The expired-auction backstop pays a 0.5% collateral bounty, internally swaps the remainder, draws capped insurance, and automatically socializes any residual debt.
+- Atomic flash liquidation has no auction wait. A fixed net payment releases collateral for a caller-chosen route, with useful partial fills and a bounded incentive. At critical EMA health, the internal emergency path first seeks a restorative partial settlement and can close the position under the documented fallback rule. Full closures use principal-only capped insurance and socialize uncovered principal; unpaid interest is canceled.
 
 ## Verification
 

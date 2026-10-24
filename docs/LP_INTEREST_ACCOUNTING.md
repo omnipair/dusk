@@ -1,7 +1,8 @@
 # LP interest accounting
 
-Implementation target: a separate PR into `fix/benchmark-replay-owner` (PR #45),
-starting at `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`.
+Implemented in PR #45. The initial accounting work began at
+`5c0aca7fcb582418f1c5b99061d4ff7605b6f185`; later hLP recovery changes
+are also integrated into that PR.
 
 ## Selected behavior (2026-10-18)
 
@@ -141,9 +142,10 @@ The hLP flash interface adds `preview_hlp_flash`, `begin_hlp_flash`, and
 `settle_hlp_flash`. Recovery applies to an entire target-token vault. A holder
 cannot recover only their own receipt's hedge or assign the cost to new holders.
 
-1. **Quote:** indexed funding debt must be at least 9/8 of the vault's full
-   opposite-token claim, matching the existing critical recovery threshold.
-   A solvent quote supplies the debt-token funding gap and returns enough
+1. **Quote:** a solvent vault can be quoted when indexed funding debt exceeds
+   its opposite-token claim, or when its hedge is frozen. There is no 9/8
+   threshold for external recovery. The solvent quote supplies the debt-token
+   funding gap and returns enough
    target tokens at the symmetric EMA to pay an affordable discount, up to the
    existing 5% ceiling. Both token-transfer fees are included. No new timer is
    introduced. The entire remaining vault must retain positive full-value NAV.

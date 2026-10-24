@@ -1,5 +1,13 @@
 # Flash liquidation settlement contract
 
+**2026-10-24 implementation note:** PR #45 now includes borrowing, leverage,
+and hLP atomic flash settlement, plus internal borrowing/leverage emergency
+settlement and native hLP terminal recovery. The dated design proposals and
+historical mutation inventory below are not the current instruction inventory.
+Use [the current decisions](LIQUIDATION_DECISIONS.md) for policy and
+[the integrated review](audit/PR45_CURRENT_REVIEW.md) for open accounting
+questions before treating the implementation as ready to merge.
+
 **2026-10-05 update:** [current decisions](LIQUIDATION_DECISIONS.md) supersede
 conflicting economics below. Use fixed net payment for a collateral slice, with
 buyer upside; symmetric-EMA-only ordinary eligibility; useful incremental partial

@@ -1,9 +1,11 @@
 # PR #45 closeout
 
-**2026-10-18 merge hold:** the later external-model review found additional
-issues. Six of its seven original subjects have source fixes; the hLP
-solvency/receivable mismatch and related entry accounting remain unresolved.
-See [the current remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md). The dated
+**2026-10-24 merge review:** source changes for all seven verified external-model
+findings, including hLP full-value accounting and recovery, are integrated in
+#45. The expanded hLP surface still requires final adversarial and economic
+review; source coverage and passing CI alone do not establish merge readiness.
+See [the current remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md) and the
+[integrated review](audit/PR45_CURRENT_REVIEW.md). The dated
 V12/EMA closeout below does not clear those later findings.
 
 Updated: 2026-10-17 (risk acceptance); analysis: 2026-10-16. Runtime source: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
@@ -41,21 +43,22 @@ Later decisions supersede earlier proposals in the conversation.
 | Internal emergency settlement | EMA price and smoothed depth with configured concentration/full fees; real collateral and hLP accounting; cash-funded payouts. Depth withdrawal alone does not change healthy EMA eligibility. [Current economic evidence](calibration/EMA_SETTLEMENT_CLOSEOUT.md). |
 | LP governance delegation | Reusable market balance, one delegate, creation/support rights, partial support withdrawal before queue for direct/delegated support, owner principal/yield control and revocation. Queued support remains locked. Governance Nemesis review and CI correction completed. |
 | Original admission/identity remedies | Freeze authorities and external asset hooks rejected; mutable fees supported; owner-scoped multiple position IDs; canonical atomic LP metadata with ALT launch helpers; owner-owned delegated residuals. [Ledger](audit/V12_FINDINGS.md). |
-| SDK / ABI / events | Margin, action, governance, flash/emergency and transfer-fee helpers; regenerated IDLs/types; accounting events documented. No new helper or ABI change is required for this tests/docs closeout. |
+| SDK / ABI / events | Margin, action, governance, flash/emergency, hLP recovery, interest-funding and transfer-fee helpers; regenerated IDLs/types; accounting events documented. Any further interface change requires fresh builds and generated SDK interfaces. |
 
 ## Companion delivery
 
 | PR | Candidate | Verified status | Remaining boundary |
 | --- | --- | --- | --- |
-| [Dusk keepers #2](https://github.com/omnipair/dusk-keepers/pull/2) | `52c1cec` | Flash/emergency migration complete; protocol capture `5a9abcb3`; repository, Rust and container CI green | Not deployed. Internal Dusk and bounded inventory mode; no automatic Jupiter route discovery. Captured artifacts must match authorized rollout. |
+| [Dusk keepers #2](https://github.com/omnipair/dusk-keepers/pull/2) | `8c0af597` | Borrowing/leverage flash and emergency migration; captured Dusk source `1bce17ba` | Draft and not deployed. hLP flash/terminal automation is not in this keeper profile. Captured artifacts must be refreshed for the eventual merged program and authorized rollout. |
 | [Web documentation #97](https://github.com/omnipair/dusk-webapp/pull/97) | `25b986ed` | Pending-#45 docs updated; lint/build/test/visual checks green | Docs adoption is not implementation of all UI flows or indexer/VOB rollout. No production deployment requested here. |
 
-Keeper validation includes 123 Node tests, 39 Rust unit tests, real PostgreSQL
-recovery testing, 13 real-program bank fixtures and four native RPC-loop cases.
-It persists signed bytes before send, requires matching finalized receipts and
-handles incomplete history conservatively. These do not prove universal route
-availability or production uptime. Companion results were verified from their
-existing evidence/green CI; this closeout does not rerun both repositories.
+Keeper #2 reports 124 Node tests and 39 Rust unit tests at `8c0af597`, plus
+four native RPC-loop cases. Its earlier head passed PostgreSQL 16 recovery
+testing; that separate database gate has not been rerun on this pin. It
+persists signed bytes before send, requires matching finalized receipts and
+handles incomplete history conservatively. These tests do not prove universal
+route availability or production uptime; this closeout does not rerun the
+companion repositories.
 
 ## Fresh scoped Nemesis review
 

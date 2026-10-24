@@ -1,7 +1,8 @@
 # External model review: remediation status
 
-Updated 2026-10-19. Original reviewed head: `3d9bae7f`. Follow-up base:
-`5c0aca7f`. **PR #45 is not ready to merge or deploy.**
+Updated 2026-10-24. Original reviewed head: `3d9bae7f`. Follow-up base:
+`5c0aca7f`. Current integrated head: `05585b9c`. **The expanded hLP recovery
+surface still requires final review before #45 can merge or deploy.**
 
 The original review locally verified seven findings. The external model runs
 did not all complete the full Nemesis workflow. This document records source
@@ -14,7 +15,7 @@ fixes and remaining work; it is not a new exhaustive audit or a security signoff
 | OR-NM-001: fixed Token program SDK slots | Fixed in `f2794e76`; actual account construction is covered by `check-write-program-accounts.js`. |
 | OR-NM-002: governance execution mint accounts | Fixed in `f2794e76`; the same SDK check builds the instruction with both required mints. |
 | OR-NM-003: partial-close principal rounding | Fixed in `d97e6997`; remaining principal follows aggregate before/after debt clearance. |
-| OR-NM-004: hLP solvency/recovery disagreement | **Partially remediated in #52.** Full-value entry/NAV/hedge reconstruction corrects the original valuation disagreement. Cash-funded harvest sequencing and vault-wide external recovery are implemented in the follow-up. Final economic and adversarial review remains a closeout gate. |
+| OR-NM-004: hLP solvency/recovery disagreement | Source remedy integrated from #52: full-value entry/NAV/hedge reconstruction corrects the original valuation disagreement; cash-funded harvest sequencing and vault-wide external recovery are present. Final economic and adversarial review remains a closeout gate. |
 | OR-NM-005: gross close/decrease cash preflight | Fixed in `f2794e76`; preflight includes exact principal netting and retains actual cash floors. |
 | OR-NM-006: stale protection EMA | Fixed in `f2794e76`; the disposable protection snapshot refreshes reference risk. |
 | OR-NM-007: stale hLP settlement reference | Exit guard fixed in `f2794e76`; fresh deposit NAV in `5c0aca7f`. The separate full-value entry correction is implemented in #52; the remaining harvest/recovery work is tracked under OR-NM-004. |
@@ -64,9 +65,9 @@ intermediate regression where trailing compute-budget instructions replaced
 the return-data program; the final implementation retains the ordinary preview
 prefix and passes that regression.
 
-These checks validate the narrow changes above. They do not close OR-NM-004,
-the hLP entry mismatch, or the remaining unverified model hypotheses. A fresh
-full-PR Nemesis review and rollout checks remain pending.
+These earlier checks validate the narrow changes above. Later commits integrated
+the hLP entry and recovery implementation described below. The full-PR review
+and rollout checks remain separate gates.
 
 ## Remaining hLP accounting work
 
@@ -91,7 +92,7 @@ including real public-debt/funding accrual and both-asset round trips. All 18
 required compute scenarios are covered. The full review remains a gate.
 The accounting note records the material concentrated hLP compute increase.
 
-This is partial remediation, not closeout. The follow-up native advance ledger
+This is source implementation coverage, not final audit closeout. The follow-up native advance ledger
 freezes the LP/protocol split when reserve cash funds interest, reconciles paid
 and canceled advances, and includes SDK accounting helpers. The follow-up now exposes cash funding and SDK harvest builders, and settles
 new hLP income before publishing holder yield. Real instruction tests cover
@@ -109,10 +110,12 @@ should rely on native tests alone. The recovery target is confirmed as
 opposite-token neutrality, including when concentration makes gross leverage
 differ from 2x.
 
-Other model hypotheses remain unverified, including terminal cohort restart,
-orphaned final-token burns, borrower principal pooling and delegated execution
-price constraints. They must not be described as disproved or remediated based
-only on absence from the original seven verified findings.
+The [current scoped review](PR45_CURRENT_REVIEW.md) verified two further
+behaviors needing an accounting/product decision: terminal hLP receipts block
+a new deposit cohort, and pooled public principal can change how much of one
+borrower's shortfall qualifies for insurance. Orphaned final-token burns and
+delegated execution-price constraints remain unverified hypotheses. None is
+disproved merely because it was absent from the original seven findings.
 
 The original V12 dispositions, including accepted residual inventory/arbitrage
 risk for #287652 and issuer/keeper assumptions for #287160, remain recorded in

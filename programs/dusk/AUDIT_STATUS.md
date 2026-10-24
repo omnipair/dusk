@@ -1,11 +1,13 @@
 # Dusk audit status
 
-**2026-10-18:** #45 is not ready to merge/deploy. The later model review's
-hLP solvency/receivable finding remains open. Current follow-up fixes and
+**2026-10-24:** #45 contains source fixes for the later model review's seven
+verified findings, including the hLP solvency/receivable mismatch. Final
+adversarial and economic review of the expanded hLP recovery surface remains a
+merge gate; this is not a deployment signoff. Follow-up evidence and
 unverified candidates are listed in
 [MODEL_REVIEW_CLOSEOUT.md](../../docs/audit/MODEL_REVIEW_CLOSEOUT.md).
 
-**Current through:** 2026-10-17; runtime `5a9abcb3`, PR #45.
+**Current through:** 2026-10-24; runtime `05585b9c`, PR #45.
 
 This is the current disposition summary. Dated reports describe their reviewed
 revisions; their old zero-open counts are not current blanket clearance.

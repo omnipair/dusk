@@ -55,12 +55,12 @@ closed-form segments.
 7. Let that observation update EMA/volatility and schedule a possible center
    move for a later swap.
 
-The state-only owner is `transitions/amm/swap.rs`. Spot, leverage, floor
-liquidation, and predictive execution share `PreparedSwap::apply`; instructions
+The state-only owner is `transitions/amm/swap.rs`. Spot, leverage, internal
+emergency settlement, and predictive execution share `PreparedSwap::apply`; instructions
 validate accounts and settle the returned token/share receipts. The prepared
 plan is boxed to preserve SBF stack headroom and consumed once when applied.
 Borrow/repay/writeoff rules remain in the lending/leverage kernels, composed
-inside the shared swap before its final price observation. Floor liquidation
+inside the shared swap before its final price observation. Internal settlement
 also clears fixed debt and insurance before that observation; insurance uses
 an explicit slot rather than depending on an intermediate risk update.
 
@@ -183,14 +183,17 @@ lower of observed total curve depth and its EMA. The lending liquidation
 trigger is instead a linear collateral value at the symmetric price EMA, so
 trade slippage cannot make a position liquidatable early.
 
-The external-liquidation auction snapshots an average full-position unwind on
-the complete concentrated curve rebuilt at the symmetric EMA price and
-pessimistic depth. It decays linearly from a 5% premium to that floor over five
-minutes. Before expiry, fills require external debt-token repayment. At expiry,
-any caller can take a 0.5% collateral bounty and fully unwind the remainder on
-the live concentrated curve. Swap proceeds repay debt, capped insurance is
-drawn automatically, any remainder is socialized, and excess debt-asset output
-is returned to the owner.
+Borrowing and leverage liquidations now use an atomic fixed-payment flash path.
+The symmetric EMA determines eligibility, while the caller may source the debt
+payment through any route that meets the quoted net amount in the same
+transaction. Useful partial fills precede full closure. At critical EMA
+health, the internal emergency path prices its AMM settlement from symmetric
+EMA and smoothed depth, then applies the configured concentration and full
+fees. It can perform a restorative partial settlement or, under the documented
+fallback conditions, a full closure. Principal-only capped insurance covers
+part of a full principal shortfall; uncovered principal is socialized and
+unpaid interest is canceled. See `docs/FLASH_LIQUIDATION_CONTRACT.md` for the
+instruction contract and emergency permission rules.
 
 Proportional yLP changes scale every liquidity tranche. A protected center
 change reconstructs the concentrated state through the same positive closed-form
@@ -213,8 +216,8 @@ critical flag. Ordinary swap arguments are unchanged.
 - live concentrated execution for Spot and leverage;
 - full-range-tail CPMM underwriting for public borrowing;
 - linear symmetric-EMA lending liquidation eligibility;
-- complete depth-scaled concentrated pricing for the external-auction floor
-  and live concentrated execution for the permissionless internal backstop;
+- atomic external flash payment and EMA/smoothed-depth concentrated pricing
+  for permissionless internal emergency settlement;
 - SBF verifier/default heap success; the ordinary legacy-SPL, no-debt,
   inactive-hLP, same-slot CPMM path remains strictly below 100,000 CU, while
   nested concentrated+hLP paths remain below the repository's 1,350,000-CU
