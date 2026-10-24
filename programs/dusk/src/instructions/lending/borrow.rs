@@ -142,6 +142,7 @@ impl<'info> Borrow<'info> {
 
     pub fn handle_borrow(mut ctx: Context<'_, '_, '_, 'info, Self>, args: BorrowArgs) -> Result<()> {
         let clock = Clock::get()?;
+        let current_slot = clock.slot;
         let (market_key, owner_key, debt_asset_mint_key, position_key, debt_credit, debt_receipt, bound_referral) = {
             let accounts = &mut ctx.accounts;
             let market_key = accounts.market.key();
@@ -198,7 +199,7 @@ impl<'info> Borrow<'info> {
                 args.borrow_amount,
                 fees,
                 args.min_liquidation_cf_bps,
-                crate::clock::MarketClock::from_clock(&clock)?,
+                current_slot,
             )?;
 
             accounts.market.reset_borrow_distress_if_recovered(
@@ -246,9 +247,7 @@ impl<'info> Borrow<'info> {
         };
 
         // Finalize the curve transition and refresh risk after debt and cash move.
-        ctx.accounts
-            .market
-            .finalize_amm_transition(crate::clock::MarketClock::from_clock(&clock)?)?;
+        ctx.accounts.market.finalize_amm_transition(current_slot)?;
         ctx.accounts.market.refresh_risk()?;
 
         emit_cpi!(MarketDebtUpdated {

@@ -55,14 +55,14 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                     if controller {
                         market.config.amm.adjustment_threshold_nad = NAD / 100;
                         market.config.amm.adjustment_step_nad = NAD / 1_000;
-                        market.config.amm.min_adjustment_interval_ms = 1;
+                        market.config.amm.min_adjustment_interval_slots = 1;
                     }
                     if hlp {
                         market.config.target_hlp_leverage_bps = 20_000;
                         for asset in [MarketAsset::Base, MarketAsset::Quote] {
                             market.deposit_single_sided(asset, 1000 * CALIBRATION_UNIT, 1).unwrap();
                         }
-                        market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
+                        market.finalize_amm_transition_and_observe_risk(1).unwrap();
                     }
                     let asset = debt_asset.opposite();
                     let mut first = runtime_open(&mut market, debt_asset, 2000 * CALIBRATION_UNIT, 2);
@@ -75,7 +75,7 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
 
                     let shares = market.base_side.shares.ylp_supply / 100;
                     market.remove_liquidity(shares).unwrap();
-                    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(2)).unwrap();
+                    market.finalize_amm_transition_and_observe_risk(2).unwrap();
                     assert_eq!(first.margin_terms, terms);
                     assert_eq!(
                         first.margin_terms.initial_bps(first.collateral_amount).unwrap(),
@@ -110,7 +110,7 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                             full_fee_credit(&quote),
                             0,
                             ProtocolAuctionSplit::default(),
-                            crate::clock::test_clock(3),
+                            3,
                             0,
                             LeverageCollateralFee::default(),
                         )
@@ -133,7 +133,7 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                         .isolated_repayment_for_max(debt_asset, first.debt_shares, u64::MAX)
                         .unwrap()
                         .cash_repaid;
-                    market.repay_leverage_debt(&mut first, repayment, crate::clock::test_clock(3)).unwrap();
+                    market.repay_leverage_debt(&mut first, repayment, 3).unwrap();
                     assert_eq!(market.leverage_collateral_exposure(asset), second.collateral_amount);
                     assert_eq!(first.margin_terms.admission_equity_collateral_nad, 0);
                     let repayment = market
@@ -141,7 +141,7 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                         .isolated_repayment_for_max(debt_asset, second.debt_shares, u64::MAX)
                         .unwrap()
                         .cash_repaid;
-                    market.repay_leverage_debt(&mut second, repayment, crate::clock::test_clock(3)).unwrap();
+                    market.repay_leverage_debt(&mut second, repayment, 3).unwrap();
                     assert_eq!(market.leverage_collateral_exposure(asset), 0);
                     market.assert_market_invariants().unwrap();
                 }
@@ -155,7 +155,7 @@ fn runtime_large_solvent_position_is_no_longer_rejected_by_two_percent_unwind() 
     let mut market = calibration_market(100_000, 1);
     let position = runtime_open(&mut market, MarketAsset::Quote, 2500 * CALIBRATION_UNIT, 2);
     let quote = market
-        .quote_leverage_swap(MarketAsset::Base, position.collateral_amount, crate::clock::test_clock(2))
+        .quote_leverage_swap(MarketAsset::Base, position.collateral_amount, 2)
         .unwrap();
     // This fixture uses equal decimals on both sides.
     let spot = (u128::from(position.collateral_amount)
@@ -193,7 +193,7 @@ fn unhealthy_symmetric_ema_allows_liquidation_even_with_a_better_execution_quote
     let mut market = test_market(1_000_000, 1_000_000);
     let mut position = seeded_position(&mut market, MarketAsset::Base, 1000, 1500);
     let quote = market
-        .quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, crate::clock::test_clock(1))
+        .quote_leverage_swap(MarketAsset::Quote, position.collateral_amount, 1)
         .unwrap();
     assert!(equity_bps(quote.amount_out, 1000).unwrap() > 700);
     let prepared = prepared_leverage_swap(
@@ -217,7 +217,7 @@ fn unhealthy_symmetric_ema_allows_liquidation_even_with_a_better_execution_quote
             LeverageInsuranceDraw::default(),
             0,
             ProtocolAuctionSplit::default(),
-            crate::clock::test_clock(1),
+            1,
         )
         .unwrap();
     assert_eq!(position.debt_shares, 0);

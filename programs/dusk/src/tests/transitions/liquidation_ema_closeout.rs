@@ -22,14 +22,14 @@ fn cmp_trade(m: &Market, a: MarketAsset, gross: u64, f: LeverageCollateralFee) -
     let mut t = m.clone();
     let mut s = SwapRequest {
         current_slot: audit_slot(),
-        current_unix_timestamp: 400,
+        current_unix_timestamp: 120,
         asset_in: a,
         reserve_credit: f.unwind_credit(gross)?,
         protocol_fee_bps: 2000,
     }
     .prepare(&mut t)?;
     let out = f.unwind_credit(s.quote.amount_out)?;
-    s.finalize_state(&mut t, crate::clock::test_clock(audit_slot()), 2000, ProtocolAuctionSplit::default())?;
+    s.finalize_state(&mut t, audit_slot(), 2000, ProtocolAuctionSplit::default())?;
     t.assert_market_invariants()?;
     Ok((t, out))
 }
@@ -114,7 +114,7 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                     no_accrual(&mut m, 3);
                     native_stress(&mut m, side.opposite(), mark, 3);
                     no_accrual(&mut m, 1000);
-                    m.observe_current_risk(crate::clock::test_clock(1000)).unwrap();
+                    m.observe_current_risk(1000).unwrap();
                     let health = m.flash_liquidation_health(&Ref::Leverage(&p), side, f).unwrap();
                     assert!(
                         health.debt >= health.collateral_value,
@@ -151,7 +151,7 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                                         f,
                                         f,
                                         f,
-                                        400,
+                                        120,
                                         1000,
                                         2000,
                                     )
@@ -171,13 +171,13 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                                     side,
                                     &mut prep,
                                     f,
-                                    400,
+                                    120,
                                     1000,
                                     2000,
                                     ProtocolAuctionSplit::default(),
                                 )
                                 .unwrap();
-                                cmp_publish_fee(&mut t, side, q.fee, crate::clock::test_clock(1000), ownership).unwrap();
+                                cmp_publish_fee(&mut t, side, q.fee, 1000, ownership).unwrap();
                                 assert_eq!(q.loss.interest_paid, 0);
                                 assert_eq!(next.debt_shares, 0);
                                 t.assert_market_invariants().unwrap();

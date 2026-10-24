@@ -105,12 +105,13 @@ impl<'info> ManageGovernanceBalance<'info> {
             &ctx.accounts.base_yield_account,
             &ctx.accounts.quote_yield_account,
         )?;
+        let slot = Clock::get()?.slot;
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            crate::clock::MarketClock::get()?,
+            slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        let indexes = carry_forward_governance_yield(&mut ctx.accounts.market, crate::clock::MarketClock::get()?)?;
+        let indexes = carry_forward_governance_yield(&mut ctx.accounts.market, slot)?;
         checkpoint_supporter_yield(
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,

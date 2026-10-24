@@ -148,11 +148,10 @@ impl<'info> SupportParameterProposal<'info> {
         let supporter_key = ctx.accounts.supporter.key();
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        let indexes =
-            carry_forward_governance_yield(&mut ctx.accounts.market, crate::clock::MarketClock::from_clock(&clock)?)?;
+        let indexes = carry_forward_governance_yield(&mut ctx.accounts.market, clock.slot)?;
 
         if ctx.accounts.proposal_support.proposal == Pubkey::default() {
             ctx.accounts.proposal_support.initialize(
@@ -369,11 +368,10 @@ impl<'info> WithdrawParameterSupport<'info> {
         );
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
-            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        let indexes =
-            carry_forward_governance_yield(&mut ctx.accounts.market, crate::clock::MarketClock::from_clock(&clock)?)?;
+        let indexes = carry_forward_governance_yield(&mut ctx.accounts.market, clock.slot)?;
         checkpoint_supporter_yield(
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,

@@ -1,5 +1,12 @@
 # hLP accounting regressions and joint-shock replay
 
+The replay has been rerun against slot-derived economic time at 200 nominal
+milliseconds per slot. Its main historical-auction loss and capital rows remain
+unchanged at the precision shown below. Slot progress, rather than a
+leader-selected runtime timestamp, drives the replay's interest and half-lives;
+see [the timing decision](../ELAPSED_TIME.md). This does not make the historical
+auction replay a projection of current liquidation policy.
+
 **Scope correction:** the joint-shock insurance figures below come from the
 benchmark-only historical auction floor. They are **not** current emergency or
 flash liquidation capital estimates. The historical floor can insure unpaid
@@ -54,22 +61,23 @@ opposite-asset claim. They do not edit debt indexes or token balances.
 
 ## SVM compute regression ceilings
 
-A complete successful 125-test LiteSVM run measured these new paths. Each
-ceiling is exactly `ceil(measured maximum * 1.05)`; existing ceilings are
-unchanged. Both named scenarios are mandatory in the complete-baseline check.
+A complete successful 140-test LiteSVM run measured these paths after the
+200 ms slot restoration. The table shows the observed maximum and the
+repository's existing strict guard; both named scenarios are mandatory in the
+complete-baseline check.
 
 | New scenario | Maximum CU | Strict ceiling CU |
 |---|---:|---:|
-| SOL/USDC hLP, same slot | 449,203 | 471,664 |
-| SOL/USDC hLP, one day of funding | 558,895 | 586,840 |
+| SOL/USDC hLP, same slot | 782,843 | 822,023 |
+| SOL/USDC hLP, one day of funding | 894,608 | 939,495 |
 
 The complete local CI sequence passed: formatting, hygiene, code shape,
-Clippy, 477 Dusk tests in each default/production profile, production checking,
+Clippy, 535 Dusk tests in each default/production profile, production checking,
 16 delegate tests, one faucet test, TypeScript, SBF/fixture builds, unchanged
-program identities, SDK interface checks and 56 SDK tests. The final LiteSVM
-run passed 125 tests with `DUSK_REQUIRE_COMPLETE_CU_BASELINE=1` and
-`--forbid-pending`, exercising 67/67 instructions. It measured 2,939 successful
-transactions, with a 1,293,630-CU maximum below the 1,355,000-CU repository limit.
+program identities, SDK interface checks and 76 SDK tests. The final LiteSVM
+run passed 140 tests with `DUSK_REQUIRE_COMPLETE_CU_BASELINE=1` and
+`--forbid-pending`, exercising 74/74 instructions. It measured 4,194 successful
+transactions, with a 1,339,788-CU maximum below the 1,355,000-CU repository limit.
 
 ## Completed native losses
 
@@ -90,7 +98,7 @@ The maximum historical-auction USDC requirement in these rows is
 **87,453.777248 USDC**: round up to 87,454 whole USDC. The earlier 87,435-USDC
 historical planning balance no longer covers this run. None of these numbers
 establish a live-policy capital requirement. The changes from the older analysis
-reflect the merged engine, including elapsed-time accounting; they are not
+reflect the merged engine, including slot-derived nominal-time accounting; they are not
 bit-for-bit equivalence claims. Across the funded corpus, the largest absolute
 USDC capital change is $1,629.183687 and the largest SOL change is
 1.022368566 SOL.

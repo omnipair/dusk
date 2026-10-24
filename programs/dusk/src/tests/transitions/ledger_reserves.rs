@@ -24,7 +24,6 @@ fn empty_market() -> Market {
         curve_revision: 0,
         risk_revision: 0,
         last_update_slot: 0,
-        last_update_timestamp_ms: crate::clock::test_clock(0).timestamp_ms,
         reduce_only: false,
         bump: 255,
     }

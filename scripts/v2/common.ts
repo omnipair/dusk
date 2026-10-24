@@ -664,7 +664,7 @@ export function defaultAmmConfig() {
     volatilityHalfLifeMs: new anchor.BN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS", "60000")),
     adjustmentThresholdNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD", "0")),
     adjustmentStepNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_STEP_NAD", "0")),
-    minAdjustmentIntervalMs: new anchor.BN(duskEnv("AMM_MIN_ADJUSTMENT_INTERVAL_MS", "0")),
+    minAdjustmentIntervalSlots: new anchor.BN(duskEnv("AMM_MIN_ADJUSTMENT_INTERVAL_SLOTS", "0")),
     volatilityShockCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_SHOCK_CAP_NAD", "0")),
     volatilityCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_CAP_NAD", "0")),
     divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),

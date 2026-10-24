@@ -61,7 +61,7 @@ impl Market {
         &mut self,
         eligibility: HlpYieldEligibility,
         fees: [LeverageCollateralFee; 2],
-        clock: crate::clock::MarketClock,
+        slot: u64,
     ) -> Result<HlpNewInterestSettlement> {
         let mut receipt = HlpNewInterestSettlement::default();
         let mut fresh = [[0_u64; 2]; 2];
@@ -184,7 +184,7 @@ impl Market {
         let (base, quote) = plan.consume(self)?;
         receipt.base_rebalance = base;
         receipt.quote_rebalance = quote;
-        self.finalize_amm_transition_and_observe_risk(clock)?;
+        self.finalize_amm_transition_and_observe_risk(slot)?;
         // The caller settles the controller's funding-interest receipts to
         // the ordinary-yLP lane separately, before completing the instruction.
         for asset in [MarketAsset::Base, MarketAsset::Quote] {

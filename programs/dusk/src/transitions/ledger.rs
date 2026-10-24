@@ -36,19 +36,22 @@ impl Insurance {
         }
     }
 
-    pub(crate) fn checkpoint_draw_window(
-        &mut self,
-        asset: MarketAsset,
-        clock: crate::clock::MarketClock,
-    ) -> Result<()> {
-        let current_slot = clock.slot;
+    pub(crate) fn checkpoint_draw_window(&mut self, asset: MarketAsset, current_slot: u64) -> Result<()> {
         let available = self.available(asset);
         let window = self.draw_window_mut(asset);
-        if !window.initialized || clock.elapsed_ms(window.start_slot, window.start_timestamp_ms)? >= MS_PER_DAY {
+        let elapsed_slots = if window.initialized {
+            current_slot
+                .checked_sub(window.start_slot)
+                .ok_or(ErrorCode::InvalidArgument)?
+        } else {
+            0
+        };
+        // The budget resets after a deterministic number of scheduled slots.
+        // Leader-selected Clock timestamps do not move the 24-hour boundary.
+        if !window.initialized || elapsed_slots >= crate::constants::INSURANCE_DRAW_WINDOW_SLOTS {
             *window = InsuranceDrawWindow {
-                start_slot: current_slot,
-                start_timestamp_ms: clock.timestamp_ms,
                 initialized: true,
+                start_slot: current_slot,
                 opening_available: available,
                 credited: 0,
                 drawn: 0,
@@ -57,10 +60,10 @@ impl Insurance {
         Ok(())
     }
 
-    pub fn draw_capacity(&mut self, asset: MarketAsset, clock: crate::clock::MarketClock) -> Result<u64> {
+    pub fn draw_capacity(&mut self, asset: MarketAsset, current_slot: u64) -> Result<u64> {
         use crate::constants::BPS_DENOMINATOR;
 
-        self.checkpoint_draw_window(asset, clock)?;
+        self.checkpoint_draw_window(asset, current_slot)?;
         let available = self.available(asset);
         let window = *self.draw_window(asset);
         let daily_basis = window
@@ -78,9 +81,9 @@ impl Insurance {
         Ok(available.min(daily_remaining))
     }
 
-    pub fn credit(&mut self, asset: MarketAsset, actual_credit: u64, clock: crate::clock::MarketClock) -> Result<()> {
+    pub fn credit(&mut self, asset: MarketAsset, actual_credit: u64, current_slot: u64) -> Result<()> {
         require!(actual_credit > 0, ErrorCode::AmountZero);
-        self.checkpoint_draw_window(asset, clock)?;
+        self.checkpoint_draw_window(asset, current_slot)?;
         let available = self.available_mut(asset);
         *available = available
             .checked_add(actual_credit)
@@ -108,8 +111,8 @@ impl Insurance {
         Ok(())
     }
 
-    pub fn consume_draw(&mut self, asset: MarketAsset, amount: u64, clock: crate::clock::MarketClock) -> Result<()> {
-        let capacity = self.draw_capacity(asset, clock)?;
+    pub fn consume_draw(&mut self, asset: MarketAsset, amount: u64, current_slot: u64) -> Result<()> {
+        let capacity = self.draw_capacity(asset, current_slot)?;
         require_gte!(capacity, amount, ErrorCode::InsuranceDrawExceeded);
         let available = self.available_mut(asset);
         *available = available.checked_sub(amount).ok_or(ErrorCode::InsufficientInsurance)?;
@@ -733,9 +736,9 @@ impl Market {
         &mut self,
         asset: MarketAsset,
         actual_credit: u64,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<()> {
-        self.insurance.credit(asset, actual_credit, clock)
+        self.insurance.credit(asset, actual_credit, current_slot)
     }
 }
 

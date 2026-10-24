@@ -1,4 +1,4 @@
-import type { IdlTypes, Program } from "@coral-xyz/anchor";
+import type { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { address, type AddressLike } from "./address.js";
@@ -8,9 +8,10 @@ import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js
 import { previewReturnDataBytes } from "./preview.js";
 import { tokenProgramForMint } from "./referral.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
+import type { HlpFlashQuote } from "./type-aliases.js";
 import { DuskWrite, type HlpLiquidityBuildOptions } from "./write.js";
 
-export type HlpFlashQuote = IdlTypes<DuskIdl>["hlpFlashQuote"];
+export type { HlpFlashQuote };
 export interface HlpRecoveryParams { market: AddressLike; targetAsset: "base" | "quote" }
 export interface HlpFlashRouteContext {
   quote: HlpFlashQuote;
@@ -72,7 +73,7 @@ export class DuskHlpLiquidations {
   private async resolve(params: HlpRecoveryParams) {
     if (params.targetAsset !== "base" && params.targetAsset !== "quote") throw new Error("Invalid hLP target asset");
     const market = address(params.market), target = params.targetAsset === "base" ? 0 : 1;
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.get.market(market);
     const collateral = target === 0 ? state.baseSide : state.quoteSide;
     const debt = target === 0 ? state.quoteSide : state.baseSide;
     const futarchyAuthority = deriveFutarchyAuthorityAddress(this.program.programId)[0];

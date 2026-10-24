@@ -33,11 +33,7 @@ impl BenchmarkMarket {
             required_reserve_custody(&next.base_side)?,
             required_reserve_custody(&next.quote_side)?,
         ];
-        let market_clock = crate::clock::MarketClock::from_timestamp(
-            request.clock.slot,
-            request.clock.unix_timestamp,
-        )?;
-        advance_market_to_clock(&mut next, market_clock)?;
+        advance_market_to_slot(&mut next, request.clock.slot)?;
         let (plan, mut prepared) =
             prepare_floor_liquidation_plan(&mut next, &mut pos, request, self.transfer_fees)?;
         let prepared = prepared
@@ -53,7 +49,7 @@ impl BenchmarkMarket {
                 collateral_consumed: plan.collateral_consumed,
                 caller_bounty: plan.caller_bounty,
             },
-            market_clock,
+            request.clock.slot,
             request.protocol_swap_fee_bps,
             request.protocol_auction_split,
         )?;

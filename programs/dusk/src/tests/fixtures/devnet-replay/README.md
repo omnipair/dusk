@@ -209,8 +209,10 @@ chain state rather than of which node answered.
 A period is what a rounding bug looks like from outside: something accrues
 linearly, a floored quantity ticks over, the drift crosses the three-atom
 tolerance for part of each cycle and falls back inside it for the rest. At
-roughly 400ms a slot, ~188 slots is ~75 seconds — the time it takes one more
+the historical ~400ms slot cadence, ~188 slots was ~75 seconds — the time it took one more
 atom of interest to accrue on this market's hLP debt.
+The current protocol convention is 200 nominal ms per slot; this fixture's
+observed devnet timing is retained only as historical evidence.
 
 **And it still does not reproduce.** The sweep now walks 401 consecutive
 elapsed slots — more than two full cycles — against the deployed binary and

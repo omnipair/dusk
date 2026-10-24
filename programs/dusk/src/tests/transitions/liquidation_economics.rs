@@ -31,7 +31,7 @@ struct AuditTotals { opened: u64, entry_debt: u64, flash: u64, emergency: u64, f
     eligible: u64, eligible_debt: u64, remaining: u64, failed: u64, admitted_error: String, path_error: String }
 
 fn publish_audit_fee(m: &mut Market, side: MarketAsset, fee: LiquidationFeeAllocation, interest: u64, slot: u64) -> Result<()> {
-    if fee.insurance>0 {m.insurance.credit(side, fee.insurance, crate::clock::test_clock(slot))?;}
+    if fee.insurance>0 {m.insurance.credit(side, fee.insurance, slot)?;}
     let supply = m.base_side.shares.ylp_supply;
     m.side_mut(side).record_liquidation_fee_credit(fee.lp, fee.protocol, ProtocolAuctionSplit::default(), supply)?;
     m.side_mut(side).record_interest_credit(interest, 0, ProtocolAuctionSplit::default(), 0)?;
@@ -74,7 +74,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
             let budget = q.repayment + q.fee.total + q.owner_surplus;
             let repaid = if full { budget.min(allocation.debt) } else { allocation.debt };
             let fee = LiquidationFeeAllocation::quote(repaid, (budget-repaid).min(q.fee.total), trial.insurance.available(side), trial.liquidation_insurance_target(side)?);
-            let cap = if full { f.unwind_credit(trial.insurance.draw_capacity(side,crate::clock::test_clock(slot))?)? } else { 0 };
+            let cap = if full { f.unwind_credit(trial.insurance.draw_capacity(side,slot)?)? } else { 0 };
             let loss = LiquidationLossAllocation::quote_with_coverage(allocation.principal.min(allocation.debt), allocation.debt,
                 repaid, cap, trial.insurance.principal_coverage_bps)?;
             let profit;
@@ -95,8 +95,8 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
                     principal_removed:allocation.principal,debt_reduced:allocation.debt,repayment:repaid,insurance_credit:loss.insurance_credit};
                 if swap.bind_liquidation(&trial,policy).is_err(){continue;}
                 let credit=full_fee_credit(&swap.leverage_quote());
-                swap.apply(&mut trial,policy,credit,crate::clock::test_clock(slot),0,ProtocolAuctionSplit::default(),None)?;
-                if loss.insurance_credit>0 {trial.insurance.consume_draw(side,f.effective_gross_for_credit(loss.insurance_credit)?,crate::clock::test_clock(slot))?;}
+                swap.apply(&mut trial,policy,credit,slot,0,ProtocolAuctionSplit::default(),None)?;
+                if loss.insurance_credit>0 {trial.insurance.consume_draw(side,f.effective_gross_for_credit(loss.insurance_credit)?,slot)?;}
                 trial.apply_liquidation_position(&mut Mut::Leverage(&mut next),side,allocation,q.collateral_debit,full)?;
                 trial.observe_liquidation_settlement(&mut Mut::Leverage(&mut next),side,allocation.remaining_debt,full,f,now,slot)?;
             }
@@ -149,10 +149,10 @@ fn final_economic_policy_paths() {
         if !ps.is_empty() {
             for step in 1..=18u64 {
                 let now=(step*30) as i64;let slot=2+step*75;
-                if let Err(e)=m.accrue_interest_to_clock(crate::clock::test_clock(slot)) {t.path_error=error_name(e);break;}
+                if let Err(e)=m.accrue_interest_to_slot(slot) {t.path_error=error_name(e);break;}
                 if step==2 && withdrawal>0 {
                     let mut trial=m.clone();let burn=trial.base_side.shares.ylp_supply*withdrawal/10_000;
-                    match trial.remove_liquidity(burn).and_then(|_|trial.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(slot))) {
+                    match trial.remove_liquidity(burn).and_then(|_|trial.finalize_amm_transition_and_observe_risk(slot)) {
                         Ok(())=>m=trial,Err(e)=>{t.path_error=format!("lp:{}",error_name(e));break;}
                     }
                 }

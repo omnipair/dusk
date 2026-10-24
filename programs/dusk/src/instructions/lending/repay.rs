@@ -133,7 +133,7 @@ impl<'info> Repay<'info> {
     crate::instructions::accounts::market_update_and_validate!(RepayArgs);
 
     pub fn handle_repay(mut ctx: Context<'_, '_, '_, 'info, Self>, args: RepayArgs) -> Result<()> {
-        let clock = crate::clock::MarketClock::get()?;
+        let current_slot = Clock::get()?.slot;
         let remaining_accounts = ctx.remaining_accounts;
         let (market_key, owner_key, debt_asset_mint_key, position_key, repay_gross, debt_receipt, referral_receipt) = {
             let accounts = &mut ctx.accounts;
@@ -195,7 +195,7 @@ impl<'info> Repay<'info> {
                 repay_asset,
                 repay_credit,
                 leverage_collateral_fee(&accounts.collateral_asset_mint, Clock::get()?.epoch)?,
-                Some(clock),
+                Some(current_slot),
             )?;
             require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
             accounts.market.reset_borrow_distress_if_recovered(
@@ -285,7 +285,7 @@ impl<'info> Repay<'info> {
             owner_key,
             ctx.accounts.owner.key(),
             debt_asset_mint_key,
-            (clock).slot,
+            current_slot,
         )? {
             emit_cpi!(event);
         }

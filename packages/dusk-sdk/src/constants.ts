@@ -38,6 +38,11 @@ export const PROPOSAL_METADATA_VERSION = 1;
 export const MAX_PROPOSAL_TITLE_BYTES = 96;
 export const MAX_PROPOSAL_DESCRIPTION_URI_BYTES = 200;
 export const MAX_PROPOSAL_DESCRIPTION_BYTES = 32_768;
+// Nominal 1-7 day ramp at Solana's current 200 ms scheduled slot cadence.
+// Update with the on-chain timing constant if the network cadence changes.
+export const DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS = 432_000;
+export const MIN_CONCENTRATION_RAMP_DURATION_SLOTS = 432_000;
+export const MAX_CONCENTRATION_RAMP_DURATION_SLOTS = 3_024_000;
 
 /**
  * PDA seeds used by the program

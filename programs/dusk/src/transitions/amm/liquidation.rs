@@ -59,24 +59,15 @@ impl SwapRequest {
     // This is an inventory settlement. Its virtual hLP endpoint/cache must
     // never be applied to the real pool. PreparedSwap enforces that distinction.
     pub(crate) fn prepare_ema_liquidation(self, market: &mut Market) -> Result<Box<PreparedSwap>> {
-        market.accrue_interest_to_clock(crate::clock::MarketClock::from_timestamp(
-            self.current_slot,
-            self.current_unix_timestamp,
-        )?)?;
-        market.prepare_amm_for_swap(crate::clock::MarketClock::from_timestamp(
-            self.current_slot,
-            self.current_unix_timestamp,
-        )?)?;
+        market.accrue_interest_to_slot(self.current_slot)?;
+        market.prepare_amm_for_swap(self.current_slot)?;
         let (reference, state) = market.ema_liquidation_curve(self.asset_in)?;
         let preliminary = reference.preliminary_swap_inputs_at_reference_price(
             self.asset_in,
             self.reserve_credit,
-            crate::clock::MarketClock::from_timestamp(self.current_slot, self.current_unix_timestamp)?,
+            self.current_slot,
             self.current_unix_timestamp,
-            reference.dynamic_fee_pre_state(crate::clock::MarketClock::from_timestamp(
-                self.current_slot,
-                self.current_unix_timestamp,
-            )?)?,
+            reference.dynamic_fee_pre_state(self.current_slot)?,
             reference.amm.center_price_nad,
         )?;
         let quote = reference

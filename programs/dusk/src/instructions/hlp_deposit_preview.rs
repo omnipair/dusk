@@ -149,12 +149,12 @@ fn preview_hlp_funding_limit(
     if global_reduce_only || market.reduce_only {
         return Ok((HlpDepositStatus::ReduceOnly, 0));
     }
-    market.accrue_interest_to_clock(crate::clock::MarketClock::from_clock(clock)?)?;
+    market.accrue_interest_to_slot(clock.slot)?;
     reconcile_live_hlp_supply(market, target, live_supply)?;
     if market.base_side.reserves.live_reserve == 0 || market.quote_side.reserves.live_reserve == 0 {
         return Ok((HlpDepositStatus::NoLiquidity, 0));
     }
-    market.advance_amm_clock(crate::clock::MarketClock::from_clock(clock)?)?;
+    market.advance_amm_clock(clock.slot)?;
     market.freeze_negative_hlp_vaults()?;
     if market.hlp_frozen(target) {
         return Ok((HlpDepositStatus::Frozen, 0));
@@ -171,7 +171,7 @@ fn preview_hlp_funding_limit(
     if status != HlpDepositStatus::Ready {
         return Ok((status, 0));
     }
-    market.observe_current_risk(crate::clock::MarketClock::from_clock(clock)?)?;
+    market.observe_current_risk(clock.slot)?;
     let target_reserve = market.side(target).reserves.live_reserve;
     let opposite_reserve = market.side(target.opposite()).reserves.live_reserve;
     if target_reserve == 0 || opposite_reserve == 0 {

@@ -72,11 +72,7 @@ pub(crate) struct PositionDebtSideQuote {
 }
 
 impl Market {
-    pub(crate) fn lending_side_preview(
-        &self,
-        asset: MarketAsset,
-        clock: crate::clock::MarketClock,
-    ) -> Result<LendingSidePreview> {
+    pub(crate) fn lending_side_preview(&self, asset: MarketAsset, slot: u64) -> Result<LendingSidePreview> {
         let side = self.side(asset);
         let (base_depth, quote_depth) = self.pessimistic_borrow_reserve_depths(&self.risk)?;
         let conservative_depth_nad = match asset {
@@ -114,7 +110,7 @@ impl Market {
         let daily_borrow_remaining = self
             .side(asset)
             .daily_borrow_bucket
-            .remaining(daily_borrow_limit, clock)?;
+            .remaining(daily_borrow_limit, slot)?;
 
         Ok(LendingSidePreview {
             conservative_depth_nad,
@@ -167,7 +163,7 @@ impl Market {
         collateral_amount: u64,
         collateral_fee: LeverageCollateralFee,
         projected_borrow_amount: Option<u64>,
-        clock: crate::clock::MarketClock,
+        slot: u64,
     ) -> Result<BorrowCapacityQuote> {
         let fees = match collateral_asset {
             MarketAsset::Base => LendingCollateralFees {
@@ -184,7 +180,7 @@ impl Market {
             collateral_amount,
             fees,
             projected_borrow_amount,
-            clock,
+            slot,
         )
     }
 
@@ -194,7 +190,7 @@ impl Market {
         collateral_amount: u64,
         fees: LendingCollateralFees,
         projected_borrow_amount: Option<u64>,
-        clock: crate::clock::MarketClock,
+        slot: u64,
     ) -> Result<BorrowCapacityQuote> {
         let collateral_fee = fees.for_asset(collateral_asset);
         let collateral_exit_credit = collateral_fee.unwind_credit(collateral_amount)?;
@@ -205,7 +201,7 @@ impl Market {
         let collateral_value_nad = self.collateral_value_nad(collateral_asset, collateral_exit_credit, &risk)?;
         let max_debt_by_cash = debt_side.reserves.cash_reserve;
         let daily_limit = self.daily_limit_for_side(debt_asset, self.config.max_daily_borrow_bps)?;
-        let max_debt_by_daily_limit = debt_side.daily_borrow_bucket.remaining(daily_limit, clock)?;
+        let max_debt_by_daily_limit = debt_side.daily_borrow_bucket.remaining(daily_limit, slot)?;
         if collateral_exit_credit == 0 {
             return Ok(BorrowCapacityQuote {
                 collateral_value_nad: 0,
@@ -588,7 +584,7 @@ impl Market {
         collateral_asset: MarketAsset,
         projected_borrow_amount: Option<u64>,
         borrow_capacity: bool,
-        clock: crate::clock::MarketClock,
+        slot: u64,
         collateral_fee: LeverageCollateralFee,
     ) -> Result<PositionCapacityQuote> {
         let fees = match collateral_asset {
@@ -606,7 +602,7 @@ impl Market {
             collateral_asset,
             projected_borrow_amount,
             borrow_capacity,
-            clock,
+            slot,
             fees,
         )
     }
@@ -617,7 +613,7 @@ impl Market {
         collateral_asset: MarketAsset,
         projected_borrow_amount: Option<u64>,
         borrow_capacity: bool,
-        clock: crate::clock::MarketClock,
+        slot: u64,
         fees: LendingCollateralFees,
     ) -> Result<PositionCapacityQuote> {
         let collateral_fee = fees.for_asset(collateral_asset);
@@ -710,10 +706,7 @@ impl Market {
         };
         let daily_limit = self.daily_limit_for_side(debt_asset, self.config.max_daily_borrow_bps)?;
         let cash_limit = self.side(debt_asset).reserves.cash_reserve;
-        let daily_remaining = self
-            .side(debt_asset)
-            .daily_borrow_bucket
-            .remaining(daily_limit, clock)?;
+        let daily_remaining = self.side(debt_asset).daily_borrow_bucket.remaining(daily_limit, slot)?;
         let collateral_value_nad = borrow_context.impact_value_nad;
         let max_debt_nad_by_collateral = collateral_value_nad
             .checked_mul(max_cf_bps_from_liquidation_cf(MAX_COLLATERAL_FACTOR_BPS) as u128)

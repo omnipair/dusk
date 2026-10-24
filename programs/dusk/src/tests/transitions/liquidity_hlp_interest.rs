@@ -36,7 +36,7 @@ fn h_lp_entry_accepts_full_value_public_interest_in_both_assets_and_curves() {
                 market.risk.quote_price_ema_nad = NAD;
                 market.risk.directional_base_price_ema_nad = NAD;
                 market.risk.directional_quote_price_ema_nad = NAD;
-                market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+                market.prepare_amm_for_swap(1).unwrap();
                 market.assert_market_invariants().unwrap();
                 let before = market.clone();
                 match market.deposit_single_sided(target, 20_000 * UNIT, 1) {
@@ -107,7 +107,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                     market.risk.directional_base_price_ema_nad = NAD;
                     market.risk.directional_quote_price_ema_nad = NAD;
                     market.amm = AmmState::default();
-                    market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+                    market.prepare_amm_for_swap(1).unwrap();
                     let start = market.integrated_curve_state_nad().unwrap();
                     let eligible_supply = market.base_side.shares.ylp_supply;
                     let eligible_shares = [market.base_hlp_vault.ylp_shares, market.quote_hlp_vault.ylp_shares];
@@ -135,7 +135,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                             &mut market,
                             SwapCashPolicy::Spot,
                             credit,
-                            crate::clock::test_clock(1),
+                            1,
                             0,
                             ProtocolAuctionSplit::default(),
                             None,
@@ -242,7 +242,7 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
                 ..AmmConfig::default()
             };
             market.amm = AmmState::default();
-            market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+            market.prepare_amm_for_swap(1).unwrap();
             let economic =
                 hlp_share_nav_nad_with_prices(&market, target, current_hlp_curve_prices(&market).unwrap()).unwrap();
             assert!(economic > 0);
@@ -326,7 +326,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                 market.risk.directional_base_price_ema_nad = NAD;
                 market.risk.directional_quote_price_ema_nad = NAD;
                 market.amm = AmmState::default();
-                market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+                market.prepare_amm_for_swap(1).unwrap();
                 let before = market.clone();
                 if advance {
                     let supply = market.side(asset).shares.ylp_supply;
@@ -454,7 +454,7 @@ fn full_value_recovery_bonus_reports_the_settled_price() {
             ..AmmConfig::default()
         };
         market.amm = AmmState::default();
-        market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+        market.prepare_amm_for_swap(1).unwrap();
         let mut prepared = SwapRequest {
             current_slot: 1,
             current_unix_timestamp: 0,
@@ -467,7 +467,7 @@ fn full_value_recovery_bonus_reports_the_settled_price() {
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
             &prepared.leverage_quote(), quote.fee.claimable_fee_debit,
         ).unwrap();
-        prepared.apply(&mut market, SwapCashPolicy::Spot, credit, crate::clock::test_clock(1), 0, ProtocolAuctionSplit::default(), None).unwrap();
+        prepared.apply(&mut market, SwapCashPolicy::Spot, credit, 1, 0, ProtocolAuctionSplit::default(), None).unwrap();
         market.assert_market_invariants().unwrap();
         let price = market.current_concentrated_spot_price_nad().unwrap().unwrap();
         assert!(price.abs_diff(quote.reserve_end_price_nad) <= 10, "{target:?}: {price} vs {}", quote.reserve_end_price_nad);
@@ -518,7 +518,7 @@ fn accrued_interest_rehedging_does_not_pay_a_same_slot_round_trip() {
                 market.risk.quote_price_ema_nad = NAD;
                 market.risk.directional_base_price_ema_nad = NAD;
                 market.risk.directional_quote_price_ema_nad = NAD;
-                market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+                market.prepare_amm_for_swap(1).unwrap();
                 let initial = initial * UNIT;
                 for cycle in 0..3 {
                 let mut amount = initial;
@@ -535,7 +535,7 @@ fn accrued_interest_rehedging_does_not_pay_a_same_slot_round_trip() {
                     let credit = LeverageSwapFeeCredit::from_total_actual_credit(
                         &quote, prepared.quote.fee.claimable_fee_debit,
                     ).unwrap();
-                    prepared.apply(&mut market, SwapCashPolicy::Spot, credit, crate::clock::test_clock(1), 0,
+                    prepared.apply(&mut market, SwapCashPolicy::Spot, credit, 1, 0,
                         ProtocolAuctionSplit::default(), None).unwrap();
                     market.assert_market_invariants().unwrap();
                 }
@@ -583,10 +583,10 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
                 ..AmmConfig::default()
             };
             market.amm = AmmState::default();
-            market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+            market.prepare_amm_for_swap(1).unwrap();
             let pre = prepare_concentrated_hlp_transition_at_current_state(&market).unwrap();
             pre.consume(&mut market).unwrap();
-            market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
+            market.finalize_amm_transition_and_observe_risk(1).unwrap();
             let prices = current_hlp_curve_prices(&market).unwrap();
             let raw_before = market.curve_reserves_nad().unwrap();
             let nav_before = [
@@ -609,7 +609,7 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
             ];
             let post = prepare_concentrated_hlp_transition_at_current_state(&market).unwrap_or_else(|e| panic!("amp={amplification} asset={interest_asset:?} unpaid={unpaid_tokens} gross={gross}: {e}"));
             post.consume(&mut market).unwrap();
-            market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
+            market.finalize_amm_transition_and_observe_risk(1).unwrap();
             market.assert_market_invariants().unwrap();
             let prices_after = current_hlp_curve_prices(&market).unwrap();
             let ordinary_after = market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
@@ -666,10 +666,10 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                 ..AmmConfig::default()
             };
             market.amm = AmmState::default();
-            market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+            market.prepare_amm_for_swap(1).unwrap();
             let pre = prepare_concentrated_hlp_transition_at_current_state(&market).unwrap();
             pre.consume(&mut market).unwrap();
-            market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(1)).unwrap();
+            market.finalize_amm_transition_and_observe_risk(1).unwrap();
             // Accrue new funding costs after the initial hedge, without paying
             // them before the harvest being tested.
             let before_unpaid = market.public_unpaid_interest(interest_asset).unwrap();
@@ -713,7 +713,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                 base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
                 quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares };
             let receipt = market.settle_new_hlp_public_interest(eligibility,
-                [fee; 2], crate::clock::test_clock(1))
+                [fee; 2], 1)
                 .unwrap_or_else(|e| panic!("amp={amplification} asset={interest_asset:?} unpaid={unpaid_tokens}: {e}"));
             assert!(receipt.published.iter().flatten().sum::<u64>() <= lp_credit);
             market.assert_market_invariants().unwrap();

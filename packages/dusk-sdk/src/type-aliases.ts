@@ -157,6 +157,10 @@ type DuskEventIdl = {
 };
 
 export type Market = IdlTypes<DuskAccountIdl>["market"];
+export type HlpFlashQuote = IdlTypes<DuskAccountIdl>["hlpFlashQuote"];
+export type FundInterestReceipt = IdlTypes<DuskEventIdl>["fundInterestReceipt"];
+export type FlashLiquidationQuote = IdlTypes<DuskEventIdl>["flashLiquidationQuote"];
+export type EmergencyLiquidationQuote = IdlTypes<DuskEventIdl>["emergencyLiquidationQuote"];
 export type BorrowPosition = IdlTypes<DuskAccountIdl>["borrowPosition"];
 export type LeveragePosition = IdlTypes<DuskAccountIdl>["leveragePosition"];
 export type LeverageDelegation = IdlTypes<DuskAccountIdl>["leverageDelegation"];

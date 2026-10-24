@@ -72,12 +72,7 @@ pub(crate) struct LendingSwapSettlement<'a> {
 }
 
 impl LendingSwapSettlement<'_> {
-    fn apply(
-        self,
-        market: &mut Market,
-        swap_output: u64,
-        clock: crate::clock::MarketClock,
-    ) -> Result<InternalLiquidationReceipt> {
+    fn apply(self, market: &mut Market, swap_output: u64, current_slot: u64) -> Result<InternalLiquidationReceipt> {
         market.settle_internal_liquidation(
             self.position,
             self.debt_asset,
@@ -86,7 +81,7 @@ impl LendingSwapSettlement<'_> {
             self.insurance_credit,
             self.collateral_consumed,
             self.caller_bounty,
-            clock,
+            current_slot,
         )
     }
 }
@@ -156,7 +151,7 @@ impl PreparedSwap {
     pub(crate) fn finalize_state(
         &mut self,
         market: &mut Market,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<FinalizedSwapState> {
@@ -168,7 +163,7 @@ impl PreparedSwap {
             market,
             SwapCashPolicy::Spot,
             credit,
-            clock,
+            current_slot,
             protocol_fee_bps,
             protocol_auction_split,
             None,
@@ -185,16 +180,15 @@ impl PreparedSwap {
         market: &mut Market,
         cash_policy: SwapCashPolicy,
         fee_credit: LeverageSwapFeeCredit,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         lending: Option<LendingSwapSettlement<'_>>,
     ) -> Result<FinalizedSwapState> {
-        let current_slot = clock.slot;
         require!(self.cash_policy == cash_policy, ErrorCode::BrokenInvariant);
         let quote = self.quote;
         let swap = self.leverage_quote();
-        market.validate_leverage_swap_quote(swap, quote.asset_in, clock)?;
+        market.validate_leverage_swap_quote(swap, quote.asset_in, current_slot)?;
         require_eq!(quote.fee.protocol_fee_bps, protocol_fee_bps, ErrorCode::BrokenInvariant);
         require!(
             fee_credit == LeverageSwapFeeCredit::from_total_actual_credit(&swap, quote.fee.claimable_fee_debit,)?,
@@ -304,27 +298,27 @@ impl PreparedSwap {
             // Reference pricing can change real invariant depth even without
             // a recorded write-off. Consume protection on loss; an apparent
             // gain cannot manufacture a spendable recenter buffer.
-            market.checkpoint_amm_socialized_loss_raw(clock)?;
+            market.checkpoint_amm_socialized_loss_raw(current_slot)?;
         } else if prepared_cache.is_some() {
             let cache = if socialized_loss {
                 None
             } else {
                 Some(*prepared_cache.ok_or(ErrorCode::BrokenInvariant)?)
             };
-            market.checkpoint_amm_neutral_inventory_raw(clock, cache)?;
+            market.checkpoint_amm_neutral_inventory_raw(current_slot, cache)?;
         } else {
             require_eq!(quote.fee.compounded_fee_debit, 0, ErrorCode::BrokenInvariant);
         }
         // Fixed-debt clearance can still change reserves after the AMM/hLP leg.
         // Observe the complete operation once, including that final change.
         let liquidation = lending
-            .map(|settlement| settlement.apply(market, quote.amount_out, clock))
+            .map(|settlement| settlement.apply(market, quote.amount_out, current_slot))
             .transpose()?;
         let final_price_nad = if let Some(receipt) = liquidation {
             if receipt.liquidation.socialized_loss > 0 {
-                market.checkpoint_amm_socialized_loss_raw(clock)?.0
+                market.checkpoint_amm_socialized_loss_raw(current_slot)?.0
             } else {
-                market.checkpoint_amm_neutral_inventory_raw(clock, None)?;
+                market.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
                 market
                     .current_concentrated_spot_price_nad()?
                     .ok_or(ErrorCode::BrokenInvariant)?
@@ -340,7 +334,7 @@ impl PreparedSwap {
         market.finalize_amm_trade_after_inventory_checkpoint(
             inventory.map_or(quote.start_price_nad, |reference| reference.actual_start_price_nad),
             final_price_nad,
-            clock,
+            current_slot,
         )?;
         let depth = market
             .amm
@@ -348,7 +342,7 @@ impl PreparedSwap {
             .tail_liquidity
             .checked_add(market.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        market.observe_risk_from_concentrated_curve(final_price_nad, depth, clock)?;
+        market.observe_risk_from_concentrated_curve(final_price_nad, depth, current_slot)?;
         // Swaps preserve the lazy risk-refresh revision. A fixed-debt close
         // also completes the lending refresh, as its previous adapter did.
         if liquidation.is_some() {
@@ -372,7 +366,7 @@ impl Market {
         &mut self,
         prepared: Option<&mut PreparedSwap>,
         settlement: LendingSwapSettlement<'_>,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
     ) -> Result<(Option<FinalizedSwapState>, InternalLiquidationReceipt)> {
@@ -391,7 +385,7 @@ impl Market {
                 self,
                 policy,
                 credit,
-                clock,
+                current_slot,
                 protocol_fee_bps,
                 protocol_auction_split,
                 Some(settlement),
@@ -399,11 +393,11 @@ impl Market {
             let receipt = finalized.liquidation.ok_or(ErrorCode::BrokenInvariant)?;
             Ok((Some(finalized), receipt))
         } else {
-            let receipt = settlement.apply(self, 0, clock)?;
+            let receipt = settlement.apply(self, 0, current_slot)?;
             if receipt.liquidation.socialized_loss > 0 {
-                self.finalize_amm_socialized_loss_and_observe_risk(clock)?;
+                self.finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
             } else {
-                self.finalize_amm_transition_and_observe_risk(clock)?;
+                self.finalize_amm_transition_and_observe_risk(current_slot)?;
             }
             Ok((None, receipt))
         }
@@ -420,8 +414,7 @@ impl SwapRequest {
         market: &mut Market,
         cash_policy: SwapCashPolicy,
     ) -> Result<Box<PreparedSwap>> {
-        let clock = crate::clock::MarketClock::from_timestamp(self.current_slot, self.current_unix_timestamp)?;
-        market.accrue_interest_to_clock(clock)?;
+        market.accrue_interest_to_slot(self.current_slot)?;
         require_eq!(
             market.base_side.shares.ylp_supply,
             market.quote_side.shares.ylp_supply,
@@ -433,21 +426,20 @@ impl SwapRequest {
             quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
         };
         if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
-            market.prepare_amm_for_swap(clock)?;
+            market.prepare_amm_for_swap(self.current_slot)?;
         }
 
         // Concentrated tail+band markets freeze one curve/ownership settlement.
         // Apply at most one center target derived from an earlier observation
         // before freezing this swap's fee/curve state. The observation made by
         // this swap can only schedule a target for a later operation.
-        // Controller advancement validates and reads these same curve
-        // parameters, so do not decode them twice on every swap.
-        market.advance_one_amm_controller_target(clock)?;
-        let pre_state = market.dynamic_fee_pre_state(clock)?;
+        market.config.amm.concentrated_curve_parameters()?;
+        market.advance_one_amm_controller_target(self.current_slot)?;
+        let pre_state = market.dynamic_fee_pre_state(self.current_slot)?;
         let preliminary = market.preliminary_swap_inputs_for_state_at_time(
             self.asset_in,
             self.reserve_credit,
-            clock,
+            self.current_slot,
             self.current_unix_timestamp,
             pre_state,
         )?;

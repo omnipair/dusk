@@ -58,12 +58,15 @@ pub const LIQUIDATION_AUCTION_DURATION_SECONDS: i64 = 5 * 60;
 pub const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS: u16 = 7_500;
 #[constant]
 pub const MAX_INSURANCE_DRAW_PER_DAY_BPS: u16 = 5_000;
-#[cfg(test)]
 pub const INSURANCE_DRAW_WINDOW_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
 #[constant]
 pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
-#[cfg(test)]
-pub const TARGET_MS_PER_SLOT: u64 = 400;
+/// Economic timers use a deterministic nominal slot cadence instead of the
+/// leader-influenced `Clock.unix_timestamp`. Solana's 200 ms slot rollout is
+/// separate from Alpenglow's finality change. Revisit this protocol constant
+/// if the cluster's scheduled slot duration changes again.
+#[constant]
+pub const TARGET_MS_PER_SLOT: u64 = 200;
 /// Direct-yLP parameter governance thresholds and wall-clock lifecycle.
 #[constant]
 pub const PARAMETER_PROPOSAL_SPONSOR_BPS: u16 = 100; // 1%
@@ -156,8 +159,9 @@ pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// Serialized `Market` account layout discriminator.
 ///
-/// Layout 6 adds elapsed-time checkpoints and replaces auction slot timers.
-/// Earlier serialized accounts must not decode as this expanded structure.
+/// Layout 6 keeps an explicit insurance-window initialization flag while
+/// economic checkpoints use slots. Earlier development layouts must not
+/// decode as this structure.
 #[constant]
 pub const MARKET_LAYOUT_VERSION: u8 = 6;
 

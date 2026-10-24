@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{NAD, YIELD_GROWTH_FRACTION_MASK_Q64, YIELD_GROWTH_SCALE_Q64},
+    constants::{NAD, TARGET_MS_PER_SLOT, YIELD_GROWTH_FRACTION_MASK_Q64, YIELD_GROWTH_SCALE_Q64},
     errors::ErrorCode,
 };
 
@@ -260,6 +260,14 @@ pub fn isqrt(value: u128) -> u128 {
 pub fn sqrt_ratio_nad(r_nad: u128) -> Result<u128> {
     let scaled = r_nad.checked_mul(NAD as u128).ok_or(ErrorCode::MarketMathOverflow)?;
     Ok(isqrt(scaled))
+}
+
+/// Converts consensus slot progress to nominal milliseconds for economic math.
+/// This is deterministic and cannot be skewed by a block leader's chosen
+/// `Clock.unix_timestamp`, but it is not measured wall-clock elapsed time.
+/// Skipped slots count; a future slot-cadence change needs a protocol update.
+pub fn slots_to_ms(start_slot: u64, end_slot: u64) -> Option<u64> {
+    end_slot.checked_sub(start_slot)?.checked_mul(TARGET_MS_PER_SLOT)
 }
 
 pub fn taylor_exp(x: i64, scale: u64, precision: u64) -> u64 {

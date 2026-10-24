@@ -1,4 +1,4 @@
-import type { IdlTypes, Program } from "@coral-xyz/anchor";
+import type { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import { address, type AddressLike } from "./address.js";
@@ -8,6 +8,7 @@ import { DuskGet } from "./get.js";
 import { previewReturnDataBytes } from "./preview.js";
 import { tokenProgramForMint } from "./referral.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
+import type { FundInterestReceipt } from "./type-aliases.js";
 import { DuskWrite } from "./write.js";
 
 export interface FundInterestParams {
@@ -17,7 +18,7 @@ export interface FundInterestParams {
   maxBaseGross?: GovernanceIntegerLike;
   maxQuoteGross?: GovernanceIntegerLike;
 }
-export type FundInterestReceipt = IdlTypes<DuskIdl>["fundInterestReceipt"];
+export type { FundInterestReceipt };
 export interface HarvestYieldParams extends FundInterestParams {
   owner: AddressLike;
   kind: "ylp" | "baseHlp" | "quoteHlp";
@@ -40,7 +41,7 @@ export class DuskYield {
 
   async fundInstruction(params: FundInterestParams): Promise<TransactionInstruction> {
     const market = address(params.market);
-    const s = await this.program.account.market.fetch(market);
+    const s = await this.get.market(market);
     return this.write.instruction("fundInterest", {
       maxBaseGross: governanceIntegerBN(params.maxBaseGross ?? 0xffffffffffffffffn, "maxBaseGross"),
       maxQuoteGross: governanceIntegerBN(params.maxQuoteGross ?? 0xffffffffffffffffn, "maxQuoteGross"),
@@ -71,12 +72,12 @@ export class DuskYield {
     if (!["ylp", "baseHlp", "quoteHlp"].includes(params.kind)) throw new Error("Invalid yield token kind");
     if (params.asset !== "base" && params.asset !== "quote") throw new Error("Invalid yield asset");
     const market = address(params.market), owner = address(params.owner), caller = address(params.caller);
-    const s = await this.program.account.market.fetch(market);
+    const s = await this.get.market(market);
     const side = params.asset === "base" ? s.baseSide : s.quoteSide;
     const lpMint = params.kind === "ylp" ? s.ylpMint : params.kind === "baseHlp" ? s.baseSide.hlpMint : s.quoteSide.hlpMint;
     const kind = params.kind === "ylp" ? "ylp" : "hlp";
     const [yieldAccount] = deriveYieldAccountAddress(market, owner, lpMint, side.assetMint, kind, this.program.programId);
-    const claim = await this.program.account.yieldAccount.fetch(yieldAccount);
+    const claim = await this.get.yieldAccount(yieldAccount);
     const tokenProgram = await tokenProgramForMint(this.program.provider.connection, side.assetMint);
     const recipientAssetAccount = getAssociatedTokenAddressSync(side.assetMint, claim.recipient, true, tokenProgram);
     const instructions: TransactionInstruction[] = [

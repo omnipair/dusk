@@ -99,11 +99,10 @@ impl<'info> FundInterest<'info> {
         let clock = Clock::get()?;
         crate::instructions::accounting::accrue_market_interest(
             &mut a.market,
-            crate::clock::MarketClock::from_clock(&clock)?,
+            clock.slot,
             a.event_authority.to_account_info(),
         )?;
-        a.market
-            .advance_amm_clock(crate::clock::MarketClock::from_clock(&clock)?)?;
+        a.market.advance_amm_clock(clock.slot)?;
         a.market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
         a.market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
         let eligibility = HlpYieldEligibility {

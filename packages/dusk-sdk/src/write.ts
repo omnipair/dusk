@@ -2329,7 +2329,7 @@ const AMM_U64_FIELDS = [
   "volatilityHalfLifeMs",
   "adjustmentThresholdNad",
   "adjustmentStepNad",
-  "minAdjustmentIntervalMs",
+  "minAdjustmentIntervalSlots",
   "volatilityShockCapNad",
   "volatilityCapNad",
   "divergenceFeeCoefficientNad",

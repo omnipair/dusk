@@ -75,7 +75,6 @@ impl HlpVault {
             self.residual_exposure = 0;
             self.funding_apr_ema_nad = 0;
             self.funding_apr_ema_last_slot = 0;
-            self.funding_apr_ema_last_timestamp_ms = 0;
         }
         Ok(())
     }

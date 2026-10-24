@@ -446,7 +446,7 @@ r_T'=\clip\left(r_T\left[1+\clip(se\tau,-0.5,0.5)\right],0.001,2\right),
 \end{equation}
 where $\tau$ is elapsed time in years, capped at one year per update, and default speed is $s=20$. The anchor starts at four percent APR. Its 0.1--200 percent bounds apply to the anchor, not the final debt APR after multiplication.
 
-The program accrues the debt index at the rate computed from the pre-update state, then updates the anchor. Elapsed time comes from the difference between stored and current \texttt{Clock.unix\_timestamp}, converted from seconds to milliseconds. Repeated timestamps accrue no time; slots retain observation ordering and atomic-session checks. Debt and index arithmetic round in integer fixed point, so continuous-time formulas or a particular update cadence must not be presented as bit-for-bit execution under arbitrary activity.
+The program accrues the debt index at the rate computed from the pre-update state, then updates the anchor. Elapsed time is inferred from slots at 400 milliseconds per slot. Debt and index arithmetic round in integer fixed point, so continuous-time formulas or a particular update cadence must not be presented as bit-for-bit execution under arbitrary activity.
 
 \subsection{Immediate flash liquidation}
 \label{sec:flash}
@@ -489,7 +489,7 @@ T=\left\lceil P/20\right\rceil+\left\lceil H/15\right\rceil,
 \]
 where $P$ is covered public/margin principal and $H$ is indexed hLP funding debt. Of the collected solvent charge, 20\% is protocol revenue and 80\% is designated for insurance/LPs. This designated portion funds insurance fully through 75\% of target, tapers linearly to zero at target, and sends the remainder to existing LP yield ownership, including hLP through yLP. Existing insurance is not paid out merely because its target falls.
 
-Borrower/margin coverage is at most 75\% of eligible principal loss, further bounded by available funds and configured limits. Eligible hLP terminal shortfalls retain their separate coverage rule. All claimants share the fund's at-most-50\% spending budget, which refreshes after 24 hours of elapsed on-chain timestamp time using the remaining balance. Changing claimant type does not reset that budget.
+Borrower/margin coverage is at most 75\% of eligible principal loss, further bounded by available funds and configured limits. Eligible hLP terminal shortfalls retain their separate coverage rule. All claimants share the fund's at-most-50\% spending budget, which refreshes after a slot-based 24-hour window using the remaining balance. Changing claimant type does not reset that budget.
 
 The original live-price/depth dependence in finding \#287652 is remediated. The owner accepted the remaining inventory/arbitrage risk: after the reference exchange, LP inventory can lose value through subsequent trading. Such inventory loss is not a second outstanding borrower principal claim that automatically draws insurance. This acceptance does not cover a new accounting defect or establish best execution, absence of manipulation profit, or universal liquidation liveness.
 

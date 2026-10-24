@@ -18,7 +18,7 @@ fn margin_calibration_native_terminal_anchors() {
                 market.config.swap_fee_bps = 0;
                 market.amm = AmmState::default();
                 market.risk = Risk::default();
-                market.prepare_amm_for_swap(crate::clock::test_clock(1)).unwrap();
+                market.prepare_amm_for_swap(1).unwrap();
                 market.refresh_risk().unwrap();
                 let collateral_asset = debt_asset.opposite();
                 let collateral_reserve = market.curve_reserve(collateral_asset).unwrap();
@@ -27,7 +27,7 @@ fn margin_calibration_native_terminal_anchors() {
                 let value = reference_credit(&market, collateral_asset, collateral);
                 let debt = value * 95 / 100;
                 let mut position = seeded_position(&mut market, debt_asset, debt, collateral);
-                let quote = market.quote_leverage_swap(collateral_asset, collateral, crate::clock::test_clock(1)).unwrap();
+                let quote = market.quote_leverage_swap(collateral_asset, collateral, 1).unwrap();
                 let expected = u128::from(debt_reserve) * u128::from(collateral)
                     / (u128::from(collateral_reserve) + u128::from(collateral));
                 // Native curve price normalization may differ by a few atoms.
@@ -51,7 +51,7 @@ fn margin_calibration_native_terminal_anchors() {
                         LeverageInsuranceDraw::default(),
                         0,
                         ProtocolAuctionSplit::default(),
-                        crate::clock::test_clock(1),
+                        1,
                     )
                     .unwrap();
                 let loss = debt - quote.amount_out;

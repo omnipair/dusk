@@ -411,7 +411,7 @@ pub(crate) struct HlpTerminalWaterfallPlan {
     collateral_value_in_borrowed: u64,
     insurance_credit: u64,
     insurance_request: u64,
-    insurance_draw_clock: crate::clock::MarketClock,
+    insurance_draw_slot: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -512,7 +512,7 @@ impl HlpTerminalWaterfallPlan {
         if insurance_spent > 0 {
             market
                 .insurance
-                .consume_draw(borrowed_asset, insurance_spent, self.insurance_draw_clock)?;
+                .consume_draw(borrowed_asset, insurance_spent, self.insurance_draw_slot)?;
         }
         if insurance_credit > 0 {
             market.side_mut(borrowed_asset).credit_reserve(insurance_credit, true)?;
@@ -552,7 +552,6 @@ impl HlpTerminalWaterfallPlan {
         vault.cached_settlement_price_nad = 0;
         vault.funding_apr_ema_nad = 0;
         vault.funding_apr_ema_last_slot = 0;
-        vault.funding_apr_ema_last_timestamp_ms = 0;
 
         market.clear_frozen_hlp(self.target_asset);
         market.rebase_concentrated_curve_after_terminal_hlp_loss()?;
@@ -624,7 +623,7 @@ impl Market {
         target_asset: MarketAsset,
         max_insurance_draw: u64,
         debt_fee: crate::transitions::LeverageCollateralFee,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
     ) -> Result<HlpTerminalWaterfallPlan> {
         self.require_hlp_flash_idle(target_asset)?;
         checkpoint_hlp_yield_from_ylp(self, target_asset)?;
@@ -657,7 +656,7 @@ impl Market {
         .map_err(|_| ErrorCode::DebtMathOverflow)?;
         require!(debt >= collateral_value_in_borrowed, ErrorCode::HlpNotLiquidatable);
         self.require_hlp_ema_insolvent(target_asset)?;
-        let insurance_available = self.insurance.draw_capacity(borrowed_asset, clock)?;
+        let insurance_available = self.insurance.draw_capacity(borrowed_asset, current_slot)?;
         let loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote_with_coverage(
             vault.debt_principal.min(debt),
             debt,
@@ -681,7 +680,7 @@ impl Market {
             collateral_value_in_borrowed,
             insurance_credit: loss.insurance_credit,
             insurance_request,
-            insurance_draw_clock: clock,
+            insurance_draw_slot: current_slot,
         })
     }
 }
@@ -1596,20 +1595,14 @@ impl Market {
         if let Some(price_nad) = final_price_nad {
             // NAV checkpointing changes no curve inputs. Share its exact price
             // with risk rather than evaluating the identical geometry twice.
-            let clock = match Clock::get() {
-                Ok(clock) => crate::clock::MarketClock::from_clock(&clock)?,
-                Err(_) => crate::clock::MarketClock {
-                    slot: market.last_update_slot,
-                    timestamp_ms: market.last_update_timestamp_ms,
-                },
-            };
+            let slot = Clock::get().map(|clock| clock.slot).unwrap_or(market.last_update_slot);
             let curve_depth_nad = market
                 .amm
                 .concentrated_curve_cache
                 .tail_liquidity
                 .checked_add(market.amm.concentrated_curve_cache.concentrated_liquidity)
                 .ok_or(ErrorCode::InvariantOverflow)?;
-            market.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, clock)?;
+            market.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, slot)?;
             market.risk_revision = market.curve_revision;
         } else {
             market.refresh_risk()?;

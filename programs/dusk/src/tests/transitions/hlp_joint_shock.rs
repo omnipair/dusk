@@ -1,4 +1,5 @@
 use super::*;
+use crate::constants::TARGET_MS_PER_SLOT;
 
 const START_SLOT: u64 = 2_500;
 
@@ -32,7 +33,7 @@ fn sol_usdc_market(hlp_dollars: u64) -> Market {
             volatility_half_life_ms: 60_000,
             adjustment_threshold_nad: NAD / 100,
             adjustment_step_nad: NAD / 1_000,
-            min_adjustment_interval_ms: 150,
+            min_adjustment_interval_slots: 300,
             volatility_shock_cap_nad: NAD / 20,
             volatility_cap_nad: NAD / 10,
             divergence_fee_coefficient_nad: NAD / 10,
@@ -56,7 +57,7 @@ fn sol_usdc_market(hlp_dollars: u64) -> Market {
             Pubkey::new_unique(),
             200 * NAD,
             0,
-            crate::clock::test_clock(START_SLOT),
+            START_SLOT,
             255,
         )
         .unwrap();
@@ -64,15 +65,15 @@ fn sol_usdc_market(hlp_dollars: u64) -> Market {
     market
         .add_liquidity(ordinary_dollars / 400 * NAD, ordinary_dollars / 2 * 1_000_000)
         .unwrap();
-    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(START_SLOT)).unwrap();
+    market.finalize_amm_transition_and_observe_risk(START_SLOT).unwrap();
     market
         .deposit_single_sided(MarketAsset::Base, hlp_dollars / 200 * NAD, START_SLOT)
         .unwrap();
-    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(START_SLOT)).unwrap();
+    market.finalize_amm_transition_and_observe_risk(START_SLOT).unwrap();
     market
         .deposit_single_sided(MarketAsset::Quote, hlp_dollars * 1_000_000, START_SLOT)
         .unwrap();
-    market.finalize_amm_transition_and_observe_risk(crate::clock::test_clock(START_SLOT)).unwrap();
+    market.finalize_amm_transition_and_observe_risk(START_SLOT).unwrap();
     market
 }
 
@@ -93,7 +94,7 @@ fn settle_and_check(market: &mut Market, asset: MarketAsset, slot: u64) {
     let quote = prepared.quote;
     let before = market.clone();
     let finalized = prepared
-        .finalize_state(market, crate::clock::test_clock(slot), 2_000, ProtocolAuctionSplit::default())
+        .finalize_state(market, slot, 2_000, ProtocolAuctionSplit::default())
         .unwrap();
     for side in [MarketAsset::Base, MarketAsset::Quote] {
         let (vault, receipt) = if side == MarketAsset::Base {
@@ -166,11 +167,11 @@ fn joint_shock_sol_usdc_pays_funding_once_and_preserves_opposite_claims() {
         for age_seconds in [30, 900, 86_400] {
             for asset in [MarketAsset::Base, MarketAsset::Quote] {
                 let mut market = sol_usdc_market(hlp_dollars);
-                let slot = START_SLOT + age_seconds * 5 / 2;
-                market.accrue_interest_to_clock(crate::clock::test_clock(slot)).unwrap();
-                market.advance_amm_clock(crate::clock::test_clock(slot)).unwrap();
+                let slot = START_SLOT + age_seconds * (1_000 / TARGET_MS_PER_SLOT);
+                market.accrue_interest_to_slot(slot).unwrap();
+                market.advance_amm_clock(slot).unwrap();
                 market.checkpoint_hlp_vaults().unwrap();
-                market.refresh_risk_at_clock(crate::clock::test_clock(slot)).unwrap();
+                market.refresh_risk_at_slot(slot).unwrap();
                 let debt = Debt::shares_to_debt(market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad)
                     .unwrap();
                 assert!(debt > market.base_hlp_vault.debt_principal as u128 + 3);

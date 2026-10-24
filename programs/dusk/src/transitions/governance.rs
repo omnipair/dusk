@@ -472,10 +472,9 @@ impl Market {
         initial_liquidity_authority: Pubkey,
         bootstrap_price_nad: u64,
         launch_fee_progress_offset: u16,
-        clock: crate::clock::MarketClock,
+        current_slot: u64,
         bump: u8,
     ) -> Result<()> {
-        let current_slot = clock.slot;
         config.validate()?;
         require!(
             launch_fee_progress_offset <= config.amm.launch_market_number_of_periods,
@@ -504,9 +503,7 @@ impl Market {
             base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
             quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
             base_last_accrual_slot: current_slot,
-            base_last_accrual_timestamp_ms: clock.timestamp_ms,
             quote_last_accrual_slot: current_slot,
-            quote_last_accrual_timestamp_ms: clock.timestamp_ms,
             ..Debt::default()
         };
         self.base_hlp_vault = {
@@ -521,7 +518,6 @@ impl Market {
         };
         self.risk = Risk {
             last_snapshot_slot: current_slot,
-            last_snapshot_timestamp_ms: clock.timestamp_ms,
             ..Risk::default()
         };
         self.insurance = Insurance {
@@ -539,7 +535,6 @@ impl Market {
         self.curve_revision = 0;
         self.risk_revision = 0;
         self.last_update_slot = current_slot;
-        self.last_update_timestamp_ms = clock.timestamp_ms;
         self.reduce_only = false;
         self.bump = bump;
         Ok(())
@@ -668,19 +663,19 @@ impl Market {
                 MarketParameterUpdate::CenterController {
                     adjustment_threshold_nad,
                     adjustment_step_nad,
-                    min_adjustment_interval_ms,
+                    min_adjustment_interval_slots,
                 } => {
                     // The tuple's own rules are checked with the whole
                     // configuration below.
                     require!(
                         self.config.amm.adjustment_threshold_nad != *adjustment_threshold_nad
                             || self.config.amm.adjustment_step_nad != *adjustment_step_nad
-                            || self.config.amm.min_adjustment_interval_ms != *min_adjustment_interval_ms,
+                            || self.config.amm.min_adjustment_interval_slots != *min_adjustment_interval_slots,
                         ErrorCode::ParameterUpdateNotMeaningful
                     );
                     next.amm.adjustment_threshold_nad = *adjustment_threshold_nad;
                     next.amm.adjustment_step_nad = *adjustment_step_nad;
-                    next.amm.min_adjustment_interval_ms = *min_adjustment_interval_ms;
+                    next.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
                 }
                 MarketParameterUpdate::InsuranceDrawCaps {
                     principal_coverage_bps,
@@ -707,11 +702,7 @@ impl Market {
     /// family as one atomic change, enforce the point-in-time utilization
     /// guard once, and then advance the revision of each family that changed.
     /// Any failure leaves the market untouched.
-    pub fn execute_parameter_updates(
-        &mut self,
-        updates: &[MarketParameterUpdate],
-        clock: crate::clock::MarketClock,
-    ) -> Result<()> {
+    pub fn execute_parameter_updates(&mut self, updates: &[MarketParameterUpdate], current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
         let next_config = self.validate_parameter_updates(updates)?;
         let previous_config = self.config;
@@ -726,17 +717,16 @@ impl Market {
         let previous_curve_revision = self.curve_revision;
         let previous_risk_revision = self.risk_revision;
         let previous_last_update_slot = self.last_update_slot;
-        let previous_last_update_timestamp_ms = self.last_update_timestamp_ms;
 
         let apply_result = (|| {
             // No elapsed interest, EMA decay, or risk integration may be
             // retroactively evaluated under the newly selected parameters.
-            self.accrue_interest_to_clock(clock)?;
+            self.accrue_interest_to_slot(current_slot)?;
             if self.amm.initialized {
                 self.amm
-                    .observe_clock_from_validated_config(&previous_config.amm, clock)?;
+                    .observe_slot_from_validated_config(&previous_config.amm, current_slot)?;
             }
-            self.refresh_risk_at_clock(clock)?;
+            self.refresh_risk_at_slot(current_slot)?;
             self.assert_parameter_execution_utilization()?;
 
             // Every family closes its elapsed windows under the old values
@@ -750,8 +740,12 @@ impl Market {
                         let old_limit_bps = self.config.max_daily_borrow_bps;
                         let base_limit = self.daily_limit_for_side(MarketAsset::Base, old_limit_bps)?;
                         let quote_limit = self.daily_limit_for_side(MarketAsset::Quote, old_limit_bps)?;
-                        self.base_side.daily_borrow_bucket.decay_to_clock(base_limit, clock)?;
-                        self.quote_side.daily_borrow_bucket.decay_to_clock(quote_limit, clock)?;
+                        self.base_side
+                            .daily_borrow_bucket
+                            .decay_to_slot(base_limit, current_slot)?;
+                        self.quote_side
+                            .daily_borrow_bucket
+                            .decay_to_slot(quote_limit, current_slot)?;
                     }
                     MarketParameterUpdate::InsuranceDrawCaps {
                         principal_coverage_bps,
@@ -760,8 +754,9 @@ impl Market {
                         // Open/checkpoint the current window under the old policy.
                         // Lowering a cap can therefore only reduce future capacity;
                         // it never retroactively restores already-spent allowance.
-                        self.insurance.checkpoint_draw_window(MarketAsset::Base, clock)?;
-                        self.insurance.checkpoint_draw_window(MarketAsset::Quote, clock)?;
+                        self.insurance.checkpoint_draw_window(MarketAsset::Base, current_slot)?;
+                        self.insurance
+                            .checkpoint_draw_window(MarketAsset::Quote, current_slot)?;
                         self.insurance.principal_coverage_bps = *principal_coverage_bps;
                         self.insurance.per_day_draw_bps = *per_day_bps;
                     }
@@ -787,7 +782,7 @@ impl Market {
                             self.release_protected_recenter_reserves()?;
                         }
                         if self.amm.initialized {
-                            self.apply_concentrated_curve_parameter_update(clock)?;
+                            self.apply_concentrated_curve_parameter_update(current_slot)?;
                         }
                     }
                     MarketParameterUpdate::CenterController { .. } => {
@@ -804,8 +799,8 @@ impl Market {
                 }
             }
 
-            self.finalize_amm_transition(clock)?;
-            self.refresh_risk_at_clock(clock)?;
+            self.finalize_amm_transition(current_slot)?;
+            self.refresh_risk_at_slot(current_slot)?;
             self.assert_market_health()?;
             for update in updates {
                 let family_index = update.family().code() as usize;
@@ -829,7 +824,6 @@ impl Market {
             self.curve_revision = previous_curve_revision;
             self.risk_revision = previous_risk_revision;
             self.last_update_slot = previous_last_update_slot;
-            self.last_update_timestamp_ms = previous_last_update_timestamp_ms;
         }
         apply_result
     }

@@ -31,7 +31,8 @@ export const MAX_VOLATILITY_ACCUMULATOR_NAD = 10n * NAD;
 export const MAX_DAILY_BORROW_BPS = 3_000;
 export const MIN_CENTER_ADJUSTMENT_NAD = NAD / 1_000_000n;
 export const MAX_CENTER_ADJUSTMENT_NAD = NAD / 10n;
-export const MAX_CENTER_ADJUSTMENT_INTERVAL_MS = 86_400_000n;
+// One nominal day of scheduled 200 ms slots, matching the program cap.
+export const MAX_CENTER_ADJUSTMENT_INTERVAL_SLOTS = 432_000n;
 export const MAX_LAUNCH_FEE_DURATION_SECONDS = 30n * 24n * 60n * 60n;
 export const LAUNCH_FEE_DECAY_DISABLED = 0;
 export const LAUNCH_FEE_DECAY_LINEAR = 1;
@@ -147,7 +148,7 @@ export type ParameterUpdate =
       kind: "centerController";
       adjustmentThresholdNad: BN;
       adjustmentStepNad: BN;
-      minAdjustmentIntervalMs: BN;
+      minAdjustmentIntervalSlots: BN;
     }
   | { kind: "insuranceDrawCaps"; principalCoverageBps: number; perDayBps: number };
 
@@ -573,24 +574,24 @@ export function dailyBorrowLimitParameterUpdate(maxDailyBorrowBps: number): Para
 export function centerControllerParameterUpdate(input: {
   adjustmentThresholdNad: GovernanceIntegerLike;
   adjustmentStepNad: GovernanceIntegerLike;
-  minAdjustmentIntervalMs: GovernanceIntegerLike;
+  minAdjustmentIntervalSlots: GovernanceIntegerLike;
 }): ParameterUpdate {
   const adjustmentThresholdNad = toU64BigInt(input.adjustmentThresholdNad, "adjustmentThresholdNad");
   const adjustmentStepNad = toU64BigInt(input.adjustmentStepNad, "adjustmentStepNad");
-  const minAdjustmentIntervalMs = toU64BigInt(
-    input.minAdjustmentIntervalMs,
-    "minAdjustmentIntervalMs"
+  const minAdjustmentIntervalSlots = toU64BigInt(
+    input.minAdjustmentIntervalSlots,
+    "minAdjustmentIntervalSlots"
   );
   const disabled =
-    adjustmentThresholdNad === 0n && adjustmentStepNad === 0n && minAdjustmentIntervalMs === 0n;
+    adjustmentThresholdNad === 0n && adjustmentStepNad === 0n && minAdjustmentIntervalSlots === 0n;
   if (
     !disabled &&
     (adjustmentStepNad < MIN_CENTER_ADJUSTMENT_NAD ||
       adjustmentStepNad > MAX_CENTER_ADJUSTMENT_NAD ||
       adjustmentThresholdNad < adjustmentStepNad ||
       adjustmentThresholdNad > MAX_CENTER_ADJUSTMENT_NAD ||
-      minAdjustmentIntervalMs < 1n ||
-      minAdjustmentIntervalMs > MAX_CENTER_ADJUSTMENT_INTERVAL_MS)
+      minAdjustmentIntervalSlots < 1n ||
+      minAdjustmentIntervalSlots > MAX_CENTER_ADJUSTMENT_INTERVAL_SLOTS)
   ) {
     throw new Error("invalid center-controller threshold, step, or interval");
   }
@@ -598,7 +599,7 @@ export function centerControllerParameterUpdate(input: {
     kind: "centerController",
     adjustmentThresholdNad: toBN(adjustmentThresholdNad),
     adjustmentStepNad: toBN(adjustmentStepNad),
-    minAdjustmentIntervalMs: toBN(minAdjustmentIntervalMs),
+    minAdjustmentIntervalSlots: toBN(minAdjustmentIntervalSlots),
   };
 }
 
@@ -741,7 +742,7 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
         centerController: {
           adjustmentThresholdNad: update.adjustmentThresholdNad,
           adjustmentStepNad: update.adjustmentStepNad,
-          minAdjustmentIntervalMs: update.minAdjustmentIntervalMs,
+          minAdjustmentIntervalSlots: update.minAdjustmentIntervalSlots,
         },
       };
     case "insuranceDrawCaps":
@@ -792,7 +793,7 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
     return centerControllerParameterUpdate({
       adjustmentThresholdNad: integerField(fields, "adjustmentThresholdNad"),
       adjustmentStepNad: integerField(fields, "adjustmentStepNad"),
-      minAdjustmentIntervalMs: integerField(fields, "minAdjustmentIntervalMs"),
+      minAdjustmentIntervalSlots: integerField(fields, "minAdjustmentIntervalSlots"),
     });
   }
   if (update.insuranceDrawCaps !== undefined) {
@@ -1203,7 +1204,7 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         Uint8Array.of(5),
         encodeU64(update.adjustmentThresholdNad, "adjustmentThresholdNad"),
         encodeU64(update.adjustmentStepNad, "adjustmentStepNad"),
-        encodeU64(update.minAdjustmentIntervalMs, "minAdjustmentIntervalMs")
+        encodeU64(update.minAdjustmentIntervalSlots, "minAdjustmentIntervalSlots")
       );
     case "insuranceDrawCaps":
       return concatBytes(Uint8Array.of(6), encodeU16(update.principalCoverageBps), encodeU16(update.perDayBps));
