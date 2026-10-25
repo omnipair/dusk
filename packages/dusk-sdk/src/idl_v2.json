@@ -19898,6 +19898,13 @@
             "type": "bool"
           },
           {
+            "name": "max_repay_amount",
+            "docs": [
+              "Maximum debt-token credit that the current liquidation policy permits."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "liquidation_health",
             "type": {
               "defined": {

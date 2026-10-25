@@ -408,6 +408,8 @@ pub struct PositionDebtSidePreview {
     pub liquidation_reference_price_nad: u64,
     pub liquidation_health_bps: u64,
     pub is_liquidatable: bool,
+    /// Maximum debt-token credit that the current liquidation policy permits.
+    pub max_repay_amount: u64,
     pub liquidation_health: crate::state::LiquidationHealth,
     pub liquidation_rates: Option<crate::state::LiquidationRates>,
     pub liquidation_distress: crate::state::LiquidationDistress,
@@ -990,6 +992,7 @@ fn preview_position_debt_side(
         liquidation_reference_price_nad: quote.liquidation_reference_price_nad,
         liquidation_health_bps: quote.liquidation_health_bps,
         is_liquidatable: eligible,
+        max_repay_amount: quote.max_repay_amount,
         liquidation_health: health,
         liquidation_rates: if eligible {
             Some(health.rates(distress.age(now)?)?)

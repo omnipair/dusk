@@ -1304,6 +1304,23 @@ fn existing_position_capacity_fixture(debt_asset: MarketAsset) -> (Market, Borro
 }
 
 #[test]
+fn position_preview_exposes_the_authoritative_liquidation_repayment_cap() {
+    let (market, position) = existing_position_capacity_fixture(MarketAsset::Base);
+    let expected = market
+        .position_debt_side_quote(&position, MarketAsset::Base, Default::default())
+        .unwrap();
+    let preview = preview_position_debt_side(
+        &market,
+        &position,
+        MarketAsset::Base,
+        Default::default(),
+        0,
+    )
+    .unwrap();
+    assert_eq!(preview.max_repay_amount, expected.max_repay_amount);
+}
+
+#[test]
 fn mutable_transfer_fee_reduces_existing_borrow_capacity_and_withdrawal_room() {
     let (market, position) = existing_position_capacity_fixture(MarketAsset::Base);
     let gross_borrow = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();

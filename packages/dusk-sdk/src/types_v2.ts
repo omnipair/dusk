@@ -19904,6 +19904,13 @@ export type Dusk = {
             "type": "bool"
           },
           {
+            "name": "maxRepayAmount",
+            "docs": [
+              "Maximum debt-token credit that the current liquidation policy permits."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "liquidationHealth",
             "type": {
               "defined": {
