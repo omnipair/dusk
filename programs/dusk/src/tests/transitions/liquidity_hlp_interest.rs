@@ -752,3 +752,85 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
     }
     }
 }
+
+#[test]
+fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_ylp() {
+    const UNIT: u64 = 1_000_000;
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        for income_asset in [MarketAsset::Base, MarketAsset::Quote] {
+            for with_active_cohort in [false, true] {
+                let mut market = Market::default();
+                market.base_side.asset_decimals = 6;
+                market.quote_side.asset_decimals = 6;
+                market.debt.base_borrow_index_nad = u128::from(NAD);
+                market.debt.quote_borrow_index_nad = u128::from(NAD);
+                market.add_liquidity(1_000_000 * UNIT, 1_000_000 * UNIT).unwrap();
+                market.deposit_single_sided(target, 20_000 * UNIT, 1).unwrap();
+                if with_active_cohort {
+                    market.deposit_single_sided(target.opposite(), 10_000 * UNIT, 1).unwrap();
+                }
+                match target {
+                    MarketAsset::Base => market.debt.quote_borrow_index_nad = 3 * u128::from(NAD),
+                    MarketAsset::Quote => market.debt.base_borrow_index_nad = 3 * u128::from(NAD),
+                }
+                market.prepare_amm_for_swap(2).unwrap();
+                market.freeze_negative_hlp_vaults().unwrap();
+                assert!(market.hlp_frozen(target));
+                assert!(!market.hlp_frozen(target.opposite()));
+                market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
+                market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
+                let eligibility = HlpYieldEligibility {
+                    ylp_supply: market.base_side.shares.ylp_supply,
+                    base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
+                    quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+                };
+                let frozen_before = if target == MarketAsset::Base {
+                    market.base_hlp_vault
+                } else {
+                    market.quote_hlp_vault
+                };
+                let price_before = market.current_concentrated_spot_price_nad().unwrap();
+                let reserves = |m: &Market| [
+                    (m.base_side.reserves.cash_reserve, m.base_side.reserves.live_reserve),
+                    (m.quote_side.reserves.cash_reserve, m.quote_side.reserves.live_reserve),
+                ];
+                let reserves_before = reserves(&market);
+                let funded_credit = 10_000 * UNIT;
+                market.side_mut(income_asset).record_interest_credit_allocation(
+                    funded_credit, 0, ProtocolAuctionSplit::default(), 0, eligibility.ylp_supply,
+                ).unwrap();
+                let receipt = market.settle_new_hlp_public_interest(
+                    eligibility, [crate::transitions::LeverageCollateralFee::default(); 2], 2,
+                ).unwrap();
+                let frozen_after = if target == MarketAsset::Base {
+                    market.base_hlp_vault
+                } else {
+                    market.quote_hlp_vault
+                };
+                let t = target.code() as usize;
+                let i = income_asset.code() as usize;
+                assert_eq!(receipt.reserve_debit[t], [0, 0]);
+                assert_eq!(receipt.reserve_credit[t], [0, 0]);
+                let expected = mul_div_u128(
+                    u128::from(funded_credit), u128::from(frozen_before.ylp_shares), u128::from(eligibility.ylp_supply),
+                ).unwrap() as u64;
+                assert!(receipt.published[t][i] > 0);
+                assert!(receipt.published[t][i].abs_diff(expected) <= 1);
+                assert!(receipt.published.iter().flatten().sum::<u64>() <= funded_credit);
+                assert_eq!(frozen_after.ylp_shares, frozen_before.ylp_shares);
+                assert_eq!(frozen_after.debt_shares, frozen_before.debt_shares);
+                assert_eq!(frozen_after.debt_principal, frozen_before.debt_principal);
+                let minted = receipt.base_rebalance.ylp_mint_amount + receipt.quote_rebalance.ylp_mint_amount;
+                let burned = receipt.base_rebalance.ylp_burn_amount + receipt.quote_rebalance.ylp_burn_amount;
+                assert_eq!(market.base_side.shares.ylp_supply, eligibility.ylp_supply + minted - burned);
+                assert_eq!(market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares,
+                    eligibility.non_hlp_ylp_supply().unwrap());
+                if !with_active_cohort {
+                    assert_eq!(reserves(&market), reserves_before);
+                    assert_eq!(market.current_concentrated_spot_price_nad().unwrap(), price_before);
+                }
+                market.assert_market_invariants().unwrap();
+            }
+        }
+    }
+}

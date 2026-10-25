@@ -105,6 +105,12 @@ impl Market {
         for target in [MarketAsset::Base, MarketAsset::Quote] {
             let t = target.code() as usize;
             let borrowed = target.opposite();
+            // Frozen cohorts retain their fixed yLP ownership. Their funded
+            // income remains harvestable; reinvesting it as active equity
+            // would create supply with no corresponding mint receipt.
+            if self.hlp_frozen(target) {
+                continue;
+            }
             let mut gap_value = gaps[t];
             // Use new opposite-token income first, then new target-token income.
             // Published historical yield and fractional carry are never spent.

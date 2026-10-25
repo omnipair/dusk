@@ -164,12 +164,16 @@ impl BorrowPosition {
         }
         let position_debt = Debt::shares_to_debt(shares, debt.borrow_index(asset))?;
         require!(position_debt > 0, ErrorCode::DebtMathOverflow);
-        let amount = u128::from(aggregate_debt_reduction).min(position_debt);
+        require_gte!(position_debt, u128::from(principal), ErrorCode::DebtMathOverflow);
+        let remaining_debt = Debt::shares_to_debt(shares - shares_to_burn, debt.borrow_index(asset))?;
+        let amount = position_debt - remaining_debt;
+        // Principal belongs to this position. The aggregate cash floor can
+        // differ by one atom; using it here can leave principal above the
+        // remaining position debt and prevent a later full repayment.
         let reduced = u128::from(principal)
             .checked_mul(amount)
             .and_then(|value| value.checked_div(position_debt))
             .ok_or(ErrorCode::DebtMathOverflow)?
-            .min(u128::from(aggregate_debt_reduction))
             .min(u128::from(principal));
         u64::try_from(reduced).map_err(|_| ErrorCode::DebtMathOverflow.into())
     }

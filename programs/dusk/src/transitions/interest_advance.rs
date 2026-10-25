@@ -47,13 +47,19 @@ impl PublicInterestAdvance {
         unpaid_after: u128,
         interest_paid: u64,
     ) -> Result<InterestAdvanceClearance> {
-        require!(unpaid_before >= unpaid_after, ErrorCode::BrokenInvariant);
+        // A partial share burn can remove one more position-principal atom
+        // than aggregate debt. That creates one unpaid-interest atom without
+        // clearing any existing advance; no advance or escrow is released.
+        if unpaid_after > unpaid_before {
+            require_eq!(unpaid_after - unpaid_before, 1, ErrorCode::BrokenInvariant);
+            require_eq!(interest_paid, 0, ErrorCode::BrokenInvariant);
+        }
         require!(
             u128::from(self.outstanding_gross) <= unpaid_before,
             ErrorCode::BrokenInvariant
         );
         require_gte!(self.outstanding_gross, self.protocol_escrow, ErrorCode::BrokenInvariant);
-        let removed = unpaid_before - unpaid_after;
+        let removed = unpaid_before.saturating_sub(unpaid_after);
         if self.outstanding_gross == 0 || removed == 0 {
             return Ok(InterestAdvanceClearance::default());
         }
@@ -186,6 +192,26 @@ impl Market {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn share_floor_growth_does_not_release_or_cancel_an_interest_advance() {
+        let mut advance = PublicInterestAdvance::default();
+        advance.fund(100, 80, 16).unwrap();
+        let before = advance;
+        assert!(advance.clear(100, 101, 1).is_err());
+        assert_eq!(advance, before);
+        let cleared = advance.clear(100, 101, 0).unwrap();
+        assert_eq!((cleared.repaid, cleared.canceled, cleared.protocol_returned), (0, 0, 0));
+        assert_eq!(advance, before);
+        assert!(advance.clear(101, 103, 0).is_err());
+        assert_eq!(advance, before);
+        let cleared = advance.clear(101, 0, 101).unwrap();
+        assert_eq!((cleared.repaid, cleared.canceled), (80, 0));
+        assert_eq!(advance.take_payment(101).unwrap(), (21, 16));
+        assert_eq!(advance, PublicInterestAdvance::default());
+        assert!(advance.clear(0, 1, 1).is_err());
+        assert_eq!(advance, PublicInterestAdvance::default());
+    }
 
     #[test]
     fn frozen_split_survives_later_rate_changes_and_partial_repayment() {

@@ -644,6 +644,45 @@ fn partial_repay_uses_aggregate_debt_delta_with_multiple_positions() {
 }
 
 #[test]
+fn partial_repay_keeps_position_principal_clearable_after_another_borrower_exits() {
+    use crate::transitions::flash_liquidation::LiquidationPositionRef;
+
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        set_borrow_index(&mut market, asset, u128::from(NAD) * 3 / 2);
+        let mut first = borrow_position_for_debt(asset, 100_000);
+        let mut second = borrow_position_for_debt(asset, 100_000);
+        market.borrow(&mut first, asset, 12, 0, 0).unwrap();
+        market.borrow(&mut second, asset, 1, 0, 0).unwrap();
+        assert_eq!((first.debt_shares(asset), second.debt_shares(asset)), (8, 1));
+
+        let receipt = market.repay(&mut first, asset, 1).unwrap();
+        assert_eq!((receipt.cash_repaid, receipt.debt_delta), (1, -2));
+        assert_eq!((first.debt_shares(asset), first.principal(asset)), (7, 10));
+        assert_eq!(market.public_unpaid_interest(asset).unwrap(), 1);
+        market.assert_market_invariants().unwrap();
+
+        let receipt = market.repay(&mut second, asset, 2).unwrap();
+        assert_eq!((receipt.cash_repaid, receipt.interest_paid), (2, 1));
+        assert_eq!((second.debt_shares(asset), second.principal(asset)), (0, 0));
+        let allocation = market
+            .liquidation_debt_allocation(&LiquidationPositionRef::Borrow(&first), asset, first.debt_shares(asset))
+            .unwrap();
+        assert_eq!((allocation.debt, allocation.principal), (10, 10));
+
+        market.repay(&mut first, asset, 10).unwrap();
+        assert_eq!((first.debt_shares(asset), first.principal(asset)), (0, 0));
+        let aggregate_principal = match asset {
+            MarketAsset::Base => market.debt.fixed_base_principal,
+            MarketAsset::Quote => market.debt.fixed_quote_principal,
+        };
+        assert_eq!(aggregate_principal, 0);
+        assert_eq!(market.public_unpaid_interest(asset).unwrap(), 0);
+        market.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
 fn virtual_reserve_sums_fixed_and_isolated_debt_ledgers_separately() {
     let mut market = invariant_market(1_000, 1_000);
     market.debt.base_borrow_index_nad = (NAD as u128) * 3 / 2;
