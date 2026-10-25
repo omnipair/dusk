@@ -100,14 +100,14 @@ fn ema_health_and_reference_survive_proportional_lp_withdrawal() {
         let mut m = market(amp, false);
         let p = seeded_position(&mut m, MarketAsset::Quote, 800_000, 1_000_000);
         let before = m.flash_liquidation_health(&Ref::Leverage(&p), MarketAsset::Quote, LeverageCollateralFee::default()).unwrap();
-        let (reference, state) = m.ema_liquidation_curve(MarketAsset::Base).unwrap();
+        let (reference, state) = m.ema_liquidation_curve(MarketAsset::Base, 1).unwrap();
         let shares = m.base_side.shares.ylp_supply / 4;
         m.remove_liquidity(shares).unwrap();
         m.finalize_amm_transition_and_observe_risk(1).unwrap();
         let after = m.flash_liquidation_health(&Ref::Leverage(&p), MarketAsset::Quote, LeverageCollateralFee::default()).unwrap();
         assert_eq!(before, after);
         assert!(!after.eligible().unwrap());
-        let (next, next_state) = m.ema_liquidation_curve(MarketAsset::Base).unwrap();
+        let (next, next_state) = m.ema_liquidation_curve(MarketAsset::Base, 1).unwrap();
         assert_eq!(state, next_state);
         assert_eq!(reference.amm.concentrated_curve_cache, next.amm.concentrated_curve_cache);
         // Time incorporates the withdrawn depth without changing price/health.
@@ -126,8 +126,11 @@ fn ema_reference_uses_collateral_direction_even_when_price_emas_are_not_reciproc
         let mut m = market(amp, false);
         m.risk.base_price_ema_nad = 2 * NAD;
         m.risk.quote_price_ema_nad = NAD;
+        // Keep this fixture's deliberately non-reciprocal EMA values at the
+        // same initialized snapshot slot used by the liquidation reference.
+        m.risk.last_snapshot_slot = 1;
         for (collateral, price) in [(MarketAsset::Base, 2 * NAD), (MarketAsset::Quote, NAD)] {
-            let (view, state) = m.ema_liquidation_curve(collateral).unwrap();
+            let (view, state) = m.ema_liquidation_curve(collateral, 1).unwrap();
             let point = crate::transitions::amm::ConcentratedCurvePoint {
                 base_reserve: state.ordinary_base, quote_reserve: state.ordinary_quote,
             };

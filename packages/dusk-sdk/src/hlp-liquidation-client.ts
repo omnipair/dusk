@@ -60,8 +60,11 @@ export interface HlpNativeCloseAndExitParams extends HlpRecoveryParams {
 
 /** Atomic vault recovery. A solvent funding gap can be rescued before the
  * native critical-stress boundary; a full quote still requires insolvency.
- * Keeps a fixed payment obligation and permits an external route, Dusk swap,
- * or inventory payment. Never signs or submits. */
+ * Keeps a fixed payment obligation and permits an external route or inventory
+ * payment. A direct Dusk swap may be used when the complete transaction fits
+ * Solana's compute limit; callers must simulate their chosen route. Native
+ * Dusk recovery remains available through an ordinary swap. Never signs or
+ * submits. */
 export class DuskHlpLiquidations {
   readonly write: DuskWrite;
   readonly get: DuskGet;
@@ -110,8 +113,9 @@ export class DuskHlpLiquidations {
   }
 
   /** One signed transaction: permissionless native insurance/writeoff close,
-   * then the holder burns receipts. Only succeeds if both spot and symmetric
-   * EMA value show terminal insolvency. The receipt burn pays zero principal. */
+   * then the holder burns receipts. Eligibility uses current-slot symmetric
+   * EMA health; native recovery uses EMA price, smoothed depth, concentration,
+   * and the configured fee schedule. The receipt burn pays zero principal. */
   async buildNativeCloseAndExit(params: HlpNativeCloseAndExitParams) {
     const r = await this.resolve(params);
     const exit = await this.exitInstruction(r, params.exit);

@@ -149,6 +149,8 @@ impl<'info> CloseInsolventHlp<'info> {
             args.max_insurance_draw,
             crate::instructions::leverage_collateral_fee(&ctx.accounts.borrowed_mint, Clock::get()?.epoch)?,
             current_slot,
+            Clock::get()?.unix_timestamp,
+            ctx.accounts.futarchy_authority.revenue_share.swap_bps,
         )?;
         require!(plan.target_asset() == target_asset, ErrorCode::BrokenInvariant);
         let insurance_spent = plan.insurance_request();

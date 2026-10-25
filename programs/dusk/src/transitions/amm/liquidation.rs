@@ -6,7 +6,7 @@ use crate::{
     transitions::{
         amm::{prepare_concentrated_cache_at_depth, PreparedSwap, SwapRequest},
         liquidity::{prepare_concentrated_hlp_transition_at_current_state, IntegratedCurveState, SwapCashPolicy},
-        HlpRebalanceReceipt, HlpYieldEligibility,
+        AmmSwapQuote, HlpRebalanceReceipt, HlpYieldEligibility,
     },
 };
 use anchor_lang::prelude::*;
@@ -18,8 +18,9 @@ impl Market {
     pub(crate) fn ema_liquidation_curve(
         &self,
         collateral_asset: MarketAsset,
+        current_slot: u64,
     ) -> Result<(Box<Market>, IntegratedCurveState)> {
-        let risk = self.current_risk()?;
+        let risk = self.current_risk_at_slot(current_slot)?;
         let collateral_price = self.pessimistic_collateral_price_nad(collateral_asset, &risk, false);
         require_gt!(collateral_price, 0, ErrorCode::InvalidSettlementPrice);
         // The two symmetric EMAs are averaged independently; they are not
@@ -56,12 +57,11 @@ impl Market {
 }
 
 impl SwapRequest {
-    // This is an inventory settlement. Its virtual hLP endpoint/cache must
-    // never be applied to the real pool. PreparedSwap enforces that distinction.
-    pub(crate) fn prepare_ema_liquidation(self, market: &mut Market) -> Result<Box<PreparedSwap>> {
-        market.accrue_interest_to_slot(self.current_slot)?;
-        market.prepare_amm_for_swap(self.current_slot)?;
-        let (reference, state) = market.ema_liquidation_curve(self.asset_in)?;
+    /// Quote only the synthetic EMA-price, smoothed-depth liquidation curve.
+    /// This deliberately avoids constructing the real hLP transition, so an
+    /// insolvent hLP vault cannot block pricing its own terminal close.
+    pub(crate) fn quote_ema_liquidation(self, market: &Market) -> Result<AmmSwapQuote> {
+        let (reference, state) = market.ema_liquidation_curve(self.asset_in, self.current_slot)?;
         let preliminary = reference.preliminary_swap_inputs_at_reference_price(
             self.asset_in,
             self.reserve_credit,
@@ -70,7 +70,7 @@ impl SwapRequest {
             reference.dynamic_fee_pre_state(self.current_slot)?,
             reference.amm.center_price_nad,
         )?;
-        let quote = reference
+        reference
             .quote_concentrated_integrated_with_fee_from_state(
                 self.asset_in,
                 self.reserve_credit,
@@ -78,8 +78,16 @@ impl SwapRequest {
                 state,
                 self.protocol_fee_bps,
             )?
-            .ok_or(ErrorCode::BrokenInvariant)?
-            .as_swap_quote(self.asset_in);
+            .ok_or_else(|| ErrorCode::BrokenInvariant.into())
+            .map(|quote| quote.as_swap_quote(self.asset_in))
+    }
+
+    // This is an inventory settlement. Its virtual hLP endpoint/cache must
+    // never be applied to the real pool. PreparedSwap enforces that distinction.
+    pub(crate) fn prepare_ema_liquidation(self, market: &mut Market) -> Result<Box<PreparedSwap>> {
+        market.accrue_interest_to_slot(self.current_slot)?;
+        market.prepare_amm_for_swap(self.current_slot)?;
+        let quote = self.quote_ema_liquidation(market)?;
         let eligibility = HlpYieldEligibility {
             ylp_supply: market.base_side.shares.ylp_supply,
             base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,

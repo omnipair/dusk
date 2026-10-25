@@ -262,6 +262,10 @@ impl Market {
 
     pub fn current_risk(&self) -> Result<Risk> {
         let current_slot = Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot);
+        self.current_risk_at_slot(current_slot)
+    }
+
+    pub(crate) fn current_risk_at_slot(&self, current_slot: u64) -> Result<Risk> {
         let price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;

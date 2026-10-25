@@ -17,11 +17,164 @@ fn market_for_flash(amplification: u64, target: MarketAsset, funding_bps: u128) 
     m.prepare_amm_for_swap(1).unwrap();
     m.risk.base_price_ema_nad = NAD;
     m.risk.quote_price_ema_nad = NAD;
+    m.observe_current_risk(1).unwrap();
     match target {
         MarketAsset::Base => m.debt.quote_borrow_index_nad += u128::from(NAD) * funding_bps / 10_000,
         MarketAsset::Quote => m.debt.base_borrow_index_nad += u128::from(NAD) * funding_bps / 10_000,
     }
     m
+}
+
+#[test]
+fn terminal_hlp_native_recovery_uses_ema_price_smoothed_depth_and_fees() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+
+    fn trade(market: &mut Market, input: MarketAsset, amount: u64, slot: u64) -> u64 {
+        let mut prepared = SwapRequest {
+            current_slot: slot,
+            current_unix_timestamp: 0,
+            asset_in: input,
+            reserve_credit: amount,
+            protocol_fee_bps: 0,
+        }
+        .prepare(market)
+        .unwrap();
+        let output = prepared.quote.amount_out;
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &prepared.leverage_quote(),
+            prepared.quote.fee.claimable_fee_debit,
+        )
+        .unwrap();
+        prepared
+            .apply(
+                market,
+                SwapCashPolicy::Spot,
+                credit,
+                slot,
+                0,
+                ProtocolAuctionSplit::default(),
+                None,
+            )
+            .unwrap();
+        output
+    }
+
+    let recovery = |market: &Market, target, target_claim, borrowed_claim| {
+        let output = SwapRequest {
+            current_slot: 1,
+            current_unix_timestamp: 0,
+            asset_in: target,
+            reserve_credit: target_claim,
+            protocol_fee_bps: 2_000,
+        }
+        .quote_ema_liquidation(market)
+        .unwrap()
+        .amount_out;
+        borrowed_claim + output
+    };
+
+    for amplification in [1, 4, 10] {
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            let mut market = market_for_flash(amplification, target, 15_000);
+            let target_claim = 10_000_000_000;
+            let borrowed_claim = 3_000_000_000;
+            let baseline = recovery(&market, target, target_claim, borrowed_claim);
+            let spot_before = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+
+            trade(&mut market, target, 50_000_000_000, 1);
+            assert_ne!(spot_before, market.current_concentrated_spot_price_nad().unwrap().unwrap());
+            assert_eq!(
+                recovery(&market, target, target_claim, borrowed_claim),
+                baseline,
+                "same-slot spot changed terminal recovery: amp={amplification} target={target:?}"
+            );
+
+            let mut shallower = market.clone();
+            shallower.risk.curve_depth_ema_nad /= 2;
+            assert!(
+                recovery(&shallower, target, target_claim, borrowed_claim) < baseline,
+                "smoothed depth did not affect terminal recovery: amp={amplification} target={target:?}"
+            );
+
+            let mut fee_free = market.clone();
+            fee_free.config.swap_fee_bps = 0;
+            assert!(
+                recovery(&fee_free, target, target_claim, borrowed_claim) > baseline,
+                "full swap fee was not charged: amp={amplification} target={target:?}"
+            );
+
+            let vault = match target {
+                MarketAsset::Base => market.base_hlp_vault,
+                MarketAsset::Quote => market.quote_hlp_vault,
+            };
+            let actual_target_claim = engine::ylp_live_underlying_amount(&market, target, vault.ylp_shares).unwrap();
+            let actual_borrowed_claim =
+                engine::ylp_live_underlying_amount(&market, target.opposite(), vault.ylp_shares).unwrap();
+            let expected = recovery(&market, target, actual_target_claim, actual_borrowed_claim);
+            let plan = market
+                .clone()
+                .prepare_terminal_hlp_waterfall(
+                    target,
+                    u64::MAX,
+                    LeverageCollateralFee::default(),
+                    1,
+                    0,
+                    2_000,
+                )
+                .unwrap();
+            assert_eq!(plan.reference_recovery(), expected);
+        }
+    }
+}
+
+#[test]
+fn terminal_hlp_eligibility_refreshes_ema_to_the_current_slot() {
+    let target = MarketAsset::Base;
+    let mut market = market_for_flash(4, target, 5_000);
+    let vault = market.base_hlp_vault;
+    let borrowed = target.opposite();
+    let debt = u64::try_from(Debt::shares_to_debt(
+        vault.debt_shares,
+        market.debt.borrow_index(borrowed),
+    )
+    .unwrap())
+    .unwrap();
+    let target_claim = engine::ylp_live_underlying_amount(&market, target, vault.ylp_shares).unwrap();
+    let borrowed_claim = engine::ylp_live_underlying_amount(&market, borrowed, vault.ylp_shares).unwrap();
+
+    // Model an old low-price snapshot whose cached observation has already
+    // recovered. Advancing the market clock must refresh the EMA used by both
+    // terminal paths even when no separate risk-observation instruction ran.
+    market.risk.base_price_ema_nad = NAD / 2;
+    market.risk.quote_price_ema_nad = 2 * NAD;
+    market.risk.directional_base_price_ema_nad = NAD / 2;
+    market.risk.directional_quote_price_ema_nad = 2 * NAD;
+    market.risk.cached_spot_base_price_nad = NAD;
+    market.risk.cached_spot_quote_price_nad = NAD;
+    market.risk.last_snapshot_slot = 1;
+    market.config.ema_half_life_ms = crate::constants::MIN_HALF_LIFE_MS;
+    market.last_update_slot = 100_000;
+    market.advance_amm_clock(100_000).unwrap();
+
+    let stale_target_value = market
+        .normalize_amount(u128::from(target_claim), market.side(target).asset_decimals)
+        .unwrap()
+        * u128::from(NAD / 2)
+        / u128::from(NAD);
+    let stale_target_value = market
+        .denormalize_amount_floor(stale_target_value, market.side(borrowed).asset_decimals)
+        .unwrap();
+    assert!(borrowed_claim + stale_target_value <= debt);
+
+    let refreshed = market
+        .hlp_ema_collateral_value_in_borrowed(target, target_claim, borrowed_claim, 100_000)
+        .unwrap();
+    assert!(refreshed > debt);
+    let fee = LeverageCollateralFee::default();
+    assert!(market
+        .prepare_terminal_hlp_waterfall(target, u64::MAX, fee, 100_000, 0, 0)
+        .is_err());
+    assert!(!market.quote_hlp_flash_recovery(target, fee, fee).unwrap().full);
 }
 
 #[test]
@@ -117,9 +270,8 @@ fn terminal_flash_closes_debt_and_uses_insurance_only_for_principal() {
                 let v = if target == MarketAsset::Base { m.base_hlp_vault } else { m.quote_hlp_vault };
                 let borrowed = target.opposite();
                 let debt = Debt::shares_to_debt(v.debt_shares, m.debt.borrow_index(borrowed)).unwrap() as u64;
-                let opposite = engine::ylp_live_underlying_amount(&m, borrowed, v.ylp_shares).unwrap();
                 let expected = LiquidationLossAllocation::quote_with_coverage(v.debt_principal, debt,
-                    opposite + q.reserve_credit, 5_000_000_000, 7_500).unwrap();
+                    q.borrowed_claim + q.reserve_credit, 5_000_000_000, 7_500).unwrap();
                 m.begin_hlp_flash_recovery(q).unwrap();
                 let r = m.settle_terminal_hlp_flash(q, fee, u64::MAX, u64::MAX, 1)
                     .unwrap_or_else(|e| panic!("amp={amp} target={target:?} loss={principal_loss}: {e}"));
@@ -136,6 +288,76 @@ fn terminal_flash_closes_debt_and_uses_insurance_only_for_principal() {
                 assert_eq!(m.side(target).reserves.flash_receivable, 0);
                 m.assert_market_invariants().unwrap();
             }
+        }
+    }
+}
+
+#[test]
+fn terminal_flash_composes_with_same_market_swap() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+
+    for amp in [1, 4, 10] {
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            let mut market = market_for_flash(amp, target, 15_000);
+            let fee = LeverageCollateralFee::default();
+            let quote = market.quote_hlp_flash_recovery(target, fee, fee).unwrap();
+            assert!(quote.full);
+            let vault = if target == MarketAsset::Base {
+                market.base_hlp_vault
+            } else {
+                market.quote_hlp_vault
+            };
+            let debt = u64::try_from(Debt::shares_to_debt(
+                vault.debt_shares,
+                market.debt.borrow_index(target.opposite()),
+            )
+            .unwrap())
+            .unwrap();
+            let expected_loss = LiquidationLossAllocation::quote_with_coverage(
+                vault.debt_principal,
+                debt,
+                quote.borrowed_claim + quote.reserve_credit,
+                0,
+                market.insurance.principal_coverage_bps,
+            )
+            .unwrap();
+            market.begin_hlp_flash_recovery(quote).unwrap();
+            assert!(market.hlp_frozen(target));
+
+            // Model a liquidator routing part of the released collateral back
+            // through Dusk before delivering the fixed borrowed-token payment.
+            let mut swap = SwapRequest {
+                current_slot: 1,
+                current_unix_timestamp: 0,
+                asset_in: target,
+                reserve_credit: 1_000_000_000,
+                protocol_fee_bps: 0,
+            }
+            .prepare(&mut market)
+            .unwrap();
+            let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+                &swap.leverage_quote(),
+                swap.quote.fee.claimable_fee_debit,
+            )
+            .unwrap();
+            swap.apply(
+                &mut market,
+                SwapCashPolicy::Spot,
+                credit,
+                1,
+                0,
+                ProtocolAuctionSplit::default(),
+                None,
+            )
+            .unwrap();
+
+            let settlement = market
+                .settle_terminal_hlp_flash(quote, fee, u64::MAX, u64::MAX, 1)
+                .unwrap_or_else(|error| panic!("amp={amp} target={target:?}: {error}"));
+            assert_eq!(settlement.loss, expected_loss);
+            assert_eq!(market.side(target).reserves.flash_receivable, 0);
+            assert!(!market.hlp_frozen(target));
+            market.assert_market_invariants().unwrap();
         }
     }
 }

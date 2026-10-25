@@ -1369,11 +1369,12 @@ export type Dusk = {
     {
       "name": "closeInsolventHlp",
       "docs": [
-        "Permissionlessly closes an hLP whose full marked backing cannot cover",
-        "funding debt. Recovery protects principal first; insurance covers only",
-        "principal loss and unpaid interest is canceled. Realized funding interest",
-        "is cash-limited and funds the bounded caller reward. Existing funded",
-        "holder claims remain claimable after terminal receipt cleanup."
+        "Permissionlessly closes an hLP whose current-slot symmetric-EMA backing",
+        "cannot cover funding debt. Native recovery uses EMA price, smoothed depth,",
+        "concentration and configured fees. Recovery protects principal first;",
+        "insurance covers only principal loss and unpaid interest is canceled.",
+        "Realized funding interest is cash-limited and funds the bounded caller",
+        "reward. Existing funded holder claims remain claimable after cleanup."
       ],
       "discriminator": [
         158,
@@ -15983,6 +15984,15 @@ export type Dusk = {
           },
           {
             "name": "collateralCredit",
+            "type": "u64"
+          },
+          {
+            "name": "borrowedClaim",
+            "docs": [
+              "Borrowed-token yLP claim frozen when the quote is created. A full",
+              "terminal session uses this value even if an interleaved Dusk swap moves",
+              "the live pro-rata yLP reserve ratio before settlement."
+            ],
             "type": "u64"
           },
           {

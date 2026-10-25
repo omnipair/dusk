@@ -308,11 +308,12 @@ pub mod dusk {
         SettleHlpFlash::handle(ctx)
     }
 
-    /// Permissionlessly closes an hLP whose full marked backing cannot cover
-    /// funding debt. Recovery protects principal first; insurance covers only
-    /// principal loss and unpaid interest is canceled. Realized funding interest
-    /// is cash-limited and funds the bounded caller reward. Existing funded
-    /// holder claims remain claimable after terminal receipt cleanup.
+    /// Permissionlessly closes an hLP whose current-slot symmetric-EMA backing
+    /// cannot cover funding debt. Native recovery uses EMA price, smoothed depth,
+    /// concentration and configured fees. Recovery protects principal first;
+    /// insurance covers only principal loss and unpaid interest is canceled.
+    /// Realized funding interest is cash-limited and funds the bounded caller
+    /// reward. Existing funded holder claims remain claimable after cleanup.
     pub fn close_insolvent_hlp<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
         args: CloseInsolventHlpArgs,

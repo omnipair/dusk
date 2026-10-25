@@ -187,11 +187,19 @@ explicit claim. Spot swaps continue on the remaining executable curve and the
 other hLP vault keeps its hedge. A frozen vault cannot make an ordinary exit
 that would leave its deficit with the remaining holders. Its permissionless
 terminal close uses the existing insurance and principal writeoff waterfall,
-but requires insolvency at both the executable price and symmetric EMA. Once
-closed, holders can burn their hLP receipts for zero principal payout; the SDK
-can compose the close and burn in one transaction. A frozen vault whose spot
-value recovers can use funded flash rescue to restore its hedge and permit an
-ordinary holder exit, even if its debt gap is below the usual rescue threshold.
+with eligibility determined by its current-slot linear symmetric-EMA value. Native terminal
+recovery values the target claim through the same symmetric-EMA,
+`curve_depth_ema_nad`, configured-concentration and full-fee reference curve as
+other internal emergency liquidations; it does not use the live reserve ratio
+to determine repayment or writeoff. The real inventory endpoint is still
+rebuilt after close, so the accepted post-settlement inventory/arbitrage risk
+remains. External flash terminal recovery instead uses the buyer's actual fixed
+payment and the borrowed-token yLP claim frozen at begin, so routing collateral
+through Dusk in the middle cannot move the session's recovery accounting. Once closed, holders can burn their hLP receipts for zero principal
+payout; the SDK can compose the close and burn in one transaction. A frozen
+vault whose value recovers can use funded flash rescue to restore its hedge and
+permit an ordinary holder exit, even if its debt gap is below the usual rescue
+threshold.
 
 Direct Token-2022 burns bypass transfer hooks. Dusk lazily reconciles a partial hLP burn before the next hLP deposit or withdrawal: existing nested yield is checkpointed against the old supply, the smaller nonzero live supply becomes the pricing denominator, and the burned principal benefits remaining holders. Burning the entire live hLP supply is unrecoverable and leaves that hLP side fail-closed; there is intentionally no asynchronous recovery instruction or governance sweep. Clients should always exit through Dusk's withdrawal instruction.
 

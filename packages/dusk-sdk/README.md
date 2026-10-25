@@ -1035,7 +1035,8 @@ swaps can also earn a recovery bonus below that marker. The on-chain flash
 quote caps the discount to retain positive vault value;
 it may offer no discount for a tiny gap. A frozen vault can also quote a funded
 rescue after its gap falls. Full flash closeout remains restricted to insolvency
-at both the executable curve mark and symmetric EMA.
+at the current-slot symmetric EMA; the caller's fixed payment determines actual
+flash recovery.
 
 ```ts
 const quote = await dusk.hlpLiquidations.preview({ market, targetAsset: "base" });
@@ -1071,8 +1072,10 @@ If an hLP vault has negative executable value, ordinary spot swaps continue.
 Only that vault's automatic hedge is frozen; the opposite vault remains active.
 `state.amm.frozenHlpMask` uses bit 1 for base hLP and bit 2 for quote hLP.
 The frozen vault cannot make an ordinary withdrawal that leaves its deficit to
-the other holders. A terminal close requires insolvency at both the spot curve
-and the symmetric EMA, so a spot-only price move cannot write off the vault.
+the other holders. A terminal close requires insolvency at the current-slot
+symmetric EMA, so a spot-only price move cannot write off the vault. Native
+recovery is then valued on the EMA-price, smoothed-depth concentrated reference
+curve with the configured fees; it does not use live spot reserves.
 
 An eligible holder can build `hlpLiquidations.buildNativeCloseAndExit({ market,
 targetAsset, exit: { hlpAmount, options } })`. The helper places the permissionless

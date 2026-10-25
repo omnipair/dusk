@@ -281,26 +281,44 @@ fn exhausted_hlp_waterfall_cancels_interest_without_spending_principal_insurance
         (market.quote_side.reserves.live_reserve as u128) * (vault_shares as u128) / (ylp_supply_before as u128),
     )
     .unwrap();
-    let price = market.current_concentrated_spot_price_nad().unwrap().unwrap() as u128;
-    let target_value = u64::try_from(mul_div_u128(target_claim as u128, price, NAD as u128).unwrap()).unwrap();
-    let collateral = borrowed_claim.checked_add(target_value).unwrap();
-    let desired_debt = collateral.checked_add(1_000).unwrap();
+    let eligibility_collateral = market
+        .hlp_ema_collateral_value_in_borrowed(target_asset, target_claim, borrowed_claim, 1)
+        .unwrap();
+    let reference_swap_output = crate::transitions::amm::SwapRequest {
+        current_slot: 1,
+        current_unix_timestamp: 0,
+        asset_in: target_asset,
+        reserve_credit: target_claim,
+        protocol_fee_bps: 0,
+    }
+    .quote_ema_liquidation(&market)
+    .unwrap()
+    .amount_out;
+    let reference_recovery = borrowed_claim.checked_add(reference_swap_output).unwrap();
+    let desired_debt = eligibility_collateral.max(reference_recovery).checked_add(1_000).unwrap();
     market.debt.quote_borrow_index_nad =
         crate::math::mul_div_ceil_u128(desired_debt as u128, NAD as u128, market.base_hlp_vault.debt_shares).unwrap();
     let actual_debt = u64::try_from(
         Debt::shares_to_debt(market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad).unwrap(),
     )
     .unwrap();
-    let shortfall = actual_debt.saturating_sub(collateral);
+    let shortfall = actual_debt.saturating_sub(reference_recovery);
     assert!(shortfall > 600);
     assert!(shortfall <= actual_debt.saturating_sub(market.base_hlp_vault.debt_principal));
     market.insurance.quote_available = 1_200;
     market.advance_amm_clock(1).unwrap();
-    let plan = market.prepare_terminal_hlp_waterfall(target_asset, 0, crate::transitions::LeverageCollateralFee::default(), 1).unwrap();
+    let plan = market.prepare_terminal_hlp_waterfall(
+        target_asset,
+        0,
+        crate::transitions::LeverageCollateralFee::default(),
+        1,
+        0,
+        0,
+    ).unwrap();
     assert_eq!(plan.insurance_request(), 0);
-    let terminal_price = market.current_concentrated_spot_price_nad().unwrap().unwrap();
-    let terminal_collateral = borrowed_claim + u64::try_from(mul_div_u128(u128::from(target_claim), u128::from(terminal_price), u128::from(NAD)).unwrap()).unwrap();
-    let expected_interest = terminal_collateral.saturating_sub(market.base_hlp_vault.debt_principal)
+    let expected_interest = plan
+        .reference_recovery()
+        .saturating_sub(market.base_hlp_vault.debt_principal)
         .min(market.quote_side.reserves.cash_reserve);
     let principal = market.base_hlp_vault.debt_principal;
     let receipt = plan.consume(&mut market, 0, 0, 0).unwrap();

@@ -358,9 +358,10 @@ This preserves a common illustrative shortfall budget of 3.33% of each
 exposure under the shared 50% spending limit, assuming full funding and no
 transfer fees or prior window draws. It is a budget-normalization assumption,
 not evidence that borrower and hLP losses have equal frequency or severity.
-Current hLP terminal eligibility only accepts shortfalls bounded by accrued
-funding interest; using total indexed funding debt as a sizing proxy does not
-broaden that claim eligibility.
+Current hLP terminal eligibility compares current-slot symmetric-EMA collateral
+value with indexed funding debt. The hLP allowance is therefore a funding target
+for eligible principal shortfalls under the shared insurance budget; it is not a
+guaranteed payout or a claim on a separate vault.
 
 For P=100,000 USDC and H=30,000 USDC, the principal component is 5,000 USDC,
 the hLP allowance is 2,000 USDC and the combined target is 7,000 USDC. The

@@ -175,11 +175,13 @@ cannot recover only their own receipt's hedge or assign the cost to new holders.
    hedge, settles funding and yLP changes, refunds unused new payment, and
    closes the session. A missing or failing settle reverts the entire transaction.
 
-When full marked backing is no greater than debt, the quote instead offers the
-entire target-token claim. The full path requires explicit keeper opt-in. Its
-eligibility uses full live claims at the actual concentrated-curve mark; payment
-uses the frozen symmetric EMA. The terminal settlement revalidates insolvency
-and the target claim, so conflicting changes can make the transaction revert.
+When current-slot symmetric-EMA collateral value is no greater than debt, the
+quote instead offers the entire target-token claim. The full path requires
+explicit keeper opt-in. The flash quote freezes the target claim, borrowed-token
+claim, and fixed payment. Terminal settlement revalidates EMA insolvency, while
+same-market swaps may compose without repricing the session's loss allocation.
+The full transaction still reverts if any bound payment, cash, insurance, or
+reserve invariant fails.
 
 Both native terminal closure and flash terminal closure protect principal
 first, draw principal-only insurance under the existing 75% coverage / 50% daily
@@ -325,14 +327,18 @@ including newly published yield and retained capital. Historical funded claims
 are preserved. Existing repayment/writeoff tests exercise the shared advance
 ledger and its frozen protocol allocation.
 
-The SDK has 75 passing checks. The strict LiteSVM suite has 137 passing tests,
-75/75 instructions exercised and all 18 required compute scenarios. Its flash
-matrix executes 24 combinations of target direction, 1×/4× concentration,
-SPL/Token-2022 assets and inventory/AMM/terminal routes. It checks actual SDK
-simulation and execution, preview parity, packet size with a real lookup table,
-missing-settlement and underpayment rollback, full-close opt-in and exclusion
-of pre-begin payment-vault donations. Native tests also exercise two independent
-flash sessions with a swap between begin and settle and principal-loss coverage.
+The SDK has 77 passing checks. The strict LiteSVM suite has 140 passing tests,
+76/76 instructions exercised and all 19 required compute scenarios. Its flash
+matrix simulates 24 combinations of target direction, 1×/4× concentration,
+SPL/Token-2022 assets and inventory/AMM/terminal routes. Twenty combinations
+execute. The four direct Dusk routes that combine 4× concentration with both
+active hLP vaults are retained as explicit compute-feasibility rejections; the
+ordinary swap remains the native Dusk recovery path. The matrix checks actual
+SDK simulation and execution, preview parity, packet size with a real lookup
+table, missing-settlement and underpayment rollback, full-close opt-in and
+exclusion of pre-begin payment-vault donations. Native tests also exercise two
+independent flash sessions with a swap between begin and settle and
+principal-loss coverage.
 
 The strict full-suite hLP flash maximum observed before commit is 1,333,784 CU.
 The 1,355,000-CU guard and existing swap ceilings were not raised. This composed

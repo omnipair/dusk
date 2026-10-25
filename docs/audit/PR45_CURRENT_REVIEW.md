@@ -76,7 +76,7 @@ pass with 76/76 instructions exercised and the strict compute baseline.
 
 The original OR-NM-004 negative curve-only equity fixture now passes with
 positive full-value hLP backing. The full default and production Dusk suites
-each pass 534 tests on the integrated branch. The hLP flash tests cover both
+each pass 537 tests on the integrated branch. The hLP flash tests cover both
 sides, 1x/4x/10x
 concentration, funded solvent recovery, terminal principal-only insurance,
 frozen-vault rescue and coexisting flash sessions. These tests and this scoped
@@ -87,3 +87,26 @@ Formatting, hygiene, code shape, Clippy, production compilation and TypeScript
 also pass. The final LiteSVM build, regenerated SDK interface check, SDK
 preview suite and strict complete-CU LiteSVM run also pass on this source.
 The public-principal classification issue above is included in this remedy.
+
+### Native terminal hLP recovery reference
+
+A later local review found that `close_insolvent_hlp` used the live concentrated
+reserve ratio to value the target-token claim. A same-slot price-moving swap
+could therefore change principal recovery, insurance and writeoff even though
+terminal eligibility separately required symmetric-EMA insolvency.
+
+The native terminal waterfall now refreshes linear symmetric-EMA eligibility
+to the instruction's current slot and
+quotes the target claim on the same synthetic emergency curve used by borrowing
+and leverage: symmetric EMA price, `curve_depth_ema_nad`, configured
+concentration and full swap fees. The borrowed-token claim is added directly.
+The quote-only path does not construct an active hLP transition, so the
+insolvent vault cannot block pricing its own close. External flash terminal
+settlement uses the caller's actual fixed payment and the borrowed-token yLP
+claim bound at begin, so an interleaved Dusk swap cannot change the session's
+loss allocation. The complete begin/route/settle transaction must still fit
+Solana's compute limit. Native Dusk recovery remains available through the
+ordinary swap path, and flash callers must simulate direct Dusk and external
+routes. Real reserves are
+rebuilt after the native close, preserving the already accepted inventory and
+later-arbitrage tradeoff.

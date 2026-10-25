@@ -212,7 +212,7 @@ fn frozen_hlp_terminal_close_restores_ordinary_swaps() {
     market.freeze_negative_hlp_vaults().unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 1);
     let plan = market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX,
-        LeverageCollateralFee::default(), 2).unwrap();
+        LeverageCollateralFee::default(), 2, 0, 0).unwrap();
     let receipt = plan.consume(&mut market, 0, 0, u64::MAX).unwrap();
     assert!(receipt.debt_closed > 0);
     assert_eq!(market.base_hlp_vault.ylp_shares, 0);
@@ -246,7 +246,7 @@ fn spot_only_hlp_deficit_cannot_write_off_the_vault() {
     market.freeze_negative_hlp_vaults().unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 1);
     let fee = LeverageCollateralFee::default();
-    assert!(market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX, fee, 2).is_err());
+    assert!(market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX, fee, 2, 0, 0).is_err());
     assert!(market.quote_hlp_flash_recovery(MarketAsset::Base, fee, fee).is_err());
 }
 
@@ -267,7 +267,7 @@ fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
     let quote_shares = market.quote_hlp_vault.ylp_shares;
     let quote_debt = market.quote_hlp_vault.debt_shares;
     let plan = market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX,
-        LeverageCollateralFee::default(), 2).unwrap();
+        LeverageCollateralFee::default(), 2, 0, 0).unwrap();
     plan.consume(&mut market, 0, 0, u64::MAX).unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 2);
     assert_eq!(market.quote_hlp_vault.ylp_shares, quote_shares);

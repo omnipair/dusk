@@ -408,7 +408,7 @@ pub(crate) struct HlpTerminalWaterfallPlan {
     expected_target_hlp_live: u64,
     expected_borrowed_hlp_live: u64,
     debt: u64,
-    collateral_value_in_borrowed: u64,
+    reference_recovery_in_borrowed: u64,
     insurance_credit: u64,
     insurance_request: u64,
     insurance_draw_slot: u64,
@@ -433,6 +433,11 @@ impl HlpTerminalWaterfallPlan {
 
     pub(crate) fn target_asset(self) -> MarketAsset {
         self.target_asset
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reference_recovery(self) -> u64 {
+        self.reference_recovery_in_borrowed
     }
 
     pub(crate) fn consume(
@@ -486,7 +491,7 @@ impl HlpTerminalWaterfallPlan {
         let mut loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote_with_coverage(
             self.expected_debt_principal.min(self.debt),
             self.debt,
-            self.collateral_value_in_borrowed,
+            self.reference_recovery_in_borrowed,
             insurance_credit,
             market.insurance.principal_coverage_bps,
         )?;
@@ -571,45 +576,41 @@ impl HlpTerminalWaterfallPlan {
 }
 
 impl Market {
-    /// A transient executable-price move alone must not force a terminal
-    /// writeoff of the shared hLP vault. Terminal callers separately check
-    /// the curve mark and also require insolvency at the symmetric EMA.
-    pub(crate) fn require_hlp_ema_insolvent(&self, target_asset: MarketAsset) -> Result<()> {
-        let vault = match target_asset {
-            MarketAsset::Base => &self.base_hlp_vault,
-            MarketAsset::Quote => &self.quote_hlp_vault,
-        };
+    /// Canonical terminal hLP health mark in raw borrowed-asset atoms.
+    /// This linear symmetric-EMA value controls eligibility only. Native
+    /// execution separately applies the EMA curve, smoothed depth and fees.
+    pub(crate) fn hlp_ema_collateral_value_in_borrowed(
+        &self,
+        target_asset: MarketAsset,
+        target_claim: u64,
+        borrowed_claim: u64,
+        current_slot: u64,
+    ) -> Result<u64> {
         let borrowed_asset = target_asset.opposite();
-        let target_claim = ylp_live_underlying_amount(self, target_asset, vault.ylp_shares)?;
-        let borrowed_claim = ylp_live_underlying_amount(self, borrowed_asset, vault.ylp_shares)?;
-        let debt = Debt::shares_to_debt(vault.debt_shares, self.debt.borrow_index(borrowed_asset))?;
+        // Refresh the stored observation to the current slot without persisting
+        // it. Terminal eligibility and the EMA execution quote must see the
+        // same time-adjusted symmetric EMA; otherwise an old snapshot can keep
+        // a recovered vault liquidatable (or delay a newly insolvent close).
+        let risk = self.current_risk_at_slot(current_slot)?;
         let ema = match target_asset {
-            MarketAsset::Base => self.risk.base_price_ema_nad,
-            MarketAsset::Quote => self.risk.quote_price_ema_nad,
+            MarketAsset::Base => risk.base_price_ema_nad,
+            MarketAsset::Quote => risk.quote_price_ema_nad,
         };
         require!(ema > 0, ErrorCode::InvalidSettlementPrice);
-        let target_value = mul_div_u128(
-            self.normalize_amount(u128::from(target_claim), self.side(target_asset).asset_decimals)?,
-            u128::from(ema),
-            u128::from(NAD),
-        )?;
-        let borrowed_value =
-            self.normalize_amount(u128::from(borrowed_claim), self.side(borrowed_asset).asset_decimals)?;
-        let debt_value = self.normalize_amount(debt, self.side(borrowed_asset).asset_decimals)?;
-        require!(
-            target_value
-                .checked_add(borrowed_value)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-                <= debt_value,
-            ErrorCode::HlpNotLiquidatable
-        );
-        Ok(())
+        let normalized_target =
+            self.normalize_amount(u128::from(target_claim), self.side(target_asset).asset_decimals)?;
+        let target_value = mul_div_u128(normalized_target, u128::from(ema), u128::from(NAD))?;
+        let target_value_in_borrowed =
+            self.denormalize_amount_floor(target_value, self.side(borrowed_asset).asset_decimals)?;
+        borrowed_claim
+            .checked_add(target_value_in_borrowed)
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
     pub(crate) fn hlp_terminally_closed(&self, target_asset: MarketAsset) -> bool {
         let vault = match target_asset {
-            MarketAsset::Base => &self.base_hlp_vault,
-            MarketAsset::Quote => &self.quote_hlp_vault,
+            MarketAsset::Base => self.base_hlp_vault,
+            MarketAsset::Quote => self.quote_hlp_vault,
         };
         vault.ylp_shares == 0
             && vault.debt_shares == 0
@@ -624,12 +625,14 @@ impl Market {
         max_insurance_draw: u64,
         debt_fee: crate::transitions::LeverageCollateralFee,
         current_slot: u64,
+        current_unix_timestamp: i64,
+        protocol_fee_bps: u16,
     ) -> Result<HlpTerminalWaterfallPlan> {
         self.require_hlp_flash_idle(target_asset)?;
         checkpoint_hlp_yield_from_ylp(self, target_asset)?;
         let vault = match target_asset {
-            MarketAsset::Base => &self.base_hlp_vault,
-            MarketAsset::Quote => &self.quote_hlp_vault,
+            MarketAsset::Base => self.base_hlp_vault,
+            MarketAsset::Quote => self.quote_hlp_vault,
         };
         require!(
             vault.hlp_supply > 0 && vault.ylp_shares > 0 && vault.debt_shares > 0,
@@ -641,26 +644,38 @@ impl Market {
         let target_claim = ylp_live_underlying_amount(self, target_asset, vault.ylp_shares)?;
         let borrowed_asset = target_asset.opposite();
         let borrowed_claim = ylp_live_underlying_amount(self, borrowed_asset, vault.ylp_shares)?;
-        let prices = current_hlp_curve_prices(self)?;
-        let target_value =
-            asset_value_in_target_nad_with_prices(self, prices, target_asset, target_claim, borrowed_asset)?;
-        let target_value_in_borrowed =
-            self.denormalize_amount_floor(target_value, self.side(borrowed_asset).asset_decimals)?;
-        let collateral_value_in_borrowed = borrowed_claim
-            .checked_add(target_value_in_borrowed)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let eligibility_value_in_borrowed =
+            self.hlp_ema_collateral_value_in_borrowed(target_asset, target_claim, borrowed_claim, current_slot)?;
         let debt = u64::try_from(Debt::shares_to_debt(
             vault.debt_shares,
             self.debt.borrow_index(borrowed_asset),
         )?)
         .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        require!(debt >= collateral_value_in_borrowed, ErrorCode::HlpNotLiquidatable);
-        self.require_hlp_ema_insolvent(target_asset)?;
+        require!(debt >= eligibility_value_in_borrowed, ErrorCode::HlpNotLiquidatable);
+        // The native close uses the same EMA-price, smoothed-depth and full-fee
+        // curve as other internal emergency liquidations. Live spot determines
+        // neither this recovery amount nor the resulting loss allocation.
+        let reference_swap_output = if target_claim == 0 {
+            0
+        } else {
+            crate::transitions::amm::SwapRequest {
+                current_slot,
+                current_unix_timestamp,
+                asset_in: target_asset,
+                reserve_credit: target_claim,
+                protocol_fee_bps,
+            }
+            .quote_ema_liquidation(self)?
+            .amount_out
+        };
+        let reference_recovery_in_borrowed = borrowed_claim
+            .checked_add(reference_swap_output)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         let insurance_available = self.insurance.draw_capacity(borrowed_asset, current_slot)?;
         let loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote_with_coverage(
             vault.debt_principal.min(debt),
             debt,
-            collateral_value_in_borrowed,
+            reference_recovery_in_borrowed,
             debt_fee.unwind_credit(insurance_available)?,
             self.insurance.principal_coverage_bps,
         )?;
@@ -677,7 +692,7 @@ impl Market {
             expected_target_hlp_live: vault.hlp_live_reserve(target_asset),
             expected_borrowed_hlp_live: vault.hlp_live_reserve(borrowed_asset),
             debt,
-            collateral_value_in_borrowed,
+            reference_recovery_in_borrowed,
             insurance_credit: loss.insurance_credit,
             insurance_request,
             insurance_draw_slot: current_slot,

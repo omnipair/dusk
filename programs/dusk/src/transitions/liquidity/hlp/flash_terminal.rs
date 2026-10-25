@@ -35,31 +35,16 @@ impl Market {
             quote.collateral_debit,
             ErrorCode::InvalidLiquidationSession
         );
-        let target_claim = engine::ylp_live_underlying_amount(self, target, vault.ylp_shares)?;
-        require_eq!(
-            target_claim,
-            quote.collateral_debit,
-            ErrorCode::InvalidLiquidationSession
-        );
-        let opposite_claim = engine::ylp_live_underlying_amount(self, borrowed, vault.ylp_shares)?;
         let debt = u64::try_from(Debt::shares_to_debt(
             vault.debt_shares,
             self.debt.borrow_index(borrowed),
         )?)
         .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        let prices = current_hlp_curve_prices(self)?;
-        let marked_target =
-            engine::asset_value_in_target_nad_with_prices(self, prices, target, target_claim, borrowed)?;
-        let marked_opposite = self.normalize_amount(u128::from(opposite_claim), self.side(borrowed).asset_decimals)?;
-        require!(
-            marked_target
-                .checked_add(marked_opposite)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-                <= self.normalize_amount(u128::from(debt), self.side(borrowed).asset_decimals)?,
-            ErrorCode::HlpNotLiquidatable
-        );
-        self.require_hlp_ema_insolvent(target)?;
-        let recovery = opposite_claim
+        let collateral_value =
+            self.hlp_ema_collateral_value_in_borrowed(target, quote.collateral_debit, quote.borrowed_claim, slot)?;
+        require!(collateral_value <= debt, ErrorCode::HlpNotLiquidatable);
+        let recovery = quote
+            .borrowed_claim
             .checked_add(quote.reserve_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let capacity = self.insurance.draw_capacity(borrowed, slot)?;
@@ -167,6 +152,7 @@ impl Market {
             .interest_liability
             .checked_add(surplus_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(self.hlp_frozen(target), ErrorCode::BrokenInvariant);
         self.clear_frozen_hlp(target);
         self.rebase_concentrated_curve_after_terminal_hlp_loss()?;
         // A second vault may also be insolvent. Closing this cohort must not

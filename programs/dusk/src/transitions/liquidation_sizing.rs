@@ -57,7 +57,7 @@ impl Market {
         let rates = before.rates(position.age(asset, now)?)?;
         // Risk is fixed for this proof. Recomputing current_risk for every
         // interval needlessly re-evaluates the concentrated curve and EMA.
-        let risk = self.current_risk()?;
+        let risk = self.current_risk_at_slot(slot)?;
         let collateral_scale = self.normalize_amount(1, self.side(asset.opposite()).asset_decimals)?;
         let debt_scale = self.normalize_amount(1, self.side(asset).asset_decimals)?;
         let price = u128::from(self.pessimistic_collateral_price_nad(asset.opposite(), &risk, false));
@@ -100,7 +100,7 @@ impl Market {
         };
         // Certify the same EMA geometry as the emergency settlement, never a
         // live curve or a scheduled recenter. Real funding limits are separate.
-        let (executable, state) = self.ema_liquidation_curve(asset.opposite())?;
+        let (executable, state) = self.ema_liquidation_curve(asset.opposite(), slot)?;
         let geometry = executable
             .current_concentrated_curve_geometry()?
             .ok_or(ErrorCode::BrokenInvariant)?;

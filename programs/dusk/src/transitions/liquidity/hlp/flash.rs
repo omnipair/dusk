@@ -8,6 +8,10 @@ pub struct HlpFlashQuote {
     pub target_asset: u8,
     pub collateral_debit: u64,
     pub collateral_credit: u64,
+    /// Borrowed-token yLP claim frozen when the quote is created. A full
+    /// terminal session uses this value even if an interleaved Dusk swap moves
+    /// the live pro-rata yLP reserve ratio before settlement.
+    pub borrowed_claim: u64,
     /// Spendable atoms required in the session's payment vault; includes the
     /// transfer fee from that vault to the market reserve.
     pub payment: u64,
@@ -54,18 +58,9 @@ impl Market {
         // critical-stress boundary. The fixed payment repairs the funding gap
         // while the affordable-discount check below preserves positive NAV.
         require!(self.hlp_frozen(target) || gap > 0, ErrorCode::HlpNotLiquidatable);
-        let prices = current_hlp_curve_prices(self)?;
-        let collateral_value =
-            engine::asset_value_in_target_nad_with_prices(self, prices, target, target_claim, borrowed)?;
-        let opposite_value = self.normalize_amount(u128::from(opposite), self.side(borrowed).asset_decimals)?;
-        let debt_value = self.normalize_amount(u128::from(debt), self.side(borrowed).asset_decimals)?;
-        let full = collateral_value
-            .checked_add(opposite_value)
-            .ok_or(ErrorCode::MarketMathOverflow)?
-            <= debt_value;
-        if full {
-            self.require_hlp_ema_insolvent(target)?;
-        }
+        let current_slot = self.amm.last_observation_slot;
+        let ema_collateral = self.hlp_ema_collateral_value_in_borrowed(target, target_claim, opposite, current_slot)?;
+        let full = ema_collateral <= debt;
         // Reuse the native recovery incentive's health bands. Payment is frozen
         // against the symmetric EMA, independently of the route's execution.
         let discount = if opposite == 0 {
@@ -77,9 +72,10 @@ impl Market {
                 / u128::from(opposite))
             .min(u128::from(recovery::HLP_RECOVERY_MAX_DISCOUNT_BPS)) as u16
         };
+        let risk = self.current_risk_at_slot(current_slot)?;
         let reference = u128::from(match target {
-            MarketAsset::Base => self.risk.base_price_ema_nad,
-            MarketAsset::Quote => self.risk.quote_price_ema_nad,
+            MarketAsset::Base => risk.base_price_ema_nad,
+            MarketAsset::Quote => risk.quote_price_ema_nad,
         });
         require!(reference > 0, ErrorCode::InvalidSettlementPrice);
         if full {
@@ -102,12 +98,14 @@ impl Market {
                 target_asset: target.code(),
                 collateral_debit: target_claim,
                 collateral_credit: received,
+                borrowed_claim: opposite,
                 payment: payment_fee.effective_gross_for_credit(credit)?,
                 reserve_credit: credit,
                 discount_bps: discount,
                 full: true,
             });
         }
+        let prices = current_hlp_curve_prices(self)?;
         let nav = engine::hlp_share_nav_nad_with_prices(self, target, prices)?;
         let interest = debt.saturating_sub(vault.debt_principal);
         // A previously frozen vault can regain full backing as its opposite
@@ -158,6 +156,7 @@ impl Market {
             target_asset: target.code(),
             collateral_debit,
             collateral_credit,
+            borrowed_claim: opposite,
             payment: payment_fee.effective_gross_for_credit(credit)?,
             reserve_credit: credit,
             discount_bps: low,
@@ -172,6 +171,18 @@ impl Market {
             quote.collateral_debit > 0 && quote.reserve_credit > 0,
             ErrorCode::AmountZero
         );
+        if quote.full && !self.hlp_frozen(target) {
+            let vault = match target {
+                MarketAsset::Base => self.base_hlp_vault,
+                MarketAsset::Quote => self.quote_hlp_vault,
+            };
+            require!(
+                vault.ylp_shares > 0 && vault.debt_shares > 0,
+                ErrorCode::HlpNotLiquidatable
+            );
+            let basis = self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?;
+            self.freeze_hlp_vault_from_basis(target, &basis)?;
+        }
         let reserve = &mut self.side_mut(target).reserves;
         reserve.cash_reserve = reserve
             .cash_reserve
