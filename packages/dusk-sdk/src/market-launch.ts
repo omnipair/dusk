@@ -48,11 +48,14 @@ export function marketCreationV0Transaction(params: {
   payer: PublicKey;
   recentBlockhash: string;
   initializeMarketInstruction: TransactionInstruction;
+  /** Idempotent setup, such as creating the team treasury WSOL account. */
+  setupInstructions?: readonly TransactionInstruction[];
   lookupTable: AddressLookupTableAccount;
   computeUnitLimit?: number;
 }): VersionedTransaction {
   const instructions = [
     ComputeBudgetProgram.setComputeUnitLimit({ units: params.computeUnitLimit ?? 800_000 }),
+    ...(params.setupInstructions ?? []),
     params.initializeMarketInstruction,
   ];
   const message = new TransactionMessage({
