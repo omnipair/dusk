@@ -29,30 +29,12 @@ The three IDLs are published on devnet and can be fetched with `anchor idl fetch
 
 Both are devnet mock tokens. They are not the canonical mainnet META or USDC mints.
 
-## Market
+## Markets
 
-| Account | Address |
-| --- | --- |
-| META/USDC market | `8bK5oiUguBgQDNvEFyvT4wJTn4mmruuKkLXBWZJp1apA` |
-| yLP mint | `DDi4gvGrkatHCKFLKY1qBY6Jcruk9bXtxMXFk935C1A1` |
-| META hLP mint | `FZAwSsgUdjk8bSL6fuYufNE8RXFmWw6jEtfTkvnyBCBP` |
-| USDC hLP mint | `93AAXDXV61FefMwdq2ZeUpS4dWdVt1PurbFmKbaaKYdu` |
-| yLP metadata | `7UNLvZo35UY79jX6LTvCD8WYyGrvXwiVtWbsjigBp7Cv` |
-| META hLP metadata | `DwD9UwzLmEjs51vk1k9bnCkD9hDovNzKSv4vmeRXcKt3` |
-| USDC hLP metadata | `GD1sGkNfU56MrtphkgRnX1fPuSQSoj4YuJtg1dL5ZPmz` |
-| META reserve vault | `6vPbJ19aCN4SYvZeALXBASztt7uERaWAcgWy5LXcxkt` |
-| USDC reserve vault | `A25iu53KX8XcTB1JmAiGqDtKYnbmrsgjGLNXikiDdCN7` |
-| META collateral vault | `8wXRj8Pt9HX6QRctYVtHwbobmevTkABEHSZr23iYhWPL` |
-| USDC collateral vault | `A9nyUHSoeK2rfQThHNo51TMYk6XzstsyCooFQeXLahDH` |
-| META insurance vault | `5jwCqUiHL84WxD2yJWdqtfzkDaPwb6mPQF513H7M2kMk` |
-| USDC insurance vault | `85rFpdDzpsQBaLEVDyYD51zBV17ZxwA8SVhZ1j39qGyx` |
-| META interest vault | `B5kyXTroQvZ2R2FisKzK8hiRXN4pLL9vAmj2hU9pSee5` |
-| USDC interest vault | `ED8da2YnwHCrYJn7C1ngYshF8uuV8mgCYkFcwQdoVJfu` |
-| META hLP/yLP custody | `sk6mhf4Ye8g9XAco9QbWJsYkNWB18z9VejMrkiq1d1W` |
-| USDC hLP/yLP custody | `CHkxuWrMDEr5Z4m3E76seoi2cHNEdFhtHf8G9dwzFcaK` |
-| Event authority | `5wiTA28gz5WFdEYxNVeZu288WCdZWzaonA1pnApLWSuh` |
-
-The fresh v6 market is seeded with 10,000 mock META and 10,000 mock USDC.
+The reset deployment intentionally has no markets. Create the first market
+through the app so the complete permissionless launch flow is exercised. The
+indexer and webapp accept an empty market list and discover the new market once
+its creation transaction is indexed.
 
 ## Explorer
 
@@ -61,7 +43,6 @@ The fresh v6 market is seeded with 10,000 mock META and 10,000 mock USDC.
 - [Faucet](https://explorer.solana.com/address/EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz?cluster=devnet)
 - [META mint](https://explorer.solana.com/address/2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W?cluster=devnet)
 - [USDC mint](https://explorer.solana.com/address/G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV?cluster=devnet)
-- [META/USDC market](https://explorer.solana.com/address/8bK5oiUguBgQDNvEFyvT4wJTn4mmruuKkLXBWZJp1apA?cluster=devnet)
 
 ## Frontend Defaults
 
@@ -70,11 +51,10 @@ export const DUSK_DEVNET = {
   programId: "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
   leverageDelegateProgramId: "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
   faucetProgramId: "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz",
-  market: "8bK5oiUguBgQDNvEFyvT4wJTn4mmruuKkLXBWZJp1apA",
   baseMint: "2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W",
   quoteMint: "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
-  ylpMint: "DDi4gvGrkatHCKFLKY1qBY6Jcruk9bXtxMXFk935C1A1",
-  baseHlpMint: "FZAwSsgUdjk8bSL6fuYufNE8RXFmWw6jEtfTkvnyBCBP",
-  quoteHlpMint: "93AAXDXV61FefMwdq2ZeUpS4dWdVt1PurbFmKbaaKYdu",
 } as const;
 ```
+
+Market and LP-mint addresses are outputs of market creation and must be read
+from the indexer after the transaction confirms.

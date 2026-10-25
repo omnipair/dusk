@@ -31,6 +31,9 @@ pub struct BeginFlashLiquidationArgs {
     pub max_repayment: u64,
     pub max_payment: u64,
     pub min_collateral_credit: u64,
+    /// Minimum final debt-token credit for the paired Dusk-AMM settlement.
+    /// External routes must use zero and enforce their own route slippage.
+    pub min_buyer_credit: u64,
     pub full: bool,
     pub settle_index: u16,
 }
@@ -92,6 +95,43 @@ impl FlashLiquidationAccounts<'_> {
         match self.position()? {
             LiquidationPositionRef::Borrow(p) => Ok(p.owner),
             LiquidationPositionRef::Leverage(p) => Ok(p.owner),
+        }
+    }
+
+    pub(super) fn liquidation_position_state(&self) -> Result<LiquidationPositionState> {
+        match (&self.borrow_position, &self.leverage_position) {
+            (Some(position), None) => Ok(LiquidationPositionState {
+                owner: position.owner,
+                base_collateral: position.base_collateral,
+                quote_collateral: position.quote_collateral,
+                fixed_base_shares: position.fixed_base_shares,
+                fixed_quote_shares: position.fixed_quote_shares,
+                global_health_base_contribution_for_quote_debt: position.global_health_base_contribution_for_quote_debt,
+                global_health_quote_contribution_for_base_debt: position.global_health_quote_contribution_for_base_debt,
+                base_liquidation_cf_bps: position.base_liquidation_cf_bps,
+                quote_liquidation_cf_bps: position.quote_liquidation_cf_bps,
+                leverage_collateral_amount: 0,
+                leverage_debt_shares: 0,
+                closed: position.base_collateral == 0
+                    && position.quote_collateral == 0
+                    && position.fixed_base_shares == 0
+                    && position.fixed_quote_shares == 0,
+            }),
+            (None, Some(position)) => Ok(LiquidationPositionState {
+                owner: position.owner,
+                base_collateral: 0,
+                quote_collateral: 0,
+                fixed_base_shares: 0,
+                fixed_quote_shares: 0,
+                global_health_base_contribution_for_quote_debt: 0,
+                global_health_quote_contribution_for_base_debt: 0,
+                base_liquidation_cf_bps: 0,
+                quote_liquidation_cf_bps: 0,
+                leverage_collateral_amount: position.collateral_amount,
+                leverage_debt_shares: position.debt_shares,
+                closed: position.collateral_amount == 0 && position.debt_shares == 0,
+            }),
+            _ => err!(ErrorCode::InvalidLiquidationSession),
         }
     }
 
@@ -394,6 +434,7 @@ impl<'info> BeginFlashLiquidation<'info> {
             payment_balance_before: ctx.accounts.repayment_vault.amount,
             insurance_balance_at_quote: a.market.insurance.available(asset),
             insurance_target_at_quote: a.market.liquidation_insurance_target(asset)?,
+            min_buyer_credit: args.min_buyer_credit,
             quote,
             debt_asset: asset.code(),
             leverage: a.leverage_position.is_some(),
@@ -461,6 +502,24 @@ pub struct FlashLiquidationSettled {
     pub loss: LiquidationLossAllocation,
     pub remaining_collateral: u64,
     pub remaining_debt: u64,
+    /// Complete post-settlement position state for event-only indexers.
+    pub position_state: LiquidationPositionState,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct LiquidationPositionState {
+    pub owner: Pubkey,
+    pub base_collateral: u64,
+    pub quote_collateral: u64,
+    pub fixed_base_shares: u128,
+    pub fixed_quote_shares: u128,
+    pub global_health_base_contribution_for_quote_debt: u64,
+    pub global_health_quote_contribution_for_base_debt: u64,
+    pub base_liquidation_cf_bps: u16,
+    pub quote_liquidation_cf_bps: u16,
+    pub leverage_collateral_amount: u64,
+    pub leverage_debt_shares: u128,
+    pub closed: bool,
 }
 
 impl<'info> SettleFlashLiquidation<'info> {
@@ -539,32 +598,20 @@ impl<'info> SettleFlashLiquidation<'info> {
             .amount
             .checked_sub(session.payment_balance_before)
             .ok_or(ErrorCode::InsufficientAmount)?;
-        let allocation =
-            a.market
-                .liquidation_debt_allocation(&a.position()?, asset, session.quote.debt_shares_to_burn)?;
         let quote = session.quote;
-        let budget = quote
-            .repayment
-            .checked_add(quote.fee.total)
-            .and_then(|v| v.checked_add(quote.owner_surplus))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let repaid = if quote.full {
-            budget.min(allocation.debt)
-        } else {
-            require_gte!(quote.repayment, allocation.debt, ErrorCode::InvalidLiquidationSession);
-            allocation.debt
-        };
-        let fee = LiquidationFeeAllocation::quote(
-            repaid,
-            (budget - repaid).min(quote.fee.total),
+        let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
+        let terms = a.market.flash_amm_settlement_terms(
+            &a.position()?,
+            asset,
+            quote,
+            debt_fee,
             session.insurance_balance_at_quote,
             session.insurance_target_at_quote,
-        );
-        let owner_surplus = budget
-            .checked_sub(repaid)
-            .and_then(|v| v.checked_sub(fee.total))
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
+        )?;
+        let allocation = terms.allocation;
+        let repaid = terms.repayment;
+        let fee = terms.fee;
+        let owner_surplus = terms.owner_surplus;
         let gross_capacity = if quote.full {
             a.market.insurance.draw_capacity(asset, clock.slot)?
         } else {
@@ -592,11 +639,13 @@ impl<'info> SettleFlashLiquidation<'info> {
                 repaid,
                 fee,
                 owner_surplus,
+                terms.obligation,
                 insurance_debit,
                 expected_loss,
                 clock,
             );
         }
+        require_eq!(session.min_buyer_credit, 0, ErrorCode::InvalidLiquidationSession);
         require_gte!(received, session.quote.payment, ErrorCode::InsufficientAmount);
         let (partner, share) = a.referral(asset)?;
         let reserve_before = a.reserve_vault.amount;
@@ -806,6 +855,7 @@ impl<'info> SettleFlashLiquidation<'info> {
             loss,
             remaining_collateral: a.position()?.collateral(asset),
             remaining_debt: allocation.remaining_debt,
+            position_state: a.liquidation_position_state()?,
         });
         ctx.accounts.session.close(a.buyer.to_account_info())?;
         Ok(())

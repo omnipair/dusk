@@ -6727,6 +6727,125 @@ export type Dusk = {
       }
     },
     {
+      "name": "previewFlashAmmLiquidation",
+      "docs": [
+        "Preview the final debt-token payout when the paired Dusk AMM funds an",
+        "atomic flash liquidation settlement."
+      ],
+      "discriminator": [
+        219,
+        117,
+        70,
+        133,
+        93,
+        227,
+        129,
+        173
+      ],
+      "accounts": [
+        {
+          "name": "preview",
+          "accounts": [
+            {
+              "name": "market",
+              "pda": {
+                "seeds": [
+                  {
+                    "kind": "const",
+                    "value": [
+                      109,
+                      97,
+                      114,
+                      107,
+                      101,
+                      116,
+                      95,
+                      118,
+                      50
+                    ]
+                  },
+                  {
+                    "kind": "account",
+                    "path": "market.base_side.asset_mint",
+                    "account": "market"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "market.quote_side.asset_mint",
+                    "account": "market"
+                  },
+                  {
+                    "kind": "account",
+                    "path": "market.params_hash",
+                    "account": "market"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "borrowPosition",
+              "optional": true
+            },
+            {
+              "name": "leveragePosition",
+              "optional": true
+            },
+            {
+              "name": "collateralMint"
+            },
+            {
+              "name": "debtMint"
+            }
+          ]
+        },
+        {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "previewFlashAmmLiquidationArgs"
+            }
+          }
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "flashAmmLiquidationQuote"
+        }
+      }
+    },
+    {
       "name": "previewFlashLiquidation",
       "discriminator": [
         238,
@@ -13378,6 +13497,14 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "minBuyerCredit",
+            "docs": [
+              "Minimum final debt-token credit for the paired Dusk-AMM settlement.",
+              "External routes must use zero and enforce their own route slippage."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "full",
             "type": "bool"
           },
@@ -14872,6 +14999,17 @@ export type Dusk = {
           {
             "name": "remainingDebt",
             "type": "u64"
+          },
+          {
+            "name": "positionState",
+            "docs": [
+              "Complete post-settlement position state for event-only indexers."
+            ],
+            "type": {
+              "defined": {
+                "name": "liquidationPositionState"
+              }
+            }
           }
         ]
       }
@@ -15122,6 +15260,44 @@ export type Dusk = {
       }
     },
     {
+      "name": "flashAmmLiquidationQuote",
+      "docs": [
+        "Complete quote for the optional Dusk-AMM settlement route. The buyer first",
+        "receives `liquidation.collateral_credit`, returns that amount to Dusk for",
+        "the paired swap, and finally receives `buyer_credit` debt tokens after the",
+        "liquidation obligation and debt-token transfer fee."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "liquidation",
+            "type": {
+              "defined": {
+                "name": "flashLiquidationQuote"
+              }
+            }
+          },
+          {
+            "name": "swapOutput",
+            "type": "u64"
+          },
+          {
+            "name": "obligation",
+            "type": "u64"
+          },
+          {
+            "name": "buyerDebit",
+            "type": "u64"
+          },
+          {
+            "name": "buyerCredit",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "flashLiquidationBegun",
       "type": {
         "kind": "struct",
@@ -15289,6 +15465,17 @@ export type Dusk = {
           {
             "name": "remainingDebt",
             "type": "u64"
+          },
+          {
+            "name": "positionState",
+            "docs": [
+              "Complete post-settlement position state for event-only indexers."
+            ],
+            "type": {
+              "defined": {
+                "name": "liquidationPositionState"
+              }
+            }
           }
         ]
       }
@@ -17905,6 +18092,62 @@ export type Dusk = {
       }
     },
     {
+      "name": "liquidationPositionState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "baseCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "quoteCollateral",
+            "type": "u64"
+          },
+          {
+            "name": "fixedBaseShares",
+            "type": "u128"
+          },
+          {
+            "name": "fixedQuoteShares",
+            "type": "u128"
+          },
+          {
+            "name": "globalHealthBaseContributionForQuoteDebt",
+            "type": "u64"
+          },
+          {
+            "name": "globalHealthQuoteContributionForBaseDebt",
+            "type": "u64"
+          },
+          {
+            "name": "baseLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "quoteLiquidationCfBps",
+            "type": "u16"
+          },
+          {
+            "name": "leverageCollateralAmount",
+            "type": "u64"
+          },
+          {
+            "name": "leverageDebtShares",
+            "type": "u128"
+          },
+          {
+            "name": "closed",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "liquidationRates",
       "type": {
         "kind": "struct",
@@ -17999,6 +18242,14 @@ export type Dusk = {
           },
           {
             "name": "insuranceTargetAtQuote",
+            "type": "u64"
+          },
+          {
+            "name": "minBuyerCredit",
+            "docs": [
+              "Minimum final debt-token credit when the paired Dusk AMM funds settle.",
+              "External settlement routes bind their own output and leave this zero."
+            ],
             "type": "u64"
           },
           {
@@ -19890,6 +20141,26 @@ export type Dusk = {
           },
           {
             "name": "collateralDebit",
+            "type": "u64"
+          },
+          {
+            "name": "full",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "previewFlashAmmLiquidationArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "debtAsset",
+            "type": "u8"
+          },
+          {
+            "name": "maxRepayment",
             "type": "u64"
           },
           {

@@ -19,6 +19,13 @@ pub struct PreviewFlashLiquidationArgs {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct PreviewFlashAmmLiquidationArgs {
+    pub debt_asset: u8,
+    pub max_repayment: u64,
+    pub full: bool,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct PreviewEmergencyLiquidationArgs {
     pub debt_asset: u8,
     pub collateral_debit: u64,
@@ -123,6 +130,48 @@ fn validate_position<'a>(
 }
 
 impl PreviewEmergencyLiquidation<'_> {
+    pub fn handle_flash_amm(
+        ctx: Context<Self>,
+        args: PreviewFlashAmmLiquidationArgs,
+    ) -> Result<FlashAmmLiquidationQuote> {
+        let clock = Clock::get()?;
+        let a = &mut ctx.accounts.preview;
+        let asset = MarketAsset::try_from_code(args.debt_asset)?;
+        a.market.accrue_interest()?;
+        a.market.update()?;
+        let position = validate_position(
+            &a.market,
+            &a.borrow_position,
+            &a.leverage_position,
+            asset,
+            &a.collateral_mint,
+            &a.debt_mint,
+        )?;
+        let collateral_fee = leverage_collateral_fee(&a.collateral_mint, clock.epoch)?;
+        let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
+        let quote = a.market.quote_flash_liquidation(
+            &position,
+            asset,
+            args.max_repayment,
+            args.full,
+            collateral_fee,
+            leverage_collateral_liquidation_fee(&a.collateral_mint, clock.epoch)?,
+            debt_fee,
+            clock.unix_timestamp,
+            clock.slot,
+        )?;
+        a.market.preview_flash_amm_liquidation(
+            &position,
+            asset,
+            quote,
+            collateral_fee,
+            debt_fee,
+            clock.unix_timestamp,
+            clock.slot,
+            ctx.accounts.futarchy_authority.revenue_share.swap_bps,
+        )
+    }
+
     pub fn handle(
         ctx: Context<Self>,
         args: PreviewEmergencyLiquidationArgs,

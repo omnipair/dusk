@@ -20,6 +20,52 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 
+impl Market {
+    /// Quote the buyer's final debt-token payout for paired Dusk-AMM flash
+    /// settlement. The ordinary flash quote exposes the temporary collateral
+    /// receipt; this quote also prices its return transfer, the AMM sale, all
+    /// liquidation distributions, and the buyer's final transfer fee.
+    pub(crate) fn preview_flash_amm_liquidation(
+        &mut self,
+        position: &crate::transitions::flash_liquidation::LiquidationPositionRef<'_>,
+        asset: MarketAsset,
+        quote: FlashLiquidationQuote,
+        collateral_fee: crate::transitions::LeverageCollateralFee,
+        debt_fee: crate::transitions::LeverageCollateralFee,
+        now: i64,
+        slot: u64,
+        protocol_fee_bps: u16,
+    ) -> Result<FlashAmmLiquidationQuote> {
+        let terms = self.flash_amm_settlement_terms(
+            position,
+            asset,
+            quote,
+            debt_fee,
+            self.insurance.available(asset),
+            self.liquidation_insurance_target(asset)?,
+        )?;
+        let collateral_credit = collateral_fee.unwind_credit(quote.collateral_credit)?;
+        require_gt!(collateral_credit, 0, ErrorCode::InsufficientAmount);
+        let swap = SwapRequest {
+            current_slot: slot,
+            current_unix_timestamp: now,
+            asset_in: asset.opposite(),
+            reserve_credit: collateral_credit,
+            protocol_fee_bps,
+        }
+        .prepare_with_cash_policy(self, SwapCashPolicy::LiquidationQuote)?;
+        require_gte!(swap.quote.amount_out, terms.obligation, ErrorCode::InsufficientAmount);
+        let buyer_debit = swap.quote.amount_out - terms.obligation;
+        Ok(FlashAmmLiquidationQuote {
+            liquidation: quote,
+            swap_output: swap.quote.amount_out,
+            obligation: terms.obligation,
+            buyer_debit,
+            buyer_credit: debt_fee.unwind_credit(buyer_debit)?,
+        })
+    }
+}
+
 /// The session has already been validated by the common settle entrypoint.
 /// This is an alternate source of its fixed payment, not a new price policy.
 #[inline(never)]
@@ -30,6 +76,7 @@ pub(super) fn settle_with_amm<'info>(
     repayment: u64,
     fee: LiquidationFeeAllocation,
     owner_surplus: u64,
+    obligation: u64,
     insurance_debit: u64,
     loss: LiquidationLossAllocation,
     clock: Clock,
@@ -63,11 +110,15 @@ pub(super) fn settle_with_amm<'info>(
     let insurance_fee_debit = debt_fee.effective_gross_for_credit(fee.insurance)?;
     let revenue_fee_debit = debt_fee.effective_gross_for_credit(fee.lp + fee.protocol)?;
     let owner_debit = debt_fee.effective_gross_for_credit(owner_surplus)?;
-    let obligation = repayment
-        .checked_add(insurance_fee_debit)
-        .and_then(|v| v.checked_add(revenue_fee_debit))
-        .and_then(|v| v.checked_add(owner_debit))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
+    require_eq!(
+        obligation,
+        repayment
+            .checked_add(insurance_fee_debit)
+            .and_then(|v| v.checked_add(revenue_fee_debit))
+            .and_then(|v| v.checked_add(owner_debit))
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        ErrorCode::BrokenInvariant
+    );
     let mut swap = SwapRequest {
         current_slot: clock.slot,
         current_unix_timestamp: clock.unix_timestamp,
@@ -79,6 +130,7 @@ pub(super) fn settle_with_amm<'info>(
     require_gte!(swap.quote.amount_out, obligation, ErrorCode::InsufficientAmount);
     let buyer_debit = swap.quote.amount_out - obligation;
     let buyer_credit = debt_fee.unwind_credit(buyer_debit)?;
+    require_gte!(buyer_credit, session.min_buyer_credit, ErrorCode::SlippageExceeded);
     let policy = SwapCashPolicy::SettleLiquidation {
         debt_asset: asset,
         isolated: session.leverage,
@@ -330,7 +382,8 @@ pub(super) fn settle_with_amm<'info>(
         fee,
         loss,
         remaining_collateral: a.position()?.collateral(asset),
-        remaining_debt: allocation.remaining_debt
+        remaining_debt: allocation.remaining_debt,
+        position_state: a.liquidation_position_state()?,
     });
     ctx.accounts.session.close(a.buyer.to_account_info())?;
     Ok(())

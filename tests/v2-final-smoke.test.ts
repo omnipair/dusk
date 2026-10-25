@@ -8243,7 +8243,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
     const begin = await program.methods.beginFlashLiquidation({ position, debtAsset, maxRepayment: new BN(repayment),
-      maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit, full, settleIndex: 4 })
+      maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit, minBuyerCredit: new BN(0), full, settleIndex: 4 })
       .accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
     const tokenFee = getTransferFeeConfig(await getMint(connection as any, accounts.debtMint, undefined, accounts.debtTokenProgram));
     const net = BigInt(quote.payment.toString()) + paymentAdjustment;
@@ -10123,7 +10123,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
     const begin = await program.methods.beginFlashLiquidation({ position: leveragePosition, debtAsset: 1,
       maxRepayment: new BN(0), maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit,
-      full: true, settleIndex: 3 }).accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
+      minBuyerCredit: new BN(0), full: true, settleIndex: 3 }).accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
     const settle = await program.methods.settleFlashLiquidation().accounts({ ...common, collateralReserveVault: null }).instruction();
     const prefix = ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 });
     const payment = (amount: bigint) => createTransferCheckedInstruction(f.ownerQuoteAccount, f.quoteMint,
@@ -10159,7 +10159,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     svm.expireBlockhash();
     const paired = await program.methods.beginFlashLiquidation({ position: leveragePosition, debtAsset: 1,
       maxRepayment: new BN(0), maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit,
-      full: true, settleIndex: 5 }).accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
+      minBuyerCredit: new BN(0), full: true, settleIndex: 5 }).accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
     const withdraw = await program.methods.removeLiquidity({ ylpAmount: new BN(1_000),
       minBaseAmountOut: new BN(0), minQuoteAmountOut: new BN(0) }).accounts({
       market: f.market, owner: payer.publicKey, baseMint: f.baseMint, quoteMint: f.quoteMint,
@@ -10196,8 +10196,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const clock = svm.getClock(); clock.slot += 2_000n; clock.unixTimestamp += 1_000n;
     svm.setClock(clock); svm.expireBlockhash();
     const readAccounts = { market: f.market, borrowPosition: null, leveragePosition, collateralMint: f.baseMint, debtMint: f.quoteMint };
-    const quote = program.coder.types.decode("flashLiquidationQuote", await simulateReturnData(
-      await program.methods.previewFlashLiquidation({ debtAsset: 1, maxRepayment: new BN(0), full: true }).accounts(readAccounts).transaction())) as any;
+    const ammQuote = program.coder.types.decode("flashAmmLiquidationQuote", await simulateReturnData(
+      await program.methods.previewFlashAmmLiquidation({ debtAsset: 1, maxRepayment: new BN(0), full: true })
+        .accounts({ preview: readAccounts, futarchyAuthority }).transaction())) as any;
+    trackV2Instruction("previewFlashAmmLiquidation", this.test?.title);
+    const quote = ammQuote.liquidation;
     const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), leveragePosition.toBuffer()], DUSK_PROGRAM_ID)[0];
     const repaymentVault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), leveragePosition.toBuffer(), f.quoteMint.toBuffer()], DUSK_PROGRAM_ID)[0];
     const accounts = { ...readAccounts, buyer: payer.publicKey, collateralVault: leverageCollateralVault,
@@ -10207,8 +10210,25 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram: TOKEN_PROGRAM_ID };
     const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID };
+    const protectedPositionBefore = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    const protectedBegin = await program.methods.beginFlashLiquidation({ position: leveragePosition, debtAsset: 1,
+      maxRepayment: new BN(0), maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit,
+      minBuyerCredit: ammQuote.buyerCredit.add(new BN(1)), full: true, settleIndex: 2 })
+      .accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
+    const protectedSettle = await program.methods.settleFlashLiquidation().accounts({ ...common, collateralReserveVault: f.baseReserveVault }).instruction();
+    let protectedRejected = false;
+    try {
+      await connection.sendTransaction(new Transaction().add(
+        ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }), protectedBegin, protectedSettle), [payer]);
+    } catch { protectedRejected = true; }
+    expect(protectedRejected, "a final payout below the buyer's bound must roll back the liquidation").to.equal(true);
+    expect(svm.getAccount(session)).to.equal(null);
+    const protectedPositionAfter = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(protectedPositionAfter.debt_shares.toString()).to.equal(protectedPositionBefore.debt_shares.toString());
+    expect(protectedPositionAfter.collateral_amount.toString()).to.equal(protectedPositionBefore.collateral_amount.toString());
     const begin = await program.methods.beginFlashLiquidation({ position: leveragePosition, debtAsset: 1,
-      maxRepayment: new BN(0), maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit, full: true, settleIndex: 2 })
+      maxRepayment: new BN(0), maxPayment: quote.payment, minCollateralCredit: quote.collateralCredit,
+      minBuyerCredit: ammQuote.buyerCredit, full: true, settleIndex: 2 })
       .accounts({ ...common, systemProgram: SystemProgram.programId }).instruction();
     const settle = await program.methods.settleFlashLiquidation().accounts({ ...common, collateralReserveVault: f.baseReserveVault }).instruction();
     const before = (await getAccount(connection as any, f.ownerQuoteAccount)).amount;
@@ -10217,6 +10237,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(tx, [payer]);
     const after = (await getAccount(connection as any, f.ownerQuoteAccount)).amount;
     expect(after > before).to.equal(true);
+    expect(BigInt(ammQuote.buyerCredit.toString()) > 0n).to.equal(true);
     expect((await getAccount(connection as any, f.ownerBaseAccount)).amount).to.equal(collateralBefore);
     expect((await getAccount(connection as any, repaymentVault)).amount).to.equal(0n);
     expect(svm.getAccount(session)).to.equal(null);

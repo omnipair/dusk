@@ -22,6 +22,19 @@ pub struct FlashLiquidationQuote {
     pub rates: LiquidationRates,
 }
 
+/// Complete quote for the optional Dusk-AMM settlement route. The buyer first
+/// receives `liquidation.collateral_credit`, returns that amount to Dusk for
+/// the paired swap, and finally receives `buyer_credit` debt tokens after the
+/// liquidation obligation and debt-token transfer fee.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct FlashAmmLiquidationQuote {
+    pub liquidation: FlashLiquidationQuote,
+    pub swap_output: u64,
+    pub obligation: u64,
+    pub buyer_debit: u64,
+    pub buyer_credit: u64,
+}
+
 /// Exists only from begin through the exact paired settle in one transaction.
 /// Original debt and collateral allocations remain on the locked position.
 #[account]
@@ -45,6 +58,9 @@ pub struct LiquidationSession {
     pub payment_balance_before: u64,
     pub insurance_balance_at_quote: u64,
     pub insurance_target_at_quote: u64,
+    /// Minimum final debt-token credit when the paired Dusk AMM funds settle.
+    /// External settlement routes bind their own output and leave this zero.
+    pub min_buyer_credit: u64,
     pub quote: FlashLiquidationQuote,
     pub debt_asset: u8,
     pub leverage: bool,

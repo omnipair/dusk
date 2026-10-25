@@ -63,7 +63,10 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   });
   program.account.leveragePosition.fetch = async () => ({ market, owner, debtAsset: 1, referralPartner: SystemProgram.programId });
   const client = new DuskLiquidations(program);
-  client.preview = async () => ({ payment: new anchor.BN(1002), collateralCredit: new anchor.BN(1100), rates: { buyerDiscountBps: 455, emergencyRewardBps: 100 } });
+  const flashQuote = { payment: new anchor.BN(1002), collateralCredit: new anchor.BN(1100), rates: { buyerDiscountBps: 455, emergencyRewardBps: 100 } };
+  client.preview = async () => flashQuote;
+  client.previewAmm = async () => ({ liquidation: flashQuote, swapOutput: new anchor.BN(1200),
+    obligation: new anchor.BN(1100), buyerDebit: new anchor.BN(100), buyerCredit: new anchor.BN(97) });
   const request = { market, position, kind: "leverage", debtAsset: "quote" };
   const result = await client.buildFlash({
     ...request, buyer, maxRepayment: 1000n,
@@ -79,6 +82,7 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   assert.equal(decoded.name, "beginFlashLiquidation");
   assert.equal(decoded.data.args.settleIndex, result.settleIndex);
   assert.equal(decoded.data.args.maxPayment.toString(), "1002");
+  assert.equal(decoded.data.args.minBuyerCredit.toString(), "0");
   assert.equal(program.coder.instruction.decode(result.settleInstruction.data).name, "settleFlashLiquidation");
   assert.ok(result.session.equals(deriveLiquidationSessionAddress(position, programId)[0]));
   assert.ok(result.repaymentVault.equals(deriveLiquidationPaymentAddress(position, quoteMint, programId)[0]));
@@ -113,6 +117,8 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   client.write.hlpRemainingAccounts = async () => [];
   const internal = await client.buildFlash({ ...request, buyer, maxRepayment: 1000n, settlement: "duskAmm" });
   assert.equal(internal.requiredPaymentCredit, 0n);
+  assert.equal(internal.ammQuote.buyerCredit.toString(), "97");
+  assert.equal(program.coder.instruction.decode(internal.beginInstruction.data).data.args.minBuyerCredit.toString(), "97");
   assert.equal(internal.settleIndex, internal.beginIndex + 1);
   assert.ok(internal.settleInstruction.keys.some(meta => meta.pubkey.equals(baseReserve)));
   const customRemaining = { pubkey: quoteCollateral, isSigner: false, isWritable: true };

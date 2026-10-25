@@ -51,6 +51,8 @@ pub struct EmergencyLiquidationSettled {
     pub quote: EmergencyLiquidationQuote,
     pub remaining_collateral: u64,
     pub remaining_debt: u64,
+    /// Complete post-settlement position state for event-only indexers.
+    pub position_state: LiquidationPositionState,
 }
 
 impl<'info> EmergencyLiquidation<'info> {
@@ -356,7 +358,8 @@ impl<'info> EmergencyLiquidation<'info> {
             debt_asset: asset.code(),
             quote: q,
             remaining_collateral: a.position()?.collateral(asset),
-            remaining_debt: prepared.allocation.remaining_debt
+            remaining_debt: prepared.allocation.remaining_debt,
+            position_state: a.liquidation_position_state()?,
         });
         Ok(())
     }

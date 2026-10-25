@@ -336,6 +336,15 @@ pub mod dusk {
         PreviewFlashLiquidation::handle(ctx, args)
     }
 
+    /// Preview the final debt-token payout when the paired Dusk AMM funds an
+    /// atomic flash liquidation settlement.
+    pub fn preview_flash_amm_liquidation(
+        ctx: Context<PreviewEmergencyLiquidation>,
+        args: PreviewFlashAmmLiquidationArgs,
+    ) -> Result<FlashAmmLiquidationQuote> {
+        PreviewEmergencyLiquidation::handle_flash_amm(ctx, args)
+    }
+
     pub fn emergency_liquidation<'info>(
         ctx: Context<'_, '_, '_, 'info, EmergencyLiquidation<'info>>,
         args: EmergencyLiquidationArgs,

@@ -71,6 +71,7 @@ type DuskEventTypes = [
   TypeNamed<"liquidationFeeAllocation">,
   TypeNamed<"liquidationLossAllocation">,
   TypeNamed<"flashLiquidationQuote">,
+  TypeNamed<"liquidationPositionState">,
   TypeNamed<"emergencyLiquidationQuote">,
   TypeNamed<"flashLiquidationBegun">,
   TypeNamed<"flashLiquidationSettled">,
@@ -158,11 +159,26 @@ type DuskEventIdl = {
   events: Dusk["events"];
   types: DuskEventTypes;
 };
+type DuskFlashAmmIdl = {
+  address: Dusk["address"];
+  metadata: Dusk["metadata"];
+  instructions: [];
+  accounts: [];
+  events: [];
+  types: [
+    TypeNamed<"flashAmmLiquidationQuote">,
+    TypeNamed<"flashLiquidationQuote">,
+    TypeNamed<"liquidationFeeAllocation">,
+    TypeNamed<"liquidationHealth">,
+    TypeNamed<"liquidationRates">,
+  ];
+};
 
 export type Market = IdlTypes<DuskAccountIdl>["market"];
 export type HlpFlashQuote = IdlTypes<DuskAccountIdl>["hlpFlashQuote"];
 export type FundInterestReceipt = IdlTypes<DuskEventIdl>["fundInterestReceipt"];
 export type FlashLiquidationQuote = IdlTypes<DuskEventIdl>["flashLiquidationQuote"];
+export type FlashAmmLiquidationQuote = IdlTypes<DuskFlashAmmIdl>["flashAmmLiquidationQuote"];
 export type EmergencyLiquidationQuote = IdlTypes<DuskEventIdl>["emergencyLiquidationQuote"];
 export type BorrowPosition = IdlTypes<DuskAccountIdl>["borrowPosition"];
 export type LeveragePosition = IdlTypes<DuskAccountIdl>["leveragePosition"];

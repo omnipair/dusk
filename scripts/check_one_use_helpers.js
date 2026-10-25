@@ -514,7 +514,12 @@ acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protectio
 acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/redeem.rs", new Set(["redeem_lp"]));
 // Alternate flash settlement has its own CPI frame; merging it into the
 // external settle handler would overlap two large SBF settlement frames.
-acceptedOneUseHelpers.set("programs/dusk/src/instructions/flash_amm_settlement.rs", new Set(["settle_with_amm"]));
+// The paired-AMM preview and settle paths live together so they share the same
+// final-payout accounting boundary.
+acceptedOneUseHelpers.set(
+  "programs/dusk/src/instructions/flash_amm_settlement.rs",
+  new Set(["preview_flash_amm_liquidation", "settle_with_amm"])
+);
 // Keep the complete emergency market/position mutation directly testable
 // without Anchor custody accounts, using the same transition as execution.
 // Candidate construction is a separate SBF frame from the recovery proof.

@@ -36,7 +36,68 @@ pub(crate) struct LiquidationDebtAllocation {
     pub remaining_debt: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct FlashAmmSettlementTerms {
+    pub allocation: LiquidationDebtAllocation,
+    pub repayment: u64,
+    pub fee: LiquidationFeeAllocation,
+    pub owner_surplus: u64,
+    pub obligation: u64,
+}
+
 impl Market {
+    /// Compute the exact debt-side obligation used by paired Dusk-AMM flash
+    /// settlement. Preview and settle share this calculation so the buyer can
+    /// bind slippage to the final debt-token payout, rather than the temporary
+    /// collateral transfer made by `begin_flash_liquidation`.
+    pub(crate) fn flash_amm_settlement_terms(
+        &self,
+        position: &LiquidationPositionRef<'_>,
+        asset: MarketAsset,
+        quote: FlashLiquidationQuote,
+        debt_fee: LeverageCollateralFee,
+        insurance_balance: u64,
+        insurance_target: u64,
+    ) -> Result<FlashAmmSettlementTerms> {
+        let allocation = self.liquidation_debt_allocation(position, asset, quote.debt_shares_to_burn)?;
+        let budget = quote
+            .repayment
+            .checked_add(quote.fee.total)
+            .and_then(|v| v.checked_add(quote.owner_surplus))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let repayment = if quote.full {
+            budget.min(allocation.debt)
+        } else {
+            require_gte!(quote.repayment, allocation.debt, ErrorCode::InvalidLiquidationSession);
+            allocation.debt
+        };
+        let fee = LiquidationFeeAllocation::quote(
+            repayment,
+            (budget - repayment).min(quote.fee.total),
+            insurance_balance,
+            insurance_target,
+        );
+        let owner_surplus = budget
+            .checked_sub(repayment)
+            .and_then(|v| v.checked_sub(fee.total))
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let insurance_fee_debit = debt_fee.effective_gross_for_credit(fee.insurance)?;
+        let revenue_fee_debit = debt_fee.effective_gross_for_credit(fee.lp + fee.protocol)?;
+        let owner_debit = debt_fee.effective_gross_for_credit(owner_surplus)?;
+        let obligation = repayment
+            .checked_add(insurance_fee_debit)
+            .and_then(|v| v.checked_add(revenue_fee_debit))
+            .and_then(|v| v.checked_add(owner_debit))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(FlashAmmSettlementTerms {
+            allocation,
+            repayment,
+            fee,
+            owner_surplus,
+            obligation,
+        })
+    }
+
     /// Derive the debt and principal removed from the current aggregate state.
     /// Other positions may change that state during a flash route. Never apply
     /// a cloned begin-state ledger to settle.

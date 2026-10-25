@@ -3,7 +3,7 @@ import type { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
-import type { EmergencyLiquidationQuote, FlashLiquidationQuote } from "./type-aliases.js";
+import type { EmergencyLiquidationQuote, FlashAmmLiquidationQuote, FlashLiquidationQuote } from "./type-aliases.js";
 import { address, type AddressLike } from "./address.js";
 import { DuskWrite } from "./write.js";
 import { DuskGet } from "./get.js";
@@ -13,7 +13,7 @@ import { tokenProgramForMint } from "./referral.js";
 import { deriveFutarchyAuthorityAddress, deriveLeverageCollateralVaultAddress, deriveReferralAccrualAddress } from "./constants.js";
 import { deriveLiquidationPaymentAddress, deriveLiquidationSessionAddress } from "./liquidation.js";
 
-export type { FlashLiquidationQuote, EmergencyLiquidationQuote };
+export type { FlashLiquidationQuote, FlashAmmLiquidationQuote, EmergencyLiquidationQuote };
 
 export interface LiquidationPositionParams {
   market: AddressLike;
@@ -30,6 +30,8 @@ export interface FlashLiquidationParams extends LiquidationPositionParams {
   maxPayment?: GovernanceIntegerLike;
   /** Actual buyer receipt after collateral transfer fees. */
   minCollateralCredit?: GovernanceIntegerLike;
+  /** Final debt-token receipt when `settlement` is `duskAmm`. */
+  minBuyerCredit?: GovernanceIntegerLike;
   prefixInstructions?: readonly TransactionInstruction[];
   /** Dusk execution sells the received collateral in the paired settle and
    * nets debt principal internally. External settlement requires route payment. */
@@ -136,6 +138,19 @@ export class DuskLiquidations {
     return this.program.coder.types.decode("flashLiquidationQuote", previewReturnDataBytes(returned)) as FlashLiquidationQuote;
   }
 
+  /** Preview the paired Dusk-AMM route through the buyer's final debt-token
+   * receipt. This includes both collateral transfers, AMM fees, liquidation
+   * distributions, and the final debt-token transfer fee.
+   */
+  async previewAmm(params: LiquidationPositionParams & { maxRepayment: GovernanceIntegerLike; full?: boolean }): Promise<FlashAmmLiquidationQuote> {
+    const r = await this.resolve(params);
+    const instruction = await this.write.instruction("previewFlashAmmLiquidation", {
+      debtAsset: r.debtAsset, maxRepayment: governanceIntegerBN(params.maxRepayment, "maxRepayment"), full: params.full ?? false,
+    }, { accounts: { preview: r.readAccounts, futarchyAuthority: deriveFutarchyAuthorityAddress(this.program.programId)[0] } });
+    const returned = await this.get.simulateReturnData(instruction);
+    return this.program.coder.types.decode("flashAmmLiquidationQuote", previewReturnDataBytes(returned)) as FlashAmmLiquidationQuote;
+  }
+
   /** Emergency inventory settlement uses the symmetric price EMA and smoothed
    * curve depth, including the configured concentration and full fee schedule.
    * referencePriceNad is debt per collateral (1e9); referenceDepthNad is curve depth,
@@ -219,11 +234,13 @@ export class DuskLiquidations {
     if (!internal && !params.route) throw new Error("External settlement requires an explicit payment route");
     const r = await this.resolve(params);
     const buyer = address(params.buyer);
-    const [debtTokenProgram, collateralTokenProgram, quote] = await Promise.all([
+    const [debtTokenProgram, collateralTokenProgram, preview] = await Promise.all([
       tokenProgramForMint(this.program.provider.connection, r.debtSide.assetMint),
       tokenProgramForMint(this.program.provider.connection, r.collateralSide.assetMint),
-      this.preview(params),
+      internal ? this.previewAmm(params) : this.preview(params),
     ]);
+    const ammQuote = internal ? preview as FlashAmmLiquidationQuote : null;
+    const quote = ammQuote ? ammQuote.liquidation : preview as FlashLiquidationQuote;
     const [session] = deriveLiquidationSessionAddress(r.position, this.program.programId);
     const [repaymentVault] = deriveLiquidationPaymentAddress(r.position, r.debtSide.assetMint, this.program.programId);
     const buyerCollateralAccount = getAssociatedTokenAddressSync(r.collateralSide.assetMint, buyer, true, collateralTokenProgram);
@@ -265,6 +282,7 @@ export class DuskLiquidations {
       position: r.position, debtAsset: r.debtAsset, maxRepayment: governanceIntegerBN(params.maxRepayment, "maxRepayment"),
       maxPayment: governanceIntegerBN(params.maxPayment ?? BigInt(quote.payment.toString()), "maxPayment"),
       minCollateralCredit: governanceIntegerBN(params.minCollateralCredit ?? BigInt(quote.collateralCredit.toString()), "minCollateralCredit"),
+      minBuyerCredit: governanceIntegerBN(internal ? params.minBuyerCredit ?? BigInt(ammQuote!.buyerCredit.toString()) : 0n, "minBuyerCredit"),
       full: params.full ?? false, settleIndex,
     }, { accounts: { ...common, systemProgram: SystemProgram.programId } });
     const settle = await this.write.instruction("settleFlashLiquidation", [], {
@@ -272,6 +290,6 @@ export class DuskLiquidations {
       remainingAccounts: params.settleRemainingAccounts ? [...params.settleRemainingAccounts]
         : internal ? await this.write.hlpRemainingAccounts(r.market, r.state) : [],
     });
-    return { ...context, beginIndex, settleIndex, instructions: [...prefix, begin, ...route, settle], beginInstruction: begin, settleInstruction: settle };
+    return { ...context, ammQuote, beginIndex, settleIndex, instructions: [...prefix, begin, ...route, settle], beginInstruction: begin, settleInstruction: settle };
   }
 }
