@@ -33,24 +33,26 @@ Both are devnet mock tokens. They are not the canonical mainnet META or USDC min
 
 | Account | Address |
 | --- | --- |
-| META/USDC market | `7Rjrf8i81hZihsuFdPfzTaP6SiQ3JEmQs7Hfg7YNjkNm` |
-| yLP mint | `JBxhpnrdADegPpmB5jHagcPkRR5Nkqsgpc2pPmPAsjRg` |
-| META hLP mint | `DzH431M9FMitSsWYMCkkvx24BxVqWZo8MteiB5HemRzT` |
-| USDC hLP mint | `HaHJtXoacXNVuG2Q9NCsZu1rvhDwqBhDH6M5jSXz7Q5p` |
-| yLP metadata | `7U9SFVtrirvy3ThKuTYcJU3LxtJKRJiBPAVjoTFyJZ4Z` |
-| META hLP metadata | `GGcr38JBfDnZVHdk2Z5AHaJ6GRkcTLyXr8r2cvjpJPPc` |
-| USDC hLP metadata | `GjTuuVVegphGjhQoNV7AdK6qv5kobMfEN57qwod8tXq9` |
-| META reserve vault | `8RBbxBPHuecXXcHFdzowbhjLbR9VpTtX9Yuu2XgUfs8N` |
-| USDC reserve vault | `8AuwR6EiQzg1sHDwpjf4gSizVG78xiw8bnnLqP4YwjGi` |
-| META collateral vault | `BkJ5PDv7r6t3dPR53f2T1794L7YExegW6uC4QoqmHFkK` |
-| USDC collateral vault | `CSETQwFsLbJ7zjRN1ZD9yjxMZBAVxixL8oEXvi33caue` |
-| META insurance vault | `D8cDKxXf1QEZCPVhtvGkGMuLGdMZ3NbfXRVXyuJEvtbB` |
-| USDC insurance vault | `9tKehifT35DUGD2bFNYCtWJgTe9NXhSG4X4kPqjLKHQ9` |
-| META interest vault | `63tFqjbauvpU9ijBKFGwXZ5ksjzSAyCBdyyuczYXbEAv` |
-| USDC interest vault | `7qzeSRWQAKsBhsPciGzR2DiW3BxTfKLrDmK2UjnR3Fcn` |
-| META hLP/yLP custody | `EHbQTVJHWEoxX48m6M3bSY1hGbNbdC1tRgrwDum8L7Wh` |
-| USDC hLP/yLP custody | `HdKkb3LRhyiDqaKP9ogJbuQ3rmUzu2JBgsP3o61QbPZY` |
+| META/USDC market | `8bK5oiUguBgQDNvEFyvT4wJTn4mmruuKkLXBWZJp1apA` |
+| yLP mint | `DDi4gvGrkatHCKFLKY1qBY6Jcruk9bXtxMXFk935C1A1` |
+| META hLP mint | `FZAwSsgUdjk8bSL6fuYufNE8RXFmWw6jEtfTkvnyBCBP` |
+| USDC hLP mint | `93AAXDXV61FefMwdq2ZeUpS4dWdVt1PurbFmKbaaKYdu` |
+| yLP metadata | `7UNLvZo35UY79jX6LTvCD8WYyGrvXwiVtWbsjigBp7Cv` |
+| META hLP metadata | `DwD9UwzLmEjs51vk1k9bnCkD9hDovNzKSv4vmeRXcKt3` |
+| USDC hLP metadata | `GD1sGkNfU56MrtphkgRnX1fPuSQSoj4YuJtg1dL5ZPmz` |
+| META reserve vault | `6vPbJ19aCN4SYvZeALXBASztt7uERaWAcgWy5LXcxkt` |
+| USDC reserve vault | `A25iu53KX8XcTB1JmAiGqDtKYnbmrsgjGLNXikiDdCN7` |
+| META collateral vault | `8wXRj8Pt9HX6QRctYVtHwbobmevTkABEHSZr23iYhWPL` |
+| USDC collateral vault | `A9nyUHSoeK2rfQThHNo51TMYk6XzstsyCooFQeXLahDH` |
+| META insurance vault | `5jwCqUiHL84WxD2yJWdqtfzkDaPwb6mPQF513H7M2kMk` |
+| USDC insurance vault | `85rFpdDzpsQBaLEVDyYD51zBV17ZxwA8SVhZ1j39qGyx` |
+| META interest vault | `B5kyXTroQvZ2R2FisKzK8hiRXN4pLL9vAmj2hU9pSee5` |
+| USDC interest vault | `ED8da2YnwHCrYJn7C1ngYshF8uuV8mgCYkFcwQdoVJfu` |
+| META hLP/yLP custody | `sk6mhf4Ye8g9XAco9QbWJsYkNWB18z9VejMrkiq1d1W` |
+| USDC hLP/yLP custody | `CHkxuWrMDEr5Z4m3E76seoi2cHNEdFhtHf8G9dwzFcaK` |
 | Event authority | `5wiTA28gz5WFdEYxNVeZu288WCdZWzaonA1pnApLWSuh` |
+
+The fresh v6 market is seeded with 10,000 mock META and 10,000 mock USDC.
 
 ## Explorer
 
@@ -59,7 +61,7 @@ Both are devnet mock tokens. They are not the canonical mainnet META or USDC min
 - [Faucet](https://explorer.solana.com/address/EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz?cluster=devnet)
 - [META mint](https://explorer.solana.com/address/2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W?cluster=devnet)
 - [USDC mint](https://explorer.solana.com/address/G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV?cluster=devnet)
-- [META/USDC market](https://explorer.solana.com/address/7Rjrf8i81hZihsuFdPfzTaP6SiQ3JEmQs7Hfg7YNjkNm?cluster=devnet)
+- [META/USDC market](https://explorer.solana.com/address/8bK5oiUguBgQDNvEFyvT4wJTn4mmruuKkLXBWZJp1apA?cluster=devnet)
 
 ## Frontend Defaults
 
@@ -68,11 +70,11 @@ export const DUSK_DEVNET = {
   programId: "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X",
   leverageDelegateProgramId: "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
   faucetProgramId: "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz",
-  market: "7Rjrf8i81hZihsuFdPfzTaP6SiQ3JEmQs7Hfg7YNjkNm",
+  market: "8bK5oiUguBgQDNvEFyvT4wJTn4mmruuKkLXBWZJp1apA",
   baseMint: "2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W",
   quoteMint: "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
-  ylpMint: "JBxhpnrdADegPpmB5jHagcPkRR5Nkqsgpc2pPmPAsjRg",
-  baseHlpMint: "DzH431M9FMitSsWYMCkkvx24BxVqWZo8MteiB5HemRzT",
-  quoteHlpMint: "HaHJtXoacXNVuG2Q9NCsZu1rvhDwqBhDH6M5jSXz7Q5p",
+  ylpMint: "DDi4gvGrkatHCKFLKY1qBY6Jcruk9bXtxMXFk935C1A1",
+  baseHlpMint: "FZAwSsgUdjk8bSL6fuYufNE8RXFmWw6jEtfTkvnyBCBP",
+  quoteHlpMint: "93AAXDXV61FefMwdq2ZeUpS4dWdVt1PurbFmKbaaKYdu",
 } as const;
 ```
