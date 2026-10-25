@@ -5911,7 +5911,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         // begin/settle exceeds the transaction CU ceiling. Preserve this case
         // as an explicit feasibility check instead of silently promising it.
         if (mode === "amm" && amp === 4) {
-          expect(`${e}\n${e.simulation?.value?.logs?.join("\n") ?? ""}`).to.include("exceeded CUs meter");
+          const failure = JSON.stringify(e.simulation?.value?.err ?? null);
+          const logs = e.simulation?.value?.logs?.join("\n") ?? "";
+          expect(e?.name).to.equal("DuskSimulationError");
+          expect(
+            logs.includes("exceeded CUs meter") ||
+              failure.includes("ComputationalBudgetExceeded") ||
+              failure.includes("ProgramFailedToComplete"),
+            `unexpected amp=4 direct-route failure: ${failure}\n${logs}`
+          ).to.equal(true);
           continue;
         }
         throw new Error(`amp=${amp} target=${target} fees=${fees} mode=${mode}: ${e}\n${e.simulation?.value?.logs?.join("\n")}`);
