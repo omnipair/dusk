@@ -493,3 +493,50 @@ fn emergency_fallback_can_close_despite_a_useful_flash_partial() {
         }
     }
 }
+
+#[test]
+fn concentrated_recovery_certificate_never_skips_a_fee_bearing_integer_recovery() {
+    let mut certified = 0;
+    let mut witnesses = 0;
+    for amp in [1, 3] { for asset in [MarketAsset::Base, MarketAsset::Quote] {
+    for mode in [0, 1, 2] { for taxed in [false, true] { for indexed in [false, true] {
+        let mut market = test_market(50_000, 50_000);
+        market.config.swap_fee_bps = if indexed { 25 } else { 300 };
+        market.config.amm.swap_fee_collect_mode = mode;
+        if amp > 1 {
+            market.config.amm.set_concentrated_curve_parameters(ConcentratedCurveParameters {
+                peak_amplification_nad: amp * NAD, core_half_width_bps: 250, fade_width_bps: 500,
+            }).unwrap();
+            market.amm = Default::default(); market.risk = Default::default();
+            market.prepare_amm_for_swap(0).unwrap(); market.refresh_risk().unwrap();
+        }
+        // Another position and a fractional interest index exercise the
+        // position-vs-aggregate one-atom floor allowance in the certificate.
+        let _other = seeded_position(&mut market, asset, 7, 100);
+        let mut position = seeded_position(&mut market, asset, if indexed { 800 } else { 970 }, 1_000);
+        if indexed {
+            let debt_before = market.debt.isolated_debt(asset).unwrap();
+            match asset {
+                MarketAsset::Base => market.debt.base_borrow_index_nad = 1_200_000_001,
+                MarketAsset::Quote => market.debt.quote_borrow_index_nad = 1_200_000_001,
+            }
+            let accrued = market.debt.isolated_debt(asset).unwrap() - debt_before;
+            market.side_mut(asset).reserves.live_reserve += u64::try_from(accrued).unwrap();
+        }
+        position.margin_terms = LeverageMarginTerms::at_entry(50_000).unwrap();
+        position.distress.observe(true, 0, 0).unwrap();
+        let fee = LeverageCollateralFee::new(taxed.then_some(TransferFee {
+            epoch: 0.into(), maximum_fee: 3_u64.into(), transfer_fee_basis_points: 100_u16.into(),
+        }));
+        let p = LiquidationPositionRef::Leverage(&position);
+        let health = market.flash_liquidation_health(&p, asset, fee).unwrap();
+        if !health.emergency_allowed().unwrap() { continue; }
+        let proof = market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, Some(1_000)).unwrap();
+        let recovery = (1..1_000).any(|size| market.clone()
+            .prepare_emergency_candidate(&p, asset, size, false, fee, fee, fee, 120, 0, 0)
+            .is_ok_and(|candidate| candidate.quote.health_after.recovered().unwrap()));
+        if proof {certified += 1;assert!(!recovery,"amp={amp} asset={asset:?} mode={mode} taxed={taxed} indexed={indexed}");}
+        if recovery {witnesses += 1;assert!(!proof);}
+    }}}}}
+    assert!(certified > 0); assert!(witnesses > 0);
+}

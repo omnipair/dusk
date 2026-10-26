@@ -1325,6 +1325,13 @@ impl Market {
         self.assert_current_version()?;
         let current_slot = Clock::get()?.slot;
         self.accrue_interest_to_slot(current_slot)?;
+        // The last external yLP burn deliberately clears the AMM. Do not
+        // rebuild a concentrated curve from locked dust before a reseeding
+        // deposit can restore its depth. Reuse the terminal checkpoint's
+        // debt, custody and hLP checks rather than treating dust as new risk.
+        if !self.amm.initialized && self.base_side.shares.ylp_supply == crate::constants::MIN_LIQUIDITY {
+            return self.finalize_amm_transition_and_observe_risk(current_slot);
+        }
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             // hLP exposure is checkpointed from actual state. New hLP entry
             // remains gated while a due concentrated controller target would

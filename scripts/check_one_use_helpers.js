@@ -393,7 +393,10 @@ const acceptedOneUseHelpers = new Map([
     "programs/dusk/src/transitions/amm/curve.rs",
     // Oracle geometry construction has independent price/depth inputs, unlike
     // live-reserve reconstruction, and is exercised across concentration tiers.
-    new Set(["parameters", "center_point_with_geometry", "concentrated_total_liquidity_root", "prepare_concentrated_cache_at_depth"]),
+    new Set(["parameters", "center_point_with_geometry", "concentrated_total_liquidity_root", "prepare_concentrated_cache_at_depth",
+      // One constructor and one hot-loop lookup share exact boundary dust;
+      // inlining them would mix geometry construction with the SBF proof frame.
+      "prepare_quote_path", "amount_out"]),
   ],
   [
     "programs/dusk/src/transitions/amm/fees.rs",

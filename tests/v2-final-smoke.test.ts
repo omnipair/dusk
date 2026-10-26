@@ -3520,6 +3520,48 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_hlp_vault.debt_shares.toNumber()).to.equal(0);
   });
 
+  it("reseeds a concentrated market after the last yLP holder exits", async function () {
+    const unit = 1_000_000;
+    const config = marketConfig();
+    config.swapFeeBps = 25;
+    config.amm.peakAmplificationNad = new BN(3_000_000_000);
+    config.amm.coreHalfWidthBps = 250;
+    config.amm.fadeWidthBps = 500;
+    config.amm.compoundingFeeBps = 0;
+    const f = await addBalancedLiquidity(301, config, {
+      baseDeposit: 1_000 * unit, quoteDeposit: 1_000 * unit,
+      minYlp: 1, baseMint: 5_000 * unit, quoteMint: 5_000 * unit,
+    });
+    await swapBaseForQuote(f, [], 150 * unit, 1);
+    const baseYieldAccount = deriveYieldAccountAddress(f.market, payer.publicKey, f.ylpMint, f.baseMint, "ylp")[0];
+    const quoteYieldAccount = deriveYieldAccountAddress(f.market, payer.publicKey, f.ylpMint, f.quoteMint, "ylp")[0];
+    const liquidityAccounts = {market:f.market,owner:payer.publicKey,baseMint:f.baseMint,quoteMint:f.quoteMint,
+      ylpMint:f.ylpMint,baseReserveVault:f.baseReserveVault,quoteReserveVault:f.quoteReserveVault,
+      ownerBaseAccount:f.ownerBaseAccount,ownerQuoteAccount:f.ownerQuoteAccount,ownerYlpAccount:f.ownerYlpAccount,
+      baseYieldAccount,quoteYieldAccount,tokenProgram:TOKEN_PROGRAM_ID,token2022Program:TOKEN_2022_PROGRAM_ID,
+      eventAuthority:eventAuthority(),program:DUSK_PROGRAM_ID};
+    const balance = await getAccount(connection as any, f.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID);
+    await connection.sendTransaction(await program.methods.removeLiquidity({ylpAmount:new BN(balance.amount.toString()),
+      minBaseAmountOut:new BN(0),minQuoteAmountOut:new BN(0)}).accounts(liquidityAccounts).transaction(),[payer]);
+    const empty = accountCoder.decode("Market",Buffer.from(svm.getAccount(f.market)!.data)) as any;
+    expect(empty.base_side.shares.ylp_supply.toString()).to.equal("1000");
+    expect(empty.amm.initialized).to.equal(false);
+    const args = {baseDepositAmount:new BN(200 * unit),quoteDepositAmount:new BN(200 * unit)};
+    const previewTx = await program.methods.previewAddLiquidity(args)
+      .accounts({market:f.market,baseMint:f.baseMint,quoteMint:f.quoteMint}).transaction();
+    const quote = program.coder.types.decode("addLiquidityPreview",await simulateReturnData(previewTx)) as any;
+    expect(quote.ylpAmount.gt(new BN(0))).to.equal(true);
+    await connection.sendTransaction(await program.methods.addLiquidity({...args,minYlpAmount:quote.ylpAmount})
+      .accounts({...liquidityAccounts,futarchyAuthority,systemProgram:SystemProgram.programId}).transaction(),[payer]);
+    const seeded = accountCoder.decode("Market",Buffer.from(svm.getAccount(f.market)!.data)) as any;
+    expect(seeded.amm.initialized).to.equal(true);
+    expect(seeded.base_side.shares.ylp_supply.sub(empty.base_side.shares.ylp_supply).eq(quote.ylpAmount)).to.equal(true);
+    expect(seeded.base_side.reserves.cash_reserve.sub(empty.base_side.reserves.cash_reserve).eq(quote.baseReserveCredit)).to.equal(true);
+    expect(seeded.quote_side.reserves.cash_reserve.sub(empty.quote_side.reserves.cash_reserve).eq(quote.quoteReserveCredit)).to.equal(true);
+    const swap = await swapBaseForQuote(f, [], unit, 1);
+    expect(cpiEvent(swap.transaction,"swapExecuted").amountOut.gt(new BN(0))).to.equal(true);
+  });
+
   it("removes matched yLP liquidity and returns pro-rata reserves", async function () {
     const fixture = await addBalancedLiquidity(46);
     const ownerBaseBefore = await getAccount(connection as any, fixture.ownerBaseAccount);
@@ -10290,6 +10332,57 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(after.debt_shares.toString()).to.equal("0");
     expect(after.collateral_amount.toString()).to.equal("0");
     expect(cpiEvents(tx).filter(event => event.name === "swapExecuted")).to.have.length(1);
+  });
+
+  it("bounds positive-equity concentrated emergency recovery proofs within one transaction", async function () {
+    for (const feeBps of [25, 300]) { for (const withHlp of [false, true]) {
+      const config = marketConfig();
+      config.swapFeeBps = feeBps;
+      config.divergenceFeeShareCapBps = 0; config.volatilityFeeShareCapBps = 0;
+      config.amm.peakAmplificationNad = new BN(3_000_000_000);
+      config.amm.coreHalfWidthBps = 250; config.amm.fadeWidthBps = 500;
+      const f = await addBalancedLiquidity(302, config, {baseDeposit:1_000_000_000,quoteDeposit:2_000_000_000,
+        minYlp:1,baseMint:5_000_000_000,quoteMint:5_000_000_000});
+      if (withHlp) {await openBaseHedge(f,100_000_000);await openQuoteHedge(f,200_000_000);}
+      const {leveragePosition,leverageCollateralVault} = await openQuoteDebtLeverage(f,1_000_000,
+        withHlp?hlpSwapAccounts(f):[]);
+      const account = svm.getAccount(f.market)!;
+      const market = accountCoder.decode("Market",Buffer.from(account.data)) as any;
+      const positionAccount = svm.getAccount(leveragePosition)!;
+      const position = accountCoder.decode("LeveragePosition",Buffer.from(positionAccount.data)) as any;
+      const debt = BigInt(position.debt_shares.toString()) * BigInt(market.debt.quote_borrow_index_nad.toString()) / 1_000_000_000n;
+      const value = (debt * 10_000n + 9_699n) / 9_700n; // 3% positive EMA equity.
+      const price = (value * 1_000_000_000n + BigInt(position.collateral_amount.toString()) - 1n) / BigInt(position.collateral_amount.toString());
+      market.risk.base_price_ema_nad = new BN(price.toString());
+      market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n/price).toString());
+      market.risk.last_snapshot_slot = new BN(svm.getClock().slot.toString());
+      market.last_update_slot = new BN(svm.getClock().slot.toString());market.risk_revision=market.curve_revision;
+      const body = Buffer.alloc(account.data.length-8);
+      const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market,body);
+      svm.setAccount(f.market,{...account,data:new Uint8Array(Buffer.concat([(accountCoder as any).accountDiscriminator("Market"),body.subarray(0,length)]))});
+      position.distress.active=true;position.distress.started_at=new BN((svm.getClock().unixTimestamp-120n).toString());
+      position.distress.observed_slot=new BN(svm.getClock().slot.toString());
+      svm.setAccount(leveragePosition,{...positionAccount,data:new Uint8Array(await accountCoder.encode("LeveragePosition",position))});
+      svm.expireBlockhash();
+      const preview=await program.methods.previewEmergencyLiquidation({debtAsset:1,collateralDebit:position.collateral_amount,full:true})
+        .accounts({preview:{market:f.market,borrowPosition:null,leveragePosition,collateralMint:f.baseMint,debtMint:f.quoteMint},futarchyAuthority}).transaction();
+      preview.instructions.unshift(ComputeBudgetProgram.requestHeapFrame({bytes:256*1024}),ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}));
+      if(feeBps===25){
+        let failure="";try{await simulateReturnData(preview);}catch(e){failure=String(e);}
+        expect(failure,failure).to.contain("LiquidationRepayTooLarge");
+        expect(failure).not.to.contain("exceeded CUs");
+      }else{
+        const quote=program.coder.types.decode("emergencyLiquidationQuote",await simulateReturnData(preview)) as any;
+        expect(quote.full).to.equal(true);
+        expect(quote.healthBefore.collateralValue.gt(quote.healthBefore.debt)).to.equal(true);
+        const executed=await executeEmergency(f,leveragePosition,true,leverageCollateralVault);
+        expect(executed.computeUnits<1_400_000n).to.equal(true);
+        expect(executed.quote.swapOutput.eq(quote.swapOutput)).to.equal(true);
+        const after=accountCoder.decode("LeveragePosition",Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+        expect(after.debt_shares.isZero()&&after.collateral_amount.isZero()).to.equal(true);
+        console.info(`concentrated emergency full: hLP=${withHlp}, CU=${executed.computeUnits}`);
+      }
+    }}
   });
 
   it("concentrated flash fees reach both hLP holders and emergency partials preserve the live position", async function () {

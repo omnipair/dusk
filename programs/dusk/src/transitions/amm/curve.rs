@@ -1023,6 +1023,52 @@ pub(crate) struct ConcentratedCurveQuote {
     pub boundary_crossings: u8,
 }
 
+// Fixed-start quotes share every complete boundary crossing. Cache those
+// exact canonical crossings once for the liquidation proof's many intervals.
+// Within a segment only one constant-product division remains.
+pub(crate) struct ConcentratedQuotePath {
+    segments: Vec<ConcentratedQuoteSegment>,
+    pub max_price_nad: u128,
+}
+
+struct ConcentratedQuoteSegment {
+    input_before: u128,
+    input_limit: u128,
+    output_before: u128,
+    effective_input: u128,
+    effective_output: u128,
+    real_input: u128,
+    real_output: u128,
+}
+
+impl ConcentratedQuotePath {
+    pub(crate) fn amount_out(&self, input: u128) -> Result<u128> {
+        require!(input > 0, ErrorCode::AmountZero);
+        for segment in &self.segments {
+            if input <= segment.input_limit {
+                let remaining = input
+                    .checked_sub(segment.input_before)
+                    .ok_or(ErrorCode::BrokenInvariant)?;
+                segment
+                    .real_input
+                    .checked_add(remaining)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let amount = cpmm_amount_out_nad(segment.effective_input, segment.effective_output, remaining)?;
+                require!(amount <= segment.real_output, ErrorCode::InsufficientLiquidity);
+                require!(
+                    amount > 0 || input == segment.input_limit,
+                    ErrorCode::InsufficientOutputAmount
+                );
+                return segment
+                    .output_before
+                    .checked_add(amount)
+                    .ok_or_else(|| ErrorCode::OutputAmountOverflow.into());
+            }
+        }
+        err!(ErrorCode::BrokenInvariant)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct ConcentratedCurveLayer {
     liquidity: u128,
@@ -1593,6 +1639,68 @@ impl ConcentratedCurveGeometry {
     ) -> Result<ConcentratedCurveQuote> {
         self.validate()?;
         self.quote_exact_in_prevalidated(start, amount_in, direction)
+    }
+
+    pub(crate) fn prepare_quote_path(
+        self,
+        start: ConcentratedCurvePoint,
+        direction: ConcentratedCurveDirection,
+    ) -> Result<ConcentratedQuotePath> {
+        let mut point = start;
+        let mut input = 0_u128;
+        let mut output = 0_u128;
+        let mut segments = Vec::with_capacity(5);
+        let mut max_price_nad = 0_u128;
+        for _ in 0..5 {
+            let branch = self.branch_for_direction(point, direction);
+            let (base, quote) = self.effective_reserves(point, branch)?;
+            let (effective_input, effective_output, real_input, real_output) = match direction {
+                ConcentratedCurveDirection::BaseToQuote => (base, quote, point.base_reserve, point.quote_reserve),
+                ConcentratedCurveDirection::QuoteToBase => (quote, base, point.quote_reserve, point.base_reserve),
+            };
+            // Each segment's marginal price only falls with input. Include
+            // every exact, dust-bearing crossing so even a rounding jump is
+            // covered by this global upper slope.
+            max_price_nad = max_price_nad.max(
+                mul_div_u128(effective_output, NAD as u128, effective_input)?
+                    .checked_add(1)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            );
+            let distance = self
+                .next_boundary(point, branch, direction)
+                .map(|target| match direction {
+                    ConcentratedCurveDirection::BaseToQuote => target.base_reserve.saturating_sub(point.base_reserve),
+                    ConcentratedCurveDirection::QuoteToBase => target.quote_reserve.saturating_sub(point.quote_reserve),
+                });
+            let limit = match distance {
+                Some(distance) if distance > 0 => input.checked_add(distance).ok_or(ErrorCode::MarketMathOverflow)?,
+                _ => u128::MAX,
+            };
+            segments.push(ConcentratedQuoteSegment {
+                input_before: input,
+                input_limit: limit,
+                output_before: output,
+                effective_input,
+                effective_output,
+                real_input,
+                real_output,
+            });
+            if limit == u128::MAX {
+                return Ok(ConcentratedQuotePath {
+                    segments,
+                    max_price_nad,
+                });
+            }
+            // Let the existing quote engine perform the exact crossing,
+            // including floor rounding and any reserve dust carried forward.
+            let crossing = self.quote_exact_in_prevalidated(point, limit - input, direction)?;
+            point = crossing.end;
+            output = output
+                .checked_add(crossing.amount_out)
+                .ok_or(ErrorCode::OutputAmountOverflow)?;
+            input = limit;
+        }
+        err!(ErrorCode::BrokenInvariant)
     }
 
     /// Hot-path variant for geometry loaded from `ConcentratedCurveCache`.

@@ -6,7 +6,7 @@ use crate::{
     transitions::{
         amm::{cpmm_amount_out_nad, ConcentratedCurveDirection, ConcentratedCurvePoint},
         flash_liquidation::LiquidationPositionRef,
-        liquidation_policy::LIQUIDATION_MINIMUM_DISCOUNT_BPS,
+        liquidation_policy::{LIQUIDATION_FEE_BPS, LIQUIDATION_MINIMUM_DISCOUNT_BPS, LIQUIDATION_RECOVERY_BUFFER_BPS},
         LeverageCollateralFee,
     },
 };
@@ -118,6 +118,11 @@ impl Market {
         } else {
             ConcentratedCurveDirection::QuoteToBase
         };
+        let quote_path = if cpmm {
+            None
+        } else {
+            Some(geometry.prepare_quote_path(point, direction)?)
+        };
         let index = self.debt.borrow_index(asset);
         // A partial must retain debt; no configurable minimum excludes an
         // otherwise useful slice or manufactures full-close permission.
@@ -125,6 +130,67 @@ impl Market {
         let fee_on_input = executable.config.swap_fee_asset(asset.opposite())? == asset.opposite();
         let base_fee =
             |amount: u64| -> u64 { (u128::from(amount) * u128::from(executable.config.swap_fee_bps) / 10_000) as u64 };
+        // For flat MM, bound the entire recovery objective by one affine
+        // function. Every segment's output is <= input * its starting slope;
+        // the cached maximum includes canonical crossing dust. Fees only
+        // reduce output. Round every coefficient up and cover input-fee,
+        // reward and 1% charge rounding with a constant. A position's debt
+        // reduction can exceed the aggregate reduction by at most one atom.
+        // The resulting linear function reaches its maximum at an endpoint.
+        // This is an impossibility certificate, never an approximate quote.
+        if let (Some(bound), Some(maintenance)) = (recovery_before, flat_maintenance) {
+            require!(bound <= collateral, ErrorCode::LiquidationRepayTooLarge);
+            if bound <= 1 {
+                return Ok(true);
+            }
+            let target = u128::from(maintenance) + u128::from(LIQUIDATION_RECOVERY_BUFFER_BPS);
+            if target < 10_000 {
+                let ceil = |a, b, d| -> Result<u128> {
+                    mul_div_u128(a, b, d)?
+                        .checked_add(1)
+                        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+                };
+                let marginal = match &quote_path {
+                    Some(path) => path.max_price_nad,
+                    None => match direction {
+                        ConcentratedCurveDirection::BaseToQuote => {
+                            ceil(point.quote_reserve, u128::from(NAD), point.base_reserve)?
+                        }
+                        ConcentratedCurveDirection::QuoteToBase => {
+                            ceil(point.base_reserve, u128::from(NAD), point.quote_reserve)?
+                        }
+                    },
+                };
+                let raw_price = ceil(marginal, collateral_scale, debt_scale)?;
+                let mut repayment_rate = ceil(raw_price, 10_000 - u128::from(executable.config.swap_fee_bps), 10_000)?;
+                // With taxed debt, gross reward need not be monotone in the
+                // sale output. Ignoring that reward remains an upper bound.
+                if debt_fee.haircut_bps() == 0 {
+                    repayment_rate = ceil(repayment_rate, 10_000 - u128::from(rates.emergency_reward_bps), 10_000)?;
+                }
+                repayment_rate = ceil(repayment_rate, 10_000, 10_000 + u128::from(LIQUIDATION_FEE_BPS))?;
+                let rounding = ceil(raw_price, 1, u128::from(NAD))?
+                    .checked_add(4)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let value_rate = ceil(numerator, u128::from(NAD), denominator)?;
+                let mut impossible = true;
+                for sold in [1, bound - 1] {
+                    let repayment = ceil(u128::from(sold), repayment_rate, u128::from(NAD))?
+                        .checked_add(rounding)
+                        .and_then(|v| v.checked_add(1))
+                        .ok_or(ErrorCode::MarketMathOverflow)?;
+                    let remaining_value = ceil(u128::from(collateral - sold), value_rate, u128::from(NAD))?;
+                    impossible &= remaining_value
+                        .checked_mul(10_000 - target)
+                        .and_then(|v| repayment.checked_mul(10_000).and_then(|r| v.checked_add(r)))
+                        .ok_or(ErrorCode::MarketMathOverflow)?
+                        < u128::from(before.debt) * 10_000;
+                }
+                if impossible {
+                    return Ok(true);
+                }
+            }
+        }
         let aggregate = match (position, asset) {
             (LiquidationPositionRef::Borrow(_), MarketAsset::Base) => self.debt.fixed_base_shares,
             (LiquidationPositionRef::Borrow(_), MarketAsset::Quote) => self.debt.fixed_quote_shares,
@@ -177,9 +243,10 @@ impl Market {
                             }
                         }
                     } else {
-                        geometry
-                            .quote_exact_in_prevalidated(point, input, direction)?
-                            .amount_out
+                        quote_path
+                            .as_ref()
+                            .ok_or(ErrorCode::BrokenInvariant)?
+                            .amount_out(input)?
                     };
                     require!(output > 0, ErrorCode::InsufficientOutputAmount);
                     u64::try_from(output / debt_scale).map_err(|_| ErrorCode::MarketMathOverflow)?
@@ -324,8 +391,17 @@ impl Market {
                 continue;
             }
             let mid = lo + (hi - lo) / 2;
-            pending.push((mid + 1, hi, Some(budget)));
-            pending.push((lo, mid, None));
+            if recovery_before.is_some() {
+                // Seek a recovery witness near the upper bound first. These
+                // intervals reuse the same exact repayment bound, avoiding a
+                // fresh curve quote at every level. Permission still requires
+                // exhausting every interval if no witness is found.
+                pending.push((lo, mid, None));
+                pending.push((mid + 1, hi, Some(budget)));
+            } else {
+                pending.push((mid + 1, hi, Some(budget)));
+                pending.push((lo, mid, None));
+            }
         }
         Ok(false)
     }
