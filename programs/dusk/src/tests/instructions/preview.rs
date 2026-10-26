@@ -111,6 +111,29 @@ fn unseeded_market_has_a_zero_spot_preview() {
 }
 
 #[test]
+fn drained_market_previews_locked_dust_without_reconstructing_a_trade_curve() {
+    let mut market = Market::default();
+    market.base_side.shares.ylp_supply = MIN_LIQUIDITY;
+    market.quote_side.shares.ylp_supply = MIN_LIQUIDITY;
+    market.base_side.reserves.live_reserve = 1884;
+    market.base_side.reserves.cash_reserve = 1884;
+    market.quote_side.reserves.live_reserve = 490;
+    market.quote_side.reserves.cash_reserve = 490;
+    market.debt.base_borrow_index_nad = NAD as u128;
+    market.debt.quote_borrow_index_nad = NAD as u128;
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let preview = preview_side(&market, asset, 0).unwrap();
+        assert_eq!(preview.ylp_supply, MIN_LIQUIDITY);
+        assert_eq!(preview.live_reserve, market.side(asset).reserves.live_reserve);
+        assert!(preview.ylp_exchange_rate_nad > 0);
+        assert_eq!(preview.spot_price_nad, 0);
+        assert_eq!(preview.conservative_depth_nad, 0);
+        assert_eq!(preview.daily_borrow_remaining, 0);
+    }
+    market.market_health().unwrap();
+}
+
+#[test]
 fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
     use crate::{
         constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MS_PER_YEAR, TARGET_MS_PER_SLOT},

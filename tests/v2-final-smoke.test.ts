@@ -3546,6 +3546,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const empty = accountCoder.decode("Market",Buffer.from(svm.getAccount(f.market)!.data)) as any;
     expect(empty.base_side.shares.ylp_supply.toString()).to.equal("1000");
     expect(empty.amm.initialized).to.equal(false);
+    const emptyPreview = program.coder.types.decode("marketPreview", await simulateReturnData(
+      await program.methods.previewMarket().accounts({market:f.market}).transaction())) as any;
+    expect(emptyPreview.amm.initialized).to.equal(false);
+    expect(emptyPreview.base.ylpSupply.toString()).to.equal("1000");
+    expect(emptyPreview.base.spotPriceNad.toString()).to.equal("0");
+    expect(emptyPreview.quote.spotPriceNad.toString()).to.equal("0");
     const args = {baseDepositAmount:new BN(200 * unit),quoteDepositAmount:new BN(200 * unit)};
     const previewTx = await program.methods.previewAddLiquidity(args)
       .accounts({market:f.market,baseMint:f.baseMint,quoteMint:f.quoteMint}).transaction();

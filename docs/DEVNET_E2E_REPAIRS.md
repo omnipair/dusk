@@ -62,3 +62,14 @@ fee-bearing recovery witness.
 These local regressions do not establish live application acceptance. The
 dedicated devnet market, browser writes and deployed compatibility metadata
 must be verified separately after the executable upgrade.
+
+## Read previews after the last liquidity exit
+
+The drained market retains minimum yLP shares and rounding dust, but its AMM
+is deliberately uninitialized. Market previews now preserve those reserves,
+shares and exchange rates while returning zero executable spot/depth and
+borrowing capacity. They do not reconstruct a concentrated curve from dust.
+This lets existing yield and position reads complete and lets clients explain
+that liquidity must be added before trading. The reseeding regression also
+previews this empty state before adding liquidity and verifies trading after
+reseeding. No account or instruction layout changes.

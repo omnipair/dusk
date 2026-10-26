@@ -921,11 +921,19 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         MarketAsset::Base => market.risk.directional_base_price_ema_nad,
         MarketAsset::Quote => market.risk.directional_quote_price_ema_nad,
     };
-    if market.base_side.shares.ylp_supply == 0 && market.quote_side.shares.ylp_supply == 0 {
+    if !market.amm.initialized
+        && market.base_side.shares.ylp_supply == market.quote_side.shares.ylp_supply
+        && market.base_side.shares.ylp_supply <= MIN_LIQUIDITY
+    {
         return Ok(PreviewSide {
             live_reserve: side.reserves.live_reserve,
             cash_reserve: side.reserves.cash_reserve,
-            ylp_supply: 0,
+            ylp_supply: side.shares.ylp_supply,
+            ylp_exchange_rate_nad: if side.shares.ylp_supply == 0 {
+                0
+            } else {
+                side.ylp_exchange_rate_nad()?
+            },
             borrow_index_nad: market.debt.borrow_index(asset),
             rate_at_target_nad: match asset {
                 MarketAsset::Base => market.debt.base_rate_at_target_nad,
