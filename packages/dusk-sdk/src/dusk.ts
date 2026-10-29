@@ -6,7 +6,11 @@ import { DuskGet } from "./get.js";
 import { DuskIndexerClient, type FetchLike } from "./indexer.js";
 import { createDuskProgram } from "./program.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
+import { DuskGovernance } from "./governance-client.js";
 import { DuskWrite } from "./write.js";
+import { DuskHlpLiquidations } from "./hlp-liquidation-client.js";
+import { DuskYield } from "./yield-client.js";
+import { DuskLiquidations } from "./liquidation-client.js";
 import {
   createLeverageDelegateProgram,
   DuskLeverageOrders,
@@ -27,6 +31,10 @@ export class Dusk {
   readonly program: Program<DuskIdl>;
   readonly get: DuskGet;
   readonly write: DuskWrite;
+  readonly governance: DuskGovernance;
+  readonly liquidations: DuskLiquidations;
+  readonly yield: DuskYield;
+  readonly hlpLiquidations: DuskHlpLiquidations;
   readonly fetch: DuskIndexerClient;
   /** Conditional orders, which live in the delegate program. */
   readonly orders: DuskLeverageOrders;
@@ -42,6 +50,10 @@ export class Dusk {
 
     this.get = new DuskGet(this.program, options.feePayer);
     this.write = new DuskWrite(this.program);
+    this.governance = new DuskGovernance(this.program);
+    this.liquidations = new DuskLiquidations(this.program, options.feePayer);
+    this.hlpLiquidations = new DuskHlpLiquidations(this.program, options.feePayer);
+    this.yield = new DuskYield(this.program, options.feePayer);
     this.fetch = new DuskIndexerClient({
       baseUrl: options.indexerBaseUrl,
       fetch: options.fetch,

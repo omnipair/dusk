@@ -482,7 +482,6 @@ fn uncapped_divergence_state_potential_raw_saturating(
 /// Prepared Huberized divergence state for one input-reserve center. The
 /// threshold is solved once, then every implicit-solver probe is constant-time.
 #[derive(Clone, Copy, Debug)]
-#[cfg(test)]
 pub(crate) struct PreparedDivergenceStatePotential {
     center_input_reserve_raw: u64,
     coefficient_nad: u64,
@@ -492,7 +491,6 @@ pub(crate) struct PreparedDivergenceStatePotential {
     threshold_potential_saturated: bool,
 }
 
-#[cfg(test)]
 impl PreparedDivergenceStatePotential {
     pub(crate) fn new(center_input_reserve_raw: u64, coefficient_nad: u64, marginal_cap_nad: u64) -> Result<Self> {
         require!(center_input_reserve_raw > 0, ErrorCode::InvalidArgument);
@@ -564,6 +562,7 @@ impl PreparedDivergenceStatePotential {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn marginal_rate_nad(self, outward_coordinate_raw: u64) -> Result<u64> {
         if self.coefficient_nad == 0 || self.marginal_cap_nad == 0 {
             return Ok(0);
@@ -585,9 +584,8 @@ impl PreparedDivergenceStatePotential {
     }
 }
 
-/// One-shot gross-path toxicity charge. Unlike the legacy implicit fee solve,
-/// this evaluates the already-quoted gross endpoint once; the caller freezes
-/// the result before producing the executable net quote.
+/// One-shot gross-path toxicity charge from a capped state potential. The
+/// caller freezes this result before producing the executable net quote.
 pub(crate) fn gross_path_divergence_fee_raw(
     center_input_reserve_raw: u64,
     start_input_reserve_raw: u64,
@@ -607,22 +605,16 @@ pub(crate) fn gross_path_divergence_fee_raw(
     if end_outward <= start_outward {
         return Ok((0, false));
     }
-    // The concentrated curve freezes toxicity from the provisional gross path and
-    // caps the resulting component once against gross input. It therefore
-    // does not need the legacy Huber-threshold search: evaluate the analytic
-    // potential at both endpoints directly and let the caller apply the
-    // configured component/total budgets.
-    let (start, start_saturated) =
-        uncapped_divergence_state_potential_raw_saturating(start_outward, center_input_reserve_raw, coefficient_nad)?;
-    let (end, end_saturated) =
-        uncapped_divergence_state_potential_raw_saturating(end_outward, center_input_reserve_raw, coefficient_nad)?;
+    let marginal_cap_nad = fee_share_cap_to_marginal_rate_nad(divergence_fee_share_cap_bps)?;
+    let potential = PreparedDivergenceStatePotential::new(center_input_reserve_raw, coefficient_nad, marginal_cap_nad)?;
+    let (start, start_saturated) = potential.state_potential(start_outward)?;
+    let (end, end_saturated) = potential.state_potential(end_outward)?;
     if start_saturated || end_saturated {
         return Ok((u128::MAX, true));
     }
     Ok((end.checked_sub(start).ok_or(ErrorCode::FeeMathOverflow)?, false))
 }
 
-#[cfg(test)]
 fn uncapped_divergence_marginal_rate_raw_nad(
     center_input_reserve_raw: u64,
     outward_coordinate_raw: u64,

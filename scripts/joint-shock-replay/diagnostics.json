@@ -1,0 +1,38 @@
+[
+  {
+    "id": "diagnostic-a5-h100000-b0",
+    "group": "diagnostic",
+    "amplification": 5,
+    "hlp_each_usd": 100000,
+    "borrow_usd": 0,
+    "shock": -0.5,
+    "horizon_s": 60
+  },
+  {
+    "id": "diagnostic-a5-h100000-b75000",
+    "group": "diagnostic",
+    "amplification": 5,
+    "hlp_each_usd": 100000,
+    "borrow_usd": 75000,
+    "shock": -0.5,
+    "horizon_s": 60
+  },
+  {
+    "id": "diagnostic-a5-h25000-b0",
+    "group": "diagnostic",
+    "amplification": 5,
+    "hlp_each_usd": 25000,
+    "borrow_usd": 0,
+    "shock": -0.5,
+    "horizon_s": 60
+  },
+  {
+    "id": "diagnostic-a1-h100000-b75000",
+    "group": "diagnostic",
+    "amplification": 1,
+    "hlp_each_usd": 100000,
+    "borrow_usd": 75000,
+    "shock": -0.5,
+    "horizon_s": 60
+  }
+]

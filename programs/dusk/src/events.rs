@@ -1,7 +1,7 @@
 use crate::{
     errors::ErrorCode,
-    state::{Market, MarketAsset, MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
-    transitions::{lending::SidePrices, AmmSwapQuote, LeverageSwapFeeCredit, LeverageSwapQuote},
+    state::{Debt, Market, MarketAsset, MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
+    transitions::{lending::SidePrices, AmmSwapQuote, HlpRebalanceReceipt, LeverageSwapFeeCredit, LeverageSwapQuote},
 };
 use anchor_lang::prelude::*;
 
@@ -109,6 +109,122 @@ pub struct LiquidityRemoved {
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
     pub metadata: MarketEventMetadata,
+}
+
+/// Internal vault-owned yLP changes from one completed hLP hedge transition.
+/// Ordinary yLP deposits and exits continue to use `LiquidityAdded` and
+/// `LiquidityRemoved`. This event includes both vaults because one operation
+/// can burn shares in one vault and mint them in the other. Debt changes are
+/// indexed-debt changes; funding interest is also reported by the canonical
+/// `BorrowInterestPaid` event and must not be counted twice as revenue.
+#[event]
+pub struct HlpRebalanced {
+    pub market: Pubkey,
+    pub slot: u64,
+    pub base_hlp_ylp_minted: u64,
+    pub base_hlp_ylp_burned: u64,
+    pub quote_hlp_ylp_minted: u64,
+    pub quote_hlp_ylp_burned: u64,
+    pub base_hlp_ylp_shares_after: u64,
+    pub quote_hlp_ylp_shares_after: u64,
+    pub ylp_supply_after: u64,
+    /// Quote-token debt of the base-target hLP.
+    pub base_hlp_debt_increase: u64,
+    pub base_hlp_debt_decrease: u64,
+    pub base_hlp_debt_after: u64,
+    /// Base-token debt of the quote-target hLP.
+    pub quote_hlp_debt_increase: u64,
+    pub quote_hlp_debt_decrease: u64,
+    pub quote_hlp_debt_after: u64,
+    /// Gross quote tokens paid from reserve cash to the interest vault.
+    pub base_hlp_funding_interest_paid: u64,
+    /// Gross base tokens paid from reserve cash to the interest vault.
+    pub quote_hlp_funding_interest_paid: u64,
+}
+
+/// A terminal hLP cohort retains its funded yield rights while a new mint
+/// becomes the receipt for future single-sided deposits on the same market.
+#[event]
+pub struct HlpCohortRotated {
+    pub market: Pubkey,
+    pub target_asset: u8,
+    pub retired_mint: Pubkey,
+    pub new_mint: Pubkey,
+    pub retired_supply: u64,
+}
+
+#[event]
+pub struct HlpRetiredReceiptBurned {
+    pub market: Pubkey,
+    pub owner: Pubkey,
+    pub mint: Pubkey,
+    pub amount: u64,
+    pub remaining_supply: u64,
+}
+
+impl HlpRebalanced {
+    pub(crate) fn from_receipts(
+        market_key: Pubkey,
+        market: &Market,
+        base: HlpRebalanceReceipt,
+        quote: HlpRebalanceReceipt,
+        slot: u64,
+    ) -> Result<Option<Self>> {
+        require!(
+            base.target_asset == MarketAsset::Base && quote.target_asset == MarketAsset::Quote,
+            ErrorCode::BrokenInvariant
+        );
+        let changed = |receipt: HlpRebalanceReceipt| {
+            receipt.ylp_mint_amount > 0
+                || receipt.ylp_burn_amount > 0
+                || receipt.debt_delta != 0
+                || receipt.interest_paid > 0
+        };
+        if !changed(base) && !changed(quote) {
+            return Ok(None);
+        }
+        let split_debt_delta = |delta: i128| -> Result<(u64, u64)> {
+            if delta >= 0 {
+                Ok((u64::try_from(delta).map_err(|_| ErrorCode::DebtMathOverflow)?, 0))
+            } else {
+                Ok((
+                    0,
+                    u64::try_from(delta.unsigned_abs()).map_err(|_| ErrorCode::DebtMathOverflow)?,
+                ))
+            }
+        };
+        let (base_hlp_debt_increase, base_hlp_debt_decrease) = split_debt_delta(base.debt_delta)?;
+        let (quote_hlp_debt_increase, quote_hlp_debt_decrease) = split_debt_delta(quote.debt_delta)?;
+        let base_hlp_debt_after = u64::try_from(Debt::shares_to_debt(
+            market.base_hlp_vault.debt_shares,
+            market.debt.quote_borrow_index_nad,
+        )?)
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        let quote_hlp_debt_after = u64::try_from(Debt::shares_to_debt(
+            market.quote_hlp_vault.debt_shares,
+            market.debt.base_borrow_index_nad,
+        )?)
+        .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        Ok(Some(Self {
+            market: market_key,
+            slot,
+            base_hlp_ylp_minted: base.ylp_mint_amount,
+            base_hlp_ylp_burned: base.ylp_burn_amount,
+            quote_hlp_ylp_minted: quote.ylp_mint_amount,
+            quote_hlp_ylp_burned: quote.ylp_burn_amount,
+            base_hlp_ylp_shares_after: market.base_hlp_vault.ylp_shares,
+            quote_hlp_ylp_shares_after: market.quote_hlp_vault.ylp_shares,
+            ylp_supply_after: market.base_side.shares.ylp_supply,
+            base_hlp_debt_increase,
+            base_hlp_debt_decrease,
+            base_hlp_debt_after,
+            quote_hlp_debt_increase,
+            quote_hlp_debt_decrease,
+            quote_hlp_debt_after,
+            base_hlp_funding_interest_paid: base.interest_paid,
+            quote_hlp_funding_interest_paid: quote.interest_paid,
+        }))
+    }
 }
 
 /// One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints
@@ -299,7 +415,6 @@ pub struct ProtocolAuctionSettled {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwapOrigin {
     Spot,
-    HlpRescue,
     LeverageOpen,
     LeverageIncrease,
     LeverageDecrease,
@@ -376,6 +491,7 @@ impl MarketSideSnapshot {
     /// Both sides of the market's current state, pricing the curve once. The
     /// swap's own risk observation records the quote's endpoint price, which
     /// can differ from the executable price after the swap, so it is not reused.
+    #[inline(always)]
     pub(crate) fn pair(market: &Market) -> Result<(Self, Self)> {
         let base_price = market.current_base_price_nad()?;
         let side = |asset: MarketAsset| -> Result<Self> {
@@ -394,6 +510,7 @@ impl MarketSideSnapshot {
 
 impl SwapExecuted {
     /// `state` is the market after the swap's final state change.
+    #[inline(always)]
     pub(crate) fn from_amm(
         market: Pubkey,
         trader: Pubkey,
@@ -595,6 +712,7 @@ pub struct LeveragePositionOpened {
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
+    pub margin_terms: crate::state::LeverageMarginTerms,
     pub closeout_value: u64,
     pub equity: u64,
     pub multiplier_bps: u64,
@@ -625,14 +743,17 @@ pub struct LeveragePositionUpdated {
     pub owner: Pubkey,
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
+    /// Gross debt-token payment from the wallet, including any transfer fee.
+    pub owner_debit: u64,
     pub borrowed_amount: u64,
     pub debt_delta: i64,
     pub collateral_delta: i64,
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
-    /// Executable closeout quote, or zero when unquoted by repay_leverage or
-    /// when add_leverage_margin fully clears the debt. Collateral remains owned.
+    pub margin_terms: crate::state::LeverageMarginTerms,
+    /// Executable closeout quote, or zero when unquoted by repayment or an
+    /// operation leaving debt-free collateral. Zero is not a collateral valuation.
     pub closeout_value: u64,
     /// Net tokens paid to the owner by this update, if any.
     pub owner_credit: u64,
@@ -651,6 +772,8 @@ pub struct LeveragePositionLiquidated {
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
     pub debt_repaid: u64,
+    pub insurance_drawn: u64,
+    pub socialized_loss: u64,
     pub interest_paid: u64,
     pub principal_written_off: u64,
     pub collateral_sold: u64,
@@ -846,7 +969,9 @@ pub struct HlpTerminalLiquidated {
     /// Borrowed-asset amount credited to the caller after transfer fees.
     pub caller_bounty: u64,
     pub insurance_drawn: u64,
+    /// Principal loss after insurance. Unpaid interest is reported separately.
     pub socialized_loss: u64,
+    pub interest_canceled: u64,
     /// Existing holder tokens remain burnable for zero principal while their
     /// already-checkpointed fee claims remain independently claimable.
     pub remaining_hlp_supply: u64,
@@ -858,14 +983,15 @@ pub struct ParameterProposalCreated {
     pub market: Pubkey,
     pub proposer: Pubkey,
     pub nonce: u64,
-    pub family: u8,
-    pub family_revision: u64,
+    /// Each updated family's revision at creation; untouched families read
+    /// zero. The family of every update is its variant.
+    pub family_revisions: [u64; 7],
     pub digest: [u8; 32],
     pub sponsorship_floor: u64,
     pub initial_support: u64,
     pub status: u8,
-    /// The proposed update and metadata exactly as stored on the proposal.
-    pub update: MarketParameterUpdate,
+    /// The proposed updates and metadata exactly as stored on the proposal.
+    pub updates: Vec<MarketParameterUpdate>,
     pub metadata: ProposalMetadataV1,
 }
 
@@ -893,8 +1019,10 @@ pub struct ParameterProposalQueued {
 pub struct ParameterProposalExecuted {
     pub proposal: Pubkey,
     pub market: Pubkey,
-    pub family: u8,
-    pub new_family_revision: u64,
+    /// Family codes of every update applied, ascending.
+    pub families: Vec<u8>,
+    /// The market's revision of every family after execution.
+    pub new_family_revisions: [u64; 7],
     pub executed_at: i64,
 }
 
@@ -905,6 +1033,10 @@ pub struct ParameterProposalSupportWithdrawn {
     pub amount: u64,
     pub total_locked: u64,
     pub status: u8,
+    /// The last supporter left, so the proposal account became a
+    /// `ParameterProposalTombstone` and the rest of its rent returned to the
+    /// proposer.
+    pub proposal_tombstoned: bool,
 }
 
 #[cfg(test)]
@@ -921,4 +1053,31 @@ pub struct DebtFreePositionClosed {
     pub base_received: u64,
     pub quote_received: u64,
     pub metadata: MarketEventMetadata,
+}
+
+#[event]
+pub struct GovernanceBalanceUpdated {
+    pub market: Pubkey,
+    pub owner: Pubkey,
+    pub governance_balance: Pubkey,
+    pub delegate: Pubkey,
+    /// 0 deposit, 1 withdraw, 2 delegate change, 3 yield checkpoint/claim.
+    pub action: u8,
+    pub amount: u64,
+    pub total_amount: u64,
+    pub committed_amount: u64,
+}
+
+#[event]
+pub struct GovernanceSupportChanged {
+    pub proposal: Pubkey,
+    pub governance_balance: Pubkey,
+    pub owner: Pubkey,
+    pub authority: Pubkey,
+    pub withdrawn: bool,
+    pub amount: u64,
+    pub owner_support: u64,
+    pub total_locked: u64,
+    pub status: u8,
+    pub proposal_tombstoned: bool,
 }

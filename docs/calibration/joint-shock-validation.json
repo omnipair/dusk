@@ -1,0 +1,16 @@
+{
+  "scenarios": 104,
+  "complete": 102,
+  "admission_rejections": 2,
+  "settlement_blocked": 0,
+  "scope": "historical_auction_benchmark_not_live_liquidation",
+  "funded_paths": 66,
+  "boundary_checks": 132,
+  "total_replays": 327,
+  "policy_contrast_replays": 1,
+  "policy_comparison_events": 670,
+  "historical_draws_above_current_same_recovery_ceiling": 597,
+  "focused_probes": 32,
+  "liquidations_reconciled": 2850,
+  "custody_and_preview_checks": 8078
+}

@@ -7,3 +7,8 @@ The real META vault has 10,000,000 live shares and an actionable hedge (entry bl
 ## VOB swap rounding regression snapshot
 
 `vob-market-20260929.bin` and `vob-authority-20260929.bin` are public devnet Market and FutarchyAuthority account bytes captured at slot 505496119 for market `45qXCmfQrDxTDYc1k7Xu65Qo3kYHRYUkYmiCQKLvPBhL` (META/USDC). The block timestamp was 1790677156. They contain no private keys. Tests use this fixed state and timestamp to replay the twelve bid levels that exposed the fractional-output rounding carry, plus the opposite swap direction and an unexplained reserve-drift rejection. These fixtures are regression inputs, not current market data.
+
+The captured Market uses layout version 1. Its test-only adapter inserts the
+zero fractional debt-index carry and zero aggregate leverage collateral, then sets the decoded layout version to the
+current version. Existing economic fields and the original fixture bytes are
+preserved. This adapter is not a deployed account migration.

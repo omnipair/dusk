@@ -17,7 +17,16 @@ use crate::{constants::MIN_LIQUIDITY, math::SqrtU128, state::MarketSide};
 #[cfg(test)]
 use crate::math::arithmetic::normalize_to_nad;
 
-#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
+// uint 0.9's construct_uint! expansion uses legacy integer APIs and an
+// expression-position semicolon. Rust 1.99 reports these at the call site;
+// confine the compatibility allowances to the generated wide integer module.
+#[allow(unknown_lints)] // The SBF toolchain predates Rust 1.99's renamed lint.
+#[allow(
+    clippy::assign_op_pattern,
+    clippy::manual_div_ceil,
+    deprecated,
+    semicolon_in_expressions_from_non_local_macros
+)]
 mod wide {
     use uint::construct_uint;
 
@@ -97,6 +106,7 @@ pub struct ConcentratedCurveParameters {
 }
 
 impl ConcentratedCurveCache {
+    #[inline(never)]
     pub(crate) fn geometry(self) -> Result<ConcentratedCurveGeometry> {
         require_eq!(
             self.math_revision,
@@ -204,6 +214,9 @@ impl ConcentratedCurveCache {
                     upper_sqrt_price: self.outer_upper_sqrt_price_nad,
                 },
             ];
+            // Every boundary and region uses the same four floored values
+            // per layer. Compute them once, retaining identical rounding.
+            let prepared_layers = [layers[0].prepare()?, layers[1].prepare()?];
             let mut geometry = ConcentratedCurveGeometry {
                 inner_liquidity: self.concentrated_liquidity,
                 shoulder_liquidity,
@@ -213,31 +226,31 @@ impl ConcentratedCurveCache {
             geometry.nested_boundaries = [
                 nested_point_at_sqrt_price(
                     self.tail_liquidity,
-                    layers,
+                    prepared_layers,
                     self.outer_upper_sqrt_price_nad,
                     sqrt_price_scale,
                 )?,
                 nested_point_at_sqrt_price(
                     self.tail_liquidity,
-                    layers,
+                    prepared_layers,
                     self.core_upper_sqrt_price_nad,
                     sqrt_price_scale,
                 )?,
                 nested_point_at_sqrt_price(
                     self.tail_liquidity,
-                    layers,
+                    prepared_layers,
                     self.core_lower_sqrt_price_nad,
                     sqrt_price_scale,
                 )?,
                 nested_point_at_sqrt_price(
                     self.tail_liquidity,
-                    layers,
+                    prepared_layers,
                     self.outer_lower_sqrt_price_nad,
                     sqrt_price_scale,
                 )?,
             ];
             for region in 0..5 {
-                let (base, quote) = nested_region_constants(layers, region, sqrt_price_scale)?;
+                let (base, quote) = nested_region_constants(layers, region, Some(&prepared_layers))?;
                 geometry.nested_base_constants[region] = base;
                 geometry.nested_quote_constants[region] = quote;
             }
@@ -491,6 +504,31 @@ fn reserve_ratio_cmp(point: ConcentratedCurvePoint, boundary: ConcentratedCurveP
         .cmp(&(U512::from(boundary.quote_reserve) * U512::from(point.base_reserve)))
 }
 
+// Build the same tail/band geometry from independent oracle inputs. Unlike
+// reconstruction at a reserve point, this never reads the live inventory.
+pub(crate) fn prepare_concentrated_cache_at_depth(
+    center_price_nad: u64,
+    depth_nad: u128,
+    parameters: ConcentratedCurveParameters,
+) -> Result<ConcentratedCurveCache> {
+    parameters.validate(u64::MAX)?;
+    require!(center_price_nad > 0 && depth_nad > 0, ErrorCode::InvalidSettlementPrice);
+    let sqrt_center = sqrt_ratio_nad(u128::from(center_price_nad))?;
+    let (core_width, outer_width) = parameters.sqrt_widths_nad()?;
+    let (_, concentrated_share) = parameters.liquidity_shares_nad()?;
+    let concentrated = mul_div_u128(depth_nad, concentrated_share, u128::from(NAD))?;
+    complete_concentrated_cache(
+        parameters,
+        depth_nad - concentrated,
+        concentrated,
+        mul_div_u128(sqrt_center, u128::from(NAD), core_width)?,
+        mul_div_u128(sqrt_center, core_width, u128::from(NAD))?,
+        mul_div_u128(sqrt_center, u128::from(NAD), outer_width)?,
+        mul_div_u128(sqrt_center, outer_width, u128::from(NAD))?,
+        sqrt_center,
+    )
+}
+
 /// Reconstructs the unique positive curve scale through an arbitrary reserve
 /// point for a sticky center and concentration policy. Homothetic boundary
 /// ratios select the expected branch first, so the normal path evaluates one
@@ -643,7 +681,7 @@ pub(crate) fn prepare_concentrated_cache_at_point(
                     upper_sqrt_price: outer_upper_sqrt_price_nad,
                 },
             ];
-            let (base_constant, quote_constant) = nested_region_constants(layers, region, NAD as u128)?;
+            let (base_constant, quote_constant) = nested_region_constants(layers, region, None)?;
             let active_liquidity = match region {
                 0 | 4 => tail_liquidity,
                 1 | 3 => tail_liquidity
@@ -985,6 +1023,52 @@ pub(crate) struct ConcentratedCurveQuote {
     pub boundary_crossings: u8,
 }
 
+// Fixed-start quotes share every complete boundary crossing. Cache those
+// exact canonical crossings once for the liquidation proof's many intervals.
+// Within a segment only one constant-product division remains.
+pub(crate) struct ConcentratedQuotePath {
+    segments: Vec<ConcentratedQuoteSegment>,
+    pub max_price_nad: u128,
+}
+
+struct ConcentratedQuoteSegment {
+    input_before: u128,
+    input_limit: u128,
+    output_before: u128,
+    effective_input: u128,
+    effective_output: u128,
+    real_input: u128,
+    real_output: u128,
+}
+
+impl ConcentratedQuotePath {
+    pub(crate) fn amount_out(&self, input: u128) -> Result<u128> {
+        require!(input > 0, ErrorCode::AmountZero);
+        for segment in &self.segments {
+            if input <= segment.input_limit {
+                let remaining = input
+                    .checked_sub(segment.input_before)
+                    .ok_or(ErrorCode::BrokenInvariant)?;
+                segment
+                    .real_input
+                    .checked_add(remaining)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let amount = cpmm_amount_out_nad(segment.effective_input, segment.effective_output, remaining)?;
+                require!(amount <= segment.real_output, ErrorCode::InsufficientLiquidity);
+                require!(
+                    amount > 0 || input == segment.input_limit,
+                    ErrorCode::InsufficientOutputAmount
+                );
+                return segment
+                    .output_before
+                    .checked_add(amount)
+                    .ok_or_else(|| ErrorCode::OutputAmountOverflow.into());
+            }
+        }
+        err!(ErrorCode::BrokenInvariant)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct ConcentratedCurveLayer {
     liquidity: u128,
@@ -992,9 +1076,33 @@ struct ConcentratedCurveLayer {
     upper_sqrt_price: u128,
 }
 
+#[derive(Clone, Copy)]
+struct PreparedCurveLayer {
+    layer: ConcentratedCurveLayer,
+    lower: ConcentratedCurvePoint,
+    upper: ConcentratedCurvePoint,
+}
+
+impl ConcentratedCurveLayer {
+    fn prepare(self) -> Result<PreparedCurveLayer> {
+        let scale = NAD as u128;
+        Ok(PreparedCurveLayer {
+            layer: self,
+            lower: ConcentratedCurvePoint {
+                base_reserve: mul_div_u128(self.liquidity, scale, self.lower_sqrt_price)?,
+                quote_reserve: mul_div_u128(self.liquidity, self.lower_sqrt_price, scale)?,
+            },
+            upper: ConcentratedCurvePoint {
+                base_reserve: mul_div_u128(self.liquidity, scale, self.upper_sqrt_price)?,
+                quote_reserve: mul_div_u128(self.liquidity, self.upper_sqrt_price, scale)?,
+            },
+        })
+    }
+}
+
 fn nested_point_at_sqrt_price(
     tail_liquidity: u128,
-    layers: [ConcentratedCurveLayer; 2],
+    layers: [PreparedCurveLayer; 2],
     sqrt_price: u128,
     sqrt_price_scale: u128,
 ) -> Result<ConcentratedCurvePoint> {
@@ -1002,10 +1110,11 @@ fn nested_point_at_sqrt_price(
     let mut base_reserve = mul_div_u128(tail_liquidity, sqrt_price_scale, sqrt_price)?;
     let mut quote_reserve = mul_div_u128(tail_liquidity, sqrt_price, sqrt_price_scale)?;
     for layer in layers {
-        let base_at_lower = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.lower_sqrt_price)?;
-        let base_at_upper = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.upper_sqrt_price)?;
-        let quote_at_lower = mul_div_u128(layer.liquidity, layer.lower_sqrt_price, sqrt_price_scale)?;
-        let quote_at_upper = mul_div_u128(layer.liquidity, layer.upper_sqrt_price, sqrt_price_scale)?;
+        let base_at_lower = layer.lower.base_reserve;
+        let base_at_upper = layer.upper.base_reserve;
+        let quote_at_lower = layer.lower.quote_reserve;
+        let quote_at_upper = layer.upper.quote_reserve;
+        let layer = layer.layer;
         let (base_claim, quote_claim) = if sqrt_price <= layer.lower_sqrt_price {
             (
                 base_at_lower
@@ -1043,11 +1152,20 @@ fn nested_point_at_sqrt_price(
     })
 }
 
+#[inline(never)]
 fn nested_region_constants(
     layers: [ConcentratedCurveLayer; 2],
     region: usize,
-    sqrt_price_scale: u128,
+    prepared: Option<&[PreparedCurveLayer; 2]>,
 ) -> Result<(ConcentratedSignedReserve, ConcentratedSignedReserve)> {
+    let prepared_storage;
+    let layers = match prepared {
+        Some(prepared) => prepared,
+        None => {
+            prepared_storage = [layers[0].prepare()?, layers[1].prepare()?];
+            &prepared_storage
+        }
+    };
     require!(region <= 4, ErrorCode::BrokenInvariant);
     let states = match region {
         0 => [2_u8, 2_u8],
@@ -1059,11 +1177,11 @@ fn nested_region_constants(
     };
     let mut base = ConcentratedSignedReserve::default();
     let mut quote = ConcentratedSignedReserve::default();
-    for (layer, state) in layers.into_iter().zip(states) {
-        let base_at_lower = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.lower_sqrt_price)?;
-        let base_at_upper = mul_div_u128(layer.liquidity, sqrt_price_scale, layer.upper_sqrt_price)?;
-        let quote_at_lower = mul_div_u128(layer.liquidity, layer.lower_sqrt_price, sqrt_price_scale)?;
-        let quote_at_upper = mul_div_u128(layer.liquidity, layer.upper_sqrt_price, sqrt_price_scale)?;
+    for (layer, state) in layers.iter().zip(states) {
+        let base_at_lower = layer.lower.base_reserve;
+        let base_at_upper = layer.upper.base_reserve;
+        let quote_at_lower = layer.lower.quote_reserve;
+        let quote_at_upper = layer.upper.quote_reserve;
         match state {
             0 => base.add_positive(
                 base_at_lower
@@ -1521,6 +1639,68 @@ impl ConcentratedCurveGeometry {
     ) -> Result<ConcentratedCurveQuote> {
         self.validate()?;
         self.quote_exact_in_prevalidated(start, amount_in, direction)
+    }
+
+    pub(crate) fn prepare_quote_path(
+        self,
+        start: ConcentratedCurvePoint,
+        direction: ConcentratedCurveDirection,
+    ) -> Result<ConcentratedQuotePath> {
+        let mut point = start;
+        let mut input = 0_u128;
+        let mut output = 0_u128;
+        let mut segments = Vec::with_capacity(5);
+        let mut max_price_nad = 0_u128;
+        for _ in 0..5 {
+            let branch = self.branch_for_direction(point, direction);
+            let (base, quote) = self.effective_reserves(point, branch)?;
+            let (effective_input, effective_output, real_input, real_output) = match direction {
+                ConcentratedCurveDirection::BaseToQuote => (base, quote, point.base_reserve, point.quote_reserve),
+                ConcentratedCurveDirection::QuoteToBase => (quote, base, point.quote_reserve, point.base_reserve),
+            };
+            // Each segment's marginal price only falls with input. Include
+            // every exact, dust-bearing crossing so even a rounding jump is
+            // covered by this global upper slope.
+            max_price_nad = max_price_nad.max(
+                mul_div_u128(effective_output, NAD as u128, effective_input)?
+                    .checked_add(1)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            );
+            let distance = self
+                .next_boundary(point, branch, direction)
+                .map(|target| match direction {
+                    ConcentratedCurveDirection::BaseToQuote => target.base_reserve.saturating_sub(point.base_reserve),
+                    ConcentratedCurveDirection::QuoteToBase => target.quote_reserve.saturating_sub(point.quote_reserve),
+                });
+            let limit = match distance {
+                Some(distance) if distance > 0 => input.checked_add(distance).ok_or(ErrorCode::MarketMathOverflow)?,
+                _ => u128::MAX,
+            };
+            segments.push(ConcentratedQuoteSegment {
+                input_before: input,
+                input_limit: limit,
+                output_before: output,
+                effective_input,
+                effective_output,
+                real_input,
+                real_output,
+            });
+            if limit == u128::MAX {
+                return Ok(ConcentratedQuotePath {
+                    segments,
+                    max_price_nad,
+                });
+            }
+            // Let the existing quote engine perform the exact crossing,
+            // including floor rounding and any reserve dust carried forward.
+            let crossing = self.quote_exact_in_prevalidated(point, limit - input, direction)?;
+            point = crossing.end;
+            output = output
+                .checked_add(crossing.amount_out)
+                .ok_or(ErrorCode::OutputAmountOverflow)?;
+            input = limit;
+        }
+        err!(ErrorCode::BrokenInvariant)
     }
 
     /// Hot-path variant for geometry loaded from `ConcentratedCurveCache`.

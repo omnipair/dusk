@@ -8,6 +8,7 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     events::{MarketCollateralDeposited, MarketEventMetadata},
+    instructions::leverage_collateral_fee,
     state::{BorrowPosition, Market},
     token::transfer_checked_with_remaining_accounts,
 };
@@ -53,6 +54,7 @@ pub struct DonateCollateral<'info> {
         seeds = [
             BORROW_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            borrow_position.owner.as_ref(),
             borrow_position.position_id.as_ref(),
         ],
         bump = borrow_position.bump
@@ -123,10 +125,17 @@ impl<'info> DonateCollateral<'info> {
             require!(collateral_credit > 0, ErrorCode::AmountZero);
 
             // Apply the measured credit to market and position accounting.
-            let collateral_receipt =
-                accounts
-                    .market
-                    .deposit_collateral(&mut accounts.borrow_position, market_asset, collateral_credit)?;
+            let collateral_receipt = accounts.market.deposit_collateral_with_fee(
+                &mut accounts.borrow_position,
+                market_asset,
+                collateral_credit,
+                leverage_collateral_fee(&accounts.asset_mint, Clock::get()?.epoch)?,
+            )?;
+            accounts.market.reset_borrow_distress_if_recovered(
+                &mut accounts.borrow_position,
+                market_asset.opposite(),
+                crate::instructions::leverage_collateral_liquidation_fee(&accounts.asset_mint, Clock::get()?.epoch)?,
+            )?;
             (market_key, owner_key, asset_mint_key, collateral_receipt)
         };
 

@@ -5,9 +5,9 @@ use anchor_lang::{
 };
 
 use crate::{
-    events::{BorrowInterestAccrued, BorrowInterestPaid, DebtSource},
+    events::{BorrowInterestAccrued, BorrowInterestPaid, DebtSource, HlpRebalanced},
     state::{Market, MarketAsset, ReferralInterestQuote},
-    transitions::lending::accrue_side,
+    transitions::{lending::accrue_side, HlpRebalanceReceipt},
 };
 
 /// Emit through the same self-CPI format as `emit_cpi!`, from shared account
@@ -52,6 +52,21 @@ pub(crate) fn emit_interest_paid<'info>(
     )
 }
 
+/// Publish both vault-owned yLP changes together, including debt-only hedge
+/// corrections that have no token mint or burn inner instruction.
+pub(crate) fn emit_hlp_rebalanced<'info>(
+    market: &Account<'info, Market>,
+    base: HlpRebalanceReceipt,
+    quote: HlpRebalanceReceipt,
+    slot: u64,
+    event_authority: AccountInfo<'info>,
+) -> Result<()> {
+    if let Some(event) = HlpRebalanced::from_receipts(market.key(), market, base, quote, slot)? {
+        emit_accounting_event(&event, event_authority)?;
+    }
+    Ok(())
+}
+
 /// Checkpoint a real market account, before changing any debt shares. Scratch
 /// quotes use the quiet domain transition, so they never publish accruals.
 pub(crate) fn accrue_market_interest<'info>(
@@ -60,6 +75,7 @@ pub(crate) fn accrue_market_interest<'info>(
     event_authority: AccountInfo<'info>,
 ) -> Result<()> {
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        market.side(asset).fees.public_interest_advance.require_settled()?;
         if let Some(receipt) = accrue_side::<true>(market, asset, current_slot)? {
             emit_accounting_event(
                 &BorrowInterestAccrued {

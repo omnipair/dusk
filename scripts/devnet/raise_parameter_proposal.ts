@@ -66,7 +66,7 @@ async function main() {
     market,
     proposer: owner,
     nonce,
-    update: dailyBorrowLimitParameterUpdate(Number(process.env.MAX_DAILY_BORROW_BPS ?? "2500")),
+    updates: [dailyBorrowLimitParameterUpdate(Number(process.env.MAX_DAILY_BORROW_BPS ?? "2500"))],
     metadata: {
       version: 1,
       title: "Devnet: raise the daily borrow limit",

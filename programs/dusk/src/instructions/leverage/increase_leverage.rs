@@ -16,16 +16,20 @@ use crate::{
 };
 
 use super::settlement::{
-    leverage_collateral_credit, leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp,
-    validate_leverage_collateral_risk_mint, validate_leverage_mints, validate_leverage_reserve_accounts,
+    leverage_collateral_admission_fee, leverage_collateral_credit, leverage_swap_fee_credit, prepare_leverage_swap,
+    settle_inline_leverage_hlp, validate_leverage_mints, validate_leverage_reserve_accounts,
 };
-use crate::instructions::accounts::{require_reserve_custody, token_program_for_mint, HlpSwapAccountLayout};
+use crate::instructions::accounts::{
+    require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
+};
 use crate::instructions::enforce_launch_same_transaction_guard;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct IncreaseLeverageArgs {
     pub debt_asset: u8,
     pub debt_amount: u64,
+    /// Gross debt-token funding from the owner. Zero increases size using borrowing only.
+    pub margin_amount: u64,
     pub min_collateral_out: u64,
 }
 
@@ -57,6 +61,8 @@ pub struct IncreaseLeverage<'info> {
         seeds = [
             LEVERAGE_POSITION_SEED_PREFIX,
             market.key().as_ref(),
+            leverage_position.owner.as_ref(),
+            leverage_position.namespace_authority.as_ref(),
             leverage_position.position_id.as_ref(),
         ],
         bump = leverage_position.bump,
@@ -88,6 +94,10 @@ pub struct IncreaseLeverage<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
+    /// Required only when margin_amount is positive; always owned by the position owner.
+    #[account(mut)]
+    pub owner_debt_account: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
+
     /// CHECK: Canonical Instructions sysvar for the launch split guard.
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
@@ -101,7 +111,12 @@ impl<'info> IncreaseLeverage<'info> {
         self.market
             .assert_live_with_futarchy_at(&self.futarchy_authority, unix_timestamp)?;
         require_keys_eq!(self.owner.key(), self.position_owner.key(), ErrorCode::InvalidSigner);
-        require!(args.debt_amount > 0, ErrorCode::AmountZero);
+        require!(args.debt_amount > 0 || args.margin_amount > 0, ErrorCode::AmountZero);
+        if args.margin_amount > 0 {
+            let funding = self.owner_debt_account.as_ref().ok_or(ErrorCode::InvalidTokenAccount)?;
+            super::settlement::validate_owner_debt_account(self.owner.key(), &self.debt_mint, funding)?;
+            require_gte!(funding.amount, args.margin_amount, ErrorCode::InsufficientBalance);
+        }
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         enforce_launch_same_transaction_guard(
             &self.market,
@@ -111,7 +126,6 @@ impl<'info> IncreaseLeverage<'info> {
             &self.instructions_sysvar.to_account_info(),
         )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
-        validate_leverage_collateral_risk_mint(&self.collateral_mint)?;
         validate_leverage_reserve_accounts(
             &self.market,
             debt_asset,
@@ -120,7 +134,7 @@ impl<'info> IncreaseLeverage<'info> {
             &self.debt_reserve_vault,
             &self.collateral_reserve_vault,
         )?;
-        self.leverage_position.require_open()?;
+        self.leverage_position.require_collateral()?;
         Ok(())
     }
 
@@ -142,25 +156,63 @@ impl<'info> IncreaseLeverage<'info> {
         let collateral_mint_key = ctx.accounts.collateral_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
 
-        // Quote the additional debt as a collateral purchase.
+        // User funding and borrowed debt are swapped together, just as on entry.
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
+        let margin_credit = if args.margin_amount > 0 {
+            let before = ctx.accounts.debt_reserve_vault.amount;
+            let funding = ctx
+                .accounts
+                .owner_debt_account
+                .as_ref()
+                .ok_or(ErrorCode::InvalidTokenAccount)?;
+            transfer_checked_with_remaining_accounts(
+                ctx.accounts.owner.to_account_info(),
+                funding.to_account_info(),
+                ctx.accounts.debt_reserve_vault.to_account_info(),
+                ctx.accounts.debt_mint.to_account_info(),
+                token_program_for_mint(
+                    &ctx.accounts.debt_mint,
+                    &ctx.accounts.token_program,
+                    &ctx.accounts.token_2022_program,
+                )?,
+                args.margin_amount,
+                ctx.accounts.debt_mint.decimals,
+                &[],
+                h_lp_accounts.hook_accounts(ctx.remaining_accounts),
+            )?;
+            ctx.accounts.debt_reserve_vault.reload()?;
+            let credit = token_account_credit(before, &ctx.accounts.debt_reserve_vault)?;
+            require_gt!(credit, 0, ErrorCode::InsufficientAmount);
+            credit
+        } else {
+            0
+        };
+        let input = args
+            .debt_amount
+            .checked_add(margin_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let cash_policy = if args.debt_amount == 0 {
+            SwapCashPolicy::Spot
+        } else {
+            SwapCashPolicy::Borrow {
+                asset: debt_asset,
+                amount: args.debt_amount,
+            }
+        };
         let prepared_swap = prepare_leverage_swap(
             &mut ctx.accounts.market,
             SwapRequest {
                 current_slot,
                 current_unix_timestamp,
                 asset_in: debt_asset,
-                reserve_credit: args.debt_amount,
+                reserve_credit: input,
                 protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             },
-            SwapCashPolicy::Borrow {
-                asset: debt_asset,
-                amount: args.debt_amount,
-            },
+            cash_policy,
         )?;
         let swap = prepared_swap.leverage_quote();
         let interest_eligibility = prepared_swap.interest_eligibility;
@@ -191,6 +243,7 @@ impl<'info> IncreaseLeverage<'info> {
         let receipt = ctx.accounts.market.increase_leverage(
             &mut ctx.accounts.leverage_position,
             args.debt_amount,
+            margin_credit,
             collateral_credit,
             prepared_swap,
             swap_fee_credit,
@@ -198,6 +251,14 @@ impl<'info> IncreaseLeverage<'info> {
             ctx.accounts.futarchy_authority.protocol_auction_split,
             current_slot,
             current_unix_timestamp,
+            leverage_collateral_admission_fee(&ctx.accounts.collateral_mint, current_epoch)?,
+        )?;
+        ctx.accounts.market.reset_leverage_distress_if_recovered(
+            &mut ctx.accounts.leverage_position,
+            crate::instructions::leverage_collateral_liquidation_fee(
+                &ctx.accounts.collateral_mint,
+                Clock::get()?.epoch,
+            )?,
         )?;
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
@@ -253,12 +314,14 @@ impl<'info> IncreaseLeverage<'info> {
             owner: owner_key,
             debt_asset_mint: debt_mint_key,
             collateral_asset_mint: collateral_mint_key,
+            owner_debit: args.margin_amount,
             borrowed_amount: receipt.borrowed_amount,
             debt_delta: receipt.debt_delta,
             collateral_delta: receipt.collateral_delta,
             debt_amount: receipt.debt_amount,
             debt_shares: receipt.debt_shares,
             collateral_amount: receipt.collateral_amount,
+            margin_terms: ctx.accounts.leverage_position.margin_terms,
             closeout_value: receipt.closeout_value,
             owner_credit: 0,
             interest_paid: receipt.interest_paid,

@@ -70,6 +70,26 @@ impl ReferralInterestQuote {
 
         require_gte!(interest_paid, interest_vault_credit, ErrorCode::FeeMathOverflow);
         let protocol_interest_revenue = proportional_bps(interest_vault_credit, protocol_interest_bps)?;
+        Self::with_protocol_revenue(
+            interest_paid,
+            interest_vault_credit,
+            protocol_interest_revenue,
+            interest_share_bps,
+        )
+    }
+
+    pub(crate) fn with_protocol_revenue(
+        interest_paid: u64,
+        interest_vault_credit: u64,
+        protocol_interest_revenue: u64,
+        interest_share_bps: Option<u16>,
+    ) -> Result<Self> {
+        require_gte!(interest_paid, interest_vault_credit, ErrorCode::FeeMathOverflow);
+        require_gte!(
+            interest_vault_credit,
+            protocol_interest_revenue,
+            ErrorCode::FeeMathOverflow
+        );
         let Some(interest_share_bps) = interest_share_bps else {
             return Ok(Self {
                 interest_paid,

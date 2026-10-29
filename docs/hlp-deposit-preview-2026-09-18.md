@@ -6,13 +6,13 @@
 
 An unsigned devnet snapshot of META/USDC market `7Rjrf8i81hZihsuFdPfzTaP6SiQ3JEmQs7Hfg7YNjkNm` at slot 500291305 reproduced the deployed admission guard. META had 10,000,000 live hLP shares and residual exposure -57293: its hedge was actionable and required rebalancing. Opposite-asset funding headroom was 55,791,833,567 raw USDC, so this was not insufficient wallet balance or funding capacity. The empty USDC vault was settled and accepted an ordinary native deposit.
 
-The preview does not rebalance the vault, relax entry guards, change deposit/withdraw accounting, or execute a keeper operation. It makes the existing restriction available before the user requests a deposit quote.
+The original preview did not rebalance the vault or execute a keeper operation. PR #45 later changed hLP entry share pricing to use current economic NAV and removed the cached-price divergence gate. Hedge and funding restrictions still apply.
 
 ## Semantics
 
 - Every account is read-only. Accrual, partial-burn reconciliation, clock advancement and hLP checkpoints affect only deserialized memory.
 - Authority PDAs, supported asset mints, hLP mint identity/authority/decimals, market version and live supply retain native validation.
-- `Ready` includes settled and controller-granularity-limited entry states admitted by the existing program. Other statuses distinguish not-started, reduce-only, missing liquidity, actionable hedge, cash-constrained hedge, unhedgeable vault, settlement-price divergence, no funding, and transfer fees consuming the deposit.
+- `Ready` includes settled and controller-granularity-limited entry states admitted by the program. Other statuses distinguish not-started, reduce-only, missing liquidity, actionable hedge, cash-constrained hedge, unhedgeable vault, no funding, and transfer fees consuming the deposit. Cached-price divergence no longer produces a separate status.
 - Funding headroom uses the native rounded debt-share boundary. The opposite curve reserve ratio converts it to the greatest permitted net target credit. Token-2022 fees at the same epoch convert that to the greatest gross wallet debit, including inverse-fee plateaus, fee caps and 100% fees.
 - A blocked status returns zero effective admission limits. A funding ceiling is **not** an executable-amount quote: tiny amounts, post-entry settlement, reserve/mint overflow, custody, balances and slippage still require the real deposit instruction. The frontend must retain unsigned amount simulation and full write-time deployment validation.
 

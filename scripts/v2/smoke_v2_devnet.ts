@@ -61,6 +61,14 @@ async function main() {
   const baseDecimals = await mintDecimals(provider.connection, baseMint);
   const futarchyAuthority = deriveFutarchyAuthorityAddress(program.programId);
   const eventAuthority = derivePda(program.programId, Buffer.from("__event_authority"));
+  const shouldDepositHlp = duskEnv("SMOKE_HLP_DEPOSIT") !== "0";
+  const shouldSwap = duskEnv("SMOKE_SWAP") !== "0";
+  const hedgeAmount = shouldDepositHlp
+    ? parseUnits(duskEnv("SMOKE_HLP_DEPOSIT_AMOUNT") ?? "10", baseDecimals)
+    : 0n;
+  const swapAmount = shouldSwap
+    ? parseUnits(duskEnv("SMOKE_SWAP_AMOUNT") ?? "1", baseDecimals)
+    : 0n;
 
   const traderBaseAccount = await getOrCreateAta({
     connection: provider.connection,
@@ -77,20 +85,21 @@ async function main() {
     tokenProgram: quoteProgram,
   });
 
-  if (duskEnv("SMOKE_HLP_DEPOSIT") !== "0") {
-    const hedgeAmount = parseUnits(
-      duskEnv("SMOKE_HLP_DEPOSIT_AMOUNT") ?? "10",
-      baseDecimals
-    );
+  const requiredBase = hedgeAmount + swapAmount;
+  if (requiredBase > 0n) {
+    // The devnet faucet enforces a per-recipient cooldown. Fund the complete
+    // smoke flow once so the default hLP deposit followed by a swap is valid.
     await mintMockTokens({
       connection: provider.connection,
       payer,
       mint: baseMint,
       recipient: payer.publicKey,
-      amount: hedgeAmount,
+      amount: requiredBase,
       tokenProgram: baseProgram,
     });
+  }
 
+  if (shouldDepositHlp) {
     const ownerBaseHlpAccount = await getOrCreateAta({
       connection: provider.connection,
       payer,
@@ -161,17 +170,7 @@ async function main() {
     console.log(`Smoke hLP deposit sent: ${explorerTx(signature)}`);
   }
 
-  if (duskEnv("SMOKE_SWAP") === "0") return;
-
-  const swapAmount = parseUnits(duskEnv("SMOKE_SWAP_AMOUNT") ?? "1", baseDecimals);
-  await mintMockTokens({
-    connection: provider.connection,
-    payer,
-    mint: baseMint,
-    recipient: payer.publicKey,
-    amount: swapAmount,
-    tokenProgram: baseProgram,
-  });
+  if (!shouldSwap) return;
 
   let builder = program.methods
     .swap({

@@ -1,83 +1,132 @@
 {
-  "verified_at": "2026-09-10",
-  "tested_code_commit": "263c1635ad87ee36ffd9bf0b970457e4be965326",
-  "scope": "Current whitepapers, their supporting bundle, and separate historical comparison archive. No program or SDK source changes.",
-  "required_checks": [
+  "reviewed_commit": "5c0aca7fcb582418f1c5b99061d4ff7605b6f185",
+  "verified_at": "2026-10-19",
+  "scope": "Documentation-only update; complete required local CI plus the economic benchmark and clean build identity gates from the current workflow. No runtime or interface modifications.",
+  "checks": [
     {
       "command": "cargo fmt --all -- --check",
-      "exit_code": 0,
-      "seconds": 0.4
+      "status": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
       "command": "yarn check:hygiene",
-      "exit_code": 0,
-      "seconds": 0.79
+      "status": "passed",
+      "log_sha256": "5e25a880d5ec70ef269113a4dafb4905b8ef9574dd6d30d727a7a1e8852aa751"
     },
     {
       "command": "yarn check:code-shape",
-      "exit_code": 0,
-      "seconds": 1.03
+      "status": "passed",
+      "log_sha256": "4398ea50f8407e3c972870ea00d89859aa8319cfb815428234bddf325b4d9db4"
     },
     {
       "command": "yarn check:clippy",
-      "exit_code": 0,
-      "seconds": 7.13
+      "status": "passed",
+      "log_sha256": "1fba62c2ed7b555f2811253df2508349d6ea5e6a06ea01b7887aa7ebbe1b0e66"
     },
     {
       "command": "cargo test -p dusk",
-      "exit_code": 0,
-      "seconds": 4.86
+      "status": "passed",
+      "log_sha256": "c7c1ad6c0d1208c0b25d531762b7bf30c90534094a6fa1c1bf4fa882d207dc94",
+      "test_results": [
+        {
+          "passed": 506,
+          "failed": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0
+        }
+      ]
     },
     {
       "command": "cargo check -p dusk --lib --features production",
-      "exit_code": 0,
-      "seconds": 1.51
+      "status": "passed",
+      "log_sha256": "d021729ee74dbf3593d458072778500942c72506c07482c3d8f976217c9823a1"
     },
     {
       "command": "cargo test -p dusk --lib --features production",
-      "exit_code": 0,
-      "seconds": 3.03
+      "status": "passed",
+      "log_sha256": "7f7317e7797892a0078dc18a34e7cdfef9375536735120c7616b127d4f5c44c0",
+      "test_results": [
+        {
+          "passed": 506,
+          "failed": 0
+        }
+      ]
     },
     {
       "command": "cargo test -p leverage_delegate",
-      "exit_code": 0,
-      "seconds": 5.86
+      "status": "passed",
+      "log_sha256": "366b4ed42343a03c04074504a92ae33d29f65950fbe0db28a3dae4805c9f0360",
+      "test_results": [
+        {
+          "passed": 16,
+          "failed": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0
+        }
+      ]
     },
     {
       "command": "cargo test -p faucet",
-      "exit_code": 0,
-      "seconds": 0.53
+      "status": "passed",
+      "log_sha256": "2786b75309283d82665963562f4917b277cefd49ebff5d63cc7870d45b0953ce",
+      "test_results": [
+        {
+          "passed": 1,
+          "failed": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0
+        }
+      ]
     },
     {
       "command": "yarn typecheck",
-      "exit_code": 0,
-      "seconds": 1.74
+      "status": "passed",
+      "log_sha256": "86451b4fc8da7a7c3a1ec33bacc5d1028db13ecaa16bae99a5fd5119bb067dfa"
     },
     {
       "command": "yarn build:litesvm",
-      "exit_code": 0,
-      "seconds": 240.08
+      "status": "passed",
+      "log_sha256": "a79368f4b7d50052c76d0c3952ba9c7dfac640bb282afd65cc1ba5f2530b6a0b"
     },
     {
       "command": "npm run check:dusk-sdk",
-      "exit_code": 0,
-      "seconds": 1.92
+      "status": "passed",
+      "log_sha256": "ef973a925e98d152314b8295c1c209dda8d28d78d1c03c7737dcf89a87005bb7",
+      "tests": 68
     },
     {
       "command": "DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending",
-      "exit_code": 0,
-      "seconds": 5.79
+      "status": "passed",
+      "log_sha256": "2226ad85e6e3b0d42f0188bc6472c94ecc1377ec6a9231482e285d6363067e01",
+      "tests": 135,
+      "pending": 0,
+      "instructions_exercised": 71,
+      "instructions_total": 71,
+      "complete_cu_baseline": true
+    },
+    {
+      "command": "cargo test -p dusk --lib --features benchmark ema_admitted_settlement_preserves_reference_and_resource_delta",
+      "status": "passed",
+      "log_sha256": "ae82b2d958bb2cfdf7e0c693f68e859d95ed9301430ec41d8abd270114393045",
+      "test_results": [
+        {
+          "passed": 1,
+          "failed": 0
+        }
+      ]
+    },
+    {
+      "command": "yarn check:build-identity",
+      "status": "passed",
+      "log_sha256": "e4f634e5720f1f242e577c3eddd7710b0e3ed2e1be796be7c2545def944c6390"
     }
   ],
-  "additional_checks": [
-    "Staged repository hygiene passed",
-    "Staged code-shape check passed",
-    "Staged whitespace check passed; PDFs classified as binary and CSV CRLF preserved",
-    "All 28 pre-existing updated bundle files match pre-archive SHA-256 values",
-    "All 24 implementation source hashes match the reviewed snapshot",
-    "Historical source files match recovered originals",
-    "All 39 historical PDF pages rendered and visually reviewed",
-    "Comparison links resolve locally"
-  ],
-  "note": "This receipt follows the initial paper revision review in verification.json; its earlier no-commit/full-CI-not-run note records that earlier stage."
+  "program_identity_diff": "git diff --exit-code -- Anchor.toml programs passed",
+  "post_copy_document_checks": "Formatting, repository hygiene, code shape and staged whitespace checks passed after source/evidence copy; repeated after final PDF/receipt copy."
 }

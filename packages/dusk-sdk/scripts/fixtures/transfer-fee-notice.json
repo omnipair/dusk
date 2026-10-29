@@ -1,0 +1,173 @@
+[
+  {
+    "name": "first notice uses current transfers, adverse admission",
+    "epoch": "10",
+    "older": [
+      "0",
+      300,
+      "18446744073709551615"
+    ],
+    "newer": [
+      "12",
+      10000,
+      "18446744073709551615"
+    ],
+    "gross": "1000",
+    "phase": "notice",
+    "effective": "970",
+    "admission": "0",
+    "liquidation": "970"
+  },
+  {
+    "name": "epoch alone starts final notice",
+    "epoch": "11",
+    "older": [
+      "0",
+      300,
+      "18446744073709551615"
+    ],
+    "newer": [
+      "12",
+      10000,
+      "18446744073709551615"
+    ],
+    "gross": "1000",
+    "phase": "finalNotice",
+    "effective": "970",
+    "admission": "0",
+    "liquidation": "0"
+  },
+  {
+    "name": "activation charges new fee",
+    "epoch": "12",
+    "older": [
+      "0",
+      300,
+      "18446744073709551615"
+    ],
+    "newer": [
+      "12",
+      10000,
+      "18446744073709551615"
+    ],
+    "gross": "1000",
+    "phase": "none",
+    "effective": "0",
+    "admission": "0",
+    "liquidation": "0"
+  },
+  {
+    "name": "higher rate tiny cap is not the worst fee",
+    "epoch": "11",
+    "older": [
+      "0",
+      100,
+      "1000"
+    ],
+    "newer": [
+      "12",
+      10000,
+      "1"
+    ],
+    "gross": "10000",
+    "phase": "finalNotice",
+    "effective": "9900",
+    "admission": "9900",
+    "liquidation": "9900"
+  },
+  {
+    "name": "small transfer reverses cap comparison",
+    "epoch": "11",
+    "older": [
+      "0",
+      100,
+      "1000"
+    ],
+    "newer": [
+      "12",
+      10000,
+      "1"
+    ],
+    "gross": "1",
+    "phase": "finalNotice",
+    "effective": "0",
+    "admission": "0",
+    "liquidation": "0"
+  },
+  {
+    "name": "scheduled decrease does not loosen health early",
+    "epoch": "11",
+    "older": [
+      "0",
+      300,
+      "1000"
+    ],
+    "newer": [
+      "12",
+      0,
+      "0"
+    ],
+    "gross": "101",
+    "phase": "finalNotice",
+    "effective": "97",
+    "admission": "97",
+    "liquidation": "97"
+  },
+  {
+    "name": "rescheduled beyond next epoch restores current liquidation credit",
+    "epoch": "11",
+    "older": [
+      "0",
+      300,
+      "1000"
+    ],
+    "newer": [
+      "14",
+      10000,
+      "1000"
+    ],
+    "gross": "1000",
+    "phase": "notice",
+    "effective": "970",
+    "admission": "0",
+    "liquidation": "970"
+  },
+  {
+    "name": "cancelled pending increase",
+    "epoch": "11",
+    "older": [
+      "0",
+      300,
+      "1000"
+    ],
+    "newer": [
+      "13",
+      300,
+      "1000"
+    ],
+    "gross": "1000",
+    "phase": "notice",
+    "effective": "970",
+    "admission": "970",
+    "liquidation": "970"
+  },
+  {
+    "name": "u64 maximum does not overflow fee multiplication",
+    "epoch": "18446744073709551615",
+    "older": [
+      "0",
+      0,
+      "0"
+    ],
+    "newer": [
+      "18446744073709551615",
+      1,
+      "18446744073709551615"
+    ],
+    "gross": "18446744073709551615",
+    "phase": "none",
+    "effective": "18444899399302180659",
+    "admission": "18444899399302180659",
+    "liquidation": "18444899399302180659"
+  }
+]

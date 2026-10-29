@@ -65,6 +65,227 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
 }
 
 #[test]
+fn distressed_hlp_does_not_block_spot_swap() {
+    use crate::transitions::amm::SwapRequest;
+
+    let mut market = market_with_liquidity(AmmConfig::default());
+    market.deposit_single_sided(MarketAsset::Base, 20_000 * NAD, 1).unwrap();
+    market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+    let prices = crate::transitions::liquidity::current_hlp_curve_prices(&market).unwrap();
+    let (base_nav, _) = crate::transitions::liquidity::current_hlp_signed_navs_with_prices(&market, prices).unwrap();
+    assert!(base_nav < 0);
+
+    let before_shares = market.base_hlp_vault.ylp_shares;
+    let before_debt_shares = market.base_hlp_vault.debt_shares;
+    let before_principal = market.base_hlp_vault.debt_principal;
+    let mut prepared = SwapRequest {
+        current_slot: 2,
+        current_unix_timestamp: 0,
+        asset_in: MarketAsset::Quote,
+        reserve_credit: 1_000 * NAD,
+        protocol_fee_bps: 0,
+    }
+    .prepare(&mut market)
+    .unwrap();
+    assert!(prepared.quote.amount_out > 0);
+    assert_eq!(market.amm.frozen_hlp_mask, 1);
+    assert!(market.assert_hlp_entry_available(MarketAsset::Base).is_err());
+    assert!(market.deposit_single_sided(MarketAsset::Base, NAD, 1).is_err());
+    let credit = crate::transitions::LeverageSwapFeeCredit::from_total_actual_credit(
+        &prepared.leverage_quote(),
+        prepared.quote.fee.claimable_fee_debit,
+    )
+    .unwrap();
+    prepared
+        .apply(
+            &mut market,
+            crate::transitions::liquidity::SwapCashPolicy::Spot,
+            credit,
+            2,
+            0,
+            crate::state::ProtocolAuctionSplit::default(),
+            None,
+        )
+        .unwrap();
+    assert_eq!(market.base_hlp_vault.ylp_shares, before_shares);
+    assert_eq!(market.base_hlp_vault.debt_shares, before_debt_shares);
+    assert_eq!(market.base_hlp_vault.debt_principal, before_principal);
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn frozen_hlp_keeps_opposite_hedge_and_cannot_reset_the_swap_price() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+
+    for config in [AmmConfig::default(), concentrated_config()] {
+        let mut market = market_with_liquidity(config);
+        market.deposit_single_sided(MarketAsset::Base, 20_000 * NAD, 1).unwrap();
+        market.deposit_single_sided(MarketAsset::Quote, 20_000 * NAD, 1).unwrap();
+        market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+        market.prepare_amm_for_swap(2).unwrap();
+        let initial_price = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+        let frozen_shares = market.base_hlp_vault.ylp_shares;
+        let frozen_debt_shares = market.base_hlp_vault.debt_shares;
+        let frozen_principal = market.base_hlp_vault.debt_principal;
+        market.freeze_negative_hlp_vaults().unwrap();
+        assert_eq!(market.amm.frozen_hlp_mask, 1);
+        assert_eq!(market.current_concentrated_spot_price_nad().unwrap().unwrap(), initial_price);
+
+        let mut forward = SwapRequest {
+            current_slot: 2,
+            current_unix_timestamp: 0,
+            asset_in: MarketAsset::Quote,
+            reserve_credit: 1_000 * NAD,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut market)
+        .unwrap();
+        let base_out = forward.quote.amount_out;
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &forward.leverage_quote(),
+            forward.quote.fee.claimable_fee_debit,
+        )
+        .unwrap();
+        forward
+            .apply(&mut market, SwapCashPolicy::Spot, credit, 2, 0, ProtocolAuctionSplit::default(), None)
+            .unwrap();
+        assert_eq!(market.base_hlp_vault.ylp_shares, frozen_shares);
+        assert_eq!(market.base_hlp_vault.debt_shares, frozen_debt_shares);
+        assert_eq!(market.base_hlp_vault.debt_principal, frozen_principal);
+        let healthy_claim = (u128::from(market.base_side.reserves.live_reserve)
+            * u128::from(market.quote_hlp_vault.ylp_shares)
+            / u128::from(market.base_side.shares.ylp_supply)) as u64;
+        let healthy_debt = Debt::shares_to_debt(market.quote_hlp_vault.debt_shares, market.debt.base_borrow_index_nad)
+            .unwrap();
+        assert!(healthy_debt.abs_diff(u128::from(healthy_claim)) <= 1);
+
+        // Funding interest keeps accruing on the frozen liability. It must
+        // neither change executable price nor turn that debt into swap cash.
+        let price_before_interest = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+        market.debt.quote_borrow_index_nad = 31 * NAD as u128 / 10;
+        assert_eq!(market.current_concentrated_spot_price_nad().unwrap().unwrap(), price_before_interest);
+
+        let mut reverse = SwapRequest {
+            current_slot: 3,
+            current_unix_timestamp: 0,
+            asset_in: MarketAsset::Base,
+            reserve_credit: base_out,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut market)
+        .unwrap();
+        let quote_out = reverse.quote.amount_out;
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &reverse.leverage_quote(),
+            reverse.quote.fee.claimable_fee_debit,
+        )
+        .unwrap();
+        reverse
+            .apply(&mut market, SwapCashPolicy::Spot, credit, 3, 0, ProtocolAuctionSplit::default(), None)
+            .unwrap();
+        assert!(quote_out <= 1_000 * NAD, "round-trip profit: {quote_out}");
+        assert_eq!(market.amm.frozen_hlp_mask, 1);
+        market.assert_market_invariants().unwrap();
+        let mut liquidity = market.clone();
+        let added = liquidity.deposit_single_sided(MarketAsset::Quote, 1_000 * NAD, 1).unwrap();
+        let exited = liquidity.withdraw_single_sided(MarketAsset::Quote, added.hlp_amount).unwrap();
+        assert!(exited.target_amount_out > 0);
+        assert_eq!(liquidity.amm.frozen_hlp_mask, 1);
+        let old_supply = liquidity.base_side.shares.ylp_supply;
+        let ordinary_entry = liquidity.add_liquidity(1_000 * NAD, 1_000 * NAD).unwrap();
+        liquidity.remove_liquidity(ordinary_entry.ylp_supply - old_supply).unwrap();
+        liquidity.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
+fn frozen_hlp_terminal_close_restores_ordinary_swaps() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageCollateralFee, LeverageSwapFeeCredit};
+
+    let mut market = market_with_liquidity(AmmConfig::default());
+    market.deposit_single_sided(MarketAsset::Base, 20_000 * NAD, 1).unwrap();
+    market.deposit_single_sided(MarketAsset::Quote, 20_000 * NAD, 1).unwrap();
+    market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+    market.risk.base_price_ema_nad = NAD;
+    market.risk.quote_price_ema_nad = NAD;
+    market.prepare_amm_for_swap(2).unwrap();
+    market.freeze_negative_hlp_vaults().unwrap();
+    assert_eq!(market.amm.frozen_hlp_mask, 1);
+    let plan = market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX,
+        LeverageCollateralFee::default(), 2, 0, 0).unwrap();
+    let receipt = plan.consume(&mut market, 0, 0, u64::MAX).unwrap();
+    assert!(receipt.debt_closed > 0);
+    assert_eq!(market.base_hlp_vault.ylp_shares, 0);
+    assert_eq!(market.amm.frozen_hlp_mask, 0);
+    let closed_receipts = market.base_hlp_vault.hlp_supply;
+    assert!(closed_receipts > 0);
+    let exit = market.withdraw_single_sided(MarketAsset::Base, closed_receipts).unwrap();
+    assert_eq!(exit.target_amount_out, 0);
+    assert_eq!(exit.hlp_supply, 0);
+    market.assert_market_invariants().unwrap();
+    let mut prepared = SwapRequest { current_slot: 3, current_unix_timestamp: 0,
+        asset_in: MarketAsset::Quote, reserve_credit: 1_000 * NAD, protocol_fee_bps: 0 }
+        .prepare(&mut market).unwrap();
+    let credit = LeverageSwapFeeCredit::from_total_actual_credit(&prepared.leverage_quote(),
+        prepared.quote.fee.claimable_fee_debit).unwrap();
+    prepared.apply(&mut market, SwapCashPolicy::Spot, credit, 3, 0,
+        ProtocolAuctionSplit::default(), None).unwrap();
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn spot_only_hlp_deficit_cannot_write_off_the_vault() {
+    use crate::transitions::LeverageCollateralFee;
+
+    let mut market = market_with_liquidity(AmmConfig::default());
+    market.deposit_single_sided(MarketAsset::Base, 20_000 * NAD, 1).unwrap();
+    market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+    market.risk.base_price_ema_nad = 3 * NAD;
+    market.risk.quote_price_ema_nad = NAD / 3;
+    market.prepare_amm_for_swap(2).unwrap();
+    market.freeze_negative_hlp_vaults().unwrap();
+    assert_eq!(market.amm.frozen_hlp_mask, 1);
+    let fee = LeverageCollateralFee::default();
+    assert!(market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX, fee, 2, 0, 0).is_err());
+    assert!(market.quote_hlp_flash_recovery(MarketAsset::Base, fee, fee).is_err());
+}
+
+#[test]
+fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageCollateralFee, LeverageSwapFeeCredit};
+
+    let mut market = market_with_liquidity(AmmConfig::default());
+    market.deposit_single_sided(MarketAsset::Base, 20_000 * NAD, 1).unwrap();
+    market.deposit_single_sided(MarketAsset::Quote, 20_000 * NAD, 1).unwrap();
+    market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+    market.debt.base_borrow_index_nad = 3 * NAD as u128;
+    market.risk.base_price_ema_nad = NAD;
+    market.risk.quote_price_ema_nad = NAD;
+    market.prepare_amm_for_swap(2).unwrap();
+    market.freeze_negative_hlp_vaults().unwrap();
+    assert_eq!(market.amm.frozen_hlp_mask, 3);
+    let quote_shares = market.quote_hlp_vault.ylp_shares;
+    let quote_debt = market.quote_hlp_vault.debt_shares;
+    let plan = market.prepare_terminal_hlp_waterfall(MarketAsset::Base, u64::MAX,
+        LeverageCollateralFee::default(), 2, 0, 0).unwrap();
+    plan.consume(&mut market, 0, 0, u64::MAX).unwrap();
+    assert_eq!(market.amm.frozen_hlp_mask, 2);
+    assert_eq!(market.quote_hlp_vault.ylp_shares, quote_shares);
+    assert_eq!(market.quote_hlp_vault.debt_shares, quote_debt);
+    let mut prepared = SwapRequest { current_slot: 3, current_unix_timestamp: 0,
+        asset_in: MarketAsset::Quote, reserve_credit: 1_000 * NAD, protocol_fee_bps: 0 }
+        .prepare(&mut market).unwrap();
+    assert!(prepared.quote.amount_out > 0);
+    let credit = LeverageSwapFeeCredit::from_total_actual_credit(&prepared.leverage_quote(),
+        prepared.quote.fee.claimable_fee_debit).unwrap();
+    prepared.apply(&mut market, SwapCashPolicy::Spot, credit, 3, 0,
+        ProtocolAuctionSplit::default(), None).unwrap();
+    assert_eq!(market.quote_hlp_vault.ylp_shares, quote_shares);
+    assert_eq!(market.quote_hlp_vault.debt_shares, quote_debt);
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
 fn first_liquidity_initializes_center_without_an_oracle() {
     let mut market = market_with_liquidity(concentrated_config());
     assert!(market.ensure_amm_initialized(10).unwrap());
@@ -75,6 +296,21 @@ fn first_liquidity_initializes_center_without_an_oracle() {
         market.config.amm.concentrated_curve_parameters().unwrap()
     );
     assert_eq!(market.amm.spendable_protected_profit_nad(), 0);
+}
+
+#[test]
+fn final_user_withdrawal_allows_the_amm_to_reinitialize() {
+    let mut market = market_with_liquidity(concentrated_config());
+    market.ensure_amm_initialized(10).unwrap();
+    let user_shares = market.base_side.shares.ylp_supply - MIN_LIQUIDITY;
+    market.remove_liquidity(user_shares).unwrap();
+    market.finalize_amm_transition_and_observe_risk(11).unwrap();
+    assert!(!market.amm.initialized);
+
+    market.add_liquidity(100_000 * NAD, 100_000 * NAD).unwrap();
+    market.finalize_amm_transition_and_observe_risk(12).unwrap();
+    assert!(market.amm.initialized);
+    assert!(market.current_concentrated_spot_price_nad().unwrap().is_some());
 }
 
 #[test]

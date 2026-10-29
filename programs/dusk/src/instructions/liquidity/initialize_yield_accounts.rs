@@ -6,7 +6,7 @@ use crate::{
     constants::*,
     errors::ErrorCode,
     instructions::transfer_hook::current_yield_contexts,
-    state::{Market, YieldAccount, YieldTokenKind},
+    state::{HlpCohort, Market, MarketAsset, YieldAccount, YieldTokenKind},
 };
 
 use super::initialize_or_validate_yield_account;
@@ -93,7 +93,8 @@ impl<'info> InitializeYieldAccounts<'info> {
                 require_keys_eq!(self.lp_mint.key(), self.market.ylp_mint, ErrorCode::InvalidLpMintKey)
             }
             YieldTokenKind::Hlp => {
-                self.market.asset_for_hlp_mint(self.lp_mint.key())?;
+                // A retired mint is checked against its cohort PDA in the
+                // handler, supplied only for that path as a remaining account.
             }
         }
         Ok(())
@@ -114,6 +115,15 @@ impl<'info> InitializeYieldAccounts<'info> {
         let lp_mint = lp_mint.key();
         let base_mint = base_mint.key();
         let quote_mint = quote_mint.key();
+        let retired_cohort = if market.asset_for_hlp_mint(lp_mint).is_err() && args.token_kind == YieldTokenKind::Hlp {
+            Some(HlpCohort::from_remaining(
+                ctx.remaining_accounts.first().ok_or(ErrorCode::InvalidLpMintKey)?,
+                market_key,
+                lp_mint,
+            )?)
+        } else {
+            None
+        };
 
         // Initialize or validate both asset ledgers before snapshotting new accounts.
         let base_initialized = initialize_or_validate_yield_account(
@@ -145,26 +155,31 @@ impl<'info> InitializeYieldAccounts<'info> {
             Clock::get()?.slot,
             event_authority.to_account_info(),
         )?;
-        let contexts = current_yield_contexts(market, lp_mint)?.ok_or_else(|| error!(ErrorCode::InvalidLpMintKey))?;
-        let base_context = contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
-        let quote_context = contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
-        require!(
-            base_context.token_kind == args.token_kind && quote_context.token_kind == args.token_kind,
-            ErrorCode::InvalidYieldAccount
-        );
+        let (base_swap, base_interest, quote_swap, quote_interest) =
+            if let Some(contexts) = current_yield_contexts(market, lp_mint)? {
+                let base_context = contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
+                let quote_context = contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
+                require!(
+                    base_context.token_kind == args.token_kind && quote_context.token_kind == args.token_kind,
+                    ErrorCode::InvalidYieldAccount
+                );
+                (
+                    base_context.swap_fee_growth_index_q64,
+                    base_context.interest_growth_index_q64,
+                    quote_context.swap_fee_growth_index_q64,
+                    quote_context.interest_growth_index_q64,
+                )
+            } else {
+                let cohort = retired_cohort.as_ref().ok_or(ErrorCode::InvalidLpMintKey)?;
+                let (base_swap, base_interest) = cohort.yield_indexes(MarketAsset::Base);
+                let (quote_swap, quote_interest) = cohort.yield_indexes(MarketAsset::Quote);
+                (base_swap, base_interest, quote_swap, quote_interest)
+            };
         if base_initialized {
-            base_yield_account.accrue(
-                0,
-                base_context.swap_fee_growth_index_q64,
-                base_context.interest_growth_index_q64,
-            )?;
+            base_yield_account.accrue(0, base_swap, base_interest)?;
         }
         if quote_initialized {
-            quote_yield_account.accrue(
-                0,
-                quote_context.swap_fee_growth_index_q64,
-                quote_context.interest_growth_index_q64,
-            )?;
+            quote_yield_account.accrue(0, quote_swap, quote_interest)?;
         }
         Ok(())
     }

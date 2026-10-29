@@ -25,8 +25,13 @@ export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
   "controller_due_recenter",
   "concentrated_hlp_active",
   "concentrated_hlp_funding_interest",
+  "joint_shock_hlp_same_slot",
+  "joint_shock_hlp_one_day",
   "hlp_active",
   "token_2022_swap",
+  "public_interest_hlp_cpmm",
+  "public_interest_hlp_concentrated",
+  "hlp_cash_carry",
 ] as const;
 
 export type SwapComputeScenario = (typeof REQUIRED_SWAP_COMPUTE_SCENARIOS)[number];
@@ -61,20 +66,25 @@ export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
 const COMPUTE_SCENARIO_BASELINES: Partial<
   Record<SwapComputeScenario, ComputeScenarioBaseline>
 > = {
-  cpmm_same_slot: { measuredMaximum: 91_324n, ceiling: 95_891n },
-  cpmm_advanced_slot: { measuredMaximum: 126_441n, ceiling: 132_764n },
-  cpmm_active_debt: { measuredMaximum: 134_517n, ceiling: 141_243n },
-  concentrated_centered: { measuredMaximum: 264_331n, ceiling: 277_548n },
-  concentrated_transition: { measuredMaximum: 265_500n, ceiling: 278_775n },
-  concentrated_tail: { measuredMaximum: 263_187n, ceiling: 276_347n },
-  dynamic_fee_divergence_stress: { measuredMaximum: 272_411n, ceiling: 286_032n },
-  dynamic_fee_volatility_stress: { measuredMaximum: 138_134n, ceiling: 145_041n },
-  retained_surcharge: { measuredMaximum: 271_030n, ceiling: 284_582n },
-  controller_due_recenter: { measuredMaximum: 629_047n, ceiling: 660_500n },
-  concentrated_hlp_active: { measuredMaximum: 352_928n, ceiling: 370_575n },
-  concentrated_hlp_funding_interest: { measuredMaximum: 352_928n, ceiling: 370_575n },
-  hlp_active: { measuredMaximum: 117_417n, ceiling: 123_288n },
-  token_2022_swap: { measuredMaximum: 104_920n, ceiling: 110_166n },
+  cpmm_same_slot: { measuredMaximum: 99_929n, ceiling: 104_926n },
+  cpmm_advanced_slot: { measuredMaximum: 135_075n, ceiling: 141_829n },
+  cpmm_active_debt: { measuredMaximum: 143_882n, ceiling: 151_077n },
+  concentrated_centered: { measuredMaximum: 190_646n, ceiling: 200_179n },
+  concentrated_transition: { measuredMaximum: 191_399n, ceiling: 200_969n },
+  concentrated_tail: { measuredMaximum: 189_086n, ceiling: 198_541n },
+  dynamic_fee_divergence_stress: { measuredMaximum: 292_750n, ceiling: 307_388n },
+  dynamic_fee_volatility_stress: { measuredMaximum: 146_769n, ceiling: 154_108n },
+  retained_surcharge: { measuredMaximum: 294_010n, ceiling: 308_711n },
+  controller_due_recenter: { measuredMaximum: 418_464n, ceiling: 439_388n },
+  concentrated_hlp_active: { measuredMaximum: 853_378n, ceiling: 896_047n },
+  concentrated_hlp_funding_interest: { measuredMaximum: 853_378n, ceiling: 896_047n },
+  joint_shock_hlp_same_slot: { measuredMaximum: 782_879n, ceiling: 822_023n },
+  joint_shock_hlp_one_day: { measuredMaximum: 894_757n, ceiling: 939_495n },
+  hlp_active: { measuredMaximum: 139_972n, ceiling: 146_971n },
+  token_2022_swap: { measuredMaximum: 113_525n, ceiling: 119_202n },
+  public_interest_hlp_cpmm: { measuredMaximum: 280_728n, ceiling: 294_765n },
+  public_interest_hlp_concentrated: { measuredMaximum: 899_586n, ceiling: 944_566n },
+  hlp_cash_carry: { measuredMaximum: 1_104_813n, ceiling: 1_160_054n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {
@@ -101,10 +111,10 @@ let measuredTransactionMax = 0n;
 let lastPrintedReportSignature: string | undefined;
 
 export const LITESVM_COMPUTE_UNIT_LIMIT = BigInt(
-  // Keep a 50k-CU repository release guard below Solana's 1.4M transaction
-  // ceiling. The exact retained-surcharge concentrated path is the measured
+  // Keep a 45k-CU repository release guard below Solana's 1.4M transaction
+  // ceiling. Protection execution after interest accrual is the measured
   // high-water mark; bounded wide-domain u128 fee paths are gated separately.
-  process.env.DUSK_TEST_COMPUTE_UNIT_LIMIT ?? "1350000"
+  process.env.DUSK_TEST_COMPUTE_UNIT_LIMIT ?? "1355000"
 );
 
 const DUSK_INSTRUCTIONS = [
@@ -123,24 +133,33 @@ const DUSK_INSTRUCTIONS = [
   "claimReferralInterest",
   "settleProtocolAuction",
   "initializeMarket",
-  "initializeLpMetadata",
   "initializeYieldAccounts",
   "initializeLpTransferHook",
+  "rotateHlpCohort",
+  "burnRetiredHlpReceipt",
   "setMarketReduceOnly",
   "createParameterProposal",
   "supportParameterProposal",
   "queueParameterProposal",
   "executeParameterProposal",
   "withdrawParameterSupport",
+  "manageGovernanceBalance",
+  "setGovernanceDelegate",
+  "createGovernanceProposal",
+  "supportGovernanceProposal",
+  "withdrawGovernanceSupport",
   "addLiquidity",
   "openLiquidityGates",
   "removeLiquidity",
   "setYieldRecipient",
   "setHarvestAuthority",
   "growYieldAccount",
+  "fundInterest",
+  "previewHlpFlash",
+  "beginHlpFlash",
+  "settleHlpFlash",
   "harvest",
   "swap",
-  "rescueHlp",
   "closeInsolventHlp",
   "depositCollateral",
   "donateCollateral",
@@ -156,14 +175,15 @@ const DUSK_INSTRUCTIONS = [
   "decreaseLeverage",
   "addLeverageMargin",
   "repayLeverage",
-  "removeLeverageMargin",
-  "liquidateLeveragePosition",
+  "beginFlashLiquidation",
+  "settleFlashLiquidation",
+  "previewFlashLiquidation",
+  "observeLiquidation",
+  "emergencyLiquidation",
+  "previewEmergencyLiquidation",
   "createLeverageDelegation",
   "updateLeverageDelegation",
   "closeLeverageDelegation",
-  "startLiquidationAuction",
-  "fillLiquidationAuction",
-  "backstopLiquidationAuction",
   "previewMarket",
   "previewHlpOrderTrigger",
   "previewHlpDepositCapacity",

@@ -392,3 +392,53 @@ fn product_parameters_build_and_reconstruct_the_nested_shoulder() {
     assert_eq!(reverse.end_branch, ConcentratedCurveBranch::UpperTail);
     assert!(reverse.amount_out <= amount_in);
 }
+
+
+#[test]
+fn cached_liquidation_quotes_match_canonical_rounding_across_every_region() {
+    // Small integer reserves exercise exact boundaries and the atoms on
+    // either side, where canonical crossing dust matters most.
+    let small = geometry();
+    let start = ConcentratedCurvePoint { base_reserve: 100, quote_reserve: 30_000 };
+    for direction in [ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase] {
+        let path = small.prepare_quote_path(start, direction).unwrap();
+        for input in 1..=35_001 {
+            match (small.quote_exact_in(start, input, direction), path.amount_out(input)) {
+                (Ok(q), Ok(output)) => assert_eq!(q.amount_out, output, "small direction={direction:?} input={input}"),
+                (Err(_), Err(_)) => (),
+                (a, b) => panic!("small quote/cache disagreement: {a:?} {b:?}"),
+            }
+        }
+    }
+    for shoulder in [0, 500] {
+        for scale in [1_u128, 1_000, 1_000_000] {
+            let base = 1_000_000_000_000 * scale;
+            let quote = 2 * base;
+            let curve = prepare_centered_concentrated_geometry(base, quote, 2 * NAD,
+                ConcentratedCurveParameters { peak_amplification_nad: 3 * NAD,
+                    core_half_width_bps: 250, fade_width_bps: shoulder }).unwrap();
+            let center = ConcentratedCurvePoint { base_reserve: base, quote_reserve: quote };
+            for direction in [ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase] {
+                // Include shifted starts with integer reserve dust, rather than
+                // assuming each boundary's ideal invariant point was reached.
+                for shift in [0, base / 20, base] {
+                    let start = if shift == 0 { center } else {
+                        curve.quote_exact_in(center, shift, direction).unwrap().end
+                    };
+                    for quote_direction in [ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase] {
+                        let path = curve.prepare_quote_path(start, quote_direction).unwrap();
+                        for input in [1, 10, base / 100, base / 20, base / 10, base, base * 2] {
+                            let expected = curve.quote_exact_in(start, input, quote_direction);
+                            let actual = path.amount_out(input);
+                            match (expected, actual) {
+                                (Ok(q), Ok(output)) => assert_eq!(q.amount_out, output, "shoulder={shoulder} scale={scale} input={input}"),
+                                (Err(_), Err(_)) => (),
+                                (a, b) => panic!("quote/cache disagreement: {a:?} {b:?}"),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

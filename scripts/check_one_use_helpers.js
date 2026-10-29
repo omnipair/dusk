@@ -360,18 +360,43 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // Pure event construction is tested without Anchor account fixtures; the
+  // instruction helper emits the result through the shared self-CPI path.
+  ["programs/dusk/src/events.rs", new Set(["from_receipts"])],
+  // New hLP income allocation is a pure transition boundary: economic tests
+  // exercise conservation without custody CPIs; the instruction moves exactly
+  // its returned debits and credits atomically.
+  ["programs/dusk/src/transitions/liquidity/hlp/harvest.rs", new Set(["settle_new_hlp_public_interest"])],
+  // Flash session boundaries are pure accounting kernels, separately exercised
+  // without token CPIs; instructions bind them to custody and atomic settlement.
+  ["programs/dusk/src/transitions/liquidity/hlp/flash.rs", new Set(["begin_hlp_flash_recovery", "settle_hlp_flash_recovery"])],
+  ["programs/dusk/src/transitions/liquidity/hlp/flash_terminal.rs", new Set(["settle_terminal_hlp_flash"])],
+  // The advance ledger's funding and one-shot payment consumption boundaries
+  // own the frozen fee and transient-credit invariants. Keep these independently
+  // testable from reserve mutation and Token-2022 CPIs.
+  ["programs/dusk/src/transitions/interest_advance.rs", new Set(["fund", "take_payment"])],
+  // Off-chain historical auction replay; compiled only with feature benchmark.
+  ["programs/dusk/src/transitions/amm/swap.rs", new Set(["settle_backstop_swap"])],
+  // Emergency inventory preparation must remain separate from executable
+  // swaps: a virtual pricing endpoint must never become an hLP/reserve plan.
+  ["programs/dusk/src/transitions/amm/liquidation.rs", new Set(["prepare_ema_liquidation"])],
   // Keep the pure, clock-bound hLP admission and fee-boundary calculations
   // independently testable from Anchor account deserialization and sysvars.
   ["programs/dusk/src/instructions/hlp_deposit_preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
-  ["programs/dusk/src/instructions/leverage/liquidate_leverage_position.rs", new Set(["finish_liquidation"])],
+  // CPI metadata isolation is a security boundary and has a focused test.
+  ["programs/dusk/src/instructions/leverage/settlement.rs", new Set(["delegated_callback_metas"])],
   [
     "programs/dusk/src/instructions/prepare_swap.rs",
     new Set(["rebalance_executes_token_changes"]),
   ],
-  ["programs/dusk/src/instructions/spot/swap.rs", new Set(["require_hlp_recovery_swap"])],
   [
     "programs/dusk/src/transitions/amm/curve.rs",
-    new Set(["parameters", "center_point_with_geometry", "concentrated_total_liquidity_root"]),
+    // Oracle geometry construction has independent price/depth inputs, unlike
+    // live-reserve reconstruction, and is exercised across concentration tiers.
+    new Set(["parameters", "center_point_with_geometry", "concentrated_total_liquidity_root", "prepare_concentrated_cache_at_depth",
+      // One constructor and one hot-loop lookup share exact boundary dust;
+      // inlining them would mix geometry construction with the SBF proof frame.
+      "prepare_quote_path", "amount_out"]),
   ],
   [
     "programs/dusk/src/transitions/amm/fees.rs",
@@ -381,6 +406,13 @@ const acceptedOneUseHelpers = new Map([
     "programs/dusk/src/transitions/amm/mod.rs",
     new Set([
       // Complete swaps now have one caller for these AMM-owned ledger/observation kernels.
+      // These freeze a complete book/curve quote and isolate temporary geometry
+      // so neither routine's caller exceeds the SBF stack-frame limit.
+      "prepare_current_hlp_quote",
+      // The rare distress retry stays in its own SBF frame; placing the
+      // returned integrated quote and error on the swap frame overflows it.
+      "prepare_current_hlp_quote_with_distress_freeze",
+      "prepare_book_curve_mark",
       "credit_protected_recenter_reserve",
       "finalize_amm_trade_after_inventory_checkpoint",
       "liquidity_nad",
@@ -406,7 +438,12 @@ const acceptedOneUseHelpers = new Map([
   ],
   [
     "programs/dusk/src/transitions/lending/preview.rs",
-    new Set(["lending_side_preview", "borrow_capacity_quote", "position_debt_side_quote", "position_capacity_quote"]),
+    new Set([
+      "lending_side_preview",
+      "borrow_capacity_quote_with_market_fees",
+      "position_debt_side_quote",
+      "position_capacity_quote_with_market_fees",
+    ]),
   ],
   [
     "programs/dusk/src/transitions/leverage.rs",
@@ -422,8 +459,9 @@ const acceptedOneUseHelpers = new Map([
       "rebase_concentrated_curve_after_terminal_hlp_loss",
       "apply_leverage_socialized_loss",
       "post_swap_closeout_quote_with_quote",
-      "debit_leverage_cash",
-      "add_isolated_borrow_debt",
+      // Repayment now has one handler after margin withdrawal was removed.
+      // Keep its hLP/risk checkpoint boundary independently parity-tested.
+      "prepare_leverage_margin_operation",
     ]),
   ],
   [
@@ -435,6 +473,9 @@ const acceptedOneUseHelpers = new Map([
       "target_asset",
       "prepare_terminal_hlp_waterfall",
       "prepare_concentrated_hlp_transition_at_current_state",
+      // Quote finalization must derive its point from the private, atom-rounded
+      // ownership/debt plan rather than duplicate that accounting in the AMM.
+      "final_ordinary_point_nad",
       "debt_deltas",
       "interest_cash_floors",
       "hlp_valuation_from_values",
@@ -464,6 +505,8 @@ const acceptedOneUseHelpers = new Map([
     "programs/leverage_delegate/src/instructions/entry/common.rs",
     new Set(["verify_opened_position", "escrow_margin_after_bounty"]),
   ],
+  // Keep unit-scale trigger math testable without Anchor account fixtures.
+  ["programs/leverage_delegate/src/instructions/leverage/before_close.rs", new Set(["closeout_price_nad"])],
   [
     "programs/leverage_delegate/src/instructions/hlp/common.rs",
     new Set(["withdraw_hlp_order_position", "validate_hlp_order_kind", "hlp_order_trigger_met"]),
@@ -472,6 +515,26 @@ const acceptedOneUseHelpers = new Map([
 // Dedicated CPI frames keep the protection executor within the SBF stack limit.
 acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/payment.rs", new Set(["make_payment"]));
 acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protection/redeem.rs", new Set(["redeem_lp"]));
+// Alternate flash settlement has its own CPI frame; merging it into the
+// external settle handler would overlap two large SBF settlement frames.
+// The paired-AMM preview and settle paths live together so they share the same
+// final-payout accounting boundary.
+acceptedOneUseHelpers.set(
+  "programs/dusk/src/instructions/flash_amm_settlement.rs",
+  new Set(["preview_flash_amm_liquidation", "settle_with_amm"])
+);
+// Keep the complete emergency market/position mutation directly testable
+// without Anchor custody accounts, using the same transition as execution.
+// Candidate construction is a separate SBF frame from the recovery proof.
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm_liquidation.rs", new Set(["apply_emergency_liquidation", "prepare_emergency_candidate"]));
+// Market cloning and curve preparation must not share the interval proof's
+// SBF frame. The combined version exceeded the 4 KiB stack limit.
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/liquidation_sizing.rs", new Set(["executable_liquidation_market"]));
+// Separate SBF frame for the all-smaller-share recovery certificate.
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/flash_liquidation.rs", new Set(["require_first_flash_recovery"]));
+// The retired-cohort decoder needs its own SBF frame. Inlining it into the
+// generic transfer-hook account mutation exceeded the 4 KiB stack limit.
+acceptedOneUseHelpers.set("programs/dusk/src/instructions/transfer_hook.rs", new Set(["retired_hlp_yield_contexts"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
 );

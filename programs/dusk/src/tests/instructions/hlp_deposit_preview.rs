@@ -2,8 +2,44 @@ use super::*;
 use crate::state::Debt;
 
 fn snapshot() -> (Market, Clock) {
-    let bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin");
-    let market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
+    // Extend the immutable historical capture with zero-valued fields added
+    // since that layout. Locate each insertion in the current serialization and
+    // apply ascending offsets, including all fields preceding the Debt block.
+    let mut layout = Market::default();
+    let tags = [0x3197_5bdf_2468_ace0_u64, 0x4286_ace0_1357_9bdf, 0x5397_ace0_1357_9bdf,
+        0x6486_ace0_1357_9bdf, 0x7597_ace0_1357_9bdf, 0x8686_ace0_1357_9bdf,
+        0x9797_ace0_1357_9bdf, 0xa886_ace0_1357_9bdf];
+    layout.base_side.reserves.flash_receivable = tags[0];
+    layout.base_side.fees.public_interest_advance.outstanding_gross = tags[1];
+    layout.quote_side.reserves.flash_receivable = tags[2];
+    layout.quote_side.fees.public_interest_advance.outstanding_gross = tags[3];
+    layout.base_hlp_vault.flash_collateral_debit = tags[4];
+    layout.quote_hlp_vault.flash_collateral_debit = tags[5];
+    layout.debt.base_borrow_index_remainder = u128::from(tags[6]);
+    layout.debt.leverage_base_collateral = tags[7];
+    let frozen_offset_tag = 0x3197_5bdf_2468_ace0_4286_ace0_1357_9bdf_i128;
+    layout.amm.frozen_base_vault_base_offset_nad = frozen_offset_tag;
+    // The historical capture predates the explicit insurance-window flags.
+    // Give each start slot a unique marker to locate its preceding flag.
+    let insurance_slot_tags = [0xb997_5bdf_2468_ace0_u64, 0xc997_5bdf_2468_ace0_u64];
+    layout.insurance.base_draw_window.start_slot = insurance_slot_tags[0];
+    layout.insurance.quote_draw_window.start_slot = insurance_slot_tags[1];
+    let mut current = Vec::new();
+    layout.try_serialize(&mut current).unwrap();
+    let mut insertions: Vec<_> = tags.into_iter().zip([8, 32, 8, 32, 8, 8, 32, 16]).map(|(tag, size)| {
+        (current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap(), size)
+    }).collect();
+    let frozen_offset = current.windows(16).position(|window| window == frozen_offset_tag.to_le_bytes()).unwrap();
+    insertions.push((frozen_offset - 1, 65));
+    for tag in insurance_slot_tags {
+        let offset = current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap();
+        insertions.push((offset - 1, 1));
+    }
+    insertions.sort_unstable();
+    let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
+    for (offset, size) in insertions { bytes.splice(offset..offset, vec![0u8; size]); }
+    let mut market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
+    market.version = crate::constants::MARKET_LAYOUT_VERSION;
     let clock = Clock {
         slot: 500_291_305,
         unix_timestamp: market.config.start_time + 1,
@@ -26,22 +62,22 @@ fn gross_limit_includes_transfer_fee_plateaus_and_caps() {
 }
 
 #[test]
-fn native_preview_explains_meta_rejection_and_quotes_usdc_funding() {
+fn native_preview_uses_full_value_hedge_and_quotes_both_funding_limits() {
     let (mut market, clock) = snapshot();
     let (status, limit) =
         preview_hlp_funding_limit(&mut market, MarketAsset::Base, 10_000_000, false, &clock).unwrap();
-    assert_eq!((status, limit), (HlpDepositStatus::RebalanceRequired, 0));
-    // This is precisely the deployed transaction guard, not a UI heuristic.
-    assert_eq!(
-        market.assert_hlp_entry_available(MarketAsset::Base).unwrap_err(),
-        error!(ErrorCode::HlpSettlementUnavailable)
-    );
+    assert_eq!(status, HlpDepositStatus::Ready);
+    assert!(limit > 0);
+    market.assert_hlp_entry_available(MarketAsset::Base).unwrap();
+    // Ready reports current hedge/funding headroom. An amount-specific entry
+    // still enforces the native post-mint rounding bound.
+    assert_eq!(market.deposit_single_sided(MarketAsset::Base, 10_000_000, 1).unwrap_err(), error!(ErrorCode::HlpSettlementUnavailable));
     let (mut market, clock) = snapshot();
     let (status, limit) = preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock).unwrap();
     assert_eq!(status, HlpDepositStatus::Ready);
     assert!(limit > 0);
-    let target = market.curve_reserve(MarketAsset::Quote).unwrap() as u128;
-    let opposite = market.curve_reserve(MarketAsset::Base).unwrap() as u128;
+    let target = market.quote_side.reserves.live_reserve as u128;
+    let opposite = market.base_side.reserves.live_reserve as u128;
     let index = market.debt.base_borrow_index_nad;
     let fits = |amount: u64| {
         let borrowed = (amount as u128) * opposite / target;

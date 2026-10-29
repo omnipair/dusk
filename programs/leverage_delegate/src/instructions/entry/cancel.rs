@@ -16,6 +16,7 @@ pub struct CancelLeverageEntryOrder<'info> {
         constraint = order.owner == owner.key() @ LeverageDelegateError::InvalidOrder,
     )]
     pub order: Box<Account<'info, LeverageEntryOrder>>,
+    #[account(mut)]
     pub debt_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
@@ -63,6 +64,7 @@ impl<'info> CancelLeverageEntryOrder<'info> {
         ];
         let signer = &[&authority_seeds[..]];
         let amount = ctx.accounts.funding_vault.amount;
+        let owner_balance_before = ctx.accounts.owner_funding_account.amount;
         if amount > 0 {
             transfer_checked(
                 token_program_for_mint(
@@ -80,19 +82,32 @@ impl<'info> CancelLeverageEntryOrder<'info> {
                 ctx.remaining_accounts,
             )?;
         }
+        ctx.accounts.owner_funding_account.reload()?;
+        let owner_credit = ctx
+            .accounts
+            .owner_funding_account
+            .amount
+            .checked_sub(owner_balance_before)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
+        require_gte!(
+            owner_credit,
+            args.min_owner_refund_out,
+            LeverageDelegateError::InvalidOrder
+        );
         ctx.accounts.funding_vault.reload()?;
         require_eq!(
             ctx.accounts.funding_vault.amount,
             0,
             LeverageDelegateError::InvalidTokenAccount
         );
-        close_token_account(
+        close_token_account_with_fee_harvest(
             token_program_for_mint(
                 &ctx.accounts.debt_mint.to_account_info(),
                 &ctx.accounts.token_program.to_account_info(),
                 &ctx.accounts.token_2022_program.to_account_info(),
             ),
             ctx.accounts.funding_vault.to_account_info(),
+            ctx.accounts.debt_mint.to_account_info(),
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.order.to_account_info(),
             signer,

@@ -15,7 +15,7 @@ $(U,V)$ & Ordinary yLP tranche after separating both hLP ownership claims; the t
 \bottomrule
 \end{tabularx}\end{center}
 
-Neither the physical vault balance nor the stored live ratio is sufficient to reconstruct a concentrated swap quote. A quote also requires curve geometry, the ordinary tranche, applicable fees, cash policy, and the prepared hLP transition. This does not make equation~\eqref{eq:ledger} optional: every successful instruction must still account for the resulting stored reserve.
+Neither the physical vault balance nor the stored live ratio is sufficient to reconstruct a concentrated spot quote. A quote also requires curve geometry, the ordinary tranche, applicable fees, cash policy, and the prepared hLP transition. This does not make equation~\eqref{eq:ledger} optional: every successful instruction must still account for the resulting stored reserve.
 
 \subsection{A public loan without hLP}
 
@@ -24,7 +24,7 @@ Start with a constant-product market whose two accounted cash reserves are 1,000
 C_q=900,\quad D_q^f=100,\quad P_q^f=100,\quad
 R_q=X_q=1{,}000.
 \]
-Base remains unchanged. The principal borrow has changed cash composition without changing the curve point. Utilization is now $100/(900+100)=10\%$ on the quote side, before any other debt or cash changes.
+Base remains unchanged. The principal credit draw has changed cash composition without changing the curve point. Utilization is now $100/(900+100)=10\%$ on the quote side, before any other debt or cash changes.
 
 Suppose quote debt later accrues to 110. The ledger becomes $R_q=1{,}010$, but $J_q=10$ and $X_q=1{,}000$. A quote made from raw $R_q$ would count ten unpaid interest tokens as new curve principal. The implementation's subtraction prevents that error. Actual token cash remains 900 until another operation moves tokens.
 
@@ -32,9 +32,9 @@ A full repayment transfers 110 to the settlement path. The principal portion 100
 
 This example is intentionally independent of hLP. Once hLP is present, the same debt/principal distinction remains, while the integrated transition separately updates vault funding, ownership, and interest. Cash-backed interest and hLP funding interest must not be combined into one undifferentiated reserve increment.
 
-\subsection{A swap after the borrow}
+\subsection{A spot trade after the credit draw}
 
-Return to the state immediately after the 100 quote borrow. A fee-free input of 100 base into the ordinary constant-product curve gives
+Return to the state immediately after the 100 quote credit draw. A fee-free input of 100 base into the ordinary constant-product curve gives
 \[
 \Delta q=\frac{100\cdot1{,}000}{1{,}000+100}=90.90909\ldots.
 \]
@@ -138,7 +138,7 @@ D_b^{h,*}=50\frac{1{,}100}{909.09091\ldots}=60.5.
 \]
 Total executable reserves are approximately $(1{,}260.5,1{,}041.73554)$. The trader did not receive output from a 1,150-by-1,150 constant-product pool: quoting the full synthetic total would have given a different result. Reconstruction changes the gross ownership and funding decomposition around the already executed ordinary path.
 
-In integer shares, equation~\eqref{eq:ownership} floors the vault balances against the unchanged ordinary supply. This can change total yLP supply even though ordinary holders neither mint nor burn during the swap. Fee eligibility is frozen at the appropriate earlier state, and actual debt shares are converted through the borrow index. A complete transition therefore carries more information than just the real-valued reserve endpoints shown above.
+In integer shares, equation~\eqref{eq:ownership} floors the vault balances against the unchanged ordinary supply. This can change total yLP supply even though ordinary holders neither mint nor burn during the spot trade. Fee eligibility is frozen at the appropriate earlier state, and actual debt shares are converted through the debt index. A complete transition therefore carries more information than just the real-valued reserve endpoints shown above.
 
 \subsection{What the target does and does not hedge}
 
@@ -147,6 +147,18 @@ For a base-target vault at a marked price $p$, gross collateral value in quote u
 The familiar constant-product LP value proportional to $\sqrt p$ provides motivation for continuously adjusted leveraged liquidity. A static two-times LP position exposed to a discrete jump is not the same process as a continuously adjusted position, and neither expression is the current Dusk execution algorithm. The earlier formula $E_0(\sqrt r-1)^2$ should not be used to infer an active Dusk pre-solve threshold or quote correction. The present program quotes ordinary liquidity and reconstructs ownership algebraically.
 
 Funding interest and fees can change the target equities used in reconstruction. Recovery explicitly decreases one target equity. A loss socialized by another path can also affect the economics of the vault's yLP claim. Opposite-asset neutrality at one endpoint therefore does not imply a constant token balance across time or an unconditional impermanent-loss guarantee.
+
+\subsection{Inventory weights and local leverage}
+
+The leverage formula also follows from the local sensitivity of an LP portfolio. At fixed geometry and before fees, let its quote value be $W=pU+V$. Since the marginal curve satisfies $p\,dU+dV=0$,
+\begin{equation}
+dW=U\,dp,\qquad
+\frac{dW}{W}=w_b\frac{dp}{p},\qquad
+w_b=\frac{pU}{pU+V}.
+\end{equation}
+The base inventory weight $w_b$ is the LP's local percentage sensitivity to a base-price move. An opposite-funded position with gross leverage $1/w_b$ has unit local sensitivity before funding costs. Its leverage is therefore $1+V/(pU)$, matching equation~\eqref{eq:leverage}. In base-denominated value, the symmetric quote weight is $w_q=V/(pU+V)$ and the corresponding leverage is $1/w_q=1+pU/V$.
+
+At a constant-product point $pU=V$, both weights are one half and both leverages equal two. Concentration changes inventory weights away from that balance, even though the same marginal relation $p\,dU+dV=0$ holds. This derives the current inventory-dependent leverage from the same LP-payoff intuition used in Section~\ref{sec:hlp}. Local sensitivity and the finite-move tracking gap are different statements; neither removes the cash and funding constraints on actually reconstructing the position.
 
 \subsection{Settlement preconditions}
 
@@ -166,31 +178,31 @@ At a five-percent discount, an amount with fair target value $v$ buys total targ
 
 \subsection{Revenue can change the incentive without changing the critical flag}
 
-For example, let $D=1{,}130{,}000$, $A=1{,}000{,}000$, and usable revenue $Y=120{,}000$. Actual debt exceeds $9A/8$, so the critical flag is true. The net gap is only 10,000, giving an 80-basis-point discount before the other caps. If usable revenue covers the entire excess, the net gap is zero and no positive recovery bonus is produced, even though the actual-debt critical test remains true. A rescue instruction requiring a positive critical tranche must satisfy both conditions.
+For example, let $D=1{,}130{,}000$, $A=1{,}000{,}000$, and usable revenue $Y=120{,}000$. Actual debt exceeds $9A/8$, so the critical flag is true. The net gap is only 10,000, giving an 80-basis-point discount before the other caps. If usable revenue covers the entire excess, the net gap is zero and no positive recovery bonus is produced, even though the actual-debt critical test remains true. The flag is diagnostic; an ordinary swap can earn a bonus whenever the net gap and matching input support one.
 
 When the claim is zero, actual debt can still imply critical stress, but ordinary recovery pricing returns no positive incentive from the ratio formula. This avoids dividing by zero or using an undefined conversion to fund an output. Terminal closeout and the broader state checks, rather than an extrapolation of equation~\eqref{eq:discount}, determine the admissible next action.
 
 \subsection{Terminal closeout is an interest-loss path}
 
-The terminal engine checks that marked collateral is below indexed funding debt and that the shortfall is no larger than the unpaid interest. This distinguishes passive funding insolvency from a principal hole. The plan is bound to the state it valued, records the permitted insurance request, retires the vault's owned yLP, and realizes the recoverable interest. Insurance is senior to the remaining socialized interest loss and is constrained by available capital, protocol concentration limits, and caller bounds.
+The terminal engine refreshes linear symmetric-EMA collateral value to the current instruction slot, checks that it is below indexed funding debt, and checks that the shortfall is no larger than the unpaid interest. This distinguishes passive funding insolvency from a principal hole without letting either a stale observation or a temporary live reserve ratio decide eligibility. Native recovery separately quotes the target claim on the configured concentrated reference curve at the same current-slot symmetric EMA and smoothed depth, including full swap fees, then adds the borrowed-token claim. That reference recovery determines principal repayment, insurance and writeoff. The plan is bound to the state it valued, records the permitted insurance request, retires the vault's owned yLP, and realizes the recoverable interest. Reference reserves never replace live inventory; the post-close curve is rebuilt around the actual remaining reserves. Insurance is senior to the remaining socialized interest loss and is constrained by available capital, protocol concentration limits, and caller bounds.
 
 The caller also supplies a maximum socialized-loss bound and minimum bounty output. The bounty is computed from recovered funding interest; it is not an extra source of recovery capital. Published user yield remains a separate liability. A surviving hLP token balance can be burned for zero principal after a terminal event, while its checkpointed yield can still be harvested.
 
 This mechanism provides an explicit action once funding growth has exhausted equity, but depends on someone submitting an admissible transaction. A bonus or bounty does not prove that an economically motivated caller will exist for every token, especially when transfer costs, fees, congestion, or small amounts dominate. These are liveness questions for stress testing and operational observation.
 
-\section{Three Valuations in Public Credit}
+\section{Admission, Eligibility, and Settlement}
 \label{app:credit}
 
-Borrow admission, liquidation eligibility, and liquidation pricing deliberately use different functions. Keeping their roles separate prevents an appealing but incorrect statement that ``all risk uses the same AMM output formula.''
+Credit admission, liquidation eligibility, and liquidation pricing deliberately use different functions. Keeping their roles separate prevents an appealing but incorrect statement that ``all risk uses the same AMM output formula.''
 \begin{center}\small
-\begin{tabularx}{\linewidth}{@{}p{0.23\linewidth}X@{}}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.23\linewidth}>{\raggedright\arraybackslash}X@{}}
 \toprule
 Decision & Valuation role \\
 \midrule
 New public credit & Conservative tail-based shadow CPMM, lower directional/symmetric collateral price, pessimistic depth, position and aggregate underwriting checks. \\
 Liquidation eligibility & Linear collateral mark at symmetric EMA compared with indexed debt and the position's stored liquidation collateral factor. \\
-Auction floor & Average full-position concentrated unwind at the symmetric reference and pessimistic depth. \\
-Expired backstop & Actual live-curve unwind with real cash, fees, transfers, insurance, and residual loss settlement. \\
+Ordinary flash purchase & Bound net debt payment plus charge for an EMA-valued collateral slice at an affordable discount. \\
+Emergency internal exchange & Concentrated reference curve at symmetric EMA and smoothed depth; real inventory, cash, insurance and writeoff settle separately. \\
 \bottomrule
 \end{tabularx}\end{center}
 
@@ -201,25 +213,27 @@ Equation~\eqref{eq:risk} is concave in collateral size. Its derivative is
 W'(c)=\frac{\widehat x\widehat y}{(\widehat x+c)^2},\qquad
 W''(c)=-\frac{2\widehat x\widehat y}{(\widehat x+c)^3}<0.
 \]
-It recognizes less than the linear mark $c\widehat y/\widehat x$ for every positive collateral amount. That property alone does not prove that dividing collateral among accounts cannot expand total borrowing: a concave function applied separately can produce a larger sum. The market-level underwriting contributions and global checks must also be considered. The paper therefore does not claim account-splitting resistance solely from the one-position formula.
+It recognizes less than the linear mark $c\widehat y/\widehat x$ for every positive collateral amount. That property alone does not prove that dividing collateral among accounts cannot expand total credit drawn: a concave function applied separately can produce a larger sum. The market-level underwriting contributions and global checks must also be considered. The paper therefore does not claim account-splitting resistance solely from the one-position formula.
 
-A borrow stores a newly computed liquidation collateral factor $f$. The user can specify a minimum acceptable value; borrow capacity is buffered below the accepted factor. In fraction notation, the buffered factor is $0.95f$. On collateral removal, the implementation takes the greater of the stored factor and the newly calculated factor before checking remaining collateral. These are action-specific rules, not a continuously reset liquidation factor after every market movement.
+A credit draw stores a newly computed liquidation collateral factor $f$. The user can specify a minimum acceptable value; credit capacity is buffered below the accepted factor. In fraction notation, the buffered factor is $0.95f$. On collateral removal, the implementation takes the greater of the stored factor and the newly calculated factor before checking remaining collateral. These are action-specific rules, not a continuously reset liquidation factor after every market movement.
 
 Each public debt side uses the borrower's opposite-asset collateral. The aggregate health book recognizes a debt-bearing contribution capped by underwriting logic, rather than claiming that all idle collateral across accounts is locked for other borrowers. Removing a contribution from a global summary does not move another account's tokens. Exact debt-share rounding and contribution updates are important coupled-state checks in a source review.
 
-\subsection{Observation timing and the public borrow budget}
+\subsection{Observation timing and the public credit budget}
 
-An internal EMA can be represented conceptually as $m'=\alpha m+(1-\alpha)x$, with decay determined by elapsed slots and a half-life. Dusk has separate observations for price, directional price, curve depth, and concentration center. Their role is to avoid treating every instantaneous favorable movement as immediately recognized borrowing power. They cannot establish that the market has truthful external information.
+An internal EMA can be represented conceptually as $m'=\alpha m+(1-\alpha)x$, with decay determined by elapsed slots and a half-life. Dusk has separate observations for price, directional price, curve depth, and concentration center. Their role is to avoid treating every instantaneous favorable movement as immediately recognized credit capacity. They cannot establish that the market has truthful external information.
 
-The public borrow limiter is a continuously draining usage bucket over a 24-hour window, not a UTC-midnight reset. Gross new public principal consumes its available budget. Debt repayment restores cash but does not immediately undo gross usage. The implementation carries fractional leakage so repeated updates do not lose all sub-unit drain. This property is specific to the limiter and should not be generalized to every fixed-point mechanism in the protocol.
+The public credit limiter is a continuously draining usage bucket over a 24-hour window, not a UTC-midnight reset. Gross new public principal consumes its available budget. Debt repayment restores cash but does not immediately undo gross usage. The implementation carries fractional leakage so repeated updates do not lose all sub-unit drain. This property is specific to the limiter and should not be generalized to every fixed-point mechanism in the protocol.
 
-\subsection{Auction progression}
+\subsection{A liquidation payment and loss example}
 
-Once the stored-factor trigger is met, the auction snapshots its reference floor and starts five percent higher. The auction's time progression is measured in timestamps over five minutes. A fill repays debt tokens in exchange for collateral under the current auction terms. The auction price is not an external fair-value assertion; it is anchored to the market's own conservative recovery estimate.
+A partial flash buyer repaying 100 debt tokens owes a separate one-token solvent charge. At a 0.5\% applied discount and unit reference price, ignoring token fees, collateral debit is $101/0.995=101.5075377$. At the 5\% ceiling it would be $101/0.95=106.3157895$. The larger debit can worsen the survivor's health; the program selects an affordable rate or rejects that partial. The ramp therefore quotes a maximum, not a promise that every slice receives five percent.
 
-After expiry, the backstop uses a live unwind and its realized output. The collateral bounty is taken in the documented settlement path, insurance is drawn subject to its concentration budgets, and remaining loss is socialized automatically by that path. A generic assertion that every liquidation requires an arbitrary user-selected loss cap would be inaccurate. Terminal hLP closeout has explicit caller caps; the public expired-auction path has its own settlement semantics.
+A committed eligible observation starts the incentive episode, with a two-minute ramp and no mandatory waiting period. An atomic flash begin cannot start a durable episode if that same transaction fails. Recovery and account recreation invalidate stale episode use. The emergency 70\%-of-maintenance permission is independent of elapsed time, so a continuously unprofitable position above that boundary need not eventually become emergency-executable.
 
-The hard insurance ceilings are upper bounds on how much insurance one event or day window can consume, not upper bounds on the size of a debt deficit. A market can lose more than insurance covers. When describing resilience, insurance availability, residual LP loss, and the ability to execute a liquidation should be reported separately.
+For a completed full settlement with 900 principal, 50 interest and 850 net proceeds after caller/transfer costs, the eligible principal gap is 50. Insurance at 75\% supplies at most 37.5, subject to its cash and shared window budget; 12.5 principal is written off and 50 interest canceled. A shortfall does not earn the additional solvent liquidation charge. A 50\% window cap limits insurance spending, not the market's possible loss. Existing hLP terminal eligibility and coverage remain a separate claimant policy within the same budget.
+
+The internal reference exchange transfers collateral into pool inventory and offsets debt. Later price discovery can change that inventory's marked value. In the accepted \#287652 analysis, a second decline in marked pool resources after trading does not represent another unresolved principal balance. Counting all changes in LP claims as cash paid to an arbitrageur would also misclassify transfers into protected recenter reserves. The retained closeout compares fees, acquisition cost, insurance, principal writeoff, LP/hLP claims and protected resources at a common external mark.
 
 \section{Rate Controller and Update Cadence}
 \label{app:rates}
@@ -236,12 +250,12 @@ Anchor adjustment speed & $20$/year & $1$--$50$/year \\
 Initial anchor APR & $4\%$ & Initialization value \\
 Anchor APR & Adaptive & $0.1\%$--$200\%$ \\
 Anchor multiplicative step & State-dependent & Factor $0.5$--$1.5$ per update \\
-Accrued elapsed time & Slots $\times400$ ms & At most one year per update \\
+Accrued nominal time & Slots $\times200$ ms & At most one year per update \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-With the default steepness, a four-percent anchor implies one-percent APR at zero utilization and sixteen-percent APR at full utilization. At the maximum 200-percent anchor, full utilization gives 800-percent instantaneous APR under the default steepness. The anchor bound cannot be advertised as the user's maximum borrowing rate. Governance changes to steepness change this multiplier range.
+With the default steepness, a four-percent anchor implies one-percent APR at zero utilization and sixteen-percent APR at full utilization. At the maximum 200-percent anchor, full utilization gives 800-percent instantaneous APR under the default steepness. The anchor bound cannot be advertised as the user's maximum debt rate. Governance changes to steepness change this multiplier range.
 
 The implementation first computes utilization and the instantaneous rate using debt, cash, and the current anchor. The index increment has the form
 \[
@@ -261,15 +275,15 @@ With no debt shares, the program moves the anchor toward its lower bound and adv
 
 Let $a$ be the amount credited to reserve custody after an input token transfer. For input-denominated fees, the total Dusk fee budget is at most $\lfloor a/2\rfloor$; executable input is reduced by the priced fee. For an output-denominated fee, the prepared curve produces gross output $b$ and the fee budget is at most $\lfloor b/2\rfloor$. User output is reduced by the withheld fee and then by any token-program output transfer effect.
 
-These definitions matter when quoting a minimum received amount. A bound on protocol fee share does not bound AMM price impact. It also does not erase a Token-2022 transfer fee. A leverage entry limit uses the all-in relation between paid notional and collateral actually obtained, with direction-appropriate rounding. A client that treats gross output, fee-net output, and final token credit as the same amount can accept a worse trade than the user intended.
+These definitions matter when quoting a minimum received amount. A bound on protocol fee share does not bound AMM price impact. It also does not erase a Token-2022 transfer fee. A margin entry limit uses the all-in relation between paid notional and collateral actually obtained, with direction-appropriate rounding. A client that treats gross output, fee-net output, and final token credit as the same amount can accept a worse trade than the user intended.
 
-Fees also need correct ownership timing. The trade's eligible ordinary supply and vault-owned yLP balances are captured before later reconstruction changes those balances. Claimable yield is published through its liability indexes. Compounded yield increases principal and changes the target equities through the integrated fee allocation. Protected recenter funds remain a separate custody claim. These are three different destinations for collected value, each with a different effect on future quotes and redemptions.
+Fees also need correct ownership timing. The trade's eligible ordinary supply and vault-owned yLP balances are captured before later reconstruction changes those balances. Claimable yield is published through its liability indexes. Compounded yield increases principal and changes the target equities through the integrated fee allocation. The integrated hLP full-value path marks opposite-token fee conversion at the actual concentrated marginal price. The retained native replay below used the earlier endpoint-inventory-ratio conversion; its fee-allocation numbers are historical and must not be substituted for current quotes. Protected recenter funds remain a separate custody claim. These are three different destinations for collected value, each with a different effect on future quotes and redemptions.
 
-\subsection{Leverage and delegated orders}
+\subsection{Margin and delegated orders}
 
-Public borrowing leaves the principal curve coordinate unchanged at its cash/debt step. Isolated leverage composes that step with a real swap. This makes entry immediately sensitive to depth, fees, and cash availability. The resulting collateral and debt belong to a dedicated position, and its closeout value is recomputed from executable market machinery. An increase or margin withdrawal can fail if initial health or unwind-impact checks are not met.
+A public credit draw leaves the principal curve coordinate unchanged at its cash/debt step. Isolated margin composes that step with a real spot trade. This makes entry immediately sensitive to depth, fees, and cash availability. The resulting collateral and debt belong to a dedicated position, and its closeout value is recomputed from executable market machinery. Risk increases must satisfy stored and newly retained initial-equity obligations. Standalone margin withdrawal and the fixed two-percent unwind rejection are removed. Debt repayment retains the held asset; proportional owner closure returns net residual. Section~\ref{sec:margin} specifies the current action model.
 
-The delegate program adds conditional authority around Dusk instructions. A take-profit or stop-loss condition, a leverage-entry price limit, or an hLP funding-rate threshold narrows when an executor can act. The underlying market instruction still validates its accounts and settlement. Conditional permission is not reserved liquidity, guaranteed execution, or a promise that a threshold crossing will be observed in time.
+The delegate program adds conditional authority around Dusk instructions. A take-profit or stop-loss condition, a margin-entry price limit, or an hLP funding-rate threshold narrows when an executor can act. The underlying market instruction still validates its accounts and settlement. Conditional permission is not reserved liquidity, guaranteed execution, or a promise that a threshold crossing will be observed in time.
 
 hLP orders escrow the hLP shares while preserving the original owner's yield recipient. On execution, the output bounty is charged before evaluating the configured owner payout floor; final transfer fees remain relevant. After cancellation or execution, the dedicated yield-settlement path can harvest remaining liabilities and close the appropriate order state. The escrow's token ownership should not be interpreted as transferring economic entitlement to already assigned user yield.
 
@@ -279,10 +293,41 @@ The optional harvest authority is stored separately from the yield recipient. Th
 
 This division is useful for program-owned positions and automated collection. It is also a source of documentation error if described simply as ``permissionless harvest'' or ``only the owner may harvest.'' The current rule is an explicit set of authorized signers with a constrained destination. A program-derived owner still needs its program to sign the invocation for owner-only configuration changes.
 
+\section{Native Trade, hLP Reconstruction, and Who Bears the Difference}
+\label{app:native-hlp}
+
+The companion \src{simulations/native-hlp-flow.json} retains eight executions of the earlier \#45 source snapshot \texttt{5c0aca7f} using the native benchmark API. It tests amplification one and four, matched runs with/without both hLPs, and zero/30-basis-point base fees with claimable/compounded LP allocations. Tokens have nine decimals; the trades use the same slot, so funding accrual is zero. Dynamic surcharge and token transfer fees are zero in this isolated comparison. These values illustrate the inventory and holder-value identities; they are not current integrated-branch fee quotes, token-CPI tests or validator execution. The combined-branch instruction tests are separate evidence.
+
+\subsection{The illustrative two-dollar shortfall}
+
+The toy concentrated segment $(x+100)(y+100)=40{,}000$ starts at $x=y=100$, $p=1$. Selling $22.222222$ META receives 20 USDC and ends at $x=122.222222$, $y=80$, $p=0.81$. The LP is worth 179 instead of the 181 from holding its original assets. The trader received 20 for input worth 18 at that common final mark. The difference is two dollars before fees. Subtracting unchanged debt 100 gives static funded equity 79 versus a 100-META holding worth 81. This is the toy concentrated segment; the earlier pure-CPMM static example gives a one-dollar gap at the same price ratio. Neither is an extra two-dollar invoice paid to Dusk hLP.
+
+\subsection{An executed concentrated example}
+
+Ordinary yLP contributes 100 META and 100 USDC. Each hLP contributes 50 target tokens. With META initially one USDC, actual cash is 150 META plus 150 USDC; gross live claims are 200 of each, including 50 of each internal funding component. The concentration setting is peak amplification four, core half-width 100 bps and fade width 400 bps. A trader sells $22.222222222$ META, receiving $19.360948321$ USDC without fees. Final price is $0.711853017$ and actual cash is $172.222222222$ META plus $130.639051679$ USDC.
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}lXr@{}}\toprule
+Holder & Gross claim and matched debt after settlement & Net USDC value \\\midrule
+Ordinary yLP & 122.222222 META + 80.639052 USDC; no debt & 167.643309 \\
+META hLP & 50 META + 32.988703 USDC; owes 32.988703 USDC & 35.592651 \\
+USDC hLP & 75.783519 META + 50 USDC; owes 75.783519 META & 50.000000 \\\bottomrule
+\end{tabularx}\end{center}
+
+The META vault's USDC claim and debt fall together; the USDC vault's META claim and debt rise together. These are funded ownership changes, not additional external payments. Gross leverages become approximately 1.926840 and 2.078935, while net target backing remains 50 tokens each. The same price move at fixed concentration settings therefore changes the represented leverage.
+
+Holding the ordinary depositor's original assets would be worth 171.185302. Its 3.541992 shortfall equals the trader's marked gain $19.360948321-22.222222222(0.711853017)$. Both hLPs match holding their respective 50 target tokens within rounding. Across all holders, net claims sum to actual cash value. Matched zero-fee runs without hLP give the identical ordinary inventory and trader output; the replay does not identify an additional hLP subsidy on that trade. Calling the marked trader gain arbitrage profit additionally assumes an external venue at the common final mark and excludes external acquisition/execution costs.
+
+\subsection{Fees and the boundary of this result}
+
+With a 30-bps base fee and 20\% protocol share, the same gross input pays approximately 0.066667 META. Before ownership reconstruction, the initial ordinary/META-hLP/USDC-hLP shares split the LP allocation 50/25/25. With compounding disabled, ordinary yLP receives a 0.026667-META entitlement, each hLP 0.013333 META, and protocol 0.013333 META. Final holder values including these pro-rata claims are approximately 167.764783, 35.644084 and 50.009503 USDC at the new final mark 0.712691622.
+
+With LP compounding enabled in this historical replay, the former reserve-ratio conversion credits USDC hLP 0.008807 USDC for its opposite-token fee, compared with approximately 0.009503 at the frozen marginal price; the difference stays in ordinary inventory. The integrated branch uses the concentrated marginal mark instead. Funding accrual, public receivables, recovery rewards, market recentering and debt losses are separate transitions and cannot be inferred to be costless from the zero-accrual examples. The current accounting and validation boundary is described in Section~\ref{sec:hlp-accounting}.
+
 \section{Implementation Evidence and Reproducibility}
 \label{app:evidence}
 
-The review snapshot is commit \texttt{263c1635ad87}. The complete identifier is recorded in \src{paper/SOURCES.md} and generated data metadata. The table below identifies semantic entry points; it is not a substitute for the surrounding account checks and caller ordering.
+The runtime integration candidate combines PR \#45 at \texttt{04941f19} and PR \#52 at \texttt{2f46e0e7}. The retained numerical replay uses earlier \#45 source at \texttt{5c0aca7f}; its identifier is recorded in \src{paper/SOURCES.md} and generated data metadata. The table below identifies semantic entry points in the integrated candidate; it is not a substitute for the surrounding account checks and caller ordering.
 \begin{center}\small
 \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}X@{}}
 \toprule
@@ -295,28 +340,28 @@ hLP ownership & \src{transitions/liquidity/hlp/integrated.rs}: \src{reconstruct_
 hLP settlement & \src{transitions/liquidity/hlp/engine.rs}: identity-bound transition, cash floors, terminal waterfall. \\
 Recovery discount & \src{transitions/liquidity/hlp/recovery.rs}: \src{quote_hlp_recovery}. \\
 Rates and debt accrual & \src{math/risk.rs}; \src{transitions/lending/mod.rs}: \src{accrue_side}. \\
-Public auctions & \src{instructions/lending/liquidation/}: start, fill, backstop, settlement. \\
-Isolated leverage & \src{transitions/leverage.rs}; corresponding instruction handlers. \\
+Flash/emergency & \src{instructions/flash_liquidation.rs}; \src{instructions/emergency_liquidation.rs}; \src{transitions/liquidation_policy.rs}; \src{transitions/amm/liquidation.rs}. \\
+Isolated margin & \src{transitions/leverage.rs}; corresponding instruction handlers. \\
 Custody and harvest & \src{instructions/accounts.rs}; \src{instructions/liquidity/harvest.rs} and \src{state/yield_account.rs}. \\
 \bottomrule
 \end{tabularx}\end{center}
 
-Some functions and fields retain historical names. A helper called ``live,'' ``rebalance,'' or ``tracking'' is not evidence that the earlier paper's algorithm remains in use. The review followed the active callers and distinguished test-only helpers from executable paths. The old tracking-loss solver and generic test-only fee routines should not be used to describe current integrated swaps.
+Some functions and fields retain historical names. A helper called ``live,'' ``rebalance,'' or ``tracking'' is not evidence that the earlier paper's algorithm remains in use. The review followed the active callers and distinguished test-only helpers from executable paths. The old tracking-loss solver and generic test-only fee routines should not be used to describe current integrated spot trades.
 
 \subsection{Rebuilding the illustrations}
 
-Run the generator from the repository root with a Python environment containing ReportLab. Its arithmetic uses the Python standard library; ReportLab is used only to create vector charts. The script writes CSV data, machine-readable assumptions, two LaTeX tables, and three PDF figures. It checks range-boundary continuity, rate anchor bounds, recovery thresholds, and selected accounting examples before writing its validation receipt.
+Run the generator from the repository root with a Python environment containing ReportLab. Its arithmetic uses the Python standard library; ReportLab is used only to create vector charts. The script writes four CSV datasets, machine-readable assumptions, three LaTeX tables, and three PDF figures. It checks range-boundary continuity, depth scaling, the regional invariant, hLP ownership, rate anchor bounds, recovery thresholds, and selected accounting examples before writing its validation receipt.
 
 Compile either top-level LaTeX source from the \src{paper/} directory using Tectonic. Both files include the same \src{main.tex} and \src{preamble.tex}; the expanded version enables additional discussion and includes these appendices. This organization prevents a parameter correction in one paper from leaving the other with an incompatible equation. The bibliography contains only sources actually used in this revision.
 
-The numerical checks establish properties of the disclosed illustrations. They are not differential tests between Python and every Rust instruction. The source review and the repository's Rust tests provide additional implementation evidence, recorded separately in the verification receipt. This documentation update makes no changes to program logic or SDK interfaces.
+The numerical checks establish properties of the disclosed illustrations. They are not differential tests between Python and every Rust instruction. The source review and the repository's Rust and instruction tests provide separate implementation evidence; the historical CI receipt belongs to its original revision. This integrated revision changes the program interface by removing the dedicated rescue instruction.
 
 \subsection{What a stronger evaluation would measure}
 
-A useful replay should run the exact current program through multiple boundary crossings, both fee denominations, asymmetric token decimals, funding accrual, hLP recovery, and public auction expiry. Report cash by side, debt by domain, ordinary reserve depth, total reserve claims, hLP target equity, interest paid, insurance draw, and socialized loss. Net economic returns require trading fees, funding cost, execution costs, and the chosen external benchmark, not just a reserve-identity check.
+A useful replay should run the exact current program through multiple boundary crossings, both fee denominations, asymmetric token decimals, funding accrual, hLP recovery, flash settlement, and EMA-priced emergency execution. Report cash by side, debt by domain, ordinary reserve depth, total reserve claims, hLP target equity, interest paid, insurance draw, and socialized loss. Net economic returns require trading fees, funding cost, execution costs, and the chosen external benchmark, not just a reserve-identity check.
 
-Adversarial sequences should include favorable price manipulation before borrowing, temporary depth provision, collateral withdrawal after a stored-factor update, many small accrual intervals, scarce cash during hLP interest settlement, and concurrent fee compounding with a large swap. A review should distinguish a rejected transaction from a successful but loss-making one. Rejection can preserve accounting while reducing market availability; a successful transaction can preserve every identity while transferring economic value between participants.
+Adversarial sequences should include favorable price manipulation before drawing credit, temporary depth provision, collateral withdrawal after a stored-factor update, many small accrual intervals, scarce cash during hLP interest settlement, and concurrent fee compounding with a large spot trade. A review should distinguish a rejected transaction from a successful but loss-making one. Rejection can preserve accounting while reducing market availability; a successful transaction can preserve every identity while transferring economic value between participants.
 
-For auctions and recovery, participation must be modeled explicitly. An attractive theoretical price does not ensure a filler has the required asset or can profit after execution costs. Measure time to an admissible fill, remaining collateral, realized output, available insurance, and the residual loss. For hLP terminal closeout, separately verify the interest-only insolvency precondition and preservation of published yield.
+For flash liquidation and recovery, participation must be modeled explicitly. An attractive theoretical price does not ensure a filler has the required asset or can profit after execution costs. Measure time to an admissible fill, remaining collateral, realized output, available insurance, and the residual loss. For hLP terminal closeout, separately verify current-slot symmetric-EMA eligibility, native EMA-price/smoothed-depth reference recovery or the external fixed payment, the principal-first loss waterfall, and preservation of funded holder yield.
 
 No claim of current comparative performance is imported from the earlier constant-product or prototype concentrated-curve studies. Those experiments evaluated different mechanisms. A new comparison would need a common workload, precisely matched capital and risk assumptions, current executable artifacts, and a disclosed source revision for every system. Until then, the external references in this paper provide mathematical and architectural context rather than a performance ranking.

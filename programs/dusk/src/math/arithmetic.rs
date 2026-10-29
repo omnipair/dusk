@@ -262,7 +262,10 @@ pub fn sqrt_ratio_nad(r_nad: u128) -> Result<u128> {
     Ok(isqrt(scaled))
 }
 
-/// Approximates the elapsed time in milliseconds between two slots.
+/// Converts consensus slot progress to nominal milliseconds for economic math.
+/// This is deterministic and cannot be skewed by a block leader's chosen
+/// `Clock.unix_timestamp`, but it is not measured wall-clock elapsed time.
+/// Skipped slots count; a future slot-cadence change needs a protocol update.
 pub fn slots_to_ms(start_slot: u64, end_slot: u64) -> Option<u64> {
     end_slot.checked_sub(start_slot)?.checked_mul(TARGET_MS_PER_SLOT)
 }

@@ -367,47 +367,6 @@ impl Debt {
     /// returning the realized *interest* portion (the non-compounding interest
     /// the caller should route to the interest vault). Uses the side's blended
     /// principal/debt ratio, which is aggregate-conservative across positions.
-    pub fn realize_margin_repay(&mut self, asset: MarketAsset, repaid: u64) -> Result<u64> {
-        self.realize_margin_clearance(asset, repaid, repaid)
-    }
-
-    /// Reduce tracked margin principal for a liquidation where only part of the
-    /// cleared debt may be cash-backed. The returned interest is only the portion
-    /// backed by `cash_repaid`; written-off interest is never treated as received.
-    pub fn realize_margin_liquidation(
-        &mut self,
-        asset: MarketAsset,
-        cash_repaid: u64,
-        debt_reduction: u64,
-    ) -> Result<u64> {
-        self.realize_margin_clearance(asset, cash_repaid, debt_reduction)
-    }
-
-    fn realize_margin_clearance(&mut self, asset: MarketAsset, cash_repaid: u64, debt_reduction: u64) -> Result<u64> {
-        require!(
-            (cash_repaid as u128) <= debt_reduction as u128,
-            ErrorCode::MarketMathOverflow
-        );
-        let fixed_debt = match asset {
-            MarketAsset::Base => self.fixed_base_debt()?,
-            MarketAsset::Quote => self.fixed_quote_debt()?,
-        };
-        let principal = match asset {
-            MarketAsset::Base => u128::from(self.fixed_base_principal),
-            MarketAsset::Quote => u128::from(self.fixed_quote_principal),
-        }
-        // Clamp guards against rounding making principal momentarily exceed debt.
-        .min(fixed_debt);
-        let (_, interest_paid) = crate::math::realized_interest_split(cash_repaid, fixed_debt, principal)?;
-        let (principal_reduced, _) = crate::math::realized_interest_split(debt_reduction, fixed_debt, principal)?;
-        let principal_slot = match asset {
-            MarketAsset::Base => &mut self.fixed_base_principal,
-            MarketAsset::Quote => &mut self.fixed_quote_principal,
-        };
-        *principal_slot = principal_slot.saturating_sub(principal_reduced);
-        Ok(interest_paid)
-    }
-
     pub fn fixed_base_debt(&self) -> Result<u128> {
         Self::shares_to_debt(self.fixed_base_shares, self.base_borrow_index_nad)
     }

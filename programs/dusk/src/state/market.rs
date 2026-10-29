@@ -11,7 +11,8 @@ pub const MAX_AMM_VOLATILITY_NAD: u64 = 10 * NAD;
 /// Governance/arithmetic bound on signal sensitivity. Separate fee-share caps
 /// bound the Huberized divergence marginal and the volatility debit.
 pub const MAX_AMM_FEE_COEFFICIENT_NAD: u64 = 100 * NAD;
-pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = 216_000;
+/// One nominal day at the protocol's 200 ms scheduled slot cadence.
+pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
 /// Fixed configuration extension room retained for future typed AMM controls.
 ///
 /// Keep this wire-carried reserve compact: the complete `MarketConfig` is also
@@ -209,6 +210,16 @@ pub struct AmmState {
     pub retention_target_stale: bool,
     /// Exact unfunded controller target retried by later real operations.
     pub deferred_controller_target: DeferredControllerTarget,
+    /// A distressed hLP cannot be reconstructed as positive one-sided equity.
+    /// Each bit freezes only that vault's share/debt hedge during swaps.
+    pub frozen_hlp_mask: u8,
+    /// Fixed virtual-coordinate adjustment captured when the vault freezes.
+    /// It preserves the pre-freeze executable price without treating the
+    /// vault's negative equity as spendable token inventory.
+    pub frozen_base_vault_base_offset_nad: i128,
+    pub frozen_base_vault_quote_offset_nad: i128,
+    pub frozen_quote_vault_base_offset_nad: i128,
+    pub frozen_quote_vault_quote_offset_nad: i128,
     pub _reserved: [u8; AMM_STATE_RESERVED_BYTES],
 }
 
@@ -234,6 +245,11 @@ impl Default for AmmState {
             retention_target_saturated: false,
             retention_target_stale: false,
             deferred_controller_target: DeferredControllerTarget::default(),
+            frozen_hlp_mask: 0,
+            frozen_base_vault_base_offset_nad: 0,
+            frozen_base_vault_quote_offset_nad: 0,
+            frozen_quote_vault_base_offset_nad: 0,
+            frozen_quote_vault_quote_offset_nad: 0,
             _reserved: [0; AMM_STATE_RESERVED_BYTES],
         }
     }
@@ -320,6 +336,10 @@ pub struct Debt {
     pub fixed_quote_shares: u128,
     pub base_borrow_index_nad: u128,
     pub quote_borrow_index_nad: u128,
+    /// Fractional index growth carried across checkpoints. Denominator is
+    /// `NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest.
+    pub base_borrow_index_remainder: u128,
+    pub quote_borrow_index_remainder: u128,
     pub base_rate_at_target_nad: u128,
     pub quote_rate_at_target_nad: u128,
     pub global_health_base_contribution_for_quote_debt: u64,
@@ -343,10 +363,30 @@ pub struct Debt {
     pub isolated_quote_shares: u128,
     pub isolated_base_principal: u64,
     pub isolated_quote_principal: u64,
+    /// Gross collateral atoms in debt-bearing leverage positions. Counts all
+    /// owners and namespaces; custody donations cannot create exposure credit.
+    pub leverage_base_collateral: u64,
+    pub leverage_quote_collateral: u64,
+}
+
+/// Reserve-cash funding of public borrower interest. The protocol portion is
+/// held in the reserve vault until repayment, so cancellation can return it
+/// to executable cash without a transfer or a second transfer fee.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct PublicInterestAdvance {
+    pub outstanding_gross: u64,
+    pub protocol_escrow: u64,
+    /// Native repayment has already restored this cash; its token handler
+    /// must exclude it from the new interest-vault transfer.
+    pub repayment_credit_pending: u64,
+    /// Frozen protocol allocation released by repayment, still held in the
+    /// reserve vault until the same instruction completes token settlement.
+    pub protocol_release_pending: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Fees {
+    pub public_interest_advance: PublicInterestAdvance,
     pub swap_fee_growth_index_q64: u128,
     pub interest_growth_index_q64: u128,
     /// Scaled fee entitlement not yet representable by the integer growth
@@ -398,6 +438,9 @@ pub struct ProtocolAuctionEpoch {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct HlpVault {
+    /// Collateral committed to one atomic flash recovery. Receipt supply is
+    /// fixed until settlement; retail operations on other positions may run.
+    pub flash_collateral_debit: u64,
     pub ylp_vault: Pubkey,
     pub ylp_shares: u64,
     /// hLP-owned live reserve depth that is not backed by reserve cash or
@@ -439,6 +482,7 @@ pub struct HlpVault {
     pub unallocated_quote_swap_fee_amount: u64,
     pub unallocated_quote_interest_amount: u64,
     pub last_nav_nad: u128,
+    /// Base quoted in quote NAD units for either target asset; zero means unset.
     pub cached_settlement_price_nad: u128,
     /// Smoothed APR of the opposite asset borrowed by this target-asset hLP.
     /// The fixed twelve-hour half-life gives Stop Rate orders stable semantics.
@@ -463,8 +507,10 @@ pub struct DailyBorrowBucket {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace, PartialEq, Eq)]
 pub struct InsuranceDrawWindow {
-    /// Slot at which the current 24-hour accounting window began. A zero
-    /// value means no draw window has been opened yet.
+    /// `start_slot` may legitimately be zero in a test or newly started bank;
+    /// keep initialization separate rather than using a sentinel slot.
+    pub initialized: bool,
+    /// Start of the nominal 24-hour window, measured in consensus slots.
     pub start_slot: u64,
     /// Available insurance at the start of the window, before any draws.
     pub opening_available: u64,
@@ -482,7 +528,9 @@ pub struct Insurance {
     pub quote_available: u64,
     pub base_draw_window: InsuranceDrawWindow,
     pub quote_draw_window: InsuranceDrawWindow,
-    pub per_event_draw_bps: u16,
+    /// Maximum share of a borrower/leverage principal shortfall covered by
+    /// insurance. hLP funding claims use their own eligible-loss definition.
+    pub principal_coverage_bps: u16,
     pub per_day_draw_bps: u16,
 }
 
@@ -495,7 +543,7 @@ impl Default for Insurance {
             quote_available: 0,
             base_draw_window: InsuranceDrawWindow::default(),
             quote_draw_window: InsuranceDrawWindow::default(),
-            per_event_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_EVENT_BPS,
+            principal_coverage_bps: crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS,
             per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
         }
     }
@@ -525,7 +573,7 @@ pub struct Market {
     /// One-shot signer allowed to provide the first fully-backed Base/Quote
     /// seed. It is cleared permanently once yLP supply becomes nonzero.
     pub initial_liquidity_authority: Pubkey,
-    /// External yLP burned into active governance support. This is added back
+    /// External yLP burned into direct support or reusable governance balances. This is added back
     /// when computing direct-yLP eligibility; internal reserve-share supply is
     /// intentionally unchanged by governance locking.
     pub governance_locked_ylp: u64,
@@ -663,6 +711,9 @@ pub struct ReserveShares {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Reserves {
+    /// Same-transaction collateral receivable. Included in backing, excluded
+    /// from cash available to swaps, loans and withdrawals.
+    pub flash_receivable: u64,
     // Virtual Reserves (r_virtual = r_cash + r_cash_backed_debt + r_hlp_live)
     pub live_reserve: u64,
     // Cash Reserves (r_cash)
