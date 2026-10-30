@@ -4,7 +4,8 @@ Dusk is the standalone market program for Omnipair V2. It uses market terminolog
 
 See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md) for current named-path
 regression ceilings and explicitly dated, commit-bound full-instruction
-snapshots. The current public IDL contains 58 instructions.
+snapshots. The vendored public IDL in `packages/dusk-sdk/src/idl_v2.json` is the
+source of truth for the current instruction set.
 
 See [`AUDIT_STATUS.md`](./AUDIT_STATUS.md) for the authoritative disposition of
 known internal findings. Dated files under the ignored `.audit/` directory are
@@ -40,7 +41,7 @@ Dusk exposes the current market instruction set:
 - `swap`, `close_insolvent_hlp`
 - `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
-- `observe_liquidation`, `preview_flash_liquidation`, `begin_flash_liquidation`, `settle_flash_liquidation`, `preview_emergency_liquidation`, `emergency_liquidation`
+- `preview_liquidation_health`, `preview_flash_liquidation`, `preview_flash_amm_liquidation`, `begin_flash_liquidation`, `settle_flash_liquidation`, `preview_emergency_liquidation`, `emergency_liquidation`
 - `deposit_single_sided`, `withdraw_single_sided`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `repay_leverage`, `withdraw_repaid_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
