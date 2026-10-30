@@ -1332,13 +1332,7 @@ fn position_preview_exposes_the_authoritative_liquidation_repayment_cap() {
     let expected = market
         .position_debt_side_quote(&position, MarketAsset::Base, Default::default())
         .unwrap();
-    let preview = preview_position_debt_side(
-        &market,
-        &position,
-        MarketAsset::Base,
-        Default::default(),
-        0,
-    )
+    let preview = preview_position_debt_side(&market, &position, MarketAsset::Base, Default::default())
     .unwrap();
     assert_eq!(preview.max_repay_amount, expected.max_repay_amount);
 }

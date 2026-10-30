@@ -35,7 +35,7 @@ pub struct LeveragePosition {
     /// a new revision even if it reopens in the same slot.
     pub open_curve_revision: u64,
     pub active_liquidation_session: Pubkey,
-    pub distress: crate::state::LiquidationDistress,
+
     pub bump: u8,
 }
 
@@ -76,7 +76,7 @@ impl LeveragePosition {
         self.opened_at = opened_at;
         self.opened_slot = opened_slot;
         self.active_liquidation_session = Pubkey::default();
-        self.distress = crate::state::LiquidationDistress::default();
+
         self.bump = bump;
     }
 

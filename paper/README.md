@@ -1,5 +1,9 @@
 # Omnipair Dusk whitepapers
 
+**2026-10-30 runtime update:** the retained research PDFs describe the earlier
+time-incentive design. Current liquidation uses health alone, without registration;
+see [the superseding policy](../docs/HEALTH_ONLY_LIQUIDATION.md).
+
 **Start with [the hLP derivation and worked examples](HLP_DERIVATION.md).** It explains `xy=k`, `√p`, continuously maintained 2× leverage and the inventory-dependent hedge for concentration.
 
 These research drafts were revised on October 23, 2026 for the integration candidate combining PR #45 at `04941f19` and PR #52 at `2f46e0e7`. The hLP accounting, harvest, cash-carry and flash-recovery mechanisms are described as implemented; final combined review remains pending. This is not a production deployment or audit certification.

@@ -6,54 +6,11 @@ use crate::{
     errors::ErrorCode,
 };
 
-pub const LIQUIDATION_INCENTIVE_SECONDS: u64 = 120;
 pub const LIQUIDATION_MINIMUM_DISCOUNT_BPS: u16 = 50;
 pub const LIQUIDATION_RECOVERY_BUFFER_BPS: u16 = 200;
 pub const LIQUIDATION_FEE_BPS: u16 = 100;
 pub const LIQUIDATION_PROTOCOL_SHARE_BPS: u16 = DEFAULT_PROTOCOL_REVENUE_SHARE_BPS;
 pub const PRINCIPAL_LOSS_COVERAGE_BPS: u16 = 7_500;
-
-/// A committed observation is separate from an atomic flash transaction: a
-/// reverted route must not erase the incentive clock. Each debt leg owns its
-/// episode. Recovery ends it; a useful partial while still unhealthy does not.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct LiquidationDistress {
-    pub active: bool,
-    pub started_at: i64,
-    pub observed_slot: u64,
-}
-
-impl LiquidationDistress {
-    pub fn observe(&mut self, eligible: bool, now: i64, slot: u64) -> Result<()> {
-        require!(slot >= self.observed_slot, ErrorCode::InvalidLiquidationClock);
-        if self.active {
-            require!(now >= self.started_at, ErrorCode::InvalidLiquidationClock);
-        }
-        if !eligible {
-            *self = Self {
-                observed_slot: slot,
-                ..Self::default()
-            };
-        } else {
-            if !self.active {
-                self.active = true;
-                self.started_at = now;
-            }
-            self.observed_slot = slot;
-        }
-        Ok(())
-    }
-
-    pub fn age(&self, now: i64) -> Result<u64> {
-        if !self.active {
-            return Ok(0);
-        }
-        let age = now
-            .checked_sub(self.started_at)
-            .ok_or(ErrorCode::InvalidLiquidationClock)?;
-        u64::try_from(age).map_err(|_| ErrorCode::InvalidLiquidationClock.into())
-    }
-}
 
 /// Linear symmetric-EMA collateral value and actual indexed debt, both in debt
 /// token atoms. Execution prices never determine reference eligibility.
@@ -104,14 +61,12 @@ impl LiquidationHealth {
         Ok((required.saturating_sub(equity) * u128::from(BPS_DENOMINATOR) / required) as u16)
     }
 
-    pub fn rates(&self, age_seconds: u64) -> Result<LiquidationRates> {
+    pub fn rates(&self) -> Result<LiquidationRates> {
         require!(self.eligible()?, ErrorCode::PositionNotLiquidatable);
         let progress = u64::from(self.distress_progress_bps()?);
-        let elapsed = age_seconds.min(LIQUIDATION_INCENTIVE_SECONDS);
         Ok(LiquidationRates {
-            buyer_discount_bps: LIQUIDATION_MINIMUM_DISCOUNT_BPS
-                + (450 * progress / 10_000).max(450 * elapsed / 120) as u16,
-            emergency_reward_bps: (100 * progress / 10_000).max(30 + 70 * elapsed / 120) as u16,
+            buyer_discount_bps: LIQUIDATION_MINIMUM_DISCOUNT_BPS + (450 * progress / 10_000) as u16,
+            emergency_reward_bps: (100 * progress / 10_000) as u16,
         })
     }
 
@@ -264,37 +219,100 @@ mod tests {
     use super::*;
 
     #[test]
-    fn emergency_clock_changes_reward_without_unlocking_execution() {
-        let boundary = LiquidationHealth {
-            collateral_value: 1_000_000,
-            debt: 951_000,
-            maintenance_bps: 700,
-        };
-        assert!(boundary.emergency_allowed().unwrap());
-        for (age, reward) in [(0, 30), (60, 65), (120, 100), (u64::MAX, 100)] {
-            assert_eq!(boundary.rates(age).unwrap().emergency_reward_bps, reward);
-        }
-        let above = LiquidationHealth {
-            debt: 950_999,
-            ..boundary
-        };
-        assert!(!above.emergency_allowed().unwrap());
-        assert_eq!(above.rates(120).unwrap().emergency_reward_bps, 100);
-        let insolvent = LiquidationHealth {
-            debt: 1_000_001,
-            ..boundary
-        };
-        assert_eq!(
-            insolvent.rates(0).unwrap(),
-            LiquidationRates {
-                buyer_discount_bps: 500,
-                emergency_reward_bps: 100
+    fn health_only_incentives_cover_exact_boundaries_and_invalid_health() {
+        for maintenance in [1, 700, 1200, 1700, 9999] {
+            let value = 100_000_000_u64;
+            let required = value * u64::from(maintenance) / 10_000;
+            let boundary = LiquidationHealth {
+                collateral_value: value,
+                debt: value - required,
+                maintenance_bps: maintenance,
+            };
+            assert!(boundary.eligible().unwrap());
+            assert_eq!(
+                boundary.rates().unwrap(),
+                LiquidationRates {
+                    buyer_discount_bps: 50,
+                    emergency_reward_bps: 0
+                }
+            );
+            assert!(!LiquidationHealth {
+                debt: boundary.debt - 1,
+                ..boundary
             }
+            .eligible()
+            .unwrap());
+            assert!(LiquidationHealth {
+                debt: boundary.debt - 1,
+                ..boundary
+            }
+            .rates()
+            .is_err());
+            let emergency = LiquidationHealth {
+                debt: value - required * 70 / 100,
+                ..boundary
+            };
+            assert!(emergency.emergency_allowed().unwrap());
+            assert_eq!(emergency.rates().unwrap().emergency_reward_bps, 30);
+            assert!(!LiquidationHealth {
+                debt: emergency.debt - 1,
+                ..emergency
+            }
+            .emergency_allowed()
+            .unwrap());
+            let halfway = LiquidationHealth {
+                debt: value - required / 2,
+                ..boundary
+            };
+            assert_eq!(
+                halfway.rates().unwrap(),
+                LiquidationRates {
+                    buyer_discount_bps: 275,
+                    emergency_reward_bps: 50
+                }
+            );
+            for debt in [value, value + 1, u64::MAX] {
+                assert_eq!(
+                    LiquidationHealth { debt, ..boundary }.rates().unwrap(),
+                    LiquidationRates {
+                        buyer_discount_bps: 500,
+                        emergency_reward_bps: 100
+                    }
+                );
+            }
+            assert!(!LiquidationHealth { debt: 0, ..boundary }.eligible().unwrap());
+        }
+        for maintenance_bps in [0, 10_000, u16::MAX] {
+            assert!(LiquidationHealth {
+                collateral_value: 100,
+                debt: 100,
+                maintenance_bps
+            }
+            .rates()
+            .is_err());
+        }
+        assert_eq!(
+            LiquidationHealth {
+                collateral_value: 0,
+                debt: 1,
+                maintenance_bps: 700
+            }
+            .rates()
+            .unwrap()
+            .buyer_discount_bps,
+            500
         );
+        assert!(LiquidationHealth {
+            collateral_value: 0,
+            debt: 0,
+            maintenance_bps: 700
+        }
+        .rates()
+        .is_err());
     }
 
     #[test]
-    fn rates_are_bounded_and_monotone_with_health_and_time() {
+    fn rates_are_bounded_and_monotone_with_health() {
         let mut previous = LiquidationRates::default();
         for debt in 930_001..=1_000_001 {
             let h = LiquidationHealth {
@@ -302,27 +320,13 @@ mod tests {
                 debt,
                 maintenance_bps: 700,
             };
-            let rates = h.rates(0).unwrap();
+            let rates = h.rates().unwrap();
             assert!((50..=500).contains(&rates.buyer_discount_bps));
-            assert!((30..=100).contains(&rates.emergency_reward_bps));
+            assert!(rates.emergency_reward_bps <= 100);
             assert!(rates.buyer_discount_bps >= previous.buyer_discount_bps);
             assert!(rates.emergency_reward_bps >= previous.emergency_reward_bps);
             previous = rates;
         }
-    }
-
-    #[test]
-    fn distress_survives_partial_and_restarts_after_verified_recovery() {
-        let mut episode = LiquidationDistress::default();
-        episode.observe(true, 10, 1).unwrap();
-        episode.observe(true, 70, 2).unwrap();
-        assert_eq!(episode.age(130).unwrap(), 120);
-        episode.observe(false, 130, 3).unwrap();
-        assert_eq!(episode.age(130).unwrap(), 0);
-        episode.observe(true, 140, 4).unwrap();
-        assert_eq!(episode.age(140).unwrap(), 0);
-        assert!(episode.age(139).is_err());
-        assert!(episode.observe(true, 141, 3).is_err());
     }
 
     #[test]

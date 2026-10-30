@@ -2898,22 +2898,6 @@
             "type": "pubkey"
           },
           {
-            "name": "base_distress",
-            "type": {
-              "defined": {
-                "name": "LiquidationDistress"
-              }
-            }
-          },
-          {
-            "name": "quote_distress",
-            "type": {
-              "defined": {
-                "name": "LiquidationDistress"
-              }
-            }
-          },
-          {
             "name": "auction_debt_asset",
             "type": "u8"
           },
@@ -4377,41 +4361,8 @@
             "type": "pubkey"
           },
           {
-            "name": "distress",
-            "type": {
-              "defined": {
-                "name": "LiquidationDistress"
-              }
-            }
-          },
-          {
             "name": "bump",
             "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "LiquidationDistress",
-      "docs": [
-        "A committed observation is separate from an atomic flash transaction: a",
-        "reverted route must not erase the incentive clock. Each debt leg owns its",
-        "episode. Recovery ends it; a useful partial while still unhealthy does not."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "started_at",
-            "type": "i64"
-          },
-          {
-            "name": "observed_slot",
-            "type": "u64"
           }
         ]
       }
