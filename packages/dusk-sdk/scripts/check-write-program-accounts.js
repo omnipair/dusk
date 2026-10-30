@@ -7,6 +7,7 @@ import { PublicKey } from "@solana/web3.js";
 
 import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
+import { defaultMarketLaunchConfig } from "../dist/market-bootstrap.js";
 
 const key = (byte) => new PublicKey(new Uint8Array(32).fill(byte));
 const owner = key(1);
@@ -32,6 +33,21 @@ program.account.market.fetch = async () => ({
 });
 program.account.parameterProposal.fetch = async () => ({ updates: [] });
 const write = new DuskWrite(program);
+
+test("default market initialization encodes without oracle creation bounds", async () => {
+  const config=defaultMarketLaunchConfig();
+  const metadata={name:"LP",symbol:"LP",uri:"https://example.com/lp.json"};
+  const ix=await write.initializeMarketInstruction({
+    payer:owner,baseMint,quoteMint,ylpMint:key(30),baseHlpMint:key(31),quoteHlpMint:key(32),
+    teamTreasury:key(33),teamTreasuryWsolAccount:key(34),paramsHash:Array(32).fill(1),config,
+    lpMetadata:{ylp:metadata,baseHlp:metadata,quoteHlp:metadata},
+  });
+  const decoded=program.coder.instruction.decode(ix.data);
+  assert.equal(decoded.name,"initializeMarket");
+  assert.equal(decoded.data.args.config.swapFeeBps,config.swapFeeBps);
+  assert.equal(decoded.data.args.bootstrapPriceNad.toString(),"0");
+  assert.equal("oracleBounds" in decoded.data.args.config,false);
+});
 
 test("Token-2022 write helpers keep the fixed legacy Token account", async () => {
   const common = { market, owner, positionId, assetMint: baseMint, ownerAssetAccount: key(6) };
@@ -102,6 +118,10 @@ test("oracle policy wire encoding matches Anchor and rejects ambiguous feed iden
     assert.ok(oracleReadAccounts(input).every(meta => !meta.isWritable && !meta.isSigner));
   }
   assert.throws(() => oraclePolicy({...policy(), lambdaBps: 10_000}));
+  assert.throws(() => oraclePolicy({...policy(), lambdaBps: 65_535}));
+  for (const adjustmentCapNad of [0,999_999_999,1_000_000_000])
+    assert.throws(() => oraclePolicy({...policy(), adjustmentCapNad}));
+  assert.equal(oraclePolicy({...policy(),lambdaBps:9999,adjustmentCapNad:3_000_000_000}).lambdaBps,9999);
   assert.throws(() => oraclePolicy({...policy(), baseFeedId: [1]}));
   assert.deepEqual(oracleReadAccounts(policy(0)), []);
 });

@@ -424,7 +424,6 @@ impl MarketConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        self.oracle_bounds.validate()?;
         self.fee_profile().validate()?;
         require_eq!(
             self.target_hlp_leverage_bps,
@@ -597,7 +596,7 @@ impl Market {
         for update in updates {
             match update {
                 MarketParameterUpdate::Oracle(policy) => {
-                    policy.validate(self.config.oracle_bounds)?;
+                    policy.validate()?;
                     require!(*policy != self.oracle.policy, ErrorCode::ParameterUpdateNotMeaningful);
                 }
                 MarketParameterUpdate::Fee(profile) => {
@@ -725,7 +724,7 @@ impl Market {
             _ => None,
         });
         if let Some(policy) = next {
-            policy.validate(self.config.oracle_bounds)?;
+            policy.validate()?;
             let same_source = policy.same_source(self.oracle.policy);
             let observation = if policy.lambda_bps == 0 {
                 if same_source {

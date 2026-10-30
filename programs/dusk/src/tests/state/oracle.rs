@@ -10,7 +10,6 @@ fn clock()->Clock {Clock {slot:100,unix_timestamp:1000,..Clock::default()}}
 fn normalized()->(super::super::Market,NormalizedOracleV1,FeedAccount) {
     let mut market=super::super::Market::default();
     market.base_side.asset_mint=Pubkey::new_unique();market.quote_side.asset_mint=Pubkey::new_unique();
-    market.config.oracle_bounds=OracleBounds{max_lambda_bps:9999,max_adjustment_nad:3*NAD};
     let provider=Pubkey::new_unique();let account=Pubkey::new_unique();
     market.oracle.policy=OraclePolicy{format:NORMALIZED_ORACLE_V1,provider,base_account:account,
         base_feed_id:[7;32],lambda_bps:5000,adjustment_cap_nad:2*NAD,max_age_seconds:30,max_age_slots:20,
@@ -23,10 +22,30 @@ fn normalized()->(super::super::Market,NormalizedOracleV1,FeedAccount) {
 }
 
 #[test]
+fn policy_limits_do_not_depend_on_market_creation_settings() {
+    OraclePolicy::default().validate().unwrap();
+    let (market,_,_)=normalized();
+    for lambda in [0,1,2500,9999] {
+        for cap in [NAD+1,2*NAD,3*NAD,u64::MAX] {
+            let policy=OraclePolicy {lambda_bps:lambda,adjustment_cap_nad:cap,..market.oracle.policy};
+            policy.validate().unwrap();
+        }
+    }
+    for lambda in [10_000,u16::MAX] {
+        assert!(OraclePolicy {lambda_bps:lambda,..market.oracle.policy}.validate().is_err());
+    }
+    for cap in [0,NAD-1,NAD] {
+        assert!(OraclePolicy {adjustment_cap_nad:cap,..market.oracle.policy}.validate().is_err());
+    }
+    // Positive weight cannot turn an empty/no-source policy into an oracle.
+    assert!(OraclePolicy {lambda_bps:1,adjustment_cap_nad:2*NAD,..Default::default()}.validate().is_err());
+}
+
+#[test]
 fn normalized_reports_require_identity_source_age_and_confidence() {
     let (market,feed,mut fixture)=normalized();
     let policy=market.oracle.policy;
-    policy.validate(market.config.oracle_bounds).unwrap();
+    policy.validate().unwrap();
     let read=|account:AccountInfo|policy.read(&[account],&clock(),market.base_side.asset_mint,market.quote_side.asset_mint);
     assert_eq!(read(fixture.info()).unwrap().price_nad,60*NAD);
     for case in 0..13 {

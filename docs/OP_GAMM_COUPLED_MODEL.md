@@ -4,7 +4,7 @@
 
 27 October 2026. **Mathematical specification and numerical checks only. No implementation, branch, commit, merge or PR.** Dusk integration remains deferred until #45 merges and is separately authorized.
 
-**Recommendation:** one GAMM family can include an oracleless λ = 0 mode and an oracle-enabled λ > 0 mode. A separate pool is not mathematically necessary. Markets created with the disclosed governance capability could activate an oracle later without moving their LP inventory. Activation changes the risk contract and requires a defined state transition; changing a number alone is insufficient.
+**Recommendation:** one GAMM family can include an oracleless λ = 0 mode and an oracle-enabled λ > 0 mode. A separate pool is not mathematically necessary. Every market supports governed oracle activation later without moving its LP inventory. Activation changes the risk contract and requires a defined state transition; changing a number alone is insufficient.
 
 The derivation below establishes the continuous, solvent model and its clean native limit. It specifies the additional equations for accrued-interest backing, but does not establish a bounded integer solver for every Dusk state. The numerical checks are synthetic mathematical cases, not native instruction tests or historical loss estimates.
 
@@ -299,7 +299,7 @@ The two-band check uses center 100, core price bounds 100/1.1 to 100×1.1, shoul
 
 ## 5. Governed activation in one market
 
-Use one market family with a disclosed oracle capability. A market can start at λ = 0 and permit a bounded future activation through its existing proposal authority. A permanently oracleless profile can instead set the allowed maximum to zero. No Horus permission or privileged provider is needed.
+Use one market family with governed oracle activation available to every market. A market starts at λ = 0 and can activate a bounded oracle policy through its existing proposal authority. The 31 October policy removes creation-time activation bounds and permanent oracleless profiles; this changes configuration semantics, not the dated mathematical experiments above. No Horus permission or privileged provider is needed.
 
 | State | Price-feed dependency | Required behavior |
 | --- | --- | --- |

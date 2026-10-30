@@ -1,10 +1,10 @@
 # Bounded OP-GAMM implementation
 
-30 October 2026. Implemented on merged main `d3d1cfadfcd36d34ada911dd31f7d588df8c78e6`, incorporating PR #45 and its #52 changes. This is the integrated bounded design, not the paper’s unbounded blend. Historical research documents retain their original assumptions and dates.
+Updated 31 October 2026. Implemented on merged main `d3d1cfadfcd36d34ada911dd31f7d588df8c78e6`, incorporating PR #45 and its #52 changes. This is the integrated bounded design, not the paper’s unbounded blend. Historical research documents retain their original assumptions and dates.
 
 ## Market contract
 
-A market discloses immutable maximum oracle weight and maximum adjustment at creation. A zero maximum creates a permanently oracleless market. Otherwise the creator can configure a source before first liquidity, and the existing proposal/support/timelock mechanism can change the source and weight prospectively. No provider allowlist or Horus privilege is introduced.
+Every market starts oracleless with an empty policy and λ = 0; no creation-time oracle opt-in or permanent opt-out exists. The initial-liquidity authority can configure a source and positive weight before first liquidity. After funding, the existing proposal/support/timelock mechanism can activate, change or disable the oracle prospectively. Every proposed policy obeys the same mathematical limits: λ below 100%, and a nonempty policy's adjustment multiplier above one. Its source, weight and adjustment cap can change without moving LP inventory. No provider allowlist or Horus privilege is introduced.
 
 - **λ = 0:** native Dusk pricing, no feed-account dependency. Lending, leverage and hLP use that same native pricing path.
 - **Positive λ:** 1–9,999 basis points. For native price N, external reference O and cap M, the marginal price is `N × exp(clip(λ × ln(O/N), −ln(M), ln(M)))`. Clipping preserves full-range native tails; it limits adjustment rather than guaranteeing exact oracle tracking.
@@ -36,12 +36,12 @@ SDK builders resolve the selected feeds and append them after existing hLP/hook 
 
 The complete required local CI sequence passes:
 
-- **574 native Dusk tests**, including fixed-observation repeated cycles, accrued carry, both frozen cohorts, compounded fees, λ = 0, both-direction and split exit loans, and governance transitions with outstanding debt/claims.
+- **575 native Dusk tests**, including fixed-observation repeated cycles, accrued carry, both frozen cohorts, compounded fees, λ = 0, both-direction and split exit loans, and governance transitions with outstanding debt/claims.
 - **149 LiteSVM tests**, exercising all **76 instructions** and the complete existing compute baseline. OP route cases span λ = 0, 25%, 50%, 99.99%; amplification 1, 4, 32, 2,000; both hLP vaults; changing reports and funding accrual; and full fee compounding at amplification 4. Delegated full/partial closes, Token-2022 fees, invalid-source rollback, price-free principal/interest repayment, Pyth activation, stale-provider replacement and return to native mode are included.
-- **79 SDK tests**, including wire encoding, feed resolution, transaction budget ordering, governance and virtual-book identity.
+- **80 SDK tests**, including wire encoding, feed resolution, transaction budget ordering, governance and virtual-book identity.
 - Independent high-precision invariant/price references, wide division/root differential tests, interval enclosure tests and a transfer-hook resolver comparison against SPL. See [numerical evidence](../analysis/op-gamm-implementation-2026-10-30/README.md).
 
-The [machine-readable validation record](../analysis/op-gamm-implementation-2026-10-30/validation.json) includes every required command, source hashes and binary hashes. Formatting, hygiene, helper shape, Clippy, normal/production checks, the benchmark EMA invariant, delegate/faucet tests, TypeScript, both Anchor interfaces, clean-build identity, SDK checks and the complete runtime baseline pass. The native same-slot CPMM swap measures 99,650 CU against its unchanged 100,000-CU guard. The final suite executes 5,102 successful transactions, with a maximum of 1,275,890 CU. OP routes use the existing transaction limit; no failed transaction or enlarged diagnostic limit is counted as successful execution.
+The [machine-readable validation record](../analysis/op-gamm-implementation-2026-10-30/validation-oracle-activation-2026-10-31.json) includes every required command, source hashes and binary hashes. Formatting, hygiene, helper shape, Clippy, normal/production checks, the benchmark EMA invariant, delegate/faucet tests, TypeScript, both Anchor interfaces, clean-build identity, SDK checks and the complete runtime baseline pass. The native same-slot CPMM swap measures 99,508 CU against its unchanged 100,000-CU guard. The final suite executes 5,110 successful transactions, with a maximum of 1,278,482 CU. OP routes use the existing transaction limit; no failed transaction or enlarged diagnostic limit is counted as successful execution.
 
 These are finite tests, not a security proof or an independent audit. Arbitrary trade size, concentration, fee policy, callback composition and integer precision still have transaction/work limits: clients must simulate the complete route. Accepted but wrong prices can still cause LP losses. Governance changes can create trading opportunities even when claims and balances are preserved. Asset-specific λ/cap/freshness calibration remains a deployment decision.
 

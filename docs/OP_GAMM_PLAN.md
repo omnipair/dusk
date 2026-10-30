@@ -1,8 +1,8 @@
 # OP-GAMM implementation plan
 
-Updated 30 October 2026. The design originated on 26–27 October and is now integrated on merged PR #45, including its #52 changes. This document preserves the design decisions and planned validation sequence. The implemented contract, current validation and limitations are recorded in [implementation status](OP_GAMM_IMPLEMENTATION_STATUS.md).
+Updated 31 October 2026. The design originated on 26–27 October and is now integrated on merged PR #45, including its #52 changes. This document preserves the design decisions and planned validation sequence. The implemented contract, current validation and limitations are recorded in [implementation status](OP_GAMM_IMPLEMENTATION_STATUS.md).
 
-Proposed direction: one permissionless GAMM family that retains Dusk's lending, leverage, fungible LP ownership and hLP. λ = 0 runs without a price oracle; an authorized proposal can later activate λ > 0 if the market disclosed that capability. Its accounting must remain consistent when the reference changes without a trade. Horus is an optional provider, not a prerequisite or privileged dependency.
+Proposed direction: one permissionless GAMM family that retains Dusk's lending, leverage, fungible LP ownership and hLP. λ = 0 runs without a price oracle; an authorized proposal can later activate λ > 0 in any market. Its accounting must remain consistent when the reference changes without a trade. Horus is an optional provider, not a prerequisite or privileged dependency.
 
 The [coupled derivation and exit-loan checks](OP_GAMM_COUPLED_MODEL.md), [bounded adjustment](OP_GAMM_BOUNDED_ADJUSTMENT.md), and [frozen/carry reproductions](OP_GAMM_FROZEN_CARRY_REPRO.md) retain their research assumptions and dated results. The implementation now connects the bounded pricing kernel to instruction authentication, swaps, lending, leverage, hLP, governance and SDK builders. See [implementation status](OP_GAMM_IMPLEMENTATION_STATUS.md) for the current validation results and remaining limitations. This is a pre-deployment account layout; no live-account migration is implied.
 
@@ -10,7 +10,7 @@ The [coupled derivation and exit-loan checks](OP_GAMM_COUPLED_MODEL.md), [bounde
 
 | Area | Contract |
 | --- | --- |
-| Market creation | Anyone can create a GAMM with a disclosed λ range and oracle-activation authority, subject to mechanical validity and funding requirements. A market may begin at zero and activate an oracle later; a permanently oracleless profile can set its allowed maximum to zero. No provider approval or curated feed list is required. Keep distinct markets' balances, claims and losses isolated. |
+| Market creation | Anyone can create a GAMM, subject to mechanical validity and funding requirements. Every market starts oracleless at λ = 0 and supports later oracle activation through governance; there are no creation-time activation bounds. The initial-liquidity authority may configure a positive-weight policy before funding. No provider approval or curated feed list is required. Keep distinct markets' balances, claims and losses isolated. |
 | Oracle consumption | One authenticated on-chain observation-account read. A provider may verify a report and update that account earlier in the same transaction. Dusk does not fetch off-chain data or expose a second raw-report verification API. |
 | Provider choice | The creator pins the adapter/program, canonical account, instrument and policy revision. Direct-provider adapters and Horus use the same consumer contract. Provider neutrality does not eliminate the chosen provider's correctness, availability or upgrade-authority risk. |
 | Oracle weight | The deployer chooses λ within the implemented family's validated bounds, including an explicit native branch at zero. There is no universal 50% setting. Proposals may change it prospectively under the market's disclosed rules, with a coherent debt/ownership/risk transition; automatic outage-driven changes are excluded. |
@@ -169,7 +169,7 @@ The remaining decisions are concrete:
 | Decision | Proposed direction | Evidence needed |
 | --- | --- | --- |
 | Concentrated OP curve | Bounded normalized correction as candidate, original geometric blend as control, native curve at zero. | Select cap/kink numerical treatment; prove full-state hLP endpoint and bounded integer compute; retain center accounting. |
-| λ policy | One family; creator-selected bounds including zero; disclosed prospective oracle activation. | Both-direction transition attacks, existing-position treatment and full native equivalence; no default 50% assumption. |
+| λ policy | One family; native zero default for every market; governed activation/deactivation and policy changes within the implementation's mathematical limits. | Both-direction transition attacks, existing-position treatment and full native equivalence; no default 50% assumption. |
 | Idle hLP maintenance | Keep in-trade rehedging; reuse income and external flash recovery. | Latest eligibility, finite cash, incentives, cadence and weak-buyer tests. |
 | Prolonged outage execution | Price-free repayment stays open; no automatic inventory or zero-price liquidation fallback. | A chosen execution/protection tradeoff for existing debt; no claim of guaranteed fair repayment without fresh information. |
 | Optional depth interest | Base APR plus a calibrated nonnegative spread with fast-down/slow-up depth memory. | Rate-accrual contract, scope of charged debt, executable depth evidence and demand/LP-loss comparisons. |

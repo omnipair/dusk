@@ -230,7 +230,6 @@ function leverageDelegateProgramPath() {
 
 function marketConfig() {
   return {
-    oracleBounds: { maxLambdaBps: 0, maxAdjustmentNad: new BN(0) },
     swapFeeBps: 30,
     divergenceFeeShareCapBps: 0,
     volatilityFeeShareCapBps: 0,
@@ -9706,7 +9705,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const mints = groupedUi ? await createGroupedUiAssets() : undefined;
       const config = marketConfig();
       if (oracleMode) {
-        config.oracleBounds = {maxLambdaBps: 9999, maxAdjustmentNad: new BN(2_000_000_000)};
         config.amm.peakAmplificationNad = new BN(4_000_000_000);
         config.amm.coreHalfWidthBps = 1000; config.amm.fadeWidthBps = 4000;
       }
@@ -11609,14 +11607,16 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }
   }
 
-  it("activates Pyth through governance, replaces a stale provider and returns to native mode", async function () {
+  it("upgrades a default native market, replaces a stale provider and repeatedly disables/reactivates its oracle", async function () {
     const config = marketConfig();
-    config.oracleBounds = {maxLambdaBps: 9999, maxAdjustmentNad: new BN(2_000_000_000)};
     const f = await addBalancedLiquidity(197, config, {baseDeposit:100_000_000,quoteDeposit:200_000_000,
       minYlp:1,baseMint:1_000_000_000,quoteMint:2_000_000_000});
     await openBaseHedge(f, 2_000_000);
     await openQuoteHedge(f, 4_000_000);
     const {leveragePosition} = await openQuoteDebtLeverage(f,5000,hlpSwapAccounts(f),20_000);
+    const initial = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+    expect(initial.oracle.policy.lambda_bps).to.equal(0);
+    expect(initial.oracle.policy.provider.equals(PublicKey.default)).to.equal(true);
     const writer = new DuskWrite(createDuskProgram({provider:program.provider}));
     const provider = new PublicKey("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
     const base = Keypair.generate().publicKey, quote = Keypair.generate().publicKey;
@@ -11626,6 +11626,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       maxAgeSlots:new BN(100),maxConfidenceBps:100,maxPublishSkewSeconds:5};
     const replacement = {...pythPolicy,format:1,provider:normalizedOwner,baseAccount:normalized,
       quoteAccount:PublicKey.default,quoteFeedId:Array(32).fill(0),maxPublishSkewSeconds:0,lambdaBps:5000};
+    let initialConfigError: unknown;
+    try {
+      const ix=await writer.configureInitialOracleInstruction({market:f.market,authority:payer.publicKey,policy:pythPolicy});
+      await connection.sendTransaction(new Transaction().add(ix),[payer]);
+    } catch(e) {initialConfigError=e;}
+    expect(String(initialConfigError)).to.include("NonZeroSupply");
+    let sequence=0n;
     const refresh = (policy: typeof pythPolicy, partial = false) => {
       const clock = svm.getClock();
       if (policy.format === 2) {
@@ -11638,18 +11645,20 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       } else {
         const data=Buffer.alloc(145);data.set(Buffer.from("DOPRV001"));data.fill(1,8,40);
         data.set(f.baseMint.toBytes(),40);data.set(f.quoteMint.toBytes(),72);data.writeBigUInt64LE(2_000_000_000n,104);
-        data.writeBigInt64LE(clock.unixTimestamp,120);data.writeBigUInt64LE(clock.slot,128);data.writeBigUInt64LE(1n,136);data[144]=1;
+        data.writeBigInt64LE(clock.unixTimestamp,120);data.writeBigUInt64LE(clock.slot,128);data.writeBigUInt64LE(++sequence,136);data[144]=1;
         svm.setAccount(normalized,{lamports:10_000_000,owner:normalizedOwner,executable:false,data});
       }
     };
-    for (const [i,policy] of [pythPolicy,replacement,{...replacement,lambdaBps:0}].entries()) {
+    const raisedCap={...replacement,adjustmentCapNad:new BN(3_000_000_000)};
+    for (const [i,policy] of [pythPolicy,replacement,{...replacement,lambdaBps:0},raisedCap,{...raisedCap,lambdaBps:0}].entries()) {
       const supply=(await getMint(connection as any,f.ylpMint,undefined,TOKEN_2022_PROGRAM_ID)).supply;
       const created=await writer.createParameterProposal({market:f.market,proposer:payer.publicKey,nonce:i+1,
         holderYlpAccount:f.ownerYlpAccount,initialSupport:supply/2n+1n,updates:[{kind:"oracle",policy}],
         metadata:{version:1,title:"Oracle policy",descriptionUri:"ipfs://oracle-policy-test",descriptionSha256:Array(32).fill(1),descriptionLen:1}});
       await connection.sendTransaction(created.transaction,[payer]);
       const clock=svm.getClock();clock.unixTimestamp+=7n*86400n+1n;clock.slot+=1n;svm.setClock(clock);svm.expireBlockhash();
-      refresh(policy);
+      // Disabling must work with a dead source and require no feed accounts.
+      if (policy.lambdaBps>0) refresh(policy);
       const before=accountCoder.decode("LeveragePosition",Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
       const beforeReserves=[f.baseReserveVault,f.quoteReserveVault].map(k=>Buffer.from(svm.getAccount(k)!.data));
       const execution=await writer.executeParameterProposal({market:f.market,proposal:created.proposal});
@@ -11668,9 +11677,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       [f.baseReserveVault,f.quoteReserveVault].forEach((k,j)=>expect(Buffer.from(svm.getAccount(k)!.data).equals(beforeReserves[j])).to.equal(true));
       const market=accountCoder.decode("Market",Buffer.from(svm.getAccount(f.market)!.data)) as any;
       expect(market.oracle.policy.lambda_bps).to.equal(policy.lambdaBps);
+      expect(market.oracle.policy.adjustment_cap_nad.toString()).to.equal(policy.adjustmentCapNad.toString());
       // New source replaces the stale Pyth accounts without refreshing them.
       const swap=await writer.buildSwapInstruction({market:f.market,trader:payer.publicKey,assetInMint:f.baseMint,
         assetOutMint:f.quoteMint,exactAssetIn:1000,minAssetOut:1});
+      if (policy.lambdaBps===0) {
+        for (const key of [base,quote,normalized]) expect(swap.keys.some(meta=>meta.pubkey.equals(key))).to.equal(false);
+      }
       await connection.sendTransaction(new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}),swap),[payer]);
       const withdrawn=await writer.withdrawParameterSupport({market:f.market,proposal:created.proposal,proposer:payer.publicKey,
         supporter:payer.publicKey,supporterYlpAccount:f.ownerYlpAccount});
@@ -11680,7 +11693,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("rejects invalid OP feeds atomically while allowing principal and accrued-interest repayment", async function () {
     const config = marketConfig();
-    config.oracleBounds = {maxLambdaBps: 9999, maxAdjustmentNad: new BN(2_000_000_000)};
     let oracle!: Awaited<ReturnType<typeof configureNormalizedTestOracle>>;
     const fixture = await addBalancedLiquidity(198, config, {
       baseDeposit: 100_000_000, quoteDeposit: 200_000_000, minYlp: 1,
@@ -11764,7 +11776,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     for (const lambda of [0,2500,5000,9999]) {
       for (const [amp, compound] of [[1,0],[4,0],[32,0],[2000,0],[4,10_000]]) {
         const config=marketConfig();
-        config.oracleBounds={maxLambdaBps:9999,maxAdjustmentNad:new BN(2_000_000_000)};
         config.amm.peakAmplificationNad=new BN(amp*1_000_000_000);
         config.amm.compoundingFeeBps = compound;
         config.amm.coreHalfWidthBps=amp===1?0:amp===4?1000:amp===32?100:1;

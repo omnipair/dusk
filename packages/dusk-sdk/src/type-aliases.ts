@@ -9,7 +9,6 @@ type TypeNamed<N extends Dusk["types"][number]["name"]> = Extract<
   { name: N }
 >;
 type DuskAccountTypes = [
-  TypeNamed<"oracleBounds">,
   TypeNamed<"oraclePolicy">,
   TypeNamed<"oracleObservation">,
   TypeNamed<"oracleState">,
@@ -69,7 +68,6 @@ type DuskAccountTypes = [
   TypeNamed<"yieldAccount">,
 ];
 type DuskEventTypes = [
-  TypeNamed<"oracleBounds">,
   TypeNamed<"oraclePolicy">,
   TypeNamed<"initialOracleConfigured">,
   TypeNamed<"governanceBalanceUpdated">,

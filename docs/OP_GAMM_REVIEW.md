@@ -11,7 +11,7 @@ This is author verification of the bounded OP-GAMM changes, not an independent s
 
 ## Boundaries verified
 
-Source binding is per invocation; deserialization drops authority. Pyth requires full verification and both assets. New-source governance validates the replacement while retaining claims and debt; the old dead source is not required. Stale direct debt repayment does not authorize new risk. Fixed callback account identities cannot change while an approved quote is pending; the pending context is cleared before settlement and rollback removes it on failure.
+Every default native market can activate an oracle through governance; no immutable creation-time oracle bounds exist. Mathematical policy limits and the funded-market governance requirement remain enforced. Source binding is per invocation; deserialization drops authority. Pyth requires full verification and both assets. New-source governance validates the replacement while retaining claims and debt; the old dead source is not required. Stale direct debt repayment does not authorize new risk. Fixed callback account identities cannot change while an approved quote is pending; the pending context is cleared before settlement and rollback removes it on failure.
 
 ## Remaining design limitations
 

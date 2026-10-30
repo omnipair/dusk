@@ -108,7 +108,7 @@ impl Market {
             self.oracle.runtime = RuntimePricing::default();
             return Ok(());
         }
-        policy.validate(self.config.oracle_bounds)?;
+        policy.validate()?;
         let observation = policy.read(accounts, clock, self.base_side.asset_mint, self.quote_side.asset_mint)?;
         let previous = self.oracle.last_observation;
         observation.assert_not_before(previous, policy.format)?;

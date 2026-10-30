@@ -6,7 +6,6 @@ use proptest::prelude::*;
 
 fn valid_config() -> MarketConfig {
     MarketConfig {
-        oracle_bounds: Default::default(),
         swap_fee_bps: 0,
         divergence_fee_share_cap_bps: 0,
         volatility_fee_share_cap_bps: 0,
@@ -1928,11 +1927,12 @@ fn protection_health_uses_liquidation_terms_and_donations_preserve_them() {
 }
 
 #[test]
-fn oracle_governance_preserves_claims_and_replay_history_across_zero_mode() {
-    use crate::state::{OracleBounds, OraclePolicy, NormalizedOracleV1, NORMALIZED_ORACLE_V1, NORMALIZED_ORACLE_MAGIC};
+fn default_native_market_can_activate_and_reactivate_oracle_without_changing_claims() {
+    use crate::state::{OraclePolicy, NormalizedOracleV1, NORMALIZED_ORACLE_V1, NORMALIZED_ORACLE_MAGIC};
     for with_hlp in [false, true] {
         let mut market = invariant_market(1_000_000, 1_000_000);
-        market.config.oracle_bounds = OracleBounds {max_lambda_bps:9999,max_adjustment_nad:2*NAD};
+        assert_eq!(market.oracle.policy,OraclePolicy::default());
+        market.bind_oracle(&[],&Clock::default()).unwrap();
         if with_hlp {
             market.deposit_single_sided(MarketAsset::Base,20_000,0).unwrap();
             market.deposit_single_sided(MarketAsset::Quote,20_000,0).unwrap();
@@ -1953,10 +1953,17 @@ fn oracle_governance_preserves_claims_and_replay_history_across_zero_mode() {
         let clock = Clock {slot:0,unix_timestamp:100,..Clock::default()};
         let mut lamports = 1;
         let mut bytes = feed.try_to_vec().unwrap();
+        let native_before=market.try_to_vec().unwrap();
+        assert!(market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],&clock,&[]).is_err());
+        assert_eq!(market.try_to_vec().unwrap(),native_before);
         for (index,lambda) in [2500,9999,0,5000,0].into_iter().enumerate() {
             policy.lambda_bps=lambda;
+            // A later proposal can also raise the active cap; there is no
+            // immutable creation-time ceiling tied to the original policy.
+            if index>=3 {policy.adjustment_cap_nad=3*NAD;}
             let account = AccountInfo::new(&key,false,false,&mut lamports,&mut bytes,&provider,false,0);
-            market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],&clock,&[account]).unwrap();
+            let accounts=if lambda==0 {vec![]} else {vec![account]};
+            market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],&clock,&accounts).unwrap();
             assert_eq!(market.oracle.revision,index as u64+1);
             assert_eq!(market.parameter_revisions[7],index as u64+1);
             assert_eq!(market.oracle.last_observation.sequence,2);

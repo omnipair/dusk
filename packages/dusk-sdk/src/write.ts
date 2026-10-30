@@ -2427,8 +2427,6 @@ export interface RemoveLiquidityParams extends YlpLiquidityAccounts {
 function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown> {
   const bn = (value: GovernanceIntegerLike, label: string) => governanceIntegerBN(value, label);
   return {
-    oracleBounds: { maxLambdaBps: config.oracleBounds.maxLambdaBps,
-      maxAdjustmentNad: bn(config.oracleBounds.maxAdjustmentNad, "maxAdjustmentNad") },
     swapFeeBps: config.swapFeeBps,
     divergenceFeeShareCapBps: config.divergenceFeeShareCapBps,
     volatilityFeeShareCapBps: config.volatilityFeeShareCapBps,

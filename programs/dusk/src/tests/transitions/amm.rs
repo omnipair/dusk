@@ -513,7 +513,6 @@ fn lp_fee_compounding_percentage_excludes_protocol_revenue() {
 }
 
 fn bind_test_oracle(market: &mut Market, lambda: u16, reference: u64) {
-    market.config.oracle_bounds = OracleBounds {max_lambda_bps:9999,max_adjustment_nad:2*NAD};
     market.oracle.policy = OraclePolicy {lambda_bps:lambda,adjustment_cap_nad:2*NAD,..OraclePolicy::default()};
     market.oracle.runtime = RuntimePricing::bind(market.oracle.policy, OracleObservation {
         price_nad:reference, ..OracleObservation::default()
@@ -701,7 +700,6 @@ fn oracle_only_repricing_records_volatility_once_without_rehedging() {
     market.quote_side.asset_mint=Pubkey::new_unique();
     let provider=Pubkey::new_unique();
     let key=Pubkey::new_unique();
-    market.config.oracle_bounds=OracleBounds{max_lambda_bps:9999,max_adjustment_nad:2*NAD};
     market.oracle.policy=OraclePolicy{format:crate::state::NORMALIZED_ORACLE_V1,provider,base_account:key,
         base_feed_id:[7;32],lambda_bps:5000,adjustment_cap_nad:2*NAD,max_age_seconds:1000,max_age_slots:1000,
         max_confidence_bps:100,..Default::default()};

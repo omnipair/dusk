@@ -28,7 +28,7 @@ impl ConfigureInitialOracle<'_> {
         require_eq!(market.base_side.shares.ylp_supply, 0, ErrorCode::NonZeroSupply);
         require_eq!(market.quote_side.shares.ylp_supply, 0, ErrorCode::NonZeroSupply);
         market.require_initial_liquidity_authority(ctx.accounts.authority.key())?;
-        policy.validate(market.config.oracle_bounds)?;
+        policy.validate()?;
         market.oracle.policy = policy;
         market.oracle.last_observation = Default::default();
         market.oracle.runtime = Default::default();

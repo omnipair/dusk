@@ -13,25 +13,9 @@ pub const PYTH_RATIO_V2: u8 = 2;
 pub const NORMALIZED_ORACLE_MAGIC: [u8; 8] = *b"DOPRV001";
 pub const PYTH_RECEIVER: Pubkey = pubkey!("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
 
-/// Immutable creator disclosure. Zero weight makes oracle activation
-/// impossible; positive bounds allow prospective parameter governance.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct OracleBounds {
-    pub max_lambda_bps: u16,
-    pub max_adjustment_nad: u64,
-}
-impl OracleBounds {
-    pub fn validate(self) -> Result<()> {
-        require!(self.max_lambda_bps < 10_000, ErrorCode::InvalidMarketConfig);
-        require!(
-            (self.max_lambda_bps == 0 && self.max_adjustment_nad == 0)
-                || (self.max_lambda_bps > 0 && self.max_adjustment_nad > NAD),
-            ErrorCode::InvalidMarketConfig
-        );
-        Ok(())
-    }
-}
-
+/// Every market starts with the empty, oracleless policy. The initial-liquidity
+/// authority or subsequent governance selects a policy within the same
+/// mathematical limits; creation does not restrict future oracle activation.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct OraclePolicy {
     pub format: u8,
@@ -57,18 +41,12 @@ impl OraclePolicy {
             && self.quote_feed_id == other.quote_feed_id
     }
 
-    pub fn validate(self, bounds: OracleBounds) -> Result<()> {
-        bounds.validate()?;
-        require!(self.lambda_bps <= bounds.max_lambda_bps, ErrorCode::InvalidMarketConfig);
+    pub fn validate(self) -> Result<()> {
+        require!(self.lambda_bps < 10_000, ErrorCode::InvalidMarketConfig);
         if self == Self::default() {
             return Ok(());
         }
-        require!(
-            bounds.max_lambda_bps > 0
-                && self.adjustment_cap_nad > NAD
-                && self.adjustment_cap_nad <= bounds.max_adjustment_nad,
-            ErrorCode::InvalidMarketConfig
-        );
+        require!(self.adjustment_cap_nad > NAD, ErrorCode::InvalidMarketConfig);
         require!(
             self.max_age_seconds > 0 && self.max_age_slots > 0 && self.max_confidence_bps < 10_000,
             ErrorCode::InvalidMarketConfig

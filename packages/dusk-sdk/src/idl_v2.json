@@ -18978,14 +18978,6 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "oracle_bounds",
-            "type": {
-              "defined": {
-                "name": "OracleBounds"
-              }
-            }
-          },
-          {
             "name": "swap_fee_bps",
             "type": "u16"
           },
@@ -19707,26 +19699,6 @@
       }
     },
     {
-      "name": "OracleBounds",
-      "docs": [
-        "Immutable creator disclosure. Zero weight makes oracle activation",
-        "impossible; positive bounds allow prospective parameter governance."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "max_lambda_bps",
-            "type": "u16"
-          },
-          {
-            "name": "max_adjustment_nad",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "OracleObservation",
       "type": {
         "kind": "struct",
@@ -19783,6 +19755,11 @@
     },
     {
       "name": "OraclePolicy",
+      "docs": [
+        "Every market starts with the empty, oracleless policy. The initial-liquidity",
+        "authority or subsequent governance selects a policy within the same",
+        "mathematical limits; creation does not restrict future oracle activation."
+      ],
       "type": {
         "kind": "struct",
         "fields": [

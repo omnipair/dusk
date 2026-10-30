@@ -32,7 +32,7 @@ export interface OraclePolicy extends Omit<OraclePolicyInput,
   maxAgeSlots: BN;
 }
 
-/** Validate wire bounds and source identity; market birth bounds are enforced on-chain. */
+/** Validate the policy's mathematical bounds and source identity for any market. */
 export function oraclePolicy(input: OraclePolicyInput): OraclePolicy {
   const integer = (n: number, max: number, label: string) => {
     if (!Number.isInteger(n) || n < 0 || n > max) throw new Error(`invalid ${label}`);

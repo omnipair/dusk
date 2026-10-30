@@ -14,18 +14,19 @@ position margin terms. Regenerate clients and use matching account layouts.
 
 ## Bounded oracle markets
 
-Market creation now includes `oracleBounds: { maxLambdaBps, maxAdjustmentNad }`.
-The default `{ maxLambdaBps: 0, maxAdjustmentNad: 0 }` is permanently oracleless.
-Positive birth bounds disclose the maximum future oracle weight and multiplicative
-price adjustment. The active weight can start at zero and change through the
-existing parameter-proposal lifecycle within those bounds. Bounds are immutable;
-there is no automatic weight change during an oracle outage.
+Every market starts oracleless with an empty policy and λ = 0. Creation needs
+no oracle fields or activation opt-in. Every market can later activate an oracle,
+change its source/weight/cap, or return to native pricing through the existing
+parameter-proposal lifecycle. Positive weights are 1–9,999 bps and the active
+multiplicative adjustment cap must exceed one; there are no creation-time oracle
+ceilings. There is no automatic weight change during an oracle outage.
 
 Before first liquidity, the creator can use
 `dusk.write.configureInitialOracleInstruction({ market, authority, policy })`.
 For an existing market, `parameterUpdate.oracle(policy)` creates an oracle
 proposal update. `oraclePolicy()` validates the wire format; the program also
-checks the market's immutable bounds and the current report. See
+checks the same policy limits and the current report. Initial configuration is
+allowed only before first liquidity; a funded market requires governance. See
 [the implementation contract](../../docs/OP_GAMM_IMPLEMENTATION_STATUS.md) for
 the coupled swap, lending and hLP behavior.
 

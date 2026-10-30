@@ -63,7 +63,6 @@ export async function deriveMarketParamsHash(params: {
  * field by field.
  */
 export interface MarketLaunchConfig {
-  oracleBounds: { maxLambdaBps: number; maxAdjustmentNad: bigint | number | string };
   swapFeeBps: number;
   divergenceFeeShareCapBps: number;
   volatilityFeeShareCapBps: number;
@@ -90,7 +89,6 @@ export function defaultMarketLaunchConfig(
   overrides: Partial<MarketLaunchConfig> = {}
 ): MarketLaunchConfig {
   return {
-    oracleBounds: { maxLambdaBps: 0, maxAdjustmentNad: 0 },
     swapFeeBps: 30,
     divergenceFeeShareCapBps: 0,
     volatilityFeeShareCapBps: 0,

@@ -24,8 +24,6 @@ fn snapshot() -> (Market, Clock) {
     let insurance_slot_tags = [0xb997_5bdf_2468_ace0_u64, 0xc997_5bdf_2468_ace0_u64];
     layout.insurance.base_draw_window.start_slot = insurance_slot_tags[0];
     layout.insurance.quote_draw_window.start_slot = insurance_slot_tags[1];
-    let oracle_bounds_tag=0xda975bdf2468ace0_u64;
-    layout.config.oracle_bounds.max_adjustment_nad=oracle_bounds_tag;
     let oracle_revision_tag=0xeb975bdf2468ace0_u64;
     layout.parameter_revisions[7]=oracle_revision_tag;
     let mut current = Vec::new();
@@ -40,7 +38,6 @@ fn snapshot() -> (Market, Clock) {
         insertions.push((offset - 1, 1));
     }
     insertions.push((8,crate::state::OracleState::INIT_SPACE));
-    insertions.push((current.windows(8).position(|v|v==oracle_bounds_tag.to_le_bytes()).unwrap()-2,crate::state::OracleBounds::INIT_SPACE));
     insertions.push((current.windows(8).position(|v|v==oracle_revision_tag.to_le_bytes()).unwrap(),8));
     insertions.sort_unstable();
     let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();

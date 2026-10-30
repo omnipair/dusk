@@ -3,7 +3,6 @@ use crate::constants::MAX_PARAMETER_FEE_BPS;
 
 fn valid_config() -> MarketConfig {
     MarketConfig {
-        oracle_bounds: Default::default(),
         swap_fee_bps: 30,
         divergence_fee_share_cap_bps: 2_000,
         volatility_fee_share_cap_bps: 2_000,

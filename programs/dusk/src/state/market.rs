@@ -314,7 +314,6 @@ impl Default for IrmConfig {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct MarketConfig {
-    pub oracle_bounds: super::OracleBounds,
     pub swap_fee_bps: u16,
     pub divergence_fee_share_cap_bps: u16,
     pub volatility_fee_share_cap_bps: u16,

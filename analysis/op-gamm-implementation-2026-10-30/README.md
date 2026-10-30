@@ -29,7 +29,7 @@ No floating-point value authorizes a trade. The independent reference CSVs retai
 
 The initial `summary.json`, `compute-probe.json`, extended certificate results, unlimited diagnostic profiles and Q48 counterfactual describe earlier implementations. The status fields in `summary.json` are the archived pre-integration checkpoint, not the current implementation status. They must not be cited as current complete-route performance. Unlimited runs never establish Solana feasibility. Current route tests live in `tests/v2-final-smoke.test.ts`; the probe supports `OP_GAMM_SOLVER=1` for isolated output-solving measurements.
 
-The [current validation record](validation.json) binds the completed local CI sequence and final runtime measurements to source and artifact hashes.
+The [initial integration validation record](validation.json) binds the 30 October checks to their source and artifact hashes. The [31 October activation-policy validation](validation-oracle-activation-2026-10-31.json) records the full CI rerun after removing creation-time oracle restrictions, including repeated governed activation/deactivation with outstanding leverage and both hLP vaults. The pricing kernel is unchanged; the isolated solver measurements below were not rerun for this policy change.
 
 ## Current solver measurement
 

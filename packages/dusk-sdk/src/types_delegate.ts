@@ -4645,14 +4645,6 @@ export type LeverageDelegate = {
         "kind": "struct",
         "fields": [
           {
-            "name": "oracleBounds",
-            "type": {
-              "defined": {
-                "name": "oracleBounds"
-              }
-            }
-          },
-          {
             "name": "swapFeeBps",
             "type": "u16"
           },
@@ -4784,26 +4776,6 @@ export type LeverageDelegate = {
       }
     },
     {
-      "name": "oracleBounds",
-      "docs": [
-        "Immutable creator disclosure. Zero weight makes oracle activation",
-        "impossible; positive bounds allow prospective parameter governance."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "maxLambdaBps",
-            "type": "u16"
-          },
-          {
-            "name": "maxAdjustmentNad",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "oracleObservation",
       "type": {
         "kind": "struct",
@@ -4860,6 +4832,11 @@ export type LeverageDelegate = {
     },
     {
       "name": "oraclePolicy",
+      "docs": [
+        "Every market starts with the empty, oracleless policy. The initial-liquidity",
+        "authority or subsequent governance selects a policy within the same",
+        "mathematical limits; creation does not restrict future oracle activation."
+      ],
       "type": {
         "kind": "struct",
         "fields": [

@@ -64,7 +64,7 @@ assert.equal(
 const oldIdl = structuredClone(fixtureProgram.idl);
 for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.type.fields.filter(f =>
   ![
-    "flashReceivable", "flashCollateralDebit", "oracle", "oracleBounds",
+    "flashReceivable", "flashCollateralDebit", "oracle",
     "frozenHlpMask", "frozenBaseVaultBaseOffsetNad", "frozenBaseVaultQuoteOffsetNad",
     "frozenQuoteVaultBaseOffsetNad", "frozenQuoteVaultQuoteOffsetNad",
   ].includes(f.name) && !(type.name === "insuranceDrawWindow" && f.name === "initialized"));
@@ -87,7 +87,6 @@ oldAccount.amm.frozenQuoteVaultQuoteOffsetNad = new BN(0);
 for (const window of [oldAccount.insurance.baseDrawWindow, oldAccount.insurance.quoteDrawWindow]) {
   window.initialized = false;
 }
-oldAccount.config.oracleBounds = { maxLambdaBps: 0, maxAdjustmentNad: new BN(0) };
 oldAccount.oracle = {
   policy: { format: 0, provider: PublicKey.default, baseAccount: PublicKey.default, quoteAccount: PublicKey.default,
     baseFeedId: Array(32).fill(0), quoteFeedId: Array(32).fill(0), lambdaBps: 0, adjustmentCapNad: new BN(0),
