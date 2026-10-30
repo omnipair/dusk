@@ -4827,9 +4827,9 @@
     {
       "name": "OraclePolicy",
       "docs": [
-        "Every market starts with the empty, oracleless policy. The initial-liquidity",
-        "authority or subsequent governance selects a policy within the same",
-        "mathematical limits; creation does not restrict future oracle activation."
+        "Creation selects an optional policy atomically; omission uses native pricing.",
+        "Subsequent governance can change the policy within the same mathematical",
+        "limits. Every native market supports later oracle activation."
       ],
       "type": {
         "kind": "struct",

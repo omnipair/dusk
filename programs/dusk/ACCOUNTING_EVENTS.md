@@ -184,7 +184,10 @@ slot, plus its swap-fee and interest growth indexes. `start_price_nad` is the
 Base price used to quote this execution, after any deferred center adjustment.
 A concentrated curve's price is not a function of reserves alone, so both
 prices come from the program. `MarketCreated` carries both assets' mints and
-decimals, which scale these prices.
+decimals, which scale these prices. It also carries the initial `oracle` policy
+selected in the creation instruction; an empty policy means native pricing.
+This policy is configuration, not a verified observation. Positive-weight
+markets authenticate a current report when the first liquidity is added.
 
 These are observations at completed swaps, not a continuous market-price feed.
 The post-swap spot is not a promise about a future trade's starting price:

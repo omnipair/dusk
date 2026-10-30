@@ -14,21 +14,49 @@ position margin terms. Regenerate clients and use matching account layouts.
 
 ## Bounded oracle markets
 
-Every market starts oracleless with an empty policy and λ = 0. Creation needs
-no oracle fields or activation opt-in. Every market can later activate an oracle,
-change its source/weight/cap, or return to native pricing through the existing
-parameter-proposal lifecycle. Positive weights are 1–9,999 bps and the active
-multiplicative adjustment cap must exceed one; there are no creation-time oracle
-ceilings. There is no automatic weight change during an oracle outage.
+Market creation selects native or oracle-guided pricing in the same
+`initializeMarket` instruction. In the SDK, omit `oracle` (or pass `null`) for
+native pricing at λ = 0; pass an `OraclePolicyInput` to launch with that policy:
 
-Before first liquidity, the creator can use
-`dusk.write.configureInitialOracleInstruction({ market, authority, policy })`.
-For an existing market, `parameterUpdate.oracle(policy)` creates an oracle
-proposal update. `oraclePolicy()` validates the wire format; the program also
-checks the same policy limits and the current report. Initial configuration is
-allowed only before first liquidity; a funded market requires governance. See
-[the implementation contract](../../docs/OP_GAMM_IMPLEMENTATION_STATUS.md) for
-the coupled swap, lending and hLP behavior.
+```typescript
+const instruction = await dusk.write.initializeMarketInstruction({
+  ...creationParams,
+  oracle: policy, // omit or use null for native pricing
+});
+```
+
+The creator does not send a separate oracle-configuration instruction. Creation
+validates and stores the policy atomically with the market and its LP metadata;
+`MarketCreated.oracle` reports the selected policy. Creation needs no live feed
+account. First liquidity and subsequent price-sensitive operations authenticate
+a current report when λ is positive. An invalid initial policy rolls back market
+creation and the treasury creation charge.
+
+Every market can later activate an oracle, change its source/weight/cap, or return
+to native pricing through the existing parameter-proposal lifecycle.
+`parameterUpdate.oracle(policy)` creates the proposal update. Subsequent changes
+require governance, including before first liquidity; no creator-only setter
+remains. `oraclePolicy()` validates the wire format. Positive weights are
+1–9,999 bps and a nonempty policy's adjustment multiplier must exceed one;
+there are no creation-time oracle ceilings or automatic outage-driven changes.
+See [the implementation contract](../../docs/OP_GAMM_IMPLEMENTATION_STATUS.md)
+for the coupled swap, lending and hLP behavior.
+
+Use `marketCreationLookupTablePlan` and `marketCreationV0Transaction` for the
+creation transaction. The latter rejects a packet larger than 1,232 bytes;
+metadata and optional setup instructions must fit alongside the selected policy.
+An address lookup table compresses account addresses, not metadata or policy
+bytes. The launch scripts accept optional `DUSK_ORACLE_POLICY_JSON` using
+`OraclePolicyInput` field names (base58 addresses, 32-byte feed-ID arrays and
+string values for large integers); omission selects native pricing. They resolve
+the stored policy's feeds and compute budget when seeding liquidity.
+
+Raw Anchor callers must include `oracle: null` or a serialized policy. The
+`initializeMarket` argument layout now starts with `paramsHash`, followed by
+`config` and `oracle`; rebuild instruction encoders and event decoders using the
+vendored IDL. The removed `configureInitialOracle` instruction and
+`InitialOracleConfigured` event are replaced by creation parameters and
+`MarketCreated.oracle`.
 
 The supported policies read either a normalized pair account (`NORMALIZED_ORACLE_V1`)
 or two fully verified Pyth accounts (`PYTH_RATIO_V2`). A market selects the

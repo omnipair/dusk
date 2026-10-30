@@ -178,6 +178,7 @@ const DUSK_INSTRUCTIONS = [
   "beginFlashLiquidation",
   "settleFlashLiquidation",
   "previewFlashLiquidation",
+  "previewFlashAmmLiquidation",
   "observeLiquidation",
   "emergencyLiquidation",
   "previewEmergencyLiquidation",

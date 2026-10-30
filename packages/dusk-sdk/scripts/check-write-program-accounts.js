@@ -3,7 +3,8 @@ import { test } from "node:test";
 
 import anchor from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { PublicKey } from "@solana/web3.js";
+import { AddressLookupTableAccount, PublicKey } from "@solana/web3.js";
+import { marketCreationLookupTablePlan, marketCreationV0Transaction } from "../dist/market-launch.js";
 
 import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
@@ -34,19 +35,28 @@ program.account.market.fetch = async () => ({
 program.account.parameterProposal.fetch = async () => ({ updates: [] });
 const write = new DuskWrite(program);
 
-test("default market initialization encodes without oracle creation bounds", async () => {
-  const config=defaultMarketLaunchConfig();
-  const metadata={name:"LP",symbol:"LP",uri:"https://example.com/lp.json"};
-  const ix=await write.initializeMarketInstruction({
-    payer:owner,baseMint,quoteMint,ylpMint:key(30),baseHlpMint:key(31),quoteHlpMint:key(32),
-    teamTreasury:key(33),teamTreasuryWsolAccount:key(34),paramsHash:Array(32).fill(1),config,
-    lpMetadata:{ylp:metadata,baseHlp:metadata,quoteHlp:metadata},
-  });
-  const decoded=program.coder.instruction.decode(ix.data);
-  assert.equal(decoded.name,"initializeMarket");
-  assert.equal(decoded.data.args.config.swapFeeBps,config.swapFeeBps);
-  assert.equal(decoded.data.args.bootstrapPriceNad.toString(),"0");
-  assert.equal("oracleBounds" in decoded.data.args.config,false);
+function creationParams(oracle) {
+  const metadata={name:"Omnipair Base hLP",symbol:"hLP",uri:"https://omnipair.fi/metadata/dusk/base-hlp.json"};
+  return {payer:owner,baseMint,quoteMint,ylpMint:key(30),baseHlpMint:key(31),quoteHlpMint:key(32),
+    teamTreasury:key(33),teamTreasuryWsolAccount:key(34),paramsHash:Array(32).fill(1),
+    config:defaultMarketLaunchConfig(),oracle,lpMetadata:{ylp:metadata,baseHlp:metadata,quoteHlp:metadata}};
+}
+
+test("market initialization defaults to native and accepts an explicit null oracle", async () => {
+  for (const oracle of [undefined,null]) {
+    const ix=await write.initializeMarketInstruction(creationParams(oracle));
+    const decoded=program.coder.instruction.decode(ix.data);
+    assert.equal(decoded.name,"initializeMarket");
+    assert.equal(decoded.data.args.oracle,null);
+    assert.equal(decoded.data.args.bootstrapPriceNad.toString(),"0");
+    assert.deepEqual([...ix.data.subarray(8,40)],Array(32).fill(1));
+    const initialize = program.idl.instructions.find(instruction => instruction.name === "initializeMarket");
+    const accounts = Object.fromEntries(initialize.accounts.map((account, i) => [account.name, ix.keys[i].pubkey]));
+    delete accounts.market;
+    const resolved = await program.methods.initializeMarket(decoded.data.args).accountsPartial(accounts).instruction();
+    assert.deepEqual(resolved.keys, ix.keys);
+  }
+  assert.equal(program.idl.instructions.some(ix=>ix.name==="configureInitialOracle"),false);
 });
 
 test("Token-2022 write helpers keep the fixed legacy Token account", async () => {
@@ -111,8 +121,9 @@ test("oracle policy wire encoding matches Anchor and rejects ambiguous feed iden
   const { encodeOraclePolicy, oraclePolicy, oracleReadAccounts, PYTH_RECEIVER_PROGRAM } = await import("../dist/oracle.js");
   for (const input of [policy(), {...policy(), format: 2, provider: PYTH_RECEIVER_PROGRAM,
     quoteAccount: key(22), quoteFeedId: Array(32).fill(2), maxPublishSkewSeconds: 3}]) {
-    const ix = await write.configureInitialOracleInstruction({market, authority: owner, policy: input});
-    assert.deepEqual(ix.data.subarray(8), Buffer.from(encodeOraclePolicy(input)));
+    const ix = await write.initializeMarketInstruction(creationParams(input));
+    const decoded=program.coder.instruction.decode(ix.data);
+    assert.deepEqual(program.coder.types.encode("oraclePolicy",decoded.data.args.oracle), Buffer.from(encodeOraclePolicy(input)));
     assert.deepEqual(oracleReadAccounts(input).map(meta => meta.pubkey.toBase58()),
       [input.baseAccount, ...(input.format === 2 ? [input.quoteAccount] : [])].map(key => key.toBase58()));
     assert.ok(oracleReadAccounts(input).every(meta => !meta.isWritable && !meta.isSigner));
@@ -142,4 +153,20 @@ test("positive-weight previews append feeds after caller accounts and transactio
   const native = await writer.transaction("previewSwap", {exactAssetIn: new anchor.BN(100)}, {accounts, remainingAccounts});
   assert.equal(native.instructions.length, 1);
   assert.equal(native.instructions[0].keys.at(-1).pubkey.toBase58(), key(24).toBase58());
+});
+
+test("oracle-selected creation fits a versioned transaction and rejects oversized metadata", async () => {
+  const input=creationParams(policy());
+  const ix=await write.initializeMarketInstruction(input);
+  const plan=marketCreationLookupTablePlan({payer:owner,recentSlot:100,initializeMarketInstruction:ix});
+  const lookupTable=new AddressLookupTableAccount({key:plan.address,state:{
+    deactivationSlot:0xffff_ffff_ffff_ffffn,lastExtendedSlot:100,lastExtendedSlotStartIndex:0,
+    authority:owner,addresses:plan.addresses,
+  }});
+  const build=initializeMarketInstruction=>marketCreationV0Transaction({payer:owner,recentBlockhash:key(40).toBase58(),
+    initializeMarketInstruction,lookupTable});
+  assert.ok(build(ix).serialize().length<=1232);
+  const large={name:"n".repeat(32),symbol:"s".repeat(10),uri:"https://"+"u".repeat(127)};
+  const oversized=await write.initializeMarketInstruction({...input,lpMetadata:{ylp:large,baseHlp:large,quoteHlp:large}});
+  assert.throws(()=>build(oversized),/market creation exceeds transaction size/);
 });

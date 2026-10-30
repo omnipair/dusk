@@ -23,6 +23,7 @@ import {
   duskProgram,
 } from "./common.ts";
 import idl from "../../target/idl/dusk.json" with { type: "json" };
+import { oracleComputeBudgetInstructions, oracleReadAccounts } from "../../packages/dusk-sdk/dist/oracle.js";
 
 async function main() {
   const provider = providerFromEnv();
@@ -162,8 +163,10 @@ async function main() {
         eventAuthority,
         program: program.programId,
       })
+      .remainingAccounts(oracleReadAccounts(marketAccount.oracle.policy))
       .preInstructions([
-        anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 }),
+        ...(marketAccount.oracle.policy.lambdaBps > 0 ? oracleComputeBudgetInstructions(marketAccount.oracle.policy)
+          : [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })]),
         initializeYieldAccountsIx,
       ])
       .rpc();
@@ -229,12 +232,14 @@ async function main() {
       }
     );
   }
+  remainingAccounts.push(...oracleReadAccounts(refreshedMarket.oracle.policy));
   if (remainingAccounts.length > 0) {
     builder = builder.remainingAccounts(remainingAccounts);
   }
 
   const signature = await builder
-    .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+    .preInstructions(refreshedMarket.oracle.policy.lambdaBps > 0 ? oracleComputeBudgetInstructions(refreshedMarket.oracle.policy)
+      : [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
     .rpc();
 
   console.log(`Smoke swap sent: ${explorerTx(signature)}`);

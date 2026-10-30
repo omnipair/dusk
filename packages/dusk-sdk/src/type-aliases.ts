@@ -69,7 +69,6 @@ type DuskAccountTypes = [
 ];
 type DuskEventTypes = [
   TypeNamed<"oraclePolicy">,
-  TypeNamed<"initialOracleConfigured">,
   TypeNamed<"governanceBalanceUpdated">,
   TypeNamed<"governanceSupportChanged">,
   TypeNamed<"liquidationDistress">,

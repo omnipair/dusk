@@ -3,6 +3,13 @@ import {
   marketCreationLookupTablePlan,
   marketCreationV0Transaction,
 } from "../../packages/dusk-sdk/src/market-launch.ts";
+import { oraclePolicy } from "../../packages/dusk-sdk/dist/oracle.js";
+
+/** Optional JSON uses the SDK's OraclePolicyInput field names and feed IDs. */
+export function marketCreationOracleFromEnv() {
+  const value = process.env.DUSK_ORACLE_POLICY_JSON;
+  return value ? oraclePolicy(JSON.parse(value)) : null;
+}
 
 /** Submit the three-metadata market initializer through a fresh v0 lookup table. */
 export async function sendAtomicMarketCreation(params: {

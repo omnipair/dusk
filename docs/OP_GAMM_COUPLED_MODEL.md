@@ -299,7 +299,7 @@ The two-band check uses center 100, core price bounds 100/1.1 to 100×1.1, shoul
 
 ## 5. Governed activation in one market
 
-Use one market family with governed oracle activation available to every market. A market starts at λ = 0 and can activate a bounded oracle policy through its existing proposal authority. The 31 October policy removes creation-time activation bounds and permanent oracleless profiles; this changes configuration semantics, not the dated mathematical experiments above. No Horus permission or privileged provider is needed.
+Use one market family with governed oracle activation available to every market. Creation defaults to λ = 0 or accepts an optional bounded oracle policy in that same instruction. Subsequent activation and changes use the existing proposal authority. The 31 October policy removes creation-time activation bounds, permanent oracleless profiles and the separate initial-oracle setter; this changes configuration semantics, not the dated mathematical experiments above. No Horus permission or privileged provider is needed.
 
 | State | Price-feed dependency | Required behavior |
 | --- | --- | --- |

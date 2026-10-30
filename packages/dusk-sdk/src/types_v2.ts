@@ -1780,108 +1780,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "configureInitialOracle",
-      "docs": [
-        "The launch authority selects a reference before the first LP seed.",
-        "After seeding, changes use the ordinary timelocked proposal process."
-      ],
-      "discriminator": [
-        68,
-        63,
-        103,
-        111,
-        226,
-        150,
-        177,
-        120
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "authority",
-          "signer": true
-        },
-        {
-          "name": "eventAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "policy",
-          "type": {
-            "defined": {
-              "name": "oraclePolicy"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "configureReferralPartner",
       "discriminator": [
         36,
@@ -11939,19 +11837,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "initialOracleConfigured",
-      "discriminator": [
-        73,
-        204,
-        17,
-        65,
-        1,
-        20,
-        190,
-        72
-      ]
-    },
-    {
       "name": "insuranceDonated",
       "discriminator": [
         238,
@@ -17124,30 +17009,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "initialOracleConfigured",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "policy",
-            "type": {
-              "defined": {
-                "name": "oraclePolicy"
-              }
-            }
-          },
-          {
-            "name": "revision",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "initializeLpMetadataArgs",
       "type": {
         "kind": "struct",
@@ -17173,6 +17034,18 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
+            "name": "paramsHash",
+            "docs": [
+              "First in the wire payload so account validation reads only the PDA seed."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
             "name": "config",
             "type": {
               "defined": {
@@ -17181,12 +17054,18 @@ export type Dusk = {
             }
           },
           {
-            "name": "paramsHash",
+            "name": "oracle",
+            "docs": [
+              "Initial oracle policy, installed atomically with the market. None uses",
+              "native pricing. First liquidity authenticates a current report when",
+              "the selected weight is positive; later policy changes use governance."
+            ],
             "type": {
-              "array": [
-                "u8",
-                32
-              ]
+              "option": {
+                "defined": {
+                  "name": "oraclePolicy"
+                }
+              }
             }
           },
           {
@@ -19112,6 +18991,17 @@ export type Dusk = {
             }
           },
           {
+            "name": "oracle",
+            "docs": [
+              "Initial policy; an empty policy identifies an oracleless launch."
+            ],
+            "type": {
+              "defined": {
+                "name": "oraclePolicy"
+              }
+            }
+          },
+          {
             "name": "paramsHash",
             "type": {
               "array": [
@@ -19762,9 +19652,9 @@ export type Dusk = {
     {
       "name": "oraclePolicy",
       "docs": [
-        "Every market starts with the empty, oracleless policy. The initial-liquidity",
-        "authority or subsequent governance selects a policy within the same",
-        "mathematical limits; creation does not restrict future oracle activation."
+        "Creation selects an optional policy atomically; omission uses native pricing.",
+        "Subsequent governance can change the policy within the same mathematical",
+        "limits. Every native market supports later oracle activation."
       ],
       "type": {
         "kind": "struct",

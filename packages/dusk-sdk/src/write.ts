@@ -300,13 +300,6 @@ export class DuskWrite {
     return {...options, oraclePolicy: state.oracle?.policy};
   }
 
-  /** Configure the disclosed provider before the creator supplies first liquidity. */
-  configureInitialOracleInstruction(params: {market: AddressLike; authority: AddressLike; policy: OraclePolicyInput}) {
-    return this.instruction("configureInitialOracle" as DuskInstructionName, oraclePolicy(params.policy), {
-      accounts: {market: address(params.market), authority: address(params.authority)},
-    });
-  }
-
   /**
    * The hLP accounts an instruction must carry when hedged liquidity is live.
    *
@@ -851,6 +844,9 @@ export class DuskWrite {
     teamTreasuryWsolAccount: AddressLike;
     paramsHash: Uint8Array | Buffer | number[];
     config: MarketLaunchConfig;
+    /** Installed atomically at creation. Omit or pass null for native pricing.
+     * First liquidity verifies the feed; later policy changes use governance. */
+    oracle?: OraclePolicyInput | null;
     /** Opening price in NAD. Zero lets the first deposit set it. */
     bootstrapPriceNad?: GovernanceIntegerLike;
     launchFeeProgressOffset?: number;
@@ -871,6 +867,7 @@ export class DuskWrite {
       "initializeMarket" as DuskInstructionName,
       {
         config: anchorMarketConfig(params.config),
+        oracle: params.oracle == null ? null : oraclePolicy(params.oracle),
         paramsHash: [...paramsHash],
         bootstrapPriceNad: governanceIntegerBN(
           params.bootstrapPriceNad ?? 0,

@@ -37,6 +37,8 @@ pub struct MarketCreated {
     pub target_hlp_leverage_bps: u16,
     pub swap_fee_bps: u16,
     pub config: MarketConfig,
+    /// Initial policy; an empty policy identifies an oracleless launch.
+    pub oracle: crate::state::OraclePolicy,
     pub params_hash: [u8; 32],
     pub initial_liquidity_authority: Pubkey,
     pub launch_reference_price_nad: u64,

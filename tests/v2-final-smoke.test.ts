@@ -1,3 +1,4 @@
+import type { OraclePolicyInput } from "../packages/dusk-sdk/src/oracle.js";
 import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -962,7 +963,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     };
   }
 
-  async function initializeFinalMarket(paramsSeed: number, config = marketConfig()) {
+  async function initializeFinalMarket(paramsSeed: number, config = marketConfig(), oracle: OraclePolicyInput | null = null, expectedError?: string) {
     const baseMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
     const quoteMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
     if (process.env.DUSK_EXPECT_PRODUCTION_MINT_SUFFIXES === "1") {
@@ -985,9 +986,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         ylpMint: ylp.publicKey,
         baseHlpMint: baseHlp.publicKey,
         quoteHlpMint: quoteHlp.publicKey,
-      });
+      }, 6, oracle, expectedError);
     }
-    return initializeFinalMarketWithMints(paramsSeed, baseMint, quoteMint, config);
+    return initializeFinalMarketWithMints(paramsSeed, baseMint, quoteMint, config, 6, {}, 6, oracle, expectedError);
   }
 
   async function initializeFinalMarketWithMints(
@@ -1001,7 +1002,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       baseHlpMint: PublicKey;
       quoteHlpMint: PublicKey;
     }> = {},
-    quoteLpDecimals = lpDecimals
+    quoteLpDecimals = lpDecimals,
+    oracle: OraclePolicyInput | null = null,
+    expectedError?: string
   ) {
     const paramsHash = Buffer.alloc(32, paramsSeed);
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
@@ -1025,6 +1028,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const tx = await program.methods
       .initializeMarket({
         config,
+        oracle,
         paramsHash: [...paramsHash],
         bootstrapPriceNad: new anchor.BN(0),
         launchFeeProgressOffset: 0,
@@ -1094,10 +1098,24 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
     versionedTx.sign([payer]);
     expect(versionedTx.serialize().length).to.be.at.most(1_232);
-    await connection.sendTransaction(versionedTx);
-    expect(svm.getAccount(ylpTokenMetadata)).to.not.equal(null);
-    expect(svm.getAccount(baseHlpTokenMetadata)).to.not.equal(null);
-    expect(svm.getAccount(quoteHlpTokenMetadata)).to.not.equal(null);
+    if (expectedError) {
+      const treasuryBefore=Buffer.from(svm.getAccount(teamTreasuryWsolAccount)!.data);
+      let error: unknown;
+      try {await connection.sendTransaction(versionedTx);} catch(e) {error=e;}
+      expect(String(error)).to.include(expectedError);
+      for (const key of [market,baseReserveVault,quoteReserveVault,baseCollateralVault,quoteCollateralVault,
+        baseInsuranceVault,quoteInsuranceVault,baseInterestVault,quoteInterestVault,
+        ylpTokenMetadata,baseHlpTokenMetadata,quoteHlpTokenMetadata]) expect(svm.getAccount(key)).to.equal(null);
+      expect(Buffer.from(svm.getAccount(teamTreasuryWsolAccount)!.data).equals(treasuryBefore)).to.equal(true);
+    } else {
+      await connection.sendTransaction(versionedTx);
+      expect(svm.getAccount(ylpTokenMetadata)).to.not.equal(null);
+      expect(svm.getAccount(baseHlpTokenMetadata)).to.not.equal(null);
+      expect(svm.getAccount(quoteHlpTokenMetadata)).to.not.equal(null);
+      const event=cpiEvent(versionedTx,"marketCreated");
+      expect(event.oracle.lambdaBps).to.equal(oracle?.lambdaBps ?? 0);
+      expect(event.oracle.provider.equals(oracle ? new PublicKey(oracle.provider) : PublicKey.default)).to.equal(true);
+    }
     return {
       baseMint,
       quoteMint,
@@ -1202,14 +1220,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     mintDecimals: number | { base: number; quote: number } = 6,
     assetTokenProgram = TOKEN_PROGRAM_ID,
     assetMints?: { base: PublicKey; quote: PublicKey },
-    beforeSeed?: (fixture: Awaited<ReturnType<typeof initializeFinalMarket>>) => Promise<{pubkey: PublicKey; isWritable: boolean; isSigner: boolean}[]>
+    beforeSeed?: (fixture: Awaited<ReturnType<typeof initializeFinalMarket>>) => Promise<{pubkey: PublicKey; isWritable: boolean; isSigner: boolean}[]>,
+    oracle: OraclePolicyInput | null = null
   ) {
     const baseDecimals = typeof mintDecimals === "number" ? mintDecimals : mintDecimals.base;
     const quoteDecimals = typeof mintDecimals === "number" ? mintDecimals : mintDecimals.quote;
     const fixture = assetMints
-      ? await initializeFinalMarketWithMints(paramsSeed, assetMints.base, assetMints.quote, config, baseDecimals, {}, quoteDecimals)
+      ? await initializeFinalMarketWithMints(paramsSeed, assetMints.base, assetMints.quote, config, baseDecimals, {}, quoteDecimals, oracle)
       : baseDecimals === 6 && quoteDecimals === 6 && assetTokenProgram.equals(TOKEN_PROGRAM_ID)
-      ? await initializeFinalMarket(paramsSeed, config)
+      ? await initializeFinalMarket(paramsSeed, config, oracle)
       : await initializeFinalMarketWithMints(
           paramsSeed,
           await createMint(connection as any, payer, payer.publicKey, null, baseDecimals, undefined, undefined, assetTokenProgram),
@@ -1217,7 +1236,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           config,
           baseDecimals,
           {},
-          quoteDecimals
+          quoteDecimals,
+          oracle
         );
     const oracleAccounts = beforeSeed ? await beforeSeed(fixture) : [];
     const ownerAccounts = await createOwnerAssetAccounts(fixture, amounts.baseMint, amounts.quoteMint);
@@ -1270,26 +1290,24 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     };
   }
 
-  async function configureNormalizedTestOracle(fixture: Awaited<ReturnType<typeof initializeFinalMarket>>, lambda = 2500) {
-    const key = Keypair.generate().publicKey;
-    const owner = Keypair.generate().publicKey;
-    const now = svm.getClock();
-    if (now.unixTimestamp <= 0n) { now.unixTimestamp = 1000n; svm.setClock(now); }
-    const data = Buffer.alloc(145);
-    data.set(Buffer.from("DOPRV001")); data.fill(7, 8, 40);
-    data.set(fixture.baseMint.toBytes(), 40); data.set(fixture.quoteMint.toBytes(), 72);
-    data.writeBigUInt64LE(3_000_000_000n, 104); data.writeBigInt64LE(now.unixTimestamp, 120);
-    data.writeBigUInt64LE(now.slot, 128); data.writeBigUInt64LE(1n, 136); data[144] = 1;
-    svm.setAccount(key, {lamports: 10_000_000, data, owner, executable: false});
-    const policy = { format: 1, provider: owner, baseAccount: key, quoteAccount: PublicKey.default,
-      baseFeedId: Array(32).fill(7), quoteFeedId: Array(32).fill(0), lambdaBps: lambda,
-      adjustmentCapNad: new BN(2_000_000_000), maxAgeSeconds: 60, maxAgeSlots: new BN(100),
-      maxConfidenceBps: 100, maxPublishSkewSeconds: 0 };
-    const sdk = new DuskWrite(createDuskProgram({provider: program.provider}));
-    await connection.sendTransaction(new Transaction().add(await sdk.configureInitialOracleInstruction({
-      market: fixture.market, authority: payer.publicKey, policy,
-    })), [payer]);
-    return { key, owner, policy, metas: [{pubkey: key, isSigner: false, isWritable: false}] };
+  function normalizedTestOracle(lambda = 2500) {
+    const key=Keypair.generate().publicKey, owner=Keypair.generate().publicKey;
+    const policy={format:1,provider:owner,baseAccount:key,quoteAccount:PublicKey.default,
+      baseFeedId:Array(32).fill(7),quoteFeedId:Array(32).fill(0),lambdaBps:lambda,
+      adjustmentCapNad:new BN(2_000_000_000),maxAgeSeconds:60,maxAgeSlots:new BN(100),
+      maxConfidenceBps:100,maxPublishSkewSeconds:0};
+    const metas=lambda===0?[]:[{pubkey:key,isSigner:false,isWritable:false}];
+    const publish=(fixture: Awaited<ReturnType<typeof initializeFinalMarket>>) => {
+      const now=svm.getClock();
+      if (now.unixTimestamp<=0n) {now.unixTimestamp=1000n;svm.setClock(now);}
+      const data=Buffer.alloc(145);data.set(Buffer.from("DOPRV001"));data.fill(7,8,40);
+      data.set(fixture.baseMint.toBytes(),40);data.set(fixture.quoteMint.toBytes(),72);
+      data.writeBigUInt64LE(3_000_000_000n,104);data.writeBigInt64LE(now.unixTimestamp,120);
+      data.writeBigUInt64LE(now.slot,128);data.writeBigUInt64LE(1n,136);data[144]=1;
+      svm.setAccount(key,{lamports:10_000_000,data,owner,executable:false});
+      return metas;
+    };
+    return {key,owner,policy,metas,publish};
   }
 
   async function openBaseHedge(
@@ -1722,6 +1740,56 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(svm.getAccount(fixture.ylpTokenMetadata)).to.not.equal(null);
     expect(svm.getAccount(fixture.baseHlpTokenMetadata)).to.not.equal(null);
     expect(svm.getAccount(fixture.quoteHlpTokenMetadata)).to.not.equal(null);
+  });
+
+  it("creates normalized and Pyth oracle markets atomically without a live report", async function () {
+    const normalized=normalizedTestOracle().policy;
+    const pyth={...normalized,format:2,provider:new PublicKey("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ"),
+      quoteAccount:Keypair.generate().publicKey,quoteFeedId:Array(32).fill(8),maxPublishSkewSeconds:5};
+    for (const oracle of [normalized,pyth]) {
+      const fixture=await initializeFinalMarket(202,marketConfig(),oracle);
+      const state=accountCoder.decode("Market",Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+      expect(state.oracle.policy.lambda_bps).to.equal(oracle.lambdaBps);
+      expect(state.oracle.policy.base_account.equals(oracle.baseAccount)).to.equal(true);
+      expect(state.oracle.last_observation.price_nad.toString()).to.equal("0");
+      expect(state.base_side.shares.ylp_supply.toString()).to.equal("0");
+    }
+  });
+
+  it("rolls back market creation and its treasury fee when the initial oracle policy is invalid", async function () {
+    const policy=normalizedTestOracle().policy;
+    for (const oracle of [{...policy,lambdaBps:10_000},{...policy,adjustmentCapNad:new BN(1_000_000_000)},
+      {...policy,provider:PublicKey.default},{...policy,baseFeedId:Array(32).fill(0)}]) {
+      await initializeFinalMarket(203,marketConfig(),oracle,"InvalidMarketConfig");
+    }
+  });
+
+  it("requires a valid initial report before funding an oracle-selected market", async function () {
+    const oracle=normalizedTestOracle();
+    const fixture=await initializeFinalMarket(204,marketConfig(),oracle.policy);
+    const accounts=await createOwnerAssetAccounts(fixture);
+    const writer=new DuskWrite(createDuskProgram({provider:program.provider}));
+    const instruction=await writer.addLiquidityInstruction({market:fixture.market,owner:payer.publicKey,
+      baseMint:fixture.baseMint,quoteMint:fixture.quoteMint,ylpMint:fixture.ylpMint,...accounts,
+      baseDepositAmount:100_000,quoteDepositAmount:200_000,minYlpAmount:1});
+    const unchanged=[fixture.market,fixture.baseReserveVault,fixture.quoteReserveVault,fixture.ylpMint,
+      accounts.ownerBaseAccount,accounts.ownerQuoteAccount,accounts.ownerYlpAccount];
+    const before=unchanged.map(k=>Buffer.from(svm.getAccount(k)!.data));
+    const missing=new TransactionInstruction({...instruction,keys:instruction.keys.filter(meta=>!meta.pubkey.equals(oracle.key))});
+    oracle.publish(fixture);
+    const feed=svm.getAccount(oracle.key)!;
+    const stale=Buffer.from(feed.data);stale.writeBigInt64LE(svm.getClock().unixTimestamp-61n,120);
+    svm.setAccount(oracle.key,{...feed,data:stale});
+    for (const [ix,expected] of [[missing,"OracleAccountMissing"],[instruction,"OracleStale"]] as const) {
+      let error:unknown;
+      try {await connection.sendTransaction(new Transaction().add(ix),[payer]);} catch(e) {error=e;}
+      expect(String(error)).to.include(expected);
+      unchanged.forEach((k,i)=>expect(Buffer.from(svm.getAccount(k)!.data).equals(before[i])).to.equal(true));
+      svm.expireBlockhash();
+    }
+    oracle.publish(fixture);
+    await connection.sendTransaction(new Transaction().add(instruction),[payer]);
+    expect((await getAccount(connection as any,accounts.ownerYlpAccount,undefined,TOKEN_2022_PROGRAM_ID)).amount>0n).to.equal(true);
   });
 
   it("makes the Dusk transfer hook immutable on production LP mints", async function () {
@@ -9708,7 +9776,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config.amm.peakAmplificationNad = new BN(4_000_000_000);
         config.amm.coreHalfWidthBps = 1000; config.amm.fadeWidthBps = 4000;
       }
-      let oracle: Awaited<ReturnType<typeof configureNormalizedTestOracle>> | undefined;
+      const oracle=oracleMode ? normalizedTestOracle() : undefined;
       const fixture = await addBalancedLiquidity(65, config, oracleMode ? {
         baseDeposit: 100_000_000, quoteDeposit: 200_000_000, minYlp: 1,
         baseMint: 1_000_000_000, quoteMint: 2_000_000_000,
@@ -9717,8 +9785,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           base: await createMint(connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID),
           quote: await createTransferFeeMint(payer.publicKey, 6, 50),
         } : undefined, oracleMode ? async f => {
-          oracle = await configureNormalizedTestOracle(f); return oracle.metas;
-        } : undefined);
+          return oracle!.publish(f);
+        } : undefined, oracle?.policy);
       if (oracleMode) {
         await openBaseHedge(fixture, 2_000_000, undefined, oracle!.metas);
         await openQuoteHedge(fixture, 4_000_000, undefined, oracle!.metas);
@@ -11626,12 +11694,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       maxAgeSlots:new BN(100),maxConfidenceBps:100,maxPublishSkewSeconds:5};
     const replacement = {...pythPolicy,format:1,provider:normalizedOwner,baseAccount:normalized,
       quoteAccount:PublicKey.default,quoteFeedId:Array(32).fill(0),maxPublishSkewSeconds:0,lambdaBps:5000};
-    let initialConfigError: unknown;
-    try {
-      const ix=await writer.configureInitialOracleInstruction({market:f.market,authority:payer.publicKey,policy:pythPolicy});
-      await connection.sendTransaction(new Transaction().add(ix),[payer]);
-    } catch(e) {initialConfigError=e;}
-    expect(String(initialConfigError)).to.include("NonZeroSupply");
     let sequence=0n;
     const refresh = (policy: typeof pythPolicy, partial = false) => {
       const clock = svm.getClock();
@@ -11693,13 +11755,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("rejects invalid OP feeds atomically while allowing principal and accrued-interest repayment", async function () {
     const config = marketConfig();
-    let oracle!: Awaited<ReturnType<typeof configureNormalizedTestOracle>>;
+    const oracle=normalizedTestOracle();
     const fixture = await addBalancedLiquidity(198, config, {
       baseDeposit: 100_000_000, quoteDeposit: 200_000_000, minYlp: 1,
       baseMint: 1_000_000_000, quoteMint: 2_000_000_000,
     }, 6, TOKEN_PROGRAM_ID, undefined, async f => {
-      oracle = await configureNormalizedTestOracle(f); return oracle.metas;
-    });
+      return oracle.publish(f);
+    }, oracle.policy);
     const sdk = new DuskWrite(createDuskProgram({provider: program.provider}));
     const positionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, positionId)[0];
@@ -11780,30 +11842,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config.amm.compoundingFeeBps = compound;
         config.amm.coreHalfWidthBps=amp===1?0:amp===4?1000:amp===32?100:1;
         config.amm.fadeWidthBps=amp===4?4000:0;
-        const key=Keypair.generate().publicKey;
-        const owner=Keypair.generate().publicKey;
-        const metas=[{pubkey:key,isSigner:false,isWritable:false}];
+        const oracle=normalizedTestOracle(lambda);
+        const {key,metas}=oracle;
         const fixture=await addBalancedLiquidity(199,config,{
           baseDeposit:100_000_000,quoteDeposit:200_000_000,minYlp:1,
           baseMint:1_000_000_000,quoteMint:2_000_000_000,
-        },6,TOKEN_PROGRAM_ID,undefined,async fixture=>{
-          const now=svm.getClock();
-          if (now.unixTimestamp<=0n) {now.unixTimestamp=1000n;svm.setClock(now);}
-          const data=Buffer.alloc(145);
-          data.set(Buffer.from("DOPRV001"));data.fill(7,8,40);
-          data.set(fixture.baseMint.toBytes(),40);data.set(fixture.quoteMint.toBytes(),72);
-          data.writeBigUInt64LE(3_000_000_000n,104);data.writeBigInt64LE(now.unixTimestamp,120);
-          data.writeBigUInt64LE(now.slot,128);data.writeBigUInt64LE(1n,136);data[144]=1;
-          svm.setAccount(key,{lamports:10_000_000,data,owner,executable:false});
-          const policy={format:1,provider:owner,baseAccount:key,quoteAccount:PublicKey.default,
-            baseFeedId:Array(32).fill(7),quoteFeedId:Array(32).fill(0),lambdaBps:lambda,
-            adjustmentCapNad:new BN(2_000_000_000),maxAgeSeconds:60,maxAgeSlots:new BN(100),
-            maxConfidenceBps:100,maxPublishSkewSeconds:0};
-          const ix=await sdk.configureInitialOracleInstruction({market:fixture.market,authority:payer.publicKey,policy});
-          await connection.sendTransaction(new Transaction().add(ix),[payer]);
-          trackV2Instruction("configureInitialOracle",this.test?.title);
-          return lambda===0?[]:metas;
-        });
+        },6,TOKEN_PROGRAM_ID,undefined,async fixture=>oracle.publish(fixture),oracle.policy);
         for (const phase of [0,1,2,3]) {
           svm.expireBlockhash();
           const hlp=phase>0;

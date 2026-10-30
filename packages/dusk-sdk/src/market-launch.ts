@@ -43,7 +43,9 @@ export function marketCreationLookupTablePlan(params: {
   return { address, createInstruction, extendInstructions, addresses };
 }
 
-/** The lookup table must have been extended in an earlier slot. */
+/** The lookup table must have been extended in an earlier slot. Includes the
+ * initial oracle policy in the same creation instruction. Metadata lengths and
+ * setup instructions must fit Solana's packet limit after address compression. */
 export function marketCreationV0Transaction(params: {
   payer: PublicKey;
   recentBlockhash: string;
@@ -63,7 +65,14 @@ export function marketCreationV0Transaction(params: {
     recentBlockhash: params.recentBlockhash,
     instructions,
   }).compileToV0Message([params.lookupTable]);
-  return new VersionedTransaction(message);
+  const tx = new VersionedTransaction(message);
+  try {
+    if (tx.serialize().length > 1232) throw new RangeError("packet size");
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    throw new Error("market creation exceeds transaction size; shorten LP metadata or add lookup-table addresses");
+  }
+  return tx;
 }
 
 /** Prepare addresses for a maximum-size parameter proposal. Submit the

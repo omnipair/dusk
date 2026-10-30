@@ -13,9 +13,9 @@ pub const PYTH_RATIO_V2: u8 = 2;
 pub const NORMALIZED_ORACLE_MAGIC: [u8; 8] = *b"DOPRV001";
 pub const PYTH_RECEIVER: Pubkey = pubkey!("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
 
-/// Every market starts with the empty, oracleless policy. The initial-liquidity
-/// authority or subsequent governance selects a policy within the same
-/// mathematical limits; creation does not restrict future oracle activation.
+/// Creation selects an optional policy atomically; omission uses native pricing.
+/// Subsequent governance can change the policy within the same mathematical
+/// limits. Every native market supports later oracle activation.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct OraclePolicy {
     pub format: u8,

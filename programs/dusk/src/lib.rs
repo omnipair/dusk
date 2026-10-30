@@ -123,12 +123,6 @@ pub mod dusk {
         InitializeMarket::handle_initialize(ctx, args)
     }
 
-    /// The launch authority selects a reference before the first LP seed.
-    /// After seeding, changes use the ordinary timelocked proposal process.
-    pub fn configure_initial_oracle(ctx: Context<ConfigureInitialOracle>, policy: OraclePolicy) -> Result<()> {
-        ConfigureInitialOracle::handle(ctx, policy)
-    }
-
     #[access_control(ctx.accounts.validate())]
     pub fn set_market_reduce_only(ctx: Context<SetMarketReduceOnly>, args: SetMarketReduceOnlyArgs) -> Result<()> {
         SetMarketReduceOnly::handle_set(ctx, args)

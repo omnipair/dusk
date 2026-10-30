@@ -1,5 +1,3 @@
-mod configure_oracle;
-pub use configure_oracle::*;
 mod fortify_market;
 mod initialization;
 mod set_reduce_only;
