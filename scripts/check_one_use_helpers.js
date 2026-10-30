@@ -535,6 +535,36 @@ acceptedOneUseHelpers.set("programs/dusk/src/transitions/flash_liquidation.rs", 
 // The retired-cohort decoder needs its own SBF frame. Inlining it into the
 // generic transfer-hook account mutation exceeded the 4 KiB stack limit.
 acceptedOneUseHelpers.set("programs/dusk/src/instructions/transfer_hook.rs", new Set(["retired_hlp_yield_contexts"]));
+// Bounded invariant construction is separated from evaluation: shape bands,
+// cached coordinates/primitives, elementary antiderivatives, and the Taylor
+// remainder certificate each have an independent mathematical contract.
+// Taylor arrays and the output seed also require separate SBF stack frames.
+acceptedOneUseHelpers.set("programs/dusk/src/math/op_gamm.rs", new Set([
+  "raw_coefficients", "build_bands", "coordinate_uncached", "price_bounds_nad", "native_geometry_at",
+  "historical_mark_nad", "native_primitive_uncached", "analytic_residual",
+  "cpmm_integral", "taylor_cell", "elasticity", "native_seed", "taylor_quotient_integral",
+]));
+// Keep the rare four-limb path out of inlined Q56 arithmetic (the combined
+// SBF body exceeded LLVM branch range). Log range reduction owns its series
+// enclosure and is tested separately from interval endpoint composition.
+acceptedOneUseHelpers.set("programs/dusk/src/math/op_gamm/interval.rs", new Set(["unsigned_ratio_wide", "ln_point"]));
+// Source equivalence defines replay-history continuity across governance.
+// observation is the authority boundary for price-free repayment, also tested
+// directly to ensure deserialization cannot restore execution authority.
+acceptedOneUseHelpers.set("programs/dusk/src/oracle.rs", new Set(["same_source", "observation"]));
+// The quote finisher owns fees and final ownership certification in a separate
+// SBF frame; merging it with the solver exceeded the 4 KiB stack contract.
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/amm/mod.rs").add("finish_concentrated_swap");
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm/oracle.rs", new Set(["quote_oracle_integrated"]));
+// Authentication of a proposed replacement must precede the atomic update;
+// this boundary also permits recovery from a dead previous provider.
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/governance.rs").add("execute_parameter_updates_authenticated");
+// Historical marks measure volatility only. The repayment boundary explicitly
+// separates price-free debt reduction from authenticated price-sensitive risk.
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/oracle.rs", new Set(["remembered_oracle_mark", "update_for_debt_reduction"]));
+// SPL hook resolution owns dynamic seed indexing and privilege de-escalation;
+// it is differential-tested against SPL and isolated from token CPI plumbing.
+acceptedOneUseHelpers.set("programs/dusk/src/token.rs", new Set(["add_transfer_hook_accounts"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
 );

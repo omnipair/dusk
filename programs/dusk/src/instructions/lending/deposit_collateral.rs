@@ -94,7 +94,7 @@ impl<'info> DepositCollateral<'info> {
         Ok(())
     }
 
-    crate::instructions::accounts::market_update_and_validate!(DepositCollateralArgs);
+    crate::instructions::accounts::market_update_and_validate!(DepositCollateralArgs, price_free);
 
     pub fn handle_deposit(mut ctx: Context<'_, '_, '_, 'info, Self>, args: DepositCollateralArgs) -> Result<()> {
         let borrow_position_bump = ctx.bumps.borrow_position;

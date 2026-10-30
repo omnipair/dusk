@@ -430,4 +430,14 @@ pub enum ErrorCode {
 
     #[msg("Partial liquidation does not improve health after costs")]
     LiquidationDoesNotImproveHealth,
+    #[msg("The market's configured oracle account was not supplied")]
+    OracleAccountMissing,
+    #[msg("Oracle account owner, identity or verification failed")]
+    OracleAuthenticationFailed,
+    #[msg("Oracle report is invalid, future-dated, halted or too uncertain")]
+    OracleInvalidObservation,
+    #[msg("Oracle source observation is stale")]
+    OracleStale,
+    #[msg("Oracle sequence or source observation regressed")]
+    OracleReplay,
 }

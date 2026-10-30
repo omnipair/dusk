@@ -715,7 +715,7 @@ pub fn record_leverage_interest<'info>(
         referral_receipt.quote.referral_amount,
         interest_eligibility.ylp_supply,
     )?;
-    if market.has_active_hlp() && interest_vault_credit > protocol_credit {
+    if market.has_active_hlp() && interest_vault_credit > protocol_credit && !market.oracle_price_unavailable() {
         settle_new_public_hlp_income(
             market,
             futarchy_authority,

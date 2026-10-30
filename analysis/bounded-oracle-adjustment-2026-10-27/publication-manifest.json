@@ -1,0 +1,29 @@
+{
+  "purpose": "Hashes of the prepared publication bundle. Historical original manifests retain their earlier byte hashes.",
+  "files": {
+    "assumptions.json": "96dac6361158a84816c5541d26cf73ee6fd9cbce7cbeeb1919ffc65249b3ba6f",
+    "capacity.csv": "7ad1b588afdd074a7e57e81afa5f43af78ad468873006f29b2739e7da6d99f5b",
+    "exit_loans.csv": "c9e5779c6a23333c2ecd797396884640133383266a56b794150270cffc01200e",
+    "fixed_2x_capacity.csv": "1ac9434fd6214352cd69f25206c8a4a49cb89ddab26ea6d061fb53c534133b39",
+    "fixed_2x_exit_loans.csv": "678f906ba0c02358573f81f2a20e345febebe6e19c28e8ed604c344cfa9a1cb1",
+    "fixed_2x_hlp.csv": "845168abcf57bb578e076a24f8f65f53aa8ba8e0c58e076275474e87a39be5a6",
+    "health_floor_sensitivity.csv": "21bd2a8e5289cd36fe95d012f286543b5a6a9d4991b30331af78340d9eb14cc5",
+    "hlp.csv": "a4bdb8143b1dd9a709b121be5346e2234f014838d75f1e1c47ae73c2936d2aba",
+    "honest_price_shocks.csv": "b7bd0b1c6805da6a4134702a57e45a26aa09fe3335223cb6cfd334adbebd2a0a",
+    "idle_funding.csv": "3aded412dd7a62f18b08f448cce751e5cafc3d6e4dcc9a1476408eb04d795299",
+    "manifest.json": "cef3c014cceead2ea208cdbcd04fe2510ac79013d8ead1ca944975288c71fe99",
+    "opposite_exit_loans.csv": "ac18cf710617fdf57ef150e9ae5ef3a39c838aa86597ab4115f21ac8014d6cb7",
+    "own_pool_split_search.csv": "a43e67a7d1a0da787dc38717fbaec430f7d195cb12537e4d2b4611b127089780",
+    "repeated_cycles.csv": "0c3c259ee1a2d7be5eb8324fbe13d77473f908cb8bd385851253a416467e861f",
+    "split_loans.csv": "7e2770a101f7d66c34588a5e6fe27991d306d5fc6fe013d3a464ce61c181ab4b",
+    "split_prefix_search.csv": "98208ac2312441e2147fd16a10f3c8035aad7b56cdcb5b3dba2fb97ffdad391b",
+    "tracking-capacity.png": "729e045560e4d1c5421d1199d4800544a89e98b4e4c2a4bf9d50ec52aff509a8",
+    "tracking-capacity.svg": "4b7fc2bb42b9e218ffc7b5a11034d5962ccb657c90aea5f3c2e3b8b38a6cb5f6",
+    "tracking.csv": "a0d66a5d4fee56211be2a6f0c791f344f39833587adea2de96ac34c4fdd0c2bf",
+    "trades.csv": "69037755492f42f1d1cdf5061767429d247ee9fbfe3e1f89c59b72c445d03379",
+    "validation.json": "b60fe68be660855ec96f64718e8c06ca5fbab3d8bdba86f87477464713046635",
+    "validation_independent.json": "ed86071f5a53a247e3665bf51a7728ef784cd945afaf3e09577275d545567394",
+    "validation_initial.json": "52802430fec1a0475b41a3d7d73d319e2b7ac7f255d9e45463798817b11da2e9",
+    "validation_prefix.json": "3319e63904596c9262e1bce77411cbbf89ab3668f2731ae2ba42f27e34844101"
+  }
+}

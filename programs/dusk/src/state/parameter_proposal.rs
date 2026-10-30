@@ -10,14 +10,14 @@ use crate::{
     errors::ErrorCode,
 };
 
-use super::{FeeProfile, IrmConfig};
+use super::{FeeProfile, IrmConfig, OraclePolicy};
 
 /// Domain separator for the immutable, client-verifiable proposal digest. V2
 /// binds a list of family updates and each updated family's revision.
 pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V2";
 
 /// Number of governed parameter families, and of `Market::parameter_revisions`.
-pub const PARAMETER_FAMILY_COUNT: usize = 7;
+pub const PARAMETER_FAMILY_COUNT: usize = 8;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub enum ParameterFamily {
@@ -28,6 +28,7 @@ pub enum ParameterFamily {
     DailyBorrowLimit,
     CenterController,
     Insurance,
+    Oracle,
 }
 
 impl ParameterFamily {
@@ -40,6 +41,7 @@ impl ParameterFamily {
             Self::DailyBorrowLimit => 4,
             Self::CenterController => 5,
             Self::Insurance => 6,
+            Self::Oracle => 7,
         }
     }
 }
@@ -76,9 +78,11 @@ pub enum MarketParameterUpdate {
         principal_coverage_bps: u16,
         per_day_bps: u16,
     },
+    /// Prospective reference and blend policy, bounded by the birth config.
+    Oracle(OraclePolicy),
 }
 
-/// One to seven updates, at most one per family, in ascending family order,
+/// One to eight updates, at most one per family, in ascending family order,
 /// so a proposal's updates have exactly one encoding and one digest.
 pub fn validate_parameter_update_set(updates: &[MarketParameterUpdate]) -> Result<()> {
     require!(
@@ -118,6 +122,7 @@ impl MarketParameterUpdate {
             Self::DailyBorrowLimit { .. } => ParameterFamily::DailyBorrowLimit,
             Self::CenterController { .. } => ParameterFamily::CenterController,
             Self::InsuranceDrawCaps { .. } => ParameterFamily::Insurance,
+            Self::Oracle(_) => ParameterFamily::Oracle,
         }
     }
 }
@@ -205,7 +210,7 @@ pub struct ParameterProposal {
     pub nonce: u64,
     /// The families this proposal changes, one update each, in ascending
     /// family order. They execute together or not at all.
-    #[max_len(7)]
+    #[max_len(8)]
     pub updates: Vec<MarketParameterUpdate>,
     /// The revision of each updated family when the proposal was created; an
     /// executed change to any of them makes this proposal stale. Families the

@@ -47,6 +47,7 @@ fn every_family_update() -> Vec<MarketParameterUpdate> {
             principal_coverage_bps: 0,
             per_day_bps: 0,
         },
+        MarketParameterUpdate::Oracle(crate::state::OraclePolicy::default()),
     ]
 }
 
@@ -123,15 +124,15 @@ fn digest_binds_nonce_revisions_updates_and_metadata() {
         per_day_bps: 200,
     };
     let updates = vec![borrow_limit.clone(), caps.clone()];
-    let base_revisions = revisions([0, 0, 0, 0, 9, 0, 3]);
+    let base_revisions = revisions([0, 0, 0, 0, 9, 0, 3, 0]);
     let digest = |nonce, family_revisions: &[u64; PARAMETER_FAMILY_COUNT], updates: &[MarketParameterUpdate], metadata: &ProposalMetadataV1| {
         parameter_proposal_digest(program, market, proposer, nonce, family_revisions, updates, metadata).unwrap()
     };
     let expected = digest(4, &base_revisions, &updates, &metadata());
 
     assert_ne!(expected, digest(5, &base_revisions, &updates, &metadata()));
-    assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 10, 0, 3]), &updates, &metadata()));
-    assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 9, 0, 4]), &updates, &metadata()));
+    assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 10, 0, 3, 0]), &updates, &metadata()));
+    assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 9, 0, 4, 0]), &updates, &metadata()));
     assert_ne!(expected, digest(4, &base_revisions, &[borrow_limit], &metadata()));
     assert_ne!(expected, digest(4, &base_revisions, &[caps.clone()], &metadata()));
     assert_ne!(
@@ -194,7 +195,7 @@ fn update_set_names_each_family_once_in_ascending_order() {
 
 #[test]
 fn only_updated_families_carry_a_revision() {
-    let market_revisions = revisions([1, 2, 3, 4, 5, 6, 7]);
+    let market_revisions = revisions([1, 2, 3, 4, 5, 6, 7, 0]);
     let updates = vec![
         MarketParameterUpdate::Concentration {
             peak_amplification_nad: 1,
@@ -209,7 +210,7 @@ fn only_updated_families_carry_a_revision() {
     ];
     assert_eq!(
         updated_family_revisions(&updates, &market_revisions),
-        revisions([0, 2, 0, 0, 0, 6, 0])
+        revisions([0, 2, 0, 0, 0, 6, 0, 0])
     );
 }
 
@@ -251,7 +252,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
             market,
             proposer,
             nonce,
-            &revisions([0, 0, 0, 0, 3, 0, 0]),
+            &revisions([0, 0, 0, 0, 3, 0, 0, 0]),
             vec![MarketParameterUpdate::DailyBorrowLimit {
                 max_daily_borrow_bps: 1_000,
             }],
@@ -262,7 +263,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
         )
         .unwrap();
     proposal.assert_account(market, proposal_key).unwrap();
-    assert_eq!(proposal.family_revisions, revisions([0, 0, 0, 0, 3, 0, 0]));
+    assert_eq!(proposal.family_revisions, revisions([0, 0, 0, 0, 3, 0, 0, 0]));
 
     let created = proposal.updates.clone();
     proposal.updates[0] = MarketParameterUpdate::DailyBorrowLimit {
@@ -316,7 +317,7 @@ fn any_updated_family_changing_makes_the_proposal_stale() {
                 min_adjustment_interval_slots: 1,
             },
         ],
-        family_revisions: revisions([0, 2, 0, 0, 0, 6, 0]),
+        family_revisions: revisions([0, 2, 0, 0, 0, 6, 0, 0]),
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,
@@ -332,12 +333,12 @@ fn any_updated_family_changing_makes_the_proposal_stale() {
     };
 
     // Families the proposal does not touch may move freely.
-    let untouched_moved = revisions([9, 2, 9, 9, 9, 6, 9]);
+    let untouched_moved = revisions([9, 2, 9, 9, 9, 6, 9, 0]);
     assert!(proposal.revisions_current(&untouched_moved));
     assert!(!proposal.mark_stale_if_revision_changed(&untouched_moved));
     assert_eq!(proposal.status, ParameterProposalStatus::Collecting);
 
-    let center_moved = revisions([0, 2, 0, 0, 0, 7, 0]);
+    let center_moved = revisions([0, 2, 0, 0, 0, 7, 0, 0]);
     assert!(!proposal.revisions_current(&center_moved));
     assert!(proposal.mark_stale_if_revision_changed(&center_moved));
     assert_eq!(proposal.status, ParameterProposalStatus::Stale);
@@ -379,7 +380,7 @@ fn queue_snapshots_support_then_expiry_makes_support_unlockable() {
         updates: vec![MarketParameterUpdate::DailyBorrowLimit {
             max_daily_borrow_bps: 1_000,
         }],
-        family_revisions: revisions([0, 0, 0, 0, 7, 0, 0]),
+        family_revisions: revisions([0, 0, 0, 0, 7, 0, 0, 0]),
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,
@@ -398,7 +399,7 @@ fn queue_snapshots_support_then_expiry_makes_support_unlockable() {
     assert_eq!(proposal.queued_eligible_ylp, 100);
     assert!(proposal.mark_expired_if_past_deadline(proposal.execution_deadline + 1));
     assert_eq!(proposal.status, ParameterProposalStatus::Expired);
-    assert!(!proposal.mark_stale_if_revision_changed(&revisions([0, 0, 0, 0, 8, 0, 0])));
+    assert!(!proposal.mark_stale_if_revision_changed(&revisions([0, 0, 0, 0, 8, 0, 0, 0])));
 }
 
 #[test]
@@ -438,9 +439,9 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         description_sha256: [u8::MAX; 32],
         description_len: MAX_PROPOSAL_DESCRIPTION_BYTES,
     };
-    // Every variant at its fixed Borsh size, so seven Fee updates bound the
+    // Every variant at its fixed Borsh size, so eight Oracle updates bound the
     // account even though a valid proposal names each family at most once.
-    let max_update = MarketParameterUpdate::Fee(FeeProfile::default());
+    let max_update = MarketParameterUpdate::Oracle(crate::state::OraclePolicy::default());
     let proposal = ParameterProposal {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
@@ -484,7 +485,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     };
 
     assert_eq!(proposal.try_to_vec().unwrap().len(), ParameterProposal::INIT_SPACE);
-    assert_eq!(ParameterProposal::INIT_SPACE, 1_187);
+    assert_eq!(ParameterProposal::INIT_SPACE, 2_099);
     // A finished proposal keeps only its tombstone discriminator.
     assert_eq!(
         crate::account::get_size_with_discriminator::<crate::state::ParameterProposalTombstone>(),
@@ -501,7 +502,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         initial_support: u64::MAX,
     };
     let instruction_data = crate::instruction::CreateParameterProposal { args }.data();
-    assert_eq!(instruction_data.len(), 555);
+    assert_eq!(instruction_data.len(), 745);
 
     let account_metas = crate::accounts::CreateParameterProposal {
         proposer,
@@ -522,22 +523,26 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     .to_account_metas(None);
     assert_eq!(account_metas.len(), 14);
 
-    let message = anchor_lang::solana_program::message::Message::new(
-        &[anchor_lang::solana_program::instruction::Instruction {
-            program_id: crate::ID,
-            accounts: account_metas,
-            data: instruction_data,
-        }],
-        Some(&proposer),
-    );
+    let instruction = anchor_lang::solana_program::instruction::Instruction {
+        program_id: crate::ID, accounts: account_metas, data: instruction_data,
+    };
+    let message = anchor_lang::solana_program::message::Message::new(&[instruction.clone()], Some(&proposer));
     assert_eq!(message.header.num_required_signatures, 1);
     assert_eq!(message.account_keys.len(), 14);
     let message_size = bincode::serialize(&message).unwrap().len();
-    assert_eq!(message_size, 1_058);
-    // One compact-u16 signature count byte, one signature, and the message.
-    assert_eq!(1 + 64 + message_size, 1_123);
-    // A proposal that changes every family still fits one 1,232-byte packet.
-    assert!(1 + 64 + message_size <= 1_232);
+    assert_eq!(message_size, 1_248);
+    // The maximal eight-family payload uses the standard v0 lookup-table
+    // path. Ordinary smaller proposals remain usable as legacy transactions.
+    assert!(1 + 64 + message_size > 1_232);
+    let table = anchor_lang::solana_program::message::AddressLookupTableAccount {
+        key: Pubkey::new_unique(), addresses: message.account_keys.clone(),
+    };
+    let message = anchor_lang::solana_program::message::v0::Message::try_compile(
+        &proposer, &[instruction], &[table], anchor_lang::solana_program::hash::Hash::default(),
+    ).unwrap();
+    let versioned = anchor_lang::solana_program::message::VersionedMessage::V0(message);
+    assert!(1 + 64 + bincode::serialize(&versioned).unwrap().len() <= 1_232);
+
 }
 
 #[test]
@@ -547,7 +552,7 @@ fn lifecycle_boundaries_keep_support_frozen_through_the_deadline() {
         proposer: Pubkey::new_unique(),
         nonce: 3,
         updates: vec![MarketParameterUpdate::Irm(IrmConfig::default())],
-        family_revisions: revisions([0, 0, 5, 0, 0, 0, 0]),
+        family_revisions: revisions([0, 0, 5, 0, 0, 0, 0, 0]),
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,

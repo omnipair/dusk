@@ -137,6 +137,58 @@ pub(crate) fn observed_or_current_u64(cached_observation: u64, current_observati
     }
 }
 
+// Two base-2^32 quotient digits when the divisor and quotient fit u64.
+// This avoids software u128 division on SBF. Normalization bounds each
+// trial quotient error by two; wrapping below discards only cancelling
+// high limbs, and the resulting remainder is less than the divisor.
+pub(crate) fn div_rem_native(n: u128, d: u128) -> (u128, u128) {
+    if n <= u64::MAX as u128 && d <= u64::MAX as u128 {
+        let (n, d) = (n as u64, d as u64);
+        return ((n / d) as u128, (n % d) as u128);
+    }
+    let high = (n >> 64) as u64;
+    if d > u64::MAX as u128 || high as u128 >= d {
+        return (n / d, n % d);
+    }
+    let divisor = d as u64;
+    let shift = divisor.leading_zeros();
+    let v = divisor << shift;
+    let (v1, v0) = (v >> 32, v & 0xffff_ffff);
+    let low = n as u64;
+    let upper = if shift == 0 {
+        high
+    } else {
+        (high << shift) | (low >> (64 - shift))
+    };
+    let lower = low << shift;
+    let (u1, u0) = (lower >> 32, lower & 0xffff_ffff);
+    const BASE: u64 = 1 << 32;
+    let digit = |upper: u64, next: u64| {
+        let mut q = upper / v1;
+        let mut r = upper % v1;
+        while q >= BASE || q * v0 > BASE * r + next {
+            q -= 1;
+            r += v1;
+            if r >= BASE {
+                break;
+            }
+        }
+        q
+    };
+    let q1 = digit(upper, u1);
+    let middle = upper
+        .wrapping_mul(BASE)
+        .wrapping_add(u1)
+        .wrapping_sub(q1.wrapping_mul(v));
+    let q0 = digit(middle, u0);
+    let remainder = middle
+        .wrapping_mul(BASE)
+        .wrapping_add(u0)
+        .wrapping_sub(q0.wrapping_mul(v))
+        >> shift;
+    (((q1 << 32) | q0) as u128, remainder as u128)
+}
+
 /// Exact `floor(value * numerator / denominator)` with a checked u128 result.
 pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) -> Result<(u128, u128)> {
     require!(denominator > 0, ErrorCode::DenominatorOverflow);
@@ -144,7 +196,7 @@ pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) 
         return Ok((0, 0));
     }
     if let Some(product) = value.checked_mul(numerator) {
-        return Ok((product / denominator, product % denominator));
+        return Ok(div_rem_native(product, denominator));
     }
 
     let whole = value / denominator;
@@ -246,9 +298,26 @@ pub fn isqrt(value: u128) -> u128 {
     if value < 2 {
         return value;
     }
-    let mut x = 1u128 << ((128 - value.leading_zeros()).div_ceil(2));
+    // An eight-bit integer seed is a strict upper bound, including the
+    // discarded low bits. Newton still stops only at the exact floor root.
+    const ROOTS: [u8; 256] = {
+        let mut roots = [0; 256];
+        let mut n = 0;
+        let mut r = 0;
+        while n < 256 {
+            if (r + 1) * (r + 1) <= n {
+                r += 1;
+            }
+            roots[n] = r as u8;
+            n += 1;
+        }
+        roots
+    };
+    let shift = ((128 - value.leading_zeros()).saturating_sub(7).div_ceil(2)) * 2;
+    let top = (value >> shift) as usize;
+    let mut x = (u128::from(ROOTS[top]) + 1) << (shift / 2);
     loop {
-        let next = (x + value / x) / 2;
+        let next = (x + div_rem_native(value, x).0) / 2;
         if next >= x {
             return x;
         }

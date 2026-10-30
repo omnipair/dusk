@@ -314,6 +314,7 @@ impl Default for IrmConfig {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct MarketConfig {
+    pub oracle_bounds: super::OracleBounds,
     pub swap_fee_bps: u16,
     pub divergence_fee_share_cap_bps: u16,
     pub volatility_fee_share_cap_bps: u16,
@@ -558,6 +559,7 @@ impl Default for Insurance {
 #[account]
 #[derive(InitSpace, Default)]
 pub struct Market {
+    pub oracle: Box<super::OracleState>,
     pub version: u8,
     pub ylp_mint: Pubkey,
     pub base_side: MarketSide,
@@ -579,7 +581,7 @@ pub struct Market {
     pub governance_locked_ylp: u64,
     /// Independent monotone revisions for fee, concentration, IRM, EMA,
     /// daily-borrow-limit, and center-controller parameter families.
-    pub parameter_revisions: [u64; 7],
+    pub parameter_revisions: [u64; 8],
     /// Latest trader-visible marginal price committed by a curve mutation.
     pub last_marginal_observation_nad: u64,
     /// Monotone revision for executable-curve mutations.

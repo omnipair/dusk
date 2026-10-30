@@ -88,7 +88,7 @@ impl Market {
         asset: MarketAsset,
         fee: LeverageCollateralFee,
     ) -> Result<()> {
-        if !position.distress(asset).active {
+        if !position.distress(asset).active || (self.oracle_price_unavailable() && position.debt_shares(asset) > 0) {
             return Ok(());
         }
         if position.debt_shares(asset) == 0
@@ -109,7 +109,7 @@ impl Market {
         position: &mut LeveragePosition,
         fee: LeverageCollateralFee,
     ) -> Result<()> {
-        if !position.distress.active {
+        if !position.distress.active || (self.oracle_price_unavailable() && position.debt_shares > 0) {
             return Ok(());
         }
         if position.debt_shares == 0

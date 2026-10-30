@@ -9,8 +9,48 @@ collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
 
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
-targets Dusk market layout v2, including aggregate leverage exposure and stored
+targets Dusk market layout 7, including bounded oracle policies, aggregate leverage exposure and stored
 position margin terms. Regenerate clients and use matching account layouts.
+
+## Bounded oracle markets
+
+Market creation now includes `oracleBounds: { maxLambdaBps, maxAdjustmentNad }`.
+The default `{ maxLambdaBps: 0, maxAdjustmentNad: 0 }` is permanently oracleless.
+Positive birth bounds disclose the maximum future oracle weight and multiplicative
+price adjustment. The active weight can start at zero and change through the
+existing parameter-proposal lifecycle within those bounds. Bounds are immutable;
+there is no automatic weight change during an oracle outage.
+
+Before first liquidity, the creator can use
+`dusk.write.configureInitialOracleInstruction({ market, authority, policy })`.
+For an existing market, `parameterUpdate.oracle(policy)` creates an oracle
+proposal update. `oraclePolicy()` validates the wire format; the program also
+checks the market's immutable bounds and the current report. See
+[the implementation contract](../../docs/OP_GAMM_IMPLEMENTATION_STATUS.md) for
+the coupled swap, lending and hLP behavior.
+
+The supported policies read either a normalized pair account (`NORMALIZED_ORACLE_V1`)
+or two fully verified Pyth accounts (`PYTH_RATIO_V2`). A market selects the
+provider, feed identities, age and confidence policy. The normalized provider
+must serialize the exact Borsh `NormalizedOracleV1` envelope defined in
+[oracle.rs](../../programs/dusk/src/oracle.rs), including the underlying source
+observation time, both mints and a monotonically increasing nonzero sequence.
+Dusk does not fetch an off-chain report or give Horus special authority.
+
+High-level builders fetch the policy and append feed accounts after the existing
+hLP/hook prefix. Positive-weight transaction builders add the compute and heap
+budgets. When composing **raw instructions**, add
+`oracleComputeBudgetInstructions(policy)` once before constructing any
+index-bound flash plan; do not prepend instructions after binding its indices.
+Resolve `oracleReadAccounts(policy)` for direct Anchor calls. Zero weight needs
+neither feed accounts nor OP budgets. Simulate the whole transaction, including
+any provider update and callback: a passing isolated price calculation does not
+establish route feasibility.
+
+A stale or invalid source rejects price-sensitive operations. Direct repayment
+in the debt token and adding collateral remain possible without a valid price;
+this does not permit a collateral sale or removal. Oracle updates change the
+market reference but do not execute an hLP hedge by themselves.
 
 ## Protocol revenue defaults
 

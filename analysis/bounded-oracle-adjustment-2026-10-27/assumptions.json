@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-27",
+  "scope": "Continuous mathematical model, not native instruction execution or historical backtest",
+  "initial_base": 10000,
+  "initial_quote": 600000,
+  "native_center": 60,
+  "shapes": {
+    "cpmm": {
+      "peak": 1,
+      "core": 0,
+      "fade": 0
+    },
+    "dusk_4x": {
+      "peak": 4,
+      "core_half_width_bps": 1000,
+      "fade_width_bps": 4000
+    }
+  },
+  "lambda_grid": [
+    0,
+    0.25,
+    0.5,
+    0.75,
+    0.9
+  ],
+  "mismatch_thresholds": [
+    1.25,
+    2,
+    4
+  ],
+  "max_CF": 0.85,
+  "LTV_buffer": 0.05,
+  "borrow_market_health_floor": 1.1,
+  "global_contribution_cap": 1.5,
+  "risk_filters": "Settled accepted observation; post-trade admission uses current price as an adverse control, no favorable EMA lag benefit.",
+  "depth": "Recognized full-range tail only; post-trade/after-loss tail cannot exceed initial/preceding recognized tail in that run.",
+  "held_fixed": [
+    "center",
+    "concentration shape",
+    "oracle during each trade"
+  ],
+  "exclusions": [
+    "native atom rounding",
+    "transaction authentication and limits",
+    "dynamic fees",
+    "transfer fees",
+    "daily buckets; enough elapsed time assumed",
+    "provider compromise cost",
+    "customer demand",
+    "full receivable/frozen-hLP solver"
+  ],
+  "methods": {
+    "trades": "Conditional invariant integrated in log native sqrt-price; piecewise Gauss-Legendre order 12, grid step .01, split at band/cap boundaries; Newton inversion.",
+    "validation": "Independent piecewise CPMM closed forms; original native inventory endpoint; reciprocal-direction and reverse trades; independent Decimal sequential credit."
+  },
+  "sources": {
+    "programs/dusk/src/transitions/amm/curve.rs": {
+      "commit": "77877d576018fd2bd8191d13f05534b0484e2282",
+      "sha256": "c4447058741a217c58a634452e519abe9144036077ffc48d77fe7ae64b365bef",
+      "bytes": 89884
+    },
+    "programs/dusk/src/transitions/lending/mod.rs": {
+      "commit": "77877d576018fd2bd8191d13f05534b0484e2282",
+      "sha256": "9f070d6c6101f55697dc20ceeff3fd50dc2bc317992e51f3576c089dccb88090",
+      "bytes": 78134
+    },
+    "programs/dusk/src/transitions/liquidity/hlp/integrated.rs": {
+      "commit": "77877d576018fd2bd8191d13f05534b0484e2282",
+      "sha256": "64f6e944f27b0e36c00d52f8bde40c0c3a9c4f99c85ee46addaf917c83b36d45",
+      "bytes": 28845
+    }
+  },
+  "fixed_adjustment_supplement": {
+    "M": 2,
+    "lambda_grid": [
+      0,
+      0.25,
+      0.5,
+      0.75,
+      0.9
+    ],
+    "T_for_positive_lambda": "2^(1/lambda)"
+  },
+  "cap_convention": "T is oracle/native mismatch threshold. Maximum price adjustment M=T^lambda. Main example lambda=.5,T=4 is M=2."
+}

@@ -424,6 +424,7 @@ impl MarketConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
+        self.oracle_bounds.validate()?;
         self.fee_profile().validate()?;
         require_eq!(
             self.target_hlp_leverage_bps,
@@ -530,7 +531,7 @@ impl Market {
         self.params_hash = params_hash;
         self.initial_liquidity_authority = initial_liquidity_authority;
         self.governance_locked_ylp = 0;
-        self.parameter_revisions = [0; 7];
+        self.parameter_revisions = [0; 8];
         self.last_marginal_observation_nad = 0;
         self.curve_revision = 0;
         self.risk_revision = 0;
@@ -586,7 +587,7 @@ impl Market {
     }
 
     /// Validate a proposal's updates without permitting unrelated
-    /// configuration fields to move with them: one to seven, at most one per
+    /// configuration fields to move with them: one to eight, at most one per
     /// family in ascending family order, each a real change within its own
     /// family's bounds, and the configuration they produce together valid as
     /// a whole. Returns that configuration.
@@ -595,6 +596,10 @@ impl Market {
         let mut next = self.config;
         for update in updates {
             match update {
+                MarketParameterUpdate::Oracle(policy) => {
+                    policy.validate(self.config.oracle_bounds)?;
+                    require!(*policy != self.oracle.policy, ErrorCode::ParameterUpdateNotMeaningful);
+                }
                 MarketParameterUpdate::Fee(profile) => {
                     require!(
                         self.config.fee_profile() != *profile,
@@ -703,11 +708,63 @@ impl Market {
     /// guard once, and then advance the revision of each family that changed.
     /// Any failure leaves the market untouched.
     pub fn execute_parameter_updates(&mut self, updates: &[MarketParameterUpdate], current_slot: u64) -> Result<()> {
+        self.execute_parameter_updates_inner(updates, current_slot, None)
+    }
+
+    /// Validate the newly selected source in the execution transaction. A
+    /// timelocked replacement may recover a dead source without requiring
+    /// that dead source to publish again. Elapsed interest still uses old rates.
+    pub(crate) fn execute_parameter_updates_authenticated(
+        &mut self,
+        updates: &[MarketParameterUpdate],
+        clock: &Clock,
+        accounts: &[AccountInfo],
+    ) -> Result<()> {
+        let next = updates.iter().find_map(|update| match update {
+            MarketParameterUpdate::Oracle(policy) => Some(*policy),
+            _ => None,
+        });
+        if let Some(policy) = next {
+            policy.validate(self.config.oracle_bounds)?;
+            let same_source = policy.same_source(self.oracle.policy);
+            let observation = if policy.lambda_bps == 0 {
+                if same_source {
+                    self.oracle.last_observation
+                } else {
+                    OracleObservation::default()
+                }
+            } else {
+                let observed = policy.read(accounts, clock, self.base_side.asset_mint, self.quote_side.asset_mint)?;
+                if same_source {
+                    observed.assert_not_before(self.oracle.last_observation, policy.format)?;
+                }
+                observed
+            };
+            self.execute_parameter_updates_inner(updates, clock.slot, Some((policy, observation)))
+        } else {
+            self.bind_oracle(accounts, clock)?;
+            self.execute_parameter_updates_inner(updates, clock.slot, None)
+        }
+    }
+
+    #[inline(never)]
+    fn execute_parameter_updates_inner(
+        &mut self,
+        updates: &[MarketParameterUpdate],
+        current_slot: u64,
+        next_oracle: Option<(OraclePolicy, OracleObservation)>,
+    ) -> Result<()> {
         self.assert_current_version()?;
         let next_config = self.validate_parameter_updates(updates)?;
+        let changes_oracle = updates.iter().any(|u| matches!(u, MarketParameterUpdate::Oracle(_)));
+        require!(
+            changes_oracle == next_oracle.is_some(),
+            ErrorCode::OracleAuthenticationFailed
+        );
+        let previous_oracle = self.oracle.clone();
         let previous_config = self.config;
-        let previous_base_side = self.base_side;
-        let previous_quote_side = self.quote_side;
+        let previous_base_side = Box::new(self.base_side);
+        let previous_quote_side = Box::new(self.quote_side);
         let previous_amm = self.amm;
         let previous_debt = self.debt;
         let previous_risk = self.risk;
@@ -719,6 +776,11 @@ impl Market {
         let previous_last_update_slot = self.last_update_slot;
 
         let apply_result = (|| {
+            let prior_oracle_mark = if changes_oracle {
+                self.remembered_oracle_mark()?
+            } else {
+                None
+            };
             // No elapsed interest, EMA decay, or risk integration may be
             // retroactively evaluated under the newly selected parameters.
             self.accrue_interest_to_slot(current_slot)?;
@@ -726,7 +788,9 @@ impl Market {
                 self.amm
                     .observe_slot_from_validated_config(&previous_config.amm, current_slot)?;
             }
-            self.refresh_risk_at_slot(current_slot)?;
+            if !changes_oracle {
+                self.refresh_risk_at_slot(current_slot)?;
+            }
             self.assert_parameter_execution_utilization()?;
 
             // Every family closes its elapsed windows under the old values
@@ -765,6 +829,24 @@ impl Market {
             }
 
             self.config = next_config;
+            if let Some((policy, observation)) = next_oracle {
+                self.oracle.policy = policy;
+                self.oracle.last_observation = observation;
+                self.oracle.revision = self
+                    .oracle
+                    .revision
+                    .checked_add(1)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                self.oracle.runtime = if policy.lambda_bps == 0 {
+                    RuntimePricing::default()
+                } else {
+                    RuntimePricing::bind(policy, observation)
+                };
+                self.checkpoint_oracle_risk_depth()?;
+                self.amm.invalidate_deferred_controller_target();
+                self.advance_curve_revision()?;
+            }
+
             // Side effects read the final configuration, so a curve shape and
             // a center controller changed together each see the other's new
             // values.
@@ -800,6 +882,13 @@ impl Market {
             }
 
             self.finalize_amm_transition(current_slot)?;
+            if let Some(before) = prior_oracle_mark {
+                let after = self
+                    .current_concentrated_spot_price_nad()?
+                    .ok_or(ErrorCode::BrokenInvariant)?;
+                self.amm
+                    .checkpoint_trade(&self.config.amm, before, after, current_slot)?;
+            }
             self.refresh_risk_at_slot(current_slot)?;
             self.assert_market_health()?;
             for update in updates {
@@ -812,9 +901,10 @@ impl Market {
         })();
 
         if apply_result.is_err() {
+            self.oracle = previous_oracle;
             self.config = previous_config;
-            self.base_side = previous_base_side;
-            self.quote_side = previous_quote_side;
+            self.base_side = *previous_base_side;
+            self.quote_side = *previous_quote_side;
             self.amm = previous_amm;
             self.debt = previous_debt;
             self.risk = previous_risk;

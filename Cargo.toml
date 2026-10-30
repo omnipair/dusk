@@ -5,6 +5,7 @@ members = [
     "programs/faucet",
     "tests/fixtures/referral_transfer_hook",
     "tests/fixtures/token_metadata_fixture",
+    "tests/fixtures/op_gamm_compute",
 ]
 resolver = "2"
 

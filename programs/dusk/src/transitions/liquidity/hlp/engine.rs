@@ -709,7 +709,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_at_current_state(
     prepare_concentrated_hlp_transition_from_end(market, market.integrated_curve_state_nad()?, true, false, 0, 0)
 }
 
-pub(super) fn prepare_concentrated_hlp_transition_from_end(
+pub(crate) fn prepare_concentrated_hlp_transition_from_end(
     market: &Market,
     end: IntegratedCurveState,
     preserve_current_ordinary_reserves: bool,
@@ -758,12 +758,14 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
     // derived ordinary tranche can lose a few reserve atoms.
     let endpoint = integrated::materialized_hlp_endpoint(end)?;
     let (book_base, book_quote) = end.book_ordinary()?;
+    let (ownership_base, ownership_quote) = end.ownership_basis()?;
+    let (base_backing, quote_backing) = end.backing_equities()?;
     let mut ownership = reconstruct_hlp_ownership(
         static_supply,
-        book_base,
-        book_quote,
-        end.base_hlp_equity,
-        end.quote_hlp_equity,
+        ownership_base,
+        ownership_quote,
+        base_backing,
+        quote_backing,
     )?;
     if frozen_mask & 1 != 0 {
         ownership.base_hlp_ylp_shares = market.base_hlp_vault.ylp_shares;
@@ -833,8 +835,8 @@ pub(super) fn prepare_concentrated_hlp_transition_from_end(
         // the exact post-swap live reserves from the quoted ordinary point.
         let ordinary_base = market.denormalize_amount_floor(book_base, market.base_side.asset_decimals)?;
         let ordinary_quote = market.denormalize_amount_floor(book_quote, market.quote_side.asset_decimals)?;
-        let base_equity = market.denormalize_amount_floor(end.base_hlp_equity, market.base_side.asset_decimals)?;
-        let quote_equity = market.denormalize_amount_floor(end.quote_hlp_equity, market.quote_side.asset_decimals)?;
+        let base_equity = market.denormalize_amount_floor(base_backing, market.base_side.asset_decimals)?;
+        let quote_equity = market.denormalize_amount_floor(quote_backing, market.quote_side.asset_decimals)?;
         let mut base = ordinary_base
             .checked_add(base_equity)
             .ok_or(ErrorCode::ReserveUnderflow)?;

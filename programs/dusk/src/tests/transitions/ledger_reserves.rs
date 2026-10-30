@@ -5,6 +5,7 @@ use proptest::prelude::*;
 
 fn empty_market() -> Market {
     Market {
+        oracle: Default::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
         base_side: MarketSide::default(),
@@ -19,7 +20,7 @@ fn empty_market() -> Market {
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 7],
+        parameter_revisions: [0; 8],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::{OraclePolicy, OracleObservation, RuntimePricing};
 
 // Reference-ledger helpers for lifecycle parity tests; no production callers remain.
 impl Market {
@@ -101,6 +102,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
     base_side.shares = ReserveShares { ylp_supply };
     quote_side.shares = ReserveShares { ylp_supply };
     let mut market = Market {
+        oracle: Default::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
         base_side,
@@ -127,7 +129,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 7],
+        parameter_revisions: [0; 8],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -143,6 +145,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
 fn empty_position() -> LeveragePosition {
     LeveragePosition {
         active_liquidation_session: Pubkey::default(),
+        close_approval: Default::default(),
         distress: Default::default(),
         owner: Pubkey::default(),
         market: Pubkey::default(),
@@ -2688,6 +2691,7 @@ fn repayment_finalization_matches_full_curve_checkpoint() {
 
 #[test]
 fn protection_closeout_matches_full_swap_quote_across_fee_modes() {
+    for lambda in [0, 2500, 5000, 9999] {
     for concentrated in [false, true] {
         for fee_mode in [crate::state::SWAP_FEE_COLLECT_INPUT_ASSET,
             crate::state::SWAP_FEE_COLLECT_BASE_ONLY, crate::state::SWAP_FEE_COLLECT_QUOTE_ONLY] {
@@ -2698,6 +2702,11 @@ fn protection_closeout_matches_full_swap_quote_across_fee_modes() {
                 market.config.amm.compounding_fee_bps = compounding;
                 market.deposit_single_sided(MarketAsset::Base, 100_000, 1).unwrap();
                 market.finalize_amm_transition_and_observe_risk(1).unwrap();
+                market.oracle.policy = OraclePolicy {lambda_bps: lambda, adjustment_cap_nad: 2*NAD,
+                    ..OraclePolicy::default()};
+                market.oracle.runtime = RuntimePricing::bind(market.oracle.policy, OracleObservation {
+                    price_nad: 3*NAD/2, ..OracleObservation::default()
+                });
                 for asset in [MarketAsset::Base, MarketAsset::Quote] {
                     let position = seeded_position(&mut market, asset, 1_000, 2_000);
                     market.prepare_position_protection_snapshot(100_000).unwrap();
@@ -2709,6 +2718,8 @@ fn protection_closeout_matches_full_swap_quote_across_fee_modes() {
             }
         }
     }
+}
+
 }
 
 #[test]

@@ -9,6 +9,18 @@ use crate::{
     state::market::{Debt, MarketAsset},
 };
 
+/// Dusk-owned, transaction-local approval context. Written immediately before
+/// the read-only delegate callback and cleared before settlement. A standalone
+/// delegate invocation cannot authenticate an off-chain or old quote with it.
+#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CloseApprovalQuote {
+    pub slot: u64,
+    pub close_bps: u16,
+    pub collateral_credit: u64,
+    pub selected_output: u64,
+    pub full_output: u64,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct LeveragePosition {
@@ -36,6 +48,7 @@ pub struct LeveragePosition {
     pub open_curve_revision: u64,
     pub active_liquidation_session: Pubkey,
     pub distress: crate::state::LiquidationDistress,
+    pub close_approval: CloseApprovalQuote,
     pub bump: u8,
 }
 
@@ -77,6 +90,7 @@ impl LeveragePosition {
         self.opened_slot = opened_slot;
         self.active_liquidation_session = Pubkey::default();
         self.distress = crate::state::LiquidationDistress::default();
+        self.close_approval = CloseApprovalQuote::default();
         self.bump = bump;
     }
 

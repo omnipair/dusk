@@ -65,3 +65,30 @@ export function marketCreationV0Transaction(params: {
   }).compileToV0Message([params.lookupTable]);
   return new VersionedTransaction(message);
 }
+
+/** Prepare addresses for a maximum-size parameter proposal. Submit the
+ * create/extend instructions and wait one slot before using the table. */
+export function parameterProposalLookupTablePlan(params: {
+  payer: PublicKey;
+  recentSlot: number;
+  proposalInstruction: TransactionInstruction;
+}) {
+  return marketCreationLookupTablePlan({payer: params.payer, recentSlot: params.recentSlot,
+    initializeMarketInstruction: params.proposalInstruction});
+}
+
+/** All eight parameter families plus maximum metadata need address lookup
+ * tables. The wire-size check includes signatures and compute instructions. */
+export function parameterProposalV0Transaction(params: {
+  payer: PublicKey;
+  recentBlockhash: string;
+  proposalInstruction: TransactionInstruction;
+  lookupTables: readonly AddressLookupTableAccount[];
+}): VersionedTransaction {
+  const message = new TransactionMessage({payerKey: params.payer, recentBlockhash: params.recentBlockhash,
+    instructions: [ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}), params.proposalInstruction],
+  }).compileToV0Message([...params.lookupTables]);
+  const tx = new VersionedTransaction(message);
+  if (tx.serialize().length > 1232) throw new Error("proposal exceeds transaction size; add lookup-table addresses");
+  return tx;
+}
