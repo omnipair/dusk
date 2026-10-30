@@ -7,7 +7,15 @@ use anchor_lang::prelude::*;
 
 pub(super) const ONE: i128 = 1_i128 << 56;
 const LN2_LO: i128 = 49_946_518_145_322_873;
-#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
+// Match the native curve's compatibility boundary: uint 0.9 expands legacy
+// integer APIs and an expression-position semicolon into the caller's crate.
+#[allow(unknown_lints)] // The SBF compiler predates Rust 1.99's renamed lint.
+#[allow(
+    clippy::assign_op_pattern,
+    clippy::manual_div_ceil,
+    deprecated,
+    semicolon_in_expressions_from_non_local_macros
+)]
 mod wide {
     use uint::construct_uint;
     construct_uint! { pub struct U256(4); }
