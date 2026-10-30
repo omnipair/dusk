@@ -3,7 +3,7 @@ import type { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
-import type { EmergencyLiquidationQuote, FlashAmmLiquidationQuote, FlashLiquidationQuote } from "./type-aliases.js";
+import type { EmergencyLiquidationQuote, FlashAmmLiquidationQuote, FlashLiquidationQuote, LiquidationHealth } from "./type-aliases.js";
 import { address, type AddressLike } from "./address.js";
 import { DuskWrite } from "./write.js";
 import { DuskGet } from "./get.js";
@@ -120,14 +120,16 @@ export class DuskLiquidations {
     return { slot: snapshot.slot, epoch: snapshot.epoch, debt: snapshot.mints[0], collateral: snapshot.mints[1] };
   }
 
-  /** Commit separately if a failed execution route must not erase the timer. */
-  async observeInstruction(params: LiquidationPositionParams): Promise<TransactionInstruction> {
+  /** Simulate current health without committing any observation or timer. */
+  async previewHealth(params: LiquidationPositionParams): Promise<LiquidationHealth> {
     const resolved = await this.resolve(params);
-    return this.write.instruction("observeLiquidation", [resolved.debtAsset], { accounts: resolved.readAccounts });
+    const instruction = await this.write.instruction("previewLiquidationHealth", [resolved.debtAsset], { accounts: resolved.readAccounts });
+    const returned = await this.get.simulateReturnData(instruction);
+    return this.program.coder.types.decode("liquidationHealth", previewReturnDataBytes(returned)) as LiquidationHealth;
   }
 
   /** Returns the executable discount after partial-health affordability checks.
-   * The ramp's ceiling alone must not be used to construct a payment or route.
+   * The health-based ceiling alone must not be used to construct a payment or route.
    */
   async preview(params: LiquidationPositionParams & { maxRepayment: GovernanceIntegerLike; full?: boolean }): Promise<FlashLiquidationQuote> {
     const resolved = await this.resolve(params);

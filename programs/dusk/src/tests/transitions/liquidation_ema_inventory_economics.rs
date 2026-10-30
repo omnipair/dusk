@@ -266,7 +266,6 @@ fn audit_ema_inventory_economic_comparison() {
                                         m.leverage_reference_depth(debt.opposite()).unwrap(),
                                     )
                                     .unwrap();
-                                    p.distress.observe(true, 0, 2).unwrap();
                                     no_accrual(&mut m, 2);
                                     if withdrawal > 0 {
                                         let ordinary = m.base_side.shares.ylp_supply
@@ -437,7 +436,6 @@ fn cmp_current_candidate(
     which_full: bool,
 ) -> Result<bool> {
     let health = m.flash_liquidation_health(&Ref::Leverage(p), side, f)?;
-    p.distress.observe(health.eligible()?, now, slot)?;
     if !health.eligible()? {
         return Ok(false);
     }
@@ -500,19 +498,7 @@ fn cmp_current_candidate(
                     quote_hlp_ylp_shares: trial.quote_hlp_vault.ylp_shares,
                 };
                 if external_profitable {
-                    trial.settle_flash_recovery(
-                        &mut Mut::Leverage(&mut next),
-                        side,
-                        allocation,
-                        q.collateral_debit,
-                        repaid,
-                        f.effective_gross_for_credit(loss.insurance_credit)?,
-                        loss.insurance_credit,
-                        full,
-                        f,
-                        now,
-                        slot,
-                    )?;
+                    trial.settle_flash_recovery(&mut Mut::Leverage(&mut next), side, allocation, q.collateral_debit, repaid, f.effective_gross_for_credit(loss.insurance_credit)?, loss.insurance_credit, full, slot)?;
                     profit = revenue - required;
                 } else {
                     let credit = f.unwind_credit(q.collateral_credit)?;
@@ -578,15 +564,7 @@ fn cmp_current_candidate(
                         q.collateral_debit,
                         full,
                     )?;
-                    trial.observe_liquidation_settlement(
-                        &mut Mut::Leverage(&mut next),
-                        side,
-                        allocation.remaining_debt,
-                        full,
-                        f,
-                        now,
-                        slot,
-                    )?;
+                    trial.reconcile_liquidation_position(&mut Mut::Leverage(&mut next), side, allocation.remaining_debt)?;
                 }
                 cmp_publish_fee(&mut trial, side, fee, slot, eligibility)?;
                 trial.assert_market_invariants()?;
@@ -648,16 +626,7 @@ fn cmp_current_candidate(
             if q.reward_credit < 50 {
                 continue;
             }
-            trial.apply_emergency_liquidation(
-                &mut Mut::Leverage(&mut next),
-                side,
-                &mut prepared,
-                f,
-                now,
-                slot,
-                2000,
-                ProtocolAuctionSplit::default(),
-            )?;
+            trial.apply_emergency_liquidation(&mut Mut::Leverage(&mut next), side, &mut prepared, slot, 2000, ProtocolAuctionSplit::default())?;
             cmp_publish_fee(&mut trial, side, q.fee, slot, eligibility)?;
             trial.assert_market_invariants()?;
             t.emergency += 1;

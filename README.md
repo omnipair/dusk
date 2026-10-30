@@ -27,7 +27,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Permissioned referral revenue sharing**: Futarchy-listed referrers can bind to new borrow or leverage debt and earn a configured share of the DAO's realized interest revenue without changing borrower debt or rates.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
-- **Permissionless atomic liquidation**: buyers receive collateral and owe a fixed net payment in the same transaction. Useful partial fills come first, with a 0.5–5% health/time discount over a two-minute distress episode. At critical EMA health, partial-first internal AMM recovery uses a caller reward capped at 1%, principal-only insurance and residual LP loss absorption; there is no mandatory auction wait.
+- **Permissionless atomic liquidation**: buyers receive collateral and owe a fixed net payment in the same transaction. Useful partial fills come first, with a 0.5–5% discount based only on current health, without a registration transaction. At critical EMA health, partial-first internal AMM recovery uses a caller reward capped at 1%, principal-only insurance and residual LP loss absorption; there is no mandatory auction wait.
 
 ## How It Works
 
@@ -261,7 +261,7 @@ configure_referral_partner
 initialize_referral_accrual
 set_referral_recipient
 claim_referral_interest
-observe_liquidation
+preview_liquidation_health
 preview_flash_liquidation
 begin_flash_liquidation
 settle_flash_liquidation

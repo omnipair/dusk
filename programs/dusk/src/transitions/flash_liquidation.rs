@@ -37,13 +37,6 @@ impl LiquidationPositionRef<'_> {
         }
     }
 
-    pub(crate) fn age(&self, asset: MarketAsset, now: i64) -> Result<u64> {
-        match self {
-            Self::Borrow(p) => p.distress(asset).age(now),
-            Self::Leverage(p) => p.distress.age(now),
-        }
-    }
-
     pub(crate) fn require_idle(&self) -> Result<()> {
         match self {
             Self::Borrow(p) => p.require_idle(),
@@ -82,49 +75,6 @@ impl LiquidationPositionRef<'_> {
 }
 
 impl Market {
-    pub(crate) fn reset_borrow_distress_if_recovered(
-        &self,
-        position: &mut BorrowPosition,
-        asset: MarketAsset,
-        fee: LeverageCollateralFee,
-    ) -> Result<()> {
-        if !position.distress(asset).active {
-            return Ok(());
-        }
-        if position.debt_shares(asset) == 0
-            || !self
-                .flash_liquidation_health(&LiquidationPositionRef::Borrow(position), asset, fee)?
-                .eligible()?
-        {
-            *position.distress_mut(asset) = LiquidationDistress {
-                observed_slot: position.distress(asset).observed_slot,
-                ..LiquidationDistress::default()
-            };
-        }
-        Ok(())
-    }
-
-    pub(crate) fn reset_leverage_distress_if_recovered(
-        &self,
-        position: &mut LeveragePosition,
-        fee: LeverageCollateralFee,
-    ) -> Result<()> {
-        if !position.distress.active {
-            return Ok(());
-        }
-        if position.debt_shares == 0
-            || !self
-                .flash_liquidation_health(&LiquidationPositionRef::Leverage(position), position.debt_asset()?, fee)?
-                .eligible()?
-        {
-            position.distress = LiquidationDistress {
-                observed_slot: position.distress.observed_slot,
-                ..LiquidationDistress::default()
-            };
-        }
-        Ok(())
-    }
-
     pub(crate) fn liquidation_value(&self, asset: MarketAsset, collateral_credit: u64) -> Result<u64> {
         let value =
             self.linear_liquidation_collateral_value_nad(asset.opposite(), collateral_credit, &self.current_risk()?)?;
@@ -188,7 +138,7 @@ impl Market {
         position.require_idle()?;
         let health_before = self.flash_liquidation_health(position, asset, eligibility_fee)?;
         require!(health_before.eligible()?, ErrorCode::PositionNotLiquidatable);
-        let mut rates = health_before.rates(position.age(asset, now)?)?;
+        let mut rates = health_before.rates()?;
         let available = position.collateral(asset);
         let target = self.liquidation_insurance_target(asset)?;
         let balance = self.insurance.available(asset);
@@ -330,7 +280,7 @@ impl Market {
                 health_before.improves(health_after)?,
                 ErrorCode::LiquidationDoesNotImproveHealth
             );
-            if health_after.recovered()? && debt_shares_to_burn > 1 {
+            if debt_shares_to_burn > 1 {
                 self.require_first_flash_recovery(
                     position,
                     asset,

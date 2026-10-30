@@ -5833,117 +5833,6 @@
       ]
     },
     {
-      "name": "observe_liquidation",
-      "discriminator": [
-        142,
-        159,
-        189,
-        212,
-        245,
-        60,
-        54,
-        113
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "borrow_position",
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "leverage_position",
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "collateral_mint"
-        },
-        {
-          "name": "debt_mint"
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "debt_asset",
-          "type": "u8"
-        }
-      ],
-      "returns": {
-        "defined": {
-          "name": "LiquidationHealth"
-        }
-      }
-    },
-    {
       "name": "open_leverage",
       "discriminator": [
         182,
@@ -7060,6 +6949,85 @@
       "returns": {
         "defined": {
           "name": "HlpOrderTriggerPreview"
+        }
+      }
+    },
+    {
+      "name": "preview_liquidation_health",
+      "docs": [
+        "Read current liquidation health without starting an episode or mutating accounts."
+      ],
+      "discriminator": [
+        123,
+        158,
+        120,
+        122,
+        95,
+        28,
+        6,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrow_position",
+          "optional": true
+        },
+        {
+          "name": "leverage_position",
+          "optional": true
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "debt_mint"
+        }
+      ],
+      "args": [
+        {
+          "name": "debt_asset",
+          "type": "u8"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "LiquidationHealth"
         }
       }
     },
@@ -11935,19 +11903,6 @@
       ]
     },
     {
-      "name": "LiquidationObserved",
-      "discriminator": [
-        94,
-        27,
-        52,
-        51,
-        81,
-        236,
-        3,
-        0
-      ]
-    },
-    {
       "name": "LiquidityAdded",
       "discriminator": [
         154,
@@ -13023,8 +12978,8 @@
     },
     {
       "code": 6139,
-      "name": "InvalidLiquidationClock",
-      "msg": "Liquidation observation clock moved backwards"
+      "name": "ReservedLiquidationClock",
+      "msg": "Reserved retired liquidation clock error"
     },
     {
       "code": 6140,
@@ -13883,22 +13838,6 @@
           {
             "name": "active_liquidation_session",
             "type": "pubkey"
-          },
-          {
-            "name": "base_distress",
-            "type": {
-              "defined": {
-                "name": "LiquidationDistress"
-              }
-            }
-          },
-          {
-            "name": "quote_distress",
-            "type": {
-              "defined": {
-                "name": "LiquidationDistress"
-              }
-            }
           },
           {
             "name": "auction_debt_asset",
@@ -17435,14 +17374,6 @@
             "type": "pubkey"
           },
           {
-            "name": "distress",
-            "type": {
-              "defined": {
-                "name": "LiquidationDistress"
-              }
-            }
-          },
-          {
             "name": "bump",
             "type": "u8"
           }
@@ -17937,31 +17868,6 @@
       }
     },
     {
-      "name": "LiquidationDistress",
-      "docs": [
-        "A committed observation is separate from an atomic flash transaction: a",
-        "reverted route must not erase the incentive clock. Each debt leg owns its",
-        "episode. Recovery ends it; a useful partial while still unhealthy does not."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "started_at",
-            "type": "i64"
-          },
-          {
-            "name": "observed_slot",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "LiquidationFeeAllocation",
       "docs": [
         "Whole spendable atoms. Transfer-fee gross-ups are separate from the net fee",
@@ -18045,42 +17951,6 @@
           {
             "name": "surplus",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "LiquidationObserved",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "position",
-            "type": "pubkey"
-          },
-          {
-            "name": "debt_asset",
-            "type": "u8"
-          },
-          {
-            "name": "health",
-            "type": {
-              "defined": {
-                "name": "LiquidationHealth"
-              }
-            }
-          },
-          {
-            "name": "distress",
-            "type": {
-              "defined": {
-                "name": "LiquidationDistress"
-              }
-            }
           }
         ]
       }
@@ -19919,14 +19789,6 @@
                 "defined": {
                   "name": "LiquidationRates"
                 }
-              }
-            }
-          },
-          {
-            "name": "liquidation_distress",
-            "type": {
-              "defined": {
-                "name": "LiquidationDistress"
               }
             }
           }

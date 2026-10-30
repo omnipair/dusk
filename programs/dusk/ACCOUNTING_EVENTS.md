@@ -127,8 +127,7 @@ currency off-chain with explicit pricing and reporting-period conventions.
 ## Flash liquidation consumers
 
 Liquidation auction start/fill/backstop and the old full leverage liquidation
-entrypoint are removed. `LiquidationObserved` records a committed distress
-observation, `FlashLiquidationBegun` the fixed economic obligation, and
+entrypoint are removed. `FlashLiquidationBegun` records the fixed economic obligation, and
 `FlashLiquidationSettled` the actual debt reduction, fee split, owner surplus,
 principal/insurance loss allocation and remaining debt/collateral. Internal
 emergency execution reports `EmergencyLiquidationSettled` with the complete
@@ -166,8 +165,7 @@ The first deposit creates the position with no debt, zero liquidation CFs, no
 referral binding, and no auction. `auction_debt_asset` is `255` when no auction
 is active; current positions retain this inactive sentinel and zero auction
 prices. Earlier deployments emitted the historical auction lifecycle above.
-Current deposits and repayments that restore health clear the appropriate
-`LiquidationDistress` episode; fetch the position for its current clock state. A side's referral binding is set by `ReferralBound` and clears
+Liquidation incentives use current health without a stored episode or observation event. A side's referral binding is set by `ReferralBound` and clears
 whenever that side's fixed debt shares reach zero. `MarketDebtUpdated`'s
 `fixed_base_debt` and `fixed_quote_debt` are market-wide totals, not the
 position's debt. A position whose `closed` flag is set, or whose
@@ -235,7 +233,7 @@ Regenerate clients from the vendored Dusk and leverage-delegate IDLs together.
 This development revision has no production-account migration contract.
 
 The old auction instructions and `liquidate_leverage_position` are removed.
-Use observe/preview/begin/settle or emergency liquidation. Event CPI accounts
+Use read-only health/quote previews and atomic begin/settle or emergency liquidation. Event CPI accounts
 are resolved by the SDK. `LeveragePositionUpdated` continues to expose collected
 interest for voluntary position operations. Indexers should implement the new
 liquidation events above before consuming this program revision.

@@ -35,8 +35,7 @@ fn ema_emergency_quote_ignores_same_slot_spot_and_observed_depth_in_both_directi
         let mut next = p.clone();
         let mut prepared = executed.prepare_emergency_liquidation(&Ref::Leverage(&next), asset,
             p.collateral_amount, true, fee, fee, fee, 120, 1, 2_000).unwrap();
-        executed.apply_emergency_liquidation(&mut Mut::Leverage(&mut next), asset, &mut prepared,
-            fee, 120, 1, 2_000, ProtocolAuctionSplit::default()).unwrap();
+        executed.apply_emergency_liquidation(&mut Mut::Leverage(&mut next), asset, &mut prepared, 1, 2_000, ProtocolAuctionSplit::default()).unwrap();
         executed.assert_market_invariants().unwrap();
         assert_eq!(next.collateral_amount, 0);
         assert_eq!(next.debt_shares, 0);
@@ -68,8 +67,7 @@ fn ema_emergency_concentration_hlp_fees_and_real_cash_settle_without_virtual_res
         let cash = [m.base_side.reserves.cash_reserve, m.quote_side.reserves.cash_reserve];
         let cache = m.amm.concentrated_curve_cache;
         let protected_before = m.amm.spendable_protected_profit_nad();
-        let finalized = m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared,
-            token_fee, 120, 1, 2_000, ProtocolAuctionSplit::default()).unwrap().unwrap();
+        let finalized = m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared, 1, 2_000, ProtocolAuctionSplit::default()).unwrap().unwrap();
         assert_eq!(p.collateral_amount, 1_000_000 - sold);
         assert_eq!(finalized.lifecycle.socialized_principal_loss, q.loss.principal_written_off);
         let fee_on_input = fee.fee_asset == asset.opposite().code();
@@ -87,8 +85,7 @@ fn ema_emergency_concentration_hlp_fees_and_real_cash_settle_without_virtual_res
         assert_eq!(m.risk.cached_spot_base_price_nad, m.current_concentrated_spot_price_nad().unwrap().unwrap());
         m.assert_market_invariants().unwrap();
         // A prepared reference plan is consumable exactly once.
-        assert!(m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared,
-            token_fee, 120, 1, 2_000, ProtocolAuctionSplit::default()).is_err());
+        assert!(m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared, 1, 2_000, ProtocolAuctionSplit::default()).is_err());
         count += 1;
     } } } } } }
     assert_eq!(count, 144);
@@ -160,8 +157,7 @@ fn ema_emergency_pays_accrued_hlp_funding_from_real_cash_and_cancels_unpaid_loan
         let q = prepared.quote;
         let f = prepared.swap.as_ref().unwrap().quote.fee;
         let before = m.side(asset).reserves.cash_reserve;
-        let result = m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared,
-            fee, 400_000, slot, 2_000, ProtocolAuctionSplit::default()).unwrap().unwrap();
+        let result = m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared, slot, 2_000, ProtocolAuctionSplit::default()).unwrap().unwrap();
         let funding = if asset == MarketAsset::Base {result.quote_rebalance.interest_paid} else {result.base_rebalance.interest_paid};
         assert!(funding > 0);
         assert!(q.loss.interest_canceled > 0);

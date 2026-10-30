@@ -7,7 +7,7 @@ use crate::{
     instructions::{
         accounts::{require_reserve_custody, token_account_info_amount, token_program_for_mint, HlpSwapAccountLayout},
         leverage::settlement::{record_leverage_interest, settle_inline_leverage_hlp},
-        leverage_collateral_fee, leverage_collateral_liquidation_fee,
+        leverage_collateral_fee,
     },
     state::*,
     token::transfer_checked_with_remaining_accounts,
@@ -212,15 +212,8 @@ pub(super) fn settle_with_amm<'info>(
         };
         a.market
             .apply_liquidation_position(&mut position, asset, allocation, q.collateral_debit, q.full)?;
-        a.market.observe_liquidation_settlement(
-            &mut position,
-            asset,
-            allocation.remaining_debt,
-            q.full,
-            leverage_collateral_liquidation_fee(&a.collateral_mint, clock.epoch)?,
-            clock.unix_timestamp,
-            clock.slot,
-        )?;
+        a.market
+            .reconcile_liquidation_position(&mut position, asset, allocation.remaining_debt)?;
     }
     settle_inline_leverage_hlp(
         &mut a.market,

@@ -58,7 +58,6 @@ fn audit_fill(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset, f: Le
 fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset, f: LeverageCollateralFee,
     now: i64, slot: u64, external: bool, mark: u64, t: &mut AuditTotals, sizes: &[u64]) -> Result<bool> {
     let health = m.flash_liquidation_health(&Ref::Leverage(p), side, f)?;
-    p.distress.observe(health.eligible()?, now, slot)?;
     if !health.eligible()? { return Ok(false); }
     let debt = p.debt_amount(&m.debt)?;
     for full in [false, true] {
@@ -79,8 +78,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
                 repaid, cap, trial.insurance.principal_coverage_bps)?;
             let profit;
             if external_profitable {
-                trial.settle_flash_recovery(&mut Mut::Leverage(&mut next), side, allocation, q.collateral_debit, repaid,
-                    f.effective_gross_for_credit(loss.insurance_credit)?, loss.insurance_credit, full, f, now, slot)?;
+                trial.settle_flash_recovery(&mut Mut::Leverage(&mut next), side, allocation, q.collateral_debit, repaid, f.effective_gross_for_credit(loss.insurance_credit)?, loss.insurance_credit, full, slot)?;
                 profit=revenue-required;
             } else {
                 let credit=f.unwind_credit(q.collateral_credit)?;
@@ -98,7 +96,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
                 swap.apply(&mut trial,policy,credit,slot,0,ProtocolAuctionSplit::default(),None)?;
                 if loss.insurance_credit>0 {trial.insurance.consume_draw(side,f.effective_gross_for_credit(loss.insurance_credit)?,slot)?;}
                 trial.apply_liquidation_position(&mut Mut::Leverage(&mut next),side,allocation,q.collateral_debit,full)?;
-                trial.observe_liquidation_settlement(&mut Mut::Leverage(&mut next),side,allocation.remaining_debt,full,f,now,slot)?;
+                trial.reconcile_liquidation_position(&mut Mut::Leverage(&mut next), side, allocation.remaining_debt)?;
             }
             publish_audit_fee(&mut trial, side, fee, loss.interest_paid, slot)?;
             trial.assert_market_invariants()?;
@@ -118,7 +116,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
             };
             let q=prepared.quote;
             if q.reward_credit < 50 { continue; }
-            trial.apply_emergency_liquidation(&mut Mut::Leverage(&mut next), side, &mut prepared, f,now,slot,0,ProtocolAuctionSplit::default())?;
+            trial.apply_emergency_liquidation(&mut Mut::Leverage(&mut next), side, &mut prepared, slot, 0, ProtocolAuctionSplit::default())?;
             publish_audit_fee(&mut trial,side,q.fee,q.loss.interest_paid,slot)?;
             trial.assert_market_invariants()?;
             t.emergency+=1;t.full+=u64::from(full);t.repayment+=q.repayment;t.insurance+=q.loss.insurance_credit;

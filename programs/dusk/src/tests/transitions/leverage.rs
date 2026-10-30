@@ -143,7 +143,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
 fn empty_position() -> LeveragePosition {
     LeveragePosition {
         active_liquidation_session: Pubkey::default(),
-        distress: Default::default(),
+
         owner: Pubkey::default(),
         market: Pubkey::default(),
         namespace_authority: Pubkey::default(),

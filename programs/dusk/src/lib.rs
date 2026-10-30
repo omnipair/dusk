@@ -359,8 +359,12 @@ pub mod dusk {
         PreviewEmergencyLiquidation::handle(ctx, args)
     }
 
-    pub fn observe_liquidation(ctx: Context<ObserveLiquidation>, debt_asset: u8) -> Result<LiquidationHealth> {
-        ObserveLiquidation::handle(ctx, debt_asset)
+    /// Read current liquidation health without starting an episode or mutating accounts.
+    pub fn preview_liquidation_health(
+        ctx: Context<PreviewFlashLiquidation>,
+        debt_asset: u8,
+    ) -> Result<LiquidationHealth> {
+        PreviewFlashLiquidation::handle_health(ctx, debt_asset)
     }
 
     pub fn settle_flash_liquidation<'info>(

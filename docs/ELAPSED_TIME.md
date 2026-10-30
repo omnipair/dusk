@@ -50,7 +50,7 @@ take effect.
 ## What still uses the runtime Clock timestamp
 
 Existing absolute Unix-time rules remain intentionally separate: market launch
-schedules, liquidation incentive episodes, governance proposal timelocks and
+schedules, governance proposal timelocks and
 delegate expiries still read `Clock.unix_timestamp`. Their Alpenglow timestamp
 trust model needs a separate policy review if the protocol intends to remove
 leader timestamp influence from *all* economic decisions. This timing change

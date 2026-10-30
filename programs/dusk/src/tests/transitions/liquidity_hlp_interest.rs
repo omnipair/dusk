@@ -275,7 +275,7 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
 fn public_repayment_and_writeoff_update_both_hlp_values_once() {
     use crate::state::{AmmConfig, AmmState, BorrowPosition};
     use crate::transitions::{
-        flash_liquidation::LiquidationPositionRef, flash_settlement::LiquidationPositionMut, LeverageCollateralFee,
+        flash_liquidation::LiquidationPositionRef, flash_settlement::LiquidationPositionMut,
     };
     const UNIT: u64 = 1_000_000;
     for amplification in [1, 4] {
@@ -342,19 +342,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                         .liquidation_debt_allocation(&LiquidationPositionRef::Borrow(&position), asset, shares)
                         .unwrap();
                     let loss = market
-                        .settle_flash_recovery(
-                            &mut LiquidationPositionMut::Borrow(&mut position),
-                            asset,
-                            allocation,
-                            50_000 * UNIT,
-                            375_000 * UNIT,
-                            0,
-                            0,
-                            true,
-                            LeverageCollateralFee::default(),
-                            1,
-                            1,
-                        )
+                        .settle_flash_recovery(&mut LiquidationPositionMut::Borrow(&mut position), asset, allocation, 50_000 * UNIT, 375_000 * UNIT, 0, 0, true, 1)
                         .unwrap();
                     assert_eq!(loss.principal_written_off, 25_000 * UNIT);
                     assert_eq!(loss.interest_canceled, 25_000 * UNIT);
