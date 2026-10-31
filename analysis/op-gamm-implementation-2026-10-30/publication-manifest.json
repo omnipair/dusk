@@ -1,0 +1,25 @@
+{
+  "purpose": "Hashes of the prepared publication bundle. Historical original manifests retain their earlier byte hashes.",
+  "files": {
+    "README.md": "60bdc367cbc5787d771bc7eca25aee59880c536241ef51728d0c0c88715eff4f",
+    "compute-probe.json": "a5f3ab21ac69d98acfd35e3c156fcbc00d48829597dd3f2414ab106f9d98ff1a",
+    "compute-probe.mjs": "4a24da2444a6a66c37341c9615e195232dd172ced1e0c8445bd5573b707f19b5",
+    "compute-profile-unlimited.json": "bc7f3a19dc3730502adc4e9c1bedf71b8a00f2b829aeeaffa87d4f4ec44ea990",
+    "extended-compute-probe.json": "42d5aec1410cb6d4a2a01a26aba317cff26893a681137fa367f9ccbf4e7d3c0f",
+    "extended-compute-profile-unlimited.json": "09cc06d20f1174cd236697ad2ce572906c1f992de036adac9a39b4e5cb846e58",
+    "generate-local-reference.py": "9e14d155acac95c4903abf4f143bb4b5bd2b5f9689405d88683b6182ee2040b5",
+    "generate-reference.py": "b67b7cf03d28e7eaf246ce040382c34e94c0efaf5391487243bb1cc62a99f83d",
+    "invariant-reference.csv": "458070c5da6539d542a0dec01f3bb198025b3c1f0a8821d6c5aa911abef3701d",
+    "local-invariant-reference.csv": "ca6bbdc86223179665520e06b83664ecad2858906d61a620200b9d887adc1a83",
+    "q48-experiment.patch": "eb0ea07b494674b51df023d2308e36a2e09460ca1e4b8941cb2370d3b07eb91c",
+    "q48-extended-compute-probe.json": "c4ebb151fbc65f235850478694f9574fcf956e24334d1b2ba952c8c425303ca3",
+    "q48-extended-compute-profile-unlimited.json": "0e9c1745fb1898cc6e2d56f473ca683829bd57281b5703fbb9673afb726b7f82",
+    "q48-tests.txt": "952b215ef90015c0c5cbf8b0aa07b1954c2855c6611c4a0040a3bdb32a888495",
+    "solver-extended-compute-probe.json": "c5e8d2a35b67f98dfeb681cdb8e6d66acd7fbaffe3510a9460a147aed802f02d",
+    "solver-extended-compute-profile-unlimited.json": "93796dc9c8b58ee967244777e316bac5d8e7ed253891e480dfa346ccdf6c3528",
+    "summary.json": "80f84d921031628adc19072667baddc2beb995b9060d8f3309652b3fcc3aab6d",
+    "transcendental-reference-q56.csv": "8292e9322dc9a0c1bbeaad642f906344dafeef5964d0688effbed856379880a8",
+    "transcendental-reference.csv": "42213b1f407473df00ea2af69082139d5523f87096d7fc9405c62ca89de3b326",
+    "validation.json": "b3db236ffde7ac8fcaf26a9ef5b23d93129d5448927b99d103b20e102d53ff54"
+  }
+}

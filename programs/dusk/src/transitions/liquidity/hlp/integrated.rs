@@ -22,10 +22,20 @@ pub(crate) enum IntegratedSwapDirection {
     QuoteToBase,
 }
 
+/// Target-asset backing needed to carry funding debt at the operation's
+/// endpoint mark. This is an ownership allocation, never additional cash or
+/// additional net NAV. Zero cover preserves the native accounting path.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct HlpCarryCover {
+    pub base: u128,
+    pub quote: u128,
+}
+
 /// Ordinary-yLP cash curve plus fixed hLP target-asset equities.
 ///
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct IntegratedCurveState {
+    pub op_carry_cover: HlpCarryCover,
     pub ordinary_base: u128,
     pub ordinary_quote: u128,
     pub base_hlp_equity: u128,
@@ -53,6 +63,56 @@ pub(crate) struct IntegratedCurveState {
 }
 
 impl IntegratedCurveState {
+    pub(crate) fn backing_equities(self) -> Result<(u128, u128)> {
+        let cover = self.op_carry_cover;
+        Ok((
+            self.base_hlp_equity
+                .checked_add(cover.base)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            self.quote_hlp_equity
+                .checked_add(cover.quote)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        ))
+    }
+
+    /// Replace the endpoint carry cover without charging net NAV again.
+    pub(crate) fn with_op_carry_cover(mut self, price_nad: u64) -> Result<Self> {
+        require!(price_nad > 0, ErrorCode::InvalidSettlementPrice);
+        let old = self.op_carry_cover;
+        let base = if self.frozen_hlp_mask & 1 == 0 {
+            crate::math::mul_div_ceil_u128(
+                u128::from(self.base_hlp_quote_carry)
+                    .checked_mul(self.quote_atom_nad)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                crate::constants::NAD as u128,
+                price_nad as u128,
+            )?
+        } else {
+            0
+        };
+        let quote = if self.frozen_hlp_mask & 2 == 0 {
+            crate::math::mul_div_ceil_u128(
+                u128::from(self.quote_hlp_base_carry)
+                    .checked_mul(self.base_atom_nad)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                price_nad as u128,
+                crate::constants::NAD as u128,
+            )?
+        } else {
+            0
+        };
+        let shift = |offset: i128, previous: u128, next: u128| -> Result<i128> {
+            offset
+                .checked_add(i128::try_from(previous).map_err(|_| ErrorCode::MarketMathOverflow)?)
+                .and_then(|v| v.checked_sub(i128::try_from(next).ok()?))
+                .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+        };
+        self.ordinary_base_book_offset = shift(self.ordinary_base_book_offset, old.base, base)?;
+        self.ordinary_quote_book_offset = shift(self.ordinary_quote_book_offset, old.quote, quote)?;
+        self.op_carry_cover = HlpCarryCover { base, quote };
+        Ok(self)
+    }
+
     pub(crate) fn uses_book_hedge(self) -> bool {
         self.frozen_hlp_mask != 0
             || ((self.base_hlp_equity > 0 || self.quote_hlp_equity > 0)
@@ -76,31 +136,42 @@ impl IntegratedCurveState {
         if endpoint.total_base == 0 || endpoint.total_quote == 0 {
             return Ok(None);
         }
-        let base_claim = mul_div_u128(self.base_hlp_equity, endpoint.total_base, base_live)?;
-        let base_opposite = mul_div_u128(self.base_hlp_equity, endpoint.total_quote, base_live)?;
-        let quote_claim = mul_div_u128(self.quote_hlp_equity, endpoint.total_quote, quote_live)?;
-        let quote_opposite = mul_div_u128(self.quote_hlp_equity, endpoint.total_base, quote_live)?;
+        let (base_backing, quote_backing) = self.backing_equities()?;
+        let base_claim = mul_div_u128(base_backing, endpoint.total_base, base_live)?;
+        let base_opposite = mul_div_u128(base_backing, endpoint.total_quote, base_live)?;
+        let quote_claim = mul_div_u128(quote_backing, endpoint.total_quote, quote_live)?;
+        let quote_opposite = mul_div_u128(quote_backing, endpoint.total_base, quote_live)?;
         let signed = |v: u128| i128::try_from(v).map_err(|_| ErrorCode::MarketMathOverflow);
         let value = |claim: u128, debt: u128, numerator: u128, denominator: u128| -> Result<i128> {
             let v = signed(mul_div_u128(claim.abs_diff(debt), numerator, denominator)?)?;
             Ok(if claim < debt { -v } else { v })
         };
-        let base_equity = signed(base_claim)?
-            .checked_add(value(
-                base_opposite,
-                endpoint.base_hlp_quote_debt,
-                endpoint.total_base,
-                endpoint.total_quote,
-            )?)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let quote_equity = signed(quote_claim)?
-            .checked_add(value(
-                quote_opposite,
-                endpoint.quote_hlp_base_debt,
-                endpoint.total_quote,
-                endpoint.total_base,
-            )?)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        // Frozen claims and their persistent offsets are accounted separately.
+        // Their retained debt must not also become negative active equity.
+        let base_equity = if self.frozen_hlp_mask & 1 != 0 {
+            0
+        } else {
+            signed(base_claim)?
+                .checked_add(value(
+                    base_opposite,
+                    endpoint.base_hlp_quote_debt,
+                    endpoint.total_base,
+                    endpoint.total_quote,
+                )?)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
+        let quote_equity = if self.frozen_hlp_mask & 2 != 0 {
+            0
+        } else {
+            signed(quote_claim)?
+                .checked_add(value(
+                    quote_opposite,
+                    endpoint.quote_hlp_base_debt,
+                    endpoint.total_quote,
+                    endpoint.total_base,
+                )?)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
         let base = signed(endpoint.total_base)?
             .checked_sub(base_equity)
             .and_then(|v| v.checked_sub(signed(endpoint.quote_hlp_base_debt).ok()?))
@@ -119,6 +190,45 @@ impl IntegratedCurveState {
             base_reserve: base.max(0) as u128,
             quote_reserve: quote.max(0) as u128,
         }))
+    }
+
+    // Active owners also share the funded reserve leg retained by a frozen
+    // vault. These fields contain that funded leg in frozen mode, not its
+    // larger indexed debt. Keep hedge ratios and ownership on the same basis.
+    pub(crate) fn ownership_basis(self) -> Result<(u128, u128)> {
+        let (base, quote) = self.book_ordinary()?;
+        let base = base
+            .checked_add(if self.frozen_hlp_mask & 2 != 0 {
+                self.quote_hlp_base_debt
+            } else {
+                0
+            })
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote = quote
+            .checked_add(if self.frozen_hlp_mask & 1 != 0 {
+                self.base_hlp_quote_debt
+            } else {
+                0
+            })
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        if self.op_carry_cover.base > 0 || self.op_carry_cover.quote > 0 {
+            return Ok((
+                base.checked_add(
+                    u128::from(self.quote_hlp_base_carry)
+                        .checked_mul(self.base_atom_nad)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                )
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+                quote
+                    .checked_add(
+                        u128::from(self.base_hlp_quote_carry)
+                            .checked_mul(self.quote_atom_nad)
+                            .ok_or(ErrorCode::MarketMathOverflow)?,
+                    )
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            ));
+        }
+        Ok((base, quote))
     }
 
     pub(crate) fn book_ordinary(self) -> Result<(u128, u128)> {
@@ -236,6 +346,8 @@ pub(crate) fn reconstruct_hlp_ownership(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct IntegratedExactInQuote {
+    /// Certified U surplus above every no-trade baseline (Q56); native path uses zero.
+    pub oracle_slack_q56: i128,
     pub amount_out: u128,
     pub end: IntegratedCurveState,
     pub hlp: IntegratedHlpEndpoint,
@@ -264,10 +376,11 @@ fn signed_delta(end: u128, start: u128) -> Result<i128> {
 }
 
 pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
-    let (base, quote) = state.book_ordinary()?;
+    let (base, quote) = state.ownership_basis()?;
+    let (base_backing, quote_backing) = state.backing_equities()?;
     require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
     if state.frozen_hlp_mask & 2 == 0 {
-        state.quote_hlp_base_debt = mul_div_u128(state.quote_hlp_equity, base, quote)?;
+        state.quote_hlp_base_debt = mul_div_u128(quote_backing, base, quote)?;
         if state.quote_hlp_base_carry > 0 {
             state.quote_hlp_base_debt = state
                 .quote_hlp_base_debt
@@ -280,7 +393,7 @@ pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Resul
         }
     }
     if state.frozen_hlp_mask & 1 == 0 {
-        state.base_hlp_quote_debt = mul_div_u128(state.base_hlp_equity, quote, base)?;
+        state.base_hlp_quote_debt = mul_div_u128(base_backing, quote, base)?;
         if state.base_hlp_quote_carry > 0 {
             state.base_hlp_quote_debt = state
                 .base_hlp_quote_debt
@@ -450,13 +563,14 @@ pub(crate) fn apply_compounded_ylp_fee(
 
 pub(crate) fn materialized_hlp_endpoint(state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
     let (base, quote) = state.book_ordinary()?;
+    let (base_backing, quote_backing) = state.backing_equities()?;
     let total_base = base
-        .checked_add(state.base_hlp_equity)
+        .checked_add(base_backing)
         .and_then(|value| value.checked_add(state.quote_hlp_base_debt))
         .and_then(|value| value.checked_sub(state.base_unpaid_interest))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let total_quote = quote
-        .checked_add(state.quote_hlp_equity)
+        .checked_add(quote_backing)
         .and_then(|value| value.checked_add(state.base_hlp_quote_debt))
         .and_then(|value| value.checked_sub(state.quote_unpaid_interest))
         .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -579,6 +693,7 @@ pub(crate) fn quote_integrated_exact_in(
                 candidate = output.saturating_add(correction);
                 low = output;
                 accepted = Some(IntegratedExactInQuote {
+                    oracle_slack_q56: 0,
                     amount_out: output,
                     end,
                     hlp,
@@ -652,6 +767,7 @@ pub(crate) fn quote_integrated_exact_in(
     end.quote_hlp_base_debt = hlp.quote_hlp_base_debt;
 
     Ok(IntegratedExactInQuote {
+        oracle_slack_q56: 0,
         amount_out: curve.amount_out,
         end,
         hlp,

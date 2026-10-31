@@ -117,6 +117,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     let quote_hlp_mint = Pubkey::new_unique();
     let market_key = Pubkey::new_unique();
     let mut market = Market {
+        oracle: Default::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint,
         base_side: crate::state::MarketSide {
@@ -151,7 +152,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         params_hash: [0; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 7],
+        parameter_revisions: [0; 8],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -313,6 +314,7 @@ fn canonical_extra_meta_schema_contains_both_asset_streams() {
     let quote_mint = Pubkey::new_unique();
     let lp_mint = Pubkey::new_unique();
     let state = Market {
+        oracle: Default::default(),
         ylp_mint: lp_mint,
         base_side: crate::state::MarketSide {
             asset_mint: base_mint,
@@ -351,6 +353,7 @@ fn hlp_hook_always_resolves_its_mint_specific_cohort() {
     let market = Pubkey::new_unique();
     let hlp_mint = Pubkey::new_unique();
     let state = Market {
+        oracle: Default::default(),
         ylp_mint: Pubkey::new_unique(),
         base_side: crate::state::MarketSide {
             asset_mint: Pubkey::new_unique(),

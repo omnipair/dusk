@@ -64,13 +64,15 @@ assert.equal(
 const oldIdl = structuredClone(fixtureProgram.idl);
 for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.type.fields.filter(f =>
   ![
-    "flashReceivable", "flashCollateralDebit",
+    "flashReceivable", "flashCollateralDebit", "oracle",
     "frozenHlpMask", "frozenBaseVaultBaseOffsetNad", "frozenBaseVaultQuoteOffsetNad",
     "frozenQuoteVaultBaseOffsetNad", "frozenQuoteVaultQuoteOffsetNad",
   ].includes(f.name) && !(type.name === "insuranceDrawWindow" && f.name === "initialized"));
 const BorshAccountsCoder = Reflect.get(anchor, "BorshAccountsCoder") ?? Reflect.get(anchor, "default").BorshAccountsCoder;
+oldIdl.types.find(t => t.name === "market").type.fields.find(f => f.name === "parameterRevisions").type.array[1] = 7;
 const oldAccount = new BorshAccountsCoder(oldIdl).decode("market", currentMarketBytes);
 oldAccount.version = MARKET_LAYOUT_VERSION;
+oldAccount.parameterRevisions.push(new BN(0));
 oldAccount.baseSide.reserves.flashReceivable = new BN(0);
 oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
 oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);
@@ -85,7 +87,15 @@ oldAccount.amm.frozenQuoteVaultQuoteOffsetNad = new BN(0);
 for (const window of [oldAccount.insurance.baseDrawWindow, oldAccount.insurance.quoteDrawWindow]) {
   window.initialized = false;
 }
-const body = Buffer.alloc(currentMarketBytes.length + 128);
+oldAccount.oracle = {
+  policy: { format: 0, provider: PublicKey.default, baseAccount: PublicKey.default, quoteAccount: PublicKey.default,
+    baseFeedId: Array(32).fill(0), quoteFeedId: Array(32).fill(0), lambdaBps: 0, adjustmentCapNad: new BN(0),
+    maxAgeSeconds: 0, maxAgeSlots: new BN(0), maxConfidenceBps: 0, maxPublishSkewSeconds: 0 },
+  lastObservation: { priceNad: new BN(0), confidenceNad: new BN(0), publishTime: new BN(0), postedSlot: new BN(0),
+    sequence: new BN(0), hash: Array(32).fill(0), sourceTimes: [new BN(0),new BN(0)], sourceSlots: [new BN(0),new BN(0)] },
+  revision: new BN(0), recognizedTailLiquidity: new BN(0), recognizedOrdinarySupply: new BN(0), runtime: {},
+};
+const body = Buffer.alloc(currentMarketBytes.length + 1024);
 const entry = fixtureProgram.coder.accounts.accountLayouts.get("market");
 const size = entry.layout.encode(oldAccount, body);
 fixture.result.value.accounts[0].data[0] = Buffer.concat([currentMarketBytes.subarray(0, 8), body.subarray(0, size)]).toString("base64");

@@ -9,6 +9,7 @@ pub mod errors;
 pub mod events;
 pub mod instructions;
 pub mod math;
+pub mod oracle;
 pub mod state;
 pub mod token;
 pub mod transitions;
@@ -127,11 +128,11 @@ pub mod dusk {
         SetMarketReduceOnly::handle_set(ctx, args)
     }
 
-    #[access_control(ctx.accounts.validate(&args))]
     pub fn fortify_market<'info>(
         ctx: Context<'_, '_, '_, 'info, FortifyMarket<'info>>,
         args: FortifyMarketArgs,
     ) -> Result<()> {
+        ctx.accounts.validate(&args)?;
         FortifyMarket::handle_fortify(ctx, args)
     }
 
@@ -201,22 +202,24 @@ pub mod dusk {
     }
 
     // Liquidity instructions
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn add_liquidity<'info>(
         ctx: Context<'_, '_, '_, 'info, AddLiquidity<'info>>,
         args: AddLiquidityArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        ctx.accounts.update_and_validate(&args)?;
         AddLiquidity::handle_add_liquidity(ctx, args)
     }
 
     /// Permissionless launch adapters use the same fully-backed seeding path
     /// as ordinary yLP deposits. The initializer is the one-shot authority;
     /// after this succeeds, subsequent liquidity is permissionless.
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn open_liquidity_gates<'info>(
         ctx: Context<'_, '_, '_, 'info, AddLiquidity<'info>>,
         args: AddLiquidityArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        ctx.accounts.update_and_validate(&args)?;
         require_eq!(
             ctx.accounts.market.base_side.shares.ylp_supply,
             0,
@@ -225,11 +228,12 @@ pub mod dusk {
         AddLiquidity::handle_add_liquidity(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn remove_liquidity<'info>(
         ctx: Context<'_, '_, '_, 'info, RemoveLiquidity<'info>>,
         args: RemoveLiquidityArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        ctx.accounts.update_and_validate(&args)?;
         RemoveLiquidity::handle_remove_liquidity(ctx, args)
     }
 
@@ -258,11 +262,13 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, FundInterest<'info>>,
         args: FundInterestArgs,
     ) -> Result<FundInterestReceipt> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         FundInterest::handle(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn harvest<'info>(ctx: Context<'_, '_, '_, 'info, Harvest<'info>>, args: HarvestArgs) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        ctx.accounts.update_and_validate(&args)?;
         Harvest::handle_harvest(ctx, args)
     }
 
@@ -283,6 +289,7 @@ pub mod dusk {
 
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         Swap::handle_swap(ctx, args)
     }
 
@@ -291,6 +298,7 @@ pub mod dusk {
         ctx: Context<PreviewHlpFlash>,
         target_asset: u8,
     ) -> Result<transitions::liquidity::HlpFlashQuote> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewHlpFlash::handle(ctx, target_asset)
     }
 
@@ -300,11 +308,19 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, BeginHlpFlash<'info>>,
         args: BeginHlpFlashArgs,
     ) -> Result<()> {
+        ctx.accounts
+            .accounts
+            .market
+            .bind_current_oracle(ctx.remaining_accounts)?;
         BeginHlpFlash::handle(ctx, args)
     }
 
     /// Verify the fixed payment and restore the vault's opposite-token hedge.
     pub fn settle_hlp_flash<'info>(ctx: Context<'_, '_, '_, 'info, SettleHlpFlash<'info>>) -> Result<()> {
+        ctx.accounts
+            .accounts
+            .market
+            .bind_current_oracle(ctx.remaining_accounts)?;
         SettleHlpFlash::handle(ctx)
     }
 
@@ -318,6 +334,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
         args: CloseInsolventHlpArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let current_slot = ctx.accounts.update_and_validate(&args)?;
         CloseInsolventHlp::handle(ctx, args, current_slot)
     }
@@ -326,6 +343,10 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, BeginFlashLiquidation<'info>>,
         args: BeginFlashLiquidationArgs,
     ) -> Result<()> {
+        ctx.accounts
+            .accounts
+            .market
+            .bind_current_oracle(ctx.remaining_accounts)?;
         BeginFlashLiquidation::handle(ctx, args)
     }
 
@@ -333,6 +354,7 @@ pub mod dusk {
         ctx: Context<PreviewFlashLiquidation>,
         args: PreviewFlashLiquidationArgs,
     ) -> Result<FlashLiquidationQuote> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewFlashLiquidation::handle(ctx, args)
     }
 
@@ -342,6 +364,10 @@ pub mod dusk {
         ctx: Context<PreviewEmergencyLiquidation>,
         args: PreviewFlashAmmLiquidationArgs,
     ) -> Result<FlashAmmLiquidationQuote> {
+        ctx.accounts
+            .preview
+            .market
+            .bind_current_oracle(ctx.remaining_accounts)?;
         PreviewEmergencyLiquidation::handle_flash_amm(ctx, args)
     }
 
@@ -349,6 +375,10 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, EmergencyLiquidation<'info>>,
         args: EmergencyLiquidationArgs,
     ) -> Result<()> {
+        ctx.accounts
+            .accounts
+            .market
+            .bind_current_oracle(ctx.remaining_accounts)?;
         EmergencyLiquidation::handle(ctx, args)
     }
 
@@ -356,6 +386,10 @@ pub mod dusk {
         ctx: Context<PreviewEmergencyLiquidation>,
         args: PreviewEmergencyLiquidationArgs,
     ) -> Result<EmergencyLiquidationQuote> {
+        ctx.accounts
+            .preview
+            .market
+            .bind_current_oracle(ctx.remaining_accounts)?;
         PreviewEmergencyLiquidation::handle(ctx, args)
     }
 
@@ -364,49 +398,65 @@ pub mod dusk {
         ctx: Context<PreviewFlashLiquidation>,
         debt_asset: u8,
     ) -> Result<LiquidationHealth> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewFlashLiquidation::handle_health(ctx, debt_asset)
     }
 
     pub fn settle_flash_liquidation<'info>(
         ctx: Context<'_, '_, '_, 'info, SettleFlashLiquidation<'info>>,
     ) -> Result<()> {
+        ctx.accounts
+            .accounts
+            .market
+            .bind_current_oracle(ctx.remaining_accounts)?;
         SettleFlashLiquidation::handle(ctx)
     }
 
     // Lending instructions
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn deposit_collateral<'info>(
         ctx: Context<'_, '_, '_, 'info, DepositCollateral<'info>>,
         args: DepositCollateralArgs,
     ) -> Result<()> {
+        ctx.accounts
+            .market
+            .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
+        ctx.accounts.update_and_validate(&args)?;
         DepositCollateral::handle_deposit(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn withdraw_collateral<'info>(
         ctx: Context<'_, '_, '_, 'info, WithdrawCollateral<'info>>,
         args: WithdrawCollateralArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        ctx.accounts.update_and_validate(&args)?;
         WithdrawCollateral::handle_withdraw(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn borrow<'info>(ctx: Context<'_, '_, '_, 'info, Borrow<'info>>, args: BorrowArgs) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        ctx.accounts.update_and_validate(&args)?;
         Borrow::handle_borrow(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn repay<'info>(ctx: Context<'_, '_, '_, 'info, Repay<'info>>, args: RepayArgs) -> Result<()> {
+        ctx.accounts
+            .market
+            .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
+        ctx.accounts.update_and_validate(&args)?;
         Repay::handle_repay(ctx, args)
     }
 
     /// Adds the signer's tokens to an existing borrow position without granting
     /// the donor ownership or withdrawal rights. The recorded owner is unchanged.
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn donate_collateral<'info>(
         ctx: Context<'_, '_, '_, 'info, DonateCollateral<'info>>,
         args: DonateCollateralArgs,
     ) -> Result<()> {
+        ctx.accounts
+            .market
+            .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
+        ctx.accounts.update_and_validate(&args)?;
         DonateCollateral::handle_deposit(ctx, args)
     }
 
@@ -432,6 +482,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, OpenLeverage<'info>>,
         args: OpenLeverageArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
         OpenLeverage::handle_open(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
@@ -441,6 +492,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
         args: CloseLeverageArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
         CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
@@ -450,6 +502,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, CloseLeverage<'info>>,
         args: DelegatedCloseLeverageArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_delegated_at(&args, clock.unix_timestamp)?;
         CloseLeverage::handle_delegated_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
@@ -459,6 +512,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, IncreaseLeverage<'info>>,
         args: IncreaseLeverageArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
         IncreaseLeverage::handle_increase(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
@@ -468,6 +522,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, DecreaseLeverage<'info>>,
         args: DecreaseLeverageArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
         DecreaseLeverage::handle_decrease(ctx, args, clock.slot, clock.unix_timestamp)
@@ -477,6 +532,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, AddLeverageMargin<'info>>,
         args: AddLeverageMarginArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
         AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, true)
@@ -489,6 +545,9 @@ pub mod dusk {
         args: AddLeverageMarginArgs,
     ) -> Result<()> {
         let clock = Clock::get()?;
+        ctx.accounts
+            .market
+            .bind_optional_repayment_oracle(ctx.remaining_accounts, &clock);
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
         AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, false)
     }
@@ -518,10 +577,12 @@ pub mod dusk {
 
     // Preview instructions
     pub fn preview_hlp_deposit_capacity(ctx: Context<PreviewHlpDepositCapacity>) -> Result<HlpDepositCapacityPreview> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewHlpDepositCapacity::handle_preview(ctx)
     }
 
     pub fn preview_market(ctx: Context<PreviewMarket>) -> Result<MarketPreview> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewMarket::handle_preview(ctx)
     }
 
@@ -529,6 +590,7 @@ pub mod dusk {
         ctx: Context<PreviewHlpOrderTrigger>,
         args: PreviewHlpOrderTriggerArgs,
     ) -> Result<HlpOrderTriggerPreview> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewHlpOrderTrigger::handle_preview(ctx, args)
     }
 
@@ -536,10 +598,12 @@ pub mod dusk {
         ctx: Context<PreviewAddLiquidity>,
         args: PreviewAddLiquidityArgs,
     ) -> Result<AddLiquidityPreview> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewAddLiquidity::handle_preview(ctx, args)
     }
 
     pub fn preview_swap(ctx: Context<PreviewSwap>, args: PreviewSwapArgs) -> Result<SwapPreview> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewSwap::handle_preview(ctx, args)
     }
 
@@ -547,6 +611,7 @@ pub mod dusk {
         ctx: Context<PreviewBorrowCapacity>,
         args: PreviewBorrowCapacityArgs,
     ) -> Result<BorrowCapacityPreview> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewBorrowCapacity::handle_preview(ctx, args)
     }
 
@@ -554,10 +619,12 @@ pub mod dusk {
         ctx: Context<PreviewBorrowPositionCapacity>,
         args: PreviewBorrowPositionCapacityArgs,
     ) -> Result<BorrowPositionCapacityPreview> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewBorrowPositionCapacity::handle_preview(ctx, args)
     }
 
     pub fn preview_borrow_position(ctx: Context<PreviewBorrowPosition>) -> Result<BorrowPositionPreview> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         PreviewBorrowPosition::handle_preview(ctx)
     }
 
@@ -573,19 +640,21 @@ pub mod dusk {
         BurnRetiredHlpReceipt::handle_burn(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn deposit_single_sided<'info>(
         ctx: Context<'_, '_, '_, 'info, DepositSingleSided<'info>>,
         args: DepositSingleSidedArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        ctx.accounts.update_and_validate(&args)?;
         DepositSingleSided::handle_deposit(ctx, args)
     }
 
-    #[access_control(ctx.accounts.update_and_validate(&args))]
     pub fn withdraw_single_sided<'info>(
         ctx: Context<'_, '_, '_, 'info, WithdrawSingleSided<'info>>,
         args: WithdrawSingleSidedArgs,
     ) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        ctx.accounts.update_and_validate(&args)?;
         WithdrawSingleSided::handle_withdraw(ctx, args)
     }
 

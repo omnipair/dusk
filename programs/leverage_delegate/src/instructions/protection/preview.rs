@@ -27,6 +27,7 @@ impl PreviewProtectionOrder<'_> {
         let clock = Clock::get()?;
         protection_health(
             &ctx.accounts.market.to_account_info(),
+            ctx.remaining_accounts,
             ctx.accounts.borrow_position.as_deref().map(|p| &**p),
             ctx.accounts.leverage_position.as_deref().map(|p| &**p),
             ctx.accounts.order.action,

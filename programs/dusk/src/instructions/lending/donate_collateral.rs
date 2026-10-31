@@ -87,7 +87,7 @@ impl<'info> DonateCollateral<'info> {
         Ok(())
     }
 
-    crate::instructions::accounts::market_update_and_validate!(DonateCollateralArgs);
+    crate::instructions::accounts::market_update_and_validate!(DonateCollateralArgs, price_free);
 
     pub fn handle_deposit(mut ctx: Context<'_, '_, '_, 'info, Self>, args: DonateCollateralArgs) -> Result<()> {
         let remaining_accounts = ctx.remaining_accounts;

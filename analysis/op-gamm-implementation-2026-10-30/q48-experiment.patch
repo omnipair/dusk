@@ -1,0 +1,236 @@
+--- a/programs/dusk/src/math/op_gamm.rs
++++ b/programs/dusk/src/math/op_gamm.rs
+@@ -16,7 +16,7 @@
+ use interval::{Interval as I, ONE};
+ 
+ const MAX_CELLS: usize = 128;
+-const ERROR_Q64: i128 = ONE / 10_000_000_000;
++const ERROR_Q48: i128 = ONE / 100_000_000;
+ 
+ #[derive(Clone, Copy, Debug)]
+ struct Layer {
+@@ -406,17 +406,14 @@
+ 
+     fn gauss_cell(&self, a: i128, b: i128) -> Result<I> {
+         let mid = a + (b - a) / 2;
+-        if self.layers.is_empty() {
+-            return self.cpmm_integral(a, b, mid);
+-        }
+         let center = I::point(a).add(I::point(b))?.divide_integer(2)?;
+         let half = I::point(b - a).divide_integer(2)?;
+         let mut estimate = I::ZERO;
+-        // Certified Q64 enclosures of the four-point Gauss-Legendre
++        // Certified Q48 enclosures of the four-point Gauss-Legendre
+         // abscissas and weights (100-digit Decimal fixture generation).
+         for (node, weight) in [
+-            (15_885_161_152_553_691_185_i128, 6_416_789_303_050_480_781_i128),
+-            (6_271_543_300_922_536_074, 12_029_954_770_659_070_834),
++            (242388323250636_i128, 97912434433753_i128),
++            (95696156325111, 183562542276902),
+         ] {
+             let offset = half.mul(I { lo: node, hi: node + 1 })?;
+             let pair = self
+@@ -441,8 +438,8 @@
+         let center = I::point(a).add(I::point(b))?.divide_integer(2)?;
+         let half = I::point(b - a).divide_integer(2)?;
+         let offset = half.mul(I {
+-            lo: 10650232656628343401,
+-            hi: 10650232656628343402,
++            lo: 162509653574040,
++            hi: 162509653574041,
+         })?;
+         let estimate = self
+             .integrand_value(center.sub(offset)?, mid)?
+@@ -500,7 +497,7 @@
+         for pair in points.windows(2) {
+             pending.push((pair[0], pair[1], 0_u8));
+         }
+-        let error_per_segment = ERROR_Q64 / (pending.len().max(1) as i128);
++        let error_per_segment = ERROR_Q48 / (pending.len().max(1) as i128);
+         let mut total = I::ZERO;
+         let mut cells = 0;
+         while let Some((left, right, depth)) = pending.pop() {
+--- a/programs/dusk/src/math/op_gamm/interval.rs
++++ b/programs/dusk/src/math/op_gamm/interval.rs
+@@ -1,12 +1,12 @@
+-//! Outward-rounded Q64 intervals for the bounded OP invariant certificate.
++//! Outward-rounded Q48 intervals for the bounded OP invariant certificate.
+ //!
+ //! No floating-point value authorizes a trade. Transcendental evaluations
+ //! enclose their real value; uncertain arithmetic rejects the certificate.
+ use crate::errors::ErrorCode;
+ use anchor_lang::prelude::*;
+ 
+-pub(super) const ONE: i128 = 1_i128 << 64;
+-const LN2_LO: i128 = 12_786_308_645_202_655_659;
++pub(super) const ONE: i128 = 1_i128 << 48;
++const LN2_LO: i128 = 195103586505167;
+ #[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
+ mod wide {
+     use uint::construct_uint;
+@@ -19,7 +19,7 @@
+     if value == 0 {
+         return Ok(0);
+     }
+-    let n = U256::from(value as u128) << 64;
++    let n = U256::from(value as u128) << 48;
+     let mut x = U256::one() << n.bits().div_ceil(2);
+     for _ in 0..16 {
+         let y = (x + n / x) >> 1;
+@@ -43,53 +43,18 @@
+     Ok(if negative { -value } else { value })
+ }
+ 
+-fn unsigned_ratio(a: u128, b: u128, d: u128, up: bool) -> Result<u128> {
+-    require!(d > 0, ErrorCode::DenominatorOverflow);
+-    let (quotient, remainder) = if d == ONE as u128 {
+-        // Exact 128x128 -> (product >> 64, low limb). Four limb
+-        // multiplications avoid the general 256-bit loop on the SBF path.
+-        let low_a = a as u64 as u128;
+-        let low_b = b as u64 as u128;
+-        let high_a = a >> 64;
+-        let high_b = b >> 64;
+-        let low = low_a * low_b;
+-        let high = high_a * high_b;
+-        require!(high <= u64::MAX as u128, ErrorCode::MarketMathOverflow);
+-        let q = (low >> 64)
+-            .checked_add(high_a * low_b)
+-            .and_then(|v| v.checked_add(low_a * high_b))
+-            .and_then(|v| v.checked_add(high << 64))
+-            .ok_or(ErrorCode::MarketMathOverflow)?;
+-        (q, low as u64 != 0)
+-    } else if let Some(product) = a.checked_mul(b) {
+-        (product / d, product % d != 0)
+-    } else if b == ONE as u128 {
+-        // A lower reciprocal seed from a native 128-bit division.
+-        // q0 <= floor(a*2^64/d). The exact wide residual supplies the
+-        // correction, so this is integer division, not an approximation.
+-        let inverse = u128::MAX / d;
+-        let q0 = unsigned_ratio(a, inverse, ONE as u128, false)?;
+-        let product = U256::from(a) << 64;
+-        let residual = product - U256::from(q0) * U256::from(d);
+-        let correction = if residual <= U256::from(u128::MAX) {
+-            residual.as_u128() / d
+-        } else {
+-            let q = residual / U256::from(d);
+-            require!(q <= U256::from(u128::MAX), ErrorCode::MarketMathOverflow);
+-            q.as_u128()
+-        };
+-        let q = q0.checked_add(correction).ok_or(ErrorCode::MarketMathOverflow)?;
+-        (q, product != U256::from(q) * U256::from(d))
++fn unsigned_ratio(a:u128,b:u128,d:u128,up:bool)->Result<u128> {
++    require!(d>0,ErrorCode::DenominatorOverflow);
++    let (q,remainder)=if let Some(product)=a.checked_mul(b) {
++        (product/d,product%d!=0)
+     } else {
+-        let product = U256::from(a) * U256::from(b);
+-        let divisor = U256::from(d);
+-        let q = product / divisor;
+-        require!(q <= U256::from(u128::MAX), ErrorCode::MarketMathOverflow);
+-        (q.as_u128(), product - q * divisor != U256::zero())
++        let product=U256::from(a)*U256::from(b);
++        let divisor=U256::from(d);
++        let value=product/divisor;
++        require!(value<=U256::from(u128::MAX),ErrorCode::MarketMathOverflow);
++        (value.as_u128(),product%divisor!=U256::zero())
+     };
+-    quotient
+-        .checked_add(u128::from(up && remainder))
+-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
++    q.checked_add(u128::from(up && remainder)).ok_or_else(||ErrorCode::MarketMathOverflow.into())
+ }
+ 
+ fn rounded_ratio(a: i128, b: i128, denominator: i128, up: bool) -> Result<i128> {
+@@ -248,7 +213,7 @@
+ 
+ fn ln_point(value: i128) -> Result<Interval> {
+     require!(value > 0, ErrorCode::InvalidArgument);
+-    let power = 127 - value.leading_zeros() as i32 - 64;
++    let power = 127 - value.leading_zeros() as i32 - 48;
+     let normalized = if power >= 0 {
+         Interval::point(value).divide_integer(1_i128 << power)?
+     } else {
+@@ -274,7 +239,7 @@
+         term = unsigned_ratio(term, square, ONE as u128, false)?;
+     }
+     let lower = narrow(sum.checked_mul(2).ok_or(ErrorCode::MarketMathOverflow)?, false)?;
+-    // Here z<=1/3 plus a Q64 rounding unit. Floor-series error is
++    // Here z<=1/3 plus a Q48 rounding unit. Floor-series error is
+     // <64 units; the omitted tail is <1. The 192-unit allowance also
+     // covers all term divisions. d[2 atanh(z)]/dz <3 covers z's width.
+     let upper = lower
+@@ -311,7 +276,7 @@
+         sum = sum.checked_add(term).ok_or(ErrorCode::MarketMathOverflow)?;
+     }
+     let lower = narrow(sum, false)?;
+-    // In [0,.7], each term's accumulated floor error is <2 Q64
++    // In [0,.7], each term's accumulated floor error is <2 Q48
+     // units and the omitted tail is <1. exp'(r)<3 bounds range error.
+     let upper = lower
+         .checked_add(128)
+@@ -381,13 +346,13 @@
+     use super::*;
+     #[test]
+     fn transcendental_intervals_enclose_decimal_reference_values() {
+-        // Q64 floors independently computed with 100-digit Decimal arithmetic.
++        // Q48 floors independently computed with 100-digit Decimal arithmetic.
+         for (n, d, ln_floor) in [
+             (1, 1, 0),
+             (2, 1, LN2_LO),
+             (1, 2, -LN2_LO - 1),
+-            (3, 1, 20_265_819_725_292_939_638),
+-            (10, 1, 42_475_197_918_399_869_019),
++            (3, 1, 309231868366896),
++            (10, 1, 648120085424802),
+         ] {
+             let v = Interval::ratio(n, d).unwrap().ln().unwrap();
+             assert!(v.lo <= ln_floor && v.hi >= ln_floor, "{n}/{d}: {v:?} != {ln_floor}");
+@@ -431,7 +396,7 @@
+             let product = U256::from(a) * U256::from(b);
+             for up in [false, true] {
+                 let divisor = b.max(1);
+-                let dividend = U256::from(a) << 64;
++                let dividend = U256::from(a) << 48;
+                 let div = U256::from(divisor);
+                 let quotient = dividend / div;
+                 let expected = quotient + U256::from(u8::from(up && dividend % div != U256::zero()));
+@@ -442,7 +407,7 @@
+                     assert_eq!(computed.unwrap(), expected.as_u128());
+                 }
+ 
+-                let exact = (product >> 64) + U256::from(u8::from(up && product.low_u64() != 0));
++                let exact = (product >> 48) + U256::from(u8::from(up && product.low_u64() & ((1_u64 << 48)-1) != 0));
+                 let actual = unsigned_ratio(a, b, ONE as u128, up);
+                 if exact > U256::from(u128::MAX) {
+                     assert!(actual.is_err());
+--- a/analysis/op-gamm-implementation-2026-10-30/generate-reference.py
++++ b/analysis/op-gamm-implementation-2026-10-30/generate-reference.py
+@@ -10,7 +10,7 @@
+ import mpmath as mp
+ 
+ mp.mp.dps = 80
+-NAD, Q = 10**9, 1 << 64
++NAD, Q = 10**9, 1 << 48
+ HERE = Path(__file__).resolve().parent
+ 
+ def shape(amp, core, fade):
+@@ -72,16 +72,17 @@
+ 
+ def main():
+     with (HERE/'transcendental-reference.csv').open('w') as f:
+-        out=csv.writer(f);out.writerow(['input_q64','ln_floor_q64','exp_floor_q64'])
++        out=csv.writer(f);out.writerow(['input_q48','ln_floor_q48','exp_floor_q48'])
+         values=[1,2,3,Q-1,Q,Q+1,2*Q-1,2*Q,2*Q+1,(1<<126)-1]
+         values += [int(mp.exp(mp.mpf(i)/5)*Q) for i in range(-200,201,7)]
+         for value in values:
++            if value <= 0: continue
+             x=mp.mpf(value)/Q
+             exp_floor=int(mp.floor(mp.exp(x)*Q)) if x<=40 else -1
+             out.writerow([value,int(mp.floor(mp.log(x)*Q)),exp_floor])
+     with (HERE/'invariant-reference.csv').open('w') as f:
+         out=csv.writer(f)
+-        out.writerow(['amp','core','fade','lambda','oracle','cap','x0','y0','x1','y1','delta_floor_q64','price_floor_nad'])
++        out.writerow(['amp','core','fade','lambda','oracle','cap','x0','y0','x1','y1','delta_floor_q48','price_floor_nad'])
+         start=(10**10,600*10**9)
+         cases=0
+         for amp,core,fade in [(1,0,0),(4,1000,4000),(32,100,0),(2000,1,0)]:

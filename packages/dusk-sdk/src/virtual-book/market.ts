@@ -1,3 +1,4 @@
+import { DuskWrite } from "../write.js";
 import { DEFAULT_READONLY_PUBLIC_KEY } from "../address.js";
 import type { Program } from "@coral-xyz/anchor";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
@@ -17,19 +18,9 @@ export async function previewVirtualBookSnapshot(
   options.signal?.throwIfAborted();
   const market = publicKey(marketAddress).toBase58();
   const floor = options.minContextSlot ?? 0;
-  const methods = (program as unknown as {
-    methods: {
-      previewMarket(): {
-        accountsStrict(accounts: { market: PublicKey }): {
-          instruction(): Promise<TransactionInstruction>;
-        };
-      };
-    };
-  }).methods;
-  const instruction = await methods
-    .previewMarket()
-    .accountsStrict({ market: publicKey(market) })
-    .instruction();
+  const instruction = await new DuskWrite(program).instruction("previewMarket", [], {
+    accounts: { market: publicKey(market) },
+  });
   const result = await simulatePreviewWithContext(program, [instruction], {
     ...options,
     feePayer: options.feePayer ?? DEFAULT_READONLY_PUBLIC_KEY,

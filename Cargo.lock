@@ -656,6 +656,7 @@ dependencies = [
  "spl-token-2022 7.0.0",
  "spl-token-group-interface",
  "spl-transfer-hook-interface",
+ "spl-type-length-value",
  "uint 0.9.5",
 ]
 
@@ -1086,6 +1087,14 @@ name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
+
+[[package]]
+name = "op_gamm_compute"
+version = "0.1.0"
+dependencies = [
+ "dusk",
+ "solana-program",
+]
 
 [[package]]
 name = "opaque-debug"

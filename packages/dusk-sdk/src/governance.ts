@@ -1,3 +1,4 @@
+import { oraclePolicy, encodeOraclePolicy, type OraclePolicy, type OraclePolicyInput } from "./oracle.js";
 import * as anchorNamespace from "@coral-xyz/anchor";
 import { type BN } from "@coral-xyz/anchor";
 
@@ -47,8 +48,8 @@ export const MAX_LAUNCH_MARKET_FEE_PERIODS = 64;
 export const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS = 7_500;
 export const MAX_INSURANCE_DRAW_PER_DAY_BPS = 5_000;
 /** Governed parameter families, and the length of a market's revision list. */
-export const PARAMETER_FAMILY_COUNT = 7;
-/** A proposal changes one to seven families, each at most once. */
+export const PARAMETER_FAMILY_COUNT = 8;
+/** A proposal changes one to eight families, each at most once. */
 export const MAX_PARAMETER_UPDATES_PER_PROPOSAL = PARAMETER_FAMILY_COUNT;
 export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V2";
 
@@ -150,10 +151,11 @@ export type ParameterUpdate =
       adjustmentStepNad: BN;
       minAdjustmentIntervalSlots: BN;
     }
-  | { kind: "insuranceDrawCaps"; principalCoverageBps: number; perDayBps: number };
+  | { kind: "insuranceDrawCaps"; principalCoverageBps: number; perDayBps: number }
+  | { kind: "oracle"; policy: OraclePolicy };
 
 export type ParameterFamilyName = ParameterUpdate["kind"];
-export type ParameterFamilyCode = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type ParameterFamilyCode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export interface ProposalMetadataV1 {
   version: number;
@@ -617,7 +619,12 @@ export function insuranceDrawCapsParameterUpdate(input: {
   };
 }
 
+export function oracleParameterUpdate(input: OraclePolicyInput): ParameterUpdate {
+  return { kind: "oracle", policy: oraclePolicy(input) };
+}
+
 export const parameterUpdate = {
+  oracle: oracleParameterUpdate,
   fee: feeParameterUpdate,
   concentration: concentrationParameterUpdate,
   irm: irmParameterUpdate,
@@ -647,6 +654,9 @@ export function assertParameterUpdate(update: ParameterUpdate): void {
     case "centerController":
       centerControllerParameterUpdate(update);
       return;
+    case "oracle":
+      oraclePolicy(update.policy);
+      return;
     case "insuranceDrawCaps":
       insuranceDrawCapsParameterUpdate(update);
       return;
@@ -669,11 +679,13 @@ export function parameterFamilyCode(update: ParameterUpdate): ParameterFamilyCod
       return 5;
     case "insuranceDrawCaps":
       return 6;
+    case "oracle":
+      return 7;
   }
 }
 
 /**
- * The one encoding a proposal accepts for a set of updates: one to seven,
+ * The one encoding a proposal accepts for a set of updates: one to eight,
  * each family at most once, in ascending family order. Throws on an empty
  * set or a repeated family.
  */
@@ -745,6 +757,8 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
           minAdjustmentIntervalSlots: update.minAdjustmentIntervalSlots,
         },
       };
+    case "oracle":
+      return { oracle: { 0: update.policy } };
     case "insuranceDrawCaps":
       return {
         insuranceDrawCaps: { principalCoverageBps: update.principalCoverageBps, perDayBps: update.perDayBps },
@@ -802,6 +816,9 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
       principalCoverageBps: numberField(fields, "principalCoverageBps"),
       perDayBps: numberField(fields, "perDayBps"),
     });
+  }
+  if (update.oracle !== undefined) {
+    return oracleParameterUpdate(tupleField(update.oracle, "oracle") as OraclePolicyInput);
   }
   throw new Error("unknown market parameter update variant");
 }
@@ -1206,6 +1223,8 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         encodeU64(update.adjustmentStepNad, "adjustmentStepNad"),
         encodeU64(update.minAdjustmentIntervalSlots, "minAdjustmentIntervalSlots")
       );
+    case "oracle":
+      return concatBytes(Uint8Array.of(7), encodeOraclePolicy(update.policy));
     case "insuranceDrawCaps":
       return concatBytes(Uint8Array.of(6), encodeU16(update.principalCoverageBps), encodeU16(update.perDayBps));
   }

@@ -21,7 +21,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCreated, MarketEventMetadata},
     generate_market_seeds,
-    state::{FutarchyAuthority, Market, MarketConfig, MarketSide},
+    state::{FutarchyAuthority, Market, MarketConfig, MarketSide, OraclePolicy},
     token::create_token_account,
 };
 
@@ -31,8 +31,13 @@ use crate::instructions::accounts::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeMarketArgs {
-    pub config: MarketConfig,
+    /// First in the wire payload so account validation reads only the PDA seed.
     pub params_hash: [u8; 32],
+    pub config: MarketConfig,
+    /// Initial oracle policy, installed atomically with the market. None uses
+    /// native pricing. First liquidity authenticates a current report when
+    /// the selected weight is positive; later policy changes use governance.
+    pub oracle: Option<OraclePolicy>,
     /// Optional final bootstrap price imported by a permissionless launch
     /// adapter. Zero binds the reference to the first fully-backed seed.
     pub bootstrap_price_nad: u64,
@@ -44,9 +49,17 @@ pub struct InitializeMarketArgs {
     pub quote_hlp_metadata: InitializeLpMetadataArgs,
 }
 
+// Decode only the fixed-size seed prefix in account validation. Keep the same
+// `args.params_hash` path as the public payload so IDL PDA resolution works.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct InitializeMarketSeed {
+    pub params_hash: [u8; 32],
+}
+
 #[event_cpi]
 #[derive(Accounts)]
-#[instruction(args: InitializeMarketArgs)]
+// Account validation needs only the seed prefix, not metadata or oracle data.
+#[instruction(args: InitializeMarketSeed)]
 pub struct InitializeMarket<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -264,6 +277,11 @@ impl<'info> InitializeMarket<'info> {
         validate_lp_metadata_args(&args.quote_hlp_metadata)?;
 
         args.config.validate()?;
+        args.oracle.unwrap_or_default().validate()?;
+        require!(
+            args.oracle.unwrap_or_default().lambda_bps == 0 || args.bootstrap_price_nad == 0,
+            ErrorCode::InvalidMarketConfig
+        );
         require!(
             args.launch_fee_progress_offset <= args.config.amm.launch_market_number_of_periods,
             ErrorCode::InvalidMarketConfig
@@ -439,6 +457,7 @@ impl<'info> InitializeMarket<'info> {
             current_slot,
             ctx.bumps.market,
         )?;
+        ctx.accounts.market.oracle.policy = args.oracle.unwrap_or_default();
 
         // Either all three LP metadata accounts exist with the market or none
         // of them do. No caller can assign branding after the first LP mint.
@@ -491,6 +510,7 @@ impl<'info> InitializeMarket<'info> {
             target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,
             swap_fee_bps: args.config.swap_fee_bps,
             config: args.config,
+            oracle: ctx.accounts.market.oracle.policy,
             params_hash: args.params_hash,
             initial_liquidity_authority: payer_key,
             launch_reference_price_nad: args.bootstrap_price_nad,

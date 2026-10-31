@@ -511,3 +511,217 @@ fn lp_fee_compounding_percentage_excludes_protocol_revenue() {
     assert_eq!(complete.compounded_base_fee, 750);
     assert_eq!(complete.compounded_dynamic_surcharge, 500);
 }
+
+fn bind_test_oracle(market: &mut Market, lambda: u16, reference: u64) {
+    market.oracle.policy = OraclePolicy {lambda_bps:lambda,adjustment_cap_nad:2*NAD,..OraclePolicy::default()};
+    market.oracle.runtime = RuntimePricing::bind(market.oracle.policy, OracleObservation {
+        price_nad:reference, ..OracleObservation::default()
+    });
+    market.checkpoint_oracle_risk_depth().unwrap();
+}
+fn oracle_test_trade(market: &mut Market, asset: MarketAsset, input: u64) -> Result<u64> {
+    use crate::transitions::{liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+    let before = market.ordinary_curve_point_nad()?;
+    let curve = market.bounded_curve()?;
+    let mut prepared = SwapRequest {current_slot:2,current_unix_timestamp:0,asset_in:asset,
+        reserve_credit:input,protocol_fee_bps:0}.prepare(market)?;
+    let output=prepared.quote.amount_out;
+    let credit=LeverageSwapFeeCredit::from_total_actual_credit(&prepared.leverage_quote(), prepared.quote.fee.claimable_fee_debit)?;
+    prepared.apply(market,SwapCashPolicy::Spot,credit,2,0,ProtocolAuctionSplit::default(),None)?;
+    market.assert_market_invariants()?;
+    if let Some(curve) = curve {
+        let after = market.ordinary_curve_point_nad()?;
+        assert!(curve.invariant_delta_bounds(before,after)?.1>=0,"materialized invariant decreased");
+    }
+    Ok(output)
+}
+
+#[test]
+fn bounded_oracle_swaps_materialize_hlp_and_reject_cycle_profit() {
+    for config in [AmmConfig::default(),concentrated_config()] {
+        for lambda in [0,2500,5000,9999] {
+            for owners in [0,1,2,3] {
+                let mut market=market_with_liquidity(config);
+                market.config.amm.adjustment_step_nad=0;
+                market.config.amm.adjustment_threshold_nad=0;
+                market.config.amm.min_adjustment_interval_slots=0;
+                market.prepare_amm_for_swap(1).unwrap();
+                if owners&1!=0 {market.deposit_single_sided(MarketAsset::Base,20_000*NAD,1).unwrap();}
+                if owners&2!=0 {market.deposit_single_sided(MarketAsset::Quote,20_000*NAD,1).unwrap();}
+                market.finalize_amm_transition_and_observe_risk(1).unwrap();
+                bind_test_oracle(&mut market,lambda,3*NAD/2);
+                for cycle in 0..8 {
+                    for asset in [MarketAsset::Base,MarketAsset::Quote] {
+                        let initial=1000*NAD;
+                        let out=oracle_test_trade(&mut market,asset,initial).unwrap_or_else(|e|panic!("lambda={lambda} owners={owners} cycle={cycle} direction={asset:?}: {e}"));
+                        let returned=oracle_test_trade(&mut market,asset.opposite(),out).unwrap_or_else(|e|panic!("reverse lambda={lambda} owners={owners} cycle={cycle} direction={asset:?}: {e}"));
+                        assert!(returned<=initial,"profitable cycle lambda={lambda} owners={owners}: {returned}>{initial}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn bounded_oracle_carry_is_not_recharged_by_repeated_materialization() {
+    use crate::transitions::liquidity::prepare_concentrated_hlp_transition;
+    for lambda in [2500,5000,9999] {
+        for asset in [MarketAsset::Base,MarketAsset::Quote] {
+            let mut market=market_with_liquidity(AmmConfig::default());
+            market.prepare_amm_for_swap(1).unwrap();
+            market.deposit_single_sided(MarketAsset::Base,20_000*NAD,1).unwrap();
+            market.deposit_single_sided(MarketAsset::Quote,20_000*NAD,1).unwrap();
+            market.debt.base_borrow_index_nad=101*NAD as u128/100;
+            market.debt.quote_borrow_index_nad=101*NAD as u128/100;
+            market.oracle.policy=OraclePolicy{lambda_bps:lambda,adjustment_cap_nad:2*NAD,..OraclePolicy::default()};
+            market.oracle.runtime=RuntimePricing::bind(market.oracle.policy,OracleObservation{price_nad:3*NAD/2,..OracleObservation::default()});
+            let mut trade=|side:MarketAsset,input:u64|->Result<u64>{
+                let preliminary=market.preliminary_swap_inputs_for_state(side,input,2,DynamicFeePreState {center_price_nad:market.amm.center_price_nad,volatility_accumulator_nad:market.amm.volatility_accumulator_nad,volatility_last_update_slot:market.amm.last_observation_slot})?;
+                let (start,quote)=market.prepare_current_hlp_quote(side,input,preliminary,0,true)?;
+                let plan=prepare_concentrated_hlp_transition(&market,*start,quote,side)?;
+                let previous_point=market.ordinary_curve_point_nad()?;
+                market.side_mut(side).credit_reserve(quote.fee.amount_in_for_quote,true)?;
+                market.side_mut(side.opposite()).debit_reserve(quote.gross_amount_out,true)?;
+                plan.consume(&mut market)?;
+                market.checkpoint_amm_neutral_inventory_raw(2,quote.post_fee_curve_cache)?;
+                market.assert_market_invariants()?;
+                let after=market.ordinary_curve_point_nad()?;
+                assert!(market.bounded_curve()?.unwrap().invariant_delta_bounds(previous_point,after)?.1>=0);
+                Ok(quote.amount_out)
+            };
+            for cycle in 0..32 {
+                let input=1000*NAD;
+                let out=trade(asset,input).unwrap_or_else(|e|panic!("carry lambda={lambda} cycle={cycle} asset={asset:?}: {e}"));
+                let returned=trade(asset.opposite(),out).unwrap_or_else(|e|panic!("reverse carry lambda={lambda} cycle={cycle} asset={asset:?}: {e}"));
+                assert!(returned<=input,"carry round-trip extraction: {returned}>{input}");
+            }
+        }
+    }
+}
+
+#[test]
+fn bounded_oracle_fee_compounding_and_frozen_cohorts_preserve_cycles() {
+    for lambda in [2500,5000,9999] {
+        for compound in [0,10_000] {
+            for frozen in [0,1,2,3] {
+                let mut market=market_with_liquidity(concentrated_config());
+                market.config.amm.adjustment_step_nad=0;
+                market.config.amm.adjustment_threshold_nad=0;
+                market.config.amm.min_adjustment_interval_slots=0;
+                market.config.swap_fee_bps=100;
+                market.config.amm.compounding_fee_bps=compound;
+                market.prepare_amm_for_swap(1).unwrap();
+                market.deposit_single_sided(MarketAsset::Base,20_000*NAD,1).unwrap();
+                market.deposit_single_sided(MarketAsset::Quote,20_000*NAD,1).unwrap();
+                if frozen&1!=0 {market.debt.quote_borrow_index_nad=3*NAD as u128;}
+                if frozen&2!=0 {market.debt.base_borrow_index_nad=3*NAD as u128;}
+                bind_test_oracle(&mut market,lambda,3*NAD/2);
+                let mut previous_depth=market.oracle.recognized_tail_liquidity;
+                for cycle in 0..8 {
+                    for asset in [MarketAsset::Base,MarketAsset::Quote] {
+                        let input=1000*NAD;
+                        let out=oracle_test_trade(&mut market,asset,input).unwrap_or_else(|e|panic!("lambda={lambda} compound={compound} frozen={frozen} cycle={cycle} asset={asset:?}: {e}"));
+                        let returned=oracle_test_trade(&mut market,asset.opposite(),out).unwrap();
+                        assert!(returned<=input,"fee/frozen round-trip profit");
+                        assert!(market.oracle.recognized_tail_liquidity<=previous_depth);
+                        previous_depth=market.oracle.recognized_tail_liquidity;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn bounded_oracle_exit_loans_cannot_outpay_own_pool_acquisition() {
+    use crate::transitions::LeverageCollateralFee;
+    for config in [AmmConfig::default(),concentrated_config()] {
+        for lambda in [0,2500,5000,9999] {
+            for reference in [NAD/10,NAD,10*NAD] {
+                for with_hlp in [false,true] {
+                    for asset in [MarketAsset::Base,MarketAsset::Quote] {
+                        for input_tokens in [100,10_000,200_000] {
+                            let mut market=market_with_liquidity(config);
+                            market.config.amm.adjustment_step_nad=0;
+                            market.config.amm.adjustment_threshold_nad=0;
+                            market.config.amm.min_adjustment_interval_slots=0;
+                            market.prepare_amm_for_swap(1).unwrap();
+                            if with_hlp {
+                                market.deposit_single_sided(MarketAsset::Base,20_000*NAD,1).unwrap();
+                                market.deposit_single_sided(MarketAsset::Quote,20_000*NAD,1).unwrap();
+                            }
+                            bind_test_oracle(&mut market,lambda,reference);
+                            let input=input_tokens*NAD;
+                            let collateral=oracle_test_trade(&mut market,asset,input).unwrap();
+                            // Grant the attacker fully settled favorable filters. The
+                            // exit bound must not depend on waiting out an EMA.
+                            let price=market.current_concentrated_spot_price_nad().unwrap().unwrap();
+                            market.risk.base_price_ema_nad=price;
+                            market.risk.directional_base_price_ema_nad=price;
+                            market.risk.quote_price_ema_nad=NAD*NAD/price;
+                            market.risk.directional_quote_price_ema_nad=NAD*NAD/price;
+                            market.risk.curve_depth_ema_nad=market.risk.observed_curve_depth_nad;
+                            let capacity=market.borrow_capacity_quote(asset.opposite(),collateral,
+                                LeverageCollateralFee::default(),None,2).unwrap();
+                            assert!(capacity.max_debt<=input,
+                                "exit loan: lambda={lambda} reference={reference} hlp={with_hlp} direction={asset:?} input={input} debt={}",capacity.max_debt);
+                            // Splitting the purchase must consume shared debt capacity.
+                            let mut total=0_u64;
+                            for _ in 0..8 {
+                                let amount=collateral/8;
+                                let capacity=market.borrow_capacity_quote(asset.opposite(),amount,
+                                    LeverageCollateralFee::default(),None,2).unwrap();
+                                if capacity.max_debt==0 {break;}
+                                let mut position=BorrowPosition::default();
+                                match asset {MarketAsset::Base=>position.quote_collateral=amount,
+                                    MarketAsset::Quote=>position.base_collateral=amount}
+                                market.borrow(&mut position,asset,capacity.max_debt,0,2).unwrap();
+                                total+=capacity.max_debt;
+                            }
+                            assert!(total<=input,"split exit loan: {total}>{input}");
+                            market.assert_market_invariants().unwrap();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn oracle_only_repricing_records_volatility_once_without_rehedging() {
+    let mut market=market_with_liquidity(AmmConfig::default());
+    market.config.amm.volatility_shock_cap_nad=NAD;
+    market.config.amm.volatility_cap_nad=10*NAD;
+    market.prepare_amm_for_swap(1).unwrap();
+    market.deposit_single_sided(MarketAsset::Base,20_000*NAD,1).unwrap();
+    market.base_side.asset_mint=Pubkey::new_unique();
+    market.quote_side.asset_mint=Pubkey::new_unique();
+    let provider=Pubkey::new_unique();
+    let key=Pubkey::new_unique();
+    market.oracle.policy=OraclePolicy{format:crate::state::NORMALIZED_ORACLE_V1,provider,base_account:key,
+        base_feed_id:[7;32],lambda_bps:5000,adjustment_cap_nad:2*NAD,max_age_seconds:1000,max_age_slots:1000,
+        max_confidence_bps:100,..Default::default()};
+    let before=(market.base_side.try_to_vec().unwrap(),market.quote_side.try_to_vec().unwrap(),
+        market.base_hlp_vault.try_to_vec().unwrap(),market.debt.try_to_vec().unwrap());
+    let mut feed=crate::state::NormalizedOracleV1{magic:crate::state::NORMALIZED_ORACLE_MAGIC,feed_id:[7;32],
+        base_mint:market.base_side.asset_mint,quote_mint:market.quote_side.asset_mint,price_nad:NAD,
+        confidence_nad:0,publish_time:100,publish_slot:2,sequence:1,status:1};
+    let mut lamports=1;
+    for (seq,reference) in [(1,NAD),(2,4*NAD)] {
+        feed.sequence=seq;feed.price_nad=reference;
+        let mut data=feed.try_to_vec().unwrap();
+        let account=AccountInfo::new(&key,false,false,&mut lamports,&mut data,&provider,false,0);
+        market.bind_oracle(&[account],&Clock{slot:2,unix_timestamp:100,..Clock::default()}).unwrap();
+    }
+    let volatility=market.amm.volatility_accumulator_nad;
+    assert!(volatility>0);
+    let mut data=feed.try_to_vec().unwrap();
+    let account=AccountInfo::new(&key,false,false,&mut lamports,&mut data,&provider,false,0);
+    market.bind_oracle(&[account],&Clock{slot:2,unix_timestamp:100,..Clock::default()}).unwrap();
+    assert_eq!(market.amm.volatility_accumulator_nad,volatility);
+    assert_eq!((market.base_side.try_to_vec().unwrap(),market.quote_side.try_to_vec().unwrap(),
+        market.base_hlp_vault.try_to_vec().unwrap(),market.debt.try_to_vec().unwrap()),before);
+    assert_eq!(market.amm.last_trade_price_nad,market.current_concentrated_spot_price_nad().unwrap().unwrap());
+}

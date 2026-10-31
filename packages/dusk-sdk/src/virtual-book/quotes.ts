@@ -1,3 +1,5 @@
+import { DuskWrite } from "../write.js";
+import { oracleReadAccounts, encodeOraclePolicy } from "../oracle.js";
 import { DEFAULT_READONLY_PUBLIC_KEY } from "../address.js";
 import * as anchor from "@coral-xyz/anchor";
 import type { Program } from "@coral-xyz/anchor";
@@ -72,7 +74,8 @@ export function decodeDuskVirtualBookBatch(
     throw new Error("Native market depth preview unavailable");
   const returned = value.returnData;
   const accounts = value.accounts;
-  if (!returned || returned.programId !== programId || accounts?.length !== 5)
+  const oracleAccounts = oracleReadAccounts(snapshot.account.oracle.policy);
+  if (!returned || returned.programId !== programId || accounts?.length !== 5 + oracleAccounts.length)
     throw new Error("Incomplete native market depth preview");
   const infos: AccountInfo<Buffer>[] = accounts.map((info) => {
     if (!info || info.executable) throw new Error("Invalid native depth account");
@@ -108,6 +111,13 @@ export function decodeDuskVirtualBookBatch(
     market.amm.concentratedCurveCache.mathRevision !== 1
   )
     throw new Error("Native depth market identity changed");
+  if (!Buffer.from(encodeOraclePolicy(market.oracle.policy))
+    .equals(Buffer.from(encodeOraclePolicy(snapshot.account.oracle.policy))))
+    throw new Error("Depth oracle policy changed");
+  for (const info of infos.slice(5)) {
+    if (!info.owner.equals(market.oracle.policy.provider))
+      throw new Error("Depth oracle owner changed");
+  }
   const mint = (info: AccountInfo<Buffer>, side: Market["baseSide"]) => {
     if (!info.owner.equals(TOKEN_PROGRAM_ID) && !info.owner.equals(TOKEN_2022_PROGRAM_ID))
       throw new Error("Invalid depth token program");
@@ -153,10 +163,11 @@ export function decodeDuskVirtualBookBatch(
     quotes,
     slot,
     epoch,
-    // Equal market, mint and authority bytes prevent combining quotes across
-    // trades, fee changes or token-extension changes during this short burst.
+    // Include the source account bytes: a read-only preview does not persist
+    // its report in the market account. Different feeds cannot be combined
+    // into one apparent depth snapshot even when market bytes are unchanged.
     state: infos
-      .slice(0, 4)
+      .filter((_, index) => index !== 4)
       .map((info) => `${info.owner}:${info.data.toString("base64")}`)
       .join("|"),
   };
@@ -175,31 +186,20 @@ export async function previewVirtualBookBatch(
     throw new Error("Depth batches require one to four requests");
   const { account, market } = snapshot;
   const floor = Math.max(snapshot.slot, options.minContextSlot ?? 0);
-  const previewSwap = (program as unknown as {
-    methods: {
-      previewSwap(args: { exactAssetIn: anchor.BN }): {
-        accountsPartial(accounts: {
-          market: PublicKey;
-          futarchyAuthority: PublicKey;
-          assetInMint: PublicKey;
-          assetOutMint: PublicKey;
-        }): { instruction(): Promise<TransactionInstruction> };
-      };
-    };
-  }).methods.previewSwap;
   const instructions = await Promise.all(
     requests.map(({ side, amount }) => {
       if (side !== "bids" && side !== "asks") throw new Error("Invalid depth side");
       if (raw(amount) === 0n) throw new Error("Invalid depth amount");
       const fromBase = side === "bids";
-      return previewSwap({ exactAssetIn: new BN(amount.toString()) })
-        .accountsPartial({
+      return new DuskWrite(program).instruction("previewSwap", { exactAssetIn: new BN(amount.toString()) }, {
+        accounts: {
           market: new PublicKey(market),
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          futarchyAuthority: deriveFutarchyAuthorityAddress(program.programId)[0],
           assetInMint: fromBase ? account.baseSide.assetMint : account.quoteSide.assetMint,
           assetOutMint: fromBase ? account.quoteSide.assetMint : account.baseSide.assetMint,
-        })
-        .instruction();
+        },
+        oraclePolicy: account.oracle.policy,
+      });
     })
   );
   const response = await simulatePreviewWithContext(program, instructions, {
@@ -213,6 +213,7 @@ export async function previewVirtualBookBatch(
       account.quoteSide.assetMint,
       deriveFutarchyAuthorityAddress()[0],
       SYSVAR_CLOCK_PUBKEY,
+      ...oracleReadAccounts(account.oracle.policy).map(meta => meta.pubkey),
     ],
   });
   return {
@@ -257,8 +258,9 @@ export async function previewVirtualBookQuotes(
     }
   }
   const batches: VirtualBookQuoteRequest[][] = [];
-  for (let i = 0; i < requests.length; i += BATCH_SIZE)
-    batches.push(requests.slice(i, i + BATCH_SIZE));
+  const batchSize = snapshot.account.oracle.policy.lambdaBps > 0 ? 1 : BATCH_SIZE;
+  for (let i = 0; i < requests.length; i += batchSize)
+    batches.push(requests.slice(i, i + batchSize));
   const results = await Promise.all(
     batches.map((batch) => previewVirtualBookBatch(program, snapshot, batch, options))
   );

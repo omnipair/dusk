@@ -1,3 +1,4 @@
+import { oracleComputeBudgetInstructions, oraclePolicy, oracleReadAccounts, type OraclePolicyInput } from "./oracle.js";
 import type { Program } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
@@ -44,6 +45,7 @@ import {
   anchorParameterUpdate,
   assertProposalMetadata,
   canonicalParameterUpdates,
+  parameterUpdateFromAnchor,
   governanceIntegerBN,
   type GovernanceIntegerLike,
   type ParameterUpdate,
@@ -63,6 +65,8 @@ export type DuskInstructionArgs = unknown[] | unknown | undefined;
 export type DuskAccounts = Record<string, unknown>;
 
 export interface DuskBuildOptions {
+  /** Explicit source policy for offline builders; async builders resolve it from the market. */
+  oraclePolicy?: OraclePolicyInput;
   accounts?: DuskAccounts;
   remainingAccounts?: AccountMeta[];
 }
@@ -191,6 +195,7 @@ export interface ParameterGovernanceBuild {
 }
 
 interface GovernanceMarketState {
+  oracle?: { policy: OraclePolicyInput };
   ylpMint: PublicKey;
   baseSide: { assetMint: PublicKey };
   quoteSide: { assetMint: PublicKey };
@@ -201,6 +206,7 @@ interface GovernanceMarketState {
 type AnchorMethodBuilder = {
   accounts(accounts: DuskAccounts): AnchorMethodBuilder;
   remainingAccounts(accounts: AccountMeta[]): AnchorMethodBuilder;
+  preInstructions(instructions: TransactionInstruction[]): AnchorMethodBuilder;
   instruction(): Promise<TransactionInstruction>;
   transaction(): Promise<Transaction>;
   rpc(): Promise<string>;
@@ -247,30 +253,52 @@ export class DuskWrite {
         : options.accounts!;
       builder = builder.accounts(normalizeAccountKeys(accounts));
     }
-    if (options.remainingAccounts?.length) {
-      builder = builder.remainingAccounts(options.remainingAccounts);
+    const remaining = [...(options.remainingAccounts ?? [])];
+    for (const meta of oracleReadAccounts(options.oraclePolicy)) {
+      if (!remaining.some(existing => existing.pubkey.equals(meta.pubkey))) remaining.push(meta);
     }
+    if (remaining.length) builder = builder.remainingAccounts(remaining);
+    const budgets = oracleComputeBudgetInstructions(options.oraclePolicy);
+    if (budgets.length) builder = builder.preInstructions(budgets);
     return builder;
   }
 
-  instruction(
+  async instruction(
     name: DuskInstructionName,
     args?: DuskInstructionArgs,
     options?: DuskBuildOptions
   ): Promise<TransactionInstruction> {
-    return this.builder(name, args, options).instruction();
+    return this.builder(name, args, await this.withOraclePolicy(name, options)).instruction();
   }
 
-  transaction(
+  async transaction(
     name: DuskInstructionName,
     args?: DuskInstructionArgs,
     options?: DuskBuildOptions
   ): Promise<Transaction> {
-    return this.builder(name, args, options).transaction();
+    return this.builder(name, args, await this.withOraclePolicy(name, options)).transaction();
   }
 
-  rpc(name: DuskInstructionName, args?: DuskInstructionArgs, options?: DuskBuildOptions) {
-    return this.builder(name, args, options).rpc();
+  async rpc(name: DuskInstructionName, args?: DuskInstructionArgs, options?: DuskBuildOptions) {
+    return this.builder(name, args, await this.withOraclePolicy(name, options)).rpc();
+  }
+
+  private async withOraclePolicy(name: DuskInstructionName, options: DuskBuildOptions = {}): Promise<DuskBuildOptions> {
+    if (!ORACLE_READ_INSTRUCTIONS.has(name) || options.oraclePolicy) return options;
+    const nested = options.accounts?.accounts as DuskAccounts | undefined;
+    const preview = options.accounts?.preview as DuskAccounts | undefined;
+    const market = options.accounts?.market ?? nested?.market ?? preview?.market;
+    if (!market) return options;
+    if (name === "executeParameterProposal" && options.accounts?.proposal) {
+      const client = (this.program.account as unknown as Record<string, {
+        fetch(key: PublicKey): Promise<{updates: unknown[]}>;
+      }>).parameterProposal;
+      const proposal = await client!.fetch(address(options.accounts.proposal as AddressLike));
+      const update = proposal.updates.map(parameterUpdateFromAnchor).find(update => update.kind === "oracle");
+      if (update?.kind === "oracle") return {...options, oraclePolicy: update.policy};
+    }
+    const state = await this.fetchMarketAccount(address(market as AddressLike)) as { oracle?: {policy: OraclePolicyInput} };
+    return {...options, oraclePolicy: state.oracle?.policy};
   }
 
   /**
@@ -367,6 +395,7 @@ export class DuskWrite {
       : [];
 
     return this.builder("swap", args, {
+      oraclePolicy: options.oraclePolicy ?? (state as typeof state & {oracle?: {policy: OraclePolicyInput}}).oracle?.policy,
       accounts: {
         ...options.accounts,
         instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
@@ -480,7 +509,9 @@ export class DuskWrite {
   }
 
   async buildBorrowTransaction(params: BorrowParams): Promise<Transaction> {
-    return new Transaction().add(await this.buildBorrowInstruction(params));
+    const options = await this.withOraclePolicy("borrow", { accounts: {market: address(params.market)} });
+    return new Transaction().add(...oracleComputeBudgetInstructions(options.oraclePolicy),
+      await this.buildBorrowInstruction(params));
   }
 
   /**
@@ -583,7 +614,8 @@ export class DuskWrite {
   async buildOpenLeverageTransaction(
     params: OpenLeverageParams
   ): Promise<Transaction> {
-    return new Transaction().add(
+    const options = await this.withOraclePolicy("openLeverage", { accounts: {market: address(params.market)} });
+    return new Transaction().add(...oracleComputeBudgetInstructions(options.oraclePolicy),
       await this.buildOpenLeverageInstruction(params)
     );
   }
@@ -764,7 +796,7 @@ export class DuskWrite {
     const market = address(params.market);
     let tokenKind = params.tokenKind;
     if (tokenKind === undefined) {
-      const state = await this.program.account.market.fetch(market);
+      const state = await this.fetchMarketAccount(market) as Market;
       if (lpMint.equals(state.ylpMint)) tokenKind = "ylp";
       else if (lpMint.equals(state.baseSide.hlpMint) || lpMint.equals(state.quoteSide.hlpMint)) tokenKind = "hlp";
       else throw new Error("LP mint does not belong to the market");
@@ -813,7 +845,10 @@ export class DuskWrite {
     teamTreasuryWsolAccount: AddressLike;
     paramsHash: Uint8Array | Buffer | number[];
     config: MarketLaunchConfig;
-    /** Opening price in NAD. Zero lets the first deposit set it. */
+    /** Installed atomically at creation. Omit or pass null for native pricing.
+     * Guided first liquidity derives its ratio from the validated current feed. */
+    oracle?: OraclePolicyInput | null;
+    /** Native launch-adapter price in NAD. Guided creation requires zero. */
     bootstrapPriceNad?: GovernanceIntegerLike;
     launchFeeProgressOffset?: number;
     lpMetadata: {
@@ -829,15 +864,17 @@ export class DuskWrite {
       throw new Error(`paramsHash must be 32 bytes, received ${paramsHash.length}`);
     }
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
+    const oracle = params.oracle == null ? null : oraclePolicy(params.oracle);
+    const bootstrapPriceNad = governanceIntegerBN(params.bootstrapPriceNad ?? 0, "bootstrapPriceNad");
+    if (oracle && oracle.lambdaBps > 0 && !bootstrapPriceNad.isZero())
+      throw new Error("Oracle-guided markets derive the initial price from the feed; omit bootstrapPriceNad");
     return this.instruction(
       "initializeMarket" as DuskInstructionName,
       {
         config: anchorMarketConfig(params.config),
+        oracle,
         paramsHash: [...paramsHash],
-        bootstrapPriceNad: governanceIntegerBN(
-          params.bootstrapPriceNad ?? 0,
-          "bootstrapPriceNad"
-        ),
+        bootstrapPriceNad,
         launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
         ylpMetadata: params.lpMetadata.ylp,
         baseHlpMetadata: params.lpMetadata.baseHlp,
@@ -1088,26 +1125,28 @@ export class DuskWrite {
     return { proposal, instruction, transaction: new Transaction().add(instruction) };
   }
 
-  /** Permissionlessly execute inside the 7-day window; on-chain utilization checks remain authoritative. */
+  /** Execute inside the 7-day window. Standalone oracle policies can restore
+   * pricing during distress; other updates retain utilization/health guards. */
   async executeParameterProposal(
     params: ExecuteParameterProposalParams
   ): Promise<ParameterGovernanceBuild> {
     const market = address(params.market);
     const proposal = address(params.proposal);
     const state = await this.governanceMarketState(market);
-    const instruction = await this.instruction(
-      "executeParameterProposal" as DuskInstructionName,
-      undefined,
-      {
-        accounts: {
-          market,
-          baseMint: address(state.baseSide.assetMint),
-          quoteMint: address(state.quoteSide.assetMint),
-          proposal,
-        },
-      }
-    );
-    return { proposal, instruction, transaction: new Transaction().add(instruction) };
+    const options = await this.withOraclePolicy("executeParameterProposal", {
+      accounts: {
+        market,
+        baseMint: address(state.baseSide.assetMint),
+        quoteMint: address(state.quoteSide.assetMint),
+        proposal,
+      },
+    });
+    const instruction = await this.instruction("executeParameterProposal", undefined, options);
+    const budgetPolicy = options.oraclePolicy?.lambdaBps
+      ? options.oraclePolicy : state.oracle?.policy;
+    return { proposal, instruction, transaction: new Transaction().add(
+      ...oracleComputeBudgetInstructions(budgetPolicy), instruction,
+    ) };
   }
 
   /** Release all or part of direct support and credit earned yield to its owner. */
@@ -2368,6 +2407,9 @@ export interface SwapParams {
 }
 
 export interface AddLiquidityParams extends YlpLiquidityAccounts {
+  /** Maximum gross spend. Guided first deposits pair at the current validated
+   * oracle price; unused amounts remain with the owner. Native seeding uses
+   * both amounts to establish the initial ratio. */
   baseDepositAmount: RawAmount;
   quoteDepositAmount: RawAmount;
   /** Slippage floor on minted yLP shares. */
@@ -2500,3 +2542,47 @@ export interface WithdrawRepaidLeverageParams {
   minCollateralOut: RawAmount;
   remainingAccounts?: AccountMeta[];
 }
+
+// Kept in step with the on-chain instruction binding boundary.
+const ORACLE_READ_INSTRUCTIONS = new Set<string>([
+  "addLiquidity",
+  "openLiquidityGates",
+  "removeLiquidity",
+  "fundInterest",
+  "harvest",
+  "swap",
+  "previewHlpFlash",
+  "beginHlpFlash",
+  "settleHlpFlash",
+  "closeInsolventHlp",
+  "beginFlashLiquidation",
+  "previewFlashLiquidation",
+  "previewFlashAmmLiquidation",
+  "emergencyLiquidation",
+  "previewEmergencyLiquidation",
+  "previewLiquidationHealth",
+  "settleFlashLiquidation",
+  "depositCollateral",
+  "withdrawCollateral",
+  "borrow",
+  "repay",
+  "donateCollateral",
+  "openLeverage",
+  "closeLeverage",
+  "delegatedCloseLeverage",
+  "increaseLeverage",
+  "decreaseLeverage",
+  "addLeverageMargin",
+  "repayLeverage",
+  "previewHlpDepositCapacity",
+  "previewMarket",
+  "previewHlpOrderTrigger",
+  "previewAddLiquidity",
+  "previewSwap",
+  "previewBorrowCapacity",
+  "previewBorrowPositionCapacity",
+  "previewBorrowPosition",
+  "depositSingleSided",
+  "withdrawSingleSided",
+  "executeParameterProposal",
+]);

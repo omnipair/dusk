@@ -455,15 +455,15 @@ impl SwapRequest {
             crate::transitions::liquidity::apply_concentrated_hlp_recovery(
                 market,
                 self.asset_in,
-                integrated_start,
+                *integrated_start,
                 &mut concentrated,
             )?;
         }
         if concentrated.recovery.bonus_output > 0 {
-            market.finalize_concentrated_book_curve(integrated_start, &mut concentrated, self.asset_in)?;
+            market.finalize_concentrated_book_curve(*integrated_start, &mut concentrated, self.asset_in, true, None)?;
         }
         let mut transition =
-            prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
+            prepare_concentrated_hlp_transition(market, *integrated_start, concentrated, self.asset_in)?;
         // The funding payment belongs to hLP, not to this spot trader. If
         // paying it in full would consume the trader's output cash, quote the
         // same swap with the unpaid amount still on indexed hLP debt. Keep at
@@ -488,7 +488,7 @@ impl SwapRequest {
                 // A carried payment cannot fund a recovery bonus. The whole
                 // trader input still follows the ordinary curve.
                 transition =
-                    prepare_concentrated_hlp_transition(market, integrated_start, concentrated, self.asset_in)?;
+                    prepare_concentrated_hlp_transition(market, *integrated_start, concentrated, self.asset_in)?;
             }
         }
         let has_advance = market

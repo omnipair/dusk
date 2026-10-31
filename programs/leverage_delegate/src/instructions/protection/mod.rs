@@ -64,6 +64,7 @@ pub struct ProtectionExecuted {
 #[inline(never)]
 pub(super) fn protection_health(
     market_info: &AccountInfo,
+    oracle_accounts: &[AccountInfo],
     borrow: Option<&BorrowPosition>,
     leverage: Option<&LeveragePosition>,
     action: u8,
@@ -89,6 +90,7 @@ pub(super) fn protection_health(
         .as_mut()
         .as_mut()
         .map_err(|_| error!(LeverageDelegateError::InvalidOrder))?;
+    market.bind_oracle(oracle_accounts, clock)?;
     protection_health_of(
         market,
         borrow,

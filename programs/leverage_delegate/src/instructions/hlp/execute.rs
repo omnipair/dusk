@@ -99,8 +99,12 @@ impl<'info> ExecuteHlpOrder<'info> {
             .accounts
             .market
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
-        let trigger_preview =
-            preview_hlp_order_trigger(ctx.accounts, target_asset, ctx.accounts.order.hlp_amount)?;
+        let trigger_preview = preview_hlp_order_trigger(
+            ctx.accounts,
+            ctx.remaining_accounts,
+            target_asset,
+            ctx.accounts.order.hlp_amount,
+        )?;
 
         let target_mint = match target_asset {
             MarketAsset::Base => ctx.accounts.base_mint.key(),

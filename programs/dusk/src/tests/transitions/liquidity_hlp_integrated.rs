@@ -201,3 +201,33 @@ fn compounded_fee_reconstructs_perfect_hedges_for_cpmm_and_concentration() {
         );
     }
 }
+
+#[test]
+fn oracle_carry_cover_replaces_backing_without_recharging_net_nav() {
+    let nad=crate::constants::NAD as u128;
+    let mut original=IntegratedCurveState::from_total_reserves(12_000*nad,720_000*nad,1_000*nad,60_000*nad).unwrap();
+    original.base_atom_nad=1;original.quote_atom_nad=1000;
+    original.base_hlp_quote_carry=6_000_000;
+    original.quote_hlp_base_carry=100_000_000;
+    let net=(original.base_hlp_equity,original.quote_hlp_equity);
+    let book=original.book_ordinary().unwrap();
+    let mut state=original;
+    for _ in 0..32 {
+        for price in [6,600,60,3,1200] {
+            state=state.with_op_carry_cover(price*crate::constants::NAD).unwrap();
+            assert_eq!(state,original.with_op_carry_cover(price*crate::constants::NAD).unwrap());
+            assert_eq!(state,state.with_op_carry_cover(price*crate::constants::NAD).unwrap());
+            assert_eq!((state.base_hlp_equity,state.quote_hlp_equity),net);
+            let covered_book=state.book_ordinary().unwrap();
+            let backing=state.backing_equities().unwrap();
+            assert_eq!(covered_book.0+backing.0,book.0+net.0);
+            assert_eq!(covered_book.1+backing.1,book.1+net.1);
+            let ownership=state.ownership_basis().unwrap();
+            assert_eq!(ownership.0,covered_book.0+u128::from(state.quote_hlp_base_carry)*state.base_atom_nad);
+            assert_eq!(ownership.1,covered_book.1+u128::from(state.base_hlp_quote_carry)*state.quote_atom_nad);
+            let end=reconstruct_hlp_endpoint(state).unwrap();
+            assert!(end.base_hlp_quote_debt>=u128::from(state.base_hlp_quote_carry)*state.quote_atom_nad);
+            assert!(end.quote_hlp_base_debt>=u128::from(state.quote_hlp_base_carry)*state.base_atom_nad);
+        }
+    }
+}
