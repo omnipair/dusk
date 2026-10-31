@@ -1,0 +1,18 @@
+{
+  "checked": "2026-10-30",
+  "meaning": "GitHub blob hashes of inspected source files; not deployed-bytecode attestations.",
+  "files": [
+    {
+      "url": "https://github.com/liquity/bold/blob/main/contracts/src/StabilityPool.sol",
+      "blob_sha": "db0a24a56921e84c12d95f53f1841eff60f410a6"
+    },
+    {
+      "url": "https://github.com/MonolithMarket/Monolith/blob/main/src/Lender.sol",
+      "blob_sha": "ec912cc7783360d26a2907fbf3c3b2c397dd4a8b"
+    },
+    {
+      "url": "https://github.com/liquity/bold/blob/main/contracts/src/ActivePool.sol",
+      "blob_sha": "eff5042b27e1a1d19b0694c690d91751d78a9295"
+    }
+  ]
+}

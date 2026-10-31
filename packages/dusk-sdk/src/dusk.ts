@@ -1,3 +1,4 @@
+import { DuskTranches } from "./tranche-client.js";
 import type { AnchorProvider, Program } from "@coral-xyz/anchor";
 import type { Connection } from "@solana/web3.js";
 
@@ -34,6 +35,7 @@ export class Dusk {
   readonly governance: DuskGovernance;
   readonly liquidations: DuskLiquidations;
   readonly yield: DuskYield;
+  readonly tranches: DuskTranches;
   readonly hlpLiquidations: DuskHlpLiquidations;
   readonly fetch: DuskIndexerClient;
   /** Conditional orders, which live in the delegate program. */
@@ -54,6 +56,7 @@ export class Dusk {
     this.liquidations = new DuskLiquidations(this.program, options.feePayer);
     this.hlpLiquidations = new DuskHlpLiquidations(this.program, options.feePayer);
     this.yield = new DuskYield(this.program, options.feePayer);
+    this.tranches = new DuskTranches(this.program);
     this.fetch = new DuskIndexerClient({
       baseUrl: options.indexerBaseUrl,
       fetch: options.fetch,

@@ -1069,6 +1069,7 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     market: &mut Market,
     asset: MarketAsset,
     current_slot: u64,
+    signal_nad: Option<u128>,
 ) -> Result<Option<InterestAccrualReceipt>> {
     let (index, index_remainder, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
         MarketAsset::Base => (
@@ -1089,27 +1090,23 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         ),
     };
     require_gte!(current_slot, last_accrual_slot, ErrorCode::InvalidArgument);
-    if current_slot == last_accrual_slot {
-        return Ok(None);
-    }
     // Interest and the adaptive rate advance with scheduled slot progress,
     // never with the leader-controlled Unix timestamp in the Clock sysvar.
-    let dt_ms = slots_to_ms(last_accrual_slot, current_slot).ok_or(ErrorCode::MarketMathOverflow)?;
 
     let hlp_shares = match asset {
         MarketAsset::Base => market.quote_hlp_vault.debt_shares,
         MarketAsset::Quote => market.base_hlp_vault.debt_shares,
     };
+    if fixed_shares != 0 || isolated_shares != 0 || hlp_shares != 0 {
+        market.sync_income_receivable(asset, false, 0)?;
+        market.sync_income_receivable(asset, true, 0)?;
+    }
+    if current_slot == last_accrual_slot {
+        return Ok(None);
+    }
+    let dt_ms = slots_to_ms(last_accrual_slot, current_slot).ok_or(ErrorCode::MarketMathOverflow)?;
     if fixed_shares == 0 && isolated_shares == 0 && hlp_shares == 0 {
-        let next_rate_at_target = adapt_rate_at_target_nad(
-            rate_at_target,
-            -(NAD as i128),
-            dt_ms,
-            market.config.irm.adjustment_speed_per_year as u128,
-            INTEREST_MIN_RATE_AT_TARGET_NAD,
-            INTEREST_MAX_RATE_AT_TARGET_NAD,
-            INTEREST_MAX_ADAPTATION_STEP_NAD,
-        )?;
+        let next_rate_at_target = rate_at_target;
         match asset {
             MarketAsset::Base => {
                 market.debt.base_rate_at_target_nad = next_rate_at_target;
@@ -1151,12 +1148,19 @@ pub(crate) fn accrue_side<const REPORT: bool>(
 
     // Calculate utilization rates. hLP funding debt counts toward funding cost,
     // but only cash-backed debt accrual grows virtual reserves.
-    let debt_before = cash_backed_before
-        .checked_add(hlp_debt_before)
+    let fraction = match asset {
+        MarketAsset::Base => market.debt.base_rate_fraction_e18,
+        MarketAsset::Quote => market.debt.quote_rate_fraction_e18,
+    };
+    let previous_e18 = rate_at_target
+        .checked_mul(NAD as u128)
+        .and_then(|value| value.checked_add(fraction as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let util = utilization_bps(debt_before, cash)?;
-    let error = utilization_error_nad(util, market.config.irm.target_utilization_bps as u64)?;
-    let rate = instantaneous_rate_apr_nad(rate_at_target, error, market.config.irm.curve_steepness_nad as u128)?;
+    let accrual =
+        crate::math::borrow_controller::accrue_risk_rate(&market.config.irm, previous_e18, signal_nad, dt_ms)?;
+    let next_rate_at_target = accrual.end_apr_e18 / NAD as u128;
+    let next_rate_fraction = (accrual.end_apr_e18 % NAD as u128) as u64;
+    let rate = next_rate_at_target;
     if hlp_shares > 0 {
         let vault = match asset {
             // Quote hLP borrows Base; Base hLP borrows Quote.
@@ -1172,33 +1176,22 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         );
         vault.funding_apr_ema_last_slot = current_slot;
     }
-    let (next_index, next_remainder) = if index == 0 || dt_ms == 0 || rate == 0 {
+    let (next_index, next_remainder) = if index == 0 || dt_ms == 0 {
         (index, index_remainder)
     } else {
-        let denominator = (NAD as u128)
-            .checked_mul(MS_PER_YEAR as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let numerator = index
-            .checked_mul(rate)
-            .and_then(|value| value.checked_mul(dt_ms as u128))
-            .and_then(|value| value.checked_add(index_remainder))
+        let denominator = NAD as u128 * MS_PER_YEAR as u128;
+        let (whole, fractional) = mul_div_rem_u128(index, accrual.integrated_apr_nad_ms, denominator)?;
+        let remainder = fractional
+            .checked_add(index_remainder)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         (
             index
-                .checked_add(numerator / denominator)
+                .checked_add(whole)
+                .and_then(|value| value.checked_add(remainder / denominator))
                 .ok_or(ErrorCode::MarketMathOverflow)?,
-            numerator % denominator,
+            remainder % denominator,
         )
     };
-    let next_rate_at_target = adapt_rate_at_target_nad(
-        rate_at_target,
-        error,
-        dt_ms,
-        market.config.irm.adjustment_speed_per_year as u128,
-        INTEREST_MIN_RATE_AT_TARGET_NAD,
-        INTEREST_MAX_RATE_AT_TARGET_NAD,
-        INTEREST_MAX_ADAPTATION_STEP_NAD,
-    )?;
     // Fixed and isolated buckets remain separately floored. Combined
     // conversion would manufacture an atom at some index boundaries.
     let fixed_after = if fixed_shares == 0 {
@@ -1230,14 +1223,20 @@ pub(crate) fn accrue_side<const REPORT: bool>(
             market.debt.base_borrow_index_nad = next_index;
             market.debt.base_borrow_index_remainder = next_remainder;
             market.debt.base_rate_at_target_nad = next_rate_at_target;
+            market.debt.base_rate_fraction_e18 = next_rate_fraction;
             market.debt.base_last_accrual_slot = current_slot;
         }
         MarketAsset::Quote => {
             market.debt.quote_borrow_index_nad = next_index;
             market.debt.quote_borrow_index_remainder = next_remainder;
             market.debt.quote_rate_at_target_nad = next_rate_at_target;
+            market.debt.quote_rate_fraction_e18 = next_rate_fraction;
             market.debt.quote_last_accrual_slot = current_slot;
         }
+    }
+    if fixed_shares != 0 || isolated_shares != 0 || hlp_shares != 0 {
+        market.sync_income_receivable(asset, false, 0)?;
+        market.sync_income_receivable(asset, true, 0)?;
     }
     if !REPORT {
         return Ok(None);
@@ -1361,10 +1360,25 @@ impl Market {
         // Most scratch quotes share the already-closed slot. Avoid two full
         // debt-kernel calls while preserving their backward-slot checks.
         if self.debt.base_last_accrual_slot == current_slot && self.debt.quote_last_accrual_slot == current_slot {
+            // Debt-share rounding and synthetic hedge changes can alter a
+            // receivable within a slot, even though no new time has elapsed.
+            if self.debt.fixed_base_shares != 0
+                || self.debt.isolated_base_shares != 0
+                || self.quote_hlp_vault.debt_shares != 0
+            {
+                accrue_side::<false>(self, MarketAsset::Base, current_slot, None)?;
+            }
+            if self.debt.fixed_quote_shares != 0
+                || self.debt.isolated_quote_shares != 0
+                || self.base_hlp_vault.debt_shares != 0
+            {
+                accrue_side::<false>(self, MarketAsset::Quote, current_slot, None)?;
+            }
             return Ok(());
         }
-        accrue_side::<false>(self, MarketAsset::Base, current_slot)?;
-        accrue_side::<false>(self, MarketAsset::Quote, current_slot)?;
+        let signals = self.tranche_coverage_signals()?;
+        accrue_side::<false>(self, MarketAsset::Base, current_slot, signals[0])?;
+        accrue_side::<false>(self, MarketAsset::Quote, current_slot, signals[1])?;
         Ok(())
     }
 
@@ -1604,6 +1618,13 @@ impl Market {
             borrow_amount,
             ErrorCode::InsufficientBorrowHeadroom
         );
+        crate::math::borrow_controller::check_new_borrow_liquidity(
+            &self.config.irm,
+            self.covered_debt(borrow_asset)?,
+            self.side(borrow_asset).reserves.cash_reserve,
+            aggregate_debt_increase as u128,
+            borrow_amount,
+        )?;
         let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
         self.side_mut(borrow_asset).daily_borrow_bucket.record_borrow(
             borrow_amount,

@@ -5,10 +5,7 @@
 
 use anchor_lang::{
     prelude::*,
-    solana_program::{
-        instruction::{AccountMeta, Instruction},
-        program::invoke_signed,
-    },
+    solana_program::{instruction::Instruction, program::invoke_signed},
     system_program,
 };
 use anchor_spl::{
@@ -23,8 +20,110 @@ use spl_token_2022::extension::{
 
 use crate::errors::ErrorCode;
 
+mod hook_accounts;
+pub use hook_accounts::add_transfer_hook_accounts;
+
+/// Invokes a mutable instruction without cloning its account and data vectors.
+/// Solana's standard `invoke_signed` converts `instruction.clone()` into the
+/// stable syscall layout, which permanently consumes another bump-allocation
+/// in large composite instructions. This performs the same borrow checks,
+/// lends the existing vectors to the stable layout, then restores them.
+#[allow(unexpected_cfgs)]
+pub(crate) fn invoke_signed_reusing_instruction<'a>(
+    instruction: &mut Instruction,
+    account_infos: &[AccountInfo<'a>],
+    signer_seeds: &[&[&[u8]]],
+) -> anchor_lang::solana_program::entrypoint::ProgramResult {
+    for account_meta in &instruction.accounts {
+        for account_info in account_infos {
+            if account_meta.pubkey == *account_info.key {
+                if account_meta.is_writable {
+                    let _ = account_info.try_borrow_mut_lamports()?;
+                    let _ = account_info.try_borrow_mut_data()?;
+                } else {
+                    let _ = account_info.try_borrow_lamports()?;
+                    let _ = account_info.try_borrow_data()?;
+                }
+                break;
+            }
+        }
+    }
+
+    #[cfg(target_os = "solana")]
+    {
+        use anchor_lang::solana_program::stable_layout::stable_instruction::StableInstruction;
+
+        let stable_instruction = StableInstruction::from(Instruction {
+            program_id: instruction.program_id,
+            accounts: core::mem::take(&mut instruction.accounts),
+            data: core::mem::take(&mut instruction.data),
+        });
+        let result = unsafe {
+            anchor_lang::solana_program::syscalls::sol_invoke_signed_rust(
+                &stable_instruction as *const _ as *const u8,
+                account_infos as *const _ as *const u8,
+                account_infos.len() as u64,
+                signer_seeds as *const _ as *const u8,
+                signer_seeds.len() as u64,
+            )
+        };
+        let StableInstruction {
+            accounts,
+            data,
+            program_id,
+        } = stable_instruction;
+        instruction.program_id = program_id;
+        instruction.accounts = accounts.into();
+        instruction.data = data.into();
+        if result == anchor_lang::solana_program::entrypoint::SUCCESS {
+            Ok(())
+        } else {
+            Err(result.into())
+        }
+    }
+
+    #[cfg(not(target_os = "solana"))]
+    anchor_lang::solana_program::program::invoke_signed_unchecked(instruction, account_infos, signer_seeds)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn transfer_checked_with_remaining_accounts<'a>(
+    authority: AccountInfo<'a>,
+    from: AccountInfo<'a>,
+    to: AccountInfo<'a>,
+    mint: AccountInfo<'a>,
+    token_program: AccountInfo<'a>,
+    amount: u64,
+    mint_decimals: u8,
+    signer_seeds: &[&[&[u8]]],
+    additional_accounts: &[AccountInfo<'a>],
+) -> Result<()> {
+    let mut instruction = Instruction {
+        program_id: Pubkey::default(),
+        accounts: Vec::new(),
+        data: Vec::new(),
+    };
+    transfer_checked_with_remaining_accounts_and_instruction(
+        &mut instruction,
+        authority,
+        from,
+        to,
+        mint,
+        token_program,
+        amount,
+        mint_decimals,
+        signer_seeds,
+        additional_accounts,
+    )
+}
+
+/// Reuses one instruction buffer across repeated transfers in large composite
+/// instructions. Solana's bump allocator does not reclaim the vectors created
+/// by each SPL instruction, so rebuilding three or four payout transfers can
+/// otherwise exhaust the heap even though every individual transfer is small.
+#[allow(clippy::too_many_arguments)]
+pub fn transfer_checked_with_remaining_accounts_and_instruction<'a>(
+    instruction: &mut Instruction,
     authority: AccountInfo<'a>,
     from: AccountInfo<'a>,
     to: AccountInfo<'a>,
@@ -38,17 +137,24 @@ pub fn transfer_checked_with_remaining_accounts<'a>(
     if amount == 0 {
         return Ok(());
     }
+    require!(
+        *token_program.key == Token2022::id() || *token_program.key == Token::id(),
+        ErrorCode::InvalidTokenProgram
+    );
+    instruction.program_id = *token_program.key;
+    instruction.accounts.clear();
+    instruction.accounts.extend([
+        AccountMeta::new(*from.key, false),
+        AccountMeta::new_readonly(*mint.key, false),
+        AccountMeta::new(*to.key, false),
+        AccountMeta::new_readonly(*authority.key, true),
+    ]);
+    instruction.data.clear();
+    // SPL Token and Token-2022 share the TransferChecked wire format.
+    instruction.data.push(12);
+    instruction.data.extend_from_slice(&amount.to_le_bytes());
+    instruction.data.push(mint_decimals);
     if *token_program.key == Token2022::id() {
-        let mut instruction = spl_token_2022::instruction::transfer_checked(
-            token_program.key,
-            from.key,
-            mint.key,
-            to.key,
-            authority.key,
-            &[],
-            amount,
-            mint_decimals,
-        )?;
         let transfer_hook_program_id = if *mint.owner != token_2022::Token2022::id() {
             None
         } else {
@@ -59,7 +165,7 @@ pub fn transfer_checked_with_remaining_accounts<'a>(
         if let Some(transfer_hook_program_id) = transfer_hook_program_id {
             let mut account_infos = vec![from.clone(), mint.clone(), to.clone(), authority.clone()];
             add_transfer_hook_accounts(
-                &mut instruction,
+                instruction,
                 &mut account_infos,
                 &transfer_hook_program_id,
                 from,
@@ -70,94 +176,17 @@ pub fn transfer_checked_with_remaining_accounts<'a>(
                 additional_accounts,
             )?;
             account_infos.push(token_program);
-            invoke_signed(&instruction, &account_infos, signer_seeds).map_err(Into::into)
+            invoke_signed_reusing_instruction(instruction, &account_infos, signer_seeds).map_err(Into::into)
         } else {
-            invoke_signed(&instruction, &[from, mint, to, authority, token_program], signer_seeds).map_err(Into::into)
+            invoke_signed_reusing_instruction(instruction, &[from, mint, to, authority, token_program], signer_seeds)
+                .map_err(Into::into)
         }
     } else if *token_program.key == Token::id() {
-        let instruction = spl_token::instruction::transfer_checked(
-            token_program.key,
-            from.key,
-            mint.key,
-            to.key,
-            authority.key,
-            &[],
-            amount,
-            mint_decimals,
-        )?;
-        invoke_signed(&instruction, &[from, mint, to, authority, token_program], signer_seeds).map_err(Into::into)
+        invoke_signed_reusing_instruction(instruction, &[from, mint, to, authority, token_program], signer_seeds)
+            .map_err(Into::into)
     } else {
         err!(ErrorCode::InvalidTokenProgram)
     }
-}
-
-// Adapted from Apache-2.0 licensed SPL code; see THIRD_PARTY_NOTICES.md.
-// Same SPL 0.9 account resolution and privilege de-escalation, with one
-// retained data-borrow list. Upstream allocates a fresh growing list for each
-// meta; Solana's bump allocator cannot reclaim those O(n^2) allocations.
-#[allow(clippy::too_many_arguments)]
-fn add_transfer_hook_accounts<'a>(
-    instruction: &mut Instruction,
-    infos: &mut Vec<AccountInfo<'a>>,
-    program: &Pubkey,
-    source: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    destination: AccountInfo<'a>,
-    authority: AccountInfo<'a>,
-    amount: u64,
-    additional: &[AccountInfo<'a>],
-) -> std::result::Result<(), ProgramError> {
-    use spl_tlv_account_resolution::{error::AccountResolutionError, state::ExtraAccountMetaList};
-    use spl_transfer_hook_interface::{error::TransferHookError, get_extra_account_metas_address, instruction as hook};
-    use spl_type_length_value::state::TlvStateBorrowed;
-    let program_info = additional
-        .iter()
-        .find(|info| info.key == program)
-        .ok_or(TransferHookError::IncorrectAccount)?;
-    let validation = get_extra_account_metas_address(mint.key, program);
-    if let Some(validation_info) = additional.iter().find(|info| *info.key == validation) {
-        let data = validation_info.try_borrow_data()?;
-        let state = TlvStateBorrowed::unpack(&data)?;
-        let metas = ExtraAccountMetaList::unpack_with_tlv_state::<hook::ExecuteInstruction>(&state)?;
-        let mut execute = hook::execute(program, source.key, mint.key, destination.key, authority.key, amount);
-        execute.accounts.reserve_exact(1 + metas.data().len());
-        execute.accounts.push(AccountMeta::new_readonly(validation, false));
-        instruction.accounts.reserve_exact(metas.data().len() + 2);
-        infos.reserve_exact(metas.data().len() + 3);
-        let initial = [source, mint, destination, authority, validation_info.clone()];
-        let mut key_data = Vec::with_capacity(initial.len() + metas.data().len());
-        for info in &initial {
-            key_data.push((*info.key, info.try_borrow_data()?));
-        }
-        for extra in metas.data() {
-            let mut meta = extra.resolve(&execute.data, program, |index| {
-                key_data.get(index).map(|(key, data)| (key, Some(data.as_ref())))
-            })?;
-            if let Some((signer, writable)) = execute
-                .accounts
-                .iter()
-                .filter(|m| m.pubkey == meta.pubkey)
-                .map(|m| (m.is_signer, m.is_writable))
-                .reduce(|a, b| (a.0 || b.0, a.1 || b.1))
-            {
-                meta.is_signer &= signer;
-                meta.is_writable &= writable;
-            }
-            let info = additional
-                .iter()
-                .find(|info| *info.key == meta.pubkey)
-                .ok_or(AccountResolutionError::IncorrectAccount)?;
-            key_data.push((*info.key, info.try_borrow_data()?));
-            execute.accounts.push(meta.clone());
-            instruction.accounts.push(meta);
-            infos.push(info.clone());
-        }
-        instruction.accounts.push(AccountMeta::new_readonly(validation, false));
-        infos.push(validation_info.clone());
-    }
-    instruction.accounts.push(AccountMeta::new_readonly(*program, false));
-    infos.push(program_info.clone());
-    Ok(())
 }
 
 /// Issue a token `MintTo` instruction.

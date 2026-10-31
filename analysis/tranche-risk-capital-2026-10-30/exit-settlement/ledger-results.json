@@ -1,0 +1,74 @@
+{
+  "scope": "Reference ledger for tranche decisions, not deployable Dusk code.\n\nExact arithmetic in one valuation unit. Explicit reward-period allocations are\ndeliberately unbounded so economic ownership is inspectable. No AMM, oracle,\nliquidation execution, token rounding, or Solana account-limit claims are made.",
+  "case_groups": 11,
+  "checks_passed": true,
+  "results": {
+    "conversion": {
+      "senior_value": 700,
+      "junior_value": 300,
+      "total_value": 1000
+    },
+    "waterfall": {
+      "insurance": 5.0,
+      "junior": 20.0,
+      "senior": 5.0
+    },
+    "retire_defaulting_internal_claim_first": {
+      "collateral_retired": 40.0,
+      "remaining_loss": {
+        "insurance": 5.0,
+        "junior": 5.0,
+        "senior": 0.0
+      }
+    },
+    "partial_collection_and_switch": {
+      "early_holder_old_junior_income": 5,
+      "late_holder_old_income": 0,
+      "late_holder_new_junior_income": 5,
+      "early_holder_new_senior_income": 1
+    },
+    "transfer_preserves_earned_income": true,
+    "empty_junior_fallback_candidate": {
+      "old_income_to_senior": 10,
+      "future_income_to_new_junior": 5
+    },
+    "unpaid_income_writeoff_is_not_second_principal_loss": true,
+    "permanent_seed": {
+      "initial_junior": 100,
+      "allocated_income": 500,
+      "funded_loss_that_wipes_principal": 100,
+      "note": "Rewards were distributed separately, not compounded. Compounded rewards can also be exhausted.",
+      "recapitalization_requires_new_economic_generation": true
+    },
+    "empty_senior_fallback_candidate": true,
+    "senior_withdrawal_signals": {
+      "before": {
+        "junior_pool_share": 0.2,
+        "utilization": 0.8,
+        "coverage": 0.25,
+        "raw_J_over_U": 25.0,
+        "combined_candidate": 0.05
+      },
+      "after": {
+        "junior_pool_share": 0.2222222222222222,
+        "utilization": 0.8888888888888888,
+        "coverage": 0.25,
+        "raw_J_over_U": 22.5,
+        "combined_candidate": 0.027777777777777776
+      },
+      "scaled_pool": {
+        "junior_pool_share": 0.2,
+        "utilization": 0.8,
+        "coverage": 0.25,
+        "raw_J_over_U": 250.0,
+        "combined_candidate": 0.05
+      }
+    },
+    "pending_notice": {
+      "actual_coverage": 0.25,
+      "if_immediately_excluded": 0.15,
+      "physical_first_loss_capacity_in_either_case": 20,
+      "interpretation": "Exclusion creates a forward signal; it does not measure current capacity."
+    }
+  }
+}

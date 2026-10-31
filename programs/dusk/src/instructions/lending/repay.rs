@@ -221,6 +221,7 @@ impl<'info> Repay<'info> {
                 eligibility,
                 remaining_accounts,
                 accounts.event_authority.to_account_info(),
+                None,
             )?;
             accounts.reserve_vault.reload()?;
 

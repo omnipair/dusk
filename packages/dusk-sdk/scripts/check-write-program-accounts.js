@@ -199,7 +199,9 @@ test("oracle-selected creation fits a versioned transaction and rejects oversize
   const build=initializeMarketInstruction=>marketCreationV0Transaction({payer:owner,recentBlockhash:key(40).toBase58(),
     initializeMarketInstruction,lookupTable});
   assert.ok(build(ix).serialize().length<=1232);
-  const large={name:"n".repeat(32),symbol:"s".repeat(10),uri:"https://"+"u".repeat(127)};
+  // Large enough to exceed Solana's packet limit while remaining below
+  // Anchor's fixed 1,000-byte instruction-coder scratch buffer.
+  const large={name:"n".repeat(32),symbol:"s".repeat(10),uri:"https://"+"u".repeat(100)};
   const oversized=await write.initializeMarketInstruction({...input,lpMetadata:{ylp:large,baseHlp:large,quoteHlp:large}});
   assert.throws(()=>build(oversized),/market creation exceeds transaction size/);
 });

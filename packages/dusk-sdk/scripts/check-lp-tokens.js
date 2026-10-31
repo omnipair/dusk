@@ -158,3 +158,11 @@ test("createHookedLpMintWithSeedInstructions needs only the base and payer to si
     /does not derive/
   );
 });
+
+test("junior naming matches the native generation mint without changing yLP or hLP names", () => {
+  const naming = lpTokenNaming({ kind: "junior", baseSymbol: "SOL", quoteSymbol: "USDC" });
+  assert.equal(naming.name, "Omnipair Junior LP");
+  assert.equal(naming.symbol, "jrLP");
+  assert.match(naming.description, /first-loss/);
+  assert.equal(marketLpTokenNaming({ baseSymbol: "SOL", quoteSymbol: "USDC" }).ylp.symbol, "ySOL.USDC");
+});

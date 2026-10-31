@@ -120,7 +120,7 @@ impl Market {
             self.curve_revision
         };
         let runtime = RuntimePricing::bind(policy, observation);
-        let mut amm = self.amm;
+        let mut amm = *self.amm;
         if revision != self.curve_revision && self.amm.initialized {
             let curve = runtime.curve(
                 self.config.amm.concentrated_curve_parameters()?,
@@ -147,7 +147,7 @@ impl Market {
         self.checkpoint_oracle_risk_depth()?;
         self.oracle.runtime = runtime;
         self.oracle.last_observation = observation;
-        self.amm = amm;
+        *self.amm = amm;
         if revision != self.curve_revision {
             self.amm.invalidate_deferred_controller_target();
             self.curve_revision = revision;

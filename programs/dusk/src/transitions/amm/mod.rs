@@ -1,3 +1,4 @@
+mod compounding;
 mod liquidation;
 mod oracle;
 mod swap;
@@ -15,7 +16,7 @@ use anchor_lang::prelude::*;
 use crate::{constants::*, errors::ErrorCode, math::*, state::*};
 
 use super::liquidity::{
-    apply_compounded_ylp_fee, quote_integrated_exact_in_with_frozen_fee, IntegratedCurveState,
+    apply_compounded_ylp_fee_to_end, quote_integrated_exact_in_with_frozen_fee, IntegratedCurveState,
     IntegratedFrozenFeeQuote, IntegratedSwapDirection,
 };
 
@@ -96,21 +97,22 @@ impl Market {
         Ok(())
     }
 
-    /// Return retained surcharge to executable, LP-owned inventory when a
-    /// governed parameter change removes the controller that can deploy it.
+    /// Release unused recenter custody as LP income when governance removes
+    /// its controller. Native income follows the same 50/50 split as swap fees.
     pub(crate) fn release_protected_recenter_reserves(&mut self) -> Result<()> {
+        let supply = self.base_side.shares.ylp_supply;
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
-            let reserves = &mut self.side_mut(asset).reserves;
-            let amount = reserves.protected_recenter_reserve;
-            reserves.live_reserve = reserves
-                .live_reserve
-                .checked_add(amount)
-                .ok_or(ErrorCode::ReserveOverflow)?;
-            reserves.cash_reserve = reserves
-                .cash_reserve
-                .checked_add(amount)
-                .ok_or(ErrorCode::ReserveOverflow)?;
-            reserves.protected_recenter_reserve = 0;
+            let side = self.side_mut(asset);
+            let amount = side.reserves.protected_recenter_reserve;
+            if amount == 0 {
+                continue;
+            }
+            if side.fees.junior.initialized {
+                side.record_swap_fee_allocation(amount, 0, 0, 0, 0, Default::default(), supply)?;
+            } else {
+                side.credit_reserve(amount, true)?;
+            }
+            side.reserves.protected_recenter_reserve = 0;
         }
         Ok(())
     }
@@ -184,7 +186,7 @@ impl Market {
         state.launch_fee_progress_offset = launch_fee_progress_offset;
         state.concentrated_curve_cache = concentrated_curve_cache;
         state.refresh_retention_target(curve_depth_per_share_nad, 0)?;
-        self.amm = state;
+        *self.amm = state;
         self.checkpoint_oracle_risk_depth()?;
         Ok(true)
     }
@@ -1131,6 +1133,75 @@ impl Market {
     #[inline(never)]
     fn integrated_curve_state_with_mark_nad(&self) -> Result<(IntegratedCurveState, IntegratedCurveMark)> {
         let reserves = self.curve_reserves_nad()?;
+        if !self.has_active_hlp()
+            && self.base_hlp_vault.ylp_shares == 0
+            && self.quote_hlp_vault.ylp_shares == 0
+            && self.base_hlp_vault.debt_shares == 0
+            && self.quote_hlp_vault.debt_shares == 0
+            && self.amm.frozen_hlp_mask == 0
+        {
+            return self.integrated_curve_state_without_hlp(reserves);
+        }
+        self.integrated_hlp_curve_state_with_mark_nad(reserves)
+    }
+
+    #[inline(never)]
+    fn integrated_curve_state_without_hlp(
+        &self,
+        reserves: CurveReservesNad,
+    ) -> Result<(IntegratedCurveState, IntegratedCurveMark)> {
+        require_eq!(
+            self.base_side.shares.ylp_supply,
+            self.quote_side.shares.ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        require!(self.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
+        require!(
+            reserves.base > 0 && reserves.quote > 0,
+            ErrorCode::InsufficientLiquidity
+        );
+        let receivable_hedge = self.base_side.fees.junior.initialized;
+        // Native coupons have separate ownership. A market with no hLP never
+        // includes them in its funded AMM coordinates.
+        let (base_interest, quote_interest) = if receivable_hedge {
+            (0, 0)
+        } else {
+            (
+                self.normalize_amount(
+                    self.unrealized_interest(MarketAsset::Base)?,
+                    self.base_side.asset_decimals,
+                )?,
+                self.normalize_amount(
+                    self.unrealized_interest(MarketAsset::Quote)?,
+                    self.quote_side.asset_decimals,
+                )?,
+            )
+        };
+        let state = IntegratedCurveState {
+            ordinary_base: reserves.base,
+            ordinary_quote: reserves.quote,
+            ordinary_base_book_offset: i128::try_from(if receivable_hedge { 0 } else { base_interest })
+                .map_err(|_| ErrorCode::MarketMathOverflow)?,
+            ordinary_quote_book_offset: i128::try_from(if receivable_hedge { 0 } else { quote_interest })
+                .map_err(|_| ErrorCode::MarketMathOverflow)?,
+            base_unpaid_interest: if receivable_hedge { 0 } else { base_interest },
+            receivable_hedge,
+            quote_unpaid_interest: if receivable_hedge { 0 } else { quote_interest },
+            base_atom_nad: self.normalize_amount(1, self.base_side.asset_decimals)?,
+            quote_atom_nad: self.normalize_amount(1, self.quote_side.asset_decimals)?,
+            ..IntegratedCurveState::default()
+        };
+        if !receivable_hedge {
+            state.book_ordinary()?;
+        }
+        Ok((state, None))
+    }
+
+    #[inline(never)]
+    fn integrated_hlp_curve_state_with_mark_nad(
+        &self,
+        reserves: CurveReservesNad,
+    ) -> Result<(IntegratedCurveState, IntegratedCurveMark)> {
         let basis = self.hlp_curve_basis_from_reserves_nad(reserves)?;
         let ordinary = self.frozen_adjusted_ordinary(&basis)?;
         let HlpCurveBasis {
@@ -1158,33 +1229,45 @@ impl Market {
             let value = as_signed(mul_div_u128(amount.unsigned_abs(), numerator, denominator)?)?;
             Ok(if amount < 0 { -value } else { value })
         };
+        let receivable_hedge = self.base_side.fees.junior.initialized;
+        let mut hlp_unpaid = [[0_u128; 2]; 2];
+        if receivable_hedge {
+            for target in [MarketAsset::Base, MarketAsset::Quote] {
+                for asset in [MarketAsset::Base, MarketAsset::Quote] {
+                    hlp_unpaid[target.code() as usize][asset.code() as usize] = self.normalize_amount(
+                        self.hlp_unpaid_income(target, asset)? as u128,
+                        self.side(asset).asset_decimals,
+                    )?;
+                }
+            }
+        }
         let base_book_claim = base_hlp_base_claim
-            .checked_add(mul_div_u128(
-                base_interest,
-                self.base_hlp_vault.ylp_shares as u128,
-                supply as u128,
-            )?)
+            .checked_add(if receivable_hedge {
+                hlp_unpaid[0][0]
+            } else {
+                mul_div_u128(base_interest, self.base_hlp_vault.ylp_shares as u128, supply as u128)?
+            })
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let base_opposite_book_net = base_opposite_net
-            .checked_add(as_signed(mul_div_u128(
-                quote_interest,
-                self.base_hlp_vault.ylp_shares as u128,
-                supply as u128,
-            )?)?)
+            .checked_add(as_signed(if receivable_hedge {
+                hlp_unpaid[0][1]
+            } else {
+                mul_div_u128(quote_interest, self.base_hlp_vault.ylp_shares as u128, supply as u128)?
+            })?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote_book_claim = quote_hlp_quote_claim
-            .checked_add(mul_div_u128(
-                quote_interest,
-                self.quote_hlp_vault.ylp_shares as u128,
-                supply as u128,
-            )?)
+            .checked_add(if receivable_hedge {
+                hlp_unpaid[1][1]
+            } else {
+                mul_div_u128(quote_interest, self.quote_hlp_vault.ylp_shares as u128, supply as u128)?
+            })
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote_opposite_book_net = quote_opposite_net
-            .checked_add(as_signed(mul_div_u128(
-                base_interest,
-                self.quote_hlp_vault.ylp_shares as u128,
-                supply as u128,
-            )?)?)
+            .checked_add(as_signed(if receivable_hedge {
+                hlp_unpaid[1][0]
+            } else {
+                mul_div_u128(base_interest, self.quote_hlp_vault.ylp_shares as u128, supply as u128)?
+            })?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let needs_mark = base_opposite_book_net != 0 || quote_opposite_book_net != 0;
         let mark = if needs_mark {
@@ -1283,7 +1366,7 @@ impl Market {
                 })
                 .ok_or(ErrorCode::MarketMathOverflow)?
         };
-        let state = IntegratedCurveState {
+        let mut state = IntegratedCurveState {
             op_carry_cover: Default::default(),
             ordinary_base: ordinary.base_reserve,
             ordinary_quote: ordinary.quote_reserve,
@@ -1318,7 +1401,60 @@ impl Market {
             frozen_hlp_mask: self.amm.frozen_hlp_mask,
             frozen_base_curve_offset_nad: self.frozen_curve_offsets()?.0,
             frozen_quote_curve_offset_nad: self.frozen_curve_offsets()?.1,
+            receivable_hedge,
+            hlp_unpaid: [[0; 2]; 2],
+            hlp_capitalized: [[0; 3]; 2],
+            junior_compound: None,
+            junior_seed_compound: 0,
         };
+        if receivable_hedge {
+            if !self.hlp_frozen(MarketAsset::Base) {
+                state.hlp_unpaid[0] = hlp_unpaid[0];
+            }
+            if !self.hlp_frozen(MarketAsset::Quote) {
+                state.hlp_unpaid[1] = hlp_unpaid[1];
+            }
+            for target in [MarketAsset::Base, MarketAsset::Quote] {
+                let i = target.code() as usize;
+                let equity = if i == 0 {
+                    &mut state.base_hlp_equity
+                } else {
+                    &mut state.quote_hlp_equity
+                };
+                let coupon = &mut state.hlp_unpaid[i][i];
+                if *coupon > *equity {
+                    let needed = self.denormalize_amount_ceil(*coupon - *equity, self.side(target).asset_decimals)?;
+                    let (units, owned, value) = self.quote_hlp_capitalization_for_value(target, needed)?;
+                    state.hlp_capitalized[i] = [units, owned, value];
+                    *coupon = coupon
+                        .checked_sub(self.normalize_amount(value as u128, self.side(target).asset_decimals)?)
+                        .ok_or(ErrorCode::BrokenInvariant)?;
+                }
+                *equity = equity.checked_sub(*coupon).ok_or(ErrorCode::BrokenInvariant)?;
+            }
+            state.base_unpaid_interest = state.hlp_unpaid[1][0];
+            state.quote_unpaid_interest = state.hlp_unpaid[0][1];
+            state.ordinary_base_book_offset = as_signed(reserves.base)?
+                .checked_add(as_signed(self.normalize_amount(
+                    state.hlp_capitalized[0][2] as u128,
+                    self.base_side.asset_decimals,
+                )?)?)
+                .and_then(|v| v.checked_sub(as_signed(state.base_hlp_equity).ok()?))
+                .and_then(|v| v.checked_sub(as_signed(state.quote_hlp_base_debt).ok()?))
+                .and_then(|v| v.checked_add(as_signed(state.base_unpaid_interest).ok()?))
+                .and_then(|v| v.checked_sub(as_signed(ordinary.base_reserve).ok()?))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            state.ordinary_quote_book_offset = as_signed(reserves.quote)?
+                .checked_add(as_signed(self.normalize_amount(
+                    state.hlp_capitalized[1][2] as u128,
+                    self.quote_side.asset_decimals,
+                )?)?)
+                .and_then(|v| v.checked_sub(as_signed(state.quote_hlp_equity).ok()?))
+                .and_then(|v| v.checked_sub(as_signed(state.base_hlp_quote_debt).ok()?))
+                .and_then(|v| v.checked_add(as_signed(state.quote_unpaid_interest).ok()?))
+                .and_then(|v| v.checked_sub(as_signed(ordinary.quote_reserve).ok()?))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+        }
         state.book_ordinary()?;
         Ok((state, mark))
     }
@@ -1438,12 +1574,12 @@ impl Market {
             asset_in,
             reserve_credit,
             preliminary,
-            state,
+            &state,
             protocol_fee_bps,
             true,
             mark,
         )
-        .map(|(_, transition)| transition)
+        .map(|(_, transition)| transition.map(|quote| *quote))
     }
 
     pub(crate) fn quote_concentrated_integrated_with_fee_from_state(
@@ -1471,11 +1607,12 @@ impl Market {
             asset_in,
             reserve_credit,
             preliminary,
-            state,
+            &state,
             protocol_fee_bps,
             materialize_transition,
             None,
         )
+        .map(|(amount, quote)| (amount, quote.map(|quote| *quote)))
     }
 
     #[inline(never)]
@@ -1486,7 +1623,7 @@ impl Market {
         preliminary: PreliminarySwapInputs,
         protocol_fee_bps: u16,
         carry_interest: bool,
-    ) -> Result<(Box<IntegratedCurveState>, ConcentratedIntegratedAmmQuote)> {
+    ) -> Result<(IntegratedCurveState, Box<ConcentratedIntegratedAmmQuote>)> {
         let (mut state, mark) = self.integrated_curve_state_with_mark_nad()?;
         if carry_interest {
             let base_debt = Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?;
@@ -1507,14 +1644,14 @@ impl Market {
                 asset_in,
                 reserve_credit,
                 preliminary,
-                state,
+                &state,
                 protocol_fee_bps,
                 true,
                 mark,
             )?
             .1
             .ok_or(ErrorCode::BrokenInvariant)?;
-        Ok((Box::new(state), quote))
+        Ok((state, quote))
     }
 
     /// A healthy swap needs no second valuation pass. If its integrated quote
@@ -1527,7 +1664,7 @@ impl Market {
         reserve_credit: u64,
         preliminary: PreliminarySwapInputs,
         protocol_fee_bps: u16,
-    ) -> Result<(Box<IntegratedCurveState>, ConcentratedIntegratedAmmQuote)> {
+    ) -> Result<(IntegratedCurveState, Box<ConcentratedIntegratedAmmQuote>)> {
         match self.prepare_current_hlp_quote(asset_in, reserve_credit, preliminary, protocol_fee_bps, false) {
             Ok(quote) => Ok(quote),
             Err(original_error) => {
@@ -1574,18 +1711,18 @@ impl Market {
         asset_in: MarketAsset,
         reserve_credit: u64,
         preliminary: PreliminarySwapInputs,
-        state: IntegratedCurveState,
+        state: &IntegratedCurveState,
         protocol_fee_bps: u16,
         materialize_transition: bool,
         mut start_mark: IntegratedCurveMark,
-    ) -> Result<(u64, Option<ConcentratedIntegratedAmmQuote>)> {
+    ) -> Result<(u64, Option<Box<ConcentratedIntegratedAmmQuote>>)> {
         let config = self.dynamic_fee_config()?;
         let needs_native_center = config.divergence_coefficient_nad > 0 && config.divergence_fee_share_cap_bps > 0;
         // The OP price is independent of native curve scale. With divergence
         // disabled, rebuilding a book-scaled native center has no consumer.
         // Native quotes still need that geometry for execution itself.
         let book_center = if state.uses_book_hedge() && (self.oracle.policy.lambda_bps == 0 || needs_native_center) {
-            Some(self.prepare_book_curve_mark(state, &mut start_mark)?)
+            Some(self.prepare_book_curve_mark(*state, &mut start_mark)?)
         } else {
             None
         };
@@ -1651,10 +1788,10 @@ impl Market {
         } else {
             0
         };
-        let mut integrated = if let Some(curve) = self.bounded_curve()? {
+        let mut integrated = Box::new(if let Some(curve) = self.bounded_curve()? {
             self.quote_oracle_integrated(
                 &curve,
-                state,
+                *state,
                 &geometry,
                 gross_curve_input_nad,
                 divergence_nad,
@@ -1662,7 +1799,7 @@ impl Market {
             )?
         } else {
             quote_integrated_exact_in_with_frozen_fee(
-                state,
+                *state,
                 geometry,
                 gross_curve_input_nad,
                 divergence_nad,
@@ -1671,7 +1808,7 @@ impl Market {
                     MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
                 },
             )?
-        };
+        });
         let gross_amount_out = self.denormalize_amount_floor(
             integrated.executable.amount_out,
             self.side(asset_in.opposite()).asset_decimals,
@@ -1735,7 +1872,7 @@ impl Market {
     #[inline(never)]
     fn finish_concentrated_swap(
         &self,
-        state: IntegratedCurveState,
+        state: &IntegratedCurveState,
         geometry: &ConcentratedCurveGeometry,
         integrated: &mut IntegratedFrozenFeeQuote,
         asset_in: MarketAsset,
@@ -1746,7 +1883,7 @@ impl Market {
         divergence_surcharge: u64,
         dynamic: DynamicFeeQuote,
         materialize_transition: bool,
-    ) -> Result<ConcentratedIntegratedAmmQuote> {
+    ) -> Result<Box<ConcentratedIntegratedAmmQuote>> {
         let fee_asset = self.config.swap_fee_asset(asset_in)?;
         let fees_on_input = fee_asset == asset_in;
         let gross_amount_out = self.denormalize_amount_floor(
@@ -1805,16 +1942,17 @@ impl Market {
             .checked_add(fee_allocation.compounded_dynamic_surcharge)
             .ok_or(ErrorCode::FeeMathOverflow)?;
         if compounded_fee_debit > 0 {
-            apply_compounded_ylp_fee(
+            self.apply_compounded_tranche_fee(
                 state,
-                integrated,
-                fee_asset == MarketAsset::Base,
-                self.normalize_amount(compounded_fee_debit as u128, self.side(fee_asset).asset_decimals)?,
-                end_price_nad as u128,
-                self.side(fee_asset).shares.ylp_supply,
-                self.base_hlp_vault.ylp_shares,
-                self.quote_hlp_vault.ylp_shares,
+                &mut integrated.executable.end,
+                compounding::CompoundedTrancheFee {
+                    asset: fee_asset,
+                    amount: compounded_fee_debit,
+                    claimable_lp: claimable_fee_debit - fee_bps_floor(dynamic.base_fee_amount, protocol_fee_bps)?,
+                    price: end_price_nad,
+                },
             )?;
+            integrated.refresh_hlp_endpoint(state)?;
         }
         let reserve_input_credit = if fees_on_input {
             amount_in_for_quote
@@ -1876,7 +2014,7 @@ impl Market {
             self.config.amm.volatility_shock_cap_nad,
             self.config.amm.volatility_cap_nad,
         )?;
-        let mut quote = ConcentratedIntegratedAmmQuote {
+        let mut quote = Box::new(ConcentratedIntegratedAmmQuote {
             integrated: *integrated,
             amount_out,
             gross_amount_out,
@@ -1917,7 +2055,7 @@ impl Market {
                 discount_bps: 0,
                 critical: false,
             },
-        };
+        });
         // Without compounding, the solver's already certified ownership
         // endpoint is unchanged. A value-only caller needs no second copy of
         // that same certificate. Claimable/retained fees are not curve cash.
@@ -1927,7 +2065,7 @@ impl Market {
             let certified_point = (self.oracle.policy.lambda_bps > 0 && compounded_fee_debit == 0)
                 .then_some(quote.integrated.executable.pricing_end);
             self.finalize_concentrated_book_curve(
-                state,
+                *state,
                 &mut quote,
                 asset_in,
                 materialize_transition,
@@ -1982,7 +2120,7 @@ impl Market {
         if state.uses_book_hedge() || self.oracle.policy.lambda_bps > 0 {
             let point = match certified_point {
                 Some(point) => point,
-                None => super::liquidity::prepare_concentrated_hlp_transition(self, state, *quote, asset_in)?
+                None => super::liquidity::prepare_concentrated_hlp_transition(self, &state, quote, asset_in)?
                     .final_ordinary_point_nad(self)?,
             };
             let (cache, geometry) = prepare_concentrated_cache_and_geometry_at_point(

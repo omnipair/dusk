@@ -1,0 +1,17 @@
+test_cash_exit_waits_but_claim_switch_can_settle (test_model.AccountingTests) ... ok
+test_equal_initial_capital_debt_and_apr (test_model.AccountingTests) ... ok
+test_event_cap_and_daily_cap (test_model.AccountingTests) ... ok
+test_execution_depth_changes_recovery_not_trigger (test_model.AccountingTests) ... ok
+test_full_scenario_grid_conserves_balances (test_model.AccountingTests) ... ok
+test_inventory_loss_is_shared_before_credit (test_model.AccountingTests) ... ok
+test_loss_waterfall_and_cash_distinction (test_model.AccountingTests) ... ok
+test_more_debt_is_visible_only_to_debt_controller (test_model.AccountingTests) ... ok
+test_new_junior_epoch_does_not_revive_old_shares (test_model.AccountingTests) ... ok
+test_queued_exit_remains_loss_exposed (test_model.AccountingTests) ... ok
+test_zero_debt_and_zero_junior_have_finite_rates (test_model.AccountingTests) ... ok
+test_zero_junior_does_not_receive_income (test_model.AccountingTests) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.086s
+
+OK

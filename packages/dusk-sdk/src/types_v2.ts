@@ -1185,6 +1185,232 @@ export type Dusk = {
       ]
     },
     {
+      "name": "burnRetiredJunior",
+      "discriminator": [
+        180,
+        25,
+        139,
+        146,
+        47,
+        20,
+        168,
+        135
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "retiredMint",
+          "writable": true
+        },
+        {
+          "name": "cohort",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  110,
+                  105,
+                  111,
+                  114,
+                  95,
+                  99,
+                  111,
+                  104,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "retiredMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ownerJunior",
+          "writable": true
+        },
+        {
+          "name": "baseYield",
+          "writable": true
+        },
+        {
+          "name": "quoteYield",
+          "writable": true
+        },
+        {
+          "name": "exit",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "burnRetiredJuniorArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "checkpointIncome",
+      "discriminator": [
+        48,
+        103,
+        250,
+        65,
+        201,
+        100,
+        178,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "lpMint"
+        },
+        {
+          "name": "ownerLp"
+        },
+        {
+          "name": "yieldAccount",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "checkpointIncomeArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "claimReferralInterest",
       "discriminator": [
         16,
@@ -1780,6 +2006,94 @@ export type Dusk = {
       ]
     },
     {
+      "name": "compoundJuniorSeed",
+      "discriminator": [
+        145,
+        120,
+        244,
+        44,
+        0,
+        37,
+        243,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "juniorMint"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "configureReferralPartner",
       "discriminator": [
         36,
@@ -1903,6 +2217,148 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "configureReferralPartnerArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "convertTranche",
+      "discriminator": [
+        192,
+        218,
+        132,
+        202,
+        247,
+        23,
+        75,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "seniorMint",
+          "writable": true
+        },
+        {
+          "name": "juniorMint",
+          "writable": true
+        },
+        {
+          "name": "ownerSenior",
+          "writable": true
+        },
+        {
+          "name": "ownerJunior",
+          "writable": true
+        },
+        {
+          "name": "exit",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  110,
+                  105,
+                  111,
+                  114,
+                  95,
+                  101,
+                  120,
+                  105,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "juniorMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seniorBaseYield",
+          "writable": true
+        },
+        {
+          "name": "seniorQuoteYield",
+          "writable": true
+        },
+        {
+          "name": "juniorBaseYield",
+          "writable": true
+        },
+        {
+          "name": "juniorQuoteYield",
+          "writable": true
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "action",
+          "type": {
+            "defined": {
+              "name": "trancheAction"
             }
           }
         }
@@ -4051,6 +4507,110 @@ export type Dusk = {
       }
     },
     {
+      "name": "fundJuniorSeed",
+      "discriminator": [
+        245,
+        198,
+        220,
+        232,
+        96,
+        64,
+        51,
+        71
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "assetMint"
+        },
+        {
+          "name": "reserveVault",
+          "writable": true
+        },
+        {
+          "name": "interestVault",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "growYieldAccount",
       "docs": [
         "Bring a yield account created before `harvest_authority` existed up",
@@ -4629,6 +5189,131 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "initFutarchyAuthorityArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "initializeJunior",
+      "discriminator": [
+        179,
+        239,
+        121,
+        100,
+        88,
+        74,
+        12,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "juniorMint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  110,
+                  105,
+                  111,
+                  114,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "arg",
+                "path": "args.generation"
+              }
+            ]
+          }
+        },
+        {
+          "name": "cohort",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  106,
+                  117,
+                  110,
+                  105,
+                  111,
+                  114,
+                  95,
+                  99,
+                  111,
+                  104,
+                  111,
+                  114,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "juniorMint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "previousCohort",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "tokenMetadata",
+          "writable": true
+        },
+        {
+          "name": "sysvarInstructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "tokenMetadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
+          "name": "token2022Program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "initializeJuniorArgs"
             }
           }
         }
@@ -7839,6 +8524,48 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "addLeverageMarginArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "rollIncomeEpoch",
+      "discriminator": [
+        4,
+        217,
+        228,
+        135,
+        97,
+        80,
+        174,
+        100
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true
+        },
+        {
+          "name": "incomeEpoch",
+          "writable": true
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "rollIncomeEpochArgs"
             }
           }
         }
@@ -11439,6 +12166,45 @@ export type Dusk = {
       ]
     },
     {
+      "name": "incomeEpoch",
+      "discriminator": [
+        180,
+        248,
+        84,
+        87,
+        99,
+        16,
+        62,
+        246
+      ]
+    },
+    {
+      "name": "juniorCohort",
+      "discriminator": [
+        66,
+        255,
+        14,
+        91,
+        158,
+        179,
+        23,
+        9
+      ]
+    },
+    {
+      "name": "juniorExitAccount",
+      "discriminator": [
+        186,
+        158,
+        208,
+        250,
+        7,
+        219,
+        13,
+        26
+      ]
+    },
+    {
       "name": "leverageDelegation",
       "discriminator": [
         49,
@@ -11815,6 +12581,32 @@ export type Dusk = {
         224,
         236,
         18
+      ]
+    },
+    {
+      "name": "juniorSeedCompounded",
+      "discriminator": [
+        253,
+        233,
+        124,
+        178,
+        67,
+        98,
+        224,
+        87
+      ]
+    },
+    {
+      "name": "juniorSeedFunded",
+      "discriminator": [
+        123,
+        105,
+        18,
+        32,
+        9,
+        92,
+        120,
+        184
       ]
     },
     {
@@ -12247,6 +13039,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "retiredJuniorBurned",
+      "discriminator": [
+        29,
+        56,
+        158,
+        137,
+        97,
+        193,
+        230,
+        93
+      ]
+    },
+    {
       "name": "swapExecuted",
       "discriminator": [
         150,
@@ -12257,6 +13062,19 @@ export type Dusk = {
         89,
         38,
         79
+      ]
+    },
+    {
+      "name": "trancheConverted",
+      "discriminator": [
+        249,
+        121,
+        88,
+        27,
+        39,
+        181,
+        244,
+        199
       ]
     },
     {
@@ -13004,26 +13822,36 @@ export type Dusk = {
     },
     {
       "code": 6143,
+      "name": "incomeEpochNeedsRollover",
+      "msg": "Archive and roll the income epoch before issuing new receivables"
+    },
+    {
+      "code": 6144,
+      "name": "incomeHistoryRequired",
+      "msg": "Prepare this holder's income history before changing its balance"
+    },
+    {
+      "code": 6145,
       "name": "oracleAccountMissing",
       "msg": "The market's configured oracle account was not supplied"
     },
     {
-      "code": 6144,
+      "code": 6146,
       "name": "oracleAuthenticationFailed",
       "msg": "Oracle account owner, identity or verification failed"
     },
     {
-      "code": 6145,
+      "code": 6147,
       "name": "oracleInvalidObservation",
       "msg": "Oracle report is invalid, future-dated, halted or too uncertain"
     },
     {
-      "code": 6146,
+      "code": 6148,
       "name": "oracleStale",
       "msg": "Oracle source observation is stale"
     },
     {
-      "code": 6147,
+      "code": 6149,
       "name": "oracleReplay",
       "msg": "Oracle sequence or source observation regressed"
     }
@@ -14191,6 +15019,30 @@ export type Dusk = {
       }
     },
     {
+      "name": "burnRetiredJuniorArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "checkpointIncomeArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "source",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "closeApprovalQuote",
       "docs": [
         "Dusk-owned, transaction-local approval context. Written immediately before",
@@ -14520,6 +15372,17 @@ export type Dusk = {
           {
             "name": "quoteRateAtTargetNad",
             "type": "u128"
+          },
+          {
+            "name": "baseRateFractionE18",
+            "docs": [
+              "Fractional NAD APR carried by the exponential controller (scale 1e9)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteRateFractionE18",
+            "type": "u64"
           },
           {
             "name": "globalHealthBaseContributionForQuoteDebt",
@@ -15113,6 +15976,14 @@ export type Dusk = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "junior",
+            "type": {
+              "defined": {
+                "name": "trancheIncome"
+              }
+            }
+          },
           {
             "name": "publicInterestAdvance",
             "type": {
@@ -16851,6 +17722,147 @@ export type Dusk = {
       }
     },
     {
+      "name": "incomeEpoch",
+      "docs": [
+        "Immutable closing state of one unpaid-income denomination. Holders use it",
+        "to carry their existing units and unpaid cash fractions into the next epoch."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "bookIndex",
+            "type": "u8"
+          },
+          {
+            "name": "book",
+            "type": {
+              "defined": {
+                "name": "incomeReceivableBook"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "incomeExposureEnd",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ended",
+            "type": "bool"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "growth",
+            "type": {
+              "defined": {
+                "name": "receivableGrowth"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "incomeReceivableBook",
+      "docs": [
+        "A bounded-denomination epoch of an unpaid-income pool. Public and hLP",
+        "funding income use separate books. Repayments/defaults are pooled within",
+        "each book; already funded advances do not remain unpaid claims."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "unpaid",
+            "type": "u64"
+          },
+          {
+            "name": "units",
+            "type": "u64"
+          },
+          {
+            "name": "paidPerUnitQ64",
+            "type": "u128"
+          },
+          {
+            "name": "paidRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "growth",
+            "docs": [
+              "Ordinary senior, junior, base hLP, quote hLP."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "receivableGrowth"
+                  }
+                },
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "incomeReceivableClaim",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "unitsQ64",
+            "type": "u128"
+          },
+          {
+            "name": "paidCheckpointQ64",
+            "type": "u128"
+          },
+          {
+            "name": "growthCheckpoint",
+            "type": {
+              "defined": {
+                "name": "receivableGrowth"
+              }
+            }
+          },
+          {
+            "name": "paidFractionQ128",
+            "type": "u128"
+          },
+          {
+            "name": "claimable",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "increaseLeverageArgs",
       "type": {
         "kind": "struct",
@@ -16943,6 +17955,18 @@ export type Dusk = {
           {
             "name": "buybackAuctionAcceptedMint",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "initializeJuniorArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "generation",
+            "type": "u64"
           }
         ]
       }
@@ -17218,20 +18242,194 @@ export type Dusk = {
       }
     },
     {
-      "name": "irmConfig",
+      "name": "juniorCohort",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "targetUtilizationBps",
-            "type": "u16"
+            "name": "incomeEnd",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeExposureEnd"
+                  }
+                },
+                4
+              ]
+            }
           },
           {
-            "name": "curveSteepnessNad",
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "generation",
             "type": "u64"
           },
           {
-            "name": "adjustmentSpeedPerYear",
+            "name": "retired",
+            "type": "bool"
+          },
+          {
+            "name": "finalIncome",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "trancheIncome"
+                  }
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "juniorExitAccount",
+      "docs": [
+        "Burned receipt units in this account remain junior claims. They earn income",
+        "through the owner's yield accounts and cannot be transferred or spent twice."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "ticket",
+            "type": {
+              "defined": {
+                "name": "juniorExitTicket"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "juniorExitConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minimumNoticeSlots",
+            "type": "u64"
+          },
+          {
+            "name": "maximumNoticeSlots",
+            "type": "u64"
+          },
+          {
+            "name": "exerciseWindowSlots",
+            "type": "u64"
+          },
+          {
+            "name": "requestFeeBps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "juniorExitTicket",
+      "docs": [
+        "Notice uses scheduled slots. The exercise window counts only slots without",
+        "a verified conversion restriction; notice itself is not paused. Handlers",
+        "authenticate owner/escrow and derive blocked time from protocol records."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "generation",
+            "type": "u64"
+          },
+          {
+            "name": "receipts",
+            "type": "u64"
+          },
+          {
+            "name": "readyAt",
+            "type": "u64"
+          },
+          {
+            "name": "expiresAt",
+            "docs": [
+              "Exclusive end before adding verified blocked time after ready_at."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "juniorSeedCompounded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "baseAmount",
+            "type": "u64"
+          },
+          {
+            "name": "quoteAmount",
+            "type": "u64"
+          },
+          {
+            "name": "reserveShares",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "juniorSeedFunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "interestDebit",
+            "type": "u64"
+          },
+          {
+            "name": "reserveCredit",
             "type": "u64"
           }
         ]
@@ -18461,6 +19659,37 @@ export type Dusk = {
             }
           },
           {
+            "name": "tranches",
+            "docs": [
+              "One shared junior capital budget across both reserve/debt books."
+            ],
+            "type": {
+              "defined": {
+                "name": "trancheCapital"
+              }
+            }
+          },
+          {
+            "name": "income",
+            "type": {
+              "defined": {
+                "name": "marketIncomeBooks"
+              }
+            }
+          },
+          {
+            "name": "juniorExitConfig",
+            "type": {
+              "defined": {
+                "name": "juniorExitConfig"
+              }
+            }
+          },
+          {
+            "name": "juniorMint",
+            "type": "pubkey"
+          },
+          {
             "name": "baseHlpVault",
             "type": {
               "defined": {
@@ -18788,7 +20017,7 @@ export type Dusk = {
             "name": "irm",
             "type": {
               "defined": {
-                "name": "irmConfig"
+                "name": "riskRateConfig"
               }
             }
           },
@@ -19120,6 +20349,102 @@ export type Dusk = {
       }
     },
     {
+      "name": "marketIncomeBooks",
+      "docs": [
+        "Public-loan and hLP-funding receivables are independent. The vault-owned",
+        "public-income claims preserve hLP's automatic funding-gap repayment."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "books",
+            "docs": [
+              "base public, quote public, base hLP funding, quote hLP funding."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeReceivableBook"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "pending",
+            "docs": [
+              "Gross settlement budget awaiting measured net custody credit."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "seed",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeReceivableClaim"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "hlp",
+            "docs": [
+              "[hLP target][income asset], owned by the vault rather than its holders."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    {
+                      "defined": {
+                        "name": "incomeReceivableClaim"
+                      }
+                    },
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "juniorEnd",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeExposureEnd"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "splitCarry",
+            "type": {
+              "array": [
+                "bool",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "marketParameterUpdate",
       "type": {
         "kind": "enum",
@@ -19156,7 +20481,7 @@ export type Dusk = {
             "fields": [
               {
                 "defined": {
-                  "name": "irmConfig"
+                  "name": "riskRateConfig"
                 }
               }
             ]
@@ -20995,6 +22320,32 @@ export type Dusk = {
       }
     },
     {
+      "name": "receivableGrowth",
+      "docs": [
+        "One exposure lane's newly issued receivable units per LP receipt. The",
+        "weighted paid index is kept at full Q128 precision: flooring it earlier can",
+        "give late entrants a fractional claim on money paid before their entry."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "unitsQ64",
+            "type": "u128"
+          },
+          {
+            "name": "weightedPaidQ128",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "referralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -21384,6 +22735,34 @@ export type Dusk = {
       }
     },
     {
+      "name": "retiredJuniorBurned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "walletAmount",
+            "type": "u64"
+          },
+          {
+            "name": "escrowAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "revenueDistribution",
       "type": {
         "kind": "struct",
@@ -21488,6 +22867,62 @@ export type Dusk = {
           },
           {
             "name": "lastSnapshotSlot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "riskRateConfig",
+      "docs": [
+        "Per-market inputs for the coverage band controller. A zero maximum leaves",
+        "APR economically uncapped; arithmetic still rejects unrepresentable debt."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lowerSignalNad",
+            "type": "u64"
+          },
+          {
+            "name": "upperSignalNad",
+            "type": "u64"
+          },
+          {
+            "name": "halfLifeMs",
+            "type": "u64"
+          },
+          {
+            "name": "initialAprNad",
+            "type": "u64"
+          },
+          {
+            "name": "minimumAprNad",
+            "type": "u64"
+          },
+          {
+            "name": "maximumAprNad",
+            "type": "u64"
+          },
+          {
+            "name": "borrowUtilizationLimitBps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rollIncomeEpochArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bookIndex",
+            "type": "u8"
+          },
+          {
+            "name": "epoch",
             "type": "u64"
           }
         ]
@@ -22218,6 +23653,219 @@ export type Dusk = {
       }
     },
     {
+      "name": "trancheAction",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "enter",
+            "fields": [
+              {
+                "name": "seniorAmount",
+                "type": "u64"
+              },
+              {
+                "name": "minimumJunior",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "requestExit",
+            "fields": [
+              {
+                "name": "additionalJunior",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "convertExit",
+            "fields": [
+              {
+                "name": "minimumSenior",
+                "type": "u64"
+              }
+            ]
+          },
+          {
+            "name": "cancelExit"
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheCapital",
+      "docs": [
+        "Junior's portion of the AMM's existing reserve shares. Senior receipts stay",
+        "one-for-one with the remaining reserve shares, including hLP-held receipts.",
+        "Junior receipts have their own exchange rate after income, losses and fees."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "juniorReserveShares",
+            "type": "u64"
+          },
+          {
+            "name": "juniorReceiptSupply",
+            "type": "u64"
+          },
+          {
+            "name": "permanentReceipts",
+            "docs": [
+              "Funded, nonredeemable protocol receipts; included in junior supply."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "queuedReceipts",
+            "docs": [
+              "Escrow remains junior until a successful conversion or cancellation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "generation",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheConverted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "action",
+            "type": "u8"
+          },
+          {
+            "name": "seniorAmount",
+            "type": "u64"
+          },
+          {
+            "name": "juniorAmount",
+            "type": "u64"
+          },
+          {
+            "name": "juniorFee",
+            "type": "u64"
+          },
+          {
+            "name": "readyAt",
+            "type": "u64"
+          },
+          {
+            "name": "expiresAt",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheIncome",
+      "docs": [
+        "Custody-backed junior income. Cached ownership is synchronized by every",
+        "capital transition; the market invariant checks it against the shared book."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "reserveShares",
+            "type": "u64"
+          },
+          {
+            "name": "receiptSupply",
+            "type": "u64"
+          },
+          {
+            "name": "swapGrowthQ64",
+            "type": "u128"
+          },
+          {
+            "name": "interestGrowthQ64",
+            "type": "u128"
+          },
+          {
+            "name": "swapRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "interestRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "seedSwapAmount",
+            "type": "u64"
+          },
+          {
+            "name": "seedInterestAmount",
+            "type": "u64"
+          },
+          {
+            "name": "seedSwapCheckpoint",
+            "type": "u128"
+          },
+          {
+            "name": "seedInterestCheckpoint",
+            "type": "u128"
+          },
+          {
+            "name": "seedSwapRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "seedInterestRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "carry",
+            "type": {
+              "defined": {
+                "name": "trancheRevenueCarry"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheRevenueCarry",
+      "docs": [
+        "Carry the indivisible half atom across credits so splitting a payment into",
+        "many small transfers cannot eliminate one tranche's entire allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "interestHalfAtom",
+            "type": "bool"
+          },
+          {
+            "name": "swapHalfAtom",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "updateFutarchyAuthorityArgs",
       "type": {
         "kind": "struct",
@@ -22614,6 +24262,32 @@ export type Dusk = {
             "type": {
               "option": "pubkey"
             }
+          },
+          {
+            "name": "incomeInitialized",
+            "type": "bool"
+          },
+          {
+            "name": "income",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeReceivableClaim"
+                  }
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "escrowBalance",
+            "docs": [
+              "Owner's virtual receipts: junior exit escrow, or senior governance locks.",
+              "Governance cash yield uses its existing virtual ledger; historical",
+              "unpaid-income ownership is checkpointed here for both token kinds."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -22723,6 +24397,9 @@ export type Dusk = {
           },
           {
             "name": "hlp"
+          },
+          {
+            "name": "junior"
           }
         ]
       }
@@ -22866,7 +24543,7 @@ export type Dusk = {
         "decode as this structure."
       ],
       "type": "u8",
-      "value": "8"
+      "value": "9"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

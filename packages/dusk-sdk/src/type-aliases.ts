@@ -38,7 +38,20 @@ type DuskAccountTypes = [
   TypeNamed<"hlpVault">,
   TypeNamed<"insurance">,
   TypeNamed<"insuranceDrawWindow">,
-  TypeNamed<"irmConfig">,
+  TypeNamed<"riskRateConfig">,
+  TypeNamed<"trancheCapital">,
+  TypeNamed<"trancheIncome">,
+  TypeNamed<"trancheRevenueCarry">,
+  TypeNamed<"juniorExitConfig">,
+  TypeNamed<"marketIncomeBooks">,
+  TypeNamed<"incomeReceivableBook">,
+  TypeNamed<"incomeReceivableClaim">,
+  TypeNamed<"incomeExposureEnd">,
+  TypeNamed<"incomeEpoch">,
+  TypeNamed<"juniorCohort">,
+  TypeNamed<"juniorExitAccount">,
+  TypeNamed<"juniorExitTicket">,
+  TypeNamed<"receivableGrowth">,
   TypeNamed<"leverageDelegation">,
   TypeNamed<"leverageMarginTerms">,
   TypeNamed<"leveragePosition">,
@@ -67,6 +80,10 @@ type DuskAccountTypes = [
   TypeNamed<"yieldAccount">,
 ];
 type DuskEventTypes = [
+  TypeNamed<"juniorSeedCompounded">,
+  TypeNamed<"juniorSeedFunded">,
+  TypeNamed<"retiredJuniorBurned">,
+  TypeNamed<"trancheConverted">,
   TypeNamed<"oraclePolicy">,
   TypeNamed<"governanceBalanceUpdated">,
   TypeNamed<"governanceSupportChanged">,
@@ -101,7 +118,7 @@ type DuskEventTypes = [
   TypeNamed<"hlpRetiredReceiptBurned">,
   TypeNamed<"hlpTerminalLiquidated">,
   TypeNamed<"insuranceDonated">,
-  TypeNamed<"irmConfig">,
+  TypeNamed<"riskRateConfig">,
   TypeNamed<"leverageDelegationUpdated">,
   TypeNamed<"leverageMarginTerms">,
   TypeNamed<"leveragePositionClosed">,
@@ -187,6 +204,9 @@ export type BorrowPosition = IdlTypes<DuskAccountIdl>["borrowPosition"];
 export type LeveragePosition = IdlTypes<DuskAccountIdl>["leveragePosition"];
 export type LeverageDelegation = IdlTypes<DuskAccountIdl>["leverageDelegation"];
 export type YieldAccount = IdlTypes<DuskAccountIdl>["yieldAccount"];
+export type JuniorCohort = IdlTypes<DuskAccountIdl>["juniorCohort"];
+export type JuniorExitAccount = IdlTypes<DuskAccountIdl>["juniorExitAccount"];
+export type IncomeEpoch = IdlTypes<DuskAccountIdl>["incomeEpoch"];
 export type FutarchyAuthority = IdlTypes<DuskAccountIdl>["futarchyAuthority"];
 export type ReferralPartner = IdlTypes<DuskAccountIdl>["referralPartner"];
 export type ReferralAccrual = IdlTypes<DuskAccountIdl>["referralAccrual"];
@@ -253,3 +273,8 @@ export type HlpFlashStarted = IdlTypes<DuskEventIdl>["hlpFlashStarted"];
 export type HlpFlashSettled = IdlTypes<DuskEventIdl>["hlpFlashSettled"];
 export type HlpInterestAllocated = IdlTypes<DuskEventIdl>["hlpInterestAllocated"];
 export type PublicInterestFunded = IdlTypes<DuskEventIdl>["publicInterestFunded"];
+
+export type JuniorSeedCompounded = IdlTypes<DuskEventIdl>["juniorSeedCompounded"];
+export type JuniorSeedFunded = IdlTypes<DuskEventIdl>["juniorSeedFunded"];
+export type RetiredJuniorBurned = IdlTypes<DuskEventIdl>["retiredJuniorBurned"];
+export type TrancheConverted = IdlTypes<DuskEventIdl>["trancheConverted"];

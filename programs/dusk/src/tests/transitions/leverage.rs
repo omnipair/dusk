@@ -103,10 +103,14 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
     quote_side.shares = ReserveShares { ylp_supply };
     let mut market = Market {
         oracle: Default::default(),
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        base_side,
-        quote_side,
+        base_side: Box::new(base_side),
+        quote_side: Box::new(quote_side),
         config: MarketConfig {
             swap_fee_bps: 0,
             divergence_fee_share_cap_bps: 2_000,
@@ -285,7 +289,7 @@ fn prepared_leverage_swap(
         .unwrap();
     let post_fee_curve_cache = integrated.post_fee_curve_cache.map(Box::new);
     let concentrated_transition =
-        prepare_concentrated_hlp_transition(market, market.integrated_curve_state_nad().unwrap(), integrated, asset_in)
+        prepare_concentrated_hlp_transition(market, &market.integrated_curve_state_nad().unwrap(), &integrated, asset_in)
             .unwrap();
     Box::new(crate::transitions::amm::PreparedSwap {
         inventory_settlement: None,
@@ -828,7 +832,7 @@ fn concentrated_market() -> Market {
         volatility_fee_coefficient_nad: NAD / 10,
         ..AmmConfig::default()
     };
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.prepare_amm_for_swap(1).unwrap();
     market
 }
@@ -864,7 +868,7 @@ fn active_concentrated_hlp_market_with_decimals(decimals: u8) -> Market {
         volatility_fee_coefficient_nad: NAD / 10,
         ..AmmConfig::default()
     };
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.prepare_amm_for_swap(1).unwrap();
     assert!(market.base_hlp_vault.hlp_supply > 0);
     assert!(market.quote_hlp_vault.hlp_supply > 0);
@@ -890,7 +894,7 @@ fn active_reconfigured_concentrated_hlp_market_with_decimals(decimals: u8) -> Ma
             fade_width_bps: 400,
         })
         .unwrap();
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.prepare_amm_for_swap(1).unwrap();
     market
 }
@@ -914,7 +918,7 @@ fn concentrated_hlp_deposit_rebases_curve_without_legacy_solver() {
             fade_width_bps: 400,
         })
         .unwrap();
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.prepare_amm_for_swap(1).unwrap();
     let before = market.amm.concentrated_curve_cache;
     market
@@ -2062,6 +2066,57 @@ fn concentrated_socialized_loss_rebases_curve_then_restores_exact_hlp_hedges() {
             insurance_credit: 0,
         },
     );
+    let fee_credit = full_fee_credit(&prepared.leverage_quote());
+    let measured_unwind_credit = prepared.leverage_quote().amount_in;
+    let receipt = market
+        .liquidate_leverage_position(
+            &mut position,
+            Some(prepared),
+            measured_unwind_credit,
+            fee_credit,
+            LeverageInsuranceDraw::default(),
+            0,
+            ProtocolAuctionSplit::default(),
+            2,
+        )
+        .unwrap();
+
+    assert!(receipt.principal_written_off > 0);
+    assert!(market.curve_revision > revision_before);
+    assert_eq!(receipt.base_hlp_rebalance.residual_exposure, 0);
+    assert_eq!(receipt.quote_hlp_rebalance.residual_exposure, 0);
+    assert_eq!(market.base_hlp_vault.residual_exposure, 0);
+    assert_eq!(market.quote_hlp_vault.residual_exposure, 0);
+    assert!(market.current_concentrated_spot_price_nad().unwrap().is_some());
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn compounded_fees_after_socialized_loss_preserve_junior_ownership() {
+    let scale = 1_000_000;
+    let mut market = active_reconfigured_concentrated_hlp_market_with_decimals(6);
+    // A native 20% junior tranche, then a swap that both collects fees and
+    // crystallizes bad debt. The prepared pre-loss ownership must be discarded.
+    let total = market.base_side.shares.ylp_supply;
+    market.tranches.enter(total / 5 - market.tranches.junior_reserve_shares, total).unwrap();
+    market.synchronize_tranche_income();
+    market.config.amm.compounding_fee_bps = 10_000;
+    market.config.swap_fee_bps = 100;
+    let mut position = seeded_position(&mut market, MarketAsset::Base, 1_000 * scale, 100 * scale);
+    let revision_before = market.curve_revision;
+    let prepared = prepare_leverage_swap_with_policy(
+        &mut market,
+        MarketAsset::Quote,
+        position.collateral_amount,
+        2,
+        SwapCashPolicy::Liquidate {
+            debt_asset: MarketAsset::Base,
+            debt_shares: position.debt_shares,
+            debt_principal: position.debt_principal,
+            insurance_credit: 0,
+        },
+    );
+    assert!(prepared.quote.fee.compounded_fee_debit > 0);
     let fee_credit = full_fee_credit(&prepared.leverage_quote());
     let measured_unwind_credit = prepared.leverage_quote().amount_in;
     let receipt = market

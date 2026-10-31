@@ -92,7 +92,7 @@ impl<'info> InitializeYieldAccounts<'info> {
             YieldTokenKind::Ylp => {
                 require_keys_eq!(self.lp_mint.key(), self.market.ylp_mint, ErrorCode::InvalidLpMintKey)
             }
-            YieldTokenKind::Hlp => {
+            YieldTokenKind::Hlp | YieldTokenKind::Junior => {
                 // A retired mint is checked against its cohort PDA in the
                 // handler, supplied only for that path as a remaining account.
             }
@@ -117,6 +117,16 @@ impl<'info> InitializeYieldAccounts<'info> {
         let quote_mint = quote_mint.key();
         let retired_cohort = if market.asset_for_hlp_mint(lp_mint).is_err() && args.token_kind == YieldTokenKind::Hlp {
             Some(HlpCohort::from_remaining(
+                ctx.remaining_accounts.first().ok_or(ErrorCode::InvalidLpMintKey)?,
+                market_key,
+                lp_mint,
+            )?)
+        } else {
+            None
+        };
+
+        let retired_junior = if args.token_kind == YieldTokenKind::Junior && lp_mint != market.junior_mint {
+            Some(crate::state::JuniorCohort::from_remaining(
                 ctx.remaining_accounts.first().ok_or(ErrorCode::InvalidLpMintKey)?,
                 market_key,
                 lp_mint,
@@ -169,6 +179,10 @@ impl<'info> InitializeYieldAccounts<'info> {
                     quote_context.swap_fee_growth_index_q64,
                     quote_context.interest_growth_index_q64,
                 )
+            } else if let Some(cohort) = &retired_junior {
+                let (bs, bi) = cohort.yield_indexes(MarketAsset::Base);
+                let (qs, qi) = cohort.yield_indexes(MarketAsset::Quote);
+                (bs, bi, qs, qi)
             } else {
                 let cohort = retired_cohort.as_ref().ok_or(ErrorCode::InvalidLpMintKey)?;
                 let (base_swap, base_interest) = cohort.yield_indexes(MarketAsset::Base);
@@ -176,9 +190,11 @@ impl<'info> InitializeYieldAccounts<'info> {
                 (base_swap, base_interest, quote_swap, quote_interest)
             };
         if base_initialized {
+            market.checkpoint_holder_income(base_yield_account, 0, retired_junior.as_ref().map(|c| c.income_end))?;
             base_yield_account.accrue(0, base_swap, base_interest)?;
         }
         if quote_initialized {
+            market.checkpoint_holder_income(quote_yield_account, 0, retired_junior.as_ref().map(|c| c.income_end))?;
             quote_yield_account.accrue(0, quote_swap, quote_interest)?;
         }
         Ok(())

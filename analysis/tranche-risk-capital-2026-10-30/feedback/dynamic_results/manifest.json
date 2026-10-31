@@ -1,0 +1,55 @@
+{
+  "runs": 180,
+  "settings": {
+    "base": {},
+    "inelastic": {
+      "elasticity": 0
+    },
+    "elastic": {
+      "elasticity": 2
+    },
+    "slow": {
+      "response_days": 30
+    },
+    "no_repayment": {
+      "voluntary_repayment": false,
+      "elasticity": 0
+    },
+    "cash_paid": {
+      "cash_interest_fraction": 1
+    }
+  },
+  "scenarios": {
+    "calm": {},
+    "senior_exit": {
+      "senior_day": 20
+    },
+    "senior_then_junior_notice": {
+      "senior_day": 20,
+      "junior_day": 21
+    },
+    "senior_junior_crash": {
+      "senior_day": 20,
+      "junior_day": 21,
+      "crash_day": 40,
+      "price": 0.6
+    },
+    "senior_junior_tail": {
+      "senior_day": 20,
+      "junior_day": 21,
+      "crash_day": 40,
+      "price": 0.45
+    },
+    "junior_switch": {
+      "switch_day": 20
+    }
+  },
+  "matched_terms": "All arms have identical productive junior, waterfall, notice and income split.",
+  "not_current_dusk_comparator": true,
+  "synthetic": true,
+  "source_sha256": {
+    "feedback/dynamics.py": "1f3ce8d0b14900c32fb9c732dadbc4985ed4f434bf00657ee70c424df48b4361",
+    "feedback/compare.py": "d6a505f7beb06e5435e4d844405f5bc86c64d71f56592930d9603023d07d4543",
+    "hybrid/model.py": "2e4d722858dbef91619690f72f7773637f1a317586406d83d5518c4af10fdb59"
+  }
+}

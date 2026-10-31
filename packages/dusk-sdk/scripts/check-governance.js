@@ -34,7 +34,7 @@ import { parameterProposalV0Transaction } from "../dist/market-launch.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 1_313;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_345;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -208,9 +208,13 @@ const everyFamily = [
     centerPriceMs: 300_000,
   }),
   irmParameterUpdate({
-    targetUtilizationBps: 6_500,
-    curveSteepnessNad: 6n * NAD,
-    adjustmentSpeedPerYear: 12,
+    lowerSignalNad: 50_000_000,
+    upperSignalNad: 62_500_000,
+    halfLifeMs: 14 * 24 * 60 * 60 * 1000,
+    initialAprNad: 40_000_000,
+    minimumAprNad: 20_000_000,
+    maximumAprNad: 0,
+    borrowUtilizationLimitBps: 8_000,
   }),
   concentrationParameterUpdate({
     peakAmplificationNad: 4n * NAD,

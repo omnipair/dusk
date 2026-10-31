@@ -86,34 +86,19 @@ fn standalone_fee_profile_validation_covers_signal_and_coefficient_bounds() {
 
 #[test]
 fn irm_defaults_and_inclusive_bounds_validate() {
-    assert_eq!(IrmConfig::default().target_utilization_bps, 7_000);
-    assert_eq!(IrmConfig::default().curve_steepness_nad, 4 * NAD);
-    assert_eq!(IrmConfig::default().adjustment_speed_per_year, 20);
-
-    for target in [MIN_IRM_TARGET_UTILIZATION_BPS, MAX_IRM_TARGET_UTILIZATION_BPS] {
-        let config = IrmConfig {
-            target_utilization_bps: target,
-            curve_steepness_nad: MIN_IRM_CURVE_STEEPNESS_NAD,
-            adjustment_speed_per_year: MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR,
-        };
-        config.validate().unwrap();
+    let config = IrmConfig::default();
+    assert_eq!(config.lower_signal_nad, NAD / 20);
+    assert_eq!(config.upper_signal_nad, NAD / 16);
+    assert_eq!(config.half_life_ms, 14 * MS_PER_DAY);
+    assert_eq!(config.initial_apr_nad, 4 * NAD / 100);
+    assert_eq!(config.minimum_apr_nad, 2 * NAD / 100);
+    assert_eq!(config.maximum_apr_nad, 0);
+    for half in [3_600_000, 30 * MS_PER_DAY] {
+        IrmConfig { half_life_ms: half, ..config }.validate().unwrap();
     }
-
-    let invalid = IrmConfig {
-        target_utilization_bps: MIN_IRM_TARGET_UTILIZATION_BPS - 1,
-        ..IrmConfig::default()
-    };
-    assert!(invalid.validate().is_err());
-    let invalid = IrmConfig {
-        curve_steepness_nad: MAX_IRM_CURVE_STEEPNESS_NAD + 1,
-        ..IrmConfig::default()
-    };
-    assert!(invalid.validate().is_err());
-    let invalid = IrmConfig {
-        adjustment_speed_per_year: MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR + 1,
-        ..IrmConfig::default()
-    };
-    assert!(invalid.validate().is_err());
+    assert!(IrmConfig { lower_signal_nad: 0, ..config }.validate().is_err());
+    assert!(IrmConfig { half_life_ms: 30 * MS_PER_DAY + 1, ..config }.validate().is_err());
+    assert!(IrmConfig { maximum_apr_nad: 1, ..config }.validate().is_err());
 }
 
 #[test]

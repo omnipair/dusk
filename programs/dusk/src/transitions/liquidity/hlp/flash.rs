@@ -51,8 +51,8 @@ impl Market {
             self.debt.borrow_index(borrowed),
         )?)
         .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        let opposite = engine::ylp_live_underlying_amount(self, borrowed, vault.ylp_shares)?;
-        let target_claim = engine::ylp_live_underlying_amount(self, target, vault.ylp_shares)?;
+        let opposite = engine::hlp_full_underlying_amount(self, target, borrowed)?;
+        let target_claim = engine::hlp_full_underlying_amount(self, target, target)?;
         let gap = debt.saturating_sub(opposite);
         // A solvent vault need not wait for the native recovery swap's
         // critical-stress boundary. The fixed payment repairs the funding gap
@@ -171,6 +171,11 @@ impl Market {
             quote.collateral_debit > 0 && quote.reserve_credit > 0,
             ErrorCode::AmountZero
         );
+        if quote.full {
+            for asset in [MarketAsset::Base, MarketAsset::Quote] {
+                self.capitalize_hlp_receivable(target, asset, 1, 1)?;
+            }
+        }
         if quote.full && !self.hlp_frozen(target) {
             let vault = match target {
                 MarketAsset::Base => self.base_hlp_vault,

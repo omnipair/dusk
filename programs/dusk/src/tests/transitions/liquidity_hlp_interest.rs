@@ -24,6 +24,7 @@ fn h_lp_entry_accepts_full_value_public_interest_in_both_assets_and_curves() {
                 }
                 market.side_mut(interest_asset).reserves.cash_reserve -= 400_000 * UNIT;
                 market.side_mut(interest_asset).reserves.live_reserve += 25_000 * UNIT;
+                    market.sync_income_receivable(interest_asset, false, 0).unwrap();
                 market.config.amm = AmmConfig {
                     peak_amplification_nad: amplification * NAD,
                     core_half_width_bps: if amplification == 1 { 0 } else { 100 },
@@ -31,7 +32,7 @@ fn h_lp_entry_accepts_full_value_public_interest_in_both_assets_and_curves() {
                     center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
                     ..AmmConfig::default()
                 };
-                market.amm = AmmState::default();
+                *market.amm = AmmState::default();
                 market.risk.base_price_ema_nad = NAD;
                 market.risk.quote_price_ema_nad = NAD;
                 market.risk.directional_base_price_ema_nad = NAD;
@@ -92,6 +93,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                     }
                     market.side_mut(interest_asset).reserves.cash_reserve -= 400_000 * UNIT;
                     market.side_mut(interest_asset).reserves.live_reserve += 25_000 * UNIT;
+                    market.sync_income_receivable(interest_asset, false, 0).unwrap();
                     assert_eq!(plain_price, current_hlp_curve_prices(&market).unwrap());
                     market.config.swap_fee_bps = fee_bps;
                     market.config.amm = AmmConfig {
@@ -106,10 +108,10 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                     market.risk.quote_price_ema_nad = NAD;
                     market.risk.directional_base_price_ema_nad = NAD;
                     market.risk.directional_quote_price_ema_nad = NAD;
-                    market.amm = AmmState::default();
+                    *market.amm = AmmState::default();
                     market.prepare_amm_for_swap(1).unwrap();
                     let start = market.integrated_curve_state_nad().unwrap();
-                    let eligible_supply = market.base_side.shares.ylp_supply;
+                    let eligible_supply = market.tranches.senior_reserve_shares(market.base_side.shares.ylp_supply).unwrap();
                     let eligible_shares = [market.base_hlp_vault.ylp_shares, market.quote_hlp_vault.ylp_shares];
                     let before_cash = (
                         market.base_side.reserves.cash_reserve,
@@ -166,11 +168,11 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                         u128::from(25_000 * UNIT)
                     );
                     for (target, starting_nav) in [
-                        (MarketAsset::Base, start.base_hlp_equity),
-                        (MarketAsset::Quote, start.quote_hlp_equity),
+                        (MarketAsset::Base, start.base_hlp_equity + start.hlp_unpaid[0][0]),
+                        (MarketAsset::Quote, start.quote_hlp_equity + start.hlp_unpaid[1][1]),
                     ] {
                         let fee_share_nad = market
-                            .normalize_amount(u128::from(amm_quote.fee.compounded_fee_debit), 6)
+                            .normalize_amount(u128::from(amm_quote.fee.compounded_fee_debit.div_ceil(2)), 6)
                             .unwrap()
                             * u128::from(eligible_shares[target.code() as usize])
                             / u128::from(eligible_supply);
@@ -186,7 +188,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                             MarketAsset::Base => &market.base_hlp_vault,
                             MarketAsset::Quote => &market.quote_hlp_vault,
                         };
-                        let claim = ylp_live_underlying_amount(&market, target.opposite(), vault.ylp_shares).unwrap();
+                        let claim = hlp_full_underlying_amount(&market, target, target.opposite()).unwrap();
                         let debt = Debt::shares_to_debt(vault.debt_shares, market.debt.borrow_index(target.opposite()))
                             .unwrap();
                         assert!(u128::from(claim).abs_diff(debt) <= 1);
@@ -234,6 +236,8 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
             }
             market.side_mut(target).reserves.cash_reserve -= 400_000 * UNIT;
             market.side_mut(target).reserves.live_reserve += 7_600_000 * UNIT;
+            market.sync_income_receivable(target, false, 0).unwrap();
+            market.sync_income_receivable(target.opposite(), true, 0).unwrap();
             market.config.amm = AmmConfig {
                 peak_amplification_nad: amplification * NAD,
                 core_half_width_bps: if amplification == 1 { 0 } else { 100 },
@@ -241,7 +245,7 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
                 center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
                 ..AmmConfig::default()
             };
-            market.amm = AmmState::default();
+            *market.amm = AmmState::default();
             market.prepare_amm_for_swap(1).unwrap();
             let economic =
                 hlp_share_nav_nad_with_prices(&market, target, current_hlp_curve_prices(&market).unwrap()).unwrap();
@@ -264,7 +268,7 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
                 MarketAsset::Base => &market.base_hlp_vault,
                 MarketAsset::Quote => &market.quote_hlp_vault,
             };
-            let claim = ylp_live_underlying_amount(&market, target.opposite(), vault.ylp_shares).unwrap();
+            let claim = hlp_full_underlying_amount(&market, target, target.opposite()).unwrap();
             let debt = Debt::shares_to_debt(vault.debt_shares, market.debt.borrow_index(target.opposite())).unwrap();
             assert!(u128::from(claim).abs_diff(debt) <= 1);
         }
@@ -316,6 +320,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                 }
                 market.side_mut(asset).reserves.cash_reserve -= 400_000 * UNIT;
                 market.side_mut(asset).reserves.live_reserve += 25_000 * UNIT;
+                market.sync_income_receivable(asset, false, 0).unwrap();
                 market.config.amm = AmmConfig {
                     peak_amplification_nad: amplification * NAD,
                     core_half_width_bps: if amplification == 1 { 0 } else { 100 },
@@ -327,13 +332,12 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                 market.risk.quote_price_ema_nad = NAD;
                 market.risk.directional_base_price_ema_nad = NAD;
                 market.risk.directional_quote_price_ema_nad = NAD;
-                market.amm = AmmState::default();
+                *market.amm = AmmState::default();
                 market.prepare_amm_for_swap(1).unwrap();
                 let before = market.clone();
                 if advance {
-                    let supply = market.side(asset).shares.ylp_supply;
                     let (_, credit) = market.fund_public_interest(asset, u64::MAX, 0).unwrap();
-                    market.side_mut(asset).record_interest_credit_allocation(credit, 0, ProtocolAuctionSplit::default(), 0, supply).unwrap();
+                    market.record_receivable_income_credit(asset, false, credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
                 }
                 let funded_growth_before = market.side(asset).fees.interest_growth_index_q64;
                 let old_curve = market.curve_reserve(asset).unwrap();
@@ -359,20 +363,21 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                     let (fresh, protocol) = market.side_mut(asset).fees.public_interest_advance.take_payment(receipt.interest_paid).unwrap();
                     assert_eq!(protocol, 0);
                     assert_eq!(fresh, if advance { 0 } else { receipt.interest_paid });
-                    market.side_mut(asset).record_interest_credit(fresh, 0, ProtocolAuctionSplit::default(), 0).unwrap();
+                    market.record_receivable_income_credit(asset, false, fresh, 0, ProtocolAuctionSplit::default(), 0).unwrap();
                     if advance { assert_eq!(market.side(asset).fees.interest_growth_index_q64, funded_growth_before); }
                     market.side(asset).fees.public_interest_advance.require_settled().unwrap();
                 }
                 assert_eq!(market.unrealized_interest(asset).unwrap(), 0);
                 market.assert_market_invariants().unwrap();
+                let eligibility = HlpYieldEligibility { ylp_supply: market.base_side.shares.ylp_supply,
+                    base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
+                    quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares };
+                market.settle_new_hlp_public_interest(eligibility, [crate::transitions::LeverageCollateralFee::default(); 2], 1).unwrap();
                 let prices = current_hlp_curve_prices(&market).unwrap();
                 let navs = [
                     hlp_share_nav_nad_with_prices(&market, MarketAsset::Base, prices).unwrap(),
                     hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap(),
                 ];
-                for target in [MarketAsset::Base, MarketAsset::Quote] {
-                    market.checkpoint_hlp_yield_from_ylp(target).unwrap();
-                }
                 let plan = prepare_concentrated_hlp_transition_at_current_state(&market).unwrap();
                 plan.consume(&mut market).unwrap();
                 market.assert_market_invariants().unwrap();
@@ -443,7 +448,7 @@ fn full_value_recovery_bonus_reports_the_settled_price() {
             center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
             ..AmmConfig::default()
         };
-        market.amm = AmmState::default();
+        *market.amm = AmmState::default();
         market.prepare_amm_for_swap(1).unwrap();
         let mut prepared = SwapRequest {
             current_slot: 1,
@@ -503,7 +508,7 @@ fn accrued_interest_rehedging_does_not_pay_a_same_slot_round_trip() {
                     center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
                     ..AmmConfig::default()
                 };
-                market.amm = AmmState::default();
+                *market.amm = AmmState::default();
                 market.risk.base_price_ema_nad = NAD;
                 market.risk.quote_price_ema_nad = NAD;
                 market.risk.directional_base_price_ema_nad = NAD;
@@ -572,7 +577,7 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
                 center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
                 ..AmmConfig::default()
             };
-            market.amm = AmmState::default();
+            *market.amm = AmmState::default();
             market.prepare_amm_for_swap(1).unwrap();
             let pre = prepare_concentrated_hlp_transition_at_current_state(&market).unwrap();
             pre.consume(&mut market).unwrap();
@@ -584,13 +589,12 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
                 hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap(),
             ];
             let ordinary_before = market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
-            let supply = market.base_side.shares.ylp_supply;
             let (gross, lp_credit) = market.fund_public_interest(interest_asset, u64::MAX, 2_000).unwrap();
             assert!(gross > 0 && gross <= unpaid_tokens * UNIT);
             assert_eq!(lp_credit, gross - gross / 5);
             assert_eq!(market.curve_reserves_nad().unwrap(), raw_before);
             assert_eq!(current_hlp_curve_prices(&market).unwrap(), prices);
-            market.side_mut(interest_asset).record_interest_credit_allocation(lp_credit, 0, ProtocolAuctionSplit::default(), 0, supply).unwrap();
+            market.record_receivable_income_credit(interest_asset, false, lp_credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
             market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
             market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
             let core_before_rehedge = [
@@ -648,6 +652,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             }
             market.side_mut(interest_asset).reserves.cash_reserve -= 400_000 * UNIT;
             market.side_mut(interest_asset).reserves.live_reserve += unpaid_tokens * UNIT;
+            market.sync_income_receivable(interest_asset, false, 0).unwrap();
             market.config.amm = AmmConfig {
                 peak_amplification_nad: amplification * NAD,
                 core_half_width_bps: if amplification == 1 { 0 } else { 100 },
@@ -655,7 +660,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                 center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
                 ..AmmConfig::default()
             };
-            market.amm = AmmState::default();
+            *market.amm = AmmState::default();
             market.prepare_amm_for_swap(1).unwrap();
             let pre = prepare_concentrated_hlp_transition_at_current_state(&market).unwrap();
             pre.consume(&mut market).unwrap();
@@ -669,9 +674,11 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             }
             let unpaid = market.public_unpaid_interest(interest_asset).unwrap();
             market.side_mut(interest_asset).reserves.live_reserve += (unpaid - before_unpaid) as u64;
+            market.sync_income_receivable(interest_asset, false, 0).unwrap();
+            market.sync_income_receivable(interest_asset, true, 0).unwrap();
             // Previously funded yield is outside the spendable new interval.
             let supply = market.base_side.shares.ylp_supply;
-            market.side_mut(interest_asset).record_interest_credit_allocation(1_234 * UNIT, 0, ProtocolAuctionSplit::default(), 0, supply).unwrap();
+            market.side_mut(interest_asset).record_interest_credit_with_supply(1_234 * UNIT, 0, ProtocolAuctionSplit::default(), 0, supply).unwrap();
             market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
             market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
             let protected = [market.hlp_yield_growth_indexes(MarketAsset::Base, interest_asset).1,
@@ -683,11 +690,10 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                 hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap(),
             ];
             let ordinary_before = market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
-            let supply = market.base_side.shares.ylp_supply;
             let frozen_market = market.clone();
             let ordinary_value = |m: &Market| {
                 [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|asset| {
-                    let claim = ylp_live_underlying_amount(m, asset, ordinary_before).unwrap();
+                    let claim = ylp_live_underlying_amount_from_values(m.curve_reserve(asset).unwrap(), m.base_side.shares.ylp_supply, ordinary_before).unwrap();
                     asset_value_in_target_nad_with_prices(m, prices, asset, claim, MarketAsset::Quote).unwrap()
                 }).sum::<u128>()
             };
@@ -698,7 +704,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             let lp_credit = fee.unwind_credit(lp_gross).unwrap();
             assert_eq!(market.curve_reserves_nad().unwrap(), raw_before);
             assert_eq!(current_hlp_curve_prices(&market).unwrap(), prices);
-            market.side_mut(interest_asset).record_interest_credit_allocation(lp_credit, 0, ProtocolAuctionSplit::default(), 0, supply).unwrap();
+            market.record_receivable_income_credit(interest_asset, false, lp_credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
             let eligibility = HlpYieldEligibility { ylp_supply: supply,
                 base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
                 quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares };
@@ -709,16 +715,15 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             market.assert_market_invariants().unwrap();
             let ordinary_after = market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
             assert_eq!(ordinary_before, ordinary_after);
-            let ordinary_gross = mul_div_u128(u128::from(gross), u128::from(ordinary_before), u128::from(supply)).unwrap() as u64;
-            let ordinary_removed = asset_value_in_target_nad_with_prices(&market, prices, interest_asset, ordinary_gross, MarketAsset::Quote).unwrap();
-            assert!(ordinary_value(&market).abs_diff(ordinary_nav_before - ordinary_removed) < 100_000,
+
+            assert!(ordinary_value(&market).abs_diff(ordinary_nav_before) < 100_000,
                 "ordinary LPs funded hLP recapitalization: amp={amplification} unpaid={unpaid_tokens} funding={funding_bps} diff={}",
-                ordinary_value(&market) as i128 - (ordinary_nav_before - ordinary_removed) as i128);
+                ordinary_value(&market) as i128 - (ordinary_nav_before) as i128);
             for target in [MarketAsset::Base, MarketAsset::Quote] {
                 let fixed_mark_nav = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
-                let vault_before = if target == MarketAsset::Base { frozen_market.base_hlp_vault } else { frozen_market.quote_hlp_vault };
-                let gross_claim = mul_div_u128(u128::from(gross), u128::from(vault_before.ylp_shares), u128::from(supply)).unwrap() as u64;
-                let lp_claim = mul_div_u128(u128::from(lp_credit), u128::from(vault_before.ylp_shares), u128::from(supply)).unwrap() as u64;
+                let own_unpaid = frozen_market.hlp_unpaid_income(target, interest_asset).unwrap();
+                let gross_claim = mul_div_u128(u128::from(gross), u128::from(own_unpaid), unpaid).unwrap() as u64;
+                let lp_claim = mul_div_u128(u128::from(lp_credit), u128::from(own_unpaid), unpaid).unwrap() as u64;
                 let fee_value = asset_value_in_target_nad_with_prices(&market, prices, interest_asset, gross_claim - lp_claim, target).unwrap();
                 let yield_value = asset_value_in_target_nad_with_prices(&market, prices, interest_asset, receipt.published[target.code() as usize][interest_asset.code() as usize], target).unwrap();
                 let t = target.code() as usize;
@@ -784,9 +789,9 @@ fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_ylp() {
                 ];
                 let reserves_before = reserves(&market);
                 let funded_credit = 10_000 * UNIT;
-                market.side_mut(income_asset).record_interest_credit_allocation(
-                    funded_credit, 0, ProtocolAuctionSplit::default(), 0, eligibility.ylp_supply,
-                ).unwrap();
+                market.issue_income_receivable(income_asset, false, funded_credit).unwrap();
+                market.clear_income_receivable(income_asset, false, funded_credit, funded_credit).unwrap();
+                market.record_receivable_income_credit(income_asset, false, funded_credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
                 let receipt = market.settle_new_hlp_public_interest(
                     eligibility, [crate::transitions::LeverageCollateralFee::default(); 2], 2,
                 ).unwrap();
@@ -800,7 +805,7 @@ fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_ylp() {
                 assert_eq!(receipt.reserve_debit[t], [0, 0]);
                 assert_eq!(receipt.reserve_credit[t], [0, 0]);
                 let expected = mul_div_u128(
-                    u128::from(funded_credit), u128::from(frozen_before.ylp_shares), u128::from(eligibility.ylp_supply),
+                    u128::from(funded_credit / 2), u128::from(frozen_before.ylp_shares), u128::from(market.tranches.senior_reserve_shares(eligibility.ylp_supply).unwrap()),
                 ).unwrap() as u64;
                 assert!(receipt.published[t][i] > 0);
                 assert!(receipt.published[t][i].abs_diff(expected) <= 1);
@@ -819,6 +824,133 @@ fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_ylp() {
                 }
                 market.assert_market_invariants().unwrap();
             }
+        }
+    }
+}
+
+#[test]
+fn tranche_hlp_nav_includes_only_its_allocated_unpaid_interest() {
+    const UNIT: u64 = 1_000_000;
+    let mut market = Market::default();
+    market.base_side.asset_decimals = 6;
+    market.quote_side.asset_decimals = 6;
+    market.debt.base_borrow_index_nad = NAD as u128;
+    market.debt.quote_borrow_index_nad = NAD as u128;
+    market.add_liquidity(1_000_000 * UNIT, 1_000_000 * UNIT).unwrap();
+    market.deposit_single_sided(MarketAsset::Base, 20_000 * UNIT, 1).unwrap();
+    let prices = current_hlp_curve_prices(&market).unwrap();
+    let before = hlp_share_nav_nad_with_prices(&market, MarketAsset::Base, prices).unwrap();
+    // Model a closed accrual interval without replacing the native income
+    // issuance: principal leaves cash, indexed interest enters live reserves.
+    market.debt.fixed_base_principal = 400_000 * UNIT;
+    market.debt.fixed_base_shares = 410_000 * UNIT as u128;
+    market.base_side.reserves.cash_reserve -= 400_000 * UNIT;
+    market.base_side.reserves.live_reserve += 10_000 * UNIT;
+    market.sync_income_receivable(MarketAsset::Base, false, 0).unwrap();
+    let income = market.income.get().unwrap();
+    let own_unpaid = income.hlp[0][0].unpaid_value(&income.books[0]).unwrap();
+    let expected = before + market.normalize_amount(own_unpaid as u128, 6).unwrap();
+    let observed = hlp_share_nav_nad_with_prices(&market, MarketAsset::Base, prices).unwrap();
+    assert!(observed.abs_diff(expected) <= 1_000, "hLP counts another tranche's receivable: expected {expected}, observed {observed}, own unpaid {own_unpaid}");
+}
+
+
+#[test]
+fn tranche_hlp_rehedge_preserves_each_vaults_receivable_nav() {
+    const UNIT: u64 = 1_000_000;
+    for amplification in [1, 4] {
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let mut market = Market::default();
+            market.base_side.asset_decimals = 6;
+            market.quote_side.asset_decimals = 6;
+            market.debt.base_borrow_index_nad = NAD as u128;
+            market.debt.quote_borrow_index_nad = NAD as u128;
+            market.add_liquidity(1_000_000 * UNIT, 1_000_000 * UNIT).unwrap();
+            market.deposit_single_sided(MarketAsset::Base, 20_000 * UNIT, 1).unwrap();
+            market.deposit_single_sided(MarketAsset::Quote, 30_000 * UNIT, 1).unwrap();
+            market.config.amm.peak_amplification_nad = amplification * NAD;
+            market.config.amm.core_half_width_bps = if amplification == 1 { 0 } else { 100 };
+            market.config.amm.fade_width_bps = if amplification == 1 { 0 } else { 400 };
+            *market.amm = crate::state::AmmState::default();
+            match asset {
+                MarketAsset::Base => { market.debt.fixed_base_principal = 400_000 * UNIT; market.debt.fixed_base_shares = 425_000 * UNIT as u128; }
+                MarketAsset::Quote => { market.debt.fixed_quote_principal = 400_000 * UNIT; market.debt.fixed_quote_shares = 425_000 * UNIT as u128; }
+            }
+            market.side_mut(asset).reserves.cash_reserve -= 400_000 * UNIT;
+            market.side_mut(asset).reserves.live_reserve += 25_000 * UNIT;
+            market.sync_income_receivable(asset, false, 0).unwrap();
+            market.prepare_amm_for_swap(1).unwrap();
+            let prices = current_hlp_curve_prices(&market).unwrap();
+            let before = [MarketAsset::Base, MarketAsset::Quote].map(|target| hlp_share_nav_nad_with_prices(&market, target, prices).unwrap());
+            let plan = prepare_concentrated_hlp_transition_at_current_state(&market).unwrap();
+            plan.consume(&mut market).unwrap();
+            market.assert_market_invariants().unwrap();
+            for target in [MarketAsset::Base, MarketAsset::Quote] {
+                let after = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
+                assert!(after.abs_diff(before[target.code() as usize]) <= 10_000, "NAV changed: amp={amplification}, income={asset:?}, target={target:?}, before={}, after={after}", before[target.code() as usize]);
+                let opposite = hlp_full_underlying_amount(&market, target, target.opposite()).unwrap();
+                let vault = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
+                let debt = Debt::shares_to_debt(vault.debt_shares, market.debt.borrow_index(target.opposite())).unwrap();
+                assert!(debt.abs_diff(opposite as u128) <= 1);
+            }
+        }
+    }
+}
+
+#[test]
+fn tranche_hlp_exit_buys_only_departing_coupons_and_does_not_gift_next_depositor() {
+    const UNIT: u64 = 1_000_000;
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let mut market = Market::default();
+            market.base_side.asset_decimals = 6;
+            market.quote_side.asset_decimals = 6;
+            market.debt.base_borrow_index_nad = NAD as u128;
+            market.debt.quote_borrow_index_nad = NAD as u128;
+            market.add_liquidity(1_000_000 * UNIT, 1_000_000 * UNIT).unwrap();
+            market.deposit_single_sided(target, 20_000 * UNIT, 1).unwrap();
+            match asset {
+                MarketAsset::Base => { market.debt.fixed_base_principal = 400_000 * UNIT; market.debt.fixed_base_shares = 410_000 * UNIT as u128; }
+                MarketAsset::Quote => { market.debt.fixed_quote_principal = 400_000 * UNIT; market.debt.fixed_quote_shares = 410_000 * UNIT as u128; }
+            }
+            market.side_mut(asset).reserves.cash_reserve -= 400_000 * UNIT;
+            market.side_mut(asset).reserves.live_reserve += 10_000 * UNIT;
+            market.sync_income_receivable(asset, false, 0).unwrap();
+            market.prepare_amm_for_swap(1).unwrap();
+            let static_units = market.base_side.shares.ylp_supply - if target == MarketAsset::Base { market.base_hlp_vault.ylp_shares } else { market.quote_hlp_vault.ylp_shares };
+            let ordinary_value = |m: &Market, prices: HlpCurvePrices| [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|a| {
+                let amount = ylp_live_underlying_amount_from_values(m.curve_reserve(a).unwrap(), m.base_side.shares.ylp_supply, static_units).unwrap();
+                asset_value_in_target_nad_with_prices(m, prices, a, amount, MarketAsset::Quote).unwrap()
+            }).sum::<u128>();
+            let initial_unpaid = market.hlp_unpaid_income(target, asset).unwrap();
+            assert!(initial_unpaid > 0);
+            for fraction in [2, 1] {
+                let supply = if target == MarketAsset::Base { market.base_hlp_vault.hlp_supply } else { market.quote_hlp_vault.hlp_supply };
+                let amount = supply / fraction;
+                let prices = current_hlp_curve_prices(&market).unwrap();
+                let before = ordinary_value(&market, prices);
+                let quoted = market.quote_hlp_withdrawal(target, amount).unwrap();
+                let receipt = market.withdraw_single_sided(target, amount).unwrap();
+                assert_eq!(receipt.target_amount_out, quoted);
+                market.assert_market_invariants().unwrap();
+                // Closing an opposite-asset coupon uses the existing AMM quote.
+                // Its price impact can benefit the remaining pool; it cannot dilute it.
+                assert!(ordinary_value(&market, prices) + 10_000 >= before, "exit diluted ordinary capital: target={target:?} income={asset:?} fraction={fraction} before={before} after={} price={:?}", ordinary_value(&market, prices), prices);
+            }
+            let advanced = market.side(asset).fees.public_interest_advance.outstanding_gross;
+            assert!(advanced.abs_diff(initial_unpaid) <= 1);
+            assert_eq!(market.hlp_unpaid_income(target, asset).unwrap(), 0);
+            market.deposit_single_sided(target, 20_000 * UNIT, 1).unwrap();
+            assert_eq!(market.hlp_unpaid_income(target, asset).unwrap(), 0);
+            let (_, credit) = market.fund_public_interest(asset, u64::MAX, 0).unwrap();
+            assert_eq!(credit, 10_000 * UNIT - advanced);
+            market.record_receivable_income_credit(asset, false, credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
+            let eligibility = HlpYieldEligibility { ylp_supply: market.base_side.shares.ylp_supply,
+                base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
+                quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares };
+            let settled = market.settle_new_hlp_public_interest(eligibility, [crate::transitions::LeverageCollateralFee::default(); 2], 1).unwrap();
+            assert_eq!(settled.published[target.code() as usize], [0, 0]);
+            assert_eq!(settled.reserve_credit[target.code() as usize], [0, 0]);
         }
     }
 }

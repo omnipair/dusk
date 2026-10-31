@@ -143,6 +143,15 @@ impl Market {
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 
+        if supply_before == 0 {
+            let creator_gross = receipt
+                .ylp_supply
+                .checked_sub(MIN_LIQUIDITY)
+                .ok_or(ErrorCode::SupplyUnderflow)?;
+            let seed = self.tranches.seed_from_creator(creator_gross, receipt.ylp_supply)?;
+            self.synchronize_tranche_income();
+            require_eq!(creator_gross - seed, receipt.ylp_amount, ErrorCode::BrokenInvariant);
+        }
         if let Some(seeded_price_nad) = seeded_price_nad {
             if self.amm.launch_reference_price_nad == 0 {
                 self.amm.launch_reference_price_nad = seeded_price_nad;
@@ -162,8 +171,10 @@ impl Market {
             max_base_reserve_credit > 0 && max_quote_reserve_credit > 0,
             ErrorCode::AmountZero
         );
-        let base_reserve_before = self.base_side.reserves.live_reserve;
-        let quote_reserve_before = self.quote_side.reserves.live_reserve;
+        // Historical unpaid income belongs to the exposed holders' income
+        // accounts. New principal cannot buy those claims through reserve units.
+        let base_reserve_before = self.curve_reserve(MarketAsset::Base)?;
+        let quote_reserve_before = self.curve_reserve(MarketAsset::Quote)?;
         if base_reserve_before > 0 || quote_reserve_before > 0 {
             require!(
                 base_reserve_before > 0 && quote_reserve_before > 0,
@@ -236,6 +247,12 @@ impl Market {
             .checked_add(internal_mint_amount)
             .ok_or(ErrorCode::SupplyOverflow)?;
 
+        let ylp_amount = if self.base_side.shares.ylp_supply == 0 {
+            let seed = ylp_amount / 1_000 + u64::from(!ylp_amount.is_multiple_of(1_000));
+            ylp_amount.checked_sub(seed).ok_or(ErrorCode::SupplyUnderflow)?
+        } else {
+            ylp_amount
+        };
         Ok(AddLiquidityReceipt {
             base_reserve_credit,
             quote_reserve_credit,
@@ -255,11 +272,11 @@ impl Market {
         let base_amount_out = self
             .base_side
             .shares
-            .reserve_for_burn(self.base_side.reserves.live_reserve, ylp_amount)?;
+            .reserve_for_burn(self.curve_reserve(MarketAsset::Base)?, ylp_amount)?;
         let quote_amount_out = self
             .quote_side
             .shares
-            .reserve_for_burn(self.quote_side.reserves.live_reserve, ylp_amount)?;
+            .reserve_for_burn(self.curve_reserve(MarketAsset::Quote)?, ylp_amount)?;
         require_gte!(
             self.base_side.reserves.cash_reserve,
             base_amount_out,

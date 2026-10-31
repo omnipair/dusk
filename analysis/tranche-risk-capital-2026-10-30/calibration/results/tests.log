@@ -1,0 +1,36 @@
+test_added_request_cannot_shorten_existing_notice (test_accounting.ExactAccountingTests) ... ok
+test_duplicate_claim_does_not_pay_twice (test_accounting.ExactAccountingTests) ... ok
+test_exit_fee_funds_seed_without_changing_total_junior (test_accounting.ExactAccountingTests) ... ok
+test_expiry_requires_fresh_notice (test_accounting.ExactAccountingTests) ... ok
+test_former_insurance_fee_all_junior (test_accounting.ExactAccountingTests) ... ok
+test_historical_owner_gets_income_after_transfer (test_accounting.ExactAccountingTests) ... ok
+test_hlp_funding_exclusion_keeps_exact_split (test_accounting.ExactAccountingTests) ... ok
+test_insurance_is_actual_asset_specific (test_accounting.ExactAccountingTests) ... ok
+test_internal_collateral_precedes_insurance (test_accounting.ExactAccountingTests) ... ok
+test_later_pause_does_not_revive_expired_window (test_accounting.ExactAccountingTests) ... ok
+test_later_user_does_not_get_seed_history (test_accounting.ExactAccountingTests) ... ok
+test_one_junior_budget_for_both_assets (test_accounting.ExactAccountingTests) ... ok
+test_pages_are_bounded_and_other_loan_not_blocked (test_accounting.ExactAccountingTests) ... ok
+test_partial_collection_then_new_interest (test_accounting.ExactAccountingTests) ... ok
+test_preserve_unused_window_through_pause (test_accounting.ExactAccountingTests) ... ok
+test_restriction_beginning_during_notice (test_accounting.ExactAccountingTests) ... ok
+test_seed_cannot_exit_or_transfer (test_accounting.ExactAccountingTests) ... ok
+test_seed_is_funded_and_initial_supply_conserves (test_accounting.ExactAccountingTests) ... ok
+test_seed_receives_half_each_revenue_currency (test_accounting.ExactAccountingTests) ... ok
+test_wiped_junior_old_tokens_cannot_claim_new_fees (test_accounting.ExactAccountingTests) ... ok
+test_writeoff_does_not_reduce_funded_principal_twice (test_accounting.ExactAccountingTests) ... ok
+test_both_extreme_runs (test_model.AccountingTests) ... ok
+test_insurance_asset_and_draw_cap (test_model.AccountingTests) ... ok
+test_interest_cap_piecewise (test_model.AccountingTests) ... ok
+test_interest_integration_partition (test_model.AccountingTests) ... ok
+test_late_human_does_not_take_old_seed_income (test_model.AccountingTests) ... ok
+test_liquidation_revenue_all_junior (test_model.AccountingTests) ... ok
+test_pending_income_not_funded (test_model.AccountingTests) ... ok
+test_queue_counts_until_conversion (test_model.AccountingTests) ... ok
+test_senior_cash_exit_signal (test_model.AccountingTests) ... ok
+test_zero_junior_receives_funded_revenue (test_model.AccountingTests) ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 0.014s
+
+OK

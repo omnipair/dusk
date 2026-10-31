@@ -1,0 +1,9 @@
+{
+  "README.md": "0b06693a7eff088e569964704123705e396a79b1d82dba8d19414218bca85b7f",
+  "results/summary.csv": "d7f70da79b83a1ae7886341bfaf4a94e4d5c39c6374578d7688bb49053624f29",
+  "results/events.csv": "e9b80ca7fa54a6be5da4925ca1499fd1f07aef50c944df21b5a1514ae307d223",
+  "results/findings.json": "a3d9636161beaab63aa5e212f7d077334f93934adf1283c06dac33e6f13a3b01",
+  "results/verification.json": "b7f7ab2535aa5ed53a54925b81a6ccdf36e5645c59c57b7e6746f7f5e0fde957",
+  "results/capital-and-coverage.png": "a364fdc05809ad1a06fcf2221e98c7e193d00f105eae4c91334c8a68f04709a4",
+  "results/tests.log": "75c0c9eb913cae85b2851f147b59646441516b454e2605dd064e1e597f1153aa"
+}

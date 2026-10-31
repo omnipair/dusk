@@ -53,6 +53,9 @@ fn every_family_update() -> Vec<MarketParameterUpdate> {
 
 fn empty_yield_account() -> YieldAccount {
     YieldAccount {
+        income_initialized: false,
+        income: Default::default(),
+        escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
@@ -502,7 +505,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         initial_support: u64::MAX,
     };
     let instruction_data = crate::instruction::CreateParameterProposal { args }.data();
-    assert_eq!(instruction_data.len(), 745);
+    assert_eq!(instruction_data.len(), 777);
 
     let account_metas = crate::accounts::CreateParameterProposal {
         proposer,
@@ -530,7 +533,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     assert_eq!(message.header.num_required_signatures, 1);
     assert_eq!(message.account_keys.len(), 14);
     let message_size = bincode::serialize(&message).unwrap().len();
-    assert_eq!(message_size, 1_248);
+    assert_eq!(message_size, 1_280);
     // The maximal eight-family payload uses the standard v0 lookup-table
     // path. Ordinary smaller proposals remain usable as legacy transactions.
     assert!(1 + 64 + message_size > 1_232);
@@ -542,7 +545,6 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     ).unwrap();
     let versioned = anchor_lang::solana_program::message::VersionedMessage::V0(message);
     assert!(1 + 64 + bincode::serialize(&versioned).unwrap().len() <= 1_232);
-
 }
 
 #[test]

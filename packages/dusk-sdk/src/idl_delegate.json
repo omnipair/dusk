@@ -3273,6 +3273,17 @@
             "type": "u128"
           },
           {
+            "name": "base_rate_fraction_e18",
+            "docs": [
+              "Fractional NAD APR carried by the exponential controller (scale 1e9)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quote_rate_fraction_e18",
+            "type": "u64"
+          },
+          {
             "name": "global_health_base_contribution_for_quote_debt",
             "type": "u64"
           },
@@ -3416,6 +3427,14 @@
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "junior",
+            "type": {
+              "defined": {
+                "name": "TrancheIncome"
+              }
+            }
+          },
           {
             "name": "public_interest_advance",
             "type": {
@@ -3885,6 +3904,115 @@
       }
     },
     {
+      "name": "IncomeExposureEnd",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ended",
+            "type": "bool"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "growth",
+            "type": {
+              "defined": {
+                "name": "ReceivableGrowth"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "IncomeReceivableBook",
+      "docs": [
+        "A bounded-denomination epoch of an unpaid-income pool. Public and hLP",
+        "funding income use separate books. Repayments/defaults are pooled within",
+        "each book; already funded advances do not remain unpaid claims."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "unpaid",
+            "type": "u64"
+          },
+          {
+            "name": "units",
+            "type": "u64"
+          },
+          {
+            "name": "paid_per_unit_q64",
+            "type": "u128"
+          },
+          {
+            "name": "paid_remainder",
+            "type": "u64"
+          },
+          {
+            "name": "growth",
+            "docs": [
+              "Ordinary senior, junior, base hLP, quote hLP."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "ReceivableGrowth"
+                  }
+                },
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "IncomeReceivableClaim",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "units_q64",
+            "type": "u128"
+          },
+          {
+            "name": "paid_checkpoint_q64",
+            "type": "u128"
+          },
+          {
+            "name": "growth_checkpoint",
+            "type": {
+              "defined": {
+                "name": "ReceivableGrowth"
+              }
+            }
+          },
+          {
+            "name": "paid_fraction_q128",
+            "type": "u128"
+          },
+          {
+            "name": "claimable",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Insurance",
       "type": {
         "kind": "struct",
@@ -3981,21 +4109,25 @@
       }
     },
     {
-      "name": "IrmConfig",
+      "name": "JuniorExitConfig",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "target_utilization_bps",
+            "name": "minimum_notice_slots",
+            "type": "u64"
+          },
+          {
+            "name": "maximum_notice_slots",
+            "type": "u64"
+          },
+          {
+            "name": "exercise_window_slots",
+            "type": "u64"
+          },
+          {
+            "name": "request_fee_bps",
             "type": "u16"
-          },
-          {
-            "name": "curve_steepness_nad",
-            "type": "u64"
-          },
-          {
-            "name": "adjustment_speed_per_year",
-            "type": "u64"
           }
         ]
       }
@@ -4478,6 +4610,37 @@
             }
           },
           {
+            "name": "tranches",
+            "docs": [
+              "One shared junior capital budget across both reserve/debt books."
+            ],
+            "type": {
+              "defined": {
+                "name": "TrancheCapital"
+              }
+            }
+          },
+          {
+            "name": "income",
+            "type": {
+              "defined": {
+                "name": "MarketIncomeBooks"
+              }
+            }
+          },
+          {
+            "name": "junior_exit_config",
+            "type": {
+              "defined": {
+                "name": "JuniorExitConfig"
+              }
+            }
+          },
+          {
+            "name": "junior_mint",
+            "type": "pubkey"
+          },
+          {
             "name": "base_hlp_vault",
             "type": {
               "defined": {
@@ -4645,13 +4808,109 @@
             "name": "irm",
             "type": {
               "defined": {
-                "name": "IrmConfig"
+                "name": "RiskRateConfig"
               }
             }
           },
           {
             "name": "start_time",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketIncomeBooks",
+      "docs": [
+        "Public-loan and hLP-funding receivables are independent. The vault-owned",
+        "public-income claims preserve hLP's automatic funding-gap repayment."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "books",
+            "docs": [
+              "base public, quote public, base hLP funding, quote hLP funding."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "IncomeReceivableBook"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "pending",
+            "docs": [
+              "Gross settlement budget awaiting measured net custody credit."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "seed",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "IncomeReceivableClaim"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "hlp",
+            "docs": [
+              "[hLP target][income asset], owned by the vault rather than its holders."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    {
+                      "defined": {
+                        "name": "IncomeReceivableClaim"
+                      }
+                    },
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "junior_end",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "IncomeExposureEnd"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "split_carry",
+            "type": {
+              "array": [
+                "bool",
+                4
+              ]
+            }
           }
         ]
       }
@@ -5249,6 +5508,32 @@
       }
     },
     {
+      "name": "ReceivableGrowth",
+      "docs": [
+        "One exposure lane's newly issued receivable units per LP receipt. The",
+        "weighted paid index is kept at full Q128 precision: flooring it earlier can",
+        "give late entrants a fractional claim on money paid before their entry."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "units_q64",
+            "type": "u128"
+          },
+          {
+            "name": "weighted_paid_q128",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "ReferralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -5484,10 +5769,181 @@
       }
     },
     {
+      "name": "RiskRateConfig",
+      "docs": [
+        "Per-market inputs for the coverage band controller. A zero maximum leaves",
+        "APR economically uncapped; arithmetic still rejects unrepresentable debt."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lower_signal_nad",
+            "type": "u64"
+          },
+          {
+            "name": "upper_signal_nad",
+            "type": "u64"
+          },
+          {
+            "name": "half_life_ms",
+            "type": "u64"
+          },
+          {
+            "name": "initial_apr_nad",
+            "type": "u64"
+          },
+          {
+            "name": "minimum_apr_nad",
+            "type": "u64"
+          },
+          {
+            "name": "maximum_apr_nad",
+            "type": "u64"
+          },
+          {
+            "name": "borrow_utilization_limit_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
       "name": "RuntimePricing",
       "type": {
         "kind": "struct",
         "fields": []
+      }
+    },
+    {
+      "name": "TrancheCapital",
+      "docs": [
+        "Junior's portion of the AMM's existing reserve shares. Senior receipts stay",
+        "one-for-one with the remaining reserve shares, including hLP-held receipts.",
+        "Junior receipts have their own exchange rate after income, losses and fees."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "junior_reserve_shares",
+            "type": "u64"
+          },
+          {
+            "name": "junior_receipt_supply",
+            "type": "u64"
+          },
+          {
+            "name": "permanent_receipts",
+            "docs": [
+              "Funded, nonredeemable protocol receipts; included in junior supply."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "queued_receipts",
+            "docs": [
+              "Escrow remains junior until a successful conversion or cancellation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "generation",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TrancheIncome",
+      "docs": [
+        "Custody-backed junior income. Cached ownership is synchronized by every",
+        "capital transition; the market invariant checks it against the shared book."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "reserve_shares",
+            "type": "u64"
+          },
+          {
+            "name": "receipt_supply",
+            "type": "u64"
+          },
+          {
+            "name": "swap_growth_q64",
+            "type": "u128"
+          },
+          {
+            "name": "interest_growth_q64",
+            "type": "u128"
+          },
+          {
+            "name": "swap_remainder",
+            "type": "u64"
+          },
+          {
+            "name": "interest_remainder",
+            "type": "u64"
+          },
+          {
+            "name": "seed_swap_amount",
+            "type": "u64"
+          },
+          {
+            "name": "seed_interest_amount",
+            "type": "u64"
+          },
+          {
+            "name": "seed_swap_checkpoint",
+            "type": "u128"
+          },
+          {
+            "name": "seed_interest_checkpoint",
+            "type": "u128"
+          },
+          {
+            "name": "seed_swap_remainder",
+            "type": "u64"
+          },
+          {
+            "name": "seed_interest_remainder",
+            "type": "u64"
+          },
+          {
+            "name": "carry",
+            "type": {
+              "defined": {
+                "name": "TrancheRevenueCarry"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TrancheRevenueCarry",
+      "docs": [
+        "Carry the indivisible half atom across credits so splitting a payment into",
+        "many small transfers cannot eliminate one tranche's entire allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "interest_half_atom",
+            "type": "bool"
+          },
+          {
+            "name": "swap_half_atom",
+            "type": "bool"
+          }
+        ]
       }
     },
     {
@@ -5589,6 +6045,32 @@
             "type": {
               "option": "pubkey"
             }
+          },
+          {
+            "name": "income_initialized",
+            "type": "bool"
+          },
+          {
+            "name": "income",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "IncomeReceivableClaim"
+                  }
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "escrow_balance",
+            "docs": [
+              "Owner's virtual receipts: junior exit escrow, or senior governance locks.",
+              "Governance cash yield uses its existing virtual ledger; historical",
+              "unpaid-income ownership is checkpointed here for both token kinds."
+            ],
+            "type": "u64"
           }
         ]
       }

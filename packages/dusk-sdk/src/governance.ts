@@ -117,15 +117,23 @@ export interface FeeProfile {
 }
 
 export interface IrmConfigInput {
-  targetUtilizationBps: number;
-  curveSteepnessNad: GovernanceIntegerLike;
-  adjustmentSpeedPerYear: GovernanceIntegerLike;
+  lowerSignalNad: GovernanceIntegerLike;
+  upperSignalNad: GovernanceIntegerLike;
+  halfLifeMs: GovernanceIntegerLike;
+  initialAprNad: GovernanceIntegerLike;
+  minimumAprNad: GovernanceIntegerLike;
+  maximumAprNad: GovernanceIntegerLike;
+  borrowUtilizationLimitBps: number;
 }
 
 export interface IrmConfig {
-  targetUtilizationBps: number;
-  curveSteepnessNad: BN;
-  adjustmentSpeedPerYear: BN;
+  lowerSignalNad: BN;
+  upperSignalNad: BN;
+  halfLifeMs: BN;
+  initialAprNad: BN;
+  minimumAprNad: BN;
+  maximumAprNad: BN;
+  borrowUtilizationLimitBps: number;
 }
 
 export type ParameterUpdate =
@@ -516,32 +524,27 @@ export function concentrationParameterUpdate(input: {
 }
 
 export function irmParameterUpdate(input: IrmConfigInput): ParameterUpdate {
-  assertBps(
-    input.targetUtilizationBps,
-    "targetUtilizationBps",
-    MAX_IRM_TARGET_UTILIZATION_BPS,
-    MIN_IRM_TARGET_UTILIZATION_BPS
-  );
-  const curveSteepnessNad = assertRange(
-    toU64BigInt(input.curveSteepnessNad, "curveSteepnessNad"),
-    MIN_IRM_CURVE_STEEPNESS_NAD,
-    MAX_IRM_CURVE_STEEPNESS_NAD,
-    "curveSteepnessNad"
-  );
-  const adjustmentSpeedPerYear = assertRange(
-    toU64BigInt(input.adjustmentSpeedPerYear, "adjustmentSpeedPerYear"),
-    MIN_IRM_ADJUSTMENT_SPEED_PER_YEAR,
-    MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR,
-    "adjustmentSpeedPerYear"
-  );
-  return {
-    kind: "irm",
-    config: {
-      targetUtilizationBps: input.targetUtilizationBps,
-      curveSteepnessNad: toBN(curveSteepnessNad),
-      adjustmentSpeedPerYear: toBN(adjustmentSpeedPerYear),
-    },
-  };
+  assertBps(input.borrowUtilizationLimitBps, "borrowUtilizationLimitBps", 10_000, 1);
+  const lowerSignalNad = toU64BigInt(input.lowerSignalNad, "lowerSignalNad");
+  const upperSignalNad = toU64BigInt(input.upperSignalNad, "upperSignalNad");
+  const halfLifeMs = toU64BigInt(input.halfLifeMs, "halfLifeMs");
+  const initialAprNad = toU64BigInt(input.initialAprNad, "initialAprNad");
+  const minimumAprNad = toU64BigInt(input.minimumAprNad, "minimumAprNad");
+  const maximumAprNad = toU64BigInt(input.maximumAprNad, "maximumAprNad");
+  if (lowerSignalNad === 0n || upperSignalNad <= lowerSignalNad) throw new Error("Invalid coverage target band");
+  assertRange(halfLifeMs, 3_600_000n, 30n * 86_400_000n, "halfLifeMs");
+  if (initialAprNad === 0n || minimumAprNad > initialAprNad || (maximumAprNad !== 0n && maximumAprNad < initialAprNad)) {
+    throw new Error("Invalid initial APR, floor, or ceiling");
+  }
+  return { kind: "irm", config: {
+    lowerSignalNad: toBN(lowerSignalNad),
+    upperSignalNad: toBN(upperSignalNad),
+    halfLifeMs: toBN(halfLifeMs),
+    initialAprNad: toBN(initialAprNad),
+    minimumAprNad: toBN(minimumAprNad),
+    maximumAprNad: toBN(maximumAprNad),
+    borrowUtilizationLimitBps: input.borrowUtilizationLimitBps,
+  } };
 }
 
 export function emaHalfLivesParameterUpdate(input: {
@@ -784,9 +787,13 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
   if (update.irm !== undefined) {
     const config = objectValue(tupleField(update.irm, "irm"), "IRM config");
     return irmParameterUpdate({
-      targetUtilizationBps: numberField(config, "targetUtilizationBps"),
-      curveSteepnessNad: integerField(config, "curveSteepnessNad"),
-      adjustmentSpeedPerYear: integerField(config, "adjustmentSpeedPerYear"),
+      lowerSignalNad: integerField(config, "lowerSignalNad"),
+      upperSignalNad: integerField(config, "upperSignalNad"),
+      halfLifeMs: integerField(config, "halfLifeMs"),
+      initialAprNad: integerField(config, "initialAprNad"),
+      minimumAprNad: integerField(config, "minimumAprNad"),
+      maximumAprNad: integerField(config, "maximumAprNad"),
+      borrowUtilizationLimitBps: numberField(config, "borrowUtilizationLimitBps"),
     });
   }
   if (update.emaHalfLives !== undefined) {
@@ -1202,9 +1209,13 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
     case "irm":
       return concatBytes(
         Uint8Array.of(2),
-        encodeU16(update.config.targetUtilizationBps),
-        encodeU64(update.config.curveSteepnessNad, "curveSteepnessNad"),
-        encodeU64(update.config.adjustmentSpeedPerYear, "adjustmentSpeedPerYear")
+        encodeU64(update.config.lowerSignalNad, "lowerSignalNad"),
+        encodeU64(update.config.upperSignalNad, "upperSignalNad"),
+        encodeU64(update.config.halfLifeMs, "halfLifeMs"),
+        encodeU64(update.config.initialAprNad, "initialAprNad"),
+        encodeU64(update.config.minimumAprNad, "minimumAprNad"),
+        encodeU64(update.config.maximumAprNad, "maximumAprNad"),
+        encodeU16(update.config.borrowUtilizationLimitBps)
       );
     case "emaHalfLives":
       return concatBytes(

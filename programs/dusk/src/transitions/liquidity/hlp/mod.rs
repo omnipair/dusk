@@ -405,29 +405,10 @@ impl Market {
 impl Market {
     /// Current opposite-asset funding APR for one target-asset hLP vault.
     pub fn current_hlp_funding_apr_nad(&self, target_asset: MarketAsset) -> Result<u128> {
-        let borrowed_asset = target_asset.opposite();
-        let side = self.side(borrowed_asset);
-        let fixed_debt = match borrowed_asset {
-            MarketAsset::Base => self.debt.fixed_base_debt()?,
-            MarketAsset::Quote => self.debt.fixed_quote_debt()?,
-        };
-        let isolated_debt = self.debt.isolated_debt(borrowed_asset)?;
-        let vault = match target_asset {
-            MarketAsset::Base => &self.base_hlp_vault,
-            MarketAsset::Quote => &self.quote_hlp_vault,
-        };
-        let hlp_debt = Debt::shares_to_debt(vault.debt_shares, self.debt.borrow_index(borrowed_asset))?;
-        let total_debt = fixed_debt
-            .checked_add(isolated_debt)
-            .and_then(|value| value.checked_add(hlp_debt))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let utilization = utilization_bps(total_debt, side.reserves.cash_reserve as u128)?;
-        let error = utilization_error_nad(utilization, self.config.irm.target_utilization_bps as u64)?;
-        let rate_at_target = match borrowed_asset {
+        Ok(match target_asset.opposite() {
             MarketAsset::Base => self.debt.base_rate_at_target_nad,
             MarketAsset::Quote => self.debt.quote_rate_at_target_nad,
-        };
-        instantaneous_rate_apr_nad(rate_at_target, error, self.config.irm.curve_steepness_nad as u128)
+        })
     }
 
     /// Twelve-hour funding APR signal used by hLP Stop Rate orders.

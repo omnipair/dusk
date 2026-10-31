@@ -113,6 +113,7 @@ impl<'info> ManageGovernanceBalance<'info> {
         )?;
         let indexes = carry_forward_governance_yield(&mut ctx.accounts.market, slot)?;
         checkpoint_supporter_yield(
+            &ctx.accounts.market,
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,
             ctx.accounts.owner_ylp_account.amount,
@@ -197,6 +198,14 @@ impl<'info> ManageGovernanceBalance<'info> {
             }
             GovernanceBalanceAction::ClaimYield => (3, 0),
         };
+        if action_code <= 1 {
+            super::adjust_supporter_income_balance(
+                &mut ctx.accounts.base_yield_account,
+                &mut ctx.accounts.quote_yield_account,
+                amount,
+                action_code == 0,
+            )?;
+        }
         emit_cpi!(GovernanceBalanceUpdated {
             market: ctx.accounts.market.key(),
             owner: balance.owner,

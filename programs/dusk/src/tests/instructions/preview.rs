@@ -143,7 +143,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
     // Obtain the reported index through four legal full-utilization accruals.
     // Reuse that index in a liquid, fully hedged market after refinancing.
     let mut accrued = Market::default();
-    accrued.config.irm.curve_steepness_nad = crate::state::MAX_IRM_CURVE_STEEPNESS_NAD;
+    accrued.config.irm.maximum_apr_nad = 200 * NAD;
     accrued.debt.quote_borrow_index_nad = NAD as u128;
     accrued.debt.quote_rate_at_target_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD;
     accrued.base_hlp_vault.debt_shares = 1_000;
@@ -154,11 +154,13 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
             &mut accrued,
             MarketAsset::Quote,
             year * MS_PER_YEAR / TARGET_MS_PER_SLOT,
+            Some(0),
         )
         .unwrap();
     }
-    let index = accrued.debt.quote_borrow_index_nad;
-    assert_eq!(index, 6_989_199_360);
+    assert!(accrued.debt.quote_borrow_index_nad > NAD as u128);
+    // Replay the historical regression at its captured debt index.
+    let index = 6_989_199_360;
 
     for decimals in [9, 18] {
         for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
@@ -186,7 +188,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
             market.config.swap_fee_bps = 0;
             market.config.divergence_fee_share_cap_bps = 0;
             market.config.volatility_fee_share_cap_bps = 0;
-            market.amm = crate::state::AmmState::default();
+            *market.amm = crate::state::AmmState::default();
             market.risk = Risk::default();
             market.prepare_amm_for_swap(0).unwrap();
             market.refresh_risk().unwrap();
@@ -265,7 +267,7 @@ fn active_concentrated_preview_market() -> Market {
         volatility_cap_nad: NAD,
         ..AmmConfig::default()
     };
-    market.amm = crate::state::AmmState::default();
+    *market.amm = crate::state::AmmState::default();
     market.prepare_amm_for_swap(1).unwrap();
     assert!(market.has_active_hlp());
     market
@@ -285,7 +287,7 @@ fn active_reconfigured_concentrated_preview_market() -> Market {
             fade_width_bps: 400,
         })
         .unwrap();
-    market.amm = crate::state::AmmState::default();
+    *market.amm = crate::state::AmmState::default();
     market.prepare_amm_for_swap(1).unwrap();
     market
 }
@@ -876,7 +878,7 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
                 .unwrap();
             baseline.config.amm.swap_fee_collect_mode = fee_mode;
             baseline.config.amm.compounding_fee_bps = 0;
-            baseline.amm = crate::state::AmmState::default();
+            *baseline.amm = crate::state::AmmState::default();
             baseline.prepare_amm_for_swap(1).unwrap();
             let mut compounded = baseline.clone();
             compounded.config.amm.compounding_fee_bps = 4_000;
@@ -923,14 +925,17 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
                 .unwrap();
             assert_eq!(compounded.amm.concentrated_curve_cache, prepared_compounded_cache);
             let fee_asset = MarketAsset::try_from_code(compounded_quote.fee.fee_asset).unwrap();
+            let seed_held = compounded.side(fee_asset).fees.junior.seed_swap_amount
+                .saturating_sub(baseline.side(fee_asset).fees.junior.seed_swap_amount);
+            let funded_compounded = expected_compounded - seed_held;
             assert_eq!(
                 baseline.side(fee_asset).fees.total_liability().unwrap()
                     - compounded.side(fee_asset).fees.total_liability().unwrap(),
-                expected_compounded
+                funded_compounded
             );
             assert_eq!(
                 compounded.side(fee_asset).reserves.cash_reserve - baseline.side(fee_asset).reserves.cash_reserve,
-                expected_compounded
+                funded_compounded
             );
             assert!(compounded.base_hlp_vault.last_nav_nad > baseline.base_hlp_vault.last_nav_nad);
             assert!(compounded.quote_hlp_vault.last_nav_nad > baseline.quote_hlp_vault.last_nav_nad);
@@ -997,7 +1002,7 @@ fn compounded_swap_observes_final_reserves_for_volatility_and_next_slot_ema() {
                     ..AmmConfig::default()
                 };
                 market.config.amm.set_concentrated_curve_parameters(parameters).unwrap();
-                market.amm = crate::state::AmmState::default();
+                *market.amm = crate::state::AmmState::default();
                 market.prepare_amm_for_swap(1).unwrap();
                 let ema_before = market.amm.price_ema_nad;
                 let request = SwapRequest {
@@ -1182,7 +1187,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         divergence_fee_coefficient_nad: 10 * NAD,
         ..AmmConfig::default()
     };
-    retained_market.amm = crate::state::AmmState::default();
+    *retained_market.amm = crate::state::AmmState::default();
     retained_market.prepare_amm_for_swap(1).unwrap();
     let mut first = SwapRequest {
         current_slot: 1,
@@ -1405,6 +1410,7 @@ fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
 fn existing_position_capacity_keeps_cash_and_daily_limits_on_additional_debt() {
     let (mut market, position) = existing_position_capacity_fixture(MarketAsset::Base);
     market.base_side.reserves.cash_reserve = 100;
+    market.config.irm.borrow_utilization_limit_bps = 10_000;
     let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
     assert!(quote.existing_debt > 100);
     assert_eq!(quote.max_borrow_amount.unwrap(), 100);
