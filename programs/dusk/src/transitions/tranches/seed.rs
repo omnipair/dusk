@@ -5,6 +5,11 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 
+/// Seed reinvestment is permissionless, so it cannot accept a caller-selected
+/// slippage bound. Keep the executable AMM ratio within one basis point of its
+/// time-weighted center before turning accumulated custody into LP principal.
+const SEED_COMPOUND_MAX_PRICE_DISTANCE_NAD: u128 = crate::constants::NAD as u128 / 10_000;
+
 impl Market {
     pub fn fund_junior_seed(&mut self, asset: MarketAsset, debit: u64, credit: u64) -> Result<()> {
         require_gte!(debit, credit, ErrorCode::BrokenInvariant);
@@ -46,6 +51,26 @@ impl Market {
             self.tranches.junior_reserve_shares > 0 || self.tranches.junior_receipt_supply == 0,
             ErrorCode::InvalidArgument
         );
+        if self.amm.initialized {
+            let spot = self
+                .current_concentrated_spot_price_nad()?
+                .ok_or(ErrorCode::InvalidSettlementPrice)?;
+            let reference = self.amm.price_ema_nad;
+            require!(reference > 0, ErrorCode::InvalidSettlementPrice);
+            let high = u128::from(spot.max(reference));
+            let low = u128::from(spot.min(reference));
+            let distance = crate::math::ceil_div(
+                high.checked_mul(crate::constants::NAD as u128)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                low,
+            )
+            .and_then(|ratio| ratio.checked_sub(crate::constants::NAD as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+            require!(
+                distance <= SEED_COMPOUND_MAX_PRICE_DISTANCE_NAD,
+                ErrorCode::SlippageExceeded
+            );
+        }
         self.checkpoint_junior_seed()?;
         let receipt = self.preview_add_liquidity(
             self.base_side.fees.junior.seed_swap_amount,

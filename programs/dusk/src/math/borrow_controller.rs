@@ -12,6 +12,11 @@ use crate::{
 pub const RATE_SCALE: u128 = 1_000_000_000_000_000_000;
 const RATE_TO_NAD: u128 = RATE_SCALE / NAD as u128;
 const LN_TWO: u128 = 693_147_180_559_945_309;
+/// `maximum_apr_nad == 0` means no governance-selected economic ceiling. The
+/// endpoint still needs a representable bound so a valid, stale market cannot
+/// overflow before borrowers can repay or governance can install a new model.
+/// `u64::MAX` is also the largest explicit ceiling the public config can name.
+const UNBOUNDED_NUMERIC_APR_NAD: u128 = u64::MAX as u128;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RateAccrual {
@@ -51,7 +56,12 @@ pub fn accrue_risk_rate(
         });
     }
     let minimum = config.minimum_apr_nad as u128 * RATE_TO_NAD;
-    let maximum = config.maximum_apr_nad as u128 * RATE_TO_NAD;
+    let maximum_nad = if config.maximum_apr_nad == 0 {
+        UNBOUNDED_NUMERIC_APR_NAD
+    } else {
+        config.maximum_apr_nad as u128
+    };
+    let maximum = maximum_nad * RATE_TO_NAD;
     let start = previous_apr_e18.max(minimum);
     let start = if maximum == 0 { start } else { start.min(maximum) };
     let direction = match signal_nad {
@@ -65,8 +75,23 @@ pub fn accrue_risk_rate(
             integrated_apr_nad_ms: mul_div_u128(start, elapsed_ms as u128, RATE_TO_NAD)?,
         });
     }
+    if direction > 0 && config.maximum_apr_nad == 0 {
+        // Preserve the cheap ordinary path for the default uncapped model. Only
+        // pay for a logarithmic crossing calculation when the elapsed interval
+        // actually reaches the numeric endpoint (or direct evolution overflows).
+        if let Ok(end) = evolve(start, elapsed_ms, config.half_life_ms, true) {
+            if end <= maximum {
+                let change = end - start;
+                return Ok(RateAccrual {
+                    end_apr_e18: end,
+                    integrated_apr_nad_ms: mul_div_u128(change, config.half_life_ms as u128 * RATE_TO_NAD, LN_TWO)?,
+                });
+            }
+        }
+    }
     let bound = if direction > 0 { maximum } else { minimum };
     let crossing_ms = if bound == 0 {
+        // A zero minimum is asymptotic: there is no finite half-life crossing.
         u64::MAX
     } else {
         let (high, low) = if direction > 0 { (bound, start) } else { (start, bound) };

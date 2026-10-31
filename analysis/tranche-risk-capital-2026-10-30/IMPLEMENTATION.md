@@ -64,10 +64,14 @@ large temporary allocations. All four generated SDK interface files are included
   whose history is stale.
 - Seed compounding requires a balanced asset pair. Unmatched revenue remains in
   seed custody and is excluded from productive junior coverage until reinvested.
+  Because reinvestment is permissionless, an initialized market also requires
+  current concentrated spot to remain within one basis point of the AMM EMA.
 - Exit crowding changes request notice, not total conversion throughput. Junior
   coverage can drop when multiple windows overlap. Cash withdrawal is separate.
 - Junior protection is finite, and productive junior capital shares AMM inventory
-  exposure. Uncapped default APR is not proof of sustainable borrowing demand.
+  exposure. Uncapped default APR means no governance-selected economic ceiling;
+  arithmetic still uses the largest APR the public configuration can represent.
+  Neither setting is proof of sustainable borrowing demand.
 
 See [the scoped review](SCOPED-REVIEW.md) for these accounting and operating limits.
 Historical economic simulations preserve their original assumptions. They are

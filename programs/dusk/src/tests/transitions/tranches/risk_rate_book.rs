@@ -21,10 +21,10 @@ fn governance_change_settles_the_old_model_and_does_not_reset_apr() {
 }
 
 #[test]
-fn second_asset_overflow_cannot_partially_advance_the_first() {
+fn second_asset_index_overflow_cannot_partially_advance_the_first() {
     let config = RiskRateConfig::default();
     let mut book = RiskRateBook::new(config, 100).unwrap();
-    book.sides[1].apr_e18 = u128::MAX;
+    book.sides[1].borrow_index_nad = u128::MAX;
     let original = book;
     assert!(book
         .accrue([Some(0); 2], 100 + config.half_life_ms / TARGET_MS_PER_SLOT)

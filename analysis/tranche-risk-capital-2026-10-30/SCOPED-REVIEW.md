@@ -42,12 +42,15 @@ production readiness.
   Active-holder checkpointing and retryable SDK plans are required. A stronger
   archival policy or compressed history remains a security-review topic.
 - Junior seed reinvestment requires a balanced asset pair. An unmatched asset
-  remains in seed custody and is excluded from productive risk coverage.
+  remains in seed custody and is excluded from productive risk coverage. An
+  initialized market also requires spot to remain within one basis point of the
+  AMM EMA before permissionless seed reinvestment.
 - Queue crowding delays an individual request by up to three additional days; it
   does not impose a global conversion-per-day cap. Requests can become executable
   together. Coverage can fall when they convert, and the rate controller responds
   to the capital that remains.
-- Uncapped APR is bounded by integer representation, not an economic ceiling.
+- Uncapped APR uses the largest public-config APR as its numeric endpoint, not an
+  economic governance ceiling.
   Market creators and governance can set an APR ceiling. The default does not
   guarantee borrowing demand, underwriter returns or withdrawal liquidity.
 - The optional liquidation policy benchmark includes eighteen adverse price

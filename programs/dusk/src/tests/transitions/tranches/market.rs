@@ -126,6 +126,48 @@ fn permanent_seed_reinvestment_does_not_mint_senior_claims() {
 }
 
 #[test]
+fn permissionless_seed_compound_rejects_a_same_slot_price_sandwich() {
+    use crate::transitions::amm::SwapRequest;
+    const UNIT: u64 = 1_000_000;
+    let mut initial = Market::default();
+    initial.base_side.asset_decimals = 6;
+    initial.quote_side.asset_decimals = 6;
+    initial.debt.base_borrow_index_nad = NAD as u128;
+    initial.debt.quote_borrow_index_nad = NAD as u128;
+    initial.config.swap_fee_bps = 30;
+    initial.config.amm.peak_amplification_nad = NAD;
+    initial.config.amm.core_half_width_bps = 0;
+    initial.config.amm.fade_width_bps = 0;
+    initial
+        .add_liquidity(1_000_000 * UNIT, 1_000_000 * UNIT)
+        .unwrap();
+    for side in [&mut initial.base_side, &mut initial.quote_side] {
+        side.fees.junior.seed_swap_amount = 100_000 * UNIT;
+        side.fees.swap_fee_liability = 100_000 * UNIT;
+        side.fees.swap_fee_custody_balance = 100_000 * UNIT;
+    }
+    *initial.amm = crate::state::AmmState::default();
+    initial.prepare_amm_for_swap(1).unwrap();
+
+    let mut attacked = initial;
+    let mut first = SwapRequest {
+        current_slot: 1,
+        current_unix_timestamp: 0,
+        asset_in: MarketAsset::Base,
+        reserve_credit: 500_000 * UNIT,
+        protocol_fee_bps: 0,
+    }
+    .prepare(&mut attacked)
+    .unwrap();
+    let quote_received = first.quote.amount_out;
+    first
+        .finalize_state(&mut attacked, 1, 0, Default::default())
+        .unwrap();
+    assert!(attacked.compound_junior_seed().is_err());
+    assert!(quote_received > 0);
+}
+
+#[test]
 fn seed_reinvestment_requires_archival_after_a_complete_wipe() {
     let mut market = market();
     market.tranches.junior_reserve_shares = 0;

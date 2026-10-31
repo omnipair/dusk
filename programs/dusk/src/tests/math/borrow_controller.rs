@@ -149,8 +149,37 @@ fn zero_time_and_numeric_overflow_do_not_invent_elapsed_interest() {
             integrated_apr_nad_ms: 0
         }
     );
-    assert!(accrue_risk_rate(&config, u128::MAX, Some(0), config.half_life_ms).is_err());
-    assert!(accrue_risk_rate(&config, rate(0.04), Some(0), u64::MAX).is_err());
+    let clamped = accrue_risk_rate(&config, u128::MAX, Some(0), config.half_life_ms).unwrap();
+    assert_eq!(clamped.end_apr_e18, u64::MAX as u128 * RATE_TO_NAD);
+    let stale = accrue_risk_rate(&config, rate(0.04), Some(0), u64::MAX).unwrap();
+    assert_eq!(stale.end_apr_e18, u64::MAX as u128 * RATE_TO_NAD);
+    assert!(stale.integrated_apr_nad_ms > 0);
+}
+
+#[test]
+fn valid_uncapped_market_remains_accruable_after_seventy_three_half_lives() {
+    let config = RiskRateConfig {
+        half_life_ms: 3_600_000,
+        maximum_apr_nad: 0,
+        ..RiskRateConfig::default()
+    };
+    config.validate().unwrap();
+    let elapsed = 73 * config.half_life_ms;
+    let accrued = accrue_risk_rate(&config, rate(0.04), Some(0), elapsed).unwrap();
+    assert_eq!(accrued.end_apr_e18, u64::MAX as u128 * RATE_TO_NAD);
+    assert!(accrued.integrated_apr_nad_ms > 0);
+}
+
+#[test]
+fn zero_minimum_remains_an_asymptotic_downward_bound() {
+    let config = RiskRateConfig {
+        minimum_apr_nad: 0,
+        ..RiskRateConfig::default()
+    };
+    config.validate().unwrap();
+    let accrued = accrue_risk_rate(&config, rate(0.04), Some(u64::MAX as u128), u64::MAX).unwrap();
+    assert_eq!(accrued.end_apr_e18, 0);
+    assert!(accrued.integrated_apr_nad_ms > 0);
 }
 
 proptest! {
