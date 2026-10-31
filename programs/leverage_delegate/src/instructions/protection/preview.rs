@@ -25,6 +25,9 @@ impl PreviewProtectionOrder<'_> {
             LeverageDelegateError::InvalidOrder
         );
         let clock = Clock::get()?;
+        ctx.accounts
+            .market
+            .bind_oracle(ctx.remaining_accounts, &clock)?;
         protection_health_of(
             &mut ctx.accounts.market,
             ctx.accounts.borrow_position.as_deref().map(|p| &**p),

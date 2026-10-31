@@ -33,9 +33,11 @@ import {
   writeState,
 } from "./common.ts";
 import idl from "../../target/idl/dusk.json" with { type: "json" };
-import { sendAtomicMarketCreation } from "../utils/market-creation.ts";
+import { marketCreationOracleFromEnv, sendAtomicMarketCreation } from "../utils/market-creation.ts";
+import { oracleComputeBudgetInstructions, oracleReadAccounts } from "../../packages/dusk-sdk/dist/oracle.js";
 
 async function main() {
+  const initialOracle = marketCreationOracleFromEnv();
   const provider = providerFromEnv();
   const payer = payerFromProvider(provider);
   const program = duskProgram(idl, provider);
@@ -130,6 +132,7 @@ async function main() {
     const instruction = await program.methods
       .initializeMarket({
         config: defaultMarketConfig(),
+        oracle: initialOracle,
         paramsHash: [...paramsHash],
         bootstrapPriceNad: new anchor.BN(duskEnv("BOOTSTRAP_PRICE_NAD", "0")),
         launchFeeProgressOffset: Number(duskEnv("LAUNCH_FEE_PROGRESS_OFFSET", "0")),
@@ -360,6 +363,8 @@ async function seedBalancedLiquidity(params: {
     tokenProgram: quoteTokenProgram,
   });
 
+  const marketState = await params.program.account.market.fetch(params.market);
+  const oracle = marketState.oracle.policy;
   const signature = await params.program.methods
     .addLiquidity({
       baseDepositAmount: bnFromUnits(params.baseAmount),
@@ -400,7 +405,9 @@ async function seedBalancedLiquidity(params: {
       eventAuthority: params.eventAuthority,
       program: params.program.programId,
     })
-    .preInstructions([anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
+    .remainingAccounts(oracleReadAccounts(oracle))
+    .preInstructions(oracle.lambdaBps > 0 ? oracleComputeBudgetInstructions(oracle)
+      : [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })])
     .rpc();
   console.log(
     `Seeded ${params.baseAmount.toString()} base units and ${params.quoteAmount.toString()} quote units`

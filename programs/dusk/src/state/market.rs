@@ -547,6 +547,7 @@ impl Default for Insurance {
 #[account]
 #[derive(InitSpace, Default)]
 pub struct Market {
+    pub oracle: Box<super::OracleState>,
     pub version: u8,
     pub ylp_mint: Pubkey,
     pub base_side: Box<MarketSide>,
@@ -573,7 +574,7 @@ pub struct Market {
     pub governance_locked_ylp: u64,
     /// Independent monotone revisions for fee, concentration, IRM, EMA,
     /// daily-borrow-limit, and center-controller parameter families.
-    pub parameter_revisions: [u64; 7],
+    pub parameter_revisions: [u64; 8],
     /// Latest trader-visible marginal price committed by a curve mutation.
     pub last_marginal_observation_nad: u64,
     /// Monotone revision for executable-curve mutations.
@@ -601,6 +602,7 @@ impl Market {
         use anchor_lang::Discriminator;
         require!(data.starts_with(Self::DISCRIMINATOR), ErrorCode::BrokenInvariant);
         let mut cursor = &data[Self::DISCRIMINATOR.len()..];
+        reload_field(&mut *self.oracle, &mut cursor)?;
         reload_field(&mut self.version, &mut cursor)?;
         reload_field(&mut self.ylp_mint, &mut cursor)?;
         reload_field(&mut *self.base_side, &mut cursor)?;

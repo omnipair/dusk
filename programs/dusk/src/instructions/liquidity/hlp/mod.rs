@@ -124,17 +124,20 @@ pub(crate) fn record_hlp_interest_credit(
         ErrorCode::BrokenInvariant
     );
     let frozen_non_hlp_supply = eligibility.non_hlp_ylp_supply()?;
-    let current_non_hlp_supply = HlpYieldEligibility {
-        ylp_supply: market.base_side.shares.ylp_supply,
-        base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-        quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+    let tranche_income = market.side(borrowed_asset).fees.junior.initialized;
+    if !tranche_income {
+        let current_non_hlp_supply = HlpYieldEligibility {
+            ylp_supply: market.base_side.shares.ylp_supply,
+            base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
+            quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+        }
+        .non_hlp_ylp_supply()?;
+        require_eq!(
+            current_non_hlp_supply,
+            frozen_non_hlp_supply,
+            ErrorCode::BrokenInvariant
+        );
     }
-    .non_hlp_ylp_supply()?;
-    require_eq!(
-        current_non_hlp_supply,
-        frozen_non_hlp_supply,
-        ErrorCode::BrokenInvariant
-    );
 
     // Every predictive mint/burn checkpoints the ownership interval that
     // precedes it. Flush any public-interest carry that materializes after
@@ -144,7 +147,7 @@ pub(crate) fn record_hlp_interest_credit(
     market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
     market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
 
-    if market.side(borrowed_asset).fees.junior.initialized {
+    if tranche_income {
         let (protocol, _) = crate::transitions::revenue::split_revenue(actual_interest_credit, protocol_fee_bps)?;
         market.record_receivable_income_credit(
             borrowed_asset,

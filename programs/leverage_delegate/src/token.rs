@@ -4,7 +4,7 @@ use anchor_spl::{
     token_2022::{self, Token2022},
 };
 use spl_token_2022::extension::{
-    transfer_fee::TransferFeeConfig, transfer_hook, BaseStateWithExtensions, StateWithExtensions,
+    transfer_fee::TransferFeeConfig, BaseStateWithExtensions, StateWithExtensions,
 };
 
 pub(crate) fn token_program_for_mint<'info>(
@@ -31,66 +31,17 @@ pub(crate) fn transfer_checked<'info>(
     signer_seeds: &[&[&[u8]]],
     additional_accounts: &[AccountInfo<'info>],
 ) -> Result<()> {
-    if amount == 0 {
-        return Ok(());
-    }
-    if *token_program.key == Token2022::id() {
-        let mut instruction = spl_token_2022::instruction::transfer_checked(
-            token_program.key,
-            from.key,
-            mint.key,
-            to.key,
-            authority.key,
-            &[],
-            amount,
-            decimals,
-        )?;
-        let mut account_infos = Vec::with_capacity(5);
-        account_infos.extend([from.clone(), mint.clone(), to.clone(), authority.clone()]);
-        let transfer_hook_program_id = if *mint.owner != Token2022::id() {
-            None
-        } else {
-            let mint_data = mint.try_borrow_data()?;
-            let mint_state =
-                StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-            transfer_hook::get_program_id(&mint_state)
-        };
-        if let Some(transfer_hook_program_id) = transfer_hook_program_id {
-            dusk::token::add_transfer_hook_accounts(
-                &mut instruction,
-                &mut account_infos,
-                &transfer_hook_program_id,
-                from,
-                mint,
-                to,
-                authority,
-                amount,
-                additional_accounts,
-            )?;
-        }
-        account_infos.push(token_program);
-        invoke_signed(&instruction, &account_infos, signer_seeds).map_err(Into::into)
-    } else {
-        let instruction = token::spl_token::instruction::transfer_checked(
-            token_program.key,
-            from.key,
-            mint.key,
-            to.key,
-            authority.key,
-            &[],
-            amount,
-            decimals,
-        )?;
-        // The delegate can make several payouts in one instruction. Keep its
-        // fixed CPI account list on the stack instead of allocating a growing
-        // Vec for every payout on the non-reclaiming SBF heap.
-        invoke_signed(
-            &instruction,
-            &[from, mint, to, authority, token_program],
-            signer_seeds,
-        )
-        .map_err(Into::into)
-    }
+    dusk::token::transfer_checked_with_remaining_accounts(
+        authority,
+        from,
+        to,
+        mint,
+        token_program,
+        amount,
+        decimals,
+        signer_seeds,
+        additional_accounts,
+    )
 }
 
 pub(crate) fn close_token_account<'info>(

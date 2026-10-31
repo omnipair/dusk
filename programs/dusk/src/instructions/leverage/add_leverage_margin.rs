@@ -126,7 +126,7 @@ impl<'info> AddLeverageMargin<'info> {
         let debt_asset = MarketAsset::try_from_code(args.debt_asset)?;
         let debt_mint_key = ctx.accounts.debt_mint.key();
         let position_key = ctx.accounts.leverage_position.key();
-        let before_accrual = if quote_closeout {
+        let before_accrual = if quote_closeout || ctx.accounts.market.oracle_price_unavailable() {
             None
         } else {
             Some(ctx.accounts.market.integrated_curve_state_nad()?)
@@ -226,6 +226,7 @@ impl<'info> AddLeverageMargin<'info> {
             interest_eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),
+            None,
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
         require_reserve_custody(

@@ -1,0 +1,154 @@
+[
+  {
+    "diagnostic_unlimited": true,
+    "amp": 1,
+    "input_bps": 1,
+    "error": null,
+    "compute": 152254,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk invoke [1]",
+      "Program consumption: 99989664 units remaining",
+      "Program consumption: 99968798 units remaining",
+      "Program consumption: 99947926 units remaining",
+      "Program consumption: 99865710 units remaining",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk consumed 152104 of 99999850 compute units",
+      "Program return: FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk hok4Q/X//////////////2iSOEP1//////////////8=",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": true,
+    "amp": 1,
+    "input_bps": 10,
+    "error": null,
+    "compute": 152360,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk invoke [1]",
+      "Program consumption: 99989664 units remaining",
+      "Program consumption: 99968798 units remaining",
+      "Program consumption: 99947926 units remaining",
+      "Program consumption: 99865604 units remaining",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk consumed 152210 of 99999850 compute units",
+      "Program return: FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk aGr9Qc77/////////////0pz/UHO+/////////////8=",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": true,
+    "amp": 1,
+    "input_bps": 100,
+    "error": null,
+    "compute": 152183,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk invoke [1]",
+      "Program consumption: 99989664 units remaining",
+      "Program consumption: 99968798 units remaining",
+      "Program consumption: 99947934 units remaining",
+      "Program consumption: 99865784 units remaining",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk consumed 152033 of 99999850 compute units",
+      "Program return: FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk dsN0yo1c/v///////////1bMdMqNXP7///////////8=",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": true,
+    "amp": 1,
+    "input_bps": 1000,
+    "error": null,
+    "compute": 152337,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk invoke [1]",
+      "Program consumption: 99989664 units remaining",
+      "Program consumption: 99968798 units remaining",
+      "Program consumption: 99947942 units remaining",
+      "Program consumption: 99865626 units remaining",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk consumed 152187 of 99999850 compute units",
+      "Program return: FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk UFlIRMuKW////////////yRiSETLilv///////////8=",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": true,
+    "amp": 4,
+    "input_bps": 1,
+    "error": null,
+    "compute": 794403,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk invoke [1]",
+      "Program consumption: 99650880 units remaining",
+      "Program consumption: 99577052 units remaining",
+      "Program consumption: 99503161 units remaining",
+      "Program consumption: 99223565 units remaining",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk consumed 794253 of 99999850 compute units",
+      "Program return: FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk bAnOUP3//////////////2w+zlD9//////////////8=",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": true,
+    "amp": 4,
+    "input_bps": 10,
+    "error": null,
+    "compute": 797279,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk invoke [1]",
+      "Program consumption: 99650880 units remaining",
+      "Program consumption: 99577052 units remaining",
+      "Program consumption: 99502756 units remaining",
+      "Program consumption: 99220689 units remaining",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk consumed 797129 of 99999850 compute units",
+      "Program return: FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk JMODkPP+/////////////xv/g5Dz/v////////////8=",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": true,
+    "amp": 4,
+    "input_bps": 100,
+    "error": null,
+    "compute": 1013873,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk invoke [1]",
+      "Program consumption: 99650880 units remaining",
+      "Program consumption: 99577052 units remaining",
+      "Program consumption: 99502047 units remaining",
+      "Program consumption: 99004098 units remaining",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk consumed 1013723 of 99999850 compute units",
+      "Program return: FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk TY3JIySX//////////////bCySMkl/////////////8=",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": true,
+    "amp": 4,
+    "input_bps": 1000,
+    "error": null,
+    "compute": 1013610,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk invoke [1]",
+      "Program consumption: 99650880 units remaining",
+      "Program consumption: 99577052 units remaining",
+      "Program consumption: 99502592 units remaining",
+      "Program consumption: 99004357 units remaining",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk consumed 1013460 of 99999850 compute units",
+      "Program return: FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk 0qnutO391v///////////8KgaLbt/db///////////8=",
+      "Program FRqrMeKLxczyS8Z8tQMZH3EFx1L9E55riQoXsxjTsDk success"
+    ]
+  }
+]

@@ -62,6 +62,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     base_side.shares.ylp_supply = 1_000_000_000;
     quote_side.shares.ylp_supply = 1_000_000_000;
     let mut market = Market {
+        oracle: Default::default(),
         income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
@@ -80,7 +81,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         params_hash: [9; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 7],
+        parameter_revisions: [0; 8],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -232,6 +233,7 @@ fn market_with_cash_backed_debt(
     base_side.shares.ylp_supply = ylp_supply;
     quote_side.shares.ylp_supply = ylp_supply;
     let mut market = Market {
+        oracle: Default::default(),
         income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
@@ -250,7 +252,7 @@ fn market_with_cash_backed_debt(
         params_hash: [7; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 7],
+        parameter_revisions: [0; 8],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,

@@ -130,7 +130,7 @@ impl<'info> Repay<'info> {
         Ok(())
     }
 
-    crate::instructions::accounts::market_update_and_validate!(RepayArgs);
+    crate::instructions::accounts::market_update_and_validate!(RepayArgs, price_free);
 
     pub fn handle_repay(mut ctx: Context<'_, '_, '_, 'info, Self>, args: RepayArgs) -> Result<()> {
         let current_slot = Clock::get()?.slot;
@@ -221,6 +221,7 @@ impl<'info> Repay<'info> {
                 eligibility,
                 remaining_accounts,
                 accounts.event_authority.to_account_info(),
+                None,
             )?;
             accounts.reserve_vault.reload()?;
 

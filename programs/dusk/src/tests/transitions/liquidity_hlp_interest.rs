@@ -828,7 +828,6 @@ fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_ylp() {
     }
 }
 
-
 #[test]
 fn tranche_hlp_nav_includes_only_its_allocated_unpaid_interest() {
     const UNIT: u64 = 1_000_000;
@@ -953,5 +952,100 @@ fn tranche_hlp_exit_buys_only_departing_coupons_and_does_not_gift_next_depositor
             assert_eq!(settled.published[target.code() as usize], [0, 0]);
             assert_eq!(settled.reserve_credit[target.code() as usize], [0, 0]);
         }
+    }
+}
+
+// A frozen vault retains shares and indexed debt, but no longer participates
+// in active hedge reconstruction. Both the analytic certificate and the
+// materialized ownership must use the same funded frozen leg exactly once.
+#[test]
+fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
+    use crate::state::{AmmConfig, IrmConfig};
+    use crate::transitions::{amm::SwapRequest, LeverageSwapFeeCredit};
+
+    fn trade(m: &mut Market, asset: MarketAsset, input: u64) -> Result<u64> {
+        let mut prepared = SwapRequest {
+            current_slot: 2_500,
+            current_unix_timestamp: 0,
+            asset_in: asset,
+            reserve_credit: input,
+            protocol_fee_bps: 0,
+        }.prepare(m)?;
+        let out = prepared.quote.amount_out;
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &prepared.leverage_quote(), prepared.quote.fee.claimable_fee_debit,
+        )?;
+        prepared.apply(m, SwapCashPolicy::Spot, credit, 2_500, 0,
+            ProtocolAuctionSplit::default(), None)?;
+        m.assert_market_invariants()?;
+        Ok(out)
+    }
+
+    let raw = |n: u64, d: u8| n * 10_u64.pow(u32::from(d));
+    for (base_decimals, quote_decimals) in [(9, 6), (6, 9), (2, 2), (0, 0)] {
+      for amp in [1, 4] {
+       for frozen_mask in [1, 2, 3] {
+        for input in [MarketAsset::Base, MarketAsset::Quote] {
+         let side = |d| MarketSide {
+            asset_mint: Pubkey::new_unique(), hlp_mint: Pubkey::new_unique(),
+            reserve_vault: Pubkey::new_unique(), collateral_vault: Pubkey::new_unique(),
+            interest_vault: Pubkey::new_unique(), asset_decimals: d, ..MarketSide::default()
+         };
+         let config = MarketConfig {
+            swap_fee_bps: 0, divergence_fee_share_cap_bps: 0, volatility_fee_share_cap_bps: 0,
+            target_hlp_leverage_bps: 20_000, settlement_divergence_bps: 10_000,
+            ema_half_life_ms: 60_000, directional_ema_half_life_ms: 60_000,
+            curve_depth_ema_half_life_ms: 60_000,
+            max_daily_borrow_bps: crate::state::DEFAULT_DAILY_BORROW_BPS,
+            global_health_contribution_cap_bps: 15_000, borrow_market_health_floor_bps: 11_000,
+            amm: AmmConfig { peak_amplification_nad: amp * NAD,
+                core_half_width_bps: if amp > 1 { 1_000 } else { 0 },
+                fade_width_bps: if amp > 1 { 4_000 } else { 0 },
+                center_ema_half_life_ms: 60_000, volatility_half_life_ms: 60_000,
+                ..AmmConfig::default() },
+            irm: IrmConfig::default(), ..MarketConfig::default()
+         };
+         let mut market = Market::default();
+         market.initialize(Pubkey::new_unique(), side(base_decimals), side(quote_decimals), config,
+            Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(),
+            [0;32], Pubkey::new_unique(), 60 * NAD, 0, 2_500, 255).unwrap();
+         market.add_liquidity(raw(10_000,base_decimals),raw(600_000,quote_decimals)).unwrap();
+         market.finalize_amm_transition_and_observe_risk(2_500).unwrap();
+         market.deposit_single_sided(MarketAsset::Base,raw(1_000,base_decimals),1).unwrap();
+         market.finalize_amm_transition_and_observe_risk(2_500).unwrap();
+         market.deposit_single_sided(MarketAsset::Quote,raw(60_000,quote_decimals),1).unwrap();
+         market.finalize_amm_transition_and_observe_risk(2_500).unwrap();
+         if frozen_mask & 1 != 0 {market.debt.quote_borrow_index_nad *= 3;}
+         if frozen_mask & 2 != 0 {market.debt.base_borrow_index_nad *= 3;}
+         market.freeze_negative_hlp_vaults().unwrap();
+         assert_eq!(market.amm.frozen_hlp_mask, frozen_mask);
+         market.assert_market_invariants().unwrap();
+         let base_frozen = market.base_hlp_vault;
+         let quote_frozen = market.quote_hlp_vault;
+         let offsets = market.frozen_curve_offsets().unwrap();
+         let initial = if input == MarketAsset::Base {raw(4_200,base_decimals)} else {raw(252_000,quote_decimals)};
+         for cycle in 0..32 {
+            let sold=trade(&mut market,input,initial).unwrap_or_else(|e|
+                panic!("first leg: decimals={base_decimals}/{quote_decimals} amp={amp} mask={frozen_mask} input={input:?} cycle={cycle}: {e}"));
+            let bought=trade(&mut market,input.opposite(),sold).unwrap_or_else(|e|
+                panic!("second leg: decimals={base_decimals}/{quote_decimals} amp={amp} mask={frozen_mask} input={input:?} cycle={cycle}: {e}"));
+            assert!(bought <= initial,
+                "frozen round trip gained {} atoms: decimals={base_decimals}/{quote_decimals} amp={amp} mask={frozen_mask} input={input:?} cycle={cycle}",bought.saturating_sub(initial));
+            assert_eq!(market.amm.frozen_hlp_mask,frozen_mask);
+            assert_eq!(market.frozen_curve_offsets().unwrap(), offsets);
+            for (target, frozen, before) in [(MarketAsset::Base,frozen_mask&1!=0,base_frozen),(MarketAsset::Quote,frozen_mask&2!=0,quote_frozen)] {
+                if frozen {
+                    let after=if target == MarketAsset::Base {market.base_hlp_vault} else {market.quote_hlp_vault};
+                    assert_eq!(after.ylp_shares,before.ylp_shares);
+                    assert_eq!(after.debt_shares,before.debt_shares);
+                    assert_eq!(after.debt_principal,before.debt_principal);
+                    assert_eq!(after.base_hlp_live_reserve,before.base_hlp_live_reserve);
+                    assert_eq!(after.quote_hlp_live_reserve,before.quote_hlp_live_reserve);
+                }
+            }
+         }
+        }
+       }
+      }
     }
 }

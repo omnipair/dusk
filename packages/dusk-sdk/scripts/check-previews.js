@@ -226,6 +226,7 @@ test("hLP capacity helper binds all mints and preserves native status, ceilings 
   const rpcValue = { err: null, logs: [], returnData: null };
   const { connection, calls } = fixture(rpcValue);
   const program = createDuskProgram({ connection, programId });
+  program.account.market.fetch = async () => ({ oracle: {policy: { lambdaBps: 0 }} });
   const expected = {
     market: payer, targetAsset: { base: {} }, hlpMint: targetHlpMint,
     slot: new anchor.BN(123), epoch: new anchor.BN(9), status: { ready: {} },

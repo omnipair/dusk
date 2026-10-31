@@ -1,5 +1,5 @@
 use crate::transitions::amm::SwapRequest;
-use anchor_lang::prelude::*;
+use anchor_lang::{prelude::*, solana_program::instruction::Instruction};
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -13,7 +13,7 @@ use crate::{
         LeveragePositionOpened, LeverageSwapReceipt, MarketEventMetadata, ReferralBound, SwapExecuted, SwapOrigin,
     },
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
-    token::{create_token_account, transfer_checked_with_remaining_accounts},
+    token::{create_token_account, transfer_checked_with_remaining_accounts_and_instruction},
     transitions::{leverage_debt_from_margin, liquidity::SwapCashPolicy, require_leverage_entry_limit},
 };
 
@@ -227,8 +227,16 @@ impl<'info> OpenLeverage<'info> {
 
         let funding_vault = ctx.accounts.debt_reserve_vault.to_account_info();
         let funding_mint = &ctx.accounts.debt_mint;
+        let event_data_capacity =
+            16 + core::mem::size_of::<LeveragePositionOpened>().max(core::mem::size_of::<SwapExecuted>());
+        let mut shared_instruction = Instruction {
+            program_id: Pubkey::default(),
+            accounts: Vec::with_capacity(4),
+            data: Vec::with_capacity(event_data_capacity),
+        };
         let before = crate::instructions::accounts::token_account_info_amount(&funding_vault)?;
-        transfer_checked_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts_and_instruction(
+            &mut shared_instruction,
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),
             funding_vault.clone(),
@@ -301,7 +309,8 @@ impl<'info> OpenLeverage<'info> {
         )?;
 
         let swap_fee_credit = leverage_swap_fee_credit(&prepared_swap.leverage_quote())?;
-        transfer_checked_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts_and_instruction(
+            &mut shared_instruction,
             ctx.accounts.market.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
@@ -357,7 +366,6 @@ impl<'info> OpenLeverage<'info> {
             interest_eligibility,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-
         // Reconcile physical reserve custody after inline settlement.
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;
@@ -379,46 +387,58 @@ impl<'info> OpenLeverage<'info> {
             ctx.accounts.market.base_side.reserves.live_reserve,
             ctx.accounts.market.quote_side.reserves.live_reserve,
         )?;
-        emit_cpi!(SwapExecuted::from_leverage(
-            market_key,
-            position_owner_key,
-            funding_authority_key,
-            position_key,
-            SwapOrigin::LeverageOpen,
-            current_slot,
-            swap_event,
-            receipt.swap.start_price_nad,
-            &ctx.accounts.market,
-        )?);
-        emit_cpi!(LeveragePositionOpened {
-            market: market_key,
-            position: position_key,
-            owner: position_owner_key,
-            debt_asset_mint: debt_mint_key,
-            collateral_asset_mint: collateral_mint_key,
-            margin_amount: margin_credit,
-            borrowed_amount: receipt.borrowed_amount,
-            debt_amount: receipt.debt_amount,
-            debt_shares: receipt.debt_shares,
-            collateral_amount: receipt.collateral_amount,
-            margin_terms: leverage_position.margin_terms,
-            closeout_value: receipt.closeout_value,
-            equity: receipt.equity,
-            multiplier_bps: args.multiplier_bps,
-            swap: swap_event,
-            metadata: MarketEventMetadata::at_slot(position_owner_key, market_key, current_slot),
-        });
-        if let Some(referral_partner) = referral.referral_partner {
-            emit_cpi!(ReferralBound {
+        crate::instructions::accounting::emit_cpi_event_with_instruction(
+            &SwapExecuted::from_leverage(
+                market_key,
+                position_owner_key,
+                funding_authority_key,
+                position_key,
+                SwapOrigin::LeverageOpen,
+                current_slot,
+                swap_event,
+                receipt.swap.start_price_nad,
+                &ctx.accounts.market,
+            )?,
+            ctx.accounts.event_authority.to_account_info(),
+            &mut shared_instruction,
+        )?;
+        crate::instructions::accounting::emit_cpi_event_with_instruction(
+            &LeveragePositionOpened {
                 market: market_key,
                 position: position_key,
                 owner: position_owner_key,
-                referrer: referral.referrer.ok_or(ErrorCode::InvalidReferralPartner)?,
-                referral_partner,
-                asset_mint: debt_mint_key,
-                interest_share_bps: referral.interest_share_bps,
+                debt_asset_mint: debt_mint_key,
+                collateral_asset_mint: collateral_mint_key,
+                margin_amount: margin_credit,
+                borrowed_amount: receipt.borrowed_amount,
+                debt_amount: receipt.debt_amount,
+                debt_shares: receipt.debt_shares,
+                collateral_amount: receipt.collateral_amount,
+                margin_terms: leverage_position.margin_terms,
+                closeout_value: receipt.closeout_value,
+                equity: receipt.equity,
+                multiplier_bps: args.multiplier_bps,
+                swap: swap_event,
                 metadata: MarketEventMetadata::at_slot(position_owner_key, market_key, current_slot),
-            });
+            },
+            ctx.accounts.event_authority.to_account_info(),
+            &mut shared_instruction,
+        )?;
+        if let Some(referral_partner) = referral.referral_partner {
+            crate::instructions::accounting::emit_cpi_event_with_instruction(
+                &ReferralBound {
+                    market: market_key,
+                    position: position_key,
+                    owner: position_owner_key,
+                    referrer: referral.referrer.ok_or(ErrorCode::InvalidReferralPartner)?,
+                    referral_partner,
+                    asset_mint: debt_mint_key,
+                    interest_share_bps: referral.interest_share_bps,
+                    metadata: MarketEventMetadata::at_slot(position_owner_key, market_key, current_slot),
+                },
+                ctx.accounts.event_authority.to_account_info(),
+                &mut shared_instruction,
+            )?;
         }
         Ok(())
     }

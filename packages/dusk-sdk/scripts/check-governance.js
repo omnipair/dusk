@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import anchor from "@coral-xyz/anchor";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, AddressLookupTableAccount } from "@solana/web3.js";
 
 import {
   anchorParameterUpdate,
@@ -17,6 +17,7 @@ import {
   emaHalfLivesParameterUpdate,
   feeParameterUpdate,
   insuranceDrawCapsParameterUpdate,
+  oracleParameterUpdate,
   irmParameterUpdate,
   NAD,
   PARAMETER_PROPOSAL_DIGEST_DOMAIN,
@@ -29,10 +30,11 @@ import { deriveYieldAccountAddress } from "../dist/constants.js";
 import IDL from "../dist/idl_v2.js";
 import { DuskGovernance } from "../dist/governance-client.js";
 import { deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress } from "../dist/constants.js";
+import { parameterProposalV0Transaction } from "../dist/market-launch.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 1_155;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_345;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -189,6 +191,9 @@ assert.throws(() =>
 // One update per family, deliberately out of order: the SDK sends them in
 // ascending family order, the only order the program accepts.
 const everyFamily = [
+  oracleParameterUpdate({format:1,provider:keys[8],baseAccount:keys[9],quoteAccount:PublicKey.default,
+    baseFeedId:Array(32).fill(7),quoteFeedId:Array(32).fill(0),lambdaBps:9999,adjustmentCapNad:2n*NAD,
+    maxAgeSeconds:60,maxAgeSlots:100,maxConfidenceBps:100,maxPublishSkewSeconds:0}),
   insuranceDrawCapsParameterUpdate({ principalCoverageBps: 1_000, perDayBps: 3_000 }),
   centerControllerParameterUpdate({
     adjustmentThresholdNad: NAD / 100n,
@@ -221,7 +226,7 @@ const everyFamily = [
 const canonical = canonicalParameterUpdates(everyFamily);
 assert.deepEqual(
   canonical.map(({ kind }) => kind),
-  ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insuranceDrawCaps"],
+  ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insuranceDrawCaps", "oracle"],
   "updates must be sent in ascending family order"
 );
 assert.throws(() => canonicalParameterUpdates([]), /at least one/);
@@ -231,10 +236,10 @@ assert.throws(
 );
 assert.throws(() => insuranceDrawCapsParameterUpdate({ principalCoverageBps: 7_501, perDayBps: 5_000 }));
 
-const marketRevisions = [11, 12, 13, 14, 15, 16, 17];
+const marketRevisions = [11, 12, 13, 14, 15, 16, 17, 18];
 assert.deepEqual(
   updatedFamilyRevisions([dailyBorrowLimitParameterUpdate(1_000)], marketRevisions),
-  [0n, 0n, 0n, 0n, 15n, 0n, 0n],
+  [0n, 0n, 0n, 0n, 15n, 0n, 0n, 0n],
   "families a proposal leaves alone bind revision zero"
 );
 const familyRevisions = updatedFamilyRevisions(everyFamily, marketRevisions);
@@ -284,20 +289,17 @@ const build = await new DuskWrite(program).createParameterProposal({
 });
 build.transaction.feePayer = keys[0];
 build.transaction.recentBlockhash = keys[9].toBase58();
-const serializedSize = build.transaction.serialize({
-  requireAllSignatures: false,
-  verifySignatures: false,
-}).length;
-
-assert.equal(
-  serializedSize,
-  EXPECTED_WORST_CASE_CREATE_SIZE,
-  "worst-case create-parameter-proposal transaction ABI size changed"
-);
-assert.ok(
-  serializedSize <= SOLANA_TRANSACTION_LIMIT,
-  `worst-case proposal creation is ${serializedSize} bytes, above ${SOLANA_TRANSACTION_LIMIT}`
-);
+const legacySize = build.transaction.serializeMessage().length + 65;
+assert.equal(legacySize, EXPECTED_WORST_CASE_CREATE_SIZE);
+assert.ok(legacySize > SOLANA_TRANSACTION_LIMIT, "maximum proposal should exercise the v0 path");
+const lookupTable = new AddressLookupTableAccount({key:keys[8],state:{
+  deactivationSlot:0xffff_ffff_ffff_ffffn,lastExtendedSlot:0,lastExtendedSlotStartIndex:0,
+  authority:keys[0],addresses:build.instruction.keys.filter(k=>!k.isSigner).map(k=>k.pubkey),
+}});
+const versioned = parameterProposalV0Transaction({payer:keys[0],recentBlockhash:keys[9].toBase58(),
+  proposalInstruction:build.instruction,lookupTables:[lookupTable]});
+const serializedSize = versioned.serialize().length;
+assert.ok(serializedSize<=SOLANA_TRANSACTION_LIMIT);
 
 const alternateProgramId = keys[8];
 const alternateIdl = structuredClone(IDL);

@@ -434,4 +434,14 @@ pub enum ErrorCode {
     IncomeEpochNeedsRollover,
     #[msg("Prepare this holder's income history before changing its balance")]
     IncomeHistoryRequired,
+    #[msg("The market's configured oracle account was not supplied")]
+    OracleAccountMissing,
+    #[msg("Oracle account owner, identity or verification failed")]
+    OracleAuthenticationFailed,
+    #[msg("Oracle report is invalid, future-dated, halted or too uncertain")]
+    OracleInvalidObservation,
+    #[msg("Oracle source observation is stale")]
+    OracleStale,
+    #[msg("Oracle sequence or source observation regressed")]
+    OracleReplay,
 }

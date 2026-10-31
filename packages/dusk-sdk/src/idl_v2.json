@@ -13823,6 +13823,31 @@
       "code": 6144,
       "name": "IncomeHistoryRequired",
       "msg": "Prepare this holder's income history before changing its balance"
+    },
+    {
+      "code": 6145,
+      "name": "OracleAccountMissing",
+      "msg": "The market's configured oracle account was not supplied"
+    },
+    {
+      "code": 6146,
+      "name": "OracleAuthenticationFailed",
+      "msg": "Oracle account owner, identity or verification failed"
+    },
+    {
+      "code": 6147,
+      "name": "OracleInvalidObservation",
+      "msg": "Oracle report is invalid, future-dated, halted or too uncertain"
+    },
+    {
+      "code": 6148,
+      "name": "OracleStale",
+      "msg": "Oracle source observation is stale"
+    },
+    {
+      "code": 6149,
+      "name": "OracleReplay",
+      "msg": "Oracle sequence or source observation regressed"
     }
   ],
   "types": [
@@ -15012,6 +15037,39 @@
       }
     },
     {
+      "name": "CloseApprovalQuote",
+      "docs": [
+        "Dusk-owned, transaction-local approval context. Written immediately before",
+        "the read-only delegate callback and cleared before settlement. A standalone",
+        "delegate invocation cannot authenticate an off-chain or old quote with it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "close_bps",
+            "type": "u16"
+          },
+          {
+            "name": "collateral_credit",
+            "type": "u64"
+          },
+          {
+            "name": "selected_output",
+            "type": "u64"
+          },
+          {
+            "name": "full_output",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "CloseInsolventHlpArgs",
       "type": {
         "kind": "struct",
@@ -15210,7 +15268,7 @@
           {
             "name": "updates",
             "docs": [
-              "One to seven updates, at most one per family, in ascending family",
+              "One to eight updates, at most one per family, in ascending family",
               "order. One sponsorship and one vote cover all of them."
             ],
             "type": {
@@ -17933,6 +17991,18 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "params_hash",
+            "docs": [
+              "First in the wire payload so account validation reads only the PDA seed."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
             "name": "config",
             "type": {
               "defined": {
@@ -17941,12 +18011,18 @@
             }
           },
           {
-            "name": "params_hash",
+            "name": "oracle",
+            "docs": [
+              "Initial oracle policy, installed atomically with the market. None uses",
+              "native pricing. First liquidity authenticates a current report when",
+              "the selected weight is positive; later policy changes use governance."
+            ],
             "type": {
-              "array": [
-                "u8",
-                32
-              ]
+              "option": {
+                "defined": {
+                  "name": "OraclePolicy"
+                }
+              }
             }
           },
           {
@@ -18570,6 +18646,14 @@
           {
             "name": "active_liquidation_session",
             "type": "pubkey"
+          },
+          {
+            "name": "close_approval",
+            "type": {
+              "defined": {
+                "name": "CloseApprovalQuote"
+              }
+            }
           },
           {
             "name": "bump",
@@ -19513,6 +19597,14 @@
         "kind": "struct",
         "fields": [
           {
+            "name": "oracle",
+            "type": {
+              "defined": {
+                "name": "OracleState"
+              }
+            }
+          },
+          {
             "name": "version",
             "type": "u8"
           },
@@ -19658,7 +19750,7 @@
             "type": {
               "array": [
                 "u64",
-                7
+                8
               ]
             }
           },
@@ -19988,6 +20080,17 @@
             "type": {
               "defined": {
                 "name": "MarketConfig"
+              }
+            }
+          },
+          {
+            "name": "oracle",
+            "docs": [
+              "Initial policy; an empty policy identifies an oracleless launch."
+            ],
+            "type": {
+              "defined": {
+                "name": "OraclePolicy"
               }
             }
           },
@@ -20436,6 +20539,16 @@
                 "type": "u16"
               }
             ]
+          },
+          {
+            "name": "Oracle",
+            "fields": [
+              {
+                "defined": {
+                  "name": "OraclePolicy"
+                }
+              }
+            ]
           }
         ]
       }
@@ -20671,6 +20784,214 @@
       }
     },
     {
+      "name": "OracleObservation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "price_nad",
+            "type": "u64"
+          },
+          {
+            "name": "confidence_nad",
+            "type": "u64"
+          },
+          {
+            "name": "publish_time",
+            "type": "i64"
+          },
+          {
+            "name": "posted_slot",
+            "type": "u64"
+          },
+          {
+            "name": "sequence",
+            "type": "u64"
+          },
+          {
+            "name": "hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "source_times",
+            "type": {
+              "array": [
+                "i64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "source_slots",
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "source_sequences",
+            "docs": [
+              "Independent counters retain replay protection when only one leg updates."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "source_hashes",
+            "docs": [
+              "Each normalized report is immutable at an already observed counter."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                },
+                2
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "OraclePolicy",
+      "docs": [
+        "Creation selects an optional policy atomically; omission uses native pricing.",
+        "Subsequent governance can change the policy within the same mathematical",
+        "limits. Every native market supports later oracle activation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "format",
+            "type": "u8"
+          },
+          {
+            "name": "provider",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_feed_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "quote_feed_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "lambda_bps",
+            "type": "u16"
+          },
+          {
+            "name": "adjustment_cap_nad",
+            "type": "u64"
+          },
+          {
+            "name": "max_age_seconds",
+            "type": "u32"
+          },
+          {
+            "name": "max_age_slots",
+            "type": "u64"
+          },
+          {
+            "name": "max_confidence_bps",
+            "type": "u16"
+          },
+          {
+            "name": "max_publish_skew_seconds",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OracleState",
+      "docs": [
+        "Persisted policy and replay protection. `runtime` occupies zero wire bytes",
+        "and is reset on every account deserialization, including a second CPI."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "policy",
+            "type": {
+              "defined": {
+                "name": "OraclePolicy"
+              }
+            }
+          },
+          {
+            "name": "last_observation",
+            "type": {
+              "defined": {
+                "name": "OracleObservation"
+              }
+            }
+          },
+          {
+            "name": "revision",
+            "type": "u64"
+          },
+          {
+            "name": "recognized_tail_liquidity",
+            "docs": [
+              "Recognized native-tail depth cannot grow merely because an OP trade",
+              "moves to a different native invariant. Real ordinary LP capital scales",
+              "the ceiling through its share supply; losses reduce it immediately."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "recognized_ordinary_supply",
+            "type": "u64"
+          },
+          {
+            "name": "runtime",
+            "type": {
+              "defined": {
+                "name": "RuntimePricing"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "ParameterProposal",
       "type": {
         "kind": "struct",
@@ -20711,7 +21032,7 @@
             "type": {
               "array": [
                 "u64",
-                7
+                8
               ]
             }
           },
@@ -20816,7 +21137,7 @@
             "type": {
               "array": [
                 "u64",
-                7
+                8
               ]
             }
           },
@@ -20893,7 +21214,7 @@
             "type": {
               "array": [
                 "u64",
-                7
+                8
               ]
             }
           },
@@ -22622,6 +22943,13 @@
       }
     },
     {
+      "name": "RuntimePricing",
+      "type": {
+        "kind": "struct",
+        "fields": []
+      }
+    },
+    {
       "name": "SetGlobalReduceOnlyArgs",
       "type": {
         "kind": "struct",
@@ -24209,7 +24537,7 @@
         "decode as this structure."
       ],
       "type": "u8",
-      "value": "7"
+      "value": "9"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

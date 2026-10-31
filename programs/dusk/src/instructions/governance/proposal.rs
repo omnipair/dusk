@@ -22,7 +22,7 @@ use super::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct CreateParameterProposalArgs {
     pub nonce: u64,
-    /// One to seven updates, at most one per family, in ascending family
+    /// One to eight updates, at most one per family, in ascending family
     /// order. One sponsorship and one vote cover all of them.
     pub updates: Vec<MarketParameterUpdate>,
     pub metadata: ProposalMetadataV1,
@@ -477,16 +477,20 @@ impl<'info> ExecuteParameterProposal<'info> {
             clock.slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        ctx.accounts
-            .market
-            .execute_parameter_updates(&ctx.accounts.proposal.updates, clock.slot)?;
-        let fees = crate::instructions::lending_market_admission_fees(
-            &ctx.accounts.market,
-            &ctx.accounts.base_mint,
-            &ctx.accounts.quote_mint,
-            clock.epoch,
+        ctx.accounts.market.execute_parameter_updates_authenticated(
+            &ctx.accounts.proposal.updates,
+            &clock,
+            ctx.remaining_accounts,
         )?;
-        ctx.accounts.market.assert_market_health_with_fees(fees)?;
+        if !MarketParameterUpdate::is_oracle_only(&ctx.accounts.proposal.updates) {
+            let fees = crate::instructions::lending_market_admission_fees(
+                &ctx.accounts.market,
+                &ctx.accounts.base_mint,
+                &ctx.accounts.quote_mint,
+                clock.epoch,
+            )?;
+            ctx.accounts.market.assert_market_health_with_fees(fees)?;
+        }
         ctx.accounts.proposal.status = ParameterProposalStatus::Executed;
         emit_cpi!(ParameterProposalExecuted {
             proposal: ctx.accounts.proposal.key(),

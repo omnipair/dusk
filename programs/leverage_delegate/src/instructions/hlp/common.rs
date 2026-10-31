@@ -19,6 +19,7 @@ pub struct HlpOrderIdArgs {
 #[inline(never)]
 pub(super) fn preview_hlp_order_trigger<'info>(
     accounts: &ExecuteHlpOrder<'info>,
+    remaining_accounts: &[AccountInfo<'info>],
     target_asset: MarketAsset,
     hlp_amount: u64,
 ) -> Result<dusk::instructions::HlpOrderTriggerPreview> {
@@ -28,7 +29,8 @@ pub(super) fn preview_hlp_order_trigger<'info>(
             dusk::cpi::accounts::PreviewHlpOrderTrigger {
                 market: accounts.market.to_account_info(),
             },
-        ),
+        )
+        .with_remaining_accounts(remaining_accounts.to_vec()),
         dusk::instructions::PreviewHlpOrderTriggerArgs {
             target_asset: target_asset.code(),
             hlp_amount,

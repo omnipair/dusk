@@ -1,0 +1,10 @@
+[package]
+name = "op_gamm_compute"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+solana-program = "2"
+dusk = { path = "../../../programs/dusk", features = ["benchmark"] }

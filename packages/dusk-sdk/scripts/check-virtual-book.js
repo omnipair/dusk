@@ -65,7 +65,7 @@ assert.equal(
 const oldIdl = structuredClone(fixtureProgram.idl);
 for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.type.fields.filter(f =>
   ![
-    "flashReceivable", "flashCollateralDebit",
+    "flashReceivable", "flashCollateralDebit", "oracle",
     "frozenHlpMask", "frozenBaseVaultBaseOffsetNad", "frozenBaseVaultQuoteOffsetNad",
     "frozenQuoteVaultBaseOffsetNad", "frozenQuoteVaultQuoteOffsetNad",
     "baseRateFractionE18", "quoteRateFractionE18",
@@ -77,6 +77,7 @@ oldIdl.types.find(type => type.name === "riskRateConfig").type.fields = [
   { name: "adjustmentSpeedPerYear", type: "u64" },
 ];
 const BorshAccountsCoder = Reflect.get(anchor, "BorshAccountsCoder") ?? Reflect.get(anchor, "default").BorshAccountsCoder;
+oldIdl.types.find(t => t.name === "market").type.fields.find(f => f.name === "parameterRevisions").type.array[1] = 7;
 const oldAccount = new BorshAccountsCoder(oldIdl).decode("market", currentMarketBytes);
 oldAccount.version = MARKET_LAYOUT_VERSION;
 // Added account fields have no historical exposure in this immutable capture.
@@ -100,6 +101,7 @@ oldAccount.quoteSide.fees.junior = zero({ defined: { name: "trancheIncome" } });
 oldAccount.debt.baseRateFractionE18 = new BN(0);
 oldAccount.debt.quoteRateFractionE18 = new BN(0);
 oldAccount.config.irm = Object.fromEntries(Object.entries(RISK_RATE_DEFAULTS).map(([key, value]) => [key, key === "borrowUtilizationLimitBps" ? value : new BN(value)]));
+oldAccount.parameterRevisions.push(new BN(0));
 oldAccount.baseSide.reserves.flashReceivable = new BN(0);
 oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
 oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);
@@ -114,7 +116,18 @@ oldAccount.amm.frozenQuoteVaultQuoteOffsetNad = new BN(0);
 for (const window of [oldAccount.insurance.baseDrawWindow, oldAccount.insurance.quoteDrawWindow]) {
   window.initialized = false;
 }
-const body = Buffer.alloc(fixtureProgram.coder.accounts.size("market"));
+oldAccount.oracle = {
+  policy: { format: 0, provider: PublicKey.default, baseAccount: PublicKey.default, quoteAccount: PublicKey.default,
+    baseFeedId: Array(32).fill(0), quoteFeedId: Array(32).fill(0), lambdaBps: 0, adjustmentCapNad: new BN(0),
+    maxAgeSeconds: 0, maxAgeSlots: new BN(0), maxConfidenceBps: 0, maxPublishSkewSeconds: 0 },
+  lastObservation: { priceNad: new BN(0), confidenceNad: new BN(0), publishTime: new BN(0), postedSlot: new BN(0),
+    sequence: new BN(0), hash: Array(32).fill(0), sourceTimes: [new BN(0),new BN(0)], sourceSlots: [new BN(0),new BN(0)] },
+  revision: new BN(0), recognizedTailLiquidity: new BN(0), recognizedOrdinarySupply: new BN(0), runtime: {},
+};
+// Keep the historical bytes separate from the current account body's capacity.
+// The combined oracle and tranche layout is now larger than the old fixture by
+// more than 1 KiB, so use an explicit test-only scratch buffer for re-encoding.
+const body = Buffer.alloc(8_192);
 const entry = fixtureProgram.coder.accounts.accountLayouts.get("market");
 const size = entry.layout.encode(oldAccount, body);
 fixture.result.value.accounts[0].data[0] = Buffer.concat([currentMarketBytes.subarray(0, 8), body.subarray(0, size)]).toString("base64");

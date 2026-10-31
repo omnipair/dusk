@@ -1,0 +1,341 @@
+{
+  "status": "complete required local CI passed; initial oracle selection is atomic with market creation",
+  "date": "2026-10-31",
+  "previous_revision": "7febe2c58891dcaed12e27eb7a70c40137b0078c",
+  "scope": "Author revalidation of optional initial oracle selection, including removal of the separate creator configuration instruction. Source hashes bind the tested uncommitted sources; binaries embed the previous revision. The pricing kernel is unchanged. Earlier isolated solver measurements remain in validation.json; they were not rerun for this interface change.",
+  "test_counts": {
+    "dusk_native": 576,
+    "dusk_production": 576,
+    "leverage_delegate": 16,
+    "sdk": 81,
+    "litesvm": 152,
+    "dusk_instructions_covered": 77
+  },
+  "runtime": {
+    "successful_transactions": 5151,
+    "average_compute_units": 100672,
+    "maximum_compute_units": 1275330,
+    "native_cpmm_same_slot_compute_units": 99432
+  },
+  "toolchain": {
+    "native": "Rust 1.99.1",
+    "anchor": "0.31.1",
+    "idl": "nightly (Anchor default)",
+    "sbf": "1.89.0-sbpf-solana-v1.54"
+  },
+  "checks": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.35
+    },
+    {
+      "command": [
+        "yarn",
+        "check:hygiene"
+      ],
+      "exit_code": 0,
+      "seconds": 0.66
+    },
+    {
+      "command": [
+        "yarn",
+        "check:code-shape"
+      ],
+      "exit_code": 0,
+      "seconds": 1.65
+    },
+    {
+      "command": [
+        "yarn",
+        "check:clippy"
+      ],
+      "exit_code": 0,
+      "seconds": 9.94
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "dusk"
+      ],
+      "exit_code": 0,
+      "seconds": 11.93
+    },
+    {
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "dusk",
+        "--lib",
+        "--features",
+        "production"
+      ],
+      "exit_code": 0,
+      "seconds": 3.4
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "dusk",
+        "--lib",
+        "--features",
+        "production"
+      ],
+      "exit_code": 0,
+      "seconds": 9.49
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "dusk",
+        "--lib",
+        "--features",
+        "benchmark",
+        "ema_admitted_settlement_preserves_reference_and_resource_delta"
+      ],
+      "exit_code": 0,
+      "seconds": 7.75
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "leverage_delegate"
+      ],
+      "exit_code": 0,
+      "seconds": 7.45
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "faucet"
+      ],
+      "exit_code": 0,
+      "seconds": 0.29
+    },
+    {
+      "command": [
+        "yarn",
+        "build:litesvm"
+      ],
+      "exit_code": 0,
+      "seconds": 524.32
+    },
+    {
+      "command": [
+        "yarn",
+        "check:build-identity"
+      ],
+      "exit_code": 0,
+      "seconds": 0.48
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "prepare-idl",
+        "--prefix",
+        "packages/dusk-sdk"
+      ],
+      "exit_code": 0,
+      "seconds": 0.22
+    },
+    {
+      "command": [
+        "yarn",
+        "typecheck"
+      ],
+      "exit_code": 0,
+      "seconds": 1.84
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "check:dusk-sdk"
+      ],
+      "exit_code": 0,
+      "seconds": 5.09
+    },
+    {
+      "command": [
+        "node",
+        "packages/dusk-sdk/scripts/check-governance.js"
+      ],
+      "exit_code": 0,
+      "seconds": 0.21
+    },
+    {
+      "command": [
+        "yarn",
+        "test-litesvm:no-build",
+        "--forbid-pending"
+      ],
+      "exit_code": 0,
+      "seconds": 20.51
+    }
+  ],
+  "regressions": [
+    "Native creation with omitted or null SDK policy; optional normalized and fully verified Pyth-ratio formats encode in one initializer.",
+    "Generated IDL automatically resolves the market PDA from args.paramsHash; seed-prefix decoding keeps account validation within SBF stack limits.",
+    "Initial normalized and Pyth policies are stored without granting a reusable price capability; MarketCreated reports the selected policy.",
+    "Invalid initial lambda, adjustment cap, provider and feed identity roll back all market/vault/metadata creation and the treasury creation charge.",
+    "Missing and stale reports reject first liquidity without changing balances or supply; a fresh authenticated report permits funding.",
+    "V0 creation fits with ordinary metadata; oversized metadata produces a transaction-size error.",
+    "Full existing governance, swaps, lending, hLP, delegated-close, frozen/carry/recovery, exit-loan and compute regression suite passes. The coverage list now includes the already-exercised previewFlashAmmLiquidation instruction."
+  ],
+  "source_hashes": {
+    "Cargo.lock": "addee23a51651919a4dc9a320ca1be6c9b4345bf5e0d59b5bb867649298db0dc",
+    "Cargo.toml": "74553daf6efd16f3c61874fc8048c9a9687a8f252b44fa721bcc8ddf41e8c6df",
+    "analysis/op-gamm-implementation-2026-10-30/README.md": "fa9afd2cef985010869c0e8fd9b9a12611fdc42410d04c5473e0b098553b689e",
+    "analysis/op-gamm-implementation-2026-10-30/compute-probe.mjs": "4a24da2444a6a66c37341c9615e195232dd172ced1e0c8445bd5573b707f19b5",
+    "analysis/op-gamm-stateful-2026-10-27/native/Cargo.toml": "937698917c367269e07e42ed8e1830391d94a3e47dc62b0c0e28cbef837273f5",
+    "analysis/op-gamm-stateful-2026-10-27/native/src/main.rs": "7a05a63256f720483f55ce0b785593abc1d67d93470f411ab3c1b89f599f4768",
+    "analysis/op-gamm-stateful-2026-10-27/native_adapter.rs": "16604b1b5cb0f8679c2d611b8c55dd63f59e213067aafb0734677421c2b01d45",
+    "docs/OP_GAMM_COUPLED_MODEL.md": "5cf526160db40ac81ab19783c7c56fe0744b484ad2b8ccaf6bfb2408e5349f2e",
+    "docs/OP_GAMM_IMPLEMENTATION_STATUS.md": "a60ade428790329e166a2ab23546a3db69642ac70ffd5b77c5a906ca664264c0",
+    "docs/OP_GAMM_PLAN.md": "b5c033ecef838c409b4b891b7f35c1b1745b5fa559ee64f868de0ebbd3a97917",
+    "docs/OP_GAMM_REVIEW.md": "e8bd3d37de0ee154165e0f7156be1887f39e89ccc6a6b8f83c34897066dd684f",
+    "packages/dusk-sdk/README.md": "39f3a3ed273b568fc8e28f58cf502a08e1f95c237522ff7d830f5d0ca75fa894",
+    "packages/dusk-sdk/scripts/check-governance.js": "ab7488089fe874b31bf247d636b94879ce2ecfb76a2a1af8dda123b969c37a03",
+    "packages/dusk-sdk/scripts/check-previews.js": "fc27e8ec5cb70754598f0921302a58c7798efb4ff06dc9aa957b00d3c68a73f3",
+    "packages/dusk-sdk/scripts/check-virtual-book.js": "83670a284b856aca61414930c5781f38b76e922c6bafa55dd49f70c0f67554b9",
+    "packages/dusk-sdk/scripts/check-write-program-accounts.js": "46f4686388a1b9764d260b4d35fc6b471b445e9b9f57850dd71b52ff0eb46cfc",
+    "packages/dusk-sdk/src/get.ts": "3c120e33443bd63f058b063ad8e0206bcb89fbf77a0ecc61cb6c390134adb5f9",
+    "packages/dusk-sdk/src/governance.ts": "71c95ea4cdfb49dfdf95301ec9d28cbac13860e662ce81aad38d0d580c5a2879",
+    "packages/dusk-sdk/src/idl_delegate.json": "0f2b8c4b04340608dec1e731cc1e7b02f001e0f47820dc15b28e3fd5d0ceb405",
+    "packages/dusk-sdk/src/idl_v2.json": "aaad7a063726b84c9ef96bcd757f1f7f7cc8bbe8790891d62cadef26b6fe1831",
+    "packages/dusk-sdk/src/index.ts": "92c043eca70ba0dee8140821b9a7210c679217743bcd95090d7dc96b9ccd2d94",
+    "packages/dusk-sdk/src/market-bootstrap.ts": "abafedd7d726a482ab91b0e862b53aa1bdfaef46dd8d2c1f1e704312dd2ac1d2",
+    "packages/dusk-sdk/src/market-launch.ts": "bbb63848cb97299368f5d7df09523617e2820fa8c3d8b83ee970054d4a362aa4",
+    "packages/dusk-sdk/src/oracle.ts": "a4d40c184861e0e0baeaca4d7dc812977771949a44e1226c83c04b26e8b52863",
+    "packages/dusk-sdk/src/protection.ts": "c18f0f2d10df297d23511d9ab2bbb4ab42ae50e82ab0a7dd1e0eb8ef98f874b4",
+    "packages/dusk-sdk/src/type-aliases.ts": "402612a030ad4abfc6e29b729b5889a9aa48707370e37af962ec5b5a82fb8f57",
+    "packages/dusk-sdk/src/types_delegate.ts": "c5dd793f70436e87d290759a8d67c91f24852170039e09a737f08d83a5486ee1",
+    "packages/dusk-sdk/src/types_v2.ts": "bd595db6bd027e9671265471a1e83cc406b048c6c504c71ce0c210eba14bb8ca",
+    "packages/dusk-sdk/src/virtual-book/market.ts": "a2c893085e35e1703628f51d718100ffa973a119720ed3b0e3917aea0c9f8c0b",
+    "packages/dusk-sdk/src/virtual-book/quotes.ts": "5368e8b3dfa05afa8b1439bcd2332e3ccf427c6190d37defeb082eb5c3704499",
+    "packages/dusk-sdk/src/write.ts": "5f3b065cf984f6e8f3f3f30c9787a6008d8d55dc03219bdb85e472dbc82ae493",
+    "programs/dusk/ACCOUNTING_EVENTS.md": "9b34489dcf4d8d67594a9e3991b1760be33b72cf6b0d94bf13834f7c3222ba49",
+    "programs/dusk/Cargo.toml": "ed71c21ee6e78a80dc9d1474ebebe0c84ce9682aee7b63580512082c4d6e8b18",
+    "programs/dusk/src/benchmark_api.rs": "fb8ccd95847234558408eb5e9cf17b5d4d3446c9bd7a9a69dcc785fb8ad942cf",
+    "programs/dusk/src/constants.rs": "5c369dfa22edf5897e4b9ecfdd5d87dc2590e5ef9faf26152512cc99877c025a",
+    "programs/dusk/src/errors.rs": "bdbc3912b0782f229147c0bacaad0e2ea7f3941e46a82bdb3bed18e9e1e69eba",
+    "programs/dusk/src/events.rs": "841741cac4c17f633a019624caa5235203594b511e08313c3f1f8004a95dca2b",
+    "programs/dusk/src/instructions/accounts.rs": "671b68df89d8329b4b4b9d909b710f97bef302d51a44c3f7e8463629025f2687",
+    "programs/dusk/src/instructions/governance/proposal.rs": "a8ab2cd42ab2a0f6ebda00b5f90512451b196a74eaf936d04db77e7aecc7df48",
+    "programs/dusk/src/instructions/lending/deposit_collateral.rs": "4d5ad75ac7dd9e90941c4a18dcc7ecf9a188b4c24e7eff6ed0cbe1379dc459a6",
+    "programs/dusk/src/instructions/lending/donate_collateral.rs": "19d38d277449ac20e9fa81c8e814d62275bdddab671d085d6fa96c51fff43e7e",
+    "programs/dusk/src/instructions/lending/repay.rs": "46d4abbd933a7d45e28f9a72342498f9a865b35a509bed790dd87dbb3fbaa85f",
+    "programs/dusk/src/instructions/leverage/add_leverage_margin.rs": "b45d7b15134d21f35ba32b7cb056f12159d5a5a728a3a78ff62b3c9018ea05a8",
+    "programs/dusk/src/instructions/leverage/close_leverage.rs": "5ac3df1e10d88758ae9b2a21b540bb9605c8a3aae95c9e3dc67f7ce3464078d9",
+    "programs/dusk/src/instructions/leverage/settlement.rs": "c3af24eeb3a2493692b362b5ca40176993d537630f9906618043cd07b933d718",
+    "programs/dusk/src/instructions/market/initialization.rs": "d5e62af723d1d425dc0accd6b35b952e9846ef494058008793d3339520770784",
+    "programs/dusk/src/instructions/market/mod.rs": "3d49b900388303c237b2d04bb34e1b3be4dd83a92e39cefc7bfa4cc513187326",
+    "programs/dusk/src/lib.rs": "b1506d54e784fe9ad19021028082aa151865979e7e1fafb3505d8ef9b67985d3",
+    "programs/dusk/src/math/arithmetic.rs": "b264f17cfd129679b269d798b7ae5bc752dac724e5f36bdcccd54878b19b8e5e",
+    "programs/dusk/src/math/mod.rs": "936b2f0c279d7e132ba966a09f6bbc6c6ece93807454ee3fb554e89b0b20bad5",
+    "programs/dusk/src/math/op_gamm.rs": "77e8314f9e723a93597a8cc56230e0b898823a71691575e76f3a9dd4622ebda5",
+    "programs/dusk/src/math/op_gamm/interval.rs": "fd081bb2e2396a161548c681271021a174b90efa823ec79fa415d5ffbf318f45",
+    "programs/dusk/src/oracle.rs": "a5af86332be9ba73763385e3cdb31005fbfeb7bb3464f67b8401b690f94a84c1",
+    "programs/dusk/src/state/leverage_position.rs": "e0f0e242a8ab642aa41967b971cc78f152c2ea86ae9ca1c0d7f1f41ff9ae1f84",
+    "programs/dusk/src/state/market.rs": "5ec65fb89e2fa3e07f434c7524617ef1d350f0dd9b79524da03a42d9db07f6b5",
+    "programs/dusk/src/state/mod.rs": "b4b1377298179d06e2a1bcc5cd3e087ad990688a2bf0e22e8d9a646785c407be",
+    "programs/dusk/src/state/parameter_proposal.rs": "1e6ecf9685a6179311f4cf1b093352fe5ab02f82f6c18104abe6b085e8df4f7b",
+    "programs/dusk/src/tests/instructions/hlp_deposit_preview.rs": "d439ea0f32abd686f64a195c3c09c03d4746aba2b15d14c9897fc3d7f0af52b8",
+    "programs/dusk/src/tests/instructions/market/initialize_lp_metadata.rs": "1c59ac83e4deecffda976639b1ee4371dba6228730ffdaec6e5647ba8c13d6ed",
+    "programs/dusk/src/tests/instructions/transfer_hook.rs": "8cc639fdc7e327625bc53b0dd3863d954f71e7faf34f44d17d29debb71d28a1c",
+    "programs/dusk/src/tests/state/leverage_position.rs": "c91985e16e43ffd20403e1c5ff40f3a1c8a85e1d19598f15a12c34a94a91cdf3",
+    "programs/dusk/src/tests/state/oracle.rs": "6f5ae695d0f0047e4d4a981de48f35a3cf86077c7aa57ec5debc13be0a26c994",
+    "programs/dusk/src/tests/state/parameter_proposal.rs": "f3da5c7017315b0d8a1c0e50b8a6f34e1821b9449ff9fa6b30bdd25784078432",
+    "programs/dusk/src/tests/token_hook_resolution.rs": "ced8fd0f8f1397100d3410239e15d51e91663b49b867fb1a37f5153e78fddc49",
+    "programs/dusk/src/tests/transitions/amm.rs": "28bd67a859c7ab525b2b091be387fdfa58439843c8f2b925caadcf37702b6abc",
+    "programs/dusk/src/tests/transitions/amm_cpmm.rs": "611436fc507eb94f89133b17e4dd5a4df9a03fe112d4dee8bf1316215b2f3425",
+    "programs/dusk/src/tests/transitions/governance_config.rs": "bd24f9b4eaec19836b4048824cf8d205a3031a2fee290396bce5d2eede0f832e",
+    "programs/dusk/src/tests/transitions/governance_market.rs": "e6a4dc853a2416a0907c802e0ab6c5ed80138d1b0572495396db9146c8ff353b",
+    "programs/dusk/src/tests/transitions/ledger_reserves.rs": "9d3d37b3db5a93c903fbb24cf9f89671bd7a1a73dc32c564178c7db251f200f0",
+    "programs/dusk/src/tests/transitions/lending_interest.rs": "e96b2b82f9f251f50deaae9b5d0d482aacc9c5589bddb3870d434d76e2b1ecd5",
+    "programs/dusk/src/tests/transitions/lending_liquidation.rs": "aa3734b289eb3bde003b953799fc59e7bc1fe36749a2e18d500f2f458ed234a6",
+    "programs/dusk/src/tests/transitions/leverage.rs": "815e23f125f10927dfca917757f84c4ae0c24ad42a8e918c054c6ed9b7cac035",
+    "programs/dusk/src/tests/transitions/liquidity_hlp_integrated.rs": "73eead8d3e84333eed7692a8af9932d166870ebd3e8a4c62972f74082db1b404",
+    "programs/dusk/src/tests/transitions/liquidity_hlp_interest.rs": "cbad68abfce188da4b0038bf3cf3ff5e13959f2421ead7c906bdf38b4396476e",
+    "programs/dusk/src/token.rs": "fff3a2c6327c7df20d2ed5ff4dbf78a0fe2af9ea4be6f7b8adb5c1206c38c3a3",
+    "programs/dusk/src/transitions/amm/curve.rs": "bc8e74d06da75befde264a49357a772e47b313008692347bac695153b7131b83",
+    "programs/dusk/src/transitions/amm/mod.rs": "025023b75fa55cac6738310ed24ff644bd90fe07683c3fa6594080c1186941d1",
+    "programs/dusk/src/transitions/amm/oracle.rs": "94fc54b007d6bca9cae7ad441e74b846464d7eaccd4fbe424913090c0ff1fb5d",
+    "programs/dusk/src/transitions/amm/swap.rs": "90055007474349e612f5de9fe136852aeae93dba18a39de4ce355f21b51c87d5",
+    "programs/dusk/src/transitions/flash_liquidation.rs": "109d5a5aca925604064480cef4ede677dc5d4282fd7391fa6173c0ee1b63d1a8",
+    "programs/dusk/src/transitions/governance.rs": "32ed8b7c004055511c48cbadac42b24d4d134769a772f50dc12e58c8475b704b",
+    "programs/dusk/src/transitions/lending/mod.rs": "7d638139a61426e39779b7314e02121b920a015a0feaba282eea42c227be9750",
+    "programs/dusk/src/transitions/leverage.rs": "f4d822fa4522dfbdd48ad021a4b6061281da1367a405570b902b0fa339cd7a59",
+    "programs/dusk/src/transitions/liquidity/hlp/engine.rs": "639dd76bf1cdab9053f3809d376e3b4c00c698e01379767dfdc97ea25dee69f3",
+    "programs/dusk/src/transitions/liquidity/hlp/integrated.rs": "2bcaa5c459b12b100a6ccced1d4ce8e96e1f93a4df5b0606039040db0329430d",
+    "programs/dusk/src/transitions/mod.rs": "a58606ba129018d2f01e42c33c3aa40f4056c9a7197080a4a6687fe47da3544f",
+    "programs/dusk/src/transitions/oracle.rs": "356ec5da82bda1e75cfb2c684c362e892323b5f8481e1952a961fbde0a3f2c68",
+    "programs/leverage_delegate/src/instructions/hlp/common.rs": "d765b0049766c1b23e96e1c29e2ed96e147b2c21fc8e11ba6cebef6ebd5f7cad",
+    "programs/leverage_delegate/src/instructions/hlp/execute.rs": "6dac20b528264f63e38e6421b5401b8bea3ecf5f75f2b05f5e20b6113bb25e60",
+    "programs/leverage_delegate/src/instructions/leverage/before_close.rs": "7a43ea857e2e7b2286a4b5bff571542e1ea849b48f935509ff80c158011d2e0d",
+    "programs/leverage_delegate/src/instructions/protection/execute.rs": "5c14502826e149bd303bcec671ebd5557d33f58f49484b7c229c952e561fa2a8",
+    "programs/leverage_delegate/src/instructions/protection/mod.rs": "657638fc28d8ba14620924738ef67763ba0837685aa19ebadf74df1d941221d2",
+    "programs/leverage_delegate/src/instructions/protection/preview.rs": "bec36baf75c1216a21cb80a897155ca17e6bd0b07ef86ea44bf1cb2cb5c508e5",
+    "programs/leverage_delegate/src/tests/instructions/leverage.rs": "d10b1764fb8e2fd4ccf503d0a2b681efd5703ff09e114d888a81e5705bdb2473",
+    "programs/leverage_delegate/src/token.rs": "f873f1a0610f89b0b7c02ffc53ebdb0f08a4f41351d327c3eed361d3b5c6aa04",
+    "scripts/check_one_use_helpers.js": "dccde30d32ce318d387c381a3e15f4753c95363f7b8b84082904a01afc2330c6",
+    "scripts/devnet/create_market_via_sdk.ts": "55f325ddf569d5c49d78bba87b423cc3d6de0c1d283ae4c78532f226ffe42afb",
+    "scripts/devnet/create_named_market.ts": "f25ae0448d82930396603fb5bed70d7fc4e8ed77718d5c6cb47bdcfc21876931",
+    "scripts/utils/market-creation.ts": "efc517f15797a5c459770cf46fef31003aaacdcde30bacf3970665afb0b34269",
+    "scripts/v2/README.md": "3114abf4606bce7036dfbba8ee0d1e885816bf9bb4590e73163a9ec006ddb937",
+    "scripts/v2/bootstrap_market.ts": "8b272c33fc3e76b5ca99828434e6fa1575d6ec6f90f2c0d7a80fa6b112b62421",
+    "scripts/v2/smoke_v2_devnet.ts": "d0cd41a758f27c8f4a524cc535c61ac50d33f65f20b57a45c9ffb3076b29c107",
+    "tests/fixtures/op_gamm_compute/Cargo.toml": "f5b6d4257a2a5b44253e1249375ab68c72a20c84ef8af56e6173fb22f71ff83b",
+    "tests/fixtures/op_gamm_compute/src/lib.rs": "32c29ec9f751b70808355e5dc7e252c3b0bc20a97ab987516a2267c041b271bf",
+    "tests/utils/instruction-coverage.ts": "72c6ed082f78c03eda80df934bf95586ef361c6508b555fd9d5e9a0f3ab9fe51",
+    "tests/v2-final-smoke.test.ts": "3398c614525350c1979a23270d3ab29af5c2a37eea28b496c31efb639ef316bd"
+  },
+  "artifact_hashes": {
+    "target/deploy/dusk.so": "aff1a96643bc3971dbe2b5e1ce94b60c38ead67dee21c875cc513713fb1117c5",
+    "target/deploy/faucet.so": "b9bc7faf2607d35a54f9240729003b0dcf79ce404b8cbab93f2683e6ac835745",
+    "target/deploy/leverage_delegate.so": "aa37f29294233db6bfb7c44af64e1b32ea6eeac2b343df51287dcdb976f35cc8",
+    "target/deploy/referral_transfer_hook.so": "3438535f513e548bec0a2a8b824175fd3677481dd3604a142d32d55eaf1ed471",
+    "target/deploy/token_metadata_fixture.so": "66058d6873c5090e457a944bd63a87b796dcdbd3e42f063743ba79e40a926f5e"
+  },
+  "check_log_sha256": {
+    "1": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "2": "b53a87e185ac4b8131484455100c6a127c40d0985444c4fe728614611e02ca80",
+    "3": "4896437a97af20c2a0606ab31c49b44a2bf0cf6965c84a656dcca421bf5c60e4",
+    "4": "1ce7dedd1acc4115fe8261d8613265a40235ee717699f8f4a45131ee35ddb5c9",
+    "5": "2d2bca7fa983e3d6cdf38349482c060a115a3db0ab6aa4c6a4beb96be86a692f",
+    "6": "d47e3878e553ecd9c8674632f2abcc30ff5e121eefa8aa1cb56194aa79304689",
+    "7": "a9b7bcbcc0147cd1e3638cb8df6e34a53598e5f13f8c8faa1d8a89c1af09681e",
+    "8": "be5d7a7762d9de36a963179ed1347b8a8192af7681fc534a40bb6d49ffbc405f",
+    "9": "6ee6510094c6ca10819a3bb2928791d69476ed258df6ea27caa0b5dfb8b05e5d",
+    "10": "0bcac414570bfebadc388ee5809ad5118529119a1872ecddbfdb8fe593fc5efe",
+    "11": "3020b991a6e096e4977516a6ac2b9e7b9cd6d84f4b12bd585c314346c800e1f8",
+    "12": "deff0bb0e4eccaa7bc7c1ae49541cefa39d92a356661c613572982dcdf7baa6a",
+    "13": "e728f513f48168703e85a595145da518a8c1132ee2518a8d4f3320d4abd1c072",
+    "14": "7b964213d8aaf339031f1058b174f8dc7b1b55911800e732770ed55665a5c370",
+    "15": "2625242c3508f692d58fabd089490e7d7f974d93282b674054dc16f8929e7f56",
+    "16": "b21d75f14a1a157b1dda8a8f69a2914fc819d212f341c637374db61304409796",
+    "17": "fc51d4cd9cc0d9ca35f7511a3da14ae704aa43b7d6d043d14292fa209d3f7a55"
+  },
+  "additional_checks": [
+    "Launch and smoke scripts transpile; optional oracle JSON parsing accepts native omission and valid policy, and rejects invalid lambda. No live devnet transactions were sent.",
+    "Instruction smoke-coverage list matches the 77 current Dusk IDL instructions."
+  ]
+}

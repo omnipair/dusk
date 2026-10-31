@@ -1,12 +1,9 @@
-use anchor_lang::{
-    prelude::*,
-    solana_program::{instruction::Instruction, program::invoke_signed},
-    Event,
-};
+use anchor_lang::{prelude::*, solana_program::instruction::Instruction, Event};
 
 use crate::{
     events::{BorrowInterestAccrued, BorrowInterestPaid, DebtSource, HlpRebalanced},
     state::{Market, MarketAsset, ReferralInterestQuote},
+    token::invoke_signed_reusing_instruction,
     transitions::{lending::accrue_side, HlpRebalanceReceipt},
 };
 
@@ -14,20 +11,33 @@ use crate::{
 /// preparation where an Anchor `Context` is not available. Callers supply
 /// the seed-validated event authority from their `#[event_cpi]` accounts.
 pub(crate) fn emit_accounting_event<'info, E: Event>(event: &E, authority: AccountInfo<'info>) -> Result<()> {
-    let (_, bump) = Pubkey::find_program_address(&[b"__event_authority"], &crate::ID);
-    // One allocation instead of Event::data, concat and Instruction cloning
-    // the same payload. Fixed-size accounting events fit this capacity; Borsh
-    // may grow it safely if a future event contains variable-length fields.
-    let mut data = Vec::with_capacity(16 + core::mem::size_of::<E>());
-    data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
-    data.extend_from_slice(E::DISCRIMINATOR);
-    event.serialize(&mut data)?;
-    let instruction = Instruction {
-        program_id: crate::ID,
-        accounts: vec![AccountMeta::new_readonly(authority.key(), true)],
-        data,
+    let mut instruction = Instruction {
+        program_id: Pubkey::default(),
+        accounts: Vec::new(),
+        data: Vec::new(),
     };
-    invoke_signed(&instruction, &[authority], &[&[b"__event_authority", &[bump]]])?;
+    emit_cpi_event_with_instruction(event, authority, &mut instruction)
+}
+
+/// Reuses one self-CPI instruction buffer across several events in a large
+/// composite instruction. The SBF bump allocator does not reclaim the vectors
+/// allocated by consecutive event emissions during the same invocation.
+pub(crate) fn emit_cpi_event_with_instruction<'info, E: Event>(
+    event: &E,
+    authority: AccountInfo<'info>,
+    instruction: &mut Instruction,
+) -> Result<()> {
+    let (_, bump) = Pubkey::find_program_address(&[b"__event_authority"], &crate::ID);
+    instruction.program_id = crate::ID;
+    instruction.accounts.clear();
+    instruction
+        .accounts
+        .push(AccountMeta::new_readonly(authority.key(), true));
+    instruction.data.clear();
+    instruction.data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
+    instruction.data.extend_from_slice(E::DISCRIMINATOR);
+    event.serialize(&mut instruction.data)?;
+    invoke_signed_reusing_instruction(instruction, &[authority], &[&[b"__event_authority", &[bump]]])?;
     Ok(())
 }
 
@@ -40,10 +50,38 @@ pub(crate) fn emit_interest_paid<'info>(
     caller_bounty: u64,
     event_authority: AccountInfo<'info>,
 ) -> Result<()> {
+    let mut instruction = Instruction {
+        program_id: Pubkey::default(),
+        accounts: Vec::new(),
+        data: Vec::new(),
+    };
+    emit_interest_paid_with_instruction(
+        market,
+        asset,
+        source,
+        position,
+        quote,
+        caller_bounty,
+        event_authority,
+        &mut instruction,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn emit_interest_paid_with_instruction<'info>(
+    market: &Account<'info, Market>,
+    asset: MarketAsset,
+    source: DebtSource,
+    position: Option<Pubkey>,
+    quote: ReferralInterestQuote,
+    caller_bounty: u64,
+    event_authority: AccountInfo<'info>,
+    instruction: &mut Instruction,
+) -> Result<()> {
     if quote.interest_paid == 0 {
         return Ok(());
     }
-    emit_accounting_event(
+    emit_cpi_event_with_instruction(
         &BorrowInterestPaid {
             market: market.key(),
             asset_mint: market.side(asset).asset_mint,
@@ -58,6 +96,7 @@ pub(crate) fn emit_interest_paid<'info>(
             slot: Clock::get()?.slot,
         },
         event_authority,
+        instruction,
     )
 }
 

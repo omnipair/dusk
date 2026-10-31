@@ -2112,6 +2112,7 @@ impl Market {
             principal_paid,
         )?;
         if self.amm.initialized
+            && !self.oracle_price_unavailable()
             && before_accrual.is_some()
             && before_accrual == Some(self.integrated_curve_state_nad()?)
         {
@@ -2196,14 +2197,7 @@ impl Market {
         current_unix_timestamp: i64,
         collateral_fee: LeverageCollateralFee,
     ) -> Result<u64> {
-        let collateral_asset = position.collateral_asset()?;
-        self.quote_leverage_swap_at_time(
-            collateral_asset,
-            collateral_fee.unwind_credit(position.collateral_amount)?,
-            current_slot,
-            current_unix_timestamp,
-        )
-        .map(|quote| quote.amount_out)
+        self.leverage_protection_closeout_value_with_fee(position, current_slot, current_unix_timestamp, collateral_fee)
     }
 
     /// Exact executable output used by protection health. Only valuation is
@@ -2229,8 +2223,23 @@ impl Market {
         current_unix_timestamp: i64,
         collateral_fee: LeverageCollateralFee,
     ) -> Result<u64> {
-        let asset = position.collateral_asset()?;
-        let unwind_credit = collateral_fee.unwind_credit(position.collateral_amount)?;
+        self.leverage_swap_output_at_time(
+            position.collateral_asset()?,
+            collateral_fee.unwind_credit(position.collateral_amount)?,
+            current_slot,
+            current_unix_timestamp,
+        )
+    }
+
+    /// Exact certified swap output for valuation, without building an unused
+    /// post-settlement geometry. Execution must still prepare its own swap.
+    pub fn leverage_swap_output_at_time(
+        &self,
+        asset: MarketAsset,
+        unwind_credit: u64,
+        current_slot: u64,
+        current_unix_timestamp: i64,
+    ) -> Result<u64> {
         let preliminary = self.preliminary_swap_inputs_for_state_at_time(
             asset,
             unwind_credit,
@@ -2259,9 +2268,12 @@ impl Market {
     ) -> Result<u64> {
         let collateral_asset = position.collateral_asset()?;
         let unwind_credit = collateral_fee.unwind_credit(position.collateral_amount)?;
-        let closeout_quote =
-            self.quote_leverage_swap_at_time(collateral_asset, unwind_credit, current_slot, current_unix_timestamp)?;
-        let closeout_value = closeout_quote.amount_out;
+        let closeout_value = self.leverage_protection_closeout_value_with_fee(
+            position,
+            current_slot,
+            current_unix_timestamp,
+            collateral_fee,
+        )?;
         let required_bps = position.margin_terms.initial_bps(position.collateral_amount)?;
         let debt_amount = position.debt_amount(&self.debt)?;
         require_gt!(closeout_value, debt_amount, ErrorCode::LeverageInitialMarginTooLow);
@@ -2476,6 +2488,9 @@ impl Market {
     pub(crate) fn prepare_leverage_margin_operation(&mut self, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
         self.accrue_interest_to_slot(current_slot)?;
+        if self.oracle_price_unavailable() {
+            return Ok(());
+        }
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             self.advance_amm_clock(current_slot)?;
             let (_, _, price_nad) = self.checkpoint_hlp_vaults_with_price()?;

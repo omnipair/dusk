@@ -290,6 +290,7 @@ impl<'info> EmergencyLiquidation<'info> {
             eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),
+            None,
         )?;
         a.market
             .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, eligibility.base_hlp_ylp_shares)?;

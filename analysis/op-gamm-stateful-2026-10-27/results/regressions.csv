@@ -1,0 +1,565 @@
+check,amp,db,dq,kind,d,raw,status
+unfrozen native unchanged,1,9,6,0,0,1,pass
+unfrozen native unchanged,1,9,6,0,0,3,pass
+unfrozen native unchanged,1,9,6,0,0,1000000,pass
+unfrozen native unchanged,1,9,6,0,0,1000000000,pass
+unfrozen native unchanged,1,9,6,0,0,100000000000,pass
+unfrozen native unchanged,1,9,6,0,0,1500000000000,pass
+unfrozen native unchanged,1,9,6,0,1,1,pass
+unfrozen native unchanged,1,9,6,0,1,3,pass
+unfrozen native unchanged,1,9,6,0,1,60000,pass
+unfrozen native unchanged,1,9,6,0,1,60000000,pass
+unfrozen native unchanged,1,9,6,0,1,6000000000,pass
+unfrozen native unchanged,1,9,6,0,1,90000000000,pass
+unfrozen native unchanged,1,9,6,1,0,1,pass
+unfrozen native unchanged,1,9,6,1,0,3,pass
+unfrozen native unchanged,1,9,6,1,0,1000000,pass
+unfrozen native unchanged,1,9,6,1,0,1000000000,pass
+unfrozen native unchanged,1,9,6,1,0,100000000000,pass
+unfrozen native unchanged,1,9,6,1,0,1500000000000,pass
+unfrozen native unchanged,1,9,6,1,1,1,pass
+unfrozen native unchanged,1,9,6,1,1,3,pass
+unfrozen native unchanged,1,9,6,1,1,60000,pass
+unfrozen native unchanged,1,9,6,1,1,60000000,pass
+unfrozen native unchanged,1,9,6,1,1,6000000000,pass
+unfrozen native unchanged,1,9,6,1,1,90000000000,pass
+unfrozen native unchanged,1,6,9,0,0,1,pass
+unfrozen native unchanged,1,6,9,0,0,3,pass
+unfrozen native unchanged,1,6,9,0,0,1000,pass
+unfrozen native unchanged,1,6,9,0,0,1000000,pass
+unfrozen native unchanged,1,6,9,0,0,100000000,pass
+unfrozen native unchanged,1,6,9,0,0,1500000000,pass
+unfrozen native unchanged,1,6,9,0,1,1,pass
+unfrozen native unchanged,1,6,9,0,1,3,pass
+unfrozen native unchanged,1,6,9,0,1,60000000,pass
+unfrozen native unchanged,1,6,9,0,1,60000000000,pass
+unfrozen native unchanged,1,6,9,0,1,6000000000001,pass
+unfrozen native unchanged,1,6,9,0,1,90000000000027,pass
+unfrozen native unchanged,1,6,9,1,0,1,pass
+unfrozen native unchanged,1,6,9,1,0,3,pass
+unfrozen native unchanged,1,6,9,1,0,1000,pass
+unfrozen native unchanged,1,6,9,1,0,1000000,pass
+unfrozen native unchanged,1,6,9,1,0,100000000,pass
+unfrozen native unchanged,1,6,9,1,0,1500000000,pass
+unfrozen native unchanged,1,6,9,1,1,1,pass
+unfrozen native unchanged,1,6,9,1,1,3,pass
+unfrozen native unchanged,1,6,9,1,1,60000000,pass
+unfrozen native unchanged,1,6,9,1,1,60000000000,pass
+unfrozen native unchanged,1,6,9,1,1,6000000000001,pass
+unfrozen native unchanged,1,6,9,1,1,90000000000027,pass
+unfrozen native unchanged,1,2,2,0,0,1,pass
+unfrozen native unchanged,1,2,2,0,0,3,pass
+unfrozen native unchanged,1,2,2,0,0,100,pass
+unfrozen native unchanged,1,2,2,0,0,10000,pass
+unfrozen native unchanged,1,2,2,0,0,150000,pass
+unfrozen native unchanged,1,2,2,0,1,1,pass
+unfrozen native unchanged,1,2,2,0,1,3,pass
+unfrozen native unchanged,1,2,2,0,1,10,pass
+unfrozen native unchanged,1,2,2,0,1,6000,pass
+unfrozen native unchanged,1,2,2,0,1,600000,pass
+unfrozen native unchanged,1,2,2,0,1,9000001,pass
+unfrozen native unchanged,1,2,2,1,0,1,pass
+unfrozen native unchanged,1,2,2,1,0,3,pass
+unfrozen native unchanged,1,2,2,1,0,100,pass
+unfrozen native unchanged,1,2,2,1,0,10000,pass
+unfrozen native unchanged,1,2,2,1,0,150000,pass
+unfrozen native unchanged,1,2,2,1,1,1,pass
+unfrozen native unchanged,1,2,2,1,1,3,pass
+unfrozen native unchanged,1,2,2,1,1,10,pass
+unfrozen native unchanged,1,2,2,1,1,5999,pass
+unfrozen native unchanged,1,2,2,1,1,599999,pass
+unfrozen native unchanged,1,2,2,1,1,8999998,pass
+unfrozen native unchanged,1,0,0,0,0,1,pass
+unfrozen native unchanged,1,0,0,0,0,3,pass
+unfrozen native unchanged,1,0,0,0,0,100,pass
+unfrozen native unchanged,1,0,0,0,0,1500,pass
+unfrozen native unchanged,1,0,0,0,1,1,pass
+unfrozen native unchanged,1,0,0,0,1,3,pass
+unfrozen native unchanged,1,0,0,0,1,10,pass
+unfrozen native unchanged,1,0,0,0,1,600,pass
+unfrozen native unchanged,1,0,0,0,1,30000,pass
+unfrozen native unchanged,1,0,0,0,1,210004,pass
+unfrozen native unchanged,1,0,0,1,0,1,pass
+unfrozen native unchanged,1,0,0,1,0,3,pass
+unfrozen native unchanged,1,0,0,1,0,100,pass
+unfrozen native unchanged,1,0,0,1,0,1500,pass
+unfrozen native unchanged,1,0,0,1,1,1,pass
+unfrozen native unchanged,1,0,0,1,1,3,pass
+unfrozen native unchanged,1,0,0,1,1,10,pass
+unfrozen native unchanged,1,0,0,1,1,600,pass
+unfrozen native unchanged,1,0,0,1,1,30000,pass
+unfrozen native unchanged,1,0,0,1,1,210002,pass
+unfrozen native unchanged,4,9,6,0,0,1,pass
+unfrozen native unchanged,4,9,6,0,0,3,pass
+unfrozen native unchanged,4,9,6,0,0,1000000,pass
+unfrozen native unchanged,4,9,6,0,0,1000000000,pass
+unfrozen native unchanged,4,9,6,0,0,100000000000,pass
+unfrozen native unchanged,4,9,6,0,0,1500000000000,pass
+unfrozen native unchanged,4,9,6,0,1,1,pass
+unfrozen native unchanged,4,9,6,0,1,3,pass
+unfrozen native unchanged,4,9,6,0,1,60000,pass
+unfrozen native unchanged,4,9,6,0,1,60000000,pass
+unfrozen native unchanged,4,9,6,0,1,6000000000,pass
+unfrozen native unchanged,4,9,6,0,1,90000000000,pass
+unfrozen native unchanged,4,9,6,1,0,1,pass
+unfrozen native unchanged,4,9,6,1,0,3,pass
+unfrozen native unchanged,4,9,6,1,0,1000000,pass
+unfrozen native unchanged,4,9,6,1,0,1000000000,pass
+unfrozen native unchanged,4,9,6,1,0,100000000000,pass
+unfrozen native unchanged,4,9,6,1,0,1500000000000,pass
+unfrozen native unchanged,4,9,6,1,1,1,pass
+unfrozen native unchanged,4,9,6,1,1,3,pass
+unfrozen native unchanged,4,9,6,1,1,60000,pass
+unfrozen native unchanged,4,9,6,1,1,60000000,pass
+unfrozen native unchanged,4,9,6,1,1,6000000000,pass
+unfrozen native unchanged,4,9,6,1,1,90000000000,pass
+unfrozen native unchanged,4,6,9,0,0,1,pass
+unfrozen native unchanged,4,6,9,0,0,3,pass
+unfrozen native unchanged,4,6,9,0,0,1000,pass
+unfrozen native unchanged,4,6,9,0,0,1000000,pass
+unfrozen native unchanged,4,6,9,0,0,100000000,pass
+unfrozen native unchanged,4,6,9,0,0,1500000000,pass
+unfrozen native unchanged,4,6,9,0,1,1,pass
+unfrozen native unchanged,4,6,9,0,1,3,pass
+unfrozen native unchanged,4,6,9,0,1,60000000,pass
+unfrozen native unchanged,4,6,9,0,1,60000000000,pass
+unfrozen native unchanged,4,6,9,0,1,6000000000001,pass
+unfrozen native unchanged,4,6,9,0,1,90000000000027,pass
+unfrozen native unchanged,4,6,9,1,0,1,pass
+unfrozen native unchanged,4,6,9,1,0,3,pass
+unfrozen native unchanged,4,6,9,1,0,1000,pass
+unfrozen native unchanged,4,6,9,1,0,1000000,pass
+unfrozen native unchanged,4,6,9,1,0,100000000,pass
+unfrozen native unchanged,4,6,9,1,0,1500000000,pass
+unfrozen native unchanged,4,6,9,1,1,1,pass
+unfrozen native unchanged,4,6,9,1,1,3,pass
+unfrozen native unchanged,4,6,9,1,1,60000000,pass
+unfrozen native unchanged,4,6,9,1,1,60000000000,pass
+unfrozen native unchanged,4,6,9,1,1,6000000000001,pass
+unfrozen native unchanged,4,6,9,1,1,90000000000027,pass
+unfrozen native unchanged,4,2,2,0,0,1,pass
+unfrozen native unchanged,4,2,2,0,0,3,pass
+unfrozen native unchanged,4,2,2,0,0,100,pass
+unfrozen native unchanged,4,2,2,0,0,10000,pass
+unfrozen native unchanged,4,2,2,0,0,150000,pass
+unfrozen native unchanged,4,2,2,0,1,1,pass
+unfrozen native unchanged,4,2,2,0,1,3,pass
+unfrozen native unchanged,4,2,2,0,1,10,pass
+unfrozen native unchanged,4,2,2,0,1,6000,pass
+unfrozen native unchanged,4,2,2,0,1,600000,pass
+unfrozen native unchanged,4,2,2,0,1,9000001,pass
+unfrozen native unchanged,4,2,2,1,0,1,pass
+unfrozen native unchanged,4,2,2,1,0,3,pass
+unfrozen native unchanged,4,2,2,1,0,100,pass
+unfrozen native unchanged,4,2,2,1,0,10000,pass
+unfrozen native unchanged,4,2,2,1,0,150000,pass
+unfrozen native unchanged,4,2,2,1,1,1,pass
+unfrozen native unchanged,4,2,2,1,1,3,pass
+unfrozen native unchanged,4,2,2,1,1,10,pass
+unfrozen native unchanged,4,2,2,1,1,5999,pass
+unfrozen native unchanged,4,2,2,1,1,599999,pass
+unfrozen native unchanged,4,2,2,1,1,8999998,pass
+unfrozen native unchanged,4,0,0,0,0,1,pass
+unfrozen native unchanged,4,0,0,0,0,3,pass
+unfrozen native unchanged,4,0,0,0,0,100,pass
+unfrozen native unchanged,4,0,0,0,0,1500,pass
+unfrozen native unchanged,4,0,0,0,1,1,pass
+unfrozen native unchanged,4,0,0,0,1,3,pass
+unfrozen native unchanged,4,0,0,0,1,10,pass
+unfrozen native unchanged,4,0,0,0,1,600,pass
+unfrozen native unchanged,4,0,0,0,1,30000,pass
+unfrozen native unchanged,4,0,0,0,1,210004,pass
+unfrozen native unchanged,4,0,0,1,0,1,pass
+unfrozen native unchanged,4,0,0,1,0,3,pass
+unfrozen native unchanged,4,0,0,1,0,100,pass
+unfrozen native unchanged,4,0,0,1,0,1500,pass
+unfrozen native unchanged,4,0,0,1,1,1,pass
+unfrozen native unchanged,4,0,0,1,1,3,pass
+unfrozen native unchanged,4,0,0,1,1,10,pass
+unfrozen native unchanged,4,0,0,1,1,600,pass
+unfrozen native unchanged,4,0,0,1,1,30000,pass
+unfrozen native unchanged,4,0,0,1,1,210002,pass
+lambda zero no oracle False,4,9,6,0,0,1000000,pass
+lambda zero no oracle False,4,9,6,0,0,1000000,pass
+lambda zero no oracle False,4,9,6,0,0,1000000,pass
+lambda zero no oracle False,4,9,6,0,0,1000000,pass
+lambda zero no oracle False,4,9,6,0,0,1000000,pass
+lambda zero no oracle False,4,9,6,0,0,1000000,pass
+lambda zero no oracle False,4,9,6,0,0,1000000,pass
+lambda zero no oracle False,4,9,6,0,0,1000000,pass
+lambda zero no oracle False,4,9,6,0,0,10000000000,pass
+lambda zero no oracle False,4,9,6,0,0,10000000000,pass
+lambda zero no oracle False,4,9,6,0,0,10000000000,pass
+lambda zero no oracle False,4,9,6,0,0,10000000000,pass
+lambda zero no oracle False,4,9,6,0,0,10000000000,pass
+lambda zero no oracle False,4,9,6,0,0,10000000000,pass
+lambda zero no oracle False,4,9,6,0,0,10000000000,pass
+lambda zero no oracle False,4,9,6,0,0,10000000000,pass
+lambda zero no oracle False,4,9,6,0,1,1000,pass
+lambda zero no oracle False,4,9,6,0,1,1000,pass
+lambda zero no oracle False,4,9,6,0,1,1000,pass
+lambda zero no oracle False,4,9,6,0,1,1000,pass
+lambda zero no oracle False,4,9,6,0,1,1000,pass
+lambda zero no oracle False,4,9,6,0,1,1000,pass
+lambda zero no oracle False,4,9,6,0,1,1000,pass
+lambda zero no oracle False,4,9,6,0,1,1000,pass
+lambda zero no oracle False,4,9,6,0,1,600000000,pass
+lambda zero no oracle False,4,9,6,0,1,600000000,pass
+lambda zero no oracle False,4,9,6,0,1,600000000,pass
+lambda zero no oracle False,4,9,6,0,1,600000000,pass
+lambda zero no oracle False,4,9,6,0,1,600000000,pass
+lambda zero no oracle False,4,9,6,0,1,600000000,pass
+lambda zero no oracle False,4,9,6,0,1,600000000,pass
+lambda zero no oracle False,4,9,6,0,1,600000000,pass
+lambda zero no oracle False,4,9,6,1,0,1000000,pass
+lambda zero no oracle False,4,9,6,1,0,1000000,pass
+lambda zero no oracle False,4,9,6,1,0,1000000,pass
+lambda zero no oracle False,4,9,6,1,0,1000000,pass
+lambda zero no oracle False,4,9,6,1,0,1000000,pass
+lambda zero no oracle False,4,9,6,1,0,1000000,pass
+lambda zero no oracle False,4,9,6,1,0,1000000,pass
+lambda zero no oracle False,4,9,6,1,0,1000000,pass
+lambda zero no oracle False,4,9,6,1,0,10000000000,pass
+lambda zero no oracle False,4,9,6,1,0,10000000000,pass
+lambda zero no oracle False,4,9,6,1,0,10000000000,pass
+lambda zero no oracle False,4,9,6,1,0,10000000000,pass
+lambda zero no oracle False,4,9,6,1,0,10000000000,pass
+lambda zero no oracle False,4,9,6,1,0,10000000000,pass
+lambda zero no oracle False,4,9,6,1,0,10000000000,pass
+lambda zero no oracle False,4,9,6,1,0,10000000000,pass
+lambda zero no oracle False,4,9,6,1,1,1000,pass
+lambda zero no oracle False,4,9,6,1,1,1000,pass
+lambda zero no oracle False,4,9,6,1,1,1000,pass
+lambda zero no oracle False,4,9,6,1,1,1000,pass
+lambda zero no oracle False,4,9,6,1,1,1000,pass
+lambda zero no oracle False,4,9,6,1,1,1000,pass
+lambda zero no oracle False,4,9,6,1,1,1000,pass
+lambda zero no oracle False,4,9,6,1,1,1000,pass
+lambda zero no oracle False,4,9,6,1,1,600000000,pass
+lambda zero no oracle False,4,9,6,1,1,600000000,pass
+lambda zero no oracle False,4,9,6,1,1,600000000,pass
+lambda zero no oracle False,4,9,6,1,1,600000000,pass
+lambda zero no oracle False,4,9,6,1,1,600000000,pass
+lambda zero no oracle False,4,9,6,1,1,600000000,pass
+lambda zero no oracle False,4,9,6,1,1,600000000,pass
+lambda zero no oracle False,4,9,6,1,1,600000000,pass
+lambda zero no oracle False,4,9,6,2,0,1000000,pass
+lambda zero no oracle False,4,9,6,2,0,1000000,pass
+lambda zero no oracle False,4,9,6,2,0,1000000,pass
+lambda zero no oracle False,4,9,6,2,0,1000000,pass
+lambda zero no oracle False,4,9,6,2,0,1000000,pass
+lambda zero no oracle False,4,9,6,2,0,1000000,pass
+lambda zero no oracle False,4,9,6,2,0,1000000,pass
+lambda zero no oracle False,4,9,6,2,0,1000000,pass
+lambda zero no oracle False,4,9,6,2,0,10000000000,pass
+lambda zero no oracle False,4,9,6,2,0,10000000000,pass
+lambda zero no oracle False,4,9,6,2,0,10000000000,pass
+lambda zero no oracle False,4,9,6,2,0,10000000000,pass
+lambda zero no oracle False,4,9,6,2,0,10000000000,pass
+lambda zero no oracle False,4,9,6,2,0,10000000000,pass
+lambda zero no oracle False,4,9,6,2,0,10000000000,pass
+lambda zero no oracle False,4,9,6,2,0,10000000000,pass
+lambda zero no oracle False,4,9,6,2,1,1000,pass
+lambda zero no oracle False,4,9,6,2,1,1000,pass
+lambda zero no oracle False,4,9,6,2,1,1000,pass
+lambda zero no oracle False,4,9,6,2,1,1000,pass
+lambda zero no oracle False,4,9,6,2,1,1000,pass
+lambda zero no oracle False,4,9,6,2,1,1000,pass
+lambda zero no oracle False,4,9,6,2,1,1000,pass
+lambda zero no oracle False,4,9,6,2,1,1000,pass
+lambda zero no oracle False,4,9,6,2,1,600000000,pass
+lambda zero no oracle False,4,9,6,2,1,600000000,pass
+lambda zero no oracle False,4,9,6,2,1,600000000,pass
+lambda zero no oracle False,4,9,6,2,1,600000000,pass
+lambda zero no oracle False,4,9,6,2,1,600000000,pass
+lambda zero no oracle False,4,9,6,2,1,600000000,pass
+lambda zero no oracle False,4,9,6,2,1,600000000,pass
+lambda zero no oracle False,4,9,6,2,1,600000000,pass
+lambda zero no oracle False,4,9,6,3,0,1000000,pass
+lambda zero no oracle False,4,9,6,3,0,1000000,pass
+lambda zero no oracle False,4,9,6,3,0,1000000,pass
+lambda zero no oracle False,4,9,6,3,0,1000000,pass
+lambda zero no oracle False,4,9,6,3,0,1000000,pass
+lambda zero no oracle False,4,9,6,3,0,1000000,pass
+lambda zero no oracle False,4,9,6,3,0,1000000,pass
+lambda zero no oracle False,4,9,6,3,0,1000000,pass
+lambda zero no oracle False,4,9,6,3,0,10000000000,pass
+lambda zero no oracle False,4,9,6,3,0,10000000000,pass
+lambda zero no oracle False,4,9,6,3,0,10000000000,pass
+lambda zero no oracle False,4,9,6,3,0,10000000000,pass
+lambda zero no oracle False,4,9,6,3,0,10000000000,pass
+lambda zero no oracle False,4,9,6,3,0,10000000000,pass
+lambda zero no oracle False,4,9,6,3,0,10000000000,pass
+lambda zero no oracle False,4,9,6,3,0,10000000000,pass
+lambda zero no oracle False,4,9,6,3,1,1000,pass
+lambda zero no oracle False,4,9,6,3,1,1000,pass
+lambda zero no oracle False,4,9,6,3,1,1000,pass
+lambda zero no oracle False,4,9,6,3,1,1000,pass
+lambda zero no oracle False,4,9,6,3,1,1000,pass
+lambda zero no oracle False,4,9,6,3,1,1000,pass
+lambda zero no oracle False,4,9,6,3,1,1000,pass
+lambda zero no oracle False,4,9,6,3,1,1000,pass
+lambda zero no oracle False,4,9,6,3,1,600000000,pass
+lambda zero no oracle False,4,9,6,3,1,600000000,pass
+lambda zero no oracle False,4,9,6,3,1,600000000,pass
+lambda zero no oracle False,4,9,6,3,1,600000000,pass
+lambda zero no oracle False,4,9,6,3,1,600000000,pass
+lambda zero no oracle False,4,9,6,3,1,600000000,pass
+lambda zero no oracle False,4,9,6,3,1,600000000,pass
+lambda zero no oracle False,4,9,6,3,1,600000000,pass
+lambda zero no oracle False,4,9,6,4,0,1000000,pass
+lambda zero no oracle False,4,9,6,4,0,1000000,pass
+lambda zero no oracle False,4,9,6,4,0,1000000,pass
+lambda zero no oracle False,4,9,6,4,0,1000000,pass
+lambda zero no oracle False,4,9,6,4,0,1000000,pass
+lambda zero no oracle False,4,9,6,4,0,1000000,pass
+lambda zero no oracle False,4,9,6,4,0,1000000,pass
+lambda zero no oracle False,4,9,6,4,0,1000000,pass
+lambda zero no oracle False,4,9,6,4,0,10000000000,pass
+lambda zero no oracle False,4,9,6,4,0,10000000000,pass
+lambda zero no oracle False,4,9,6,4,0,10000000000,pass
+lambda zero no oracle False,4,9,6,4,0,10000000000,pass
+lambda zero no oracle False,4,9,6,4,0,10000000000,pass
+lambda zero no oracle False,4,9,6,4,0,10000000000,pass
+lambda zero no oracle False,4,9,6,4,0,10000000000,pass
+lambda zero no oracle False,4,9,6,4,0,10000000000,pass
+lambda zero no oracle False,4,9,6,4,1,1000,pass
+lambda zero no oracle False,4,9,6,4,1,1000,pass
+lambda zero no oracle False,4,9,6,4,1,1000,pass
+lambda zero no oracle False,4,9,6,4,1,1000,pass
+lambda zero no oracle False,4,9,6,4,1,1000,pass
+lambda zero no oracle False,4,9,6,4,1,1000,pass
+lambda zero no oracle False,4,9,6,4,1,1000,pass
+lambda zero no oracle False,4,9,6,4,1,1000,pass
+lambda zero no oracle False,4,9,6,4,1,600000000,pass
+lambda zero no oracle False,4,9,6,4,1,600000000,pass
+lambda zero no oracle False,4,9,6,4,1,600000000,pass
+lambda zero no oracle False,4,9,6,4,1,600000000,pass
+lambda zero no oracle False,4,9,6,4,1,600000000,pass
+lambda zero no oracle False,4,9,6,4,1,600000000,pass
+lambda zero no oracle False,4,9,6,4,1,600000000,pass
+lambda zero no oracle False,4,9,6,4,1,600000000,pass
+lambda zero no oracle False,4,9,6,5,0,1000000,pass
+lambda zero no oracle False,4,9,6,5,0,1000000,pass
+lambda zero no oracle False,4,9,6,5,0,1000000,pass
+lambda zero no oracle False,4,9,6,5,0,1000000,pass
+lambda zero no oracle False,4,9,6,5,0,1000000,pass
+lambda zero no oracle False,4,9,6,5,0,1000000,pass
+lambda zero no oracle False,4,9,6,5,0,1000000,pass
+lambda zero no oracle False,4,9,6,5,0,1000000,pass
+lambda zero no oracle False,4,9,6,5,0,10000000000,pass
+lambda zero no oracle False,4,9,6,5,0,10000000000,pass
+lambda zero no oracle False,4,9,6,5,0,10000000000,pass
+lambda zero no oracle False,4,9,6,5,0,10000000000,pass
+lambda zero no oracle False,4,9,6,5,0,10000000000,pass
+lambda zero no oracle False,4,9,6,5,0,10000000000,pass
+lambda zero no oracle False,4,9,6,5,0,10000000000,pass
+lambda zero no oracle False,4,9,6,5,0,10000000000,pass
+lambda zero no oracle False,4,9,6,5,1,1000,pass
+lambda zero no oracle False,4,9,6,5,1,1000,pass
+lambda zero no oracle False,4,9,6,5,1,1000,pass
+lambda zero no oracle False,4,9,6,5,1,1000,pass
+lambda zero no oracle False,4,9,6,5,1,1000,pass
+lambda zero no oracle False,4,9,6,5,1,1000,pass
+lambda zero no oracle False,4,9,6,5,1,1000,pass
+lambda zero no oracle False,4,9,6,5,1,1000,pass
+lambda zero no oracle False,4,9,6,5,1,600000000,pass
+lambda zero no oracle False,4,9,6,5,1,600000000,pass
+lambda zero no oracle False,4,9,6,5,1,600000000,pass
+lambda zero no oracle False,4,9,6,5,1,600000000,pass
+lambda zero no oracle False,4,9,6,5,1,600000000,pass
+lambda zero no oracle False,4,9,6,5,1,600000000,pass
+lambda zero no oracle False,4,9,6,5,1,600000000,pass
+lambda zero no oracle False,4,9,6,5,1,600000000,pass
+lambda zero no oracle True,4,9,6,0,0,1000000,pass
+lambda zero no oracle True,4,9,6,0,0,1000000,pass
+lambda zero no oracle True,4,9,6,0,0,1000000,pass
+lambda zero no oracle True,4,9,6,0,0,1000000,pass
+lambda zero no oracle True,4,9,6,0,0,1000000,pass
+lambda zero no oracle True,4,9,6,0,0,1000000,pass
+lambda zero no oracle True,4,9,6,0,0,1000000,pass
+lambda zero no oracle True,4,9,6,0,0,1000000,pass
+lambda zero no oracle True,4,9,6,0,0,10000000000,pass
+lambda zero no oracle True,4,9,6,0,0,10000000000,pass
+lambda zero no oracle True,4,9,6,0,0,10000000000,pass
+lambda zero no oracle True,4,9,6,0,0,10000000000,pass
+lambda zero no oracle True,4,9,6,0,0,10000000000,pass
+lambda zero no oracle True,4,9,6,0,0,10000000000,pass
+lambda zero no oracle True,4,9,6,0,0,10000000000,pass
+lambda zero no oracle True,4,9,6,0,0,10000000000,pass
+lambda zero no oracle True,4,9,6,0,1,1000,pass
+lambda zero no oracle True,4,9,6,0,1,1000,pass
+lambda zero no oracle True,4,9,6,0,1,1000,pass
+lambda zero no oracle True,4,9,6,0,1,1000,pass
+lambda zero no oracle True,4,9,6,0,1,1000,pass
+lambda zero no oracle True,4,9,6,0,1,1000,pass
+lambda zero no oracle True,4,9,6,0,1,1000,pass
+lambda zero no oracle True,4,9,6,0,1,1000,pass
+lambda zero no oracle True,4,9,6,0,1,600000000,pass
+lambda zero no oracle True,4,9,6,0,1,600000000,pass
+lambda zero no oracle True,4,9,6,0,1,600000000,pass
+lambda zero no oracle True,4,9,6,0,1,600000000,pass
+lambda zero no oracle True,4,9,6,0,1,600000000,pass
+lambda zero no oracle True,4,9,6,0,1,600000000,pass
+lambda zero no oracle True,4,9,6,0,1,600000000,pass
+lambda zero no oracle True,4,9,6,0,1,600000000,pass
+lambda zero no oracle True,4,9,6,1,0,1000000,pass
+lambda zero no oracle True,4,9,6,1,0,1000000,pass
+lambda zero no oracle True,4,9,6,1,0,1000000,pass
+lambda zero no oracle True,4,9,6,1,0,1000000,pass
+lambda zero no oracle True,4,9,6,1,0,1000000,pass
+lambda zero no oracle True,4,9,6,1,0,1000000,pass
+lambda zero no oracle True,4,9,6,1,0,1000000,pass
+lambda zero no oracle True,4,9,6,1,0,1000000,pass
+lambda zero no oracle True,4,9,6,1,0,10000000000,pass
+lambda zero no oracle True,4,9,6,1,0,10000000000,pass
+lambda zero no oracle True,4,9,6,1,0,10000000000,pass
+lambda zero no oracle True,4,9,6,1,0,10000000000,pass
+lambda zero no oracle True,4,9,6,1,0,10000000000,pass
+lambda zero no oracle True,4,9,6,1,0,10000000000,pass
+lambda zero no oracle True,4,9,6,1,0,10000000000,pass
+lambda zero no oracle True,4,9,6,1,0,10000000000,pass
+lambda zero no oracle True,4,9,6,1,1,1000,pass
+lambda zero no oracle True,4,9,6,1,1,1000,pass
+lambda zero no oracle True,4,9,6,1,1,1000,pass
+lambda zero no oracle True,4,9,6,1,1,1000,pass
+lambda zero no oracle True,4,9,6,1,1,1000,pass
+lambda zero no oracle True,4,9,6,1,1,1000,pass
+lambda zero no oracle True,4,9,6,1,1,1000,pass
+lambda zero no oracle True,4,9,6,1,1,1000,pass
+lambda zero no oracle True,4,9,6,1,1,600000000,pass
+lambda zero no oracle True,4,9,6,1,1,600000000,pass
+lambda zero no oracle True,4,9,6,1,1,600000000,pass
+lambda zero no oracle True,4,9,6,1,1,600000000,pass
+lambda zero no oracle True,4,9,6,1,1,600000000,pass
+lambda zero no oracle True,4,9,6,1,1,600000000,pass
+lambda zero no oracle True,4,9,6,1,1,600000000,pass
+lambda zero no oracle True,4,9,6,1,1,600000000,pass
+lambda zero no oracle True,4,9,6,2,0,1000000,pass
+lambda zero no oracle True,4,9,6,2,0,1000000,pass
+lambda zero no oracle True,4,9,6,2,0,1000000,pass
+lambda zero no oracle True,4,9,6,2,0,1000000,pass
+lambda zero no oracle True,4,9,6,2,0,1000000,pass
+lambda zero no oracle True,4,9,6,2,0,1000000,pass
+lambda zero no oracle True,4,9,6,2,0,1000000,pass
+lambda zero no oracle True,4,9,6,2,0,1000000,pass
+lambda zero no oracle True,4,9,6,2,0,10000000000,pass
+lambda zero no oracle True,4,9,6,2,0,10000000000,pass
+lambda zero no oracle True,4,9,6,2,0,10000000000,pass
+lambda zero no oracle True,4,9,6,2,0,10000000000,pass
+lambda zero no oracle True,4,9,6,2,0,10000000000,pass
+lambda zero no oracle True,4,9,6,2,0,10000000000,pass
+lambda zero no oracle True,4,9,6,2,0,10000000000,pass
+lambda zero no oracle True,4,9,6,2,0,10000000000,pass
+lambda zero no oracle True,4,9,6,2,1,1000,pass
+lambda zero no oracle True,4,9,6,2,1,1000,pass
+lambda zero no oracle True,4,9,6,2,1,1000,pass
+lambda zero no oracle True,4,9,6,2,1,1000,pass
+lambda zero no oracle True,4,9,6,2,1,1000,pass
+lambda zero no oracle True,4,9,6,2,1,1000,pass
+lambda zero no oracle True,4,9,6,2,1,1000,pass
+lambda zero no oracle True,4,9,6,2,1,1000,pass
+lambda zero no oracle True,4,9,6,2,1,600000000,pass
+lambda zero no oracle True,4,9,6,2,1,600000000,pass
+lambda zero no oracle True,4,9,6,2,1,600000000,pass
+lambda zero no oracle True,4,9,6,2,1,600000000,pass
+lambda zero no oracle True,4,9,6,2,1,600000000,pass
+lambda zero no oracle True,4,9,6,2,1,600000000,pass
+lambda zero no oracle True,4,9,6,2,1,600000000,pass
+lambda zero no oracle True,4,9,6,2,1,600000000,pass
+lambda zero no oracle True,4,9,6,3,0,1000000,pass
+lambda zero no oracle True,4,9,6,3,0,1000000,pass
+lambda zero no oracle True,4,9,6,3,0,1000000,pass
+lambda zero no oracle True,4,9,6,3,0,1000000,pass
+lambda zero no oracle True,4,9,6,3,0,1000000,pass
+lambda zero no oracle True,4,9,6,3,0,1000000,pass
+lambda zero no oracle True,4,9,6,3,0,1000000,pass
+lambda zero no oracle True,4,9,6,3,0,1000000,pass
+lambda zero no oracle True,4,9,6,3,0,10000000000,pass
+lambda zero no oracle True,4,9,6,3,0,10000000000,pass
+lambda zero no oracle True,4,9,6,3,0,10000000000,pass
+lambda zero no oracle True,4,9,6,3,0,10000000000,pass
+lambda zero no oracle True,4,9,6,3,0,10000000000,pass
+lambda zero no oracle True,4,9,6,3,0,10000000000,pass
+lambda zero no oracle True,4,9,6,3,0,10000000000,pass
+lambda zero no oracle True,4,9,6,3,0,10000000000,pass
+lambda zero no oracle True,4,9,6,3,1,1000,pass
+lambda zero no oracle True,4,9,6,3,1,1000,pass
+lambda zero no oracle True,4,9,6,3,1,1000,pass
+lambda zero no oracle True,4,9,6,3,1,1000,pass
+lambda zero no oracle True,4,9,6,3,1,1000,pass
+lambda zero no oracle True,4,9,6,3,1,1000,pass
+lambda zero no oracle True,4,9,6,3,1,1000,pass
+lambda zero no oracle True,4,9,6,3,1,1000,pass
+lambda zero no oracle True,4,9,6,3,1,600000000,pass
+lambda zero no oracle True,4,9,6,3,1,600000000,pass
+lambda zero no oracle True,4,9,6,3,1,600000000,pass
+lambda zero no oracle True,4,9,6,3,1,600000000,pass
+lambda zero no oracle True,4,9,6,3,1,600000000,pass
+lambda zero no oracle True,4,9,6,3,1,600000000,pass
+lambda zero no oracle True,4,9,6,3,1,600000000,pass
+lambda zero no oracle True,4,9,6,3,1,600000000,pass
+lambda zero no oracle True,4,9,6,4,0,1000000,pass
+lambda zero no oracle True,4,9,6,4,0,1000000,pass
+lambda zero no oracle True,4,9,6,4,0,1000000,pass
+lambda zero no oracle True,4,9,6,4,0,1000000,pass
+lambda zero no oracle True,4,9,6,4,0,1000000,pass
+lambda zero no oracle True,4,9,6,4,0,1000000,pass
+lambda zero no oracle True,4,9,6,4,0,1000000,pass
+lambda zero no oracle True,4,9,6,4,0,1000000,pass
+lambda zero no oracle True,4,9,6,4,0,10000000000,pass
+lambda zero no oracle True,4,9,6,4,0,10000000000,pass
+lambda zero no oracle True,4,9,6,4,0,10000000000,pass
+lambda zero no oracle True,4,9,6,4,0,10000000000,pass
+lambda zero no oracle True,4,9,6,4,0,10000000000,pass
+lambda zero no oracle True,4,9,6,4,0,10000000000,pass
+lambda zero no oracle True,4,9,6,4,0,10000000000,pass
+lambda zero no oracle True,4,9,6,4,0,10000000000,pass
+lambda zero no oracle True,4,9,6,4,1,1000,pass
+lambda zero no oracle True,4,9,6,4,1,1000,pass
+lambda zero no oracle True,4,9,6,4,1,1000,pass
+lambda zero no oracle True,4,9,6,4,1,1000,pass
+lambda zero no oracle True,4,9,6,4,1,1000,pass
+lambda zero no oracle True,4,9,6,4,1,1000,pass
+lambda zero no oracle True,4,9,6,4,1,1000,pass
+lambda zero no oracle True,4,9,6,4,1,1000,pass
+lambda zero no oracle True,4,9,6,4,1,600000000,pass
+lambda zero no oracle True,4,9,6,4,1,600000000,pass
+lambda zero no oracle True,4,9,6,4,1,600000000,pass
+lambda zero no oracle True,4,9,6,4,1,600000000,pass
+lambda zero no oracle True,4,9,6,4,1,600000000,pass
+lambda zero no oracle True,4,9,6,4,1,600000000,pass
+lambda zero no oracle True,4,9,6,4,1,600000000,pass
+lambda zero no oracle True,4,9,6,4,1,600000000,pass
+lambda zero no oracle True,4,9,6,5,0,1000000,pass
+lambda zero no oracle True,4,9,6,5,0,1000000,pass
+lambda zero no oracle True,4,9,6,5,0,1000000,pass
+lambda zero no oracle True,4,9,6,5,0,1000000,pass
+lambda zero no oracle True,4,9,6,5,0,1000000,pass
+lambda zero no oracle True,4,9,6,5,0,1000000,pass
+lambda zero no oracle True,4,9,6,5,0,1000000,pass
+lambda zero no oracle True,4,9,6,5,0,1000000,pass
+lambda zero no oracle True,4,9,6,5,0,10000000000,pass
+lambda zero no oracle True,4,9,6,5,0,10000000000,pass
+lambda zero no oracle True,4,9,6,5,0,10000000000,pass
+lambda zero no oracle True,4,9,6,5,0,10000000000,pass
+lambda zero no oracle True,4,9,6,5,0,10000000000,pass
+lambda zero no oracle True,4,9,6,5,0,10000000000,pass
+lambda zero no oracle True,4,9,6,5,0,10000000000,pass
+lambda zero no oracle True,4,9,6,5,0,10000000000,pass
+lambda zero no oracle True,4,9,6,5,1,1000,pass
+lambda zero no oracle True,4,9,6,5,1,1000,pass
+lambda zero no oracle True,4,9,6,5,1,1000,pass
+lambda zero no oracle True,4,9,6,5,1,1000,pass
+lambda zero no oracle True,4,9,6,5,1,1000,pass
+lambda zero no oracle True,4,9,6,5,1,1000,pass
+lambda zero no oracle True,4,9,6,5,1,1000,pass
+lambda zero no oracle True,4,9,6,5,1,1000,pass
+lambda zero no oracle True,4,9,6,5,1,600000000,pass
+lambda zero no oracle True,4,9,6,5,1,600000000,pass
+lambda zero no oracle True,4,9,6,5,1,600000000,pass
+lambda zero no oracle True,4,9,6,5,1,600000000,pass
+lambda zero no oracle True,4,9,6,5,1,600000000,pass
+lambda zero no oracle True,4,9,6,5,1,600000000,pass
+lambda zero no oracle True,4,9,6,5,1,600000000,pass
+lambda zero no oracle True,4,9,6,5,1,600000000,pass

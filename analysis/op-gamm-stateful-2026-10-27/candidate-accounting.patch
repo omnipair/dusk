@@ -1,0 +1,56 @@
+--- pinned/transitions/liquidity/hlp/integrated.rs
++++ research-snapshot/transitions/liquidity/hlp/integrated.rs
+@@ -101,6 +101,11 @@
+                 endpoint.total_base,
+             )?)
+             .ok_or(ErrorCode::MarketMathOverflow)?;
++        // A frozen vault is already removed by the persistent frozen offsets;
++        // valuing its retained debt again as a zero-equity active hedge double counts it.
++        let fixed=crate::benchmark_api::RESEARCH_FIX_FROZEN.load(std::sync::atomic::Ordering::Relaxed);
++        let base_equity=if fixed && self.frozen_hlp_mask & 1 != 0 {0}else{base_equity};
++        let quote_equity=if fixed && self.frozen_hlp_mask & 2 != 0 {0}else{quote_equity};
+         let base = signed(endpoint.total_base)?
+             .checked_sub(base_equity)
+             .and_then(|v| v.checked_sub(signed(endpoint.quote_hlp_base_debt).ok()?))
+@@ -264,7 +269,15 @@
+ }
+ 
+ pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Result<IntegratedHlpEndpoint> {
+-    let (base, quote) = state.book_ordinary()?;
++    let (mut base, mut quote) = state.book_ordinary()?;
++    if crate::benchmark_api::RESEARCH_FIX_FROZEN.load(std::sync::atomic::Ordering::Relaxed) {
++        if state.frozen_hlp_mask & 2 != 0 { base=base.checked_add(state.quote_hlp_base_debt).ok_or(ErrorCode::MarketMathOverflow)?; }
++        if state.frozen_hlp_mask & 1 != 0 { quote=quote.checked_add(state.base_hlp_quote_debt).ok_or(ErrorCode::MarketMathOverflow)?; }
++    }
++    if crate::benchmark_api::RESEARCH_FIX_CARRY.load(std::sync::atomic::Ordering::Relaxed) {
++        base=base.checked_add(u128::from(state.quote_hlp_base_carry)*state.base_atom_nad).ok_or(ErrorCode::MarketMathOverflow)?;
++        quote=quote.checked_add(u128::from(state.base_hlp_quote_carry)*state.quote_atom_nad).ok_or(ErrorCode::MarketMathOverflow)?;
++    }
+     require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
+     if state.frozen_hlp_mask & 2 == 0 {
+         state.quote_hlp_base_debt = mul_div_u128(state.quote_hlp_equity, base, quote)?;
+--- pinned/transitions/liquidity/hlp/engine.rs
++++ research-snapshot/transitions/liquidity/hlp/engine.rs
+@@ -758,10 +758,20 @@
+     // derived ordinary tranche can lose a few reserve atoms.
+     let endpoint = integrated::materialized_hlp_endpoint(end)?;
+     let (book_base, book_quote) = end.book_ordinary()?;
++    let fixed=crate::benchmark_api::RESEARCH_FIX_FROZEN.load(std::sync::atomic::Ordering::Relaxed);
++    let carry=crate::benchmark_api::RESEARCH_FIX_CARRY.load(std::sync::atomic::Ordering::Relaxed);
++    let ownership_base=book_base
++        .checked_add(if fixed && frozen_mask & 2 != 0 {end.quote_hlp_base_debt}else{0})
++        .and_then(|v|v.checked_add(if carry {u128::from(end.quote_hlp_base_carry)*end.base_atom_nad}else{0}))
++        .ok_or(ErrorCode::MarketMathOverflow)?;
++    let ownership_quote=book_quote
++        .checked_add(if fixed && frozen_mask & 1 != 0 {end.base_hlp_quote_debt}else{0})
++        .and_then(|v|v.checked_add(if carry {u128::from(end.base_hlp_quote_carry)*end.quote_atom_nad}else{0}))
++        .ok_or(ErrorCode::MarketMathOverflow)?;
+     let mut ownership = reconstruct_hlp_ownership(
+         static_supply,
+-        book_base,
+-        book_quote,
++        ownership_base,
++        ownership_quote,
+         end.base_hlp_equity,
+         end.quote_hlp_equity,
+     )?;
