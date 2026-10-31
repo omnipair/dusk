@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import anchor from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { AddressLookupTableAccount, PublicKey } from "@solana/web3.js";
+import { AddressLookupTableAccount, PublicKey, TransactionInstruction } from "@solana/web3.js";
 import { marketCreationLookupTablePlan, marketCreationV0Transaction } from "../dist/market-launch.js";
 
 import IDL from "../dist/idl_v2.js";
@@ -171,6 +171,24 @@ test("positive-weight previews append feeds after caller accounts and transactio
   const native = await writer.transaction("previewSwap", {exactAssetIn: new anchor.BN(100)}, {accounts, remainingAccounts});
   assert.equal(native.instructions.length, 1);
   assert.equal(native.instructions[0].keys.at(-1).pubkey.toBase58(), key(24).toBase58());
+});
+
+test("hLP liquidity actions preserve a caller-supplied oracle policy", async () => {
+  const client = new anchor.Program(IDL, provider);
+  const writer = new DuskWrite(client);
+  const action = new TransactionInstruction({programId:client.programId,keys:[],data:Buffer.alloc(0)});
+  writer.initializeYieldAccountsInstruction = async () => action;
+  writer.instruction = async (name, _args, options) => {
+    assert.equal(name,"depositSingleSided");
+    assert.deepEqual(options.oraclePolicy,policy());
+    return action;
+  };
+  client.account.market.fetch = async () => { throw new Error("explicit policy must avoid a market fetch"); };
+  const result = await writer.depositSingleSided({}, {
+    payer:owner,owner,market,targetHlpMint:key(25),baseMint,quoteMint,
+    accounts:{},oraclePolicy:policy(),
+  });
+  assert.equal(result.actionInstruction,action);
 });
 
 test("governance execution budgets activation and disable without requiring the old feed", async () => {

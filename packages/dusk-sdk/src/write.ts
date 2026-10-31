@@ -1291,6 +1291,7 @@ export class DuskWrite {
         quoteYieldAccount,
       },
       remainingAccounts: options.remainingAccounts,
+      oraclePolicy: options.oraclePolicy,
     });
     return {
       baseYieldAccount,
