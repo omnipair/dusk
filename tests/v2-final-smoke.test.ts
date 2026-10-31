@@ -1004,7 +1004,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }> = {},
     quoteLpDecimals = lpDecimals,
     oracle: OraclePolicyInput | null = null,
-    expectedError?: string
+    expectedError?: string,
+    bootstrapPriceNad = 0
   ) {
     const paramsHash = Buffer.alloc(32, paramsSeed);
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
@@ -1030,7 +1031,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config,
         oracle,
         paramsHash: [...paramsHash],
-        bootstrapPriceNad: new anchor.BN(0),
+        bootstrapPriceNad: new anchor.BN(bootstrapPriceNad),
         launchFeeProgressOffset: 0,
         ylpMetadata: { name: "Omnipair V2 (Dusk) yLP", symbol: "yLP", uri: "https://omnipair.fi/metadata/dusk/ylp.json" },
         baseHlpMetadata: { name: "Omnipair V2 (Dusk) Base hLP", symbol: "hLP", uri: "https://omnipair.fi/metadata/dusk/base-hlp.json" },
@@ -1764,6 +1765,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }
   });
 
+  it("rejects an independent bootstrap price on guided creation", async function () {
+    const base=await createMint(connection as any,payer,payer.publicKey,null,6);
+    const quote=await createMint(connection as any,payer,payer.publicKey,null,6);
+    await initializeFinalMarketWithMints(206,base,quote,marketConfig(),6,{},6,
+      normalizedTestOracle().policy,"InvalidMarketConfig",1_000_000_000);
+  });
+
   it("requires a valid initial report before funding an oracle-selected market", async function () {
     const oracle=normalizedTestOracle();
     const fixture=await initializeFinalMarket(204,marketConfig(),oracle.policy);
@@ -1790,6 +1798,38 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     oracle.publish(fixture);
     await connection.sendTransaction(new Transaction().add(instruction),[payer]);
     expect((await getAccount(connection as any,accounts.ownerYlpAccount,undefined,TOKEN_2022_PROGRAM_ID)).amount>0n).to.equal(true);
+    const baseCredit=(await getAccount(connection as any,fixture.baseReserveVault)).amount;
+    const quoteCredit=(await getAccount(connection as any,fixture.quoteReserveVault)).amount;
+    // The caller requested a 2:1 seed; the authenticated report is 3:1.
+    expect(baseCredit).to.equal(66_666n);
+    expect(quoteCredit).to.equal(199_998n);
+    expect((await getAccount(connection as any,accounts.ownerBaseAccount)).amount).to.equal(1_000_000n-baseCredit);
+    expect((await getAccount(connection as any,accounts.ownerQuoteAccount)).amount).to.equal(2_000_000n-quoteCredit);
+  });
+
+  it("seeds from the execution-time report after a reference move, with deposit caps and min-LP protection", async function () {
+    const oracle=normalizedTestOracle();
+    const fixture=await initializeFinalMarket(205,marketConfig(),oracle.policy);
+    const accounts=await createOwnerAssetAccounts(fixture);
+    oracle.publish(fixture);
+    const writer=new DuskWrite(createDuskProgram({provider:program.provider}));
+    const instruction=await writer.addLiquidityInstruction({market:fixture.market,owner:payer.publicKey,
+      baseMint:fixture.baseMint,quoteMint:fixture.quoteMint,ylpMint:fixture.ylpMint,...accounts,
+      baseDepositAmount:100_000,quoteDepositAmount:200_000,minYlpAmount:1});
+    const feed=svm.getAccount(oracle.key)!;
+    const moved=Buffer.from(feed.data);moved.writeBigUInt64LE(6_000_000_000n,104);
+    svm.setAccount(oracle.key,{...feed,data:moved});
+    const protectedIx=await writer.addLiquidityInstruction({market:fixture.market,owner:payer.publicKey,
+      baseMint:fixture.baseMint,quoteMint:fixture.quoteMint,ylpMint:fixture.ylpMint,...accounts,
+      baseDepositAmount:100_000,quoteDepositAmount:200_000,minYlpAmount:1_000_000});
+    let error:unknown;
+    try {await connection.sendTransaction(new Transaction().add(protectedIx),[payer]);} catch(e) {error=e;}
+    expect(String(error)).to.include("SlippageExceeded");
+    expect((await getAccount(connection as any,fixture.baseReserveVault)).amount).to.equal(0n);
+    svm.expireBlockhash();
+    await connection.sendTransaction(new Transaction().add(instruction),[payer]);
+    expect((await getAccount(connection as any,fixture.baseReserveVault)).amount).to.equal(33_333n);
+    expect((await getAccount(connection as any,fixture.quoteReserveVault)).amount).to.equal(199_998n);
   });
 
   it("makes the Dusk transfer hook immutable on production LP mints", async function () {
@@ -9960,7 +10000,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       if (oracleMode) delegatedCloseTx.instructions.unshift(
         ComputeBudgetProgram.requestHeapFrame({bytes: 256 * 1024}),
         ComputeBudgetProgram.setComputeUnitLimit({units: 1_400_000}));
-      const signature = await connection.sendTransaction(delegatedCloseTx, [payer, executor]);
+      const measuredClose = await connection.sendTransactionMeasured(delegatedCloseTx, [payer, executor]);
+      const signature = measuredClose.signature;
+      if (oracleMode) {
+        console.log(`Delegated OP close ${mode}: ${measuredClose.computeUnits} CU`);
+        expect(measuredClose.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
+      }
       if (partial) expect((accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any)
         .close_approval.selected_output.toString()).to.equal("0");
       const delegatedSwap = await expectLeverageSwap(delegatedCloseTx,

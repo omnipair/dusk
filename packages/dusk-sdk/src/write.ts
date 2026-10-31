@@ -846,9 +846,9 @@ export class DuskWrite {
     paramsHash: Uint8Array | Buffer | number[];
     config: MarketLaunchConfig;
     /** Installed atomically at creation. Omit or pass null for native pricing.
-     * First liquidity verifies the feed; later policy changes use governance. */
+     * Guided first liquidity derives its ratio from the validated current feed. */
     oracle?: OraclePolicyInput | null;
-    /** Opening price in NAD. Zero lets the first deposit set it. */
+    /** Native launch-adapter price in NAD. Guided creation requires zero. */
     bootstrapPriceNad?: GovernanceIntegerLike;
     launchFeeProgressOffset?: number;
     lpMetadata: {
@@ -864,16 +864,17 @@ export class DuskWrite {
       throw new Error(`paramsHash must be 32 bytes, received ${paramsHash.length}`);
     }
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
+    const oracle = params.oracle == null ? null : oraclePolicy(params.oracle);
+    const bootstrapPriceNad = governanceIntegerBN(params.bootstrapPriceNad ?? 0, "bootstrapPriceNad");
+    if (oracle && oracle.lambdaBps > 0 && !bootstrapPriceNad.isZero())
+      throw new Error("Oracle-guided markets derive the initial price from the feed; omit bootstrapPriceNad");
     return this.instruction(
       "initializeMarket" as DuskInstructionName,
       {
         config: anchorMarketConfig(params.config),
-        oracle: params.oracle == null ? null : oraclePolicy(params.oracle),
+        oracle,
         paramsHash: [...paramsHash],
-        bootstrapPriceNad: governanceIntegerBN(
-          params.bootstrapPriceNad ?? 0,
-          "bootstrapPriceNad"
-        ),
+        bootstrapPriceNad,
         launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
         ylpMetadata: params.lpMetadata.ylp,
         baseHlpMetadata: params.lpMetadata.baseHlp,
@@ -2406,6 +2407,9 @@ export interface SwapParams {
 }
 
 export interface AddLiquidityParams extends YlpLiquidityAccounts {
+  /** Maximum gross spend. Guided first deposits pair at the current validated
+   * oracle price; unused amounts remain with the owner. Native seeding uses
+   * both amounts to establish the initial ratio. */
   baseDepositAmount: RawAmount;
   quoteDepositAmount: RawAmount;
   /** Slippage floor on minted yLP shares. */

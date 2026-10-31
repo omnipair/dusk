@@ -52,3 +52,32 @@ These are finite tests, not a security proof or an independent audit. Arbitrary 
 ## Separate work
 
 Horus aggregation and optional depth-sensitive **borrow-interest** pricing remain separate from this PR’s OP-GAMM integration. The depth design uses fast deterioration/slow recovery; absent depth data means the ordinary base APR. This implementation does not claim to produce aggregate external liquidity or price outage liquidation execution. No deployed accounts or production-market migrations are assumed.
+
+## Oracle-derived first liquidity (31 October follow-up)
+
+A positive-weight market has no independent caller-selected opening price.
+`initialize_market` rejects a nonzero launch-adapter bootstrap price for guided
+creation. At first liquidity, `preview_add_liquidity` uses the invocation's
+validated observation to choose reserve credits within both gross-spend caps
+(after transfer-fee conversion). Base rounds down and quote rounds up to token
+atoms; unused amounts are never transferred. `add_liquidity` recomputes the
+same credits from measured transfers before minting yLP. The resulting native
+reserve ratio matches the reference up to less than one quote atom, rather
+than promising exact real-number equality. The existing min-yLP floor still
+protects execution. Native first liquidity and later proportional deposits
+retain their prior rules. No instruction payload or account layout changes.
+
+Validation covers missing/stale observations, mismatched caller ratios, a
+reference move between instruction construction and execution, unused wallet
+funds, min-yLP rollback, mixed token decimals, and rounded-preview idempotence.
+
+The first-deposit change also exercises a different inventory state in the
+existing partial delegated-close fixture. Decimal rescaling now uses an exact
+compile-time table for powers 10^0 through 10^38 instead of repeated runtime
+exponentiation. Its behavior is checked against the prior implementation over
+all 256 × 256 decimal pairs, five boundary amounts and both rounding directions
+(655,360 cases). The oracle-partial delegated close measures 1,322,073 CU under
+the unchanged 1,355,000-CU repository guard and 1.4M network cap. No curve,
+invariant, liquidation, interest or rounding rule was changed for this saving.
+The full 155-case SVM suite passes with 77/77 instruction coverage and the
+complete required compute baselines.

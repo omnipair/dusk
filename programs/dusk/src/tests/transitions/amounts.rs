@@ -1,6 +1,30 @@
 use crate::{constants::NAD, math::normalize_to_nad, state::MarketSide};
 use proptest::prelude::*;
 
+#[test]
+fn decimal_scale_lookup_matches_exponentiation_and_all_rounding_edges() {
+    for from in 0_u8..=u8::MAX {
+        for to in 0_u8..=u8::MAX {
+            for amount in [0, 1, u128::from(u64::MAX), u128::MAX / 1000, u128::MAX] {
+                for round_up in [false, true] {
+                    let expected = if amount == 0 || from == to {
+                        Some(amount)
+                    } else if to > from {
+                        10_u128.checked_pow(u32::from(to - from)).and_then(|scale| amount.checked_mul(scale))
+                    } else {
+                        Some(match 10_u128.checked_pow(u32::from(from - to)) {
+                            Some(scale) => amount / scale + u128::from(round_up && amount % scale != 0),
+                            None => u128::from(round_up),
+                        })
+                    };
+                    assert_eq!(rescale_amount(amount, from, to, round_up).ok(), expected,
+                        "amount={amount}, from={from}, to={to}, round_up={round_up}");
+                }
+            }
+        }
+    }
+}
+
 fn market_with_decimals(base: u8, quote: u8) -> Market {
     Market {
         base_side: MarketSide { asset_decimals: base, ..MarketSide::default() },

@@ -65,19 +65,33 @@ pub fn accrue_fee_liability_with_remainder(
 
 // Convert units with an explicit rounding direction. Market quantities only
 // scale upward on entry, so normalization cannot hide a nonzero token balance.
+// Construct powers at compile time: composite oracle/hLP operations rescale
+// hundreds of amounts, so repeatedly exponentiating the same decimals wastes
+// transaction compute. 10^38 is the last power representable by u128.
+const DECIMAL_SCALES: [u128; 39] = {
+    let mut scales = [1; 39];
+    let mut i = 1;
+    while i < scales.len() {
+        scales[i] = scales[i - 1] * 10;
+        i += 1;
+    }
+    scales
+};
+
 pub(crate) fn rescale_amount(amount: u128, from: u8, to: u8, round_up: bool) -> Result<u128> {
     if amount == 0 || from == to {
         return Ok(amount);
     }
     if to > from {
-        let scale = 10_u128
-            .checked_pow(u32::from(to - from))
+        let scale = DECIMAL_SCALES
+            .get(usize::from(to - from))
+            .copied()
             .ok_or(ErrorCode::MarketMathOverflow)?;
         amount
             .checked_mul(scale)
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     } else {
-        let Some(scale) = 10_u128.checked_pow(u32::from(from - to)) else {
+        let Some(&scale) = DECIMAL_SCALES.get(usize::from(from - to)) else {
             // The divisor exceeds every u128 amount. No overflowing power or
             // numerator is needed to determine the correctly rounded result.
             return Ok(u128::from(round_up));

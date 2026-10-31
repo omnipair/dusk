@@ -32,6 +32,15 @@ account. First liquidity and subsequent price-sensitive operations authenticate
 a current report when λ is positive. An invalid initial policy rolls back market
 creation and the treasury creation charge.
 
+Guided creation has no independent opening price: omit `bootstrapPriceNad` or
+pass zero. The SDK and program reject a nonzero value when λ is positive.
+`addLiquidityInstruction` takes two maximum gross spends. On the first guided
+deposit the validated execution-time report sets their usable ratio; base is
+rounded down and quote up to token atoms, and unused tokens stay in the owner's
+wallet. The existing `minYlpAmount` floor still applies. Native first deposits
+keep their caller-selected ratio, and subsequent deposits remain proportional
+to existing reserves. The first-deposit change preserves all wire layouts.
+
 Every market can later activate an oracle, change its source/weight/cap, or return
 to native pricing through the existing parameter-proposal lifecycle.
 `parameterUpdate.oracle(policy)` creates the proposal update. Subsequent changes

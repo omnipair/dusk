@@ -42,6 +42,40 @@ fn policy_limits_do_not_depend_on_market_creation_settings() {
 }
 
 #[test]
+fn guided_first_liquidity_uses_the_report_not_the_callers_deposit_ratio() {
+    for (base_decimals, quote_decimals) in [(0,0),(6,6),(6,9),(12,6),(6,12)] {
+        for price_nad in [NAD / 3, NAD, 60 * NAD, NAD * 1000 + 1] {
+            let (mut market,mut feed,mut fixture)=normalized();
+            market.base_side.asset_decimals=base_decimals;
+            market.quote_side.asset_decimals=quote_decimals;
+            feed.price_nad=price_nad; feed.confidence_nad=0;
+            fixture.data=feed.try_to_vec().unwrap();
+            assert!(market.preview_add_liquidity(1_000_000_000,2_000_000_000).is_err());
+            market.bind_oracle(&[fixture.info()],&clock()).unwrap();
+            let r=market.preview_add_liquidity(1_000_000_000,2_000_000_000).unwrap();
+            assert!(r.base_reserve_credit<=1_000_000_000 && r.quote_reserve_credit<=2_000_000_000);
+            let base=market.normalize_amount(r.base_reserve_credit.into(),base_decimals).unwrap();
+            let quote=market.normalize_amount(r.quote_reserve_credit.into(),quote_decimals).unwrap();
+            let quote_atom=market.normalize_amount(1,quote_decimals).unwrap();
+            // Actual reserve ratio differs from the source by less than one
+            // quote atom, including unlike mint precision and fractional prices.
+            assert!(quote*u128::from(NAD)>=base*u128::from(price_nad));
+            assert!((quote-quote_atom)*u128::from(NAD)<base*u128::from(price_nad));
+            let again=market.preview_add_liquidity(r.base_reserve_credit,r.quote_reserve_credit).unwrap();
+            assert_eq!((again.base_reserve_credit,again.quote_reserve_credit,again.ylp_amount),
+                (r.base_reserve_credit,r.quote_reserve_credit,r.ylp_amount));
+        }
+    }
+    let (mut market,_,mut fixture)=normalized();
+    market.bind_oracle(&[fixture.info()],&clock()).unwrap();
+    assert!(market.preview_add_liquidity(1,1).is_err());
+    market.oracle.policy.lambda_bps=0;
+    market.bind_oracle(&[],&Clock::default()).unwrap();
+    let r=market.preview_add_liquidity(1_000_000,2_000_000).unwrap();
+    assert_eq!((r.base_reserve_credit,r.quote_reserve_credit),(1_000_000,2_000_000));
+}
+
+#[test]
 fn normalized_reports_require_identity_source_age_and_confidence() {
     let (market,feed,mut fixture)=normalized();
     let policy=market.oracle.policy;

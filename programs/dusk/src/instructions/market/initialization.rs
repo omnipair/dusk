@@ -279,6 +279,10 @@ impl<'info> InitializeMarket<'info> {
         args.config.validate()?;
         args.oracle.unwrap_or_default().validate()?;
         require!(
+            args.oracle.unwrap_or_default().lambda_bps == 0 || args.bootstrap_price_nad == 0,
+            ErrorCode::InvalidMarketConfig
+        );
+        require!(
             args.launch_fee_progress_offset <= args.config.amm.launch_market_number_of_periods,
             ErrorCode::InvalidMarketConfig
         );

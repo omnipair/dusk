@@ -59,6 +59,18 @@ test("market initialization defaults to native and accepts an explicit null orac
   assert.equal(program.idl.instructions.some(ix=>ix.name==="configureInitialOracle"),false);
 });
 
+test("guided creation cannot supply a second, independent opening price", async () => {
+  const oracle={format:1,provider:key(40),baseAccount:key(41),quoteAccount:PublicKey.default,
+    baseFeedId:Array(32).fill(1),quoteFeedId:Array(32).fill(0),lambdaBps:3500,
+    adjustmentCapNad:"1250000000",maxAgeSeconds:30,maxAgeSlots:"75",maxConfidenceBps:100,maxPublishSkewSeconds:0};
+  await assert.rejects(write.initializeMarketInstruction({...creationParams(oracle),bootstrapPriceNad:1_000_000_000}),
+    /derive the initial price from the feed/);
+  const guided=await write.initializeMarketInstruction(creationParams(oracle));
+  assert.equal(program.coder.instruction.decode(guided.data).data.args.bootstrapPriceNad.toString(),"0");
+  const native=await write.initializeMarketInstruction({...creationParams(null),bootstrapPriceNad:1_000_000_000});
+  assert.equal(program.coder.instruction.decode(native.data).data.args.bootstrapPriceNad.toString(),"1000000000");
+});
+
 test("Token-2022 write helpers keep the fixed legacy Token account", async () => {
   const common = { market, owner, positionId, assetMint: baseMint, ownerAssetAccount: key(6) };
   const ylp = {
