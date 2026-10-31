@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "dusk-devnet-mock-feed.v1",
+  "network": "devnet",
+  "programId": "8aaFKbz66kvfA4vdXg7fs1gi5e5HbkZ6rtuB5UkHHkFH",
+  "publisher": "4NxCDaXnSmyEWavm3oFpnudWKfS1KAWJZNcMejktUdNt",
+  "report": "4jPsKhPRLWVUb39RMftmu2rK8vjpq7GkQwpbL8nmMZrZ",
+  "feedId": "e027d43ad516bf938babb6811fe10a691f33287cd7f84a12ddd7ad7c49a7bdd3",
+  "baseMint": "2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W",
+  "quoteMint": "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
+  "baseSymbol": "META",
+  "quoteSymbol": "USDC",
+  "updateIntervalSeconds": 15,
+  "programData": "CaFszg3CigojhFj59B5g9aV66rYfDaCFfXBpu6FQyqBW",
+  "deploymentSlot": "517094333",
+  "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+  "binaryBytes": 78712,
+  "binarySha256": "6df3621412109161c62fbe58fca3fa0d5c198c1919f5dc4892d1d23851d72c1d",
+  "deployment": {
+    "programId": "8aaFKbz66kvfA4vdXg7fs1gi5e5HbkZ6rtuB5UkHHkFH",
+    "signature": "4gQEGKVafaeNVQ7qZgBV5d5CaP29y8FCRVTdjaLxUDDUiWwp2SDA4DwvbzbZag5kqCzP8o23twmNZdQR2CYsQrkK"
+  },
+  "market": "BZxWwqmiqMTYXaoxt7MR4yVYsJRcbZZ4sL8vz76gNpYz",
+  "marketCreationSignature": "4uNQ79MY5RN34sy2iRE7cBdkEyjoAvqPxhR9HZuU9JS6kLJb62rKWSVoM2vQ1MBQcWTkNmkHnsWh8Kpk4cQF8enE",
+  "marketSeedSignature": "A3g8cV8zBycMc5D43jSNnzWAR7Kxf989FbKmqzJRvXJ6YEesruFJEPuT3af6ZRbHFSTNAH8ym4tDFJzxQKYT6Sr",
+  "flows": [
+    {
+      "attempts": 1,
+      "detail": "jgexm55RXx5BmcwPtfe9BWiEY8EhSmzgW5rd26DwWtYCYdcGYsXdYCv3B3pLTg9rgPGuKXY9rW9KXY6fRwYdhKB",
+      "flow": "swap",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "eMd3tj811ed32z1QvtNio2bU11ZokJGUvhDYP6gjQr8aZiCY1MZjivZ9LHNxxxzyVnoJXeojK5RBB4BUF3F2PMZ",
+      "flow": "add liquidity",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4XqTz2SD5pjM1MLJM3YC9Y5Jrjtff9evjsu6utUk3mRkuvTSfXmZwH3hQaqba4iLSuDpAhV4WztEq78uve4vD2Tn",
+      "flow": "remove liquidity",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "2CRpVchXCSbRxWSK5rzbmJcXgD8UGWQSQdRk9zrSRiAWVH7QX75jSoM1H9dLGoDxFxi2ejfLjFKPmWUwkuqkEEXn",
+      "flow": "deposit collateral",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "2kg8vQwYur6UwTJwgxdoaBGVjLem2reK1iwPLnjFMJysa3eqPPyEGsN6wSd7ogXGywcdyum4MBeLjEXrq6kygtAX",
+      "flow": "borrow",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "2jiz8w8kJiLUhag4B77JUNuHDuvMfWfHw4kH97C4XNFx1ynjePMCfksytxxY9cFrDSYUerdG8jMdZWe62CXdMXeG",
+      "flow": "repay",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "5CDQUzJ2mqETjuKeZ6QDAAdMXkVxwhd1ETLC2NpQo4yp1p4TBspEhRA8Aga7k94AjSQMKJ6pdDrb8p4h2GD1i3aZ",
+      "flow": "withdraw collateral",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "89G6UK6wDJSP4ChBfmdJ9F4cwR2VRXfsgNk6iJjji7TzVnc5JwTkZMbyJPgVZ98JoWRkcNHq9amrpWhfwMb8AxV",
+      "flow": "open leverage",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4YZASU3H3xFiGXms211yttU7k1gRvkRwXjxDPE3KVCCdJxUJzLfsdXmCfL9PcCNdD3NRA6iv58a82khXmzWfDokp",
+      "flow": "add leverage margin",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4A4cNWDr2rWoKBqcHasQzNeJ8rir7UaGNC7i5WzV7HQ9xpooQQMNNTC5eAVX4HuUg1tX9nLKfDCpLtTbvT9AanqT",
+      "flow": "delegate leverage position",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "4M4ZVyTsnjQTe37iSwC6bj7kL5TNbKWZJfyyQF1gMAoZbBYbkzQpAerVg9Y4zaH4k8Qpu5M6tu3Sox65bC9yjxRC",
+      "flow": "place conditional order",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "jvEbcmLSi2VG89hRNxVSV7c8vNjmLttvDMinTbQQimJ1ciRipuvAUjkFcQwaDm8CToPaCmDp4hVSKLcd1TYg7XW",
+      "flow": "cancel conditional order",
+      "ok": true
+    },
+    {
+      "attempts": 1,
+      "detail": "2aqJqxXKFAwHtwsUh8fpAeEuEfVp9TrRTiXr3CkEdBP5JEEDR9UW3WuB4LpxroUvLYM4P1Y1NopYGZwR65yJ9o4S",
+      "flow": "close leverage",
+      "ok": true
+    }
+  ],
+  "outageTests": [
+    {
+      "test": "deposit",
+      "signature": "5RsuhMdw3xNjsq3sBPDq43B71PmGAXZ2UM78tq6r9DkcZrbfcM4aazmudajn83XPbxrvYvqrzHxt5dxAL75otF4E"
+    },
+    {
+      "test": "fresh borrow",
+      "signature": "61qoUCzv5QGqWRodUNomaXSnq2W7HNgL6cNMTWhuELuGzLQewwf12QuwREA9CogUZrLCYUfBEywGZRRQw5viwtjt"
+    },
+    {
+      "test": "stale swap",
+      "result": "rejected",
+      "reason": "OracleStale"
+    },
+    {
+      "test": "stale new borrowing",
+      "result": "rejected",
+      "reason": "OracleStale"
+    },
+    {
+      "test": "stale collateral top-up",
+      "signature": "3kAtjcVs9wLePAdaTmC3vPWr32hyZFn92kNtnvzLBRsDmT9fHztNTsvhenbABkzrr7RvKXSm9uTrPsUwkG2fQGA6"
+    },
+    {
+      "test": "stale direct repayment",
+      "signature": "7327AsUfPTNp3jN7exqgnxvdH6WuXXFGbxAxueambXKChAzSyZcsZebzkUV5jnszFphZpEjsEJKXyNng33SkXdV"
+    },
+    {
+      "test": "fresh recovery swap",
+      "signature": "2z5QTjTqsLjPppWm9gqkPg5tVPMi7FPYkpEAK8sh2D4qdfyyv6tabLCUprkp9oNWubxppcMMdzenk9zCV9sEiYrR"
+    },
+    {
+      "test": "withdraw all test collateral",
+      "signature": "2u3hD196wRnEXqAMVzs5KVaACv1nopxRd97LSLdATyRhevsniK7gQgyh9uDM6Ypy5bwNPVD6k1WFui9UKdDNg4Ms"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "publisher": "4NxCDaXnSmyEWavm3oFpnudWKfS1KAWJZNcMejktUdNt",
+  "separateFromDeployer": true,
+  "allTransactionsReviewed": 64,
+  "programs": [
+    "8aaFKbz66kvfA4vdXg7fs1gi5e5HbkZ6rtuB5UkHHkFH",
+    "11111111111111111111111111111111"
+  ],
+  "tokenAccountCount": 0,
+  "oldestSignature": "4nUJV2kN19yjAkyqE8JCNDs1SvJQ6mzeTpbW2pFe2DzxAvgagfpFykFs8cR7gphT56HgoEiCAjYzL8SeGgQhzVPQ",
+  "firstFundingSignature": "4nUJV2kN19yjAkyqE8JCNDs1SvJQ6mzeTpbW2pFe2DzxAvgagfpFykFs8cR7gphT56HgoEiCAjYzL8SeGgQhzVPQ",
+  "generatedFor": "dusk devnet META/USDC synthetic feed only",
+  "backendService": "dusk-devnet/dusk-prices",
+  "privateKeyCommitted": false,
+  "deployerKeyUploaded": false
+}
