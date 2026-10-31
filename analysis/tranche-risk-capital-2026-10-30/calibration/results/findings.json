@@ -1,0 +1,234 @@
+{
+  "scenario_parameter_runs": 1514,
+  "current_defaults": {
+    "status": "User-selected controller direction; reference defaults, not applied to native Dusk",
+    "controller": "V1 exponential band controller with coverage direction",
+    "signal": "(funded junior / consolidated covered debt) * (1 - utilization_asset)",
+    "model": {
+      "target_start": 0.05,
+      "target_end": 0.0625,
+      "half_life_ms": 1209600000,
+      "initial_rate": 0.04,
+      "min_rate": 0.02,
+      "max_rate": 0.0
+    },
+    "governance": "Market-specific authorized replacement, accruing old interval before switching; preserve ongoing rates",
+    "junior_pool_share_reference_band": [
+      0.2,
+      0.25
+    ],
+    "reference_utilization": 0.8,
+    "reference_note": "Default translation only; never recalculate band from live utilization",
+    "new_borrow_utilization_limit": 0.8,
+    "native_implementation_status": "not implemented",
+    "half_life_default_note": "14 days; user-selected default, adjustable per market",
+    "no_economic_cap_note": "max_rate = 0; numerical range/overflow handling remains necessary",
+    "seed_fraction": 0.001,
+    "notice_days": [
+      7,
+      10
+    ],
+    "claim_window_days": 2,
+    "queue_fee_bps": 5,
+    "queue_fee_destination": "permanent junior seed",
+    "parameter_override_policy": "Omitted creation inputs use defaults. Supplied valid band, half-life, initial APR, minimum APR and maximum APR override them. Governance can replace the model prospectively; initial APR does not reset an existing market."
+  },
+  "historical_test_candidate": {
+    "signal": "(J / D_total) * (1 - U_asset)",
+    "target": 0.05,
+    "band": [
+      0.045,
+      0.055
+    ],
+    "rate_half_life_days": 14,
+    "initial_apr": 0.04,
+    "min_apr": 0.01,
+    "max_apr": 0.5,
+    "new_borrow_utilization_limit": 0.8,
+    "seed_fraction": 0.001,
+    "notice_days": [
+      7,
+      10
+    ],
+    "claim_window_days": 2,
+    "queue_fee_bps": 5,
+    "queue_fee_destination": "permanent junior seed",
+    "status": "historical experiment; superseded by per-market V1 defaults"
+  },
+  "behavior_summaries": {
+    "lower_target": {
+      "borrow": 597054.822652859,
+      "apr": 0.021662015018893834,
+      "senior_loss": 51050.10735801296,
+      "wait": 0.11789469301017327,
+      "turns": 4.0476190476190474
+    },
+    "balanced_slow": {
+      "borrow": 571724.8920121952,
+      "apr": 0.050724901927123964,
+      "senior_loss": 42876.73496373429,
+      "wait": 0.1173665953220685,
+      "turns": 5.214285714285714
+    },
+    "balanced_fast": {
+      "borrow": 567040.387246181,
+      "apr": 0.05143218325990725,
+      "senior_loss": 32150.858745900427,
+      "wait": 0.11758774212569217,
+      "turns": 8.166666666666666
+    },
+    "higher_target": {
+      "borrow": 511499.0236205666,
+      "apr": 0.08446003953393386,
+      "senior_loss": 42876.73496373429,
+      "wait": 0.0,
+      "turns": 5.976190476190476
+    }
+  },
+  "default_summaries": {
+    "borrow": 613420.8892469347,
+    "apr": 0.05748638726779598,
+    "senior_loss": 0.0,
+    "wait": 0.04556080552447268,
+    "turns": 5.4
+  },
+  "signal_summaries": {
+    "utilization": {
+      "borrow": 727735.2630702298,
+      "apr": 0.029665853703466843,
+      "senior_loss": 26769.3561371236,
+      "wait": 0.11758408647824364,
+      "turns": 0.2
+    },
+    "coverage": {
+      "borrow": 518786.84809874446,
+      "apr": 0.07310626949883707,
+      "senior_loss": 0.0,
+      "wait": 0.0,
+      "turns": 4.0
+    },
+    "combined": {
+      "borrow": 613420.8892469347,
+      "apr": 0.05748638726779598,
+      "senior_loss": 0.0,
+      "wait": 0.04556080552447268,
+      "turns": 5.4
+    }
+  },
+  "seed_only_case": {
+    "signal": "combined",
+    "scenario": "seed_only",
+    "avg_borrow": "247614.65728427056",
+    "borrower_apr": "0.12162251755528734",
+    "peak_apr": "0.33624212436903045",
+    "junior_loss": "0.0",
+    "senior_loss": "0.0",
+    "insurance_used": "0.0",
+    "withdrawal_paid": "0.0",
+    "withdrawal_requested": "0.0",
+    "withdrawal_backlog": "0.0",
+    "average_wait": "0.0",
+    "cap_days": "0.0",
+    "rate_turns": "6.0",
+    "final_junior": "6228.849208682864",
+    "final_seed": "6228.849208682864",
+    "junior_income": "0.0",
+    "senior_income": "5118.914558371222",
+    "seed_income": "5228.84920868285",
+    "interest_accrued": "7425.744165000655",
+    "interest_collected": "5881.154897599415",
+    "queue_fee_value": "0.0"
+  },
+  "received_revenue_credit_case": {
+    "cap": "0.5",
+    "lp_signal": "collected",
+    "lp_interest_fraction": "0.9",
+    "scenario": "credit_stress",
+    "avg_borrow": "590788.3242537187",
+    "borrower_apr": "0.05330440324097027",
+    "peak_apr": "0.09752109233635806",
+    "junior_loss": "61716.949229405975",
+    "senior_loss": "28611.663486018748",
+    "insurance_used": "2000.0",
+    "withdrawal_paid": "0.0",
+    "withdrawal_requested": "0.0",
+    "withdrawal_backlog": "0.0",
+    "average_wait": "0.0",
+    "cap_days": "0.0",
+    "rate_turns": "8.0",
+    "final_junior": "103711.1525811674",
+    "final_seed": "64.50306544085466",
+    "junior_income": "4942.850685128404",
+    "senior_income": "4112.317763653263",
+    "seed_income": "79.91647696968663",
+    "interest_accrued": "7765.056756019066",
+    "interest_collected": "4628.0368056141515",
+    "queue_fee_value": "0.0"
+  },
+  "forecast_revenue_credit_case": {
+    "signal": "combined",
+    "scenario": "credit_stress",
+    "avg_borrow": "609299.1824137646",
+    "borrower_apr": "0.05129844100391661",
+    "peak_apr": "0.07613561224084955",
+    "junior_loss": "104550.15580558592",
+    "senior_loss": "0.0",
+    "insurance_used": "2000.0",
+    "withdrawal_paid": "0.0",
+    "withdrawal_requested": "0.0",
+    "withdrawal_backlog": "0.0",
+    "average_wait": "0.0",
+    "cap_days": "0.0",
+    "rate_turns": "10.0",
+    "final_junior": "115032.15121078205",
+    "final_seed": "85.92841922661388",
+    "junior_income": "5083.414967879277",
+    "senior_income": "4070.4085308296867",
+    "seed_income": "14.803374906623405",
+    "interest_accrued": "7706.983108632443",
+    "interest_collected": "4587.042701743725",
+    "queue_fee_value": "0.0"
+  },
+  "fee_ownership_examples": [
+    {
+      "junior_ownership": 0.1,
+      "request_value": 20000.0,
+      "quoted_fee": 10.0,
+      "net_cost_if_returned_to_junior": 9.000450022501125,
+      "net_cost_if_transferred_to_seed": 10.0
+    },
+    {
+      "junior_ownership": 0.5,
+      "request_value": 100000.0,
+      "quoted_fee": 50.0,
+      "net_cost_if_returned_to_junior": 25.00625156289072,
+      "net_cost_if_transferred_to_seed": 50.0
+    },
+    {
+      "junior_ownership": 0.9,
+      "request_value": 180000.0,
+      "quoted_fee": 90.0,
+      "net_cost_if_returned_to_junior": 9.004051823320495,
+      "net_cost_if_transferred_to_seed": 90.0
+    },
+    {
+      "junior_ownership": 0.99,
+      "request_value": 198000.0,
+      "quoted_fee": 99.0,
+      "net_cost_if_returned_to_junior": 0.990490292694884,
+      "net_cost_if_transferred_to_seed": 99.0
+    }
+  ],
+  "simulation_limits": [
+    "Synthetic LP/borrower behavior",
+    "Exogenous credit loss and inventory shock, not AMM/auction execution",
+    "No empirical prediction or safety guarantee",
+    "Exact ledger excludes integer rounding and native compute costs"
+  ],
+  "native_open_items": [
+    "Verified insolvency index and resistance to repeated dust restrictions",
+    "Per-loan income-history catch-up cost and data availability",
+    "Atomic token-generation rollover and source-specific hLP integration",
+    "Integer rounding, account sizes, native tests and full CI"
+  ]
+}

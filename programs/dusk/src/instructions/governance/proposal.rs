@@ -262,6 +262,7 @@ impl<'info> CreateParameterProposal<'info> {
         );
 
         checkpoint_supporter_yield(
+            &ctx.accounts.market,
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,
             ctx.accounts.proposer_ylp_account.amount,
@@ -282,6 +283,12 @@ impl<'info> CreateParameterProposal<'info> {
             &[],
         )?;
 
+        super::adjust_supporter_income_balance(
+            &mut ctx.accounts.base_yield_account,
+            &mut ctx.accounts.quote_yield_account,
+            args.initial_support,
+            true,
+        )?;
         ctx.accounts.proposal_support.locked_amount = args.initial_support;
         ctx.accounts.proposal.total_locked = args.initial_support;
         ctx.accounts.market.governance_locked_ylp = ctx

@@ -1,3 +1,4 @@
+import { RISK_RATE_DEFAULTS } from "./risk-pricing.js";
 /**
  * Creating a market is a bootstrap, not an instruction.
  *
@@ -128,13 +129,9 @@ export function defaultMarketLaunchConfig(
       launchRateLimitDurationSeconds: 0,
       reserved: [],
     },
-    irm: {
-      targetUtilizationBps: 7_000,
-      curveSteepnessNad: 4_000_000_000,
-      adjustmentSpeedPerYear: 20,
-    },
     startTime: 0,
     ...overrides,
+    irm: { ...RISK_RATE_DEFAULTS, ...overrides.irm },
   };
 }
 

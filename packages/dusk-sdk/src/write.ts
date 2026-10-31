@@ -1,3 +1,4 @@
+import { deriveJuniorCohortAddress } from "./constants.js";
 import type { Program } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
@@ -715,7 +716,7 @@ export class DuskWrite {
     const lpMint = address(params.lpMint);
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
-    const tokenKind = params.tokenKind === "ylp" || params.tokenKind === 0 ? { ylp: {} } : { hlp: {} };
+    const tokenKind = params.tokenKind === "ylp" || params.tokenKind === 0 ? { ylp: {} } : params.tokenKind === "junior" || params.tokenKind === 2 ? { junior: {} } : { hlp: {} };
     return this.instruction("initializeYieldAccounts" as DuskInstructionName, { owner, tokenKind }, {
       accounts: {
         payer,
@@ -742,7 +743,7 @@ export class DuskWrite {
         systemProgram: SystemProgram.programId,
       },
       remainingAccounts: params.retired
-        ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false }]
+        ? [{ pubkey: (params.tokenKind === "junior" || params.tokenKind === 2 ? deriveJuniorCohortAddress : deriveHlpCohortAddress)(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false }]
         : [],
     });
   }
@@ -766,6 +767,7 @@ export class DuskWrite {
     if (tokenKind === undefined) {
       const state = await this.program.account.market.fetch(market);
       if (lpMint.equals(state.ylpMint)) tokenKind = "ylp";
+      else if (lpMint.equals(state.juniorMint)) tokenKind = "junior";
       else if (lpMint.equals(state.baseSide.hlpMint) || lpMint.equals(state.quoteSide.hlpMint)) tokenKind = "hlp";
       else throw new Error("LP mint does not belong to the market");
     }
@@ -2425,7 +2427,7 @@ const AMM_U64_FIELDS = [
   "launchRateLimitDurationSeconds",
 ] as const;
 
-const IRM_U64_FIELDS = ["curveSteepnessNad", "adjustmentSpeedPerYear"] as const;
+const IRM_U64_FIELDS = ["lowerSignalNad", "upperSignalNad", "halfLifeMs", "initialAprNad", "minimumAprNad", "maximumAprNad"] as const;
 
 function anchorIntegerFields(
   source: Record<string, unknown>,

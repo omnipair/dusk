@@ -228,7 +228,7 @@ impl<'info> EmergencyLiquidation<'info> {
             ),
             (a.owner_debt_account.to_account_info(), q.owner_debit, q.owner_credit),
             (
-                a.insurance_vault.to_account_info(),
+                a.interest_vault.to_account_info(),
                 q.insurance_fee_debit,
                 q.fee.insurance,
             ),
@@ -262,7 +262,9 @@ impl<'info> EmergencyLiquidation<'info> {
             );
         }
         if q.fee.insurance > 0 {
-            a.market.insurance.credit(asset, q.fee.insurance, clock.slot)?;
+            a.market
+                .side_mut(asset)
+                .record_junior_liquidation_credit(q.fee.insurance)?;
         }
         a.market.side_mut(asset).record_liquidation_fee_credit(
             q.fee.lp,

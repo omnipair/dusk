@@ -22,8 +22,12 @@ fn concentrated_config() -> AmmConfig {
 fn market_with_liquidity(config: AmmConfig) -> Market {
     let reserve = 1_000_000 * NAD;
     Market {
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
-        base_side: MarketSide {
+        base_side: Box::new(MarketSide {
             asset_decimals: 9,
             reserves: Reserves {
                 live_reserve: reserve,
@@ -34,8 +38,8 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
                 ylp_supply: reserve,
             },
             ..MarketSide::default()
-        },
-        quote_side: MarketSide {
+        }),
+        quote_side: Box::new(MarketSide {
             asset_decimals: 9,
             reserves: Reserves {
                 live_reserve: reserve,
@@ -46,7 +50,7 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
                 ylp_supply: reserve,
             },
             ..MarketSide::default()
-        },
+        }),
         config: MarketConfig {
             divergence_fee_share_cap_bps: 2_000,
             volatility_fee_share_cap_bps: 2_000,

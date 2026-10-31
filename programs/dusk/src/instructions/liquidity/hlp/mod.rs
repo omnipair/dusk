@@ -112,6 +112,9 @@ pub(crate) fn record_hlp_interest_credit(
     eligibility: HlpYieldEligibility,
 ) -> Result<()> {
     if actual_interest_credit == 0 {
+        if market.side(borrowed_asset).fees.junior.initialized {
+            market.collect_income_receivable(borrowed_asset, true, 0)?;
+        }
         return Ok(());
     }
 
@@ -141,14 +144,26 @@ pub(crate) fn record_hlp_interest_credit(
     market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
     market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
 
-    market
-        .side_mut(borrowed_asset)
-        .record_hlp_funding_interest_credit_with_supply(
+    if market.side(borrowed_asset).fees.junior.initialized {
+        let (protocol, _) = crate::transitions::revenue::split_revenue(actual_interest_credit, protocol_fee_bps)?;
+        market.record_receivable_income_credit(
+            borrowed_asset,
+            true,
             actual_interest_credit,
-            protocol_fee_bps,
+            protocol,
             protocol_auction_split,
-            frozen_non_hlp_supply,
+            0,
         )?;
+    } else {
+        market
+            .side_mut(borrowed_asset)
+            .record_hlp_funding_interest_credit_with_supply(
+                actual_interest_credit,
+                protocol_fee_bps,
+                protocol_auction_split,
+                frozen_non_hlp_supply,
+            )?;
+    }
 
     // Advance both vaults across the hLP-funded index delta without crediting
     // either one. Zero eligible shares preserves their already-earned

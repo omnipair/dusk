@@ -1,0 +1,33 @@
+{
+  "synthetic": true,
+  "no_repayment_exit_only": {
+    "fixed": {
+      "withdrawn": 1000000.0,
+      "pending_value": 0.0,
+      "pending_shares": 0.0,
+      "peak_apr": 0.29,
+      "interest_collected": 0.0
+    },
+    "coverage": {
+      "withdrawn": 215700.14207054555,
+      "pending_value": 784299.8579294544,
+      "pending_shares": 784299.8579294544,
+      "peak_apr": 0.29,
+      "interest_collected": 0.0
+    }
+  },
+  "base_exit_crash": {
+    "fixed": {
+      "withdrawn": 1000000.0,
+      "senior_loss": 540164.9381194173,
+      "junior_loss": 905714.2857142857,
+      "inventory_loss": 1100000.0
+    },
+    "coverage": {
+      "withdrawn": 316605.84804100386,
+      "senior_loss": 0.0,
+      "junior_loss": 1445879.223833703,
+      "inventory_loss": 1100000.0
+    }
+  }
+}

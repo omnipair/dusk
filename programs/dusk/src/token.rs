@@ -23,6 +23,9 @@ use spl_token_2022::extension::{
 
 use crate::errors::ErrorCode;
 
+mod hook_accounts;
+pub use hook_accounts::add_transfer_hook_accounts;
+
 #[allow(clippy::too_many_arguments)]
 pub fn transfer_checked_with_remaining_accounts<'a>(
     authority: AccountInfo<'a>,
@@ -58,7 +61,7 @@ pub fn transfer_checked_with_remaining_accounts<'a>(
             transfer_hook::get_program_id(&mint_state)
         };
         if let Some(transfer_hook_program_id) = transfer_hook_program_id {
-            spl_transfer_hook_interface::onchain::add_extra_accounts_for_execute_cpi(
+            add_transfer_hook_accounts(
                 &mut instruction,
                 &mut account_infos,
                 &transfer_hook_program_id,

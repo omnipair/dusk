@@ -147,10 +147,14 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
     base_side.shares.ylp_supply = ylp_supply;
     quote_side.shares.ylp_supply = ylp_supply;
     let mut market = Market {
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        base_side,
-        quote_side,
+        base_side: Box::new(base_side),
+        quote_side: Box::new(quote_side),
         config: valid_config(),
         amm: Default::default(),
         debt: Debt {
@@ -736,7 +740,7 @@ fn borrowing_uses_only_full_range_tail_of_concentrated_market() {
     market.config.amm.peak_amplification_nad = 4 * NAD;
     market.config.amm.core_half_width_bps = 1_000;
     market.config.amm.fade_width_bps = 1_000;
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.risk = Risk::default();
     market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
@@ -870,7 +874,7 @@ fn daily_borrow_bucket_respect_mixed_token_decimals() {
     let mut market = invariant_market(1_000_000_000, 2_000_000_000_000);
     market.base_side.asset_decimals = 6;
     market.quote_side.asset_decimals = 9;
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.risk = Risk::default();
     market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
@@ -1117,7 +1121,7 @@ fn dynamic_terms_are_decimal_invariant() {
     let mut market = invariant_market(1_000_000_000, 1_000_000_000_000);
     market.base_side.asset_decimals = 6;
     market.quote_side.asset_decimals = 9;
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.risk = Risk::default();
     market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
@@ -1203,7 +1207,7 @@ fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
     market.base_side.reserves.live_reserve = 1_010;
     market.base_side.shares.ylp_supply = 1_010;
     market.quote_side.shares.ylp_supply = 1_010;
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.prepare_amm_for_swap(0).unwrap();
     market.debt.base_borrow_index_nad = (NAD as u128) * 11 / 10;
     market.debt.fixed_base_shares = 100;
@@ -1306,9 +1310,10 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0, 0, 0]);
 
     let irm = IrmConfig {
-        target_utilization_bps: 6_500,
-        curve_steepness_nad: 6 * NAD,
-        adjustment_speed_per_year: 12,
+        lower_signal_nad: 60_000_000,
+        upper_signal_nad: 75_000_000,
+        half_life_ms: 12 * MS_PER_DAY,
+        ..IrmConfig::default()
     };
     market
         .execute_parameter_updates(&[MarketParameterUpdate::Irm(irm)], 2)
@@ -1535,9 +1540,10 @@ fn daily_borrow_rate_change_checkpoints_both_buckets_under_the_old_rate() {
 fn one_proposal_applies_every_family_and_advances_each_revision() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     let irm = IrmConfig {
-        target_utilization_bps: 6_500,
-        curve_steepness_nad: 6 * NAD,
-        adjustment_speed_per_year: 12,
+        lower_signal_nad: 60_000_000,
+        upper_signal_nad: 75_000_000,
+        half_life_ms: 12 * MS_PER_DAY,
+        ..IrmConfig::default()
     };
     let updates = [
         MarketParameterUpdate::Irm(irm),
@@ -1570,9 +1576,10 @@ fn update_sets_reject_repeated_unordered_or_unchanged_families() {
         max_daily_borrow_bps: bps,
     };
     let irm = MarketParameterUpdate::Irm(IrmConfig {
-        target_utilization_bps: 6_500,
-        curve_steepness_nad: 6 * NAD,
-        adjustment_speed_per_year: 12,
+        lower_signal_nad: 60_000_000,
+        upper_signal_nad: 75_000_000,
+        half_life_ms: 12 * MS_PER_DAY,
+        ..IrmConfig::default()
     });
     let not_canonical = anchor_lang::prelude::error!(ErrorCode::ParameterUpdatesNotCanonical);
 
@@ -1845,7 +1852,7 @@ fn high_decimal_borrow_partial_repay_and_liquidation_preserve_dust_debt() {
         market.base_side.reserves.cash_reserve = market.base_side.reserves.live_reserve;
         market.quote_side.reserves.live_reserve = normalized_reserve / 10_u64.pow(u32::from(precision - quote_decimals));
         market.quote_side.reserves.cash_reserve = market.quote_side.reserves.live_reserve;
-        market.amm = AmmState::default();
+        *market.amm = AmmState::default();
         market.risk = Risk::default();
         market.prepare_amm_for_swap(0).unwrap();
         market.refresh_risk().unwrap();
@@ -1877,7 +1884,7 @@ fn high_decimal_launch_fee_buckets_keep_nine_decimal_config_units() {
         let mut market = invariant_market(1_000_000_000_000_000_000, 1_000_000_000_000_000_000);
         market.base_side.asset_decimals = decimals;
         market.quote_side.asset_decimals = decimals;
-        market.amm = AmmState::default();
+        *market.amm = AmmState::default();
         market.risk = Risk::default();
         market.config.swap_fee_bps = 100;
         market.config.amm.launch_rate_limit_asset = LAUNCH_RATE_LIMIT_ASSET_BASE;

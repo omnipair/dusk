@@ -48,6 +48,7 @@ spl-token = { version = "4.0.0", features = ["no-entrypoint"] }
 spl-token-2022 = { version = "7.0.0", features = ["no-entrypoint"] }
 spl-transfer-hook-interface = "0.9.0"
 spl-tlv-account-resolution = "0.9.0"
+spl-type-length-value = "0.7.0"
 spl-math = { version = "0.3.0", features = ["no-entrypoint"] }
 solana-security-txt = "1.1.1"
 num-traits = "0.2.19"

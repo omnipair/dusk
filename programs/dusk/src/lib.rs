@@ -38,6 +38,37 @@ declare_id!("JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X");
 pub mod dusk {
     use super::*;
 
+    pub fn checkpoint_income(ctx: Context<CheckpointIncome>, args: CheckpointIncomeArgs) -> Result<()> {
+        CheckpointIncome::handle_checkpoint(ctx, args)
+    }
+
+    pub fn burn_retired_junior(ctx: Context<BurnRetiredJunior>, args: BurnRetiredJuniorArgs) -> Result<()> {
+        BurnRetiredJunior::handle_burn(ctx, args)
+    }
+
+    pub fn fund_junior_seed<'info>(ctx: Context<'_, '_, '_, 'info, FundJuniorSeed<'info>>) -> Result<()> {
+        FundJuniorSeed::handle_fund(ctx)
+    }
+
+    pub fn compound_junior_seed(ctx: Context<CompoundJuniorSeed>) -> Result<()> {
+        CompoundJuniorSeed::handle_compound(ctx)
+    }
+
+    pub fn roll_income_epoch(ctx: Context<RollIncomeEpoch>, args: RollIncomeEpochArgs) -> Result<()> {
+        RollIncomeEpoch::handle_roll(ctx, args)
+    }
+
+    pub fn initialize_junior(ctx: Context<InitializeJunior>, args: InitializeJuniorArgs) -> Result<()> {
+        InitializeJunior::handle_initialize(ctx, args)
+    }
+
+    pub fn convert_tranche<'info>(
+        ctx: Context<'_, '_, '_, 'info, ConvertTranche<'info>>,
+        action: TrancheAction,
+    ) -> Result<()> {
+        ConvertTranche::handle_convert(ctx, action)
+    }
+
     // Futarchy authority instructions
     pub fn init_futarchy_authority(ctx: Context<InitFutarchyAuthority>, args: InitFutarchyAuthorityArgs) -> Result<()> {
         InitFutarchyAuthority::handle_init(ctx, args)

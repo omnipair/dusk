@@ -25,8 +25,8 @@ impl PreviewProtectionOrder<'_> {
             LeverageDelegateError::InvalidOrder
         );
         let clock = Clock::get()?;
-        protection_health(
-            &ctx.accounts.market.to_account_info(),
+        protection_health_of(
+            &mut ctx.accounts.market,
             ctx.accounts.borrow_position.as_deref().map(|p| &**p),
             ctx.accounts.leverage_position.as_deref().map(|p| &**p),
             ctx.accounts.order.action,

@@ -41,3 +41,7 @@ export * from "./interest-accounting.js";
 export * from "./yield-client.js";
 
 export * from "./hlp-liquidation-client.js";
+
+export * from "./risk-pricing.js";
+
+export * from "./tranche-client.js";

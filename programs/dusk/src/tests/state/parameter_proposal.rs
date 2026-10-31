@@ -52,6 +52,9 @@ fn every_family_update() -> Vec<MarketParameterUpdate> {
 
 fn empty_yield_account() -> YieldAccount {
     YieldAccount {
+        income_initialized: false,
+        income: Default::default(),
+        escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
@@ -501,7 +504,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         initial_support: u64::MAX,
     };
     let instruction_data = crate::instruction::CreateParameterProposal { args }.data();
-    assert_eq!(instruction_data.len(), 555);
+    assert_eq!(instruction_data.len(), 587);
 
     let account_metas = crate::accounts::CreateParameterProposal {
         proposer,
@@ -533,9 +536,9 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     assert_eq!(message.header.num_required_signatures, 1);
     assert_eq!(message.account_keys.len(), 14);
     let message_size = bincode::serialize(&message).unwrap().len();
-    assert_eq!(message_size, 1_058);
+    assert_eq!(message_size, 1_090);
     // One compact-u16 signature count byte, one signature, and the message.
-    assert_eq!(1 + 64 + message_size, 1_123);
+    assert_eq!(1 + 64 + message_size, 1_155);
     // A proposal that changes every family still fits one 1,232-byte packet.
     assert!(1 + 64 + message_size <= 1_232);
 }

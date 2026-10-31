@@ -90,6 +90,9 @@ import {
 } from "../packages/dusk-sdk/src/preview.js";
 import { createDuskProgram } from "../packages/dusk-sdk/src/program.js";
 import { DuskHlpLiquidations } from "../packages/dusk-sdk/src/hlp-liquidation-client.js";
+import { createLeverageDelegateProgram } from "../packages/dusk-sdk/src/delegate.js";
+import { DuskProtectionOrders } from "../packages/dusk-sdk/src/protection.js";
+import { DuskTranches } from "../packages/dusk-sdk/src/tranche-client.js";
 import { DuskYield } from "../packages/dusk-sdk/src/yield-client.js";
 import { DuskLiquidations } from "../packages/dusk-sdk/src/liquidation-client.js";
 import { DuskGovernance } from "../packages/dusk-sdk/src/governance-client.js";
@@ -270,9 +273,13 @@ function marketConfig() {
       reserved: [],
     },
     irm: {
-      targetUtilizationBps: 7_000,
-      curveSteepnessNad: new BN(4_000_000_000),
-      adjustmentSpeedPerYear: new BN(20),
+      lowerSignalNad: new BN(50_000_000),
+      upperSignalNad: new BN(62_500_000),
+      halfLifeMs: new BN(14 * 24 * 60 * 60 * 1000),
+      initialAprNad: new BN(40_000_000),
+      minimumAprNad: new BN(20_000_000),
+      maximumAprNad: new BN(0),
+      borrowUtilizationLimitBps: 8_000,
     },
     startTime: new BN(0),
   };
@@ -1965,8 +1972,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       ] as const) {
         const custody = await getAccount(connection as any, vault, undefined, assetProgram);
         expect(custody.amount).to.equal(BigInt(side.reserves.cash_reserve.toString()) + BigInt(side.fees.swap_fee_custody_balance.toString()));
-        // The internal denominator retains the permanently burned 1,000 shares.
-        expect(BigInt(side.shares.ylp_supply.toString())).to.equal(ylpMint.supply + 1_000n);
+        // The common denominator also contains burned senior dust and the permanent junior seed.
+        expect(BigInt(side.shares.ylp_supply.toString())).to.equal(ylpMint.supply + 1_000n + BigInt(decoded.tranches.junior_reserve_shares.toString()));
       }
       expect(decoded.debt.fixed_base_shares.toString()).to.equal("0");
       expect(decoded.debt.fixed_quote_shares.toString()).to.equal("0");
@@ -1987,7 +1994,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    expect(ylpAccount.amount).to.equal(140_421n);
+    expect(ylpAccount.amount).to.equal(140_280n);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
@@ -1996,6 +2003,188 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_000);
     expect(decoded.base_side.shares.ylp_supply.toNumber()).to.equal(141_421);
     expect(decoded.quote_side.shares.ylp_supply.toNumber()).to.equal(141_421);
+  });
+
+  it("converts senior to junior, charges notice fees, and converts only during the exercise window", async function () {
+    const f = await addBalancedLiquidity(245);
+    const sdkProgram = createDuskProgram({ provider: program.provider });
+    const tranches = new DuskTranches(sdkProgram);
+    const initial = await sdkProgram.account.market.fetch(f.market);
+    const seniorBefore = (await getAccount(connection as any, f.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    expect(BigInt(initial.tranches.permanentReceipts.toString())).to.equal(141n);
+    const init = await tranches.initialize({ market: f.market, payer: payer.publicKey });
+    await connection.sendTransaction(init.transaction, [payer]);
+    trackV2Instruction("initializeJunior", this.test?.title);
+    const mint = await getMint(connection as any, init.juniorMint, undefined, TOKEN_2022_PROGRAM_ID);
+    const hook = getTransferHook(mint)!;
+    expect(hook.programId.equals(DUSK_PROGRAM_ID)).to.equal(true);
+    expect(hook.authority.equals(PublicKey.default)).to.equal(true);
+    const enter = await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "enter", seniorAmount: 20_000, minimumJunior: 20_000 } });
+    await connection.sendTransaction(enter.transaction, [payer]);
+    trackV2Instruction("convertTranche", this.test?.title);
+    const ownerJunior = getAssociatedTokenAddressSync(init.juniorMint, payer.publicKey, true, TOKEN_2022_PROGRAM_ID);
+    expect((await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(20_000n);
+    expect((await getAccount(connection as any, f.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(seniorBefore - 20_000n);
+    const request = await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "requestExit", additionalJunior: 10_000 } });
+    await connection.sendTransaction(request.transaction, [payer]);
+    const queued = await sdkProgram.account.juniorExitAccount.fetch(request.exit);
+    expect(queued.ticket.receipts.toString()).to.equal("9995");
+    const afterRequest = await sdkProgram.account.market.fetch(f.market);
+    expect(afterRequest.tranches.juniorReserveShares.toString()).to.equal("20141");
+    expect(afterRequest.tranches.permanentReceipts.toString()).to.equal("146");
+    const early = await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "convertExit", minimumSenior: 9_995 } });
+    let rejected = false;
+    try { await connection.sendTransaction(early.transaction, [payer]); } catch { rejected = true; }
+    expect(rejected).to.equal(true);
+    svm.warpToSlot(BigInt(queued.ticket.readyAt.toString()));
+    svm.expireBlockhash();
+    const convert = await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "convertExit", minimumSenior: 9_995 } });
+    await connection.sendTransaction(convert.transaction, [payer]);
+    expect((await getAccount(connection as any, f.ownerYlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(seniorBefore - 10_005n);
+    const final = await sdkProgram.account.market.fetch(f.market);
+    expect(final.tranches.queuedReceipts.toString()).to.equal("0");
+    expect(final.baseSide.shares.ylpSupply.toString()).to.equal(initial.baseSide.shares.ylpSupply.toString());
+    expect(final.baseSide.reserves.cashReserve.toString()).to.equal(initial.baseSide.reserves.cashReserve.toString());
+    expect(final.quoteSide.reserves.cashReserve.toString()).to.equal(initial.quoteSide.reserves.cashReserve.toString());
+    const second = await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "requestExit", additionalJunior: 1_000 } });
+    await connection.sendTransaction(second.transaction, [payer]);
+    const secondQueue = await sdkProgram.account.juniorExitAccount.fetch(second.exit);
+    svm.warpToSlot(BigInt(secondQueue.ticket.expiresAt.toString()));
+    svm.expireBlockhash();
+    const expired = await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "convertExit", minimumSenior: 0 } });
+    rejected = false;
+    try { await connection.sendTransaction(expired.transaction, [payer]); } catch { rejected = true; }
+    expect(rejected).to.equal(true);
+    const cancel = await tranches.convert({ market: f.market, owner: payer.publicKey, action: { kind: "cancelExit" } });
+    await connection.sendTransaction(cancel.transaction, [payer]);
+    expect((await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(10_000n);
+  });
+
+  it("funds and compounds the junior seed before any public junior depositor, preserving old senior income", async function () {
+    const config = marketConfig();
+    config.swapFeeBps = 0;
+    const f = await addBalancedLiquidity(246, config, {
+      baseDeposit: 1_000_000_000, quoteDeposit: 1_000_000_000,
+      minYlp: 1, baseMint: 3_000_000_000, quoteMint: 3_000_000_000,
+    });
+    const sdkProgram = createDuskProgram({ provider: program.provider });
+    const tranches = new DuskTranches(sdkProgram);
+    const yields = new DuskYield(sdkProgram, payer.publicKey);
+    await connection.sendTransaction((await tranches.initialize({ market: f.market, payer: payer.publicKey })).transaction, [payer]);
+    for (const debtIsBase of [true, false]) {
+      const positionId = Keypair.generate().publicKey;
+      const borrowPosition = deriveBorrowPositionAddress(f.market, payer.publicKey, positionId)[0];
+      await connection.sendTransaction(await program.methods.depositCollateral({ positionId, depositAmount: new BN(500_000_000) }).accounts({
+        market: f.market, owner: payer.publicKey, assetMint: debtIsBase ? f.quoteMint : f.baseMint,
+        collateralVault: debtIsBase ? f.quoteCollateralVault : f.baseCollateralVault,
+        ownerAssetAccount: debtIsBase ? f.ownerQuoteAccount : f.ownerBaseAccount,
+        borrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      }).transaction(), [payer]);
+      await connection.sendTransaction(await program.methods.borrow({ borrowAmount: new BN(100_000_000), minDebtAmountOut: new BN(0), minLiquidationCfBps: 0, referrer: null }).accounts({
+        market: f.market, futarchyAuthority, owner: payer.publicKey,
+        debtAssetMint: debtIsBase ? f.baseMint : f.quoteMint, collateralAssetMint: debtIsBase ? f.quoteMint : f.baseMint,
+        reserveVault: debtIsBase ? f.baseReserveVault : f.quoteReserveVault,
+        ownerDebtAccount: debtIsBase ? f.ownerBaseAccount : f.ownerQuoteAccount,
+        borrowPosition, referralPartner: null, referralAccrual: null, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      }).transaction(), [payer]);
+    }
+    const before = await sdkProgram.account.market.fetch(f.market);
+    const seniorBefore = (await getMint(connection as any, f.ylpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
+    svm.warpToSlot(svm.getClock().slot + 30n * 24n * 60n * 60n * 1000n / 400n);
+    svm.expireBlockhash();
+    const fund = await yields.fundInstruction({ market: f.market, caller: payer.publicKey });
+    await connection.sendTransaction(new Transaction().add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+      ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }), fund), [payer]);
+    const funded = await sdkProgram.account.market.fetch(f.market);
+    expect(funded.income.books[0].unpaid.isZero()).to.equal(true);
+    expect(funded.income.books[1].unpaid.isZero()).to.equal(true);
+    for (const asset of ["base", "quote"] as const) {
+      await connection.sendTransaction((await tranches.fundSeed({ market: f.market, asset })).transaction, [payer]);
+    }
+    trackV2Instruction("fundJuniorSeed", this.test?.title);
+    await connection.sendTransaction((await tranches.compoundSeed({ market: f.market })).transaction, [payer]);
+    trackV2Instruction("compoundJuniorSeed", this.test?.title);
+    const compounded = await sdkProgram.account.market.fetch(f.market);
+    expect(compounded.tranches.juniorReserveShares.gt(before.tranches.juniorReserveShares)).to.equal(true);
+    expect(compounded.tranches.juniorReceiptSupply.eq(compounded.tranches.permanentReceipts)).to.equal(true);
+    expect((await getMint(connection as any, f.ylpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(seniorBefore);
+    expect((await getMint(connection as any, compounded.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(0n);
+    // The fully collected epoch is archived without erasing old owners' cash.
+    const maintenance = await tranches.prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey });
+    expect(maintenance.transactions.length).to.equal(2);
+    for (const transaction of maintenance.transactions) await connection.sendTransaction(transaction, [payer]);
+    expect((await tranches.prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey })).transactions.length).to.equal(0);
+    trackV2Instruction("rollIncomeEpoch", this.test?.title);
+    for (const asset of ["base", "quote"] as const) {
+      const prepared = await tranches.checkpointIncome({ market: f.market, owner: payer.publicKey, kind: "senior", asset });
+      expect(prepared.hasMore).to.equal(false);
+      await connection.sendTransaction(new Transaction().add(...prepared.instructions), [payer]);
+      const claim = await sdkProgram.account.yieldAccount.fetch(prepared.yieldAccount);
+      expect(claim.accruedInterestAmount.gtn(0)).to.equal(true);
+      expect(claim.income[0].epoch.toString()).to.equal("1");
+    }
+    trackV2Instruction("checkpointIncome", this.test?.title);
+  });
+
+  it("retires wiped junior escrow without reviving its receipts in the replacement generation", async function () {
+    const f = await addBalancedLiquidity(247);
+    const sdkProgram = createDuskProgram({ provider: program.provider });
+    const tranches = new DuskTranches(sdkProgram);
+    const first = await tranches.initialize({ market: f.market, payer: payer.publicKey });
+    await connection.sendTransaction(first.transaction, [payer]);
+    await connection.sendTransaction((await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "enter", seniorAmount: 20_000, minimumJunior: 20_000 } })).transaction, [payer]);
+    const request = await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "requestExit", additionalJunior: 8_000 } });
+    await connection.sendTransaction(request.transaction, [payer]);
+    // Start this instruction test from the state after a funded credit loss.
+    // The shared first-loss arithmetic is independently exercised in Rust;
+    // both reserve custody and the market ledger reflect the missing tokens.
+    const account = svm.getAccount(f.market)!;
+    const wiped = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+    const junior = BigInt(wiped.tranches.junior_reserve_shares.toString());
+    const supply = BigInt(wiped.base_side.shares.ylp_supply.toString());
+    const baseLoss = (200_000n * junior + supply - 1n) / supply;
+    wiped.base_side.reserves.cash_reserve = wiped.base_side.reserves.cash_reserve.sub(new BN(baseLoss.toString()));
+    wiped.base_side.reserves.live_reserve = wiped.base_side.reserves.live_reserve.sub(new BN(baseLoss.toString()));
+    for (const side of [wiped.base_side, wiped.quote_side]) {
+      side.shares.ylp_supply = side.shares.ylp_supply.sub(new BN(junior.toString()));
+      side.fees.junior.reserve_shares = new BN(0);
+    }
+    wiped.tranches.junior_reserve_shares = new BN(0);
+    wiped.income.junior_end = wiped.income.books.map((book: any) => ({ ended: true, epoch: book.epoch, growth: book.growth[1] }));
+    const body = Buffer.alloc(account.data.length - 8);
+    const size = (accountCoder as any).accountLayouts.get("Market").layout.encode(wiped, body);
+    const encoded = Buffer.concat([(accountCoder as any).accountDiscriminator("Market"), body.subarray(0, size)]);
+    svm.setAccount(f.market, { ...account, data: new Uint8Array(encoded) });
+    const reserve = svm.getAccount(f.baseReserveVault)!;
+    const data = Buffer.from(reserve.data);
+    data.writeBigUInt64LE(data.readBigUInt64LE(64) - baseLoss, 64);
+    svm.setAccount(f.baseReserveVault, { ...reserve, data: new Uint8Array(data) });
+    const second = await tranches.initialize({ market: f.market, payer: payer.publicKey });
+    expect(second.generation).to.equal(1n);
+    expect(second.juniorMint.equals(first.juniorMint)).to.equal(false);
+    await connection.sendTransaction(second.transaction, [payer]);
+    const after = await sdkProgram.account.market.fetch(f.market);
+    expect(after.tranches.juniorReceiptSupply.isZero()).to.equal(true);
+    const burn = await tranches.burnRetired({ market: f.market, owner: payer.publicKey, retiredMint: first.juniorMint, amount: 12_000 });
+    await connection.sendTransaction(burn.transaction, [payer]);
+    trackV2Instruction("burnRetiredJunior", this.test?.title);
+    expect((await getMint(connection as any, first.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(0n);
+    expect((await sdkProgram.account.juniorExitAccount.fetch(request.exit)).ticket.receipts.isZero()).to.equal(true);
+    expect((await sdkProgram.account.market.fetch(f.market)).tranches.juniorReceiptSupply.isZero()).to.equal(true);
+    await connection.sendTransaction((await tranches.convert({ market: f.market, owner: payer.publicKey,
+      action: { kind: "enter", seniorAmount: 500, minimumJunior: 500 } })).transaction, [payer]);
+    expect((await getMint(connection as any, second.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(500n);
   });
 
   it("opens liquidity gates through the one-shot launch seeding path", async function () {
@@ -2050,7 +2239,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    expect(ownerYlp.amount).to.equal(140_421n);
+    expect(ownerYlp.amount).to.equal(140_280n);
   });
 
   it("accepts permissionless insurance donations", async function () {
@@ -3520,7 +3709,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_hlp_vault.debt_shares.toNumber()).to.equal(0);
   });
 
-  it("reseeds a concentrated market after the last yLP holder exits", async function () {
+  it("keeps permanent junior backing after the last senior exits and admits new liquidity", async function () {
     const unit = 1_000_000;
     const config = marketConfig();
     config.swapFeeBps = 25;
@@ -3544,14 +3733,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(await program.methods.removeLiquidity({ylpAmount:new BN(balance.amount.toString()),
       minBaseAmountOut:new BN(0),minQuoteAmountOut:new BN(0)}).accounts(liquidityAccounts).transaction(),[payer]);
     const empty = accountCoder.decode("Market",Buffer.from(svm.getAccount(f.market)!.data)) as any;
-    expect(empty.base_side.shares.ylp_supply.toString()).to.equal("1000");
-    expect(empty.amm.initialized).to.equal(false);
+    expect(empty.base_side.shares.ylp_supply.eq(empty.tranches.junior_reserve_shares.add(new BN(1000)))).to.equal(true);
+    expect(empty.tranches.junior_reserve_shares.gt(new BN(0))).to.equal(true);
+    expect(empty.amm.initialized).to.equal(true);
     const emptyPreview = program.coder.types.decode("marketPreview", await simulateReturnData(
       await program.methods.previewMarket().accounts({market:f.market}).transaction())) as any;
-    expect(emptyPreview.amm.initialized).to.equal(false);
-    expect(emptyPreview.base.ylpSupply.toString()).to.equal("1000");
-    expect(emptyPreview.base.spotPriceNad.toString()).to.equal("0");
-    expect(emptyPreview.quote.spotPriceNad.toString()).to.equal("0");
+    expect(emptyPreview.amm.initialized).to.equal(true);
+    expect(emptyPreview.base.ylpSupply.eq(empty.base_side.shares.ylp_supply)).to.equal(true);
+    expect(emptyPreview.base.spotPriceNad.gt(new BN(0))).to.equal(true);
+    expect(emptyPreview.quote.spotPriceNad.gt(new BN(0))).to.equal(true);
     const args = {baseDepositAmount:new BN(200 * unit),quoteDepositAmount:new BN(200 * unit)};
     const previewTx = await program.methods.previewAddLiquidity(args)
       .accounts({market:f.market,baseMint:f.baseMint,quoteMint:f.quoteMint}).transaction();
@@ -3624,7 +3814,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    expect(ylpAccount.amount).to.equal(139_421n);
+    expect(ylpAccount.amount).to.equal(139_280n);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
@@ -4783,9 +4973,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         expect(custodyAfter - custodyBefore).to.equal(walletBefore - walletAfter);
         expect(raw(repaidSide.fees.interest_protocol_fee_liability) - raw(side.fees.interest_protocol_fee_liability))
           .to.equal(freshProtocol + protocolFrozenCredit);
-        const freshScaled = ((freshCredit - freshProtocol) << 64n) + raw(side.fees.interest_growth_remainder_scaled);
-        expect(raw(repaidSide.fees.interest_growth_index_q64) - raw(side.fees.interest_growth_index_q64))
-          .to.equal(freshScaled / supply);
+        // Cash pays the owners of accrued receivable units, not today's LP
+        // balance. The legacy payment-time fee index must remain untouched.
+        const bookIndex = debtIsBase ? 0 : 1;
+        const beforeBook = funded.income.books[bookIndex];
+        const afterBook = repaid.income.books[bookIndex];
+        const freshScaled = ((freshCredit - freshProtocol) << 64n) + raw(beforeBook.paid_remainder);
+        expect(raw(afterBook.paid_per_unit_q64) - raw(beforeBook.paid_per_unit_q64))
+          .to.equal(freshScaled / raw(beforeBook.units));
+        expect(raw(repaidSide.fees.interest_growth_index_q64)).to.equal(raw(side.fees.interest_growth_index_q64));
         for (const value of Object.values(repaidSide.fees.public_interest_advance)) expect(raw(value)).to.equal(0n);
         expect(raw(repaid.debt[`fixed_${interestAsset}_shares`])).to.equal(0n);
         await resetFutarchyDefaults();
@@ -5199,15 +5395,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       }
       if (baseInterestCredit > 0n) {
         expect(
-          marketAfter.base_side.fees.interest_growth_index_q64.gt(
-            marketBefore.base_side.fees.interest_growth_index_q64
+          marketAfter.income.books[2].paid_per_unit_q64.gt(
+            marketBefore.income.books[2].paid_per_unit_q64
           )
         ).to.equal(true);
       }
       if (quoteInterestCredit > 0n) {
         expect(
-          marketAfter.quote_side.fees.interest_growth_index_q64.gt(
-            marketBefore.quote_side.fees.interest_growth_index_q64
+          marketAfter.income.books[3].paid_per_unit_q64.gt(
+            marketBefore.income.books[3].paid_per_unit_q64
           )
         ).to.equal(true);
       }
@@ -5406,7 +5602,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
 
   it("settles protocol swap and interest revenue from source-specific custody", async function () {
-    const fixture = await addBalancedLiquidity(53);
+    const config = marketConfig();
+    config.irm.minimumAprNad = config.irm.initialAprNad;
+    config.irm.maximumAprNad = config.irm.initialAprNad;
+    const fixture = await addBalancedLiquidity(53, config);
     const treasury = Keypair.generate().publicKey;
     const stakingVault = Keypair.generate().publicKey;
     const treasuryAccounts = await createRecipientAssetAccounts(fixture, treasury);
@@ -6015,6 +6214,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
           (accountCoder as any).accountDiscriminator("Market"), data.subarray(0, length),
         ])) });
+        const maintenance = await new DuskTranches(createDuskProgram({ provider: program.provider }) as any)
+          .prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey });
+        for (const transaction of maintenance.transactions) await connection.sendTransaction(transaction, [payer]);
         const quote = await sdk.preview({ market: f.market, targetAsset: target });
         const donation = createTransferCheckedInstruction(f.ownerQuoteAccount, f.quoteMint,
           good.repaymentVault, payer.publicKey, raw(quote.payment), 6);
@@ -6230,6 +6432,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
     }).transaction(), [payer]);
 
+    // Settled funding receipts are archived before a fresh cohort issues new
+    // funding income; old holders keep their historical payout entitlement.
+    const maintenance = await new DuskTranches(createDuskProgram({ provider: program.provider }) as any)
+      .prepareDrainedIncomeBooks({ market: fixture.market, payer: payer.publicKey });
+    for (const transaction of maintenance.transactions) await connection.sendTransaction(transaction, [payer]);
     const freshMint = await createHookedLpMint(fixture.market);
     const oldCohort = deriveHlpCohortAddress(fixture.market, fixture.baseHlpMint)[0];
     await connection.sendTransaction(await program.methods.rotateHlpCohort({
@@ -6505,7 +6712,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     };
     // The deployed layout ended after bump, before Option<Pubkey> was added.
     const oldSize = 234;
-    const newSize = 267;
+    const newSize = 500;
     expect(current.data.length).to.equal(newSize);
     const oldBytes = (await accountCoder.encode("YieldAccount", previousState)).subarray(0, oldSize);
     const oldRent = Number(svm.minimumBalanceForRentExemption(BigInt(oldSize)));
@@ -6611,16 +6818,16 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const recipientBalance = await getAccount(connection as any, recipientBaseAccount);
     const yieldClaimedEvent = cpiEvent(claimTx, "yieldClaimed");
-    expect(recipientBalance.amount).to.equal(2n);
+    expect(recipientBalance.amount).to.equal(1n);
     expect(yieldClaimedEvent.recipientCredit.toString()).to.equal(recipientBalance.amount.toString());
     const reserveVault = await getAccount(connection as any, fixture.baseReserveVault);
 
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.base_side.fees.swap_fee_liability.toNumber()).to.equal(1);
+    expect(decoded.base_side.fees.swap_fee_liability.toNumber()).to.equal(2);
     expect(decoded.base_side.fees.unallocated_swap_fee_liability.toNumber()).to.equal(0);
-    expect(decoded.base_side.fees.swap_fee_custody_balance.toNumber()).to.equal(1);
+    expect(decoded.base_side.fees.swap_fee_custody_balance.toNumber()).to.equal(2);
     expect(reserveVault.amount).to.equal(
       BigInt(decoded.base_side.reserves.cash_reserve.toString()) +
         BigInt(decoded.base_side.fees.swap_fee_custody_balance.toString())
@@ -6651,7 +6858,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const yieldAccount = deriveYieldAccountAddress(
         fixture.market, payer.publicKey, lpMint, fixture.baseMint, tokenKind
       )[0];
-      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
 
       const buildClaim = async (recipientAssetAccount: PublicKey, caller: Keypair) => {
         // Repeated claims must exercise current permissions, not replay rejection.
@@ -6874,7 +7081,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const quoteYield = accountCoder.decode("YieldAccount", Buffer.from(svm.getAccount(quoteYieldAccount)!.data)) as any;
       expect(quoteYield.harvest_authority).to.equal(null);
 
-      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
       for (const destination of [callerAssetAccount, fixture.ownerBaseAccount, noncanonicalRecipientAccount]) {
         await assertRejected(await buildClaim(destination, harvestCaller), harvestCaller, "InvalidRecipient");
       }
@@ -6900,7 +7107,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       // the independent caller while making the new destination mandatory.
       await connection.sendTransaction(await buildAuthorityUpdate(replacementCaller.publicKey), [payer]);
       await assertRejected(await buildClaim(keeperAssetAccount, harvestCaller), harvestCaller, "InvalidSigner");
-      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
       await connection.sendTransaction(await buildClaim(keeperAssetAccount, replacementCaller), [replacementCaller]);
       await connection.sendTransaction(
         await program.methods.setYieldRecipient({
@@ -6911,7 +7118,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       );
       await assertRejected(await buildClaim(keeperAssetAccount, replacementCaller), replacementCaller, "InvalidRecipient");
       await assertRejected(await buildClaim(fixture.ownerBaseAccount, keeper), keeper, "InvalidSigner");
-      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
       const ownerBefore = (await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount;
       await connection.sendTransaction(await buildClaim(fixture.ownerBaseAccount, replacementCaller), [replacementCaller]);
       expect((await getAccount(connection as any, fixture.ownerBaseAccount, undefined, assetTokenProgram)).amount > ownerBefore).to.equal(true);
@@ -6923,7 +7130,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(revoked.harvest_authority).to.equal(null);
       expect(revoked.recipient.equals(payer.publicKey)).to.equal(true);
       await assertRejected(await buildClaim(fixture.ownerBaseAccount, replacementCaller), replacementCaller, "InvalidSigner");
-      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
       await connection.sendTransaction(await buildClaim(fixture.ownerBaseAccount, payer), [payer]);
       await connection.sendTransaction(
         await program.methods.setYieldRecipient({
@@ -6932,11 +7139,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         }).accounts(authorityAccounts).transaction(),
         [payer]
       );
-      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
       const afterRevocation = (await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount;
       await connection.sendTransaction(await buildClaim(keeperAssetAccount, payer), [payer]);
       expect((await getAccount(connection as any, keeperAssetAccount, undefined, assetTokenProgram)).amount > afterRevocation).to.equal(true);
-      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 10_000, 1);
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100_000, 1);
       await connection.sendTransaction(await buildClaim(keeperAssetAccount, keeper), [keeper]);
     });
   }
@@ -7120,7 +7327,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       "YieldAccount",
       Buffer.from(destinationQuoteYieldData!.data)
     ) as any;
-    expect(sourceBaseYield.accrued_swap_fee_amount.toNumber()).to.equal(2);
+    expect(sourceBaseYield.accrued_swap_fee_amount.toNumber()).to.equal(1);
     expect(destinationBaseYield.accrued_swap_fee_amount.toNumber()).to.equal(0);
     expect(sourceQuoteYield.accrued_swap_fee_amount.toNumber()).to.equal(0);
     expect(destinationQuoteYield.accrued_swap_fee_amount.toNumber()).to.equal(0);
@@ -7137,7 +7344,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       undefined,
       TOKEN_2022_PROGRAM_ID
     );
-    expect(sourceYlpAfter.amount).to.equal(130_421n);
+    expect(sourceYlpAfter.amount).to.equal(130_280n);
     expect(destinationYlpAfter.amount).to.equal(10_000n);
   });
 
@@ -7680,7 +7887,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
 
   it("permissioned referrals accrue a capped DAO-interest share and remain claimable", async function () {
-    const fixture = await addBalancedLiquidity(69);
+    // This test isolates referral permissions and revenue allocation. Keep the
+    // annual accrual fixture at a fixed configured rate rather than letting
+    // a seed-only market compound an uncapped scarcity rate for one year.
+    const config = marketConfig();
+    config.irm.minimumAprNad = config.irm.initialAprNad;
+    config.irm.maximumAprNad = config.irm.initialAprNad;
+    const fixture = await addBalancedLiquidity(69, config);
     const borrowPositionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
 
@@ -8748,6 +8961,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     this.timeout(120_000);
 
     const config = marketConfig();
+    config.irm.minimumAprNad = config.irm.initialAprNad;
+    config.irm.maximumAprNad = config.irm.initialAprNad;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -11422,8 +11637,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         };
         const execute = async (lpAmount: number, paymentAmount: number, overrides = {}) => {
           svm.expireBlockhash();
-          const tx = await leverageDelegateProgram.methods.executeProtectionOrder({ lpAmount: new BN(lpAmount), paymentAmount: new BN(paymentAmount) })
-            .accounts({ ...executeAccounts, ...overrides }).transaction();
+          const ix = await new DuskProtectionOrders(createLeverageDelegateProgram({ provider: program.provider })).executeInstruction(
+            { lpAmount, paymentAmount }, { ...executeAccounts, ...overrides });
+          const tx = new Transaction().add(ix);
           // This accrued concentrated repayment is near the repository's 1.35M
           // default guard across SBF build hosts. Request 1.38M explicitly,
           // leaving 20k below Solana's transaction cap.

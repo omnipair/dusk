@@ -708,12 +708,13 @@ pub fn record_leverage_interest<'info>(
     // Historical public growth is protected before the new cash credit.
     market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
     market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
-    market.side_mut(debt_asset).record_interest_credit_allocation(
+    market.record_receivable_income_credit(
+        debt_asset,
+        false,
         interest_vault_credit,
         protocol_credit,
         futarchy_authority.protocol_auction_split,
         referral_receipt.quote.referral_amount,
-        interest_eligibility.ylp_supply,
     )?;
     if market.has_active_hlp() && interest_vault_credit > protocol_credit {
         settle_new_public_hlp_income(

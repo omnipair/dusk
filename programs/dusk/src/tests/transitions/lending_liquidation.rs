@@ -62,10 +62,14 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     base_side.shares.ylp_supply = 1_000_000_000;
     quote_side.shares.ylp_supply = 1_000_000_000;
     let mut market = Market {
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        base_side,
-        quote_side,
+        base_side: Box::new(base_side),
+        quote_side: Box::new(quote_side),
         config: valid_config(),
         amm: Default::default(),
         debt,
@@ -228,10 +232,14 @@ fn market_with_cash_backed_debt(
     base_side.shares.ylp_supply = ylp_supply;
     quote_side.shares.ylp_supply = ylp_supply;
     let mut market = Market {
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        base_side,
-        quote_side,
+        base_side: Box::new(base_side),
+        quote_side: Box::new(quote_side),
         config: valid_config(),
         amm: Default::default(),
         debt,

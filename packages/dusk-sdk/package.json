@@ -62,7 +62,7 @@
     "build": "npm run prepare-idl && tsc",
     "typecheck": "tsc --noEmit",
     "test:governance": "npm run build && node scripts/check-governance.js",
-    "test:previews": "npm run build && node --test scripts/check-previews.js scripts/check-virtual-book.js scripts/check-lp-tokens.js scripts/check-leverage-margins.js scripts/check-leverage-funding.js scripts/check-leverage-actions.js scripts/check-insurance.js scripts/check-liquidation.js scripts/check-hlp-exit.js scripts/check-transfer-fees.js scripts/check-interest-accounting.js scripts/check-write-program-accounts.js",
+    "test:previews": "npm run build && node --test scripts/check-previews.js scripts/check-virtual-book.js scripts/check-lp-tokens.js scripts/check-leverage-margins.js scripts/check-leverage-funding.js scripts/check-leverage-actions.js scripts/check-insurance.js scripts/check-liquidation.js scripts/check-hlp-exit.js scripts/check-transfer-fees.js scripts/check-interest-accounting.js scripts/check-write-program-accounts.js scripts/check-tranches.js",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
   },

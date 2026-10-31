@@ -45,7 +45,8 @@ pub(crate) fn transfer_checked<'info>(
             amount,
             decimals,
         )?;
-        let mut account_infos = vec![from.clone(), mint.clone(), to.clone(), authority.clone()];
+        let mut account_infos = Vec::with_capacity(5);
+        account_infos.extend([from.clone(), mint.clone(), to.clone(), authority.clone()]);
         let transfer_hook_program_id = if *mint.owner != Token2022::id() {
             None
         } else {
@@ -55,7 +56,7 @@ pub(crate) fn transfer_checked<'info>(
             transfer_hook::get_program_id(&mint_state)
         };
         if let Some(transfer_hook_program_id) = transfer_hook_program_id {
-            spl_transfer_hook_interface::onchain::add_extra_accounts_for_execute_cpi(
+            dusk::token::add_transfer_hook_accounts(
                 &mut instruction,
                 &mut account_infos,
                 &transfer_hook_program_id,
@@ -70,20 +71,25 @@ pub(crate) fn transfer_checked<'info>(
         account_infos.push(token_program);
         invoke_signed(&instruction, &account_infos, signer_seeds).map_err(Into::into)
     } else {
-        token::transfer_checked(
-            CpiContext::new_with_signer(
-                token_program,
-                token::TransferChecked {
-                    from,
-                    mint,
-                    to,
-                    authority,
-                },
-                signer_seeds,
-            ),
+        let instruction = token::spl_token::instruction::transfer_checked(
+            token_program.key,
+            from.key,
+            mint.key,
+            to.key,
+            authority.key,
+            &[],
             amount,
             decimals,
+        )?;
+        // The delegate can make several payouts in one instruction. Keep its
+        // fixed CPI account list on the stack instead of allocating a growing
+        // Vec for every payout on the non-reclaiming SBF heap.
+        invoke_signed(
+            &instruction,
+            &[from, mint, to, authority, token_program],
+            signer_seeds,
         )
+        .map_err(Into::into)
     }
 }
 

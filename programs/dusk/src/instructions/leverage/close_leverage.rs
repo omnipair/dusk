@@ -778,53 +778,62 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.market.base_side.reserves.live_reserve,
             ctx.accounts.market.quote_side.reserves.live_reserve,
         )?;
-        emit_cpi!(SwapExecuted::from_leverage(
-            market_key,
-            owner_key,
-            authority_key,
-            position_key,
-            SwapOrigin::LeverageClose,
-            current_slot,
-            swap_event,
-            receipt.swap.start_price_nad,
-            &ctx.accounts.market,
-        )?);
+        crate::instructions::accounting::emit_accounting_event(
+            &SwapExecuted::from_leverage(
+                market_key,
+                owner_key,
+                authority_key,
+                position_key,
+                SwapOrigin::LeverageClose,
+                current_slot,
+                swap_event,
+                receipt.swap.start_price_nad,
+                &ctx.accounts.market,
+            )?,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         if is_full_close {
-            emit_cpi!(LeveragePositionClosed {
-                market: market_key,
-                position: position_key,
-                owner: owner_key,
-                debt_asset_mint: debt_mint_key,
-                collateral_asset_mint: collateral_mint_key,
-                debt_repaid: receipt.debt_repaid,
-                interest_paid: receipt.interest_paid,
-                collateral_sold: receipt.collateral_sold,
-                closeout_value: receipt.closeout_value,
-                residual: residual_credit,
-                swap: swap_event,
-                metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
-            });
+            crate::instructions::accounting::emit_accounting_event(
+                &LeveragePositionClosed {
+                    market: market_key,
+                    position: position_key,
+                    owner: owner_key,
+                    debt_asset_mint: debt_mint_key,
+                    collateral_asset_mint: collateral_mint_key,
+                    debt_repaid: receipt.debt_repaid,
+                    interest_paid: receipt.interest_paid,
+                    collateral_sold: receipt.collateral_sold,
+                    closeout_value: receipt.closeout_value,
+                    residual: residual_credit,
+                    swap: swap_event,
+                    metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
+                },
+                ctx.accounts.event_authority.to_account_info(),
+            )?;
         } else {
-            emit_cpi!(LeveragePositionUpdated {
-                market: market_key,
-                position: position_key,
-                owner: owner_key,
-                debt_asset_mint: debt_mint_key,
-                collateral_asset_mint: collateral_mint_key,
-                borrowed_amount: 0,
-                owner_debit: 0,
-                debt_delta: -i64::try_from(receipt.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
-                collateral_delta: -i64::try_from(receipt.collateral_sold).map_err(|_| ErrorCode::Overflow)?,
-                debt_amount: receipt.remaining_debt_amount,
-                debt_shares: receipt.remaining_debt_shares,
-                collateral_amount: receipt.remaining_collateral_amount,
-                margin_terms: ctx.accounts.leverage_position.margin_terms,
-                closeout_value: receipt.remaining_closeout_value,
-                owner_credit: residual_credit,
-                interest_paid: receipt.interest_paid,
-                swap: Some(swap_event),
-                metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
-            });
+            crate::instructions::accounting::emit_accounting_event(
+                &LeveragePositionUpdated {
+                    market: market_key,
+                    position: position_key,
+                    owner: owner_key,
+                    debt_asset_mint: debt_mint_key,
+                    collateral_asset_mint: collateral_mint_key,
+                    borrowed_amount: 0,
+                    owner_debit: 0,
+                    debt_delta: -i64::try_from(receipt.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
+                    collateral_delta: -i64::try_from(receipt.collateral_sold).map_err(|_| ErrorCode::Overflow)?,
+                    debt_amount: receipt.remaining_debt_amount,
+                    debt_shares: receipt.remaining_debt_shares,
+                    collateral_amount: receipt.remaining_collateral_amount,
+                    margin_terms: ctx.accounts.leverage_position.margin_terms,
+                    closeout_value: receipt.remaining_closeout_value,
+                    owner_credit: residual_credit,
+                    interest_paid: receipt.interest_paid,
+                    swap: Some(swap_event),
+                    metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
+                },
+                ctx.accounts.event_authority.to_account_info(),
+            )?;
         }
 
         if matches!(mode, CloseMode::Delegate) {

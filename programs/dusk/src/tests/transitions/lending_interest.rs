@@ -1,5 +1,4 @@
 use super::*;
-use crate::state::DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR;
 
 // Market-level interest checkpoints and debt-accounting invariants.
 use crate::{
@@ -32,10 +31,14 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         ..MarketSide::default()
     };
     Market {
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        base_side,
-        quote_side,
+        base_side: Box::new(base_side),
+        quote_side: Box::new(quote_side),
         config: MarketConfig::default(),
         amm: Default::default(),
         debt: Debt {
@@ -85,7 +88,7 @@ fn accrual_receipt_separates_credit_margin_and_hlp_at_the_shared_index() {
     market.debt.base_rate_at_target_nad = NAD as u128 / 10;
     // At target utilization, one year at 10% grows credit 300 -> 330,
     // margin 200 -> 220, and hLP funding 200 -> 220.
-    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slots_for_ms(MS_PER_YEAR))
+    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slots_for_ms(MS_PER_YEAR), Some(50_000_000))
         .unwrap()
         .unwrap();
     assert_eq!(receipt.credit_interest, 30);
@@ -95,7 +98,7 @@ fn accrual_receipt_separates_credit_margin_and_hlp_at_the_shared_index() {
     assert_eq!(market.base_side.reserves.cash_reserve, 300);
     assert_eq!(receipt.from_slot, 0);
     assert_eq!(receipt.to_slot, slots_for_ms(MS_PER_YEAR));
-    assert!(accrue_side::<true>(&mut market, MarketAsset::Base, receipt.to_slot).unwrap().is_none());
+    assert!(accrue_side::<true>(&mut market, MarketAsset::Base, receipt.to_slot, Some(50_000_000)).unwrap().is_none());
 }
 
 #[test]
@@ -108,9 +111,9 @@ fn short_checkpoints_preserve_fractional_borrow_interest() {
     // Two hundred 200 ms slots accrue enough at the minimum APR to advance
     // the integer index while exercising its fractional remainder.
     for slot in 1..=200 {
-        accrue_side::<false>(&mut frequent, MarketAsset::Base, slot).unwrap();
+        accrue_side::<false>(&mut frequent, MarketAsset::Base, slot, Some(50_000_000)).unwrap();
     }
-    accrue_side::<false>(&mut single, MarketAsset::Base, 200).unwrap();
+    accrue_side::<false>(&mut single, MarketAsset::Base, 200, Some(50_000_000)).unwrap();
 
     assert!(frequent.debt.base_borrow_index_nad > NAD as u128);
     assert_eq!(frequent.debt.base_borrow_index_nad, single.debt.base_borrow_index_nad);
@@ -126,7 +129,7 @@ fn accrual_receipts_preserve_each_buckets_rounding_boundary() {
     market.quote_hlp_vault.base_hlp_live_reserve = 2;
     market.base_side.reserves.live_reserve = 10;
     market.debt.base_rate_at_target_nad = NAD as u128 / 2;
-    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slots_for_ms(MS_PER_YEAR))
+    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slots_for_ms(MS_PER_YEAR), Some(50_000_000))
         .unwrap()
         .unwrap();
     assert_eq!(receipt.credit_interest, 1);
@@ -151,29 +154,23 @@ fn no_time_elapsed_is_a_noop() {
 }
 
 #[test]
-fn idle_side_drifts_anchor_down_toward_min() {
-    // Cash present, zero debt -> utilization 0 -> error -1 -> anchor falls.
+fn debt_free_side_holds_the_current_rate() {
     let mut market = test_market(1_000_000, 1_000_000);
     market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
-    assert!(market.debt.quote_rate_at_target_nad < INTEREST_INITIAL_RATE_AT_TARGET_NAD);
-    assert!(market.debt.quote_rate_at_target_nad >= INTEREST_MIN_RATE_AT_TARGET_NAD);
+    assert_eq!(market.debt.quote_rate_at_target_nad, INTEREST_INITIAL_RATE_AT_TARGET_NAD);
 }
 
 #[test]
-fn high_utilization_raises_anchor_and_accrues_index() {
-    // Quote borrowed 850 via base-hLP, 150 cash -> util 85% (above 70% target).
-    // error = +0.5 -> curve mult 2.5x -> rate = 4% * 2.5 = 10% APR.
+fn missing_junior_doubles_rate_over_one_half_life() {
     let mut market = test_market(1_000_000, 150);
     market.quote_side.reserves.live_reserve = 1_000;
     market.base_hlp_vault.debt_shares = 850;
     market.base_hlp_vault.quote_hlp_live_reserve = 850;
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-    market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
-    // 10% APR over one year compounds the index to 1.10.
-    assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
-    // Anchor drifted up (util above target).
-    assert!(market.debt.quote_rate_at_target_nad > INTEREST_INITIAL_RATE_AT_TARGET_NAD);
-    assert!(market.debt.quote_rate_at_target_nad <= INTEREST_MAX_RATE_AT_TARGET_NAD);
+    market.accrue_interest_to_slot(slots_for_ms(market.config.irm.half_life_ms)).unwrap();
+    assert_eq!(market.debt.quote_rate_at_target_nad, 80_000_000);
+    // Integral of 4% * 2^(t / 14 days): roughly 0.2213% over 14 days.
+    assert!((1_002_210_000..1_002_220_000).contains(&market.debt.quote_borrow_index_nad));
 }
 
 #[test]
@@ -187,6 +184,10 @@ fn hlp_funding_interest_does_not_grow_virtual_reserve() {
     market.base_hlp_vault.debt_principal = 850;
     market.base_hlp_vault.quote_hlp_live_reserve = 850;
 
+    market.config.irm.initial_apr_nad = NAD / 10;
+    market.config.irm.minimum_apr_nad = NAD / 10;
+    market.config.irm.maximum_apr_nad = NAD / 10;
+    market.debt.quote_rate_at_target_nad = (NAD / 10) as u128;
     market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
 
     assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
@@ -204,6 +205,10 @@ fn cash_backed_interest_increases_virtual_reserve_with_debt() {
     market.debt.fixed_quote_shares = 850;
     market.debt.fixed_quote_principal = 850;
 
+    market.config.irm.initial_apr_nad = NAD / 10;
+    market.config.irm.minimum_apr_nad = NAD / 10;
+    market.config.irm.maximum_apr_nad = NAD / 10;
+    market.debt.quote_rate_at_target_nad = (NAD / 10) as u128;
     market.accrue_interest_to_slot(slots_for_ms(MS_PER_YEAR)).unwrap();
 
     assert_eq!(market.debt.quote_borrow_index_nad, (NAD as u128) * 110 / 100);
@@ -228,10 +233,11 @@ fn margin_and_hlp_debt_both_count_toward_utilization() {
 }
 
 #[test]
-fn anchor_saturates_at_max_under_sustained_pressure() {
+fn explicitly_configured_ceiling_caps_sustained_pressure() {
     // ~100% utilization held for years: the anchor ramps up (capped per
     // step) and clamps at the max, never exceeding it.
     let mut market = test_market(1_000_000, 1);
+    market.config.irm.maximum_apr_nad = INTEREST_MAX_RATE_AT_TARGET_NAD as u64;
     market.quote_side.reserves.live_reserve = 10_001;
     market.base_hlp_vault.debt_shares = 10_000;
     market.base_hlp_vault.quote_hlp_live_reserve = 10_000;
@@ -245,31 +251,22 @@ fn anchor_saturates_at_max_under_sustained_pressure() {
 }
 
 #[test]
-fn mixed_active_and_idle_sides_accrue_independently_with_three_conversions() {
+fn mixed_active_and_idle_sides_accrue_independently_with_shared_coverage_snapshot() {
     let current_slot = slots_for_ms(MS_PER_YEAR);
     let mut market = test_market(300, 1_000);
     configure_active_base_side(&mut market);
+    market.config.irm.minimum_apr_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD as u64;
+    market.config.irm.maximum_apr_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD as u64;
     market.debt.quote_last_accrual_slot = current_slot / 2;
-    let quote_elapsed_ms = (current_slot - market.debt.quote_last_accrual_slot).saturating_mul(TARGET_MS_PER_SLOT);
-    let expected_quote_rate = adapt_rate_at_target_nad(
-        INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-        -(NAD as i128),
-        quote_elapsed_ms,
-        DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR as u128,
-        INTEREST_MIN_RATE_AT_TARGET_NAD,
-        INTEREST_MAX_RATE_AT_TARGET_NAD,
-        INTEREST_MAX_ADAPTATION_STEP_NAD,
-    )
-    .unwrap();
+    let expected_quote_rate = INTEREST_INITIAL_RATE_AT_TARGET_NAD;
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
 
     Debt::reset_shares_to_debt_call_count();
     market.accrue_interest_to_slot(current_slot).unwrap();
 
-    // The active base side performs one hLP conversion before accrual and
-    // one conversion for each cash-backed bucket afterward. The idle quote
-    // side performs no debt conversion at all.
-    assert_eq!(Debt::shares_to_debt_call_count(), 3);
+    // Coverage snapshots add three exposure conversions. The idle side
+    // performs no debt conversion.
+    assert_eq!(Debt::shares_to_debt_call_count(), 6);
     assert_eq!(market.debt.base_borrow_index_nad, (NAD as u128) * 104 / 100);
     assert_eq!(market.debt.quote_borrow_index_nad, NAD as u128);
     assert_eq!(market.debt.base_rate_at_target_nad, INTEREST_INITIAL_RATE_AT_TARGET_NAD);
@@ -288,20 +285,11 @@ fn debt_free_sides_skip_all_debt_and_index_work() {
     let mut market = test_market(1_000, 2_000);
 
     // These sentinel indexes would overflow if the active-side index path
-    // ran. A debt-free side must only decay its anchor and advance its own
+    // ran. A debt-free side must hold its rate and advance its own
     // accrual slot.
     market.debt.base_borrow_index_nad = u128::MAX;
     market.debt.quote_borrow_index_nad = u128::MAX;
-    let expected_idle_rate = adapt_rate_at_target_nad(
-        INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-        -(NAD as i128),
-        current_slot.saturating_mul(TARGET_MS_PER_SLOT),
-        DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR as u128,
-        INTEREST_MIN_RATE_AT_TARGET_NAD,
-        INTEREST_MAX_RATE_AT_TARGET_NAD,
-        INTEREST_MAX_ADAPTATION_STEP_NAD,
-    )
-    .unwrap();
+    let expected_idle_rate = INTEREST_INITIAL_RATE_AT_TARGET_NAD;
 
     Debt::reset_shares_to_debt_call_count();
     market.accrue_interest_to_slot(current_slot).unwrap();
@@ -321,6 +309,8 @@ fn debt_free_sides_skip_all_debt_and_index_work() {
 fn long_slot_gap_charges_the_full_elapsed_interval() {
     let mut market = test_market(300, 1_000);
     configure_active_base_side(&mut market);
+    market.config.irm.minimum_apr_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD as u64;
+    market.config.irm.maximum_apr_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD as u64;
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
 
     Debt::reset_shares_to_debt_call_count();
@@ -329,7 +319,7 @@ fn long_slot_gap_charges_the_full_elapsed_interval() {
 
     // At target utilization, two years at the 4% initial rate grow the index
     // by 8% even when no other operation checkpoints the market in between.
-    assert_eq!(Debt::shares_to_debt_call_count(), 3);
+    assert_eq!(Debt::shares_to_debt_call_count(), 6);
     assert_eq!(market.debt.base_borrow_index_nad, (NAD as u128) * 108 / 100);
     assert_eq!(market.base_side.reserves.live_reserve, 1_040);
     assert_eq!(market.debt.base_last_accrual_slot, current_slot);

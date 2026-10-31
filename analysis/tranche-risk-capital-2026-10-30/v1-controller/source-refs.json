@@ -1,0 +1,22 @@
+{
+  "checked_date": "2026-10-31",
+  "local_revision": "84a8ef7a2a3a81e750435b86d7191bf43413d6a4",
+  "github_default_branch_files": [
+    {
+      "path": "programs/omnipair/src/state/rate_model.rs",
+      "sha": "34b7c984e04cb7a5662f33ba11f98b5276337298",
+      "url": "https://github.com/omnipair/omnipair-rs/blob/main/programs/omnipair/src/state/rate_model.rs"
+    },
+    {
+      "path": "programs/omnipair/src/constants.rs",
+      "sha": "5d655605c82ccfaf1a763746395add4fc45d1006",
+      "url": "https://github.com/omnipair/omnipair-rs/blob/main/programs/omnipair/src/constants.rs"
+    },
+    {
+      "path": "programs/omnipair/src/instructions/futarchy/set_pair_rate_model.rs",
+      "sha": "50751da1ba3ae5cbdcdcfc2eb0d26106856ea397",
+      "url": "https://github.com/omnipair/omnipair-rs/blob/main/programs/omnipair/src/instructions/futarchy/set_pair_rate_model.rs"
+    }
+  ],
+  "scope": "Source inspection and isolated math reproduction; deployed accounts and bytecode were not inspected"
+}

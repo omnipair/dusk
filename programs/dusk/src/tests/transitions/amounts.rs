@@ -3,8 +3,8 @@ use proptest::prelude::*;
 
 fn market_with_decimals(base: u8, quote: u8) -> Market {
     Market {
-        base_side: MarketSide { asset_decimals: base, ..MarketSide::default() },
-        quote_side: MarketSide { asset_decimals: quote, ..MarketSide::default() },
+        base_side: Box::new(MarketSide { asset_decimals: base, ..MarketSide::default() }),
+        quote_side: Box::new(MarketSide { asset_decimals: quote, ..MarketSide::default() }),
         ..Market::default()
     }
 }

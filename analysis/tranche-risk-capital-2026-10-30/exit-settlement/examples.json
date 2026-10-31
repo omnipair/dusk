@@ -1,0 +1,37 @@
+{
+  "scope": "Exact one-numeraire examples; no AMM, hLP, fees, rounding or unpaid interest.\n\nChecks economic counterexamples, not full Dusk safety or on-chain feasibility.",
+  "assertions_passed": true,
+  "case_groups": 6,
+  "results": {
+    "loss_order": {
+      "exit_value_after_loss": 8000.0,
+      "exit_value_before_loss": 10000.0,
+      "extra_loss_for_remaining_junior_if_conversion_first": 2000
+    },
+    "claim_timing": {
+      "principal_either_claim_time": 9000,
+      "senior_income_either_claim_time": 100,
+      "assumption": "Escrowed sr shares participate in senior rewards and losses."
+    },
+    "batch_distribution": {
+      "alice_sr_units": 2400.0,
+      "bob_sr_units": 5600.0
+    },
+    "late_settlement_changes_rewards": {
+      "junior_income_if_conversion_delayed": 17.5,
+      "senior_income_if_converted_on_time": 3.888888888888889,
+      "assumption": "Income intervals already known; production receivables not modeled."
+    },
+    "repeated_windows": {
+      "notice_days": 7,
+      "window_days": 2,
+      "staggered_eligible_fraction": 0.2222222222222222,
+      "assumptions": "Fixed delay, no fees/crowding, immediate renewal, half-open windows."
+    },
+    "coverage": {
+      "before_and_during_notice": 0.25,
+      "after_conversion": 0.125,
+      "cash_unchanged": true
+    }
+  }
+}

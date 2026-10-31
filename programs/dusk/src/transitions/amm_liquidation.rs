@@ -71,22 +71,11 @@ impl Market {
         slot: u64,
         protocol_fee_bps: u16,
     ) -> Result<PreparedEmergencyLiquidation> {
-        let before = self.liquidation_scratch();
-        let prepared = self.prepare_emergency_candidate(
-            position,
-            asset,
-            collateral_debit,
-            full,
-            collateral_fee,
-            eligibility_fee,
-            debt_fee,
-            now,
-            slot,
-            protocol_fee_bps,
-        )?;
+        // Prove the bound against the unchanged market before preparation.
+        // Copying the entire market solely for this read exhausted SBF heap.
         if !full && collateral_debit > 1 {
             require!(
-                before.proves_partial_bound(
+                self.proves_partial_bound(
                     position,
                     asset,
                     collateral_fee,
@@ -99,6 +88,18 @@ impl Market {
                 ErrorCode::LiquidationRepayTooLarge
             );
         }
+        let prepared = self.prepare_emergency_candidate(
+            position,
+            asset,
+            collateral_debit,
+            full,
+            collateral_fee,
+            eligibility_fee,
+            debt_fee,
+            now,
+            slot,
+            protocol_fee_bps,
+        )?;
         Ok(prepared)
     }
 

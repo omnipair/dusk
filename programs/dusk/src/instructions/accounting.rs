@@ -13,11 +13,20 @@ use crate::{
 /// Emit through the same self-CPI format as `emit_cpi!`, from shared account
 /// preparation where an Anchor `Context` is not available. Callers supply
 /// the seed-validated event authority from their `#[event_cpi]` accounts.
-pub(crate) fn emit_accounting_event<'info>(event: &impl Event, authority: AccountInfo<'info>) -> Result<()> {
+pub(crate) fn emit_accounting_event<'info, E: Event>(event: &E, authority: AccountInfo<'info>) -> Result<()> {
     let (_, bump) = Pubkey::find_program_address(&[b"__event_authority"], &crate::ID);
-    let data = [anchor_lang::event::EVENT_IX_TAG_LE, event.data().as_slice()].concat();
-    let instruction =
-        Instruction::new_with_bytes(crate::ID, &data, vec![AccountMeta::new_readonly(authority.key(), true)]);
+    // One allocation instead of Event::data, concat and Instruction cloning
+    // the same payload. Fixed-size accounting events fit this capacity; Borsh
+    // may grow it safely if a future event contains variable-length fields.
+    let mut data = Vec::with_capacity(16 + core::mem::size_of::<E>());
+    data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
+    data.extend_from_slice(E::DISCRIMINATOR);
+    event.serialize(&mut data)?;
+    let instruction = Instruction {
+        program_id: crate::ID,
+        accounts: vec![AccountMeta::new_readonly(authority.key(), true)],
+        data,
+    };
     invoke_signed(&instruction, &[authority], &[&[b"__event_authority", &[bump]]])?;
     Ok(())
 }
@@ -74,12 +83,27 @@ pub(crate) fn accrue_market_interest<'info>(
     current_slot: u64,
     event_authority: AccountInfo<'info>,
 ) -> Result<()> {
+    let key = market.key();
+    accrue_market_interest_data(market, key, current_slot, event_authority)
+}
+
+pub(crate) fn accrue_market_interest_data<'info>(
+    market: &mut Market,
+    market_key: Pubkey,
+    current_slot: u64,
+    event_authority: AccountInfo<'info>,
+) -> Result<()> {
+    market.base_side.fees.public_interest_advance.require_settled()?;
+    market.quote_side.fees.public_interest_advance.require_settled()?;
+    if market.debt.base_last_accrual_slot == current_slot && market.debt.quote_last_accrual_slot == current_slot {
+        return market.accrue_interest_to_slot(current_slot);
+    }
+    let signals = market.tranche_coverage_signals()?;
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        market.side(asset).fees.public_interest_advance.require_settled()?;
-        if let Some(receipt) = accrue_side::<true>(market, asset, current_slot)? {
+        if let Some(receipt) = accrue_side::<true>(market, asset, current_slot, signals[asset.code() as usize])? {
             emit_accounting_event(
                 &BorrowInterestAccrued {
-                    market: market.key(),
+                    market: market_key,
                     asset_mint: market.side(asset).asset_mint,
                     asset_side: receipt.asset.code(),
                     from_slot: receipt.from_slot,

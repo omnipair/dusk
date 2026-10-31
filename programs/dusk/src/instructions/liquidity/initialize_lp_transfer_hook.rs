@@ -44,7 +44,7 @@ pub struct InitializeLpTransferHook<'info> {
 impl<'info> InitializeLpTransferHook<'info> {
     pub fn validate(&self) -> Result<()> {
         let lp_mint = self.lp_mint.key();
-        let lp_decimals = if lp_mint == self.market.ylp_mint {
+        let lp_decimals = if lp_mint == self.market.ylp_mint || lp_mint == self.market.junior_mint {
             self.market.base_side.asset_decimals
         } else {
             match self.market.asset_for_hlp_mint(lp_mint)? {
@@ -72,7 +72,7 @@ impl<'info> InitializeLpTransferHook<'info> {
         } = ctx.accounts;
         let lp_mint = lp_mint.key();
         let validation_info = validation_account.to_account_info();
-        let cohort_asset = if lp_mint == market.ylp_mint {
+        let cohort_asset = if lp_mint == market.ylp_mint || lp_mint == market.junior_mint {
             None
         } else {
             Some(market.asset_for_hlp_mint(lp_mint)?)
@@ -117,7 +117,7 @@ impl<'info> InitializeLpTransferHook<'info> {
                 require_eq!(cohort.bump, cohort_bump, ErrorCode::InvalidArgument);
             }
         }
-        let meta_count = if cohort_asset.is_some() {
+        let meta_count = if cohort_asset.is_some() || lp_mint == market.junior_mint {
             HLP_TRANSFER_HOOK_META_COUNT
         } else {
             LP_TRANSFER_HOOK_META_COUNT
@@ -220,6 +220,8 @@ pub(crate) fn canonical_lp_transfer_hook_metas(
 ) -> Result<Vec<ExtraAccountMeta>> {
     let token_kind = if lp_mint == market.ylp_mint {
         YieldTokenKind::Ylp
+    } else if lp_mint == market.junior_mint {
+        YieldTokenKind::Junior
     } else {
         market.asset_for_hlp_mint(lp_mint)?;
         YieldTokenKind::Hlp
@@ -242,12 +244,16 @@ pub(crate) fn canonical_lp_transfer_hook_metas(
         .map_err(|_| error!(ErrorCode::InvalidArgument))?,
         ExtraAccountMeta::new_with_pubkey(&crate::ID, false, false).map_err(|_| error!(ErrorCode::InvalidArgument))?,
     ];
-    if token_kind == YieldTokenKind::Hlp {
+    if token_kind == YieldTokenKind::Hlp || token_kind == YieldTokenKind::Junior {
         metas.push(
             ExtraAccountMeta::new_with_seeds(
                 &[
                     Seed::Literal {
-                        bytes: HLP_COHORT_SEED_PREFIX.to_vec(),
+                        bytes: if token_kind == YieldTokenKind::Junior {
+                            b"junior_cohort".to_vec()
+                        } else {
+                            HLP_COHORT_SEED_PREFIX.to_vec()
+                        },
                     },
                     Seed::AccountKey {
                         index: TRANSFER_HOOK_MARKET_INDEX,

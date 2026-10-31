@@ -1,0 +1,55 @@
+{
+  "runs": 144,
+  "cap": 0.8,
+  "target_junior_debt": 0.25,
+  "settings": {
+    "base": {},
+    "inelastic": {
+      "elasticity": 0
+    },
+    "elastic": {
+      "elasticity": 2
+    },
+    "slow": {
+      "response_days": 30
+    },
+    "no_repayment": {
+      "voluntary_repayment": false,
+      "elasticity": 0
+    },
+    "cash_paid": {
+      "cash_interest_fraction": 1
+    }
+  },
+  "scenarios": {
+    "calm": {},
+    "demand_growth": {
+      "growth_day": 20,
+      "demand": 2
+    },
+    "senior_cash_exit": {
+      "senior_day": 20
+    },
+    "junior_to_senior": {
+      "notice_day": 20
+    },
+    "senior_then_conversion": {
+      "senior_day": 20,
+      "notice_day": 21
+    },
+    "growth_conversion_crash": {
+      "growth_day": 20,
+      "demand": 2,
+      "notice_day": 25,
+      "crash_day": 40,
+      "price": 0.6
+    }
+  },
+  "synthetic": true,
+  "native_dusk_execution": false,
+  "source_hashes": {
+    "risk-pricing-borrow-cap/experiment.py": "3610d2635820e9b8a2ab6ab8e7382d96fae3742e3dbfc440c1112a634c942983",
+    "hybrid/model.py": "2e4d722858dbef91619690f72f7773637f1a317586406d83d5518c4af10fdb59",
+    "feedback/compare.py": "d6a505f7beb06e5435e4d844405f5bc86c64d71f56592930d9603023d07d4543"
+  }
+}

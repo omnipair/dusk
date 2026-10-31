@@ -430,4 +430,8 @@ pub enum ErrorCode {
 
     #[msg("Partial liquidation does not improve health after costs")]
     LiquidationDoesNotImproveHealth,
+    #[msg("Archive and roll the income epoch before issuing new receivables")]
+    IncomeEpochNeedsRollover,
+    #[msg("Prepare this holder's income history before changing its balance")]
+    IncomeHistoryRequired,
 }

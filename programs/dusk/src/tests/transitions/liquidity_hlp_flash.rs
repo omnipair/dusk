@@ -13,7 +13,7 @@ fn market_for_flash(amplification: u64, target: MarketAsset, funding_bps: u128) 
     m.config.amm.core_half_width_bps = if amplification == 1 { 0 } else { 100 };
     m.config.amm.fade_width_bps = if amplification == 1 { 0 } else { 400 };
     m.config.swap_fee_bps = 30;
-    m.amm = AmmState::default();
+    *m.amm = AmmState::default();
     m.prepare_amm_for_swap(1).unwrap();
     m.risk.base_price_ema_nad = NAD;
     m.risk.quote_price_ema_nad = NAD;
@@ -22,6 +22,7 @@ fn market_for_flash(amplification: u64, target: MarketAsset, funding_bps: u128) 
         MarketAsset::Base => m.debt.quote_borrow_index_nad += u128::from(NAD) * funding_bps / 10_000,
         MarketAsset::Quote => m.debt.base_borrow_index_nad += u128::from(NAD) * funding_bps / 10_000,
     }
+    m.sync_income_receivable(target.opposite(), true, 0).unwrap();
     m
 }
 

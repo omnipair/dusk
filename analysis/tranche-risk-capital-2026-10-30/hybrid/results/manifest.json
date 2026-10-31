@@ -1,0 +1,25 @@
+{
+  "runs": 1056,
+  "fine_step_runs": 24,
+  "source_sha256": {
+    "PREANALYSIS.md": "e9603d059131ef29f8319d617e6b22dcfff3caa59c5650488e110f4e129f6440",
+    "README.md": "6ec0d22042b866b62f1e213a5f9101b6d0e46135ef6ca7a724112b52e00417b2",
+    "analyze.py": "67819d80b430de97c7ab31537eb6cbe20c6822cf813edd19baee5a6c379e5126",
+    "model.py": "2e4d722858dbef91619690f72f7773637f1a317586406d83d5518c4af10fdb59",
+    "run.py": "4456d87ea8fced8f4d14b87f2f3afa9e2f5649e002c499d173296cf339f33d86",
+    "test_model.py": "36671e020d2f6c95e1ee3d47ea16f10e8aff7d49c0873b01450e104eadad364d",
+    "two_asset.py": "8a8ae54f0f1f92d84e0a830efb32d2f828b3ea35dae6603af805cda17f936b10",
+    "verify.py": "91c2bf099af30afd6ce6c6f273f844e1c19212dac9f8bf7a7ec9efbfdb3536e6"
+  },
+  "git_head": "22114ad3606e768ed08df41d71e41ece3313d2c9",
+  "static_directional_cases": 36,
+  "python": "3.9.6 (default, Apr  7 2026, 02:38:40) \n[Clang 21.0.0 (clang-2100.0.123.102)]",
+  "source_review_date": "2026-10-30",
+  "dusk_working_source_sha256": {
+    "programs/dusk/src/transitions/lending/liquidation.rs": "6f80356e95393c11a64345bc2595ce0bfde6199f6b80dd8fdd20fd69f82ebc1d",
+    "programs/dusk/src/transitions/lending/mod.rs": "9fd7974071af9f40a35f92d41455f43da2eaeca7267792ea395d8320999a48d5",
+    "programs/dusk/src/transitions/ledger.rs": "ad60558a6585275119c7399c25d25ad65465c8f7c05a4c9d7c092255379dc0a0",
+    "programs/dusk/src/transitions/leverage.rs": "33be69691f5625e2dba451819929c6a32ff654fdd12927e2afd0ef2168856907",
+    "programs/dusk/src/transitions/liquidity/hlp/engine.rs": "3bbede911172a064dd75f655db317d7df35007a0495396483ac42c2b1a80a36b"
+  }
+}

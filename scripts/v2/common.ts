@@ -641,15 +641,13 @@ export function defaultMarketConfig() {
     ),
     amm: defaultAmmConfig(),
     irm: {
-      targetUtilizationBps: Number(
-        duskEnv("IRM_TARGET_UTILIZATION_BPS", "7000")
-      ),
-      curveSteepnessNad: new anchor.BN(
-        duskEnv("IRM_CURVE_STEEPNESS_NAD", "4000000000")
-      ),
-      adjustmentSpeedPerYear: new anchor.BN(
-        duskEnv("IRM_ADJUSTMENT_SPEED_PER_YEAR", "20")
-      ),
+      lowerSignalNad: new anchor.BN(duskEnv("IRM_LOWER_SIGNAL_NAD", "50000000")),
+      upperSignalNad: new anchor.BN(duskEnv("IRM_UPPER_SIGNAL_NAD", "62500000")),
+      halfLifeMs: new anchor.BN(duskEnv("IRM_HALF_LIFE_MS", "1209600000")),
+      initialAprNad: new anchor.BN(duskEnv("IRM_INITIAL_APR_NAD", "40000000")),
+      minimumAprNad: new anchor.BN(duskEnv("IRM_MINIMUM_APR_NAD", "20000000")),
+      maximumAprNad: new anchor.BN(duskEnv("IRM_MAXIMUM_APR_NAD", "0")),
+      borrowUtilizationLimitBps: Number(duskEnv("IRM_BORROW_UTILIZATION_LIMIT_BPS", "8000")),
     },
     startTime: new anchor.BN(startTime),
   };
@@ -703,7 +701,7 @@ export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
         : "QUOTE_HLP";
   const defaults = {
     ylp: {
-      name: "Omnipair V2 (Dusk) yLP",
+      name: "Omnipair Senior LP",
       symbol: "yLP",
       uri: "https://omnipair.fi/metadata/dusk/ylp.json",
     },

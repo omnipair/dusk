@@ -654,7 +654,7 @@ impl<'info> SettleFlashLiquidation<'info> {
         // satisfy the buyer's obligation.
         for (destination, net) in [
             (a.reserve_vault.to_account_info(), repaid),
-            (a.insurance_vault.to_account_info(), fee.insurance),
+            (a.interest_vault.to_account_info(), fee.insurance),
             (a.interest_vault.to_account_info(), fee.lp + fee.protocol),
             (a.owner_debt_account.to_account_info(), owner_surplus),
         ] {
@@ -690,7 +690,7 @@ impl<'info> SettleFlashLiquidation<'info> {
                 .amount
                 .checked_sub(insurance_before)
                 .ok_or(ErrorCode::BrokenInvariant)?,
-            fee.insurance,
+            0,
             ErrorCode::BrokenInvariant
         );
         require_eq!(
@@ -698,7 +698,7 @@ impl<'info> SettleFlashLiquidation<'info> {
                 .amount
                 .checked_sub(interest_before)
                 .ok_or(ErrorCode::BrokenInvariant)?,
-            fee.lp + fee.protocol,
+            fee.lp + fee.protocol + fee.insurance,
             ErrorCode::BrokenInvariant
         );
         require_eq!(
@@ -750,10 +750,12 @@ impl<'info> SettleFlashLiquidation<'info> {
                 clock.slot,
             )?
         };
-        // Credit new insurance only after consuming the preexisting claim
-        // budget, so a liquidation cannot fund its own loss coverage.
+        // New underwriting income follows loss settlement; it cannot fund
+        // this liquidation's preexisting coverage budget.
         if fee.insurance > 0 {
-            a.market.insurance.credit(asset, fee.insurance, clock.slot)?;
+            a.market
+                .side_mut(asset)
+                .record_junior_liquidation_credit(fee.insurance)?;
         }
         a.interest_vault.reload()?;
         let eligibility = crate::transitions::HlpYieldEligibility {

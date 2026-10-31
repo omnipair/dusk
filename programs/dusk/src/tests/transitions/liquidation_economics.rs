@@ -31,10 +31,19 @@ struct AuditTotals { opened: u64, entry_debt: u64, flash: u64, emergency: u64, f
     eligible: u64, eligible_debt: u64, remaining: u64, failed: u64, admitted_error: String, path_error: String }
 
 fn publish_audit_fee(m: &mut Market, side: MarketAsset, fee: LiquidationFeeAllocation, interest: u64, slot: u64) -> Result<()> {
-    if fee.insurance>0 {m.insurance.credit(side, fee.insurance, slot)?;}
+    let native = m.side(side).fees.junior.initialized;
+    if fee.insurance > 0 {
+        if native { m.side_mut(side).record_junior_liquidation_credit(fee.insurance)?; }
+        else { m.insurance.credit(side, fee.insurance, slot)?; }
+    }
     let supply = m.base_side.shares.ylp_supply;
     m.side_mut(side).record_liquidation_fee_credit(fee.lp, fee.protocol, ProtocolAuctionSplit::default(), supply)?;
-    m.side_mut(side).record_interest_credit(interest, 0, ProtocolAuctionSplit::default(), 0)?;
+    let (fresh, frozen) = m.side_mut(side).fees.public_interest_advance.take_payment(interest)?;
+    if native {
+        m.record_receivable_income_credit(side, false, fresh + frozen, frozen, ProtocolAuctionSplit::default(), 0)?;
+    } else {
+        m.side_mut(side).record_interest_credit(fresh + frozen, 0, ProtocolAuctionSplit::default(), 0)?;
+    }
     m.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, m.base_hlp_vault.ylp_shares)?;
     m.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, m.quote_hlp_vault.ylp_shares)?;
     Ok(())
@@ -145,7 +154,11 @@ fn final_economic_policy_paths() {
             }
         }
         if !ps.is_empty() {
-            for step in 1..=18u64 {
+            // Eighteen price shocks followed by ten unchanged-price samples.
+            // A position can first become emergency-eligible at the last shock;
+            // allow five minutes for its bounded recovery proof to settle.
+            // The same no-critical-residual assertion remains below.
+            for step in 1..=28u64 {
                 let now=(step*30) as i64;let slot=2+step*75;
                 if let Err(e)=m.accrue_interest_to_slot(slot) {t.path_error=error_name(e);break;}
                 if step==2 && withdrawal>0 {
@@ -154,7 +167,8 @@ fn final_economic_policy_paths() {
                         Ok(())=>m=trial,Err(e)=>{t.path_error=format!("lp:{}",error_name(e));break;}
                     }
                 }
-                let mark=match path {0=>NAD*(100-step*3)/100,1=>NAD*55/100,_=>NAD*80/100};
+                let shock_step = step.min(18);
+                let mark=match path {0=>NAD*(100-shock_step*3)/100,1=>NAD*55/100,_=>NAD*80/100};
                 // Existing stress helper uses real curve swaps and preserves the
                 // accrued indices; its no_accrual only pins the already-accrued slot.
                 if let Err(e)=stress_to(&mut m,side.opposite(),mark,slot) {t.path_error=e;break;}
@@ -176,12 +190,13 @@ fn final_economic_policy_paths() {
                     // In these completed stress paths, the AMM recovery fallback
                     // must clear every emergency-eligible residual. This is not
                     // a guarantee for arbitrary liquidity or keeper economics.
-                    if t.path_error.is_empty() {
-                        assert!(!h.emergency_allowed().unwrap(), "critical residual: {case:?}, fee={fee_bps}, wallet={wallet_bps}, external={external}");
-                    }
                     if t.path_error.is_empty() && std::env::var_os("DUSK_LIQUIDATION_DIAGNOSTICS").is_some() {
                         diagnose_unfilled(&m,p,case,fee_bps,wallet_bps,external,position_index);
                     }
+                    if t.path_error.is_empty() {
+                        assert!(!h.emergency_allowed().unwrap(), "critical residual: {case:?}, fee={fee_bps}, wallet={wallet_bps}, external={external}");
+                    }
+
                 }
             }
         }

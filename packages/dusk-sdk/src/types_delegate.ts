@@ -3246,6 +3246,17 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
+            "name": "baseRateFractionE18",
+            "docs": [
+              "Fractional NAD APR carried by the exponential controller (scale 1e9)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "quoteRateFractionE18",
+            "type": "u64"
+          },
+          {
             "name": "globalHealthBaseContributionForQuoteDebt",
             "type": "u64"
           },
@@ -3389,6 +3400,14 @@ export type LeverageDelegate = {
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "junior",
+            "type": {
+              "defined": {
+                "name": "trancheIncome"
+              }
+            }
+          },
           {
             "name": "publicInterestAdvance",
             "type": {
@@ -3858,6 +3877,115 @@ export type LeverageDelegate = {
       }
     },
     {
+      "name": "incomeExposureEnd",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ended",
+            "type": "bool"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "growth",
+            "type": {
+              "defined": {
+                "name": "receivableGrowth"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "incomeReceivableBook",
+      "docs": [
+        "A bounded-denomination epoch of an unpaid-income pool. Public and hLP",
+        "funding income use separate books. Repayments/defaults are pooled within",
+        "each book; already funded advances do not remain unpaid claims."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "unpaid",
+            "type": "u64"
+          },
+          {
+            "name": "units",
+            "type": "u64"
+          },
+          {
+            "name": "paidPerUnitQ64",
+            "type": "u128"
+          },
+          {
+            "name": "paidRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "growth",
+            "docs": [
+              "Ordinary senior, junior, base hLP, quote hLP."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "receivableGrowth"
+                  }
+                },
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "incomeReceivableClaim",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "unitsQ64",
+            "type": "u128"
+          },
+          {
+            "name": "paidCheckpointQ64",
+            "type": "u128"
+          },
+          {
+            "name": "growthCheckpoint",
+            "type": {
+              "defined": {
+                "name": "receivableGrowth"
+              }
+            }
+          },
+          {
+            "name": "paidFractionQ128",
+            "type": "u128"
+          },
+          {
+            "name": "claimable",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "insurance",
       "type": {
         "kind": "struct",
@@ -3954,21 +4082,25 @@ export type LeverageDelegate = {
       }
     },
     {
-      "name": "irmConfig",
+      "name": "juniorExitConfig",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "targetUtilizationBps",
+            "name": "minimumNoticeSlots",
+            "type": "u64"
+          },
+          {
+            "name": "maximumNoticeSlots",
+            "type": "u64"
+          },
+          {
+            "name": "exerciseWindowSlots",
+            "type": "u64"
+          },
+          {
+            "name": "requestFeeBps",
             "type": "u16"
-          },
-          {
-            "name": "curveSteepnessNad",
-            "type": "u64"
-          },
-          {
-            "name": "adjustmentSpeedPerYear",
-            "type": "u64"
           }
         ]
       }
@@ -4435,6 +4567,37 @@ export type LeverageDelegate = {
             }
           },
           {
+            "name": "tranches",
+            "docs": [
+              "One shared junior capital budget across both reserve/debt books."
+            ],
+            "type": {
+              "defined": {
+                "name": "trancheCapital"
+              }
+            }
+          },
+          {
+            "name": "income",
+            "type": {
+              "defined": {
+                "name": "marketIncomeBooks"
+              }
+            }
+          },
+          {
+            "name": "juniorExitConfig",
+            "type": {
+              "defined": {
+                "name": "juniorExitConfig"
+              }
+            }
+          },
+          {
+            "name": "juniorMint",
+            "type": "pubkey"
+          },
+          {
             "name": "baseHlpVault",
             "type": {
               "defined": {
@@ -4602,13 +4765,109 @@ export type LeverageDelegate = {
             "name": "irm",
             "type": {
               "defined": {
-                "name": "irmConfig"
+                "name": "riskRateConfig"
               }
             }
           },
           {
             "name": "startTime",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketIncomeBooks",
+      "docs": [
+        "Public-loan and hLP-funding receivables are independent. The vault-owned",
+        "public-income claims preserve hLP's automatic funding-gap repayment."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "books",
+            "docs": [
+              "base public, quote public, base hLP funding, quote hLP funding."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeReceivableBook"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "pending",
+            "docs": [
+              "Gross settlement budget awaiting measured net custody credit."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "seed",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeReceivableClaim"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "hlp",
+            "docs": [
+              "[hLP target][income asset], owned by the vault rather than its holders."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    {
+                      "defined": {
+                        "name": "incomeReceivableClaim"
+                      }
+                    },
+                    2
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "juniorEnd",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeExposureEnd"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "splitCarry",
+            "type": {
+              "array": [
+                "bool",
+                4
+              ]
+            }
           }
         ]
       }
@@ -4998,6 +5257,32 @@ export type LeverageDelegate = {
       }
     },
     {
+      "name": "receivableGrowth",
+      "docs": [
+        "One exposure lane's newly issued receivable units per LP receipt. The",
+        "weighted paid index is kept at full Q128 precision: flooring it earlier can",
+        "give late entrants a fractional claim on money paid before their entry."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "unitsQ64",
+            "type": "u128"
+          },
+          {
+            "name": "weightedPaidQ128",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "referralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -5233,6 +5518,177 @@ export type LeverageDelegate = {
       }
     },
     {
+      "name": "riskRateConfig",
+      "docs": [
+        "Per-market inputs for the coverage band controller. A zero maximum leaves",
+        "APR economically uncapped; arithmetic still rejects unrepresentable debt."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lowerSignalNad",
+            "type": "u64"
+          },
+          {
+            "name": "upperSignalNad",
+            "type": "u64"
+          },
+          {
+            "name": "halfLifeMs",
+            "type": "u64"
+          },
+          {
+            "name": "initialAprNad",
+            "type": "u64"
+          },
+          {
+            "name": "minimumAprNad",
+            "type": "u64"
+          },
+          {
+            "name": "maximumAprNad",
+            "type": "u64"
+          },
+          {
+            "name": "borrowUtilizationLimitBps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheCapital",
+      "docs": [
+        "Junior's portion of the AMM's existing reserve shares. Senior receipts stay",
+        "one-for-one with the remaining reserve shares, including hLP-held receipts.",
+        "Junior receipts have their own exchange rate after income, losses and fees."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "juniorReserveShares",
+            "type": "u64"
+          },
+          {
+            "name": "juniorReceiptSupply",
+            "type": "u64"
+          },
+          {
+            "name": "permanentReceipts",
+            "docs": [
+              "Funded, nonredeemable protocol receipts; included in junior supply."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "queuedReceipts",
+            "docs": [
+              "Escrow remains junior until a successful conversion or cancellation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "generation",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheIncome",
+      "docs": [
+        "Custody-backed junior income. Cached ownership is synchronized by every",
+        "capital transition; the market invariant checks it against the shared book."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "initialized",
+            "type": "bool"
+          },
+          {
+            "name": "reserveShares",
+            "type": "u64"
+          },
+          {
+            "name": "receiptSupply",
+            "type": "u64"
+          },
+          {
+            "name": "swapGrowthQ64",
+            "type": "u128"
+          },
+          {
+            "name": "interestGrowthQ64",
+            "type": "u128"
+          },
+          {
+            "name": "swapRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "interestRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "seedSwapAmount",
+            "type": "u64"
+          },
+          {
+            "name": "seedInterestAmount",
+            "type": "u64"
+          },
+          {
+            "name": "seedSwapCheckpoint",
+            "type": "u128"
+          },
+          {
+            "name": "seedInterestCheckpoint",
+            "type": "u128"
+          },
+          {
+            "name": "seedSwapRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "seedInterestRemainder",
+            "type": "u64"
+          },
+          {
+            "name": "carry",
+            "type": {
+              "defined": {
+                "name": "trancheRevenueCarry"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheRevenueCarry",
+      "docs": [
+        "Carry the indivisible half atom across credits so splitting a payment into",
+        "many small transfers cannot eliminate one tranche's entire allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "interestHalfAtom",
+            "type": "bool"
+          },
+          {
+            "name": "swapHalfAtom",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
       "name": "updateLeverageOrderArgs",
       "type": {
         "kind": "struct",
@@ -5331,6 +5787,32 @@ export type LeverageDelegate = {
             "type": {
               "option": "pubkey"
             }
+          },
+          {
+            "name": "incomeInitialized",
+            "type": "bool"
+          },
+          {
+            "name": "income",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "incomeReceivableClaim"
+                  }
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "escrowBalance",
+            "docs": [
+              "Owner's virtual receipts: junior exit escrow, or senior governance locks.",
+              "Governance cash yield uses its existing virtual ledger; historical",
+              "unpaid-income ownership is checkpointed here for both token kinds."
+            ],
+            "type": "u64"
           }
         ]
       }

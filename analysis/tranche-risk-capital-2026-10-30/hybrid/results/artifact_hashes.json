@@ -1,0 +1,13 @@
+{
+  "summary.csv": "97e1048f5d64aededa068dd6cf0d41fd9b324f6aa2b5220e6df241b39c098d61",
+  "exit_comparisons.csv": "8b2386f41f0673bac0e06e47d2bbca0cc316d6d8ed4357625ae4ec27d85f4672",
+  "step_sensitivity.csv": "f02f42a4e6d853eff7cc571c4553499fcc86ae277667b2f7e3f691e5b9e1d20f",
+  "parameters.json": "ad3232ec246024bc9347a228f3c4a2bd6d6237c186f549f14e7e2dbcfcb0741a",
+  "hybrid-tradeoffs.png": "4f77604a8deffd0558ebc5f8fa53d1e706a7ebd2efb3da0604c46d2b1f55d1c7",
+  "two_asset_capacity.csv": "f746e0fdef51df49f4b736e1fff4011b496d20f0a4457c15dfd28f6089dca1f8",
+  "findings.json": "cb921af20c6d79f042ba387865e4b4d449648a5589ef8673fb9e3862d65c59e9",
+  "manifest.json": "82da2241b697962446de94fd48e64b9c44b8c63c16f9dade95246d0003d881bb",
+  "source_refs.json": "0bc639ac65bf09b09bcee97745ed2d8eadc0553bd7ecf1fc5384b29749e6bdc4",
+  "tests.log": "ad308f40215ad9b00078ac55db752fce3186389adcc2182955f8d3c0fce68ba9",
+  "verification.json": "6d9381f79c83497457c65a73578720e2ff9278269ed5ae58eaea488900e17aa7"
+}

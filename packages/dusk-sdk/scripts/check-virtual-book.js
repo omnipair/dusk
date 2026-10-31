@@ -21,6 +21,7 @@ import {
   projectDuskVirtualBook,
   projectDuskVirtualBookCurve,
   virtualCurvePoint,
+  RISK_RATE_DEFAULTS,
 } from "../dist/index.js";
 const BN = Reflect.get(anchor, "BN") ?? Reflect.get(anchor, "default").BN;
 const fixture = JSON.parse(
@@ -67,10 +68,38 @@ for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.t
     "flashReceivable", "flashCollateralDebit",
     "frozenHlpMask", "frozenBaseVaultBaseOffsetNad", "frozenBaseVaultQuoteOffsetNad",
     "frozenQuoteVaultBaseOffsetNad", "frozenQuoteVaultQuoteOffsetNad",
+    "baseRateFractionE18", "quoteRateFractionE18",
+    "tranches", "income", "juniorExitConfig", "juniorMint", "junior",
   ].includes(f.name) && !(type.name === "insuranceDrawWindow" && f.name === "initialized"));
+oldIdl.types.find(type => type.name === "riskRateConfig").type.fields = [
+  { name: "targetUtilizationBps", type: "u16" },
+  { name: "curveSteepnessNad", type: "u64" },
+  { name: "adjustmentSpeedPerYear", type: "u64" },
+];
 const BorshAccountsCoder = Reflect.get(anchor, "BorshAccountsCoder") ?? Reflect.get(anchor, "default").BorshAccountsCoder;
 const oldAccount = new BorshAccountsCoder(oldIdl).decode("market", currentMarketBytes);
 oldAccount.version = MARKET_LAYOUT_VERSION;
+// Added account fields have no historical exposure in this immutable capture.
+// Keep the original quote inputs and observations; this is not a replay of
+// the new controller or evidence about tranche economics.
+const zero = type => {
+  if (type === "bool") return false;
+  if (type === "pubkey") return PublicKey.default;
+  if (typeof type === "string") return /^(u|i)(64|128|256)$/.test(type) ? new BN(0) : 0;
+  if (type.array) return Array.from({ length: type.array[1] }, () => zero(type.array[0]));
+  if (type.option) return null;
+  if (type.defined) return Object.fromEntries(fixtureProgram.idl.types.find(t => t.name === type.defined.name).type.fields.map(f => [f.name, zero(f.type)]));
+  throw new Error("Unsupported fixture field type");
+};
+for (const [field, type] of [["tranches", "trancheCapital"], ["income", "marketIncomeBooks"], ["juniorExitConfig", "juniorExitConfig"]]) {
+  oldAccount[field] = zero({ defined: { name: type } });
+}
+oldAccount.juniorMint = PublicKey.default;
+oldAccount.baseSide.fees.junior = zero({ defined: { name: "trancheIncome" } });
+oldAccount.quoteSide.fees.junior = zero({ defined: { name: "trancheIncome" } });
+oldAccount.debt.baseRateFractionE18 = new BN(0);
+oldAccount.debt.quoteRateFractionE18 = new BN(0);
+oldAccount.config.irm = Object.fromEntries(Object.entries(RISK_RATE_DEFAULTS).map(([key, value]) => [key, key === "borrowUtilizationLimitBps" ? value : new BN(value)]));
 oldAccount.baseSide.reserves.flashReceivable = new BN(0);
 oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
 oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);
@@ -85,7 +114,7 @@ oldAccount.amm.frozenQuoteVaultQuoteOffsetNad = new BN(0);
 for (const window of [oldAccount.insurance.baseDrawWindow, oldAccount.insurance.quoteDrawWindow]) {
   window.initialized = false;
 }
-const body = Buffer.alloc(currentMarketBytes.length + 128);
+const body = Buffer.alloc(fixtureProgram.coder.accounts.size("market"));
 const entry = fixtureProgram.coder.accounts.accountLayouts.get("market");
 const size = entry.layout.encode(oldAccount, body);
 fixture.result.value.accounts[0].data[0] = Buffer.concat([currentMarketBytes.subarray(0, 8), body.subarray(0, size)]).toString("base64");

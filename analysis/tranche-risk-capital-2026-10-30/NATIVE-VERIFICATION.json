@@ -1,0 +1,317 @@
+{
+  "recorded_at_utc": "2026-10-31T16:19:42.455773+00:00",
+  "branch": "feat/junior-risk-pricing",
+  "base_revision": "f1ddce100ae66401023dfe13c0eefe5fcd648f9c",
+  "implementation_status": "Native market, instructions, SDK and research integrated; local required checks passed. Not deployed.",
+  "complete_precommit_ci_run": true,
+  "checks": {
+    "cargo fmt --all -- --check": {
+      "status": "passed",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "yarn check:hygiene": {
+      "status": "passed",
+      "log_sha256": "bf7884db74f931ef9d8c3227d22474f401da1a5515d0ee41d2134054fbb92cad"
+    },
+    "yarn check:code-shape": {
+      "status": "passed",
+      "log_sha256": "58e01188d6734b500b07b48cff0c0954cd6826301af651d4cc07a8d6f7371f7c"
+    },
+    "yarn check:clippy": {
+      "status": "passed",
+      "log_sha256": "f6377a4998ff8a50e1285d37803eb0e8862e93487d1600b7aaf98b7102feeed9"
+    },
+    "cargo test -p dusk": {
+      "status": "passed",
+      "log_sha256": "233f033a40f86f0c7d7f367124e61a4e416aa6cd0fec00bc7ecc5a366e579179",
+      "tests_passed": 604
+    },
+    "cargo check -p dusk --lib --features production": {
+      "status": "passed",
+      "log_sha256": "3d99ee5a558a93c00feccbd9ee91fcbe4887be36b36a1d000b9827dca26f1ff1"
+    },
+    "cargo test -p dusk --lib --features production": {
+      "status": "passed",
+      "log_sha256": "3eaa76b5214a5e5cd7b483fa79d31a0f53801e84160d09b7d0d8e8c047511d26",
+      "tests_passed": 604
+    },
+    "cargo test -p dusk --lib --features benchmark ema_admitted_settlement_preserves_reference_and_resource_delta": {
+      "status": "passed",
+      "log_sha256": "be4c2c8378233bf0e4e3f7f23abad8ccd08f457ed438d49580621e772c192842",
+      "tests_passed": 1
+    },
+    "cargo test -p leverage_delegate": {
+      "status": "passed",
+      "log_sha256": "b4eeb420d6bdf1bf8ad0600035c680dae6b134fff6dfddc326dc627230dfa435",
+      "tests_passed": 16
+    },
+    "cargo test -p faucet": {
+      "status": "passed",
+      "log_sha256": "355ab18741ef4cb98054223bdb47a6a8fc8bce864198741fac8a475add0131a1",
+      "tests_passed": 1
+    },
+    "yarn typecheck": {
+      "status": "passed",
+      "log_sha256": "e8089c83c1f6deb319183bd67e32e20707f167cee28f74d81644f58abffbe974"
+    },
+    "yarn build:litesvm": {
+      "status": "passed",
+      "log_sha256": "b6da3d8dd470ed688255778c6640e4e81cdff5c6ea65b7d7856b17ecf5f434b6"
+    },
+    "npm run prepare-idl --prefix packages/dusk-sdk": {
+      "status": "passed",
+      "log_sha256": "8a8cd538aa1ed9f3e8bbd669113f385470a2992895cfe8053097652e3d7a52ca"
+    },
+    "npm run check:dusk-sdk": {
+      "status": "passed",
+      "log_sha256": "65ab1481e2d11f77ab97fe5ce02597a6e8aef729531abcd3d39d122b95472316",
+      "tests_passed": 82
+    },
+    "yarn check:build-identity": {
+      "status": "passed",
+      "log_sha256": "48fa3420f9e38b0d5f00aae9ded24fe1ea3886d669a234ca6325687335cdf04b"
+    },
+    "DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending": {
+      "status": "passed",
+      "log_sha256": "cf9d279f7543968cfe3a5a30eb24343278bc100e4f8ef0047c5082482fba7db0",
+      "tests_passed": 146,
+      "instructions_exercised": 83,
+      "instructions_total": 83
+    }
+  },
+  "additional_evidence": {
+    "full_native_benchmark_suite": {
+      "passed": 639,
+      "note": "Completed before the final allocation-only refinements; final normal/production/EMA checks above cover the final source."
+    },
+    "calibration_and_accounting_reference_tests": 31,
+    "v1_controller_reference_tests": 11
+  },
+  "compute_baselines": {
+    "cpmm_same_slot": {
+      "maximum": 99960,
+      "ceiling": 104958
+    },
+    "cpmm_advanced_slot": {
+      "maximum": 133287,
+      "ceiling": 139952
+    },
+    "cpmm_active_debt": {
+      "maximum": 184342,
+      "ceiling": 193560
+    },
+    "concentrated_centered": {
+      "maximum": 190677,
+      "ceiling": 200211
+    },
+    "concentrated_transition": {
+      "maximum": 190827,
+      "ceiling": 200369
+    },
+    "concentrated_tail": {
+      "maximum": 188509,
+      "ceiling": 197935
+    },
+    "dynamic_fee_divergence_stress": {
+      "maximum": 293203,
+      "ceiling": 307864
+    },
+    "dynamic_fee_volatility_stress": {
+      "maximum": 144982,
+      "ceiling": 152232
+    },
+    "retained_surcharge": {
+      "maximum": 293281,
+      "ceiling": 307946
+    },
+    "controller_due_recenter": {
+      "maximum": 416294,
+      "ceiling": 437109
+    },
+    "concentrated_hlp_active": {
+      "maximum": 891040,
+      "ceiling": 935592
+    },
+    "concentrated_hlp_funding_interest": {
+      "maximum": 891040,
+      "ceiling": 935592
+    },
+    "joint_shock_hlp_same_slot": {
+      "maximum": 799027,
+      "ceiling": 838979
+    },
+    "joint_shock_hlp_one_day": {
+      "maximum": 954270,
+      "ceiling": 1001984
+    },
+    "hlp_active": {
+      "maximum": 157620,
+      "ceiling": 165501
+    },
+    "token_2022_swap": {
+      "maximum": 113555,
+      "ceiling": 119233
+    },
+    "public_interest_hlp_cpmm": {
+      "maximum": 332555,
+      "ceiling": 349183
+    },
+    "public_interest_hlp_concentrated": {
+      "maximum": 950601,
+      "ceiling": 998132
+    },
+    "hlp_cash_carry": {
+      "maximum": 1153384,
+      "ceiling": 1211054
+    }
+  },
+  "ordinary_swap_hard_limit_cu": 100000,
+  "source_sha256": {
+    "packages/dusk-sdk/README.md": "df370b96896ac7bb9969ec5a5d847c99ab1e89602316c631c5ca2985bbc7c5d4",
+    "packages/dusk-sdk/package.json": "9401568d5a5e29b0e428837b04ce566e0ba71307b519f956e78a07fca6270477",
+    "packages/dusk-sdk/scripts/check-governance.js": "151e74e9506f1a845b59ad1e1cd1dfcc1b39cd6d2be30ff1eaa95c1673616c01",
+    "packages/dusk-sdk/scripts/check-lp-tokens.js": "848ddeed8310017b6e78ea2cf971c664d8809caffc3850fef8467d0f11e65e46",
+    "packages/dusk-sdk/scripts/check-previews.js": "5999c3f3139847ccf5d2937c91ae4fcfc2c7f6638a289386d01ab39fb1be14eb",
+    "packages/dusk-sdk/scripts/check-tranches.js": "635ac3c1b7a661e87ab335c19e71c6fd84dd3629179609963e4e2c065cd87849",
+    "packages/dusk-sdk/scripts/check-virtual-book.js": "6baab0104359fbeb5d55a4304a38c2b2223900b2eb8331315f698989c9a215f5",
+    "packages/dusk-sdk/src/constants.ts": "532709d3b3561220fb2638359343b7202748097946367578439dc5316902a645",
+    "packages/dusk-sdk/src/dusk.ts": "6ac6667055ab8bd83bd39109300ea823fce0d0d5bca662ab0a1b58fff361fd78",
+    "packages/dusk-sdk/src/governance.ts": "2d181fa5d2d2eccd106988b50fc1362b9e57e078e0cad41a0a4b330cf13aec41",
+    "packages/dusk-sdk/src/idl_delegate.json": "e0951244cb559f0451792f0dc52962522cb2f0fd9397254f6088bb677f381ae4",
+    "packages/dusk-sdk/src/idl_v2.json": "e68735c06d1fc0324cdd478b4b1588c04adc4fda4852870f8227f3ae180ca0ed",
+    "packages/dusk-sdk/src/index.ts": "bd713979c26dc1f60c08e6177a97ca96d6b456cd2b25f11558431f5ae397b3b7",
+    "packages/dusk-sdk/src/lp-naming.ts": "7e9576ca0cae344aeda720b7f8fe46141b03ec83bbca737761d7686815370b0b",
+    "packages/dusk-sdk/src/market-bootstrap.ts": "3fe77c689df4330cb1fc9b25332f0b3068c0db7fb073aa26ef59f937608efff5",
+    "packages/dusk-sdk/src/protection.ts": "904b1d7254e9d3b5eb907ee5134573199ef21bc3d9c569f32c0058bcefa04a7b",
+    "packages/dusk-sdk/src/risk-pricing.ts": "715b8fbf22507438dc286611e4b3b28c346983c0f418db807c0e8546c56ba0d8",
+    "packages/dusk-sdk/src/simulation.ts": "ea742336d34340137d6970043c0387ce89f826088ebd09ec3947a1da9d6a254c",
+    "packages/dusk-sdk/src/tranche-client.ts": "f929fcc1f059cdae71e1f52822b8bdb9ce09f02b3751a12292c5bff773c4cd1e",
+    "packages/dusk-sdk/src/type-aliases.ts": "3881dc144748f0c2aa90b49a8fccd2b597fd3450e09f0cece7aaaa2400cca826",
+    "packages/dusk-sdk/src/types_delegate.ts": "6e86221ccb2012fd2f3c7323d421a38b3c8cf53e206776c563629de700f1120f",
+    "packages/dusk-sdk/src/types_v2.ts": "c8c0f89e868166a49cc1e48c913d5a502fa9f0e4dac38c3fcd020fd8eb852ba8",
+    "packages/dusk-sdk/src/write.ts": "1e06171eb20af4bafd4c367e8f215363ea5b8232b4101e98b3b79e76611d7966",
+    "packages/dusk-sdk/src/yield-client.ts": "d68b0a7fb58ffca229e40a3e38244f81316889c74a39a2dbb43e58e0cc1d5be2",
+    "programs/dusk/Cargo.toml": "ed71c21ee6e78a80dc9d1474ebebe0c84ce9682aee7b63580512082c4d6e8b18",
+    "programs/dusk/src/benchmark_api.rs": "19d6c1203505f5a2254856df76665a6c6014915eafde6f73b9c9d094d96e993b",
+    "programs/dusk/src/constants.rs": "34bc5402556842aaafa39f1ee29724549969897c1a393826f616e86dca1ad034",
+    "programs/dusk/src/errors.rs": "50830c7da88f7a531c0f025c5fe4c796b8a1081113e00b494babe42b15f311a4",
+    "programs/dusk/src/instructions/accounting.rs": "004a759e448fd33f293ab8242844700ccde8828e7e5f0a0441d96325b33d4760",
+    "programs/dusk/src/instructions/emergency_liquidation.rs": "9103a88cfb6cfa9e790d657bf5faaf47bcc49c9d18db60024b9ceba6405b6ace",
+    "programs/dusk/src/instructions/flash_amm_settlement.rs": "006c4ec42e5f021ec1c5a23aee94e1367c81578ac2f4628b6f8ec142ca46bc04",
+    "programs/dusk/src/instructions/flash_liquidation.rs": "390a0d15e3229e7f3532d70ab799d740d98d4f2c462c50aa37440a741da33485",
+    "programs/dusk/src/instructions/governance/balance.rs": "e4c92c8ffafad1eabc1967c0a01293fc155fbc943d86aee049d75786cb38038f",
+    "programs/dusk/src/instructions/governance/mod.rs": "b4da2722550a199eaa22f05c6d99c639bad6e99f689063c0715a08710c04a41e",
+    "programs/dusk/src/instructions/governance/proposal.rs": "49efb89a7ee04c8661d830a1462b61a34aa47c8aa44a7ebcaa24dc49d23301fa",
+    "programs/dusk/src/instructions/governance/support.rs": "6638272de9e6f8693f7a1b03e2b64af9cf2cabcbe73003d64633c5c6e2b5525f",
+    "programs/dusk/src/instructions/leverage/close_leverage.rs": "c9ea7dc024ee0f01ec528c2d76e04925877095922b5c167f631b74cb19100e3d",
+    "programs/dusk/src/instructions/leverage/settlement.rs": "74f2b742c4a7b9ebbd3e35e37d56d3fe9d24ab2f3cdfbacd5670cc3b3ae08646",
+    "programs/dusk/src/instructions/liquidity/fund_interest.rs": "6a6c4bf37332b1602c1ef3c26c060179f46aa8b5519207bc5bf2ff5a7889f6ae",
+    "programs/dusk/src/instructions/liquidity/harvest.rs": "8ac25813de31aae0382a329532401c1e6598b5857da067da6bfae59d4b94bf45",
+    "programs/dusk/src/instructions/liquidity/hlp/mod.rs": "d7fe7b882bfd5dd473c7ac40581ebfcf2a8cf1d3feb634549644c86d10f65d8e",
+    "programs/dusk/src/instructions/liquidity/initialize_lp_transfer_hook.rs": "374ed608f66b389d69c9d4e5f77b7dbcd4806b47257266e50c5c1f6309a3476e",
+    "programs/dusk/src/instructions/liquidity/initialize_yield_accounts.rs": "132b2638255ec659666b484bc2a29cfb975a44b507720f8e384b958219300679",
+    "programs/dusk/src/instructions/liquidity/mod.rs": "bb0a82ed0b299901680f9a74ebb4a2fcc5605775be3e8d002637a840073227a7",
+    "programs/dusk/src/instructions/liquidity/set_harvest_authority.rs": "f5e64edb9b16506eb7988e63a9e9124ea5fe061ab6064c5f75b61e4fe384576e",
+    "programs/dusk/src/instructions/liquidity/set_yield_recipient.rs": "05312e7e1e8c374fe79cd5e04fb66307323722b8751b40db2bbe77ace460c95e",
+    "programs/dusk/src/instructions/liquidity/tranches/burn_retired.rs": "ee9c0e0e2527cc40fb3c608264fea6bfa62f13b86606db09add428d79a71bf76",
+    "programs/dusk/src/instructions/liquidity/tranches/checkpoint_income.rs": "464ccb07e5f6a2b17a29d625e222224facacf30c3ab669864ef21aaa71925365",
+    "programs/dusk/src/instructions/liquidity/tranches/convert.rs": "beaade8daf539a3cbb54a7be76e8ff7db0e8bdb2cb65e88c46131beb1aa43e89",
+    "programs/dusk/src/instructions/liquidity/tranches/income_epoch.rs": "217bf3b22d314b681e83b7ba1ac065c4abddae04b65f92f6dbc2ea8e26e83ed8",
+    "programs/dusk/src/instructions/liquidity/tranches/initialize.rs": "09526ffc8d2c73e1c752ead206e77db091d817806419ae54ef3b4b263dc108b3",
+    "programs/dusk/src/instructions/liquidity/tranches/mod.rs": "37c17b0ddf98ea32222f7debd5cc9a7bcd59d09cd2d28fd63dc01cd25c844acb",
+    "programs/dusk/src/instructions/liquidity/tranches/seed.rs": "9a0d9e4d22fe3511dcbfd67c6278a5041cfb43f817e410c31f4aad6dd49f8feb",
+    "programs/dusk/src/instructions/liquidity/ylp/add_liquidity.rs": "025ac1d04321b2fcd880b6c100b2cabd4972429b412943264952539c041538b2",
+    "programs/dusk/src/instructions/liquidity/ylp/remove_liquidity.rs": "45e3c05f6a02d2bad02407ec6fb5c35a89bced01f3af840faff8ff7d09153091",
+    "programs/dusk/src/instructions/transfer_hook.rs": "2b807ed762fe17572bf4e251afa3d79c79dc59458225a04a8b9a7b36815b593c",
+    "programs/dusk/src/lib.rs": "20aa6df6f15e973fd168d68b62d27dbd3c9444bb16f928e155544a77f224b0b4",
+    "programs/dusk/src/math/borrow_controller.rs": "0e8a561664f21eed448f70397fdce9ab11f928fe503ac1ceeeb575f9ca09ffdd",
+    "programs/dusk/src/math/mod.rs": "2a6ae48ce5a4eacdb71e01b2b4296f2c5b08f2c7e35d0fd56328906f8a583f8d",
+    "programs/dusk/src/state/income_epoch.rs": "d3cfb7b24586456f10b254b8b82ae1a4d59d3c36d0a266dbdb3ee0196cd71d45",
+    "programs/dusk/src/state/junior_cohort.rs": "1d492cff9de7ac6df1d90cf2f3203b5e3c2dbb5d6c4d25bf763692ff00d175c3",
+    "programs/dusk/src/state/junior_exit_account.rs": "8c9ba798b4f2e92e0dbedfa683847262b96ec512e26e81fe2fa94790173e0714",
+    "programs/dusk/src/state/market.rs": "006282cf1b0b42812c3e5dc6abd48a58de7ab718670355eec0f04b1686f18a63",
+    "programs/dusk/src/state/mod.rs": "cb97d41121a024e1b8c6128160a30f785036ebaacf83fcbf30fa802d6d3c1525",
+    "programs/dusk/src/state/yield_account.rs": "989cf65b63a0a62724ddbfe119934fd02ef7b9cf093119019b0dd63179185a4e",
+    "programs/dusk/src/tests/instructions/futarchy/settle_protocol_auction.rs": "c5ae2b8001b6cfe285cca6b75f8cb0b95d9a0de00c56421596968a8698a4d7d4",
+    "programs/dusk/src/tests/instructions/governance/mod.rs": "ae13508e63bebe77fc91ab60549b3fc37358bd271bba48172b8e877f1b84c4d2",
+    "programs/dusk/src/tests/instructions/hlp_deposit_preview.rs": "43a41ac44a52aea60622c9d075f0f5831608795ffb4d83db3291726649eeb913",
+    "programs/dusk/src/tests/instructions/preview.rs": "ecf3b1b587c25a091614ce815ce144d229a2eb76a3b2443d75848ac78e812e1f",
+    "programs/dusk/src/tests/instructions/transfer_hook.rs": "a825211c39f4de67928decd429b206b91ec578bd96be9474b7b83cc60507d240",
+    "programs/dusk/src/tests/math/borrow_controller.rs": "6592ca62b58838a75b0d0cabd21e41a32252fe96ef35f2295cd4ea9ef02cbee8",
+    "programs/dusk/src/tests/state/parameter_proposal.rs": "7fb478d07308d64d138ce804f63d40c8c48571e4a9f7aa6ee7a23cfbc6b55b10",
+    "programs/dusk/src/tests/transitions/amm.rs": "8d655cee63c2d7ac9deeeafe640b002f74e003742c6c527309f9a71ba0c46fb7",
+    "programs/dusk/src/tests/transitions/amounts.rs": "766d52b1094936dbe994a2f0b7974470dadc467e5074d44a904745dd0e2746ba",
+    "programs/dusk/src/tests/transitions/governance_config.rs": "8038fcb6e6b65d5a091238f1f7218d636caac475f160b0249b913ad4dc21186e",
+    "programs/dusk/src/tests/transitions/governance_market.rs": "340b6af2d19fbb72ce927c727f2533bff96d077a70a2354c33e9ae1419c9510d",
+    "programs/dusk/src/tests/transitions/ledger_reserves.rs": "0aa5912afce3c9a4f85e6a3461d91fa8c07e200161f597c10b3ec938e0b083a9",
+    "programs/dusk/src/tests/transitions/lending_interest.rs": "a60d679f1a4481087ea8a1e9b119f453ee69292de9997c8117b417fdcd9b927e",
+    "programs/dusk/src/tests/transitions/lending_liquidation.rs": "c96c4fd1d89997be04da336ab91e1a86c5c4f6743f9cee1ffb643422fb55edc9",
+    "programs/dusk/src/tests/transitions/leverage.rs": "3e4c3234e3f022899cc0d102cb4e6348f07de538cd222a08ae6cef9f42e16325",
+    "programs/dusk/src/tests/transitions/leverage_emergency_anchors.rs": "2c6460ce73e154918f87a15e130b35ee7fba78ac43cad4675cc23e1b0e4b6d03",
+    "programs/dusk/src/tests/transitions/leverage_margin_calibration.rs": "9b19560258c386cbbb7e404a4a0480c8bbc2a451ce14cae60f73cafdf7a11a11",
+    "programs/dusk/src/tests/transitions/liquidation_economics.rs": "c66df20d86617bddb7b8d2202ce865ab29c30402712642e5864d9f3364f6015d",
+    "programs/dusk/src/tests/transitions/liquidation_unfilled_diagnostics.rs": "5a975f7784d3b98c7c38b60382b9fe012d1b97c9fc225a76797caf59c76f0a35",
+    "programs/dusk/src/tests/transitions/liquidity_hlp.rs": "b68b8dce9d6f6c44f1c740f84980531abbfc2024a73cc5abacdcb4f969b087fa",
+    "programs/dusk/src/tests/transitions/liquidity_hlp_engine.rs": "f39775f13f78fb54183a643fecf36175abb609c7343ea0f3c192af69ade3c326",
+    "programs/dusk/src/tests/transitions/liquidity_hlp_flash.rs": "eb3797504b702872efe95be6393ed0fc72e1857fa4d612a324814d048e28b4c0",
+    "programs/dusk/src/tests/transitions/liquidity_hlp_integrated.rs": "be65bf1c78c4e1275910a185841241f3136532be74cebe3e127d1f46f58aebed",
+    "programs/dusk/src/tests/transitions/liquidity_hlp_interest.rs": "5e25ad9c9305a59030f195ee072b0d52c95a50f76190c3a868827e1115f7788e",
+    "programs/dusk/src/tests/transitions/tranches/income_receivable.rs": "f469579da34237b07747b3e8e4601655fa59525f37614b0034c5de35e7a7e334",
+    "programs/dusk/src/tests/transitions/tranches/junior_exit.rs": "c444383ba4c7c51a89e9aa17e777ba335dc5074ccedcc3bffcd7980d54b61ea3",
+    "programs/dusk/src/tests/transitions/tranches/market.rs": "5848ff8ca31e7ba551efb780b865ac98ce9d8d6c91fcb388c490b8ae8bb76c21",
+    "programs/dusk/src/tests/transitions/tranches/risk_rate_book.rs": "5fef597f8600103f994fa455140e8beb4ede9ac4ed740fb58d7f1d1b63a6f2f7",
+    "programs/dusk/src/tests/transitions/tranches/tranche_capital.rs": "9552117e3b7d8744ddc637585a8bc7bf2f1b48444f8b33140978cea42a0f1d58",
+    "programs/dusk/src/tests/transitions/tranches/tranche_revenue.rs": "1746feec1e9f1bdfa68b251eb8bb35752d3c1966dedacb58049fc2e562a8e4e5",
+    "programs/dusk/src/token.rs": "7715693e322a59cb382c80b5d32630e50f173b9ea0875952ae2db4bc5dd321ea",
+    "programs/dusk/src/token/hook_accounts.rs": "4762b23b80399fcea161f90ecaad9a832bab1fbb4d534c62557b8ebe757740c6",
+    "programs/dusk/src/transitions/amm/compounding.rs": "6a7f578c555379c9b12dbe37d4264f159803ce5b258d32ba6d99f5c46717521a",
+    "programs/dusk/src/transitions/amm/mod.rs": "833925d9c14af2a3c57256437b89050a2e187df7adadea014d3cd791c6cf9d91",
+    "programs/dusk/src/transitions/amm/swap.rs": "d3cff8bcfa5df55c2d5918b0c1021686045ddcaba24391779c2d0c44b350309d",
+    "programs/dusk/src/transitions/amm_liquidation.rs": "c94fe6f0611274004a7d3743b703b7cd58ae61c5f5f9a265eea95b65b9b30f5e",
+    "programs/dusk/src/transitions/governance.rs": "51906c08283377ca835d04539e5b6c95e5eec8bca93b956cbdb6c88f882958da",
+    "programs/dusk/src/transitions/interest_advance.rs": "08a566b243fc4a0ed563d3de0c9f5d467f682b2b51819a86c231b9b7b12c13a3",
+    "programs/dusk/src/transitions/ledger.rs": "c40ad47c3b273c07595c07367031878fdee5ae7834248cee4533341ee9cbddd8",
+    "programs/dusk/src/transitions/lending/mod.rs": "030c8cf35d31fcbced1707e0f1f5e429434afd6a123d339b214105094d4da742",
+    "programs/dusk/src/transitions/lending/preview.rs": "1c75b81d13edc84bcb5e934a3d2107b11ddd24c1cf67f449cef815facaaff93d",
+    "programs/dusk/src/transitions/leverage.rs": "549498444766aaea92b6b173728c9e71bb7e47fd38e11074b44a1ec2f877be0f",
+    "programs/dusk/src/transitions/liquidity/hlp/engine.rs": "9ff15333caf3264a03d3f7b7b5b2fd953bc4e43049870f932241392d1f323062",
+    "programs/dusk/src/transitions/liquidity/hlp/flash.rs": "a23d53249c835d3a58bd1be6c91d7ee26c1e721b5572dea5779f19ea3449667a",
+    "programs/dusk/src/transitions/liquidity/hlp/flash_terminal.rs": "2658655f01ab810b6426bb8dc219309f8792a9e7c69cb7f9f968b20a74d30a07",
+    "programs/dusk/src/transitions/liquidity/hlp/harvest.rs": "dedc5a4eff4704a10589ad017cbf540584f2c283a4bf689ebb15073608175069",
+    "programs/dusk/src/transitions/liquidity/hlp/integrated.rs": "f3b01d759b76ed6a381bcdde3eb43caba7aac0e9e2479055a7c3785473971dac",
+    "programs/dusk/src/transitions/liquidity/hlp/mod.rs": "4e42a2cdbc3446cb74f19a4bf50564267f94ee97051506723ea37e31e5194e56",
+    "programs/dusk/src/transitions/liquidity/mod.rs": "796c58ef5eaa66b50f2eac042bfbb803ec275029693b929c8b54819498b5eb97",
+    "programs/dusk/src/transitions/mod.rs": "f674e7984fefdab937c99a4e432e1aee92529124511cec7ddf8ff5bd55f2a194",
+    "programs/dusk/src/transitions/tranches/income_receivable.rs": "c523bb975209f7f6bb794ef1f3c64b531140ae731a4629d594c7f3e250f78095",
+    "programs/dusk/src/transitions/tranches/junior_exit.rs": "90fe6b4d89c399d011a58d2529a1d0cf67d22add94b0f86bf40cf650e1fe3e5b",
+    "programs/dusk/src/transitions/tranches/lazy_income.rs": "5f3497589b1fd52dc2852425a470213cbfd02cd73dc4842f5604a1a1170da6a6",
+    "programs/dusk/src/transitions/tranches/market.rs": "38147debefd8fd2d909272d2be868a69d22dd81c5b5cab6c880f9fece40635c2",
+    "programs/dusk/src/transitions/tranches/market_income.rs": "3ba7bed87da3991c13e514aa73ec91511de80884e2d2a48b309daf3449469c7c",
+    "programs/dusk/src/transitions/tranches/mod.rs": "bda0a913b7e84a20f42abbd33fd0a222e5e3087063cb87b65a0b6da5a6213723",
+    "programs/dusk/src/transitions/tranches/risk_rate_book.rs": "04a342fe32b6b14310ad1f13808936acfcb13868165b6b6b738fb6492e5ef439",
+    "programs/dusk/src/transitions/tranches/risk_rate_model.rs": "e2f5b43a20da27963a369162e6f87abd30affa18d7953f01861919b2462bd1e7",
+    "programs/dusk/src/transitions/tranches/seed.rs": "1d6f5161b8100df90654fed0af85a5b76048d32933e8a314bef6a5fea2752dd9",
+    "programs/dusk/src/transitions/tranches/tranche_capital.rs": "c3bcbef0a1902f035f220a8f90dff589ffb4e6c43afe45cab3d5bc3f1beb1c09",
+    "programs/dusk/src/transitions/tranches/tranche_income.rs": "51b25f642f8a7bbeba4e7545983166f7559be63ae7f39a1a91dd00d633b19401",
+    "programs/dusk/src/transitions/tranches/tranche_revenue.rs": "0a7de7bd54d3c9898dd6cfc226075300ffeacad9382df3a611346672a6e6e659",
+    "programs/leverage_delegate/src/instructions/fees.rs": "baf7200b16cac80de0d574ca0249200b40ab7334fd628b48d18a61e8fe368eb8",
+    "programs/leverage_delegate/src/instructions/protection/execute.rs": "e2698a5b34ea7839f7dfb9bacebf47f0d235f6716b751f4c0a7836af241d6257",
+    "programs/leverage_delegate/src/instructions/protection/mod.rs": "ecaad4724c0b8582c7444a85354d7c0f669c2dcb70f28244b9f30e29452dc030",
+    "programs/leverage_delegate/src/instructions/protection/payment.rs": "97e7cbf5cb96c2839308a918acdc8d5eb4b07d4e5337fb860ba65fddd17c2e25",
+    "programs/leverage_delegate/src/instructions/protection/preview.rs": "8ee7236a2a57e3a8569bb9d6f4a4a9f6e06f2e3bb2085cfaa510fbdf9b710616",
+    "programs/leverage_delegate/src/instructions/protection/redeem.rs": "a600e6a817ed89e27846be1075c62b662ddbe53b5ee351b09142ef5fc7812fc7",
+    "programs/leverage_delegate/src/token.rs": "cc7ff7f714c7332db6b70415619e0dddec49d6d95dff40e1e9b2dc1cca10dda0",
+    "scripts/check_one_use_helpers.js": "f246c7710e09ba6b57facbf5dac7f2cedcef5ca20ae96b45ef3e73d3fe64e4de",
+    "scripts/v2/common.ts": "7d9ea2069d2aa847ad32306114bbc35c467ee73424a662da25658e5d2f4dc1e3",
+    "tests/utils/instruction-coverage.ts": "4fbccefaf7b250de7d1f3d5dd62cfb4bcc6b3b36c9a094a2ae8c295dd1093fce",
+    "tests/v2-final-smoke.test.ts": "4dd8122574c9ea35f9bbbc6d76c03a82f14fc1679cd2223f854866af2bf5b767"
+  },
+  "built_artifact_sha256": {
+    "target/deploy/dusk.so": "d5b1676e4d6fa49b63c9816a6d46c334613fcc6d068564ea1c4744766fd71ddb",
+    "target/deploy/leverage_delegate.so": "b17ec94920e7a0ad628e2d3120a3163a1bc9166a6c8b8a97e48f94a14f3410d8",
+    "target/deploy/faucet.so": "b9bc7faf2607d35a54f9240729003b0dcf79ce404b8cbab93f2683e6ac835745",
+    "target/idl/dusk.json": "e68735c06d1fc0324cdd478b4b1588c04adc4fda4852870f8227f3ae180ca0ed",
+    "target/idl/leverage_delegate.json": "e0951244cb559f0451792f0dc52962522cb2f0fd9397254f6088bb677f381ae4"
+  },
+  "limits": "See SCOPED-REVIEW.md: unbounded income-history maintenance, balanced seed reinvestment, finite protection and overlapping exit windows. No independent audit or economic optimality claim."
+}

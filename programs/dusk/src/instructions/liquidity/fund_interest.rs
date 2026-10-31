@@ -167,12 +167,13 @@ impl<'info> FundInterest<'info> {
                 interest.reload()?;
             }
             let credit = token_account_credit(before, interest)?;
-            a.market.side_mut(asset).record_interest_credit_allocation(
+            a.market.record_receivable_income_credit(
+                asset,
+                false,
                 credit,
                 0,
                 a.futarchy_authority.protocol_auction_split,
                 0,
-                eligibility.ylp_supply,
             )?;
             result.gross_funded[i] = gross;
             result.lp_custody_credit[i] = credit;

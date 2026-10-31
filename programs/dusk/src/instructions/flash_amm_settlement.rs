@@ -235,7 +235,7 @@ pub(super) fn settle_with_amm<'info>(
     for (destination, debit, credit) in [
         (a.buyer_refund_account.to_account_info(), buyer_debit, buyer_credit),
         (a.owner_debt_account.to_account_info(), owner_debit, owner_surplus),
-        (a.insurance_vault.to_account_info(), insurance_fee_debit, fee.insurance),
+        (a.interest_vault.to_account_info(), insurance_fee_debit, fee.insurance),
         (
             a.interest_vault.to_account_info(),
             revenue_fee_debit,
@@ -266,7 +266,9 @@ pub(super) fn settle_with_amm<'info>(
         );
     }
     if fee.insurance > 0 {
-        a.market.insurance.credit(asset, fee.insurance, clock.slot)?;
+        a.market
+            .side_mut(asset)
+            .record_junior_liquidation_credit(fee.insurance)?;
     }
     a.market.side_mut(asset).record_liquidation_fee_credit(
         fee.lp,

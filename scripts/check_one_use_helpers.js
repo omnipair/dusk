@@ -360,6 +360,20 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // Separate SBF frames keep the large swap/market scratch state out of the
+  // caller's 4 KiB stack. These boundaries are exercised by native liquidation
+  // and compound-fee conservation tests and the executable SBF paths.
+  ["programs/dusk/src/transitions/amm/compounding.rs", new Set(["prepare_post_settlement_compounding"])],
+  // All derived hedge fields must move with a fee-adjusted endpoint; keep the
+  // refresh beside the endpoint materialization and signed rounding rules.
+  // Explicit NAV-to-coupon conversion boundary, tested at rounding limits and
+  // with negative funded but positive total hLP equity.
+  ["programs/dusk/src/transitions/tranches/market_income.rs", new Set(["quote_hlp_capitalization_for_value"])],
+  // Bounded fixed-point exp2/log2 kernels are kept separate so their precision,
+  // iteration limits and overflow behavior can be reviewed independently of
+  // the controller's economic branches. apply is the debt-index carry boundary.
+  ["programs/dusk/src/math/borrow_controller.rs", new Set(["fractional_factor", "evolve", "half_life_crossing_ms"])],
+  ["programs/dusk/src/transitions/tranches/risk_rate_book.rs", new Set(["apply"])],
   // Pure event construction is tested without Anchor account fixtures; the
   // instruction helper emits the result through the shared self-CPI path.
   ["programs/dusk/src/events.rs", new Set(["from_receipts"])],
@@ -486,7 +500,7 @@ const acceptedOneUseHelpers = new Map([
   ],
   [
     "programs/dusk/src/transitions/liquidity/hlp/integrated.rs",
-    new Set([
+    new Set(["refresh_hlp_endpoint",
       "from_total_reserves",
       "reconstruct_hlp_ownership",
       "apply_hlp_recovery_bonus",
@@ -529,7 +543,7 @@ acceptedOneUseHelpers.set(
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm_liquidation.rs", new Set(["apply_emergency_liquidation", "prepare_emergency_candidate"]));
 // Market cloning and curve preparation must not share the interval proof's
 // SBF frame. The combined version exceeded the 4 KiB stack limit.
-acceptedOneUseHelpers.set("programs/dusk/src/transitions/liquidation_sizing.rs", new Set(["executable_liquidation_market"]));
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/liquidation_sizing.rs", new Set(["executable_liquidation_market", "liquidation_scratch"]));
 // Separate SBF frame for the all-smaller-share recovery certificate.
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/flash_liquidation.rs", new Set(["require_first_flash_recovery"]));
 // The retired-cohort decoder needs its own SBF frame. Inlining it into the

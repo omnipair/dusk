@@ -1,0 +1,7 @@
+{
+  "trace_files": 35,
+  "identities_checked": 113575,
+  "maximum_dollar_residual": 1.1175870895385742e-08,
+  "status": "pass",
+  "scope": "All base-scenario exported balances and interval flows; no empirical calibration."
+}

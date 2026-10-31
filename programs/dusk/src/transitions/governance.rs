@@ -139,19 +139,6 @@ mod market_tests {
     include!("../tests/transitions/governance_market.rs");
 }
 
-impl IrmConfig {
-    pub fn validate(&self) -> Result<()> {
-        require!(
-            (MIN_IRM_TARGET_UTILIZATION_BPS..=MAX_IRM_TARGET_UTILIZATION_BPS).contains(&self.target_utilization_bps)
-                && (MIN_IRM_CURVE_STEEPNESS_NAD..=MAX_IRM_CURVE_STEEPNESS_NAD).contains(&self.curve_steepness_nad)
-                && (MIN_IRM_ADJUSTMENT_SPEED_PER_YEAR..=MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR)
-                    .contains(&self.adjustment_speed_per_year),
-            ErrorCode::InvalidMarketConfig
-        );
-        Ok(())
-    }
-}
-
 impl MarketConfig {
     pub fn swap_fee_asset(&self, asset_in: MarketAsset) -> Result<MarketAsset> {
         match self.amm.swap_fee_collect_mode {
@@ -489,23 +476,27 @@ impl Market {
         )?;
         self.version = MARKET_LAYOUT_VERSION;
         self.ylp_mint = ylp_mint;
-        self.base_side = base_side;
-        self.quote_side = quote_side;
+        *self.base_side = base_side;
+        *self.quote_side = quote_side;
         self.config = config;
         // Reserves are empty at market creation. The first balanced-liquidity
         // checkpoint initializes center, depth/share, and the applied parameters.
-        self.amm = AmmState::default();
+        *self.amm = AmmState::default();
         self.amm.launch_reference_price_nad = bootstrap_price_nad;
         self.amm.launch_fee_progress_offset = launch_fee_progress_offset;
         self.debt = Debt {
             base_borrow_index_nad: NAD as u128,
             quote_borrow_index_nad: NAD as u128,
-            base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-            quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
+            base_rate_at_target_nad: config.irm.initial_apr_nad as u128,
+            quote_rate_at_target_nad: config.irm.initial_apr_nad as u128,
             base_last_accrual_slot: current_slot,
             quote_last_accrual_slot: current_slot,
             ..Debt::default()
         };
+        self.tranches = TrancheCapital::default();
+        self.income = Default::default();
+        self.junior_exit_config = JuniorExitConfig::default();
+        self.junior_mint = Pubkey::default();
         self.base_hlp_vault = {
             let mut vault = HlpVault::default();
             vault.initialize(base_hlp_ylp_vault);
@@ -706,9 +697,9 @@ impl Market {
         self.assert_current_version()?;
         let next_config = self.validate_parameter_updates(updates)?;
         let previous_config = self.config;
-        let previous_base_side = self.base_side;
-        let previous_quote_side = self.quote_side;
-        let previous_amm = self.amm;
+        let previous_base_side = *self.base_side;
+        let previous_quote_side = *self.quote_side;
+        let previous_amm = *self.amm;
         let previous_debt = self.debt;
         let previous_risk = self.risk;
         let previous_insurance = self.insurance;
@@ -813,9 +804,9 @@ impl Market {
 
         if apply_result.is_err() {
             self.config = previous_config;
-            self.base_side = previous_base_side;
-            self.quote_side = previous_quote_side;
-            self.amm = previous_amm;
+            *self.base_side = previous_base_side;
+            *self.quote_side = previous_quote_side;
+            *self.amm = previous_amm;
             self.debt = previous_debt;
             self.risk = previous_risk;
             self.insurance = previous_insurance;

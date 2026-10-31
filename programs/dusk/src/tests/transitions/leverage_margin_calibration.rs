@@ -44,7 +44,7 @@ fn calibration_market(total_liquidity: u64, amplification: u64) -> Market {
         market.config.amm.core_half_width_bps = 100;
         market.config.amm.fade_width_bps = 400;
     }
-    market.amm = AmmState::default();
+    *market.amm = AmmState::default();
     market.risk = Risk::default();
     market.prepare_amm_for_swap(1).unwrap();
     market.refresh_risk().unwrap();

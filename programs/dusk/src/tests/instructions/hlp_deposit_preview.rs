@@ -24,6 +24,15 @@ fn snapshot() -> (Market, Clock) {
     let insurance_slot_tags = [0xb997_5bdf_2468_ace0_u64, 0xc997_5bdf_2468_ace0_u64];
     layout.insurance.base_draw_window.start_slot = insurance_slot_tags[0];
     layout.insurance.quote_draw_window.start_slot = insurance_slot_tags[1];
+    let irm_tag = 0xd997_5bdf_2468_ace0_u64;
+    let rate_fraction_tag = 0xe997_5bdf_2468_ace0_u64;
+    let tranche_tag = 0xf997_5bdf_2468_ace0_u64;
+    layout.config.irm.lower_signal_nad = irm_tag;
+    layout.debt.base_rate_fraction_e18 = rate_fraction_tag;
+    layout.tranches.junior_reserve_shares = tranche_tag;
+    let junior_fee_tags = [0x1197_5bdf_2468_ace0_u64, 0x2297_5bdf_2468_ace0_u64];
+    layout.base_side.fees.junior.reserve_shares = junior_fee_tags[0];
+    layout.quote_side.fees.junior.reserve_shares = junior_fee_tags[1];
     let mut current = Vec::new();
     layout.try_serialize(&mut current).unwrap();
     let mut insertions: Vec<_> = tags.into_iter().zip([8, 32, 8, 32, 8, 8, 32, 16]).map(|(tag, size)| {
@@ -35,11 +44,25 @@ fn snapshot() -> (Market, Clock) {
         let offset = current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap();
         insertions.push((offset - 1, 1));
     }
-    insertions.sort_unstable();
+    for (tag, size) in [(rate_fraction_tag, 16), (tranche_tag, 98 + crate::state::MarketIncomeBooks::INIT_SPACE)] {
+        let offset = current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap();
+        insertions.push((offset, size));
+    }
+    for tag in junior_fee_tags {
+        let offset = current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap() - 1;
+        insertions.push((offset, crate::state::TrancheIncome::INIT_SPACE));
+    }
+    let irm_offset = current.windows(8).position(|window| window == irm_tag.to_le_bytes()).unwrap();
+    // Replace the old 18-byte Morpho config with the 50-byte band config.
+    let irm = crate::state::IrmConfig::default().try_to_vec().unwrap();
+    let mut edits: Vec<_> = insertions.into_iter().map(|(offset, size)| (offset, 0, vec![0u8; size])).collect();
+    edits.push((irm_offset, 18, irm));
+    edits.sort_by_key(|edit| edit.0);
     let mut bytes = include_bytes!("../fixtures/hlp-entry-devnet-500291305.bin").to_vec();
-    for (offset, size) in insertions { bytes.splice(offset..offset, vec![0u8; size]); }
+    for (offset, removed, replacement) in edits { bytes.splice(offset..offset + removed, replacement); }
     let mut market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
     market.version = crate::constants::MARKET_LAYOUT_VERSION;
+    market.junior_exit_config = Default::default();
     let clock = Clock {
         slot: 500_291_305,
         unix_timestamp: market.config.start_time + 1,
