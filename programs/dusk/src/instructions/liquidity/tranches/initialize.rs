@@ -7,11 +7,20 @@ use anchor_lang::prelude::*;
 use anchor_spl::metadata::Metadata;
 use anchor_spl::token_interface::{Mint, Token2022};
 
+#[event]
+pub struct JuniorCohortInitialized {
+    pub market: Pubkey,
+    pub mint: Pubkey,
+    pub generation: u64,
+    pub previous_mint: Pubkey,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeJuniorArgs {
     pub generation: u64,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 #[instruction(args: InitializeJuniorArgs)]
 pub struct InitializeJunior<'info> {
@@ -43,6 +52,7 @@ impl InitializeJunior<'_> {
     pub fn handle_initialize(ctx: Context<Self>, args: InitializeJuniorArgs) -> Result<()> {
         let market = &mut ctx.accounts.market;
         market.assert_current_version()?;
+        let previous_mint = market.junior_mint;
         if market.junior_mint != Pubkey::default() {
             require_eq!(market.tranches.junior_reserve_shares, 0, ErrorCode::InvalidArgument);
             let old = ctx
@@ -103,6 +113,12 @@ impl InitializeJunior<'_> {
                 uri: String::new(),
             },
         )?;
+        emit_cpi!(JuniorCohortInitialized {
+            market: market.key(),
+            mint: market.junior_mint,
+            generation: args.generation,
+            previous_mint,
+        });
         Ok(())
     }
 }

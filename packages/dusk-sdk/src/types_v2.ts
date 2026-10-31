@@ -5306,6 +5306,38 @@ export type Dusk = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
         }
       ],
       "args": [
@@ -12584,6 +12616,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "juniorCohortInitialized",
+      "discriminator": [
+        18,
+        109,
+        85,
+        200,
+        65,
+        58,
+        228,
+        243
+      ]
+    },
+    {
       "name": "juniorSeedCompounded",
       "discriminator": [
         253,
@@ -18215,6 +18260,30 @@ export type Dusk = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "juniorCohortInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "generation",
+            "type": "u64"
+          },
+          {
+            "name": "previousMint",
+            "type": "pubkey"
           }
         ]
       }

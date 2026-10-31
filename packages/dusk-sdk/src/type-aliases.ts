@@ -75,6 +75,7 @@ type DuskAccountTypes = [
   TypeNamed<"yieldAccount">,
 ];
 type DuskEventTypes = [
+  TypeNamed<"juniorCohortInitialized">,
   TypeNamed<"juniorSeedCompounded">,
   TypeNamed<"juniorSeedFunded">,
   TypeNamed<"retiredJuniorBurned">,
@@ -269,6 +270,7 @@ export type HlpInterestAllocated = IdlTypes<DuskEventIdl>["hlpInterestAllocated"
 export type PublicInterestFunded = IdlTypes<DuskEventIdl>["publicInterestFunded"];
 
 export type JuniorSeedCompounded = IdlTypes<DuskEventIdl>["juniorSeedCompounded"];
+export type JuniorCohortInitialized = IdlTypes<DuskEventIdl>["juniorCohortInitialized"];
 export type JuniorSeedFunded = IdlTypes<DuskEventIdl>["juniorSeedFunded"];
 export type RetiredJuniorBurned = IdlTypes<DuskEventIdl>["retiredJuniorBurned"];
 export type TrancheConverted = IdlTypes<DuskEventIdl>["trancheConverted"];
