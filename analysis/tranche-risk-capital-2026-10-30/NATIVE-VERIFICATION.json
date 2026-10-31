@@ -1,5 +1,5 @@
 {
-  "recorded_at_utc": "2026-10-31T16:19:42.455773+00:00",
+  "recorded_at_utc": "2026-10-31T16:39:02.866684+00:00",
   "branch": "feat/junior-risk-pricing",
   "base_revision": "f1ddce100ae66401023dfe13c0eefe5fcd648f9c",
   "implementation_status": "Native market, instructions, SDK and research integrated; local required checks passed. Not deployed.",
@@ -282,7 +282,7 @@
     "programs/dusk/src/transitions/liquidity/hlp/mod.rs": "4e42a2cdbc3446cb74f19a4bf50564267f94ee97051506723ea37e31e5194e56",
     "programs/dusk/src/transitions/liquidity/mod.rs": "796c58ef5eaa66b50f2eac042bfbb803ec275029693b929c8b54819498b5eb97",
     "programs/dusk/src/transitions/mod.rs": "f674e7984fefdab937c99a4e432e1aee92529124511cec7ddf8ff5bd55f2a194",
-    "programs/dusk/src/transitions/tranches/income_receivable.rs": "c523bb975209f7f6bb794ef1f3c64b531140ae731a4629d594c7f3e250f78095",
+    "programs/dusk/src/transitions/tranches/income_receivable.rs": "c8cc997640c102d672028b712bbb245aeea1ae43e7c83e1239d279af29b1df17",
     "programs/dusk/src/transitions/tranches/junior_exit.rs": "90fe6b4d89c399d011a58d2529a1d0cf67d22add94b0f86bf40cf650e1fe3e5b",
     "programs/dusk/src/transitions/tranches/lazy_income.rs": "5f3497589b1fd52dc2852425a470213cbfd02cd73dc4842f5604a1a1170da6a6",
     "programs/dusk/src/transitions/tranches/market.rs": "38147debefd8fd2d909272d2be868a69d22dd81c5b5cab6c880f9fece40635c2",
@@ -307,11 +307,91 @@
     "tests/v2-final-smoke.test.ts": "4dd8122574c9ea35f9bbbc6d76c03a82f14fc1679cd2223f854866af2bf5b767"
   },
   "built_artifact_sha256": {
-    "target/deploy/dusk.so": "d5b1676e4d6fa49b63c9816a6d46c334613fcc6d068564ea1c4744766fd71ddb",
-    "target/deploy/leverage_delegate.so": "b17ec94920e7a0ad628e2d3120a3163a1bc9166a6c8b8a97e48f94a14f3410d8",
+    "target/deploy/dusk.so": "4cbc8be476e6826c3dfb94801f36910483c61d438dc56ad182a1cd1999b19a4c",
+    "target/deploy/leverage_delegate.so": "e27b09b37e5b53e4056b498343f1e9c95613c30a0a8650ebbd65225feba7c003",
     "target/deploy/faucet.so": "b9bc7faf2607d35a54f9240729003b0dcf79ce404b8cbab93f2683e6ac835745",
     "target/idl/dusk.json": "e68735c06d1fc0324cdd478b4b1588c04adc4fda4852870f8227f3ae180ca0ed",
     "target/idl/leverage_delegate.json": "e0951244cb559f0451792f0dc52962522cb2f0fd9397254f6088bb677f381ae4"
   },
-  "limits": "See SCOPED-REVIEW.md: unbounded income-history maintenance, balanced seed reinvestment, finite protection and overlapping exit windows. No independent audit or economic optimality claim."
+  "limits": "See SCOPED-REVIEW.md: unbounded income-history maintenance, balanced seed reinvestment, finite protection and overlapping exit windows. No independent audit or economic optimality claim.",
+  "compatibility_followup": {
+    "reason": "GitHub Rust 1.99.1 rejected legacy integer APIs and a non-local macro semicolon in uint 0.9 generated code. Applied the existing curve-module compatibility scope to the income U256 module; runtime logic unchanged.",
+    "rust": "1.99.1",
+    "anchor": "0.31.1",
+    "solana_cli": "4.1.0-rc.1",
+    "node": "24.9.0",
+    "native_commands": "cargo +1.99.1; Clippy flags identical to check:clippy",
+    "strict_litesvm": true,
+    "checks": {
+      "format": {
+        "status": "passed",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "hygiene": {
+        "status": "passed",
+        "log_sha256": "ebf083e98fd1f159f2e0f0b3172dfe91447cba4bdb8676aabe7202f2c5b6eec7"
+      },
+      "shape": {
+        "status": "passed",
+        "log_sha256": "666d4a240f61201267d07fd888a8bb8b4c08df42e23dab878356a6ee2e29a984"
+      },
+      "clippy199": {
+        "status": "passed",
+        "log_sha256": "d63d4be5b3002126e914e7cc339b3cfbdd5e2ac0ed1a8b5762f95bfc2c6d4e75"
+      },
+      "delegate-clippy199": {
+        "status": "passed",
+        "log_sha256": "d25f2f7cf82a24a6767d9a719c8c9e78774c4bfdf1eac286fbc88bf08f015be8"
+      },
+      "native": {
+        "status": "passed",
+        "log_sha256": "386f906382f80136e7358eebe4e84a1f28c0e2dbe80c17038e568e14467101e1",
+        "tests_passed": 604
+      },
+      "production-check": {
+        "status": "passed",
+        "log_sha256": "53e2f00c35978502f3de7bed6e45068fb20cc944551d891db912803153eb2e66"
+      },
+      "production-test": {
+        "status": "passed",
+        "log_sha256": "f0f5b11c76bd23c7475aed77ae151d05e5ec0fd5190edff4ef0c7920415435c6",
+        "tests_passed": 604
+      },
+      "ema": {
+        "status": "passed",
+        "log_sha256": "6d8a39d2d20a5a23ba03153ad9ab2515af34e269d8076cddcdfa264575b74ab5",
+        "tests_passed": 1
+      },
+      "delegate": {
+        "status": "passed",
+        "log_sha256": "f9e903846e82b1d760a5b51a71ad1a33c5fe86ce630edc0ccb976565b5977703",
+        "tests_passed": 16
+      },
+      "faucet": {
+        "status": "passed",
+        "log_sha256": "2c0cfa13738ca55ce0b6055584e48dcdaa6d62609f5e2d9dde12a3c45f5afa1b",
+        "tests_passed": 1
+      },
+      "types": {
+        "status": "passed",
+        "log_sha256": "057541f148a783ec2018cd3f3ba2c6a1a6428f4ef10f8b4dab5fc2ac5b2b6c07"
+      },
+      "build": {
+        "status": "passed",
+        "log_sha256": "8cbf8236876c96f805755ed169302bbf58b41ee5755e5abc227ab70f51f80785"
+      },
+      "identity": {
+        "status": "passed",
+        "log_sha256": "b6655e1d7f25977a83ecca62ba806bb2ce8782c64b593a25a5be9dfc752cfac0"
+      },
+      "sdk": {
+        "status": "passed",
+        "log_sha256": "edb555c924b3464d936353f9e9c15f5ebdd6ac4cf7ebafd1c7807db02f009810"
+      },
+      "litesvm": {
+        "status": "passed",
+        "log_sha256": "675a0de6c1f712347a0bc5cfed671732ec46d27ec60367acdbdd851bf4ba3847"
+      }
+    }
+  }
 }

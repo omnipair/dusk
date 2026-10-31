@@ -5,7 +5,15 @@ use crate::{
 use anchor_lang::prelude::*;
 use uint::construct_uint;
 
-#[allow(clippy::assign_op_pattern, clippy::manual_div_ceil)]
+// Match the curve module's uint 0.9 compatibility scope. Rust 1.99 diagnoses
+// deprecated integer APIs and a semicolon emitted by the dependency's macro.
+#[allow(unknown_lints)] // The SBF compiler predates the renamed macro lint.
+#[allow(
+    clippy::assign_op_pattern,
+    clippy::manual_div_ceil,
+    deprecated,
+    semicolon_in_expressions_from_non_local_macros
+)]
 mod wide {
     use super::construct_uint;
     construct_uint! { pub struct U256(4); }
