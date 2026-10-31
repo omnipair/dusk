@@ -1,0 +1,112 @@
+{
+  "scope": "Independent provider and one-/two-feed layouts; market account layout 8",
+  "sourceBaseCommit": "da918c9629cd4009a651f4272816382ec72df8a2",
+  "sourceSnapshotSha256": {
+    "programs/dusk/src/oracle.rs": "2717b57b41914dc65a7b10c9fa6c8f9b1ba8507eef5210ba3d9ea16227ee5440",
+    "programs/dusk/src/constants.rs": "a947f704d7def917087bd1102dbeb1aedb45cbc3d59b8596467b7c4acbe72974",
+    "programs/dusk/src/tests/state/oracle.rs": "91791597f68ed37e0862090fd8656adb07a46a3f808f8f6e29ce7ed8ce13da68",
+    "tests/v2-final-smoke.test.ts": "4b56f345ef78415a62ff511806724060a93d7e02f42c785029294414c3252a5e",
+    "packages/dusk-sdk/src/oracle.ts": "12aa21a9e149378ef68b5cdc40d07505627bae7fa7be224d2a5bea0ca6bafc72",
+    "packages/dusk-sdk/src/idl_v2.json": "b12aefdf9cdc26187aa667bc2c01c424b60dd82bef4b222b3670faa50598a374",
+    "packages/dusk-sdk/src/types_v2.ts": "e1d0d0e1b5f09da2d66a6387151b32fe4e3db5fba2f8cefe441aa0943f5fa5fb",
+    "packages/dusk-sdk/src/idl_delegate.json": "b07ddd72c38ac8e634476ecf553a8f1cf23371dd22eafc55029c00264e715b7f",
+    "packages/dusk-sdk/src/types_delegate.ts": "5c12df1d75dfa73f6d2c3568cc819388f91127ad6261510e5e62a08372de6988"
+  },
+  "buildRevisionNote": "SBF tests used these changed sources with build metadata referring to the base commit; no deployment or final-commit binary equivalence is claimed.",
+  "checks": [
+    {
+      "command": "cargo fmt --all -- --check",
+      "result": "passed"
+    },
+    {
+      "command": "yarn check:hygiene",
+      "result": "passed"
+    },
+    {
+      "command": "yarn check:code-shape",
+      "result": "passed"
+    },
+    {
+      "command": "yarn check:clippy",
+      "result": "passed"
+    },
+    {
+      "command": "cargo test -p dusk",
+      "result": "passed"
+    },
+    {
+      "command": "cargo check -p dusk --lib --features production",
+      "result": "passed"
+    },
+    {
+      "command": "cargo test -p dusk --lib --features production",
+      "result": "passed"
+    },
+    {
+      "command": "cargo test -p dusk --lib --features benchmark ema_admitted_settlement_preserves_reference_and_resource_delta",
+      "result": "passed"
+    },
+    {
+      "command": "cargo test -p leverage_delegate",
+      "result": "passed"
+    },
+    {
+      "command": "cargo test -p faucet",
+      "result": "passed"
+    },
+    {
+      "command": "yarn typecheck",
+      "result": "passed"
+    },
+    {
+      "command": "yarn build:litesvm",
+      "result": "passed"
+    },
+    {
+      "command": "yarn check:build-identity",
+      "result": "passed"
+    },
+    {
+      "command": "npm run check:dusk-sdk",
+      "result": "passed"
+    },
+    {
+      "command": "DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending",
+      "result": "passed"
+    }
+  ],
+  "counts": {
+    "dusk": 581,
+    "duskProduction": 581,
+    "delegate": 16,
+    "sdk": 83,
+    "liteSvm": 156,
+    "idlInstructions": 77,
+    "idlInstructionsExercised": 77,
+    "pending": 0,
+    "successfulTransactions": 5303,
+    "maximumComputeUnits": 1327398,
+    "unchangedDefaultComputeGuard": 1355000
+  },
+  "regressions": [
+    "All four provider/layout combinations fund at the observed pair price",
+    "Missing/stale ratio legs roll back reserve, market, share and wallet mutations",
+    "Normalized legs authenticate ordered assets and common nonzero denomination",
+    "Conservative ratio uncertainty, future observations, skew and wrong owners reject",
+    "Independent leg advancement succeeds; unchanged-sequence equivocation and per-leg rollback reject"
+  ],
+  "sdk": {
+    "revision": "next-2026-10-31-layouts",
+    "filename": "dusk-sdk-2.15.0-next.20261031-layout8.tgz",
+    "sha256": "ecfb05d58063a4966a09b82a259be02de36cfa8ddef0920c36927b00cdcf684f",
+    "sdkVersion": "2.15.0-next.20261031",
+    "duskIdlSha256": "10656eac966e26db84314240b36f514ea3c3bf229275aa0f478a41b022b1d448",
+    "delegateIdlSha256": "59bbc38e7b3df2509f1f89c80b60b483ed5816809d8f9cc357d9522fd81169b6"
+  },
+  "deployment": {
+    "performed": false,
+    "liveLayout": 7,
+    "candidateLayout": 8,
+    "note": "Requires a verified program/delegate rollout and consumer identity promotion; existing devnet receipts do not validate this layout."
+  }
+}

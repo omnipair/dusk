@@ -1,0 +1,44 @@
+   Compiling dusk v2.0.0 (./programs/dusk)
+warning: dusk@2.0.0: GIT_REV=d3d1cfadfcd36d34ada911dd31f7d588df8c78e6
+warning: dusk@2.0.0: GIT_RELEASE=v2.0.0
+warning: unexpected `cfg` condition value: `solana`
+  --> programs/dusk/src/lib.rs:37:1
+   |
+37 | #[program]
+   | ^^^^^^^^^^
+   |
+   = note: expected values for `target_os` are: `aix`, `amdhsa`, `android`, `cuda`, `cygwin`, `dragonfly`, `emscripten`, `espidf`, `freebsd`, `fuchsia`, `haiku`, `helenos`, `hermit`, `horizon`, `hurd`, `illumos`, `ios`, `l4re`, `linux`, `lynxos178`, `macos`, `managarm`, `motor`, `netbsd`, `none`, `nto`, `nuttx`, `openbsd`, `psp`, `psx`, `qurt`, `redox`, `rtems`, `solaris`, and `solid_asp3` and 14 more
+   = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+   = help: try referring to `$crate::custom_heap_default` crate for guidance on how handle this unexpected cfg
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: `#[warn(unexpected_cfgs)]` on by default
+   = note: this warning originates in the macro `$crate::custom_heap_default` which comes from the expansion of the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unexpected `cfg` condition value: `solana`
+  --> programs/dusk/src/lib.rs:37:1
+   |
+37 | #[program]
+   | ^^^^^^^^^^
+   |
+   = note: expected values for `target_os` are: `aix`, `amdhsa`, `android`, `cuda`, `cygwin`, `dragonfly`, `emscripten`, `espidf`, `freebsd`, `fuchsia`, `haiku`, `helenos`, `hermit`, `horizon`, `hurd`, `illumos`, `ios`, `l4re`, `linux`, `lynxos178`, `macos`, `managarm`, `motor`, `netbsd`, `none`, `nto`, `nuttx`, `openbsd`, `psp`, `psx`, `qurt`, `redox`, `rtems`, `solaris`, and `solid_asp3` and 14 more
+   = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+   = help: try referring to `$crate::custom_panic_default` crate for guidance on how handle this unexpected cfg
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: this warning originates in the macro `$crate::custom_panic_default` which comes from the expansion of the attribute macro `program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `dusk` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.29s
+     Running unittests src/lib.rs (target/debug/deps/dusk-29958f1bdf20aef5)
+
+running 9 tests
+test math::op_gamm::interval::tests::transcendental_intervals_enclose_decimal_reference_values ... ok
+test math::op_gamm::interval::tests::interval_arithmetic_keeps_negative_rounding_direction ... ok
+test math::op_gamm::tests::bounded_prices_cover_reference_examples_and_reciprocal_cap ... ok
+test math::op_gamm::tests::conditional_invariant_certifies_both_sides_of_exact_cpmm_root ... ok
+test math::op_gamm::interval::tests::transcendental_bounds_enclose_independent_high_precision_grid ... ok
+test math::op_gamm::tests::concentrated_coordinate_and_reversibility_cross_all_bands ... ok
+test math::op_gamm::interval::tests::limb_multiplication_matches_independent_wide_integer_arithmetic ... ok
+test math::op_gamm::tests::bounds_enclose_independent_high_precision_integrals ... ok
+test math::op_gamm::tests::majorants_cover_independent_interval_derivative_evaluations ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 545 filtered out; finished in 0.06s

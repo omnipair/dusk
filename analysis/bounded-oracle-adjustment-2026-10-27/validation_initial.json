@@ -1,0 +1,9 @@
+{
+  "own_pool_cases": 272,
+  "own_pool_profitable": 0,
+  "own_pool_max_profit": -11.551155116555933,
+  "hlp_cases": 340,
+  "hlp_max_relative_residual": 4.242930682831135e-16,
+  "split_cases": 136,
+  "split_max_loan_minus_sale": -178666.66666660123
+}

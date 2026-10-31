@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "dusk-devnet-mock-feed.v1",
+  "network": "devnet",
+  "programId": "8aaFKbz66kvfA4vdXg7fs1gi5e5HbkZ6rtuB5UkHHkFH",
+  "publisher": "4NxCDaXnSmyEWavm3oFpnudWKfS1KAWJZNcMejktUdNt",
+  "report": "4jPsKhPRLWVUb39RMftmu2rK8vjpq7GkQwpbL8nmMZrZ",
+  "feedId": "e027d43ad516bf938babb6811fe10a691f33287cd7f84a12ddd7ad7c49a7bdd3",
+  "baseMint": "2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W",
+  "quoteMint": "G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV",
+  "baseSymbol": "META",
+  "quoteSymbol": "USDC",
+  "updateIntervalSeconds": 15
+}

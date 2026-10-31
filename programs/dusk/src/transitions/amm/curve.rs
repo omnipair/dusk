@@ -301,7 +301,7 @@ fn complete_concentrated_cache(
     outer_lower_sqrt_price_nad: u128,
     outer_upper_sqrt_price_nad: u128,
     _sqrt_center_nad: u128,
-) -> Result<ConcentratedCurveCache> {
+) -> Result<(ConcentratedCurveCache, ConcentratedCurveGeometry)> {
     let cache = ConcentratedCurveCache {
         math_revision: CONCENTRATED_CURVE_MATH_REVISION,
         peak_amplification_nad: parameters.peak_amplification_nad,
@@ -314,8 +314,8 @@ fn complete_concentrated_cache(
         outer_lower_sqrt_price_nad,
         outer_upper_sqrt_price_nad,
     };
-    cache.geometry()?;
-    Ok(cache)
+    let geometry = cache.geometry()?;
+    Ok((cache, geometry))
 }
 
 impl ConcentratedCurveParameters {
@@ -497,6 +497,7 @@ pub(crate) fn prepare_centered_concentrated_cache(
         outer_upper_sqrt_price_nad,
         sqrt_center_nad,
     )
+    .map(|(cache, _)| cache)
 }
 
 fn reserve_ratio_cmp(point: ConcentratedCurvePoint, boundary: ConcentratedCurvePoint) -> core::cmp::Ordering {
@@ -527,6 +528,7 @@ pub(crate) fn prepare_concentrated_cache_at_depth(
         mul_div_u128(sqrt_center, outer_width, u128::from(NAD))?,
         sqrt_center,
     )
+    .map(|(cache, _)| cache)
 }
 
 /// Reconstructs the unique positive curve scale through an arbitrary reserve
@@ -540,6 +542,18 @@ pub(crate) fn prepare_concentrated_cache_at_point(
     center_price_nad: u64,
     parameters: ConcentratedCurveParameters,
 ) -> Result<ConcentratedCurveCache> {
+    prepare_concentrated_cache_and_geometry_at_point(base_reserve, quote_reserve, center_price_nad, parameters)
+        .map(|(cache, _)| cache)
+}
+
+// Return the already validated geometry to quote callers. Reconstructing it
+// again would repeat all nested-boundary divisions and continuity checks.
+pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
+    base_reserve: u128,
+    quote_reserve: u128,
+    center_price_nad: u64,
+    parameters: ConcentratedCurveParameters,
+) -> Result<(ConcentratedCurveCache, ConcentratedCurveGeometry)> {
     parameters.validate(u64::MAX)?;
     require!(base_reserve > 0 && quote_reserve > 0, ErrorCode::InsufficientLiquidity);
 
@@ -767,7 +781,7 @@ pub(crate) fn prepare_concentrated_cache_at_point(
             let denominator = quadratic
                 .checked_mul(U512::from(2_u8))
                 .ok_or(ErrorCode::InvariantOverflow)?;
-            let liquidity = numerator / denominator;
+            let liquidity = div_floor_u512(numerator, denominator)?;
             require!(liquidity <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
             liquidity.as_u128()
         };
@@ -781,7 +795,7 @@ pub(crate) fn prepare_concentrated_cache_at_point(
         if tail_liquidity == 0 || concentrated_liquidity == 0 {
             continue;
         }
-        let cache = complete_concentrated_cache(
+        let (cache, geometry) = complete_concentrated_cache(
             parameters,
             tail_liquidity,
             concentrated_liquidity,
@@ -791,9 +805,8 @@ pub(crate) fn prepare_concentrated_cache_at_point(
             outer_upper_sqrt_price_nad,
             sqrt_center_nad,
         )?;
-        let geometry = cache.geometry()?;
         if geometry.branch(point) == branch {
-            return Ok(cache);
+            return Ok((cache, geometry));
         }
     }
     err!(ErrorCode::BrokenInvariant)
@@ -884,7 +897,7 @@ fn concentrated_total_liquidity_root(
         root.checked_sub(b).ok_or(ErrorCode::BrokenInvariant)?
     };
     let denominator = a.checked_mul(U512::from(2_u8)).ok_or(ErrorCode::InvariantOverflow)?;
-    let liquidity = numerator / denominator;
+    let liquidity = div_floor_u512(numerator, denominator)?;
     require!(liquidity <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
     Ok(liquidity.as_u128())
 }
@@ -909,13 +922,107 @@ impl SignedWide {
     }
 }
 
+// Knuth division in base 2^32. Its quotient estimates use native u64
+// division on SBF; the generic U512 implementation estimates in base 2^64
+// and invokes software u128 division. Both return exactly floor(n / d).
+#[inline(never)]
+fn div_floor_u512(numerator: U512, denominator: U512) -> Result<U512> {
+    require!(!denominator.is_zero(), ErrorCode::InvariantOverflow);
+    if numerator < denominator {
+        return Ok(U512::zero());
+    }
+    let n = denominator.bits().div_ceil(32);
+    let m = numerator.bits().div_ceil(32);
+    let mut u = [0_u32; 17];
+    let mut v = [0_u32; 16];
+    let mut q = [0_u32; 16];
+    for (i, digit) in u.iter_mut().take(m).enumerate() {
+        *digit = (numerator.0[i / 2] >> (32 * (i % 2))) as u32;
+    }
+    for (i, digit) in v.iter_mut().take(n).enumerate() {
+        *digit = (denominator.0[i / 2] >> (32 * (i % 2))) as u32;
+    }
+    if n == 1 {
+        let mut remainder = 0_u64;
+        for i in (0..m).rev() {
+            let dividend = (remainder << 32) | u[i] as u64;
+            q[i] = (dividend / v[0] as u64) as u32;
+            remainder = dividend % v[0] as u64;
+        }
+    } else {
+        let shift = v[n - 1].leading_zeros();
+        if shift > 0 {
+            let mut carry = 0;
+            for digit in u.iter_mut().take(m + 1) {
+                let next = *digit >> (32 - shift);
+                *digit = (*digit << shift) | carry;
+                carry = next;
+            }
+            carry = 0;
+            for digit in v.iter_mut().take(n) {
+                let next = *digit >> (32 - shift);
+                *digit = (*digit << shift) | carry;
+                carry = next;
+            }
+        }
+        const BASE: u64 = 1_u64 << 32;
+        let divisor = v[n - 1] as u64;
+        for j in (0..=m - n).rev() {
+            let dividend = ((u[j + n] as u64) << 32) | u[j + n - 1] as u64;
+            let mut estimate = (dividend / divisor).min(BASE - 1);
+            let mut remainder = dividend - estimate * divisor;
+            while remainder < BASE && estimate * v[n - 2] as u64 > (remainder << 32) | u[j + n - 2] as u64 {
+                estimate -= 1;
+                remainder += divisor;
+            }
+            let mut borrow = 0_u64;
+            for i in 0..n {
+                let product = estimate * v[i] as u64 + borrow;
+                let low = product as u32;
+                borrow = (product >> 32) + u64::from(u[j + i] < low);
+                u[j + i] = u[j + i].wrapping_sub(low);
+            }
+            let negative = (u[j + n] as u64) < borrow;
+            u[j + n] = u[j + n].wrapping_sub(borrow as u32);
+            if negative {
+                estimate -= 1;
+                let mut carry = 0_u64;
+                for i in 0..n {
+                    let sum = u[j + i] as u64 + v[i] as u64 + carry;
+                    u[j + i] = sum as u32;
+                    carry = sum >> 32;
+                }
+                u[j + n] = u[j + n].wrapping_add(carry as u32);
+            }
+            q[j] = estimate as u32;
+        }
+    }
+    let mut out = U512::zero();
+    for i in 0..8 {
+        out.0[i] = q[2 * i] as u64 | ((q[2 * i + 1] as u64) << 32);
+    }
+    Ok(out)
+}
+
 fn sqrt_floor_u512(value: U512) -> Result<U512> {
     if value.is_zero() {
         return Ok(U512::zero());
     }
-    let mut root = U512::one() << value.bits().div_ceil(2);
+    if value.bits() <= 128 {
+        return Ok(U512::from(isqrt(value.as_u128())));
+    }
+    // An even shift preserves square scaling. The top 128 bits provide a
+    // strict upper seed: value < (top + 1) * 2^shift <= seed^2 * 2^shift.
+    // Newton still finishes with exact wide division; the seed only avoids
+    // repeatedly dividing a 512-bit value to discover its leading digits.
+    let shift = (value.bits() - 128).div_ceil(2) * 2;
+    let top = (value >> shift).as_u128();
+    let mut root = U512::from(isqrt(top) + 1) << (shift / 2);
     for _ in 0..CONCENTRATED_SQRT_MAX_ITERS {
-        let next = root.checked_add(value / root).ok_or(ErrorCode::InvariantOverflow)? >> 1;
+        let next = root
+            .checked_add(div_floor_u512(value, root)?)
+            .ok_or(ErrorCode::InvariantOverflow)?
+            >> 1;
         if next >= root {
             return Ok(root);
         }

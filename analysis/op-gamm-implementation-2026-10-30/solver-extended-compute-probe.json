@@ -1,0 +1,4322 @@
+[
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 151794,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 151494 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg bzmTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAACRNjaviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 345042,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 344742 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 9wpm10UAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAAJZWPbRQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 348755,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 348455 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 8skVKgEAAAAAAAAAAAAAAA4a9ikBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 192718,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 192418 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg jm+TAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAByADaviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 335695,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 335395 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg oKlA2kUAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABgxojYRQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 359587,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 359287 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg apwJKgEAAAAAAAAAAAAAAJZHAioBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 141881,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 141581 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg daWTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAACLyjWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 344909,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 344609 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg ZlUb3UUAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACaGq7VRQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 381113,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 380813 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg Gm/9KQEAAAAAAAAAAAAAAOZ0DioBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 131532,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 131232 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg A88CAgAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAD9oMawiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 251079,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 250779 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg j14NnzIAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABxEbwTWQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 267092,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 266792 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg cyA7vAEAAAAAAAAAAAAAAI3D0JcAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 79674,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 79374 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg PnWTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAADC+jWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 233176,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 232876 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg uKm2U08AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABIxhJfPAAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 244114,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 243814 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg jD52UgEAAAAAAAAAAAAAAHSllQEBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 158348,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 158048 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg zuRbBgAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAyi22siwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 273045,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 272745 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg hp3bHWgAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAB60u2UIwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 270434,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 270134 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg yvT71wAAAAAAAAAAAAAAADbvD3wBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 98501,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 98201 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg s7rJAQAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAABNtf+wiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 261908,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 261608 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg HfaqCykAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADjeR6nYgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 250693,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 250393 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg /uoIvwEAAAAAAAAAAAAAAAL5ApUAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 78651,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 78351 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg KXuTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAADX9DWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 196803,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 196503 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg f9wcpFoAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACBk6wOMQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 238920,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 238620 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 3Ta8ggEAAAAAAAAAAAAAACOtT9EAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 138556,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 138256 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg r8cmBwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAABRqKKriwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 209373,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 209073 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg /BMXxmgAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAAEXLLsIgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 275922,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 275622 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg TLcgrwAAAAAAAAAAAAAAALQs66QBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 98550,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 98250 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg s7rJAQAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAABNtf+wiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 200680,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 200380 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg OoGt6igAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADG7hvIYgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 250721,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 250421 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg /uoIvwEAAAAAAAAAAAAAAAL5ApUAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 55482,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 55182 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg /oaTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAC6TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 210070,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 209770 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg uLs5TmIAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABItI9kKQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 255705,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 255405 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg QOVvowEAAAAAAAAAAAAAAMD+m7AAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 138626,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 138326 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg r8cmBwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAABRqKKriwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 209442,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 209142 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg /BMXxmgAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAAEXLLsIgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 223516,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 223216 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg V/WTrgAAAAAAAAAAAAAAAKnud6UBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 224736,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 224436 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg AEuTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAAJTaviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 631337,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 631037 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg JrwgVV4AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADas6hdLQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 659170,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 658870 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg RNaWkgEAAAAAAAAAAAAAALwNdcEAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 251723,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 251423 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 6ICTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAY7zWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 622295,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 621995 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg AYI9WF4AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAD/7YtaLQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 648744,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 648444 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 9I6JkgEAAAAAAAAAAAAAAAxVgsEAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 222320,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 222020 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg C7eTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAD1uDWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 658200,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 657900 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg YzhaW14AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACdN29XLQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 662640,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 662340 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg ZEd8kgEAAAAAAAAAAAAAAJycj8EAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 270850,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 270550 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg ztQCAgAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAym8awiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 720182,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 719882 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg UkbfIEIAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACuKeqRSQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 707387,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 707087 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg bGJ3DQIAAAAAAAAAAAAAAJSBlEYAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 216214,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 215914 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg bYKTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAACT7TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 737235,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 736935 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg gFGeZmQAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACAHitMJwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 722020,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 721720 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg WIFgrAEAAAAAAAAAAAAAAKhiq6cAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 303967,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 303667 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg XgVcBgAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAACiam2siwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 701689,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 701389 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg JxL7J3sAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADZXc6KEAAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 745198,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 744898 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg xNolGgEAAAAAAAAAAAAAADwJ5jkBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 215899,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 215599 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg SsHJAQAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAC2rv+wiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 371895,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 371595 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg RqQmEjkAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAC6y6KgUgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 461105,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 460805 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg etrEEQIAAAAAAAAAAAAAAIYJR0IAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 166143,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 165843 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 84OTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAN7DWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 403212,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 402912 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg bUeqwmsAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACTKB/wHwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 434610,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 434310 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg xxrHywEAAAAAAAAAAAAAADnJRIgAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 264861,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 264561 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg aPwmBwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAACYc6KriwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 458615,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 458315 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg VzUjKnwAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACpOqaIDwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 392524,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 392224 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 3KSA8wAAAAAAAAAAAAAAACQ/i2ABAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 215948,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 215648 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg SsHJAQAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAC2rv+wiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 371927,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 371627 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg RqQmEjkAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAC6y6KgUgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 461127,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 460827 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg etrEEQIAAAAAAAAAAAAAAIYJR0IAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 127287,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 126987 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg /oaTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAC6TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 733497,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 733197 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg gYoWxnEAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAB/5bLsGQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 765487,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 765187 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg GE9v5QEAAAAAAAAAAAAAAOiUnG4AAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 264930,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 264630 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg aPwmBwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAACYc6KriwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 458683,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 458383 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg VzUjKnwAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACpOqaIDwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 392591,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 392291 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 3KSA8wAAAAAAAAAAAAAAACQ/i2ABAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 175047,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 174747 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg HU+TAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAADjIDaviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 422267,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 421967 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg SOACnVAAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAC4j8YVOwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 417947,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 417647 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg oyIMWAEAAAAAAAAAAAAAAF3B//sAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 168121,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 167821 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg DIWTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAD06jWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 417275,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 416975 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg e33tn1AAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACF8tsSOwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 449783,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 449483 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg A7H/VwEAAAAAAAAAAAAAAP0yDPwAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 172348,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 172048 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg GruTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAADmtDWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 415282,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 414982 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg GB/YolAAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADoUPEPOwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 458675,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 458375 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg dT/zVwEAAAAAAAAAAAAAAIukGPwAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 185067,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 184767 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg JNYCAgAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAADcmcawiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 675527,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 675227 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg k541NToAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABt0ZN9UQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 713069,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 712769 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg D7ms3wEAAAAAAAAAAAAAAPEqX3QAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 168554,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 168254 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg h4WTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAB56jWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 533448,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 533148 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg JI9ielgAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADc4GY4MwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 523180,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 522880 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg gqSBeQEAAAAAAAAAAAAAAH4/itoAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 183101,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 182801 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg nAxcBgAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAABkY22siwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 686179,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 685879 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg MWB7bHAAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADPD05GGwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 714411,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 714111 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg Zn5a+AAAAAAAAAAAAAAAAJplsVsBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 169878,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 169578 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg vMLJAQAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAABErf+wiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 377527,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 377227 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg KHlDUDEAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADY9oViWgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 385186,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 384886 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg ddNZ5AEAAAAAAAAAAAAAAIsQsm8AAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 166740,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 166440 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg BIaTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAD86TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 352167,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 351867 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 3fPA0mEAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAAjfAjgKQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 387053,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 386753 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg HhVhoQEAAAAAAAAAAAAAAOLOqrIAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 181265,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 180965 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg AwgnBwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAD9Z6KriwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 392738,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 392438 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg H5ANhXEAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADh37stGgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 397600,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 397300 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg RYZn0gAAAAAAAAAAAAAAALtdpIEBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 169925,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 169625 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg vMLJAQAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAABErf+wiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 341291,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 340991 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg cPo6UDEAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACQdY5iWgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 385212,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 384912 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg ddNZ5AEAAAAAAAAAAAAAAIsQsm8AAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 100328,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 100028 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg /oaTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAC6TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 598801,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 598501 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg jpZO7WcAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABy2XrFIwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 523227,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 522927 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg +flruwEAAAAAAAAAAAAAAAfqn5gAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 181334,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 181034 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg AwgnBwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAD9Z6KriwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 392808,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 392508 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg H5ANhXEAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADh37stGgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 375612,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 375312 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg DGJn0gAAAAAAAAAAAAAAAPSBpIEBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 145868,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 145568 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 0lCTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAuHzaviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 431928,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 431628 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg dQli0kwAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACLZmfgPgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 459876,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 459576 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 1aneRwEAAAAAAAAAAAAAACs6LQwBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 246748,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 246448 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 8IaTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAQ6TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 425110,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 424810 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg fudI1UwAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACCiIDdPgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 420522,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 420222 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg H0jSRwEAAAAAAAAAAAAAAOGbOQwBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 144491,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 144191 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 3ryTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAiszWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 465077,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 464777 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg AM4v2EwAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAAAopnaPgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 430914,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 430614 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg jubFRwEAAAAAAAAAAAAAAHL9RQwBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 151413,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 151113 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg qtYCAgAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAABWmcawiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 555177,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 554877 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg MxGPgzcAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAADNXjovVAAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 636994,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 636694 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg RBKM0wEAAAAAAAAAAAAAALzRf4AAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 140920,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 140620 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg y4aTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAA16TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 582367,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 582067 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg vIQ1QFUAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABE65NyNgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 572907,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 572607 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg F6C8awEAAAAAAAAAAAAAAOlDT+gAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 149928,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 149628 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg HRBcBgAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAADjX22siwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 628835,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 628535 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg o0fUlG0AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABdKPUdHgAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 600556,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 600256 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg Cvzb7AAAAAAAAAAAAAAAAPbnL2cBAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 249098,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 248798 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg eMPJAQAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAACIrP+wiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 421600,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 421300 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg iE9QWi4AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAB4IHlYXQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 458975,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 458675 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg SOi31wEAAAAAAAAAAAAAALj7U3wAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 140205,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 139905 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 3IaTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAk6TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 493527,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 493227 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg VVOZR18AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACrHDBrLAAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 494882,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 494582 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg dtKGlgEAAAAAAAAAAAAAAIoRhb0AAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 259727,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 259427 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 2A0nBwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAoYqKriwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 427789,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 427489 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 6XAaj24AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAAX/64jHQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 436911,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 436611 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 7ZrFxQAAAAAAAAAAAAAAABNJRo4BAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 249145,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 248845 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg eMPJAQAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAACIrP+wiwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 385742,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 385442 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg XTPaVC4AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAACjPO9dXQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 459000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 458700 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg SOi31wEAAAAAAAAAAAAAALj7U3wAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 140472,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 140172 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg /oaTAwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAC6TWviwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 651149,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 650849 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg m+zo52UAAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAABlg+DKJQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 648577,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 648277 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg WWrMsgEAAAAAAAAAAAAAAKd5P6EAAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 259794,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 259494 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 2A0nBwAAAAAAAAAAAAAAAEAmG1QCAAAAAAAAAAAAAAAoYqKriwAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 427857,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 427557 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg 6XAaj24AAAAAAAAAAAAAAADIF6gEAAAAAAAAAAAAAAAX/64jHQAAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  },
+  {
+    "solver": true,
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 450747,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg invoke [1]",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg consumed 450447 of 1399700 compute units",
+      "Program return: B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg qk2uxQAAAAAAAAAAAAAAAFaWXY4BAAAAAAAAAAAAAAAA4JJlFwEAAAAAAAAAAAAA",
+      "Program B9om8i6xhHtHFtQEFWuogjDmD8X3zLgtJ3aRW8LrGSZg success"
+    ]
+  }
+]

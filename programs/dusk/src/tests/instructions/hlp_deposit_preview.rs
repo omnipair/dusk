@@ -33,6 +33,8 @@ fn snapshot() -> (Market, Clock) {
     let junior_fee_tags = [0x1197_5bdf_2468_ace0_u64, 0x2297_5bdf_2468_ace0_u64];
     layout.base_side.fees.junior.reserve_shares = junior_fee_tags[0];
     layout.quote_side.fees.junior.reserve_shares = junior_fee_tags[1];
+    let oracle_revision_tag = 0xeb97_5bdf_2468_ace0_u64;
+    layout.parameter_revisions[7] = oracle_revision_tag;
     let mut current = Vec::new();
     layout.try_serialize(&mut current).unwrap();
     let mut insertions: Vec<_> = tags.into_iter().zip([8, 32, 8, 32, 8, 8, 32, 16]).map(|(tag, size)| {
@@ -52,6 +54,14 @@ fn snapshot() -> (Market, Clock) {
         let offset = current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap() - 1;
         insertions.push((offset, crate::state::TrancheIncome::INIT_SPACE));
     }
+    insertions.push((8, crate::state::OracleState::INIT_SPACE));
+    insertions.push((
+        current
+            .windows(8)
+            .position(|window| window == oracle_revision_tag.to_le_bytes())
+            .unwrap(),
+        8,
+    ));
     let irm_offset = current.windows(8).position(|window| window == irm_tag.to_le_bytes()).unwrap();
     // Replace the old 18-byte Morpho config with the 50-byte band config.
     let irm = crate::state::IrmConfig::default().try_to_vec().unwrap();

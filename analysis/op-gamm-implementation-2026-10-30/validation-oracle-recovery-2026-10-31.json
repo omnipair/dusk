@@ -1,0 +1,214 @@
+{
+  "status": "complete required local CI passed; standalone oracle policies recover pricing during distress",
+  "date": "2026-10-31",
+  "previous_revision": "e19de98c26d356294ac7cc67c4a9508b26b666c4",
+  "scope": "Oracle-only governance bypasses utilization and post-update market-health admission in both execution layers. Mixed proposals retain the guards. SDK governance transactions budget activation and disable while selecting only the proposed feed. The pricing kernel is unchanged. Source hashes bind the tested changes; binaries embed previous_revision. Generated interfaces were rebuilt and checked; their wire contents are unchanged.",
+  "test_counts": {
+    "dusk_native": 578,
+    "dusk_production": 578,
+    "leverage_delegate": 16,
+    "faucet": 1,
+    "sdk": 82,
+    "litesvm": 153,
+    "dusk_instructions_covered": 77
+  },
+  "runtime": {
+    "successful_transactions": 5218,
+    "average_compute_units": 100380,
+    "maximum_compute_units": 1279830,
+    "native_cpmm_same_slot_compute_units": 99432
+  },
+  "regressions": [
+    "both debt directions; stale-source replacement and explicit disable",
+    "standalone policy at the 80% utilization boundary",
+    "mixed-proposal health/utilization rejection and rollback",
+    "missing replacement report rejects",
+    "public proposal execution restores liquidation observation and rejects additional debt",
+    "SDK activation and disable budget ordering; disabled source requires no feed accounts"
+  ],
+  "validation_environment": {
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "native_rust": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "anchor": "0.31.1"
+  },
+  "checks": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "yarn",
+        "check:hygiene"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "yarn",
+        "check:code-shape"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "yarn",
+        "check:clippy"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "dusk"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "dusk",
+        "--lib",
+        "--features",
+        "production"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "dusk",
+        "--lib",
+        "--features",
+        "production"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "dusk",
+        "--lib",
+        "--features",
+        "benchmark",
+        "ema_admitted_settlement_preserves_reference_and_resource_delta"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "leverage_delegate"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "faucet"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "yarn",
+        "typecheck"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "yarn",
+        "build:litesvm"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "yarn",
+        "check:build-identity"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "prepare-idl",
+        "--prefix",
+        "packages/dusk-sdk"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "check:dusk-sdk"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "yarn",
+        "test-litesvm:no-build",
+        "--forbid-pending",
+        "--grep",
+        "recovers a stale oracle in distress|upgrades a default native market"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "yarn",
+        "test-litesvm:no-build",
+        "--forbid-pending"
+      ],
+      "exit_code": 0,
+      "environment": {
+        "DUSK_REQUIRE_COMPLETE_CU_BASELINE": "1"
+      }
+    }
+  ],
+  "source_sha256": {
+    "docs/OP_GAMM_IMPLEMENTATION_STATUS.md": "6b1009d42c4ab0678f35ca15ee6d03b5f7ca3dce25608ff8d3675da6911075b9",
+    "docs/OP_GAMM_REVIEW.md": "4f5ca90a51f2fcc69f1d581331a172a2d480abd4ad1726fe3abb4d04f97260b5",
+    "packages/dusk-sdk/README.md": "85c1fac311496568fad1e503eac089eb7e4453a245d1538e3f446adbf66aa533",
+    "packages/dusk-sdk/scripts/check-write-program-accounts.js": "0894c6d74414be8e8cb31c1d52af731d195b931902b5a272a1f0d6fc14371325",
+    "packages/dusk-sdk/src/idl_delegate.json": "0f2b8c4b04340608dec1e731cc1e7b02f001e0f47820dc15b28e3fd5d0ceb405",
+    "packages/dusk-sdk/src/idl_v2.json": "aaad7a063726b84c9ef96bcd757f1f7f7cc8bbe8790891d62cadef26b6fe1831",
+    "packages/dusk-sdk/src/types_delegate.ts": "c5dd793f70436e87d290759a8d67c91f24852170039e09a737f08d83a5486ee1",
+    "packages/dusk-sdk/src/types_v2.ts": "bd595db6bd027e9671265471a1e83cc406b048c6c504c71ce0c210eba14bb8ca",
+    "packages/dusk-sdk/src/write.ts": "aea217783341db7ea42b3bfee31b3203b7e88693dd8f99ae3b7882ab5057f1ba",
+    "programs/dusk/src/instructions/governance/proposal.rs": "52473508149b29027cadb0a25488e0cf2b5020d68389e057a057be512559abf9",
+    "programs/dusk/src/state/parameter_proposal.rs": "e2efc5ad4c0d6df69cab698cbafb68067fd32e6a59ca85ab9e4a065d4fc98f59",
+    "programs/dusk/src/tests/transitions/governance_market.rs": "5a4e08d9e74fb6ba29c9f979fa126e87dac21e8fe564a66610c929d830e1fd76",
+    "programs/dusk/src/transitions/governance.rs": "e5d216629b92f25d53244212714e036dba36d6e41e455e301bf63ea9850bf2b6",
+    "tests/v2-final-smoke.test.ts": "64cf86bd37f55f943ea293578a3f74296366341e07b5c8653deb2279533a1e61"
+  },
+  "binary_sha256": {
+    "target/deploy/dusk.so": "d8bab0b622753f322a7646d8e4e73a6132989a3daa45443e918ecfb9174e30af",
+    "target/deploy/leverage_delegate.so": "aa37f29294233db6bfb7c44af64e1b32ea6eeac2b343df51287dcdb976f35cc8",
+    "target/deploy/faucet.so": "b9bc7faf2607d35a54f9240729003b0dcf79ce404b8cbab93f2683e6ac835745"
+  }
+}

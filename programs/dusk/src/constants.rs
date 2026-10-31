@@ -77,7 +77,7 @@ pub const PARAMETER_PROPOSAL_TIMELOCK_SECONDS: i64 = 7 * 24 * 60 * 60;
 #[constant]
 pub const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
 /// A proposal changes one to this many families, at most one update each.
-pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 7;
+pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 8;
 #[constant]
 pub const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS: u64 = 8_000;
 
@@ -164,7 +164,7 @@ pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// economic checkpoints use slots. Earlier development layouts must not
 /// decode as this structure.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 7;
+pub const MARKET_LAYOUT_VERSION: u8 = 9;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

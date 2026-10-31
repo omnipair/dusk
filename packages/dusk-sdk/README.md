@@ -9,8 +9,93 @@ collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
 
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
-targets Dusk market layout v2, including aggregate leverage exposure and stored
+targets Dusk market layout 8, including bounded oracle policies, aggregate leverage exposure and stored
 position margin terms. Regenerate clients and use matching account layouts.
+
+## Bounded oracle markets
+
+Market creation selects native or oracle-guided pricing in the same
+`initializeMarket` instruction. In the SDK, omit `oracle` (or pass `null`) for
+native pricing at λ = 0; pass an `OraclePolicyInput` to launch with that policy:
+
+```typescript
+const instruction = await dusk.write.initializeMarketInstruction({
+  ...creationParams,
+  oracle: policy, // omit or use null for native pricing
+});
+```
+
+The creator does not send a separate oracle-configuration instruction. Creation
+validates and stores the policy atomically with the market and its LP metadata;
+`MarketCreated.oracle` reports the selected policy. Creation needs no live feed
+account. First liquidity and subsequent price-sensitive operations authenticate
+a current report when λ is positive. An invalid initial policy rolls back market
+creation and the treasury creation charge.
+
+Guided creation has no independent opening price: omit `bootstrapPriceNad` or
+pass zero. The SDK and program reject a nonzero value when λ is positive.
+`addLiquidityInstruction` takes two maximum gross spends. On the first guided
+deposit the validated execution-time report sets their usable ratio; base is
+rounded down and quote up to token atoms, and unused tokens stay in the owner's
+wallet. The existing `minYlpAmount` floor still applies. Native first deposits
+keep their caller-selected ratio, and subsequent deposits remain proportional
+to existing reserves. The first-deposit change preserves all wire layouts.
+
+Every market can later activate an oracle, change its source/weight/cap, or return
+to native pricing through the existing parameter-proposal lifecycle.
+`parameterUpdate.oracle(policy)` creates the proposal update. Subsequent changes
+require governance, including before first liquidity; no creator-only setter
+remains. `oraclePolicy()` validates the wire format. Positive weights are
+1–9,999 bps and a nonempty policy's adjustment multiplier must exceed one;
+there are no creation-time oracle ceilings or automatic outage-driven changes.
+See [the implementation contract](../../docs/OP_GAMM_IMPLEMENTATION_STATUS.md)
+for the coupled swap, lending and hLP behavior.
+
+Use `marketCreationLookupTablePlan` and `marketCreationV0Transaction` for the
+creation transaction. The latter rejects a packet larger than 1,232 bytes;
+metadata and optional setup instructions must fit alongside the selected policy.
+An address lookup table compresses account addresses, not metadata or policy
+bytes. The launch scripts accept optional `DUSK_ORACLE_POLICY_JSON` using
+`OraclePolicyInput` field names (base58 addresses, 32-byte feed-ID arrays and
+string values for large integers); omission selects native pricing. They resolve
+the stored policy's feeds and compute budget when seeding liquidity.
+
+Raw Anchor callers must include `oracle: null` or a serialized policy. The
+`initializeMarket` argument layout now starts with `paramsHash`, followed by
+`config` and `oracle`; rebuild instruction encoders and event decoders using the
+vendored IDL. The removed `configureInitialOracle` instruction and
+`InitialOracleConfigured` event are replaced by creation parameters and
+`MarketCreated.oracle`.
+
+Provider and feed layout are independent: normalized direct pair
+(`NORMALIZED_ORACLE_V1`, format 1), fully verified Pyth ratio (`PYTH_RATIO_V2`, 2),
+fully verified Pyth direct pair (`PYTH_DIRECT_V3`, 3), or normalized ratio
+(`NORMALIZED_RATIO_V4`, 4). One feed must actually quote the ordered market pair;
+META/USD alone is not META/USDC. Two feeds must share a denomination and include
+an observed quote-asset price. Ratio uncertainty is rounded outward and each leg
+is authenticated and checked for age and publication skew. Layout 8 stores
+per-leg counters/content hashes so independent updates cannot hide normalized
+report equivocation or rollback. Do not decode layout-7 accounts with this SDK.
+A market selects the provider, feed identities, age and confidence policy. The normalized provider
+must serialize the exact Borsh `NormalizedOracleV1` envelope defined in
+[oracle.rs](../../programs/dusk/src/oracle.rs), including the underlying source
+observation time, both mints and a monotonically increasing nonzero sequence.
+Dusk does not fetch an off-chain report or give Horus special authority.
+
+High-level builders fetch the policy and append feed accounts after the existing
+hLP/hook prefix. Positive-weight transaction builders add the compute and heap
+budgets. When composing **raw instructions**, add
+`oracleComputeBudgetInstructions(policy)` once before constructing any
+index-bound flash plan; do not prepend instructions after binding its indices.
+Resolve `oracleReadAccounts(policy)` for direct Anchor calls. Zero weight needs
+neither feed accounts nor OP budgets. Simulate the whole transaction, including
+any provider update and callback: a passing isolated price calculation does not
+establish route feasibility.
+
+A stale or invalid source rejects price-sensitive operations. Direct repayment
+in the debt token and adding collateral remain possible without a valid price;
+this does not permit a collateral sale or removal. Oracle updates change the
+market reference but do not execute an hLP hedge by themselves.
 
 ## Protocol revenue defaults
 
@@ -353,14 +438,16 @@ instruction in a transaction without signing or sending it.
 
 ### Direct-yLP Parameter Governance
 
-Market layout v2 has no market manager. The program exposes seven independent
+Market layout v2 has no market manager. The program exposes eight independent
 parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
-Limit, Center Controller, and Insurance. A direct yLP holder burn-locks at least
+Limit, Center Controller, Insurance, and Oracle. A direct yLP holder burn-locks at least
 1% of eligible direct yLP to create a typed proposal. Strictly more than 50%
 support queues it for a 7-day timelock and a 7-day execution window. Execution
-is permissionless and succeeds only while both lending sides are below 80%
-utilization. These thresholds, the timelock, and the utilization guard are
-immutable.
+is permissionless. Proposals containing exactly one Oracle update can restore
+pricing despite distress or high utilization; positive weight still verifies a
+fresh proposed source. Every other proposal, including mixed Oracle proposals,
+requires both lending sides below 80% utilization and adequate market health.
+Support thresholds, timelock, and execution window apply to every proposal.
 
 Use the typed update constructors so values are checked against the same hard
 bounds before an instruction is built:

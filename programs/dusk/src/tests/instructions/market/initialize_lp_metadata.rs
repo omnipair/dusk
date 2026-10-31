@@ -4,6 +4,22 @@ use crate::{
     state::{MarketConfig, MarketSide},
 };
 
+#[test]
+fn market_creation_seed_prefix_precedes_optional_oracle_and_metadata() {
+    let policy=OraclePolicy {format:crate::oracle::NORMALIZED_ORACLE_V1,
+        provider:Pubkey::new_unique(),base_account:Pubkey::new_unique(),base_feed_id:[7;32],
+        lambda_bps:5000,adjustment_cap_nad:2*NAD,max_age_seconds:30,max_age_slots:20,
+        max_confidence_bps:100,..Default::default()};
+    for oracle in [None,Some(policy)] {
+        let args=InitializeMarketArgs {params_hash:[9;32],config:valid_config(),oracle,
+            bootstrap_price_nad:0,launch_fee_progress_offset:0,ylp_metadata:valid_metadata(),
+            base_hlp_metadata:valid_metadata(),quote_hlp_metadata:valid_metadata()};
+        let bytes=args.try_to_vec().unwrap();
+        assert_eq!(&bytes[..32],&args.params_hash);
+        assert_eq!(InitializeMarketArgs::try_from_slice(&bytes).unwrap().oracle,oracle);
+    }
+}
+
 fn valid_metadata() -> InitializeLpMetadataArgs {
     InitializeLpMetadataArgs {
         name: "Omnipair V2 (Dusk) yLP".to_string(),

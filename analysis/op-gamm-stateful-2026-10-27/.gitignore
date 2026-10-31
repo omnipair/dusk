@@ -1,0 +1,4 @@
+engine-snapshot/
+__pycache__/
+*.log
+native/target/

@@ -117,20 +117,18 @@ impl<'info> BeforeLeverageOrder<'info> {
             collateral_mint,
             LeverageDelegateError::InvalidTokenAccount
         );
-        // Trigger on the closeout the position can actually execute: its
-        // collateral pays the mint's current transfer fee on the way out.
-        let closeout_value = ctx
-            .accounts
-            .market
-            .leverage_closeout_value_at_time_with_fee(
-                &ctx.accounts.leverage_position,
-                current_slot,
-                clock.unix_timestamp,
-                dusk::instructions::leverage_collateral_fee(
-                    &ctx.accounts.collateral_mint,
-                    clock.epoch,
-                )?,
-            )?;
+        // Dusk owns this read-only account and exposes this context only while
+        // its close instruction is on the stack. Reuse its certified execution
+        // quote instead of repeating the OP solver in a second program.
+        let approval = ctx.accounts.leverage_position.close_approval;
+        require!(
+            approval.slot == current_slot
+                && approval.close_bps == order.close_bps
+                && approval.selected_output > 0
+                && approval.full_output > 0,
+            LeverageDelegateError::InvalidOrder
+        );
+        let closeout_value = approval.full_output;
         let closeout_price_nad = closeout_price_nad(
             closeout_value,
             ctx.accounts.leverage_position.collateral_amount,
@@ -175,20 +173,19 @@ impl<'info> BeforeLeverageOrder<'info> {
                 close_slice.collateral_amount,
             )?)
             .ok_or(LeverageDelegateError::MathOverflow)?;
-        let close_quote = ctx.accounts.market.quote_leverage_swap_at_time(
-            collateral_asset,
+        require_eq!(
             collateral_credit,
-            current_slot,
-            clock.unix_timestamp,
-        )?;
+            approval.collateral_credit,
+            LeverageDelegateError::InvalidOrder
+        );
+        let selected_closeout = approval.selected_output;
         let cash_repaid = ctx
             .accounts
             .market
             .debt
             .isolated_repayment_for_max(debt_asset, close_slice.debt_shares, u64::MAX)?
             .cash_repaid;
-        let residual = close_quote
-            .amount_out
+        let residual = selected_closeout
             .checked_sub(cash_repaid)
             .ok_or(LeverageDelegateError::InvalidOrder)?;
         let output_amount = residual
@@ -205,7 +202,7 @@ impl<'info> BeforeLeverageOrder<'info> {
         let payout = quote_delegated_close_payout(
             &ctx.accounts.token_mint.to_account_info(),
             residual,
-            close_quote.amount_out,
+            selected_closeout,
             incentive_basis,
             clock.epoch,
         )?;
@@ -240,7 +237,7 @@ impl<'info> BeforeLeverageOrder<'info> {
         order.staged_protocol_fee_debit = payout.protocol_debit;
         order.staged_protocol_fee_credit = payout.protocol_credit;
         order.staged_executor_credit = payout.executor_credit;
-        order.staged_execution_value = close_quote.amount_out;
+        order.staged_execution_value = selected_closeout;
         let approval = LeverageDelegationApproval::new(
             LEVERAGE_DELEGATE_CLOSE,
             ctx.accounts.market.key(),

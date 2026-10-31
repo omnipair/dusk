@@ -1,0 +1,266 @@
+[
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": 1,
+    "start": [
+      "10000000000000",
+      "600000000000000"
+    ],
+    "end": [
+      "10001000000000",
+      "599940000000000"
+    ],
+    "error": null,
+    "compute": 150279,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm invoke [1]",
+      "Program consumption: 1389438 units remaining",
+      "Program consumption: 1368490 units remaining",
+      "Program consumption: 1347538 units remaining",
+      "Program consumption: 1267952 units remaining",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm consumed 149979 of 1399700 compute units",
+      "Program return: HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm BYk4Q/X//////////////+mSOEP1//////////////8=",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": 10,
+    "start": [
+      "10000000000000",
+      "600000000000000"
+    ],
+    "end": [
+      "10010000000000",
+      "599400000000000"
+    ],
+    "error": null,
+    "compute": 150229,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm invoke [1]",
+      "Program consumption: 1389438 units remaining",
+      "Program consumption: 1368490 units remaining",
+      "Program consumption: 1347538 units remaining",
+      "Program consumption: 1268002 units remaining",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm consumed 149929 of 1399700 compute units",
+      "Program return: HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm 52n9Qc77/////////////8tz/UHO+/////////////8=",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": 100,
+    "start": [
+      "10000000000000",
+      "600000000000000"
+    ],
+    "end": [
+      "10100000000000",
+      "594000000000000"
+    ],
+    "error": null,
+    "compute": 149982,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm invoke [1]",
+      "Program consumption: 1389438 units remaining",
+      "Program consumption: 1368490 units remaining",
+      "Program consumption: 1347546 units remaining",
+      "Program consumption: 1268252 units remaining",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm consumed 149682 of 1399700 compute units",
+      "Program return: HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm 9cJ0yo1c/v///////////9fMdMqNXP7///////////8=",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": 1000,
+    "start": [
+      "10000000000000",
+      "600000000000000"
+    ],
+    "end": [
+      "11000000000000",
+      "540000000000000"
+    ],
+    "error": null,
+    "compute": 150207,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm invoke [1]",
+      "Program consumption: 1389438 units remaining",
+      "Program consumption: 1368490 units remaining",
+      "Program consumption: 1347554 units remaining",
+      "Program consumption: 1268023 units remaining",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm consumed 149907 of 1399700 compute units",
+      "Program return: HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm zlhIRMuKW////////////6ViSETLilv///////////8=",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": 1,
+    "start": [
+      "10000000000000",
+      "600000000000000"
+    ],
+    "end": [
+      "10001000000000",
+      "599940000000000"
+    ],
+    "error": null,
+    "compute": 625426,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm invoke [1]",
+      "Program consumption: 1096733 units remaining",
+      "Program consumption: 1024835 units remaining",
+      "Program consumption: 953225 units remaining",
+      "Program consumption: 870518 units remaining",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm consumed 625126 of 1399700 compute units",
+      "Program return: HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm hPbNUP3//////////////1BDzlD9//////////////8=",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": 10,
+    "start": [
+      "10000000000000",
+      "600000000000000"
+    ],
+    "end": [
+      "10010000000000",
+      "599400000000000"
+    ],
+    "error": null,
+    "compute": 626548,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm invoke [1]",
+      "Program consumption: 1096733 units remaining",
+      "Program consumption: 1024835 units remaining",
+      "Program consumption: 952851 units remaining",
+      "Program consumption: 869395 units remaining",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm consumed 626248 of 1399700 compute units",
+      "Program return: HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm m7ODkPP+/////////////30AhJDz/v////////////8=",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": 100,
+    "start": [
+      "10000000000000",
+      "600000000000000"
+    ],
+    "end": [
+      "10100000000000",
+      "594000000000000"
+    ],
+    "error": null,
+    "compute": 627037,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm invoke [1]",
+      "Program consumption: 1096733 units remaining",
+      "Program consumption: 1024835 units remaining",
+      "Program consumption: 952132 units remaining",
+      "Program consumption: 868900 units remaining",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm consumed 626737 of 1399700 compute units",
+      "Program return: HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm 7nrJIySX/////////////6zHySMkl/////////////8=",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": 1000,
+    "start": [
+      "10000000000000",
+      "600000000000000"
+    ],
+    "end": [
+      "11000000000000",
+      "540000000000000"
+    ],
+    "error": null,
+    "compute": 626274,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm invoke [1]",
+      "Program consumption: 1096733 units remaining",
+      "Program consumption: 1024835 units remaining",
+      "Program consumption: 952687 units remaining",
+      "Program consumption: 869651 units remaining",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm consumed 625974 of 1399700 compute units",
+      "Program return: HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm Qjmqte391v///////////wuFqrXt/db///////////8=",
+      "Program HPk7PjNx7fK4Xyp12r86WZ9rpy5VFSSW3se8b7jf2CAm success"
+    ]
+  }
+]

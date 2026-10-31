@@ -1,0 +1,289 @@
+kind,mode,O,d,raw,curve_status,base_nav_delta,quote_nav_delta,nav_guard
+clean,blend,60,0,1,zero output,,,not reached
+clean,blend,60,0,3,zero output,,,not reached
+clean,blend,60,0,1000000,accepted,8.955566954682581e-09,-3.120876499451697e-07,pass
+clean,blend,60,0,1000000000,accepted,9.104951459448785e-09,-2.8664362616837025e-07,pass
+clean,blend,60,0,100000000000,accepted,-1.404032445861958e-10,-1.0133226169273257e-07,pass
+clean,blend,60,0,1500000000000,accepted,-1.243279257323593e-09,-4.634057404473424e-08,pass
+clean,blend,60,1,1,accepted,9.112454790738411e-09,-9.324867278337479e-08,pass
+clean,blend,60,1,3,accepted,7.773905963404104e-10,-1.5315163182094693e-07,pass
+clean,blend,60,1,60000,accepted,9.977725312637631e-09,-2.0183506421744823e-07,pass
+clean,blend,60,1,60000000,accepted,1.1484758033475373e-08,-2.4787004804238677e-07,pass
+clean,blend,60,1,6000000000,accepted,-1.860598786151968e-09,-1.7813727026805282e-07,pass
+clean,blend,60,1,90000000000,accepted,9.15179043659009e-11,-2.0515290088951588e-07,pass
+clean,blend,600,0,1,zero output,,,not reached
+clean,blend,600,0,3,zero output,,,not reached
+clean,blend,600,0,1000000,accepted,-2.7913529265788384e-09,-4.158573574386537e-07,pass
+clean,blend,600,0,1000000000,accepted,8.985807653516531e-10,-5.303445504978299e-07,pass
+clean,blend,600,0,100000000000,accepted,-3.551463123585563e-09,-1.7501588445156813e-07,pass
+clean,blend,600,0,1500000000000,accepted,-3.9028691389830783e-10,-4.474568413570523e-07,pass
+clean,blend,600,1,1,accepted,-4.393086783238687e-09,-2.1631421986967325e-07,pass
+clean,blend,600,1,3,accepted,-4.181288204563316e-09,-1.76121830008924e-07,pass
+clean,blend,600,1,60000,accepted,-2.4206201487686485e-09,-4.2364990804344416e-07,pass
+clean,blend,600,1,60000000,accepted,-1.1743850336642936e-10,-2.4431938072666526e-07,pass
+clean,blend,600,1,6000000000,accepted,-2.577394297986757e-09,-3.7087738746777177e-07,pass
+clean,blend,600,1,90000000000,accepted,-1.985199560294859e-09,-3.551467671059072e-07,pass
+clean,bounded,60,0,1,zero output,,,not reached
+clean,bounded,60,0,3,zero output,,,not reached
+clean,bounded,60,0,1000000,accepted,8.955566954682581e-09,-3.120876499451697e-07,pass
+clean,bounded,60,0,1000000000,accepted,9.104951459448785e-09,-2.8664362616837025e-07,pass
+clean,bounded,60,0,100000000000,accepted,-1.404032445861958e-10,-1.0133226169273257e-07,pass
+clean,bounded,60,0,1500000000000,accepted,-1.243279257323593e-09,-4.634057404473424e-08,pass
+clean,bounded,60,1,1,accepted,9.112454790738411e-09,-9.324867278337479e-08,pass
+clean,bounded,60,1,3,accepted,7.773905963404104e-10,-1.5315163182094693e-07,pass
+clean,bounded,60,1,60000,accepted,9.977725312637631e-09,-2.0183506421744823e-07,pass
+clean,bounded,60,1,60000000,accepted,1.1484758033475373e-08,-2.4787004804238677e-07,pass
+clean,bounded,60,1,6000000000,accepted,-1.860598786151968e-09,-1.7813727026805282e-07,pass
+clean,bounded,60,1,90000000000,accepted,9.15179043659009e-11,-2.0515290088951588e-07,pass
+clean,bounded,600,0,1,zero output,,,not reached
+clean,bounded,600,0,3,zero output,,,not reached
+clean,bounded,600,0,1000000,accepted,-5.162291927263141e-09,-2.8818612918257713e-07,pass
+clean,bounded,600,0,1000000000,accepted,2.9328930395422503e-09,-1.250737113878131e-07,pass
+clean,bounded,600,0,100000000000,accepted,-1.1112888387287967e-09,-2.623855834826827e-07,pass
+clean,bounded,600,0,1500000000000,accepted,-3.5345237847650424e-10,-2.2733001969754696e-07,pass
+clean,bounded,600,1,1,accepted,-4.981643542123493e-09,-1.3265525922179222e-07,pass
+clean,bounded,600,1,3,accepted,6.97582436259836e-10,-2.0083098206669092e-07,pass
+clean,bounded,600,1,60000,accepted,4.02678779209964e-10,-9.73232090473175e-08,pass
+clean,bounded,600,1,60000000,accepted,-1.3302496881806292e-09,-2.386295818723738e-07,pass
+clean,bounded,600,1,6000000000,accepted,9.55765244725626e-10,-3.4586264519020915e-07,pass
+clean,bounded,600,1,90000000000,accepted,3.5530547393136658e-09,-3.3172545954585075e-07,pass
+accrued,blend,60,0,1,zero output,,,not reached
+accrued,blend,60,0,3,zero output,,,not reached
+accrued,blend,60,0,1000000,accepted,8.522761163476389e-09,-2.535962266847491e-07,pass
+accrued,blend,60,0,1000000000,accepted,5.886931830900721e-09,-2.588421921245754e-07,pass
+accrued,blend,60,0,100000000000,accepted,-1.8894752429332584e-09,-2.445594873279333e-07,pass
+accrued,blend,60,0,1500000000000,accepted,1.2761233847413678e-08,-2.402739482931793e-07,pass
+accrued,blend,60,1,1,zero output,,,not reached
+accrued,blend,60,1,3,zero output,,,not reached
+accrued,blend,60,1,60000,accepted,7.023572834441438e-10,-1.827938831411302e-07,pass
+accrued,blend,60,1,60000000,accepted,-3.369450496393256e-09,-2.101442078128457e-07,pass
+accrued,blend,60,1,6000000000,accepted,7.814833224983886e-10,-1.8988066585734487e-07,pass
+accrued,blend,60,1,90000000000,accepted,-2.737579052336514e-10,-3.1956005841493607e-07,pass
+accrued,blend,600,0,1,zero output,,,not reached
+accrued,blend,600,0,3,zero output,,,not reached
+accrued,blend,600,0,1000000,accepted,-4.863522917730734e-09,-2.496672095730901e-07,pass
+accrued,blend,600,0,1000000000,accepted,-2.9074271878926083e-09,-2.652377588674426e-07,pass
+accrued,blend,600,0,100000000000,accepted,-6.505160854430869e-10,-1.6086414689198136e-07,pass
+accrued,blend,600,0,1500000000000,accepted,-1.8948185243061744e-09,-2.582601155154407e-07,pass
+accrued,blend,600,1,1,zero output,,,not reached
+accrued,blend,600,1,3,zero output,,,not reached
+accrued,blend,600,1,60000,accepted,-1.050807441060897e-09,-4.185421857982874e-07,pass
+accrued,blend,600,1,60000000,accepted,2.0543211576296017e-10,-3.5423727240413427e-07,pass
+accrued,blend,600,1,6000000000,accepted,1.1481233741506003e-09,-3.5270204534754157e-07,pass
+accrued,blend,600,1,90000000000,accepted,-6.591562851099297e-10,-3.423774614930153e-07,pass
+accrued,bounded,60,0,1,zero output,,,not reached
+accrued,bounded,60,0,3,zero output,,,not reached
+accrued,bounded,60,0,1000000,accepted,8.522761163476389e-09,-2.535962266847491e-07,pass
+accrued,bounded,60,0,1000000000,accepted,5.886931830900721e-09,-2.588421921245754e-07,pass
+accrued,bounded,60,0,100000000000,accepted,-1.8894752429332584e-09,-2.445594873279333e-07,pass
+accrued,bounded,60,0,1500000000000,accepted,1.2761233847413678e-08,-2.402739482931793e-07,pass
+accrued,bounded,60,1,1,zero output,,,not reached
+accrued,bounded,60,1,3,zero output,,,not reached
+accrued,bounded,60,1,60000,accepted,7.023572834441438e-10,-1.827938831411302e-07,pass
+accrued,bounded,60,1,60000000,accepted,-3.369450496393256e-09,-2.101442078128457e-07,pass
+accrued,bounded,60,1,6000000000,accepted,7.814833224983886e-10,-1.8988066585734487e-07,pass
+accrued,bounded,60,1,90000000000,accepted,-2.737579052336514e-10,-3.1956005841493607e-07,pass
+accrued,bounded,600,0,1,zero output,,,not reached
+accrued,bounded,600,0,3,zero output,,,not reached
+accrued,bounded,600,0,1000000,accepted,-2.3794655135134235e-09,-1.9514845917001367e-07,pass
+accrued,bounded,600,0,1000000000,accepted,-1.6427748050773516e-09,-3.3072137739509344e-07,pass
+accrued,bounded,600,0,100000000000,accepted,1.2051941666868515e-09,-2.882807166315615e-07,pass
+accrued,bounded,600,0,1500000000000,accepted,-1.6229932953137904e-09,-2.573724486865103e-07,pass
+accrued,bounded,600,1,1,zero output,,,not reached
+accrued,bounded,600,1,3,zero output,,,not reached
+accrued,bounded,600,1,60000,accepted,2.961769496323541e-09,-2.982924343086779e-07,pass
+accrued,bounded,600,1,60000000,accepted,3.837499207293149e-09,-3.4919503377750516e-07,pass
+accrued,bounded,600,1,6000000000,accepted,9.59289536694996e-10,-3.9837323129177094e-07,pass
+accrued,bounded,600,1,90000000000,accepted,8.338929546880536e-10,-3.072564140893519e-07,pass
+carried,blend,60,0,1,accepted,-0.06640758029209337,-3.984450191615906,reject
+carried,blend,60,0,3,accepted,-0.06640758012542847,-3.9844501816041884,reject
+carried,blend,60,0,1000000,accepted,-0.06640756897149913,-3.9844501059269533,reject
+carried,blend,60,0,1000000000,accepted,-0.06640817198217519,-3.9844138765110984,reject
+carried,blend,60,0,100000000000,accepted,-0.06646738879703662,-3.9807993880458525,reject
+carried,blend,60,0,1500000000000,accepted,-0.06720440345054612,-3.922877905140922,reject
+carried,blend,60,1,1,accepted,-0.0664074905699863,-3.9844548700129963,reject
+carried,blend,60,1,3,accepted,-0.06640749898815557,-3.9844548749388196,reject
+carried,blend,60,1,60000,accepted,-0.06640748470988456,-3.9844550349662313,reject
+carried,blend,60,1,60000000,accepted,-0.06640689291407398,-3.9844911172549473,reject
+carried,blend,60,1,6000000000,accepted,-0.06634664471982887,-3.9880443226647913,reject
+carried,blend,60,1,90000000000,accepted,-0.06538129396233217,-4.032265334149997,reject
+carried,blend,600,0,1,accepted,-0.01645915436620271,-13.46149211878219,reject
+carried,blend,600,0,3,accepted,-0.01645915463871006,-13.461492170477868,reject
+carried,blend,600,0,1000000,accepted,-0.016459158544307684,-13.461492012902454,reject
+carried,blend,600,0,1000000000,accepted,-0.01645975645612907,-13.46137764609739,reject
+carried,blend,600,0,100000000000,accepted,-0.016518979662123456,-13.449731517095643,reject
+carried,blend,600,0,1500000000000,accepted,-0.0172560214356281,-13.183915582638292,reject
+carried,blend,600,1,1,accepted,-0.016459099966596114,-13.461502227299206,reject
+carried,blend,600,1,3,accepted,-0.016459099807207167,-13.461502267906326,reject
+carried,blend,600,1,60000,accepted,-0.016459101364603157,-13.461502315025427,reject
+carried,blend,600,1,60000000,accepted,-0.01645891375096653,-13.46153842710919,reject
+carried,blend,600,1,6000000000,accepted,-0.016439974259583323,-13.465091269441473,reject
+carried,blend,600,1,90000000000,accepted,-0.016163541895025446,-13.50930722818157,reject
+carried,bounded,60,0,1,accepted,-0.06640758029209337,-3.984450191615906,reject
+carried,bounded,60,0,3,accepted,-0.06640758012542847,-3.9844501816041884,reject
+carried,bounded,60,0,1000000,accepted,-0.06640756897149913,-3.9844501059269533,reject
+carried,bounded,60,0,1000000000,accepted,-0.06640817198217519,-3.9844138765110984,reject
+carried,bounded,60,0,100000000000,accepted,-0.06646738879703662,-3.9807993880458525,reject
+carried,bounded,60,0,1500000000000,accepted,-0.06720440345054612,-3.922877905140922,reject
+carried,bounded,60,1,1,accepted,-0.0664074905699863,-3.9844548700129963,reject
+carried,bounded,60,1,3,accepted,-0.06640749898815557,-3.9844548749388196,reject
+carried,bounded,60,1,60000,accepted,-0.06640748470988456,-3.9844550349662313,reject
+carried,bounded,60,1,60000000,accepted,-0.06640689291407398,-3.9844911172549473,reject
+carried,bounded,60,1,6000000000,accepted,-0.06634664471982887,-3.9880443226647913,reject
+carried,bounded,60,1,90000000000,accepted,-0.06538129396233217,-4.032265334149997,reject
+carried,bounded,600,0,1,accepted,-0.02988340973126924,-8.3673479453646,reject
+carried,bounded,600,0,3,accepted,-0.02988340956449065,-8.367347925370268,reject
+carried,bounded,600,0,1000000,accepted,-0.029883407873512624,-8.36734794019867,reject
+carried,bounded,600,0,1000000000,accepted,-0.029884012776619784,-8.36727553181845,reject
+carried,bounded,600,0,100000000000,accepted,-0.029943237759425756,-8.359998063730018,reject
+carried,bounded,600,0,1500000000000,accepted,-0.030680272182166846,-8.229355694806145,reject
+carried,bounded,600,1,1,accepted,-0.02988334795816172,-8.36735519013746,reject
+carried,bounded,600,1,3,accepted,-0.029883350667660125,-8.367355144982866,reject
+carried,bounded,600,1,60000,accepted,-0.029883348336511517,-8.367355299240444,reject
+carried,bounded,600,1,60000000,accepted,-0.029883044552093452,-8.367391332045372,reject
+carried,bounded,600,1,6000000000,accepted,-0.029853084799924545,-8.37094448825519,reject
+carried,bounded,600,1,90000000000,accepted,-0.0294114044794469,-8.41516315505578,reject
+frozen_base,blend,60,0,1,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,0,3,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,0,1200000,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,0,1200000000,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,0,120000000000,accepted,0.027860874570706073,5465.734612348075,pass
+frozen_base,blend,60,0,1800000000000,accepted,6.085058393045983,6342.051944392195,pass
+frozen_base,blend,60,1,1,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,1,3,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,1,48000,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,1,48000000,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,1,4800000000,materialized certificate unavailable,,,not reached
+frozen_base,blend,60,1,72000000000,accepted,1.7142060965763903,4918.032786812153,pass
+frozen_base,blend,600,0,1,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,0,3,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,0,1200000,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,0,1200000000,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,0,120000000000,InsufficientLiquidity,,,not reached
+frozen_base,blend,600,0,1800000000000,InsufficientLiquidity,,,not reached
+frozen_base,blend,600,1,1,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,1,3,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,1,48000,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,1,48000000,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,1,4800000000,materialized certificate unavailable,,,not reached
+frozen_base,blend,600,1,72000000000,accepted,0.3988427892998061,4918.032786777061,pass
+frozen_base,bounded,60,0,1,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,0,3,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,0,1200000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,0,1200000000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,0,120000000000,accepted,0.027860874570706073,5465.734612348075,pass
+frozen_base,bounded,60,0,1800000000000,accepted,6.085058393045983,6342.051944392195,pass
+frozen_base,bounded,60,1,1,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,1,3,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,1,48000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,1,48000000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,1,4800000000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,60,1,72000000000,accepted,1.7142060965763903,4918.032786812153,pass
+frozen_base,bounded,600,0,1,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,0,3,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,0,1200000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,0,1200000000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,0,120000000000,accepted,0.08491199429965945,5516.035430674652,pass
+frozen_base,bounded,600,0,1800000000000,accepted,17.879602362958735,7288.373681593257,pass
+frozen_base,bounded,600,1,1,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,1,3,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,1,48000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,1,48000000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,1,4800000000,materialized certificate unavailable,,,not reached
+frozen_base,bounded,600,1,72000000000,accepted,1.4586213556747225,4918.0327866595035,pass
+frozen_quote,blend,60,0,1,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,0,3,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,0,800000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,0,800000000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,0,80000000000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,0,1200000000000,accepted,81.96721311293959,102.85236581446952,pass
+frozen_quote,blend,60,1,1,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,1,3,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,1,72000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,1,72000000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,60,1,7200000000,accepted,91.09557687964138,1.6716524182702415,pass
+frozen_quote,blend,60,1,108000000000,accepted,105.70086573980075,365.1035036280373,pass
+frozen_quote,blend,600,0,1,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,0,3,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,0,800000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,0,800000000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,0,80000000000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,0,1200000000000,accepted,81.96721311639999,619.5007497947081,pass
+frozen_quote,blend,600,1,1,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,1,3,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,1,72000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,1,72000000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,1,7200000000,materialized certificate unavailable,,,not reached
+frozen_quote,blend,600,1,108000000000,accepted,94.64224410771385,213.758070560114,pass
+frozen_quote,bounded,60,0,1,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,0,3,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,0,800000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,0,800000000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,0,80000000000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,0,1200000000000,accepted,81.96721311293959,102.85236581446952,pass
+frozen_quote,bounded,60,1,1,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,1,3,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,1,72000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,1,72000000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,60,1,7200000000,accepted,91.09557687964138,1.6716524182702415,pass
+frozen_quote,bounded,60,1,108000000000,accepted,105.70086573980075,365.1035036280373,pass
+frozen_quote,bounded,600,0,1,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,0,3,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,0,800000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,0,800000000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,0,80000000000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,0,1200000000000,accepted,81.96721311404747,612.6337041565566,pass
+frozen_quote,bounded,600,1,1,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,1,3,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,1,72000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,1,72000000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,1,7200000000,materialized certificate unavailable,,,not reached
+frozen_quote,bounded,600,1,108000000000,accepted,96.8430569779672,484.8019032665761,pass
+frozen_both,blend,60,0,1,materialized certificate unavailable,,,not reached
+frozen_both,blend,60,0,3,materialized certificate unavailable,,,not reached
+frozen_both,blend,60,0,1000000,accepted,1.3890257832827047e-09,8.333881851285696e-08,pass
+frozen_both,blend,60,0,1000000000,accepted,1.0430554766571731e-06,6.258331995923072e-05,pass
+frozen_both,blend,60,0,100000000000,accepted,0.010403691666510895,0.6242214999947464,pass
+frozen_both,blend,60,0,1500000000000,accepted,2.30197985833081,138.11879149985907,pass
+frozen_both,blend,60,1,1,accepted,5.553602022700943e-10,3.3331161830574274e-08,pass
+frozen_both,blend,60,1,3,accepted,5.002220859751105e-10,2.9998773243278265e-08,pass
+frozen_both,blend,60,1,60000,accepted,5.002220859751105e-10,2.99842213280499e-08,pass
+frozen_both,blend,60,1,60000000,accepted,1.042166900333541e-06,6.252999446587637e-05,pass
+frozen_both,blend,60,1,6000000000,accepted,0.010403690999737591,0.6242214599842555,pass
+frozen_both,blend,60,1,90000000000,accepted,2.301979857414267,138.11879144483828,pass
+frozen_both,blend,600,0,1,InsufficientLiquidity,,,not reached
+frozen_both,blend,600,0,3,InsufficientLiquidity,,,not reached
+frozen_both,blend,600,0,1000000,InsufficientLiquidity,,,not reached
+frozen_both,blend,600,0,1000000000,InsufficientLiquidity,,,not reached
+frozen_both,blend,600,0,100000000000,InsufficientLiquidity,,,not reached
+frozen_both,blend,600,0,1500000000000,InsufficientLiquidity,,,not reached
+frozen_both,blend,600,1,1,accepted,3.5572611523093656e-10,6.746267899870872e-08,pass
+frozen_both,blend,600,1,3,accepted,4.008597898064181e-10,7.601920515298843e-08,pass
+frozen_both,blend,600,1,60000,accepted,3.971081241616048e-10,7.532071322202682e-08,pass
+frozen_both,blend,600,1,60000000,accepted,2.171680080209626e-07,4.1204679291695356e-05,pass
+frozen_both,blend,600,1,6000000000,accepted,0.00216146255820604,0.41010868560988456,pass
+frozen_both,blend,600,1,90000000000,accepted,0.4672970149588309,88.6633746639709,pass
+frozen_both,bounded,60,0,1,materialized certificate unavailable,,,not reached
+frozen_both,bounded,60,0,3,materialized certificate unavailable,,,not reached
+frozen_both,bounded,60,0,1000000,accepted,1.3890257832827047e-09,8.333881851285696e-08,pass
+frozen_both,bounded,60,0,1000000000,accepted,1.0430554766571731e-06,6.258331995923072e-05,pass
+frozen_both,bounded,60,0,100000000000,accepted,0.010403691666510895,0.6242214999947464,pass
+frozen_both,bounded,60,0,1500000000000,accepted,2.30197985833081,138.11879149985907,pass
+frozen_both,bounded,60,1,1,accepted,5.553602022700943e-10,3.3331161830574274e-08,pass
+frozen_both,bounded,60,1,3,accepted,5.002220859751105e-10,2.9998773243278265e-08,pass
+frozen_both,bounded,60,1,60000,accepted,5.002220859751105e-10,2.99842213280499e-08,pass
+frozen_both,bounded,60,1,60000000,accepted,1.042166900333541e-06,6.252999446587637e-05,pass
+frozen_both,bounded,60,1,6000000000,accepted,0.010403690999737591,0.6242214599842555,pass
+frozen_both,bounded,60,1,90000000000,accepted,2.301979857414267,138.11879144483828,pass
+frozen_both,bounded,600,0,1,materialized certificate unavailable,,,not reached
+frozen_both,bounded,600,0,3,materialized certificate unavailable,,,not reached
+frozen_both,bounded,600,0,1000000,accepted,6.945128916413523e-10,8.335337042808533e-08,pass
+frozen_both,bounded,600,0,1000000000,accepted,3.1256944339475012e-06,0.0003750832984223962,pass
+frozen_both,bounded,600,0,100000000000,accepted,0.031223857638678965,3.7468629166542087,pass
+frozen_both,bounded,600,0,1500000000000,accepted,7.094093518048339,851.2912221658044,pass
+frozen_both,bounded,600,1,1,accepted,4.445155354915187e-10,5.3318217396736145e-08,pass
+frozen_both,bounded,600,1,3,accepted,4.1666226024972275e-10,5.00003807246685e-08,pass
+frozen_both,bounded,600,1,60000,accepted,4.1666226024972275e-10,5.00003807246685e-08,pass
+frozen_both,bounded,600,1,60000000,accepted,7.816668130544713e-07,9.380001574754715e-05,pass
+frozen_both,bounded,600,1,6000000000,accepted,0.007786558749785399,0.9343870499869809,pass
+frozen_both,bounded,600,1,90000000000,accepted,1.674702246914876,200.96426962979604,pass

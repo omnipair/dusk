@@ -8,6 +8,7 @@ import { DUSK_PROGRAM_ID, deriveEventAuthorityAddress } from "./constants.js";
 import { governanceIntegerBN } from "./governance.js";
 import { DuskWrite, type RawAmount } from "./write.js";
 import { createDuskProgram } from "./program.js";
+import { oracleReadAccounts } from "./oracle.js";
 
 export const PROTECTION_ACTION = { borrowRepay: 0, borrowCollateral: 1, leverageRepay: 2 } as const;
 
@@ -40,6 +41,16 @@ export type CreateProtectionOrderParams = {
 export class DuskProtectionOrders {
   constructor(readonly program: LeverageDelegateProgram) {}
 
+  private async oracleAccounts(market: PublicKey, remaining: AccountMeta[]) {
+    const dusk = createDuskProgram({ connection: this.program.provider.connection });
+    const state = await dusk.account.market.fetch(market);
+    const accounts = [...remaining];
+    for (const meta of oracleReadAccounts(state.oracle.policy)) {
+      if (!accounts.some(account => account.pubkey.equals(meta.pubkey))) accounts.push(meta);
+    }
+    return accounts;
+  }
+
   async createInstruction(params: CreateProtectionOrderParams, accounts: CreateAccounts,
     remainingAccounts: AccountMeta[] = []) {
     const order = deriveProtectionOrderAddress(new PublicKey(accounts.owner), params.orderId, this.program.programId)[0];
@@ -60,8 +71,9 @@ export class DuskProtectionOrders {
     }).remainingAccounts(remainingAccounts).instruction();
   }
 
-  async previewInstruction(accounts: MethodAccounts<"previewProtectionOrder">) {
-    return this.program.methods.previewProtectionOrder().accountsStrict(accounts).instruction();
+  async previewInstruction(accounts: MethodAccounts<"previewProtectionOrder">, remainingAccounts: AccountMeta[] = []) {
+    return this.program.methods.previewProtectionOrder().accountsStrict(accounts)
+      .remainingAccounts(await this.oracleAccounts(new PublicKey(accounts.market), remainingAccounts)).instruction();
   }
 
   async fundInstruction(lpAmount: RawAmount, accounts: ManageAccounts, remainingAccounts: AccountMeta[] = []) {
@@ -90,10 +102,11 @@ export class DuskProtectionOrders {
     const hasPrefix = prefix.length > 0 && prefix.every((meta, i) =>
       remainingAccounts[i]?.pubkey.equals(meta.pubkey) && remainingAccounts[i]?.isWritable === meta.isWritable);
     const completeRemaining = hasPrefix ? remainingAccounts : [...prefix, ...remainingAccounts];
+    const remaining = await this.oracleAccounts(new PublicKey(accounts.market), completeRemaining);
     return this.program.methods.executeProtectionOrder({ lpAmount: governanceIntegerBN(params.lpAmount, "lpAmount"),
       paymentAmount: governanceIntegerBN(params.paymentAmount, "paymentAmount") })
       .accountsStrict({ ...accounts, duskProgram: DUSK_PROGRAM_ID, duskEventAuthority: deriveEventAuthorityAddress()[0],
         tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID })
-      .remainingAccounts(completeRemaining).instruction();
+      .remainingAccounts(remaining).instruction();
   }
 }

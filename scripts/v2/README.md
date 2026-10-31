@@ -20,6 +20,7 @@ yarn v2:build-devnet
 yarn v2:deploy-devnet
 yarn v2:build-leverage-delegate-devnet
 yarn v2:deploy-leverage-delegate-devnet
+npm run build --prefix packages/dusk-sdk
 yarn v2:create-mock-tokens
 yarn v2:initialize-mock-metadata
 yarn v2:mint-mock-tokens <tester-wallet>
@@ -53,6 +54,7 @@ mock mints, markets, and derived accounts for later inspection or cleanup.
 
 Useful knobs:
 
+- `DUSK_ORACLE_POLICY_JSON` optionally selects an oracle policy in the creation instruction; omit it for native pricing. Use the [SDK policy format](../../packages/dusk-sdk/README.md#bounded-oracle-markets). Positive-weight seeding and smoke trades require current authenticated feed accounts. Changes to an existing market use governance, not this environment variable.
 - `DUSK_TOKEN_PROGRAM=token2022` creates Token-2022 mock mints.
 - `DUSK_FAUCET_PROGRAM_ID` overrides the source-declared devnet faucet address.
 - `DUSK_MOCK_DECIMALS=6` controls mock mint decimals.

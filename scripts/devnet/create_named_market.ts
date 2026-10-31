@@ -51,12 +51,13 @@ import {
   grindMarketLpMintSeeds,
   hasLpMintAddressSuffix,
   lpMintRent,
+  oracleComputeBudgetInstructions,
   marketLpTokenNaming,
 } from "../../packages/dusk-sdk/dist/index.js";
 import { readTokenMetadata } from "../lp-metadata/logos.ts";
 import { pinataConfigFromEnv } from "../lp-metadata/pinata.ts";
 import { publishLpMetadata } from "../lp-metadata/publish.ts";
-import { sendAtomicMarketCreation } from "../utils/market-creation.ts";
+import { marketCreationOracleFromEnv, sendAtomicMarketCreation } from "../utils/market-creation.ts";
 
 const API = process.env.DUSK_API_URL ?? "https://dusk-api-production-291f.up.railway.app";
 const RPC = process.env.DUSK_RPC_URL ?? "https://api.devnet.solana.com";
@@ -102,6 +103,7 @@ function faucetMint(owner: PublicKey, mint: PublicKey, amount: bigint): Transact
 }
 
 async function main() {
+  const initialOracle = marketCreationOracleFromEnv();
   const label = process.env.LABEL ?? `named-${Date.now().toString(36)}`;
   const keypair = Keypair.fromSecretKey(
     Uint8Array.from(
@@ -183,9 +185,10 @@ async function main() {
     throw new Error(`market ${market.toBase58()} already exists; choose another LABEL`);
   }
 
-  const send = async (instructions: TransactionInstruction[], signers: Keypair[] = []) => {
+  const send = async (instructions: TransactionInstruction[], signers: Keypair[] = [], oracle?: { lambdaBps: number }) => {
     const tx = new Transaction().add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 }),
+      ...(oracle && oracle.lambdaBps > 0 ? oracleComputeBudgetInstructions(oracle)
+        : [ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 })]),
       ...instructions
     );
     const bh = await connection.getLatestBlockhash("confirmed");
@@ -246,6 +249,7 @@ async function main() {
       teamTreasuryWsolAccount,
       paramsHash,
       config: defaultMarketLaunchConfig(),
+      oracle: initialOracle,
       lpMetadata,
     });
   const { signature: initSig, lookupTable } = await sendAtomicMarketCreation({
@@ -341,7 +345,7 @@ async function main() {
       quoteDepositAmount: (SEED * quoteUnit).toString(),
       minYlpAmount: "0",
     }),
-  ]);
+  ], [], (await dusk.get.market(market)).oracle.policy);
   console.log(`seeded         ${SEED} a side — ${seedSig}`);
   console.log(`\nmarket ${market.toBase58()} is live; record in ${join(outDir, "market.json")}`);
 }

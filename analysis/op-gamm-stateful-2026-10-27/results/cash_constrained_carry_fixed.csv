@@ -1,0 +1,31 @@
+mode,d,input_atoms,status,profit,frozen_mask
+native,0,1,InsufficientOutputAmount,,0
+native,0,10,InsufficientOutputAmount,,0
+native,0,100,accepted,-2.1000000000000002e-06,0
+native,0,1000,accepted,-2.04e-06,0
+native,0,10000,accepted,-1.14e-06,0
+native,1,1,InsufficientOutputAmount,,0
+native,1,10,accepted,-2e-06,0
+native,1,100,accepted,-2e-06,0
+native,1,1000,accepted,-2e-06,0
+native,1,10000,accepted,-2e-06,0
+blend,0,1,zero output,,0
+blend,0,10,zero output,,0
+blend,0,100,accepted,-1.56e-06,0
+blend,0,1000,accepted,-1.5e-06,0
+blend,0,10000,accepted,-1.56e-06,0
+blend,1,1,zero output,,0
+blend,1,10,accepted,-2e-06,0
+blend,1,100,accepted,-2e-06,0
+blend,1,1000,accepted,-2e-06,0
+blend,1,10000,accepted,-2e-06,0
+bounded,0,1,zero output,,0
+bounded,0,10,zero output,,0
+bounded,0,100,accepted,-1.56e-06,0
+bounded,0,1000,accepted,-1.62e-06,0
+bounded,0,10000,accepted,-1.56e-06,0
+bounded,1,1,zero output,,0
+bounded,1,10,accepted,-2e-06,0
+bounded,1,100,accepted,-2e-06,0
+bounded,1,1000,accepted,-2e-06,0
+bounded,1,10000,accepted,-2e-06,0

@@ -1,0 +1,71 @@
+{
+  "pin": "77877d576018fd2bd8191d13f05534b0484e2282",
+  "python": "3.12.14",
+  "numpy": "2.5.3",
+  "matplotlib": "3.11.2",
+  "minimal": [
+    {
+      "issue": "native_frozen",
+      "fixed": false,
+      "input_base_atoms": 4200000000000,
+      "first_output_quote_atoms": 227895883756,
+      "final_base_atoms": 4237592267408,
+      "profit_quote_value": 2255.53604448
+    },
+    {
+      "issue": "native_frozen",
+      "fixed": true,
+      "input_base_atoms": 4200000000000,
+      "first_output_quote_atoms": 193146791733,
+      "final_base_atoms": 4199999999987,
+      "profit_quote_value": -7.8e-07
+    },
+    {
+      "issue": "oracle_carry",
+      "fixed": false,
+      "input_base_atoms": 10000000000,
+      "first_output_quote_atoms": 607892736,
+      "final_base_atoms": 10265622482,
+      "profit_quote_value": 15.93734892
+    },
+    {
+      "issue": "oracle_carry",
+      "fixed": true,
+      "input_base_atoms": 10000000000,
+      "first_output_quote_atoms": 599925028,
+      "final_base_atoms": 9999999976,
+      "profit_quote_value": -1.44e-06
+    }
+  ],
+  "grid": {
+    "configurations": 96,
+    "completed_roundtrip_trials": 1579,
+    "rejected_trials": 573,
+    "positive_cases": [
+      {
+        "amp": "1",
+        "db": "6",
+        "dq": "9",
+        "kind": "accrued",
+        "mode": "native",
+        "valid": "19",
+        "rejected": "5",
+        "best_profit": "4.8e-08",
+        "best_atoms": "48",
+        "best_direction": "1",
+        "error": "{\"InsufficientOutputAmount\": 5}"
+      }
+    ]
+  },
+  "fixed_repeated_cycles": 192,
+  "fixed_repeated_positive_cycles": 0,
+  "integer_differential": {
+    "exact": 864
+  },
+  "regressions": 564,
+  "repayment_cases": 168,
+  "repayment_steps": 658,
+  "fixed_fault_cycles": 240,
+  "fault_ledger_max_abs_quote_residual": 4.656612873077393e-10,
+  "claims": "Controlled host-native ledger and shadow pricing tests, not SVM certification or current-main findings."
+}

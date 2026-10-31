@@ -139,6 +139,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
             );
             p.assert_position(a.order.position_owner, a.market.key(), asset)?;
         }
+        a.market.bind_oracle(ctx.remaining_accounts, &clock)?;
         let before = protection_health_of(
             &mut a.market,
             a.borrow_position.as_deref().map(|p| &**p),
@@ -344,6 +345,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
             let market_info = a.market.to_account_info();
             a.market
                 .reload_from_account_bytes(&market_info.try_borrow_data()?)?;
+            a.market.bind_oracle(ctx.remaining_accounts, &clock)?;
 
             protection_health_of(
                 &mut a.market,

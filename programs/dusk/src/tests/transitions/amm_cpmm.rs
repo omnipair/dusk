@@ -103,3 +103,61 @@ fn conservative_k_reconstruction_never_expands_spot_depth() {
 
     assert_eq!((x_depth, y_depth), (x, y));
 }
+
+#[test]
+fn wide_square_root_seed_preserves_exact_floor() {
+    let check = |value: U512| {
+        let root = sqrt_floor_u512(value).unwrap();
+        assert!(root.checked_mul(root).unwrap() <= value);
+        let next = root + U512::one();
+        assert!(next.checked_mul(next).map(|square| square > value).unwrap_or(true));
+    };
+    check(U512::zero());
+    check(U512::MAX);
+    for bit in 0..512 {
+        let value = U512::one() << bit;
+        check(value);
+        check(value - U512::one());
+        check(value + U512::one());
+    }
+    let mut seed = 0x5df0_4e16_39b2_711d_u64;
+    for sample in 0..4096 {
+        let mut value = U512::zero();
+        for word in 0..8 {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            value |= U512::from(seed) << (word * 64);
+        }
+        check(value >> (sample % 512));
+    }
+}
+
+#[test]
+fn base32_wide_division_matches_reference() {
+    use crate::transitions::amm::curve::{div_floor_u512, wide::U512};
+    let mut seed = 0x83bdec1173aa5812_u64;
+    let mut random = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
+    for i in 0..20_000 {
+        let mut a = U512::zero();
+        let mut b = U512::zero();
+        for j in 0..8 { a.0[j] = random(); b.0[j] = random(); }
+        a >>= i % 512;
+        b >>= (i * 137) % 512;
+        if b.is_zero() { b = U512::one(); }
+        assert_eq!(div_floor_u512(a, b).unwrap(), a / b, "case {i}");
+        assert_eq!(div_floor_u512(a, U512::one()).unwrap(), a);
+        assert_eq!(div_floor_u512(b, b).unwrap(), U512::one());
+    }
+    for bit in 0..512 {
+        let d = U512::one() << bit;
+        for denominator in [d, d.saturating_add(U512::one()), d.saturating_sub(U512::one())] {
+            if !denominator.is_zero() {
+                for numerator in [U512::MAX, denominator, denominator.saturating_sub(U512::one())] {
+                    assert_eq!(div_floor_u512(numerator, denominator).unwrap(), numerator / denominator);
+                }
+            }
+        }
+    }
+    assert!(div_floor_u512(U512::one(), U512::zero()).is_err());
+}

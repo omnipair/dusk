@@ -1,0 +1,65 @@
+{
+  "primary": {
+    "own_pool_cases": 272,
+    "own_pool_profitable": 0,
+    "own_pool_max_profit": -11.551155116555933,
+    "hlp_cases": 340,
+    "hlp_max_relative_residual": 4.242930682831135e-16,
+    "split_cases": 136,
+    "split_max_loan_minus_sale": -178666.66666660123
+  },
+  "independent": {
+    "cpmm_piecewise_cases": 336,
+    "cpmm_max_abs_error_over_initial_quote": 3.342671940724055e-12,
+    "native_endpoint_cases": 40,
+    "native_max_relative_error": 1.136416933063669e-14,
+    "zero_price_cases": 40,
+    "zero_price_max_relative_error": 0.0,
+    "reverse_cases": 102,
+    "reverse_max_relative_error": 6.984919309616089e-15,
+    "opposite_exit_cases": 170,
+    "opposite_profitable": 0,
+    "independent_decimal_split_cases": [
+      {
+        "lam": 0,
+        "T": null,
+        "oracle_multiple": 1,
+        "decimal_total_draw": 88000.0
+      },
+      {
+        "lam": 0.5,
+        "T": 4.0,
+        "oracle_multiple": 4,
+        "decimal_total_draw": 122274.1699796952
+      },
+      {
+        "lam": 0.75,
+        "T": 4.0,
+        "oracle_multiple": 4,
+        "decimal_total_draw": 145273.61505810902
+      },
+      {
+        "lam": 0.9,
+        "T": 4.0,
+        "oracle_multiple": 10,
+        "decimal_total_draw": 162390.06971201414
+      }
+    ]
+  },
+  "prefix": {
+    "prefix_scenarios": 816,
+    "prefix_states": 65280,
+    "max_prefix_extra_exit": -11.548845115500853,
+    "own_pool_split_cases": 612,
+    "own_pool_split_profitable": 0,
+    "own_pool_split_max_profit": -115.13621953767984
+  },
+  "fixed_adjustment_supplement": {
+    "own_pool_cases": 50,
+    "positive_profit_cases": 0,
+    "hlp_cases": 50,
+    "hlp_max_relative_residual": 3.9641411455016076e-16
+  },
+  "scope": "Finite continuous-model checks; no SVM, integer-execution or full receivable/frozen-hLP certification.",
+  "presentation": "PNG visually inspected; source CSVs and plotted definitions checked."
+}

@@ -37,6 +37,8 @@ pub struct MarketCreated {
     pub target_hlp_leverage_bps: u16,
     pub swap_fee_bps: u16,
     pub config: MarketConfig,
+    /// Initial policy; an empty policy identifies an oracleless launch.
+    pub oracle: crate::state::OraclePolicy,
     pub params_hash: [u8; 32],
     pub initial_liquidity_authority: Pubkey,
     pub launch_reference_price_nad: u64,
@@ -985,7 +987,7 @@ pub struct ParameterProposalCreated {
     pub nonce: u64,
     /// Each updated family's revision at creation; untouched families read
     /// zero. The family of every update is its variant.
-    pub family_revisions: [u64; 7],
+    pub family_revisions: [u64; 8],
     pub digest: [u8; 32],
     pub sponsorship_floor: u64,
     pub initial_support: u64,
@@ -1022,7 +1024,7 @@ pub struct ParameterProposalExecuted {
     /// Family codes of every update applied, ascending.
     pub families: Vec<u8>,
     /// The market's revision of every family after execution.
-    pub new_family_revisions: [u64; 7],
+    pub new_family_revisions: [u64; 8],
     pub executed_at: i64,
 }
 

@@ -5,7 +5,7 @@ pub use hlp::*;
 use crate::{
     constants::{MIN_LIQUIDITY, NAD},
     errors::ErrorCode,
-    math::{ceil_div, SqrtU128},
+    math::{ceil_div, mul_div_ceil_u128, mul_div_u128, SqrtU128},
     state::{Market, MarketAsset},
 };
 use anchor_lang::prelude::*;
@@ -164,8 +164,8 @@ impl Market {
 
     pub fn preview_add_liquidity(
         &self,
-        max_base_reserve_credit: u64,
-        max_quote_reserve_credit: u64,
+        mut max_base_reserve_credit: u64,
+        mut max_quote_reserve_credit: u64,
     ) -> Result<AddLiquidityReceipt> {
         require!(
             max_base_reserve_credit > 0 && max_quote_reserve_credit > 0,
@@ -179,6 +179,28 @@ impl Market {
             require!(
                 base_reserve_before > 0 && quote_reserve_before > 0,
                 ErrorCode::InsufficientLiquidity
+            );
+        }
+
+        // Guided first liquidity has no caller-selected initial price. The
+        // authenticated observation fixes the ratio; both arguments are caps.
+        // Round the base down and the required quote up to whole token atoms.
+        if self.base_side.shares.ylp_supply == 0 && self.oracle.policy.lambda_bps > 0 {
+            let price = u128::from(self.oracle.runtime.observation()?.price_nad);
+            require!(price > 0, ErrorCode::InvalidSettlementPrice);
+            let quote = self.normalize_amount(u128::from(max_quote_reserve_credit), self.quote_side.asset_decimals)?;
+            let base_limit = mul_div_u128(quote, u128::from(NAD), price)?;
+            let base_cap = self.normalize_amount(u128::from(max_base_reserve_credit), self.base_side.asset_decimals)?;
+            max_base_reserve_credit =
+                self.denormalize_amount_floor(base_limit.min(base_cap), self.base_side.asset_decimals)?;
+            let base = self.normalize_amount(u128::from(max_base_reserve_credit), self.base_side.asset_decimals)?;
+            max_quote_reserve_credit = self.denormalize_amount_ceil(
+                mul_div_ceil_u128(base, price, u128::from(NAD))?,
+                self.quote_side.asset_decimals,
+            )?;
+            require!(
+                max_base_reserve_credit > 0 && max_quote_reserve_credit > 0,
+                ErrorCode::AmountZero
             );
         }
 

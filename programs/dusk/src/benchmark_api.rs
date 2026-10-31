@@ -4476,6 +4476,7 @@ fn validate_referral_owned_state(
 
 fn empty_leverage_position() -> LeveragePosition {
     LeveragePosition {
+        close_approval: Default::default(),
         active_liquidation_session: Pubkey::default(),
 
         owner: Pubkey::default(),

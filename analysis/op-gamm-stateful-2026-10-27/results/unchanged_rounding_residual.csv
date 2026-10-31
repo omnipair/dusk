@@ -1,0 +1,5 @@
+fixed,cycle,best_profit,atoms,direction,input_atoms,cumulative
+False,1,4.8e-08,48,1,6000000000,4.8e-08
+False,2,0.0,0,0,99999999,4.8e-08
+True,1,4.8e-08,48,1,6000000000,4.8e-08
+True,2,0.0,0,0,99999999,4.8e-08

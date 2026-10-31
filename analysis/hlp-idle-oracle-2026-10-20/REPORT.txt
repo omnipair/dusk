@@ -1,0 +1,257 @@
+Dusk hLP idle market and oracle recovery experiment
+20 October 2026
+
+RESULT
+
+Removing arbitrage trades does not by itself break an already matched hLP
+hedge. Changing the price tag changes neither asset quantities nor debt
+quantities. Funding accrual does create a mismatch. A fresh reference alone
+does not pay it.
+
+There is a second, separate idle effect in the current native code. With
+the 200% initial rate-at-target fixture, a market touched only at the end of
+90 days develops a 14.284% funding gap, versus 3.084% with
+hourly accounting updates. The one-step case crosses the 12.5% native flash
+recovery threshold; the hourly case does not. These are the SAME starting
+balances and native IRM, with different update schedules.
+
+PR #52 already provides a useful independent route: a caller can fund new
+public-loan income and execute the native hLP net-income settlement without
+a swap. In the historical October stress, daily calls reduced the sampled
+maximum base-hLP mismatch from 1.669% to
+0.288% of contemporaneous target-asset HODL value.
+This is still a transaction someone must submit; an oracle account updating
+does not automatically execute Dusk.
+
+Fresh recovery prices lowered the external value paid to buyers. Under the
+weak-buyer October case that value fell from $755.14
+to $104.48. That amount includes the buyer's
+execution costs and profit, and excludes separately booked funding fees.
+This is a controlled model comparison using real prices/books, not an estimate
+of live bidder demand or a promise of those savings.
+
+THE COMPARISON THAT EXISTS
+
+Pinned PR45: 29f0ad52d1dc7f5c6c6e361c05535a93697252c2
+https://github.com/omnipair/dusk/pull/45
+Pinned PR52: f8fc1a2353aa32042523ba5627fffc379b2ae6df
+https://github.com/omnipair/dusk/pull/52
+
+PR52 is based on an older PR45 commit. The newer PR45 changes are all paper
+and supporting documentation/simulation files; there is no runtime source
+difference. The runtime snapshot therefore uses PR52's head.
+
+Both arms use that exact Rust hLP state machine: integer accrual, live reserve
+claims, native adaptive IRM, new-income settlement and nonterminal flash
+recovery. The small benchmark shim calls native transition functions and
+settles their funding-interest receipts. It does not replace their arithmetic.
+No changes were made to the working checkout's program or SDK source.
+
+The oracle arm ONLY substitutes the external market mid for the symmetric
+EMA used to price a recovery payment. The current native recovery eligibility,
+curve valuation, hLP solver and discount policy remain intact.
+
+Neither PR implements OP-GAMM. This is an idle-accounting and recovery-reference
+ablation for the proposed OP-GAMM, not a completed OP-GAMM implementation or
+swap benchmark. No blend coefficient is tested. Native and OP pricing policies
+that only change quotes have identical balances during genuine zero-trade
+intervals. Their real difference after trading resumes is outside this test.
+In particular, reduced LVR does not establish lower arbitrage volume.
+Neither arm earns customer or arbitrage swap fees in this experiment.
+It therefore does not quantify lost trading fees, prevented LVR or the net
+profitability of OP-GAMM after trading resumes.
+
+DATA AND ASSUMPTIONS
+
+Three disjoint public Bybit SOL/USDT spot episodes:
+19 June 00:01 to 26 June 00:00 UTC 2025;
+7 October 00:01 to 14 October 00:00 UTC 2025;
+18 November 00:01 to 25 November 00:00 UTC 2025.
+The cached source has 30,240 one-minute reconstructed top-200 books.
+This replay selects hourly marks/books plus each episode's final sample:
+507 real observations. No book is carried across the gaps between episodes.
+Source URLs/checksums and reconstruction checks remain in
+../incremental-liquidation-loss-2026-10-12/data/source-notes.md and
+../incremental-liquidation-loss-2026-10-12/data/download-manifest.json.
+Input hashes and exact source pins are in provenance.json.
+
+The 90-day paths are SYNTHETIC: +50% trend, -60% trend, and a +/-50% sine
+roundtrip. They use hourly native accrual, a declared 10bp execution cost
+and $100,000 finite execution capacity, not fabricated historical depth.
+Only the 21 historical days support conclusions about observed liquidity.
+The main matrix performs hourly market accounting updates even though it
+has no swaps. A separate 12-case cadence ablation compares hourly updates
+with a single first update after 7, 30 or 90 untouched days, at both initial
+rate settings. See cadence.csv and cadence-validation.json. Its constant
+valuation mark isolates funding; arbitrary external price changes would
+still not change the underlying token quantities before an actual action.
+
+Each market starts with $1m ordinary two-sided liquidity and $20k of each
+hLP target asset. The units are 9 base decimals and 6 quote decimals.
+The main fixture has 4x peak concentration; 1x and 10x are also run for the
+October recovery stress. There are no customer swaps, LP flows, borrower
+repayments/defaults, or controller recentering. The ordinary LP tranche
+remains present. Transfer fees are zero.
+
+Initial rate-at-target is 4% or 200% APR; these are NOT constant charged
+funding rates. The native utilization-sensitive IRM evolves thereafter.
+The low-utilization idle cases adapt downward. Public-income cases seed
+performing public loans equal to 70% of each side's available cash; this
+is a balance-sheet fixture, not a borrower admission or health simulation.
+Public loan claims are valued at full face value throughout.
+
+Separate recovery stress cases inherit 13% unpaid hLP funding at inception
+and have no public loans. This deliberately starts above the native 9/8
+debt-to-opposite-claim threshold. It is NOT funding generated by seven days
+at 4%. All reported returns in those cases include that inherited shortfall;
+the large negative returns must not be attributed entirely to the replay week.
+
+There are no buyers for the first 72 hours. Afterwards:
+competitive capacity = $50,000, one opportunity every 6 hours;
+weak capacity = $2,000, one opportunity daily;
+absent = no recovery trade.
+Candidates pay the complete native quote, use the observed finite bid/ask
+book with 5bp exchange fee, and require positive profit after an assumed $2
+transaction cost. Both directions are checked; the more profitable eligible
+direction fills. A native session can rehedge BOTH hLP cohorts. Whole-session
+capital limits are modeled assumptions; flash financing can alter them.
+Terminal recovery quotes are recorded as unfilled, not invented settlements.
+No terminal quotes or replay errors occurred in the final matrix.
+
+Daily income maintenance charges a modeled $2 per call to an external
+sponsor, reported separately. It is not automatically debited from hLP.
+Oracle publication costs, execution failures, inclusion latency, basis risk,
+adversarial ordering, oracle faults and tokenized-asset redemption constraints
+are not modeled.
+
+MEASURES
+
+For each hLP, opposite-asset gap = indexed debt - pro-rata live opposite claim.
+The gap is marked at the external price, then divided by the current value
+of holding the initially deposited target asset. Negative values mean excess
+opposite inventory; reported maximum drift is the maximum absolute value.
+This is quantity mismatch, not a complete option-style portfolio delta.
+
+Return = (live base claim * external price + live quote claim - marked debt
++ separately funded hLP yield) / target-asset HODL - 1.
+It includes booked funding, native fees and collateral paid in recoveries.
+It is a marked excess return, NOT absolute USD return or cash withdrawal P&L.
+Public loan principal and unpaid income are at face value. Future fees on
+unfunded income and future exit costs are not deducted. Funded yield is not
+added to live reserves a second time. Historical funded claims are preserved.
+
+Recovery cost = external-mark value of collateral delivered minus value of
+repayment received. Buyer profit deducts actual modeled book execution costs
+and $2 transaction cost. Funding paid, protocol income, and external transfer
+are separate columns in results.csv; do not add funding paid to a return
+that has already deducted the debt. Ordinary LPs receive funding income,
+so funding is not entirely an external system loss.
+
+October historical window, clean opening balances, native = oracle reference arm
+All returns are relative to holding the hLP target asset over the same window.
+Profile                         base return   quote return   max base drift
+No funding control                  -0.000%        -0.000%           0.000%
+4% initial rate at target           -0.021%        -0.017%           0.021%
+200% initial rate at target         -1.043%        -0.842%           1.073%
+Public loans, no income calls        1.409%         1.727%           1.669%
+Public loans, daily income calls     0.675%         0.725%           0.288%
+
+October recovery stress, inherited 13% funding shortfall
+No recovery buyer for first 72 hours; no customer swaps throughout.
+Buyer / reference             base return   quote return   external transfer   fill hour
+none / native                   -14.498%       -11.695%              $0.00           —
+competitive / native            -13.019%       -13.702%            $265.29          72
+competitive / oracle            -14.415%       -13.018%            $136.95          72
+weak / native                   -13.020%       -13.705%            $755.14         120
+weak / oracle                   -13.020%       -10.452%            $104.48         120
+
+Synthetic 90-day inactivity, no public loans, no buyers
+Path / initial rate at target   base return   quote return
+up / 4%                            -0.041%        -0.092%
+up / 200%                          -2.056%        -4.627%
+crash / 4%                         -0.153%        -0.024%
+crash / 200%                       -7.711%        -1.234%
+roundtrip / 4%                     -0.061%        -0.061%
+roundtrip / 200%                   -3.084%        -3.084%
+
+
+WHAT THE RESULTS CHANGE
+
+The clean no-funding control preserves hedge quantities to token rounding,
+even during moving external prices. Both pricing arms are identical without
+a recovery event. Funding, not passage of external prices alone, drives
+the mismatches in the clean idle cases.
+
+Income maintenance works without customer volume, but is a cash-funded
+advance against outstanding public receivables. In the high-utilization
+90-day stress, only 31 of 90 daily calls funded
+new income; the last was day 31. Executable
+cash fell to 0.132% of its initial post-borrow
+level. Later zero-funding calls did not restore the hedge.
+
+The very large positive marked returns in that 90-day income case depend
+on compounded, fully performing unpaid public loans. They are NOT evidence
+of sustainable yield or liquid profitability. The useful finding there is
+cash exhaustion and renewed hedge drift.
+
+With weak buyers, June and November recovery stress did not fill in either
+pricing arm. In October, falling SOL reduced the USD financing requirement
+enough for a day-five quote-target recovery. A correct price does not provide
+buyer capital, market depth or a caller incentive.
+
+The hybrid oracle-reference arm is not uniformly better for every hLP.
+At the competitive October fill, the oracle reduces the external payout,
+but changes which side the buyer selects. The remaining native valuation
+still performs internal hedge conversions at the old curve mark. Base-hLP
+returns can worsen while quote-hLP or ordinary LPs benefit.
+This demonstrates why changing only the recovery reference is insufficient:
+an OP-GAMM needs consistent valuation and explicit accounting for the asset
+conversion across hLP and ordinary LPs. Lower external payout alone is not
+proof of a fair allocation across LP cohorts.
+
+IMPLEMENTATION DIRECTION
+
+Keep in-swap hLP rehedging. Add no reliance on arbitrage volume for hLP
+maintenance. Reuse the new-income and external recovery paths as separate
+permissionless actions with an explicit caller-incentive policy.
+Also specify the intended accrual cadence. Native accrue_side applies the
+previously stored instantaneous rate to elapsed time before adapting the
+rate-at-target (transitions/lending/mod.rs, lines 1150-1195). The 90-day result
+is therefore not an oracle effect and not a bug classification; it is a
+material scheduling dependency to account for in an idle-market design.
+An external oracle updating its own account does not update Dusk's clock.
+
+For OP-GAMM, next implement and test one coherent rule for oracle-relative
+curve pricing, hLP valuation and recovery settlement. Include no-swap gaps,
+income exhaustion, ordinary LP value transfers and resumed trading in that
+test. Fresh prices improve the information used to pay for a hedge; they do
+not execute or finance the hedge. This experiment is evidence for that
+design direction, not approval to deploy the recovery-reference hybrid.
+
+VALIDATION AND REPRODUCTION
+
+Ready within the idle-accounting scope, with the OP and execution limitations
+above. A full OP-GAMM trading comparison remains pending its implementation.
+
+186 cases, 372 hLP outcomes,
+186810 recorded native market checkpoints,
+22 successful recovery sessions.
+The additional cadence ablation has 12 cases and 24 hLP outcomes.
+Independent token accounting reconciles exactly (maximum [0, 0]
+atoms error). Independent return reconstruction, native yield-index claims,
+zero-funding controls and paired no-recovery states pass; see validation.json.
+
+The pinned native hLP test group has 55 passing tests and 3 failures. All
+three fail deserializing the historical vob-market-20260929.bin fixture.
+The same three fail in the untouched PR52 snapshot with the adapter removed.
+See native-tests.log and untouched-fixture-tests.log. No claim of a clean
+upstream test suite or production readiness is made.
+
+Reproduce from the Dusk repository:
+analysis/competitive-pilot/.venv/bin/python analysis/hlp-idle-oracle-2026-10-20/reproduce.py
+
+Requires cached input files, Rust dependency cache, numpy, pandas and matplotlib.
+The harness builds from a git archive; the shared working checkout stays
+untouched. Native economic transitions are exercised on the host, not SVM
+token CPI execution. Raw checkpoint traces are gzip JSONL; all terminal
+metrics, cases, successful events and errors are saved alongside this file.

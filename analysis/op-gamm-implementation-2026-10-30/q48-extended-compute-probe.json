@@ -1,0 +1,4662 @@
+[
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 571012,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1371066 units remaining",
+      "Program consumption: 1344680 units remaining",
+      "Program consumption: 1318053 units remaining",
+      "Program consumption: 849960 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 570712 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 3RG5/////////////////64Xuf////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1371066 units remaining",
+      "Program consumption: 1344680 units remaining",
+      "Program consumption: 1318543 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1371066 units remaining",
+      "Program consumption: 1344680 units remaining",
+      "Program consumption: 1318344 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 498168,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390674 units remaining",
+      "Program consumption: 1364288 units remaining",
+      "Program consumption: 1337661 units remaining",
+      "Program consumption: 922805 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 497868 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj dYTq/////////////////0aK6v////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390674 units remaining",
+      "Program consumption: 1364288 units remaining",
+      "Program consumption: 1338151 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390674 units remaining",
+      "Program consumption: 1364288 units remaining",
+      "Program consumption: 1337952 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 549960,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372766 units remaining",
+      "Program consumption: 1346380 units remaining",
+      "Program consumption: 1319753 units remaining",
+      "Program consumption: 871012 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 549660 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj DvcbAAAAAAAAAAAAAAAAAN/8GwAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372766 units remaining",
+      "Program consumption: 1346380 units remaining",
+      "Program consumption: 1320243 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372766 units remaining",
+      "Program consumption: 1346380 units remaining",
+      "Program consumption: 1320044 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 232014,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370934 units remaining",
+      "Program consumption: 1344548 units remaining",
+      "Program consumption: 1317921 units remaining",
+      "Program consumption: 1188958 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 231714 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 04T0Kf7//////////////8WU9Cn+//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 213374,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370934 units remaining",
+      "Program consumption: 1344548 units remaining",
+      "Program consumption: 1318411 units remaining",
+      "Program consumption: 1189578 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 213074 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj CzA+Itzc/////////////+s+PiLc3P////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 242826,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370934 units remaining",
+      "Program consumption: 1344548 units remaining",
+      "Program consumption: 1318212 units remaining",
+      "Program consumption: 1160174 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 242526 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 36l9zI45AAAAAAAAAAAAAK66fcyOOQAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 176438,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390542 units remaining",
+      "Program consumption: 1364156 units remaining",
+      "Program consumption: 1337529 units remaining",
+      "Program consumption: 1244536 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 176138 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj D93v/////////////////wHr7/////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 158833,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390542 units remaining",
+      "Program consumption: 1364156 units remaining",
+      "Program consumption: 1338019 units remaining",
+      "Program consumption: 1244119 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 158533 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj HxpYVEwPAAAAAAAAAAAAAOsmWFRMDwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 156179,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390542 units remaining",
+      "Program consumption: 1364156 units remaining",
+      "Program consumption: 1337820 units remaining",
+      "Program consumption: 1246821 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 155879 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj xxpYVEwPAAAAAAAAAAAAANonWFRMDwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 217300,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372642 units remaining",
+      "Program consumption: 1346256 units remaining",
+      "Program consumption: 1319629 units remaining",
+      "Program consumption: 1203672 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 217000 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 71vq1QEAAAAAAAAAAAAAAM1r6tUBAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 231484,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372642 units remaining",
+      "Program consumption: 1346256 units remaining",
+      "Program consumption: 1320119 units remaining",
+      "Program consumption: 1171468 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 231184 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj Wql9zI45AAAAAAAAAAAAAAy6fcyOOQAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 193761,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372642 units remaining",
+      "Program consumption: 1346256 units remaining",
+      "Program consumption: 1319920 units remaining",
+      "Program consumption: 1209239 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 193461 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 2zA+Itzc/////////////74/PiLc3P////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 135434,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370928 units remaining",
+      "Program consumption: 1344542 units remaining",
+      "Program consumption: 1317915 units remaining",
+      "Program consumption: 1285538 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 135134 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj MvCs0P3//////////////wL2rND9//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 269759,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370928 units remaining",
+      "Program consumption: 1344542 units remaining",
+      "Program consumption: 1318405 units remaining",
+      "Program consumption: 1133193 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 269459 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj Srwc7RHI/////////////wvIHO0RyP////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 116871,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370928 units remaining",
+      "Program consumption: 1344542 units remaining",
+      "Program consumption: 1318206 units remaining",
+      "Program consumption: 1286129 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 116571 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj aUP9ByY7AAAAAAAAAAAAAJ5I/QcmOwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 174913,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390542 units remaining",
+      "Program consumption: 1364156 units remaining",
+      "Program consumption: 1337529 units remaining",
+      "Program consumption: 1246061 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 174613 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj Dz71//////////////////NH9f////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 158566,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390542 units remaining",
+      "Program consumption: 1364156 units remaining",
+      "Program consumption: 1338019 units remaining",
+      "Program consumption: 1244386 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 158266 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj EyZuByceAAAAAAAAAAAAAOUubgcnHgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 190369,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390542 units remaining",
+      "Program consumption: 1364156 units remaining",
+      "Program consumption: 1337820 units remaining",
+      "Program consumption: 1212631 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 190069 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj UyZuByceAAAAAAAAAAAAAFAvbgcnHgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 129270,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372644 units remaining",
+      "Program consumption: 1346258 units remaining",
+      "Program consumption: 1319631 units remaining",
+      "Program consumption: 1291702 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 128970 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj oBcoLwIAAAAAAAAAAAAAAHAdKC8CAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 110882,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372644 units remaining",
+      "Program consumption: 1346258 units remaining",
+      "Program consumption: 1320121 units remaining",
+      "Program consumption: 1292070 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 110582 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ZkP9ByY7AAAAAAAAAAAAAItI/QcmOwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 222828,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372644 units remaining",
+      "Program consumption: 1346258 units remaining",
+      "Program consumption: 1319922 units remaining",
+      "Program consumption: 1180172 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 222528 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj FLwc7RHI/////////////1PIHO0RyP////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 135403,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370940 units remaining",
+      "Program consumption: 1344554 units remaining",
+      "Program consumption: 1317927 units remaining",
+      "Program consumption: 1285569 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 135103 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj MvCs0P3//////////////wL2rND9//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 117024,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370940 units remaining",
+      "Program consumption: 1344554 units remaining",
+      "Program consumption: 1318417 units remaining",
+      "Program consumption: 1285928 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 116724 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj X7cC+NnE/////////////5m8AvjZxP////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 116848,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1370940 units remaining",
+      "Program consumption: 1344554 units remaining",
+      "Program consumption: 1318218 units remaining",
+      "Program consumption: 1286152 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 116548 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj aUP9ByY7AAAAAAAAAAAAAJ5I/QcmOwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 177761,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390552 units remaining",
+      "Program consumption: 1364166 units remaining",
+      "Program consumption: 1337539 units remaining",
+      "Program consumption: 1243212 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 177461 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj lfv//////////////////3QDAAAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 191935,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390552 units remaining",
+      "Program consumption: 1364166 units remaining",
+      "Program consumption: 1338029 units remaining",
+      "Program consumption: 1211017 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 191635 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj YZSvKKYsAAAAAAAAAAAAAGqbryimLAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 194091,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1390552 units remaining",
+      "Program consumption: 1364166 units remaining",
+      "Program consumption: 1337830 units remaining",
+      "Program consumption: 1208909 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 193791 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj lJSvKKYsAAAAAAAAAAAAALmbryimLAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 129266,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372648 units remaining",
+      "Program consumption: 1346262 units remaining",
+      "Program consumption: 1319635 units remaining",
+      "Program consumption: 1291706 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 128966 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj oBcoLwIAAAAAAAAAAAAAAHAdKC8CAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 110878,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372648 units remaining",
+      "Program consumption: 1346262 units remaining",
+      "Program consumption: 1320125 units remaining",
+      "Program consumption: 1292074 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 110578 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ZkP9ByY7AAAAAAAAAAAAAItI/QcmOwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 1,
+    "core": 0,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 110688,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1372648 units remaining",
+      "Program consumption: 1346262 units remaining",
+      "Program consumption: 1319926 units remaining",
+      "Program consumption: 1292312 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 110388 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj d7cC+NnE/////////////5e8AvjZxP////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 710962,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193702 units remaining",
+      "Program consumption: 1129456 units remaining",
+      "Program consumption: 1066785 units remaining",
+      "Program consumption: 793490 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 710662 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj cgzJ/////////////////7dOyf////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193702 units remaining",
+      "Program consumption: 1129456 units remaining",
+      "Program consumption: 1073980 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193702 units remaining",
+      "Program consumption: 1129456 units remaining",
+      "Program consumption: 1079296 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 678433,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213310 units remaining",
+      "Program consumption: 1149064 units remaining",
+      "Program consumption: 1086393 units remaining",
+      "Program consumption: 826020 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 678133 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj C3/6/////////////////1DB+v////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213310 units remaining",
+      "Program consumption: 1149064 units remaining",
+      "Program consumption: 1093588 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213310 units remaining",
+      "Program consumption: 1149064 units remaining",
+      "Program consumption: 1098904 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 699138,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195402 units remaining",
+      "Program consumption: 1131156 units remaining",
+      "Program consumption: 1068485 units remaining",
+      "Program consumption: 805314 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 698838 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj o/ErAAAAAAAAAAAAAAAAAOgzLAAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195402 units remaining",
+      "Program consumption: 1131156 units remaining",
+      "Program consumption: 1075680 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195402 units remaining",
+      "Program consumption: 1131156 units remaining",
+      "Program consumption: 1080996 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 723884,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193570 units remaining",
+      "Program consumption: 1129324 units remaining",
+      "Program consumption: 1066653 units remaining",
+      "Program consumption: 780568 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 723584 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj woz/Kf7//////////////wnP/yn+//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193570 units remaining",
+      "Program consumption: 1129324 units remaining",
+      "Program consumption: 1073848 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193570 units remaining",
+      "Program consumption: 1129324 units remaining",
+      "Program consumption: 1079164 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 681161,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213178 units remaining",
+      "Program consumption: 1148932 units remaining",
+      "Program consumption: 1086261 units remaining",
+      "Program consumption: 823293 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 680861 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj gNb7/////////////////8UY/P////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213178 units remaining",
+      "Program consumption: 1148932 units remaining",
+      "Program consumption: 1093456 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213178 units remaining",
+      "Program consumption: 1148932 units remaining",
+      "Program consumption: 1098772 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 710267,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195278 units remaining",
+      "Program consumption: 1131032 units remaining",
+      "Program consumption: 1068361 units remaining",
+      "Program consumption: 794185 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 709967 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj MmP11QEAAAAAAAAAAAAAAHql9dUBAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195278 units remaining",
+      "Program consumption: 1131032 units remaining",
+      "Program consumption: 1075556 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195278 units remaining",
+      "Program consumption: 1131032 units remaining",
+      "Program consumption: 1080872 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 603755,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193564 units remaining",
+      "Program consumption: 1129318 units remaining",
+      "Program consumption: 1066647 units remaining",
+      "Program consumption: 900697 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 603455 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj Eh270P3//////////////yVmu9D9//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 855623,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193564 units remaining",
+      "Program consumption: 1129318 units remaining",
+      "Program consumption: 1073842 units remaining",
+      "Program consumption: 630239 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 855323 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 9ww+ebnq/////////////+h9Pnm56v////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 842928,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193564 units remaining",
+      "Program consumption: 1129318 units remaining",
+      "Program consumption: 1079158 units remaining",
+      "Program consumption: 644373 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 842628 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj sRLrArFaAAAAAAAAAAAAAG+F6wKxWgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 494658,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213178 units remaining",
+      "Program consumption: 1148932 units remaining",
+      "Program consumption: 1086261 units remaining",
+      "Program consumption: 1009796 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 494358 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj xyP9/////////////////7Jw/f////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 633661,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213178 units remaining",
+      "Program consumption: 1148932 units remaining",
+      "Program consumption: 1093456 units remaining",
+      "Program consumption: 852201 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 633361 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 95zZnj8wAAAAAAAAAAAAAHET2p4/MAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 624097,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213178 units remaining",
+      "Program consumption: 1148932 units remaining",
+      "Program consumption: 1098772 units remaining",
+      "Program consumption: 863204 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 623797 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 06fZnj8wAAAAAAAAAAAAALQh2p4/MAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 609908,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195280 units remaining",
+      "Program consumption: 1131034 units remaining",
+      "Program consumption: 1068363 units remaining",
+      "Program consumption: 894544 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 609608 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj BUc2LwIAAAAAAAAAAAAAAG+NNi8CAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 867805,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195280 units remaining",
+      "Program consumption: 1131034 units remaining",
+      "Program consumption: 1075558 units remaining",
+      "Program consumption: 618057 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 867505 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj NRbrArFaAAAAAAAAAAAAAMWB6wKxWgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 852909,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195280 units remaining",
+      "Program consumption: 1131034 units remaining",
+      "Program consumption: 1080874 units remaining",
+      "Program consumption: 634392 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 852609 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ag4+ebnq/////////////9x9Pnm56v////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 603732,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193576 units remaining",
+      "Program consumption: 1129330 units remaining",
+      "Program consumption: 1066659 units remaining",
+      "Program consumption: 900720 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 603432 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj Eh270P3//////////////yVmu9D9//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 855586,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193576 units remaining",
+      "Program consumption: 1129330 units remaining",
+      "Program consumption: 1073854 units remaining",
+      "Program consumption: 630276 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 855286 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 9ww+ebnq/////////////+h9Pnm56v////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 842867,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1193576 units remaining",
+      "Program consumption: 1129330 units remaining",
+      "Program consumption: 1079170 units remaining",
+      "Program consumption: 644434 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 842567 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj sRLrArFaAAAAAAAAAAAAAG+F6wKxWgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 699547,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213188 units remaining",
+      "Program consumption: 1148942 units remaining",
+      "Program consumption: 1086271 units remaining",
+      "Program consumption: 804906 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 699247 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj KN3//////////////////20fAAAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213188 units remaining",
+      "Program consumption: 1148942 units remaining",
+      "Program consumption: 1093466 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1213188 units remaining",
+      "Program consumption: 1148942 units remaining",
+      "Program consumption: 1098782 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 609902,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195284 units remaining",
+      "Program consumption: 1131038 units remaining",
+      "Program consumption: 1068367 units remaining",
+      "Program consumption: 894550 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 609602 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj BUc2LwIAAAAAAAAAAAAAAG+NNi8CAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 867797,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195284 units remaining",
+      "Program consumption: 1131038 units remaining",
+      "Program consumption: 1075562 units remaining",
+      "Program consumption: 618065 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 867497 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj NRbrArFaAAAAAAAAAAAAAMWB6wKxWgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 4,
+    "core": 1000,
+    "fade": 4000,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 852907,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1195284 units remaining",
+      "Program consumption: 1131038 units remaining",
+      "Program consumption: 1080878 units remaining",
+      "Program consumption: 634394 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 852607 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ag4+ebnq/////////////9x9Pnm56v////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 614917,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289061 units remaining",
+      "Program consumption: 1224852 units remaining",
+      "Program consumption: 1158387 units remaining",
+      "Program consumption: 887253 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 614617 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ZQfN/////////////////3adzv////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289061 units remaining",
+      "Program consumption: 1224852 units remaining",
+      "Program consumption: 1168093 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289061 units remaining",
+      "Program consumption: 1224852 units remaining",
+      "Program consumption: 1171088 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 581736,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308669 units remaining",
+      "Program consumption: 1244460 units remaining",
+      "Program consumption: 1177995 units remaining",
+      "Program consumption: 920434 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 581436 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj /nn+/////////////////w8QAAAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308669 units remaining",
+      "Program consumption: 1244460 units remaining",
+      "Program consumption: 1187701 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308669 units remaining",
+      "Program consumption: 1244460 units remaining",
+      "Program consumption: 1190696 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 603326,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290761 units remaining",
+      "Program consumption: 1226552 units remaining",
+      "Program consumption: 1160087 units remaining",
+      "Program consumption: 898844 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 603026 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj luwvAAAAAAAAAAAAAAAAAKeCMQAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290761 units remaining",
+      "Program consumption: 1226552 units remaining",
+      "Program consumption: 1169793 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290761 units remaining",
+      "Program consumption: 1226552 units remaining",
+      "Program consumption: 1172788 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 628089,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288929 units remaining",
+      "Program consumption: 1224720 units remaining",
+      "Program consumption: 1158255 units remaining",
+      "Program consumption: 874081 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 627789 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj fBQCKv7//////////////5+qAyr+//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288929 units remaining",
+      "Program consumption: 1224720 units remaining",
+      "Program consumption: 1167961 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 1345975,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288929 units remaining",
+      "Program consumption: 1224720 units remaining",
+      "Program consumption: 1170956 units remaining",
+      "Program consumption: 140533 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1345675 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj j+W1iKFIAAAAAAAAAAAAAGKbuoihSAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 582869,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308537 units remaining",
+      "Program consumption: 1244328 units remaining",
+      "Program consumption: 1177863 units remaining",
+      "Program consumption: 919301 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 582569 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 7aT+//////////////////46AAAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308537 units remaining",
+      "Program consumption: 1244328 units remaining",
+      "Program consumption: 1187569 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308537 units remaining",
+      "Program consumption: 1244328 units remaining",
+      "Program consumption: 1190564 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 615537,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290637 units remaining",
+      "Program consumption: 1226428 units remaining",
+      "Program consumption: 1159963 units remaining",
+      "Program consumption: 886633 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 615237 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj s+r31QEAAAAAAAAAAAAAANaA+dUBAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290637 units remaining",
+      "Program consumption: 1226428 units remaining",
+      "Program consumption: 1169669 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290637 units remaining",
+      "Program consumption: 1226428 units remaining",
+      "Program consumption: 1172664 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 511232,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288923 units remaining",
+      "Program consumption: 1224714 units remaining",
+      "Program consumption: 1158249 units remaining",
+      "Program consumption: 990938 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 510932 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj sXK+0P3//////////////zBGwND9//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 700602,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288923 units remaining",
+      "Program consumption: 1224714 units remaining",
+      "Program consumption: 1167955 units remaining",
+      "Program consumption: 783997 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 700302 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj HK4cMhvY/////////////wkYHzIb2P////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 579144,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288923 units remaining",
+      "Program consumption: 1224714 units remaining",
+      "Program consumption: 1170950 units remaining",
+      "Program consumption: 907364 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 578844 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj FrUPGd9LAAAAAAAAAAAAAJzqERnfSwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 399140,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308537 units remaining",
+      "Program consumption: 1244328 units remaining",
+      "Program consumption: 1177863 units remaining",
+      "Program consumption: 1103030 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 398840 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj B3P+/////////////////xtzAAAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 453362,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308537 units remaining",
+      "Program consumption: 1244328 units remaining",
+      "Program consumption: 1187569 units remaining",
+      "Program consumption: 1031237 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 453062 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 7l6FcIEnAAAAAAAAAAAAAP2yh3CBJwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 450047,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308537 units remaining",
+      "Program consumption: 1244328 units remaining",
+      "Program consumption: 1190564 units remaining",
+      "Program consumption: 1036461 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 449747 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj QpeFcIEnAAAAAAAAAAAAALz8h3CBJwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 516916,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290639 units remaining",
+      "Program consumption: 1226430 units remaining",
+      "Program consumption: 1159965 units remaining",
+      "Program consumption: 985254 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 516616 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj DrM5LwIAAAAAAAAAAAAAAA5pOy8CAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 591559,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290639 units remaining",
+      "Program consumption: 1226430 units remaining",
+      "Program consumption: 1169671 units remaining",
+      "Program consumption: 893040 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 591259 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ANEPGd9LAAAAAAAAAAAAABTYERnfSwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 680279,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290639 units remaining",
+      "Program consumption: 1226430 units remaining",
+      "Program consumption: 1172666 units remaining",
+      "Program consumption: 806229 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 679979 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 2bscMhvY/////////////9UVHzIb2P////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 511209,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288935 units remaining",
+      "Program consumption: 1224726 units remaining",
+      "Program consumption: 1158261 units remaining",
+      "Program consumption: 990961 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 510909 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj sXK+0P3//////////////zBGwND9//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 584952,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288935 units remaining",
+      "Program consumption: 1224726 units remaining",
+      "Program consumption: 1167967 units remaining",
+      "Program consumption: 899647 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 584652 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 46GtxPbW/////////////9DIr8T21v////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 579110,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1288935 units remaining",
+      "Program consumption: 1224726 units remaining",
+      "Program consumption: 1170962 units remaining",
+      "Program consumption: 907398 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 578810 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj FrUPGd9LAAAAAAAAAAAAAJzqERnfSwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 601684,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308547 units remaining",
+      "Program consumption: 1244338 units remaining",
+      "Program consumption: 1177873 units remaining",
+      "Program consumption: 900487 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 601384 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj wiX//////////////////9O7AAAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308547 units remaining",
+      "Program consumption: 1244338 units remaining",
+      "Program consumption: 1187579 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1308547 units remaining",
+      "Program consumption: 1244338 units remaining",
+      "Program consumption: 1190574 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 516912,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290643 units remaining",
+      "Program consumption: 1226434 units remaining",
+      "Program consumption: 1159969 units remaining",
+      "Program consumption: 985258 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 516612 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj DrM5LwIAAAAAAAAAAAAAAA5pOy8CAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 591555,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290643 units remaining",
+      "Program consumption: 1226434 units remaining",
+      "Program consumption: 1169675 units remaining",
+      "Program consumption: 893044 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 591255 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ANEPGd9LAAAAAAAAAAAAABTYERnfSwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 32,
+    "core": 100,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 585138,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290643 units remaining",
+      "Program consumption: 1226434 units remaining",
+      "Program consumption: 1172670 units remaining",
+      "Program consumption: 901370 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 584838 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj raytxPbW/////////////+XGr8T21v////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 620199,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290011 units remaining",
+      "Program consumption: 1222514 units remaining",
+      "Program consumption: 1152752 units remaining",
+      "Program consumption: 882456 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 619899 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 7oqb/////////////////3a++f////////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290011 units remaining",
+      "Program consumption: 1222514 units remaining",
+      "Program consumption: 1167706 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1290011 units remaining",
+      "Program consumption: 1222514 units remaining",
+      "Program consumption: 1168750 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 584856,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309619 units remaining",
+      "Program consumption: 1242122 units remaining",
+      "Program consumption: 1172360 units remaining",
+      "Program consumption: 917799 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 584556 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj h/3M/////////////////w8xKwAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309619 units remaining",
+      "Program consumption: 1242122 units remaining",
+      "Program consumption: 1187314 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309619 units remaining",
+      "Program consumption: 1242122 units remaining",
+      "Program consumption: 1188358 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 609467,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291711 units remaining",
+      "Program consumption: 1224214 units remaining",
+      "Program consumption: 1154452 units remaining",
+      "Program consumption: 893189 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 609167 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj H3D+/////////////////6ejXAAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291711 units remaining",
+      "Program consumption: 1224214 units remaining",
+      "Program consumption: 1169406 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 1,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291711 units remaining",
+      "Program consumption: 1224214 units remaining",
+      "Program consumption: 1170450 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 633386,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289879 units remaining",
+      "Program consumption: 1222382 units remaining",
+      "Program consumption: 1152620 units remaining",
+      "Program consumption: 869269 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 633086 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj RmHQKf7//////////////zaZLir+//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289879 units remaining",
+      "Program consumption: 1222382 units remaining",
+      "Program consumption: 1167574 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 1136307,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289879 units remaining",
+      "Program consumption: 1222382 units remaining",
+      "Program consumption: 1168618 units remaining",
+      "Program consumption: 350348 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1136007 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj Qezkp4RDAAAAAAAAAAAAAADFS6mEQwAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 587463,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309487 units remaining",
+      "Program consumption: 1241990 units remaining",
+      "Program consumption: 1172228 units remaining",
+      "Program consumption: 915192 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 587163 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj Nv7M/////////////////74xKwAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309487 units remaining",
+      "Program consumption: 1241990 units remaining",
+      "Program consumption: 1187182 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309487 units remaining",
+      "Program consumption: 1241990 units remaining",
+      "Program consumption: 1188226 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 620275,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291587 units remaining",
+      "Program consumption: 1224090 units remaining",
+      "Program consumption: 1154328 units remaining",
+      "Program consumption: 882380 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 619975 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj QTjG1QEAAAAAAAAAAAAAADFwJNYBAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291587 units remaining",
+      "Program consumption: 1224090 units remaining",
+      "Program consumption: 1169282 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 2500,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291587 units remaining",
+      "Program consumption: 1224090 units remaining",
+      "Program consumption: 1170326 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 522931,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289873 units remaining",
+      "Program consumption: 1222376 units remaining",
+      "Program consumption: 1152614 units remaining",
+      "Program consumption: 979724 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 522631 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ZYeD0P3//////////////7cf8tD9//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 965056,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289873 units remaining",
+      "Program consumption: 1222376 units remaining",
+      "Program consumption: 1167568 units remaining",
+      "Program consumption: 519816 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 964756 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj hSx+Nk7S/////////////7n1cDhO0v////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 841822,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289873 units remaining",
+      "Program consumption: 1222376 units remaining",
+      "Program consumption: 1168612 units remaining",
+      "Program consumption: 644833 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 841522 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj HVipOTNGAAAAAAAAAAAAAAW5/TozRgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 646327,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309487 units remaining",
+      "Program consumption: 1241990 units remaining",
+      "Program consumption: 1172228 units remaining",
+      "Program consumption: 856328 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 646027 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 5v7M/////////////////24yKwAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 699362,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309487 units remaining",
+      "Program consumption: 1241990 units remaining",
+      "Program consumption: 1187182 units remaining",
+      "Program consumption: 785510 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 699062 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj cr6AckYkAAAAAAAAAAAAAI5RYnRGJAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 678348,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309487 units remaining",
+      "Program consumption: 1241990 units remaining",
+      "Program consumption: 1188226 units remaining",
+      "Program consumption: 808307 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 678048 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj P4HIckYkAAAAAAAAAAAAAMORGnRGJAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 526929,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291589 units remaining",
+      "Program consumption: 1224092 units remaining",
+      "Program consumption: 1154330 units remaining",
+      "Program consumption: 975726 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 526629 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj oHIFLwIAAAAAAAAAAAAAAAC4ay8CAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 596896,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291589 units remaining",
+      "Program consumption: 1224092 units remaining",
+      "Program consumption: 1169284 units remaining",
+      "Program consumption: 887976 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 596596 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 3gFhOTNGAAAAAAAAAAAAAF1BSjszRgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 5000,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 688939,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291589 units remaining",
+      "Program consumption: 1224092 units remaining",
+      "Program consumption: 1170328 units remaining",
+      "Program consumption: 797716 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 688639 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 4V7CNk7S/////////////3s9KjhO0v////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 522908,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289885 units remaining",
+      "Program consumption: 1222388 units remaining",
+      "Program consumption: 1152626 units remaining",
+      "Program consumption: 979747 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 522608 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj ZYeD0P3//////////////7cf8tD9//////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 848007,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289885 units remaining",
+      "Program consumption: 1222388 units remaining",
+      "Program consumption: 1167580 units remaining",
+      "Program consumption: 636865 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 847707 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj cXplcXvQ/////////////8i8SXN70P////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "6000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 841747,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1289885 units remaining",
+      "Program consumption: 1222388 units remaining",
+      "Program consumption: 1168624 units remaining",
+      "Program consumption: 644908 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 841447 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj HVipOTNGAAAAAAAAAAAAAAW5/TozRgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 605113,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309497 units remaining",
+      "Program consumption: 1242000 units remaining",
+      "Program consumption: 1172238 units remaining",
+      "Program consumption: 897542 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 604813 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj RgDN/////////////////84zKwAAAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309497 units remaining",
+      "Program consumption: 1242000 units remaining",
+      "Program consumption: 1187192 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "60000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": "TransactionErrorInstructionError { index: 2, error: ProgramFailedToComplete }",
+    "compute": 1400000,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1309497 units remaining",
+      "Program consumption: 1242000 units remaining",
+      "Program consumption: 1188236 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 1399700 of 1399700 compute units",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj failed: exceeded CUs meter at BPF instruction"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "10001000000",
+      "599940000000"
+    ],
+    "error": null,
+    "compute": 526925,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291593 units remaining",
+      "Program consumption: 1224096 units remaining",
+      "Program consumption: 1154334 units remaining",
+      "Program consumption: 975730 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 526625 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj oHIFLwIAAAAAAAAAAAAAAAC4ay8CAAAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "20000000000",
+      "300000000000"
+    ],
+    "error": null,
+    "compute": 596892,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291593 units remaining",
+      "Program consumption: 1224096 units remaining",
+      "Program consumption: 1169288 units remaining",
+      "Program consumption: 887980 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 596592 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj 3gFhOTNGAAAAAAAAAAAAAF1BSjszRgAAAAAAAAAAAAA=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  },
+  {
+    "diagnostic_unlimited": false,
+    "amp": 2000,
+    "core": 1,
+    "fade": 0,
+    "lambda": 9999,
+    "reference": "600000000000",
+    "input_bps": null,
+    "start": [
+      "10000000000",
+      "600000000000"
+    ],
+    "end": [
+      "5000000000",
+      "1200000000000"
+    ],
+    "error": null,
+    "compute": 592735,
+    "logs": [
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program ComputeBudget111111111111111111111111111111 invoke [1]",
+      "Program ComputeBudget111111111111111111111111111111 success",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj invoke [1]",
+      "Program consumption: 1291593 units remaining",
+      "Program consumption: 1224096 units remaining",
+      "Program consumption: 1170332 units remaining",
+      "Program consumption: 893920 units remaining",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj consumed 592435 of 1399700 compute units",
+      "Program return: FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj Mk6pcXvQ/////////////4FgA3N70P////////////8=",
+      "Program FMdqKbJkGtmU7jsMF3uC78yP8cDk6kxJAgq3D6YnJDrj success"
+    ]
+  }
+]

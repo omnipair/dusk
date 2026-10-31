@@ -1,3 +1,4 @@
+import { DuskWrite, type DuskInstructionName } from "./write.js";
 import type { BN, Program } from "@coral-xyz/anchor";
 import { previewLeverageAction, type PreviewLeverageActionParams } from "./leverage-preview.js";
 import { PublicKey, TransactionInstruction, type Commitment } from "@solana/web3.js";
@@ -293,19 +294,7 @@ export class DuskGet {
     args: unknown[],
     accounts: Record<string, unknown>
   ): Promise<TransactionInstruction> {
-    const methods = (this.program as unknown as {
-      methods: Record<
-        string,
-        (...args: unknown[]) => {
-          accounts(accounts: Record<string, unknown>): {
-            instruction(): Promise<TransactionInstruction>;
-          };
-        }
-      >;
-    }).methods;
-    const method = methods[name];
-    if (!method) throw new Error(`Unknown Dusk preview instruction: ${name}`);
-    return method(...args).accounts(accounts).instruction();
+    return new DuskWrite(this.program).instruction(name as DuskInstructionName, args, { accounts });
   }
 
   async previewMarket(market: AddressLike, options: SimulateOptions = {}): Promise<MarketPreview> {

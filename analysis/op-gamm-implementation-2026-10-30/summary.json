@@ -1,0 +1,71 @@
+{
+  "status": "incomplete; full implementation PR held",
+  "base_revision": "d3d1cfadfcd36d34ada911dd31f7d588df8c78e6",
+  "native_tests_passed": 554,
+  "focused_kernel_tests_passed": 9,
+  "scenarios": {
+    "compute-probe.json": {
+      "total": 8,
+      "completed": 8,
+      "failed": 0,
+      "maximum_compute_units": 627037,
+      "maximum_returned_interval_width": 1.066963357942985e-15,
+      "fraction_bits": 64,
+      "independent_reference_enclosures_checked": 0
+    },
+    "extended-compute-probe.json": {
+      "total": 144,
+      "completed": 102,
+      "failed": 42,
+      "maximum_compute_units": 1400000,
+      "maximum_returned_interval_width": 7.83881900362493e-12,
+      "fraction_bits": 64,
+      "independent_reference_enclosures_checked": 102
+    },
+    "extended-compute-profile-unlimited.json": {
+      "total": 144,
+      "completed": 144,
+      "failed": 0,
+      "maximum_compute_units": 7341857,
+      "maximum_returned_interval_width": 2.2577542212100926e-11,
+      "fraction_bits": 64,
+      "independent_reference_enclosures_checked": 144
+    },
+    "q48-extended-compute-probe.json": {
+      "total": 144,
+      "completed": 98,
+      "failed": 46,
+      "maximum_compute_units": 1400000,
+      "maximum_returned_interval_width": 1.1613265371579473e-07,
+      "fraction_bits": 48,
+      "independent_reference_enclosures_checked": 98
+    },
+    "q48-extended-compute-profile-unlimited.json": {
+      "total": 144,
+      "completed": 144,
+      "failed": 0,
+      "maximum_compute_units": 4035888,
+      "maximum_returned_interval_width": 1.1613265371579473e-07,
+      "fraction_bits": 48,
+      "independent_reference_enclosures_checked": 144
+    }
+  },
+  "checks": {
+    "native_tests": "pass",
+    "focused_math_tests": "pass",
+    "clippy": "pass",
+    "hygiene": "pass for tracked files only",
+    "code_shape": "fails: ten unintegrated or one-use prototype helpers",
+    "full_CI": "not completed",
+    "IDL_and_SDK_regeneration": "not completed",
+    "full_market_integration": "not implemented"
+  },
+  "source_hashes": {
+    "programs/dusk/src/math/op_gamm.rs": "2c002c38942d5cc040c147ac455c69f488abdb31ab5dd93889d0e8e169c6725f",
+    "programs/dusk/src/math/op_gamm/interval.rs": "b22a14100c3d884527d807e755539b2b697961f260623a693b671ff9af66b61c",
+    "tests/fixtures/op_gamm_compute/src/lib.rs": "4543ab69f3b3a9356e2f3c6a8110266bb41afdf00f41f538eabe0464072915d3",
+    "analysis/op-gamm-implementation-2026-10-30/compute-probe.mjs": "33cadae9ac588dd79afbb62bc17da50f92a73d9cdd2225ae2cc75135921c19d4",
+    "analysis/op-gamm-implementation-2026-10-30/generate-reference.py": "b67b7cf03d28e7eaf246ce040382c34e94c0efaf5391487243bb1cc62a99f83d",
+    "target/deploy/op_gamm_compute.so": "ec9b89179aee26fb58387066576037b77217db1353fa568eb3b13253bb8e33c0"
+  }
+}

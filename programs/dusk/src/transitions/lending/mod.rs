@@ -275,6 +275,7 @@ impl Market {
             .tail_liquidity
             .checked_add(self.amm.concentrated_curve_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
+        let curve_depth_nad = self.recognized_oracle_depth(curve_depth_nad)?;
         // NAD² fits u64, so the exact reciprocal avoids a costly wide divide.
         let quote_price_nad = NAD
             .checked_mul(NAD)
@@ -294,6 +295,7 @@ impl Market {
         current_curve_depth_nad: u128,
         current_slot: u64,
     ) -> Result<()> {
+        let current_curve_depth_nad = self.recognized_oracle_depth(current_curve_depth_nad)?;
         require!(
             current_base_price_nad > 0 && current_curve_depth_nad > 0,
             ErrorCode::InsufficientLiquidity
@@ -745,6 +747,9 @@ impl Market {
         borrow_position: &mut BorrowPosition,
         collateral_exit_credit: u64,
     ) -> Result<()> {
+        if self.oracle_price_unavailable() {
+            return self.reconcile_liquidation_auction(borrow_position);
+        }
         let Some(debt_asset) = borrow_position.active_liquidation_auction_asset()? else {
             return Ok(());
         };
@@ -1561,6 +1566,9 @@ impl Market {
         min_liquidation_cf_bps: u16,
         current_slot: u64,
     ) -> Result<DebtReceipt> {
+        if self.oracle.policy.lambda_bps > 0 {
+            self.bounded_curve()?;
+        }
         borrow_position.require_idle()?;
         let collateral_fee = fees.for_asset(borrow_asset.opposite());
         require!(borrow_amount > 0, ErrorCode::AmountZero);
@@ -1795,6 +1803,8 @@ impl Market {
         let debt_delta = -i64::try_from(repayment.position_debt_reduced).map_err(|_| ErrorCode::Overflow)?;
         if let Some(slot) = finalize_at_slot {
             self.finalize_debt_repayment(slot, curve_reserves_before)?;
+        } else if self.oracle_price_unavailable() {
+            self.finalize_amm_transition(self.last_update_slot)?;
         } else {
             self.refresh_risk()?;
         }

@@ -1,0 +1,125 @@
+{
+  "recordedAt": "2026-10-31T11:39:28.504403+00:00",
+  "baseCommit": "609dda9b631e84f88a574c497dbe25f12a38b2a0",
+  "sourceBinding": "Built from this base plus the changed source files hashed below; the build embeds the base Git revision. No program deployment was performed.",
+  "changedSourceSha256": {
+    "packages/dusk-sdk/scripts/check-write-program-accounts.js": "8f683729225c09f3e1ef59a00694fdaed08b24e646ee01b613c37f177dc0fba3",
+    "packages/dusk-sdk/src/write.ts": "10ad26d0d807c71267a75bee56294df023b219d378d0fd9673f47c27ea07bb37",
+    "programs/dusk/src/instructions/market/initialization.rs": "4372160addc9a91d39b8d2c46b3106625ba5794b1670ab50d9029157a037e3e7",
+    "programs/dusk/src/math/arithmetic.rs": "df77ad11858de1eb0c504b529f1a7605f58ee7622d7fa88b561167757c97b1b7",
+    "programs/dusk/src/tests/state/oracle.rs": "8fb002e8bcd01408497c68e6fbe4250d40f6652834e8579d8b14ae5cc1734056",
+    "programs/dusk/src/tests/transitions/amounts.rs": "318df84f0651012cac3768222cac553d17f15e2d97b29347d2f64943655d8522",
+    "programs/dusk/src/transitions/liquidity/mod.rs": "2b2feedf9cd8189a24b915af656817861c0e45299e345c9b2aaa75cf9c2f35d9",
+    "tests/v2-final-smoke.test.ts": "f559cc553adb369ffe68bba1a2e156d26b7287818043110b66ff517a886792d1"
+  },
+  "localCi": [
+    {
+      "command": "cargo fmt --all -- --check",
+      "passed": true,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "yarn check:hygiene",
+      "passed": true,
+      "logSha256": "9ff6e5cbca67d5d733f96788df0dcab2aa0881cfba32239d39539051ba8d4e74"
+    },
+    {
+      "command": "yarn check:code-shape",
+      "passed": true,
+      "logSha256": "fd293301e282fff7a79e02c9cf72c08e4614ae79ca3340c369dfebc64fb37217"
+    },
+    {
+      "command": "yarn check:clippy",
+      "passed": true,
+      "logSha256": "29beedae889cefd182151d5803db9fa68e4ede1540be1c1dacab90f0d650ee32"
+    },
+    {
+      "command": "cargo test -p dusk",
+      "passed": true,
+      "logSha256": "3782481b1ef29897fd96c6749049d76d5f997f79fe9966da009337ddb41d91d7"
+    },
+    {
+      "command": "cargo check -p dusk --lib --features production",
+      "passed": true,
+      "logSha256": "aadd8b0a7675d7d838f8ef5b976a977d8b3a0e53e0838bb0e48a4e331948b9d7"
+    },
+    {
+      "command": "cargo test -p dusk --lib --features production",
+      "passed": true,
+      "logSha256": "fdea7cea6d70ef125d63405002a033132a4cd7b67408f90e810f0c0aa72b133d"
+    },
+    {
+      "command": "cargo test -p dusk --lib --features benchmark ema_admitted_settlement_preserves_reference_and_resource_delta",
+      "passed": true,
+      "logSha256": "a2b8317f95e3f847a1c8d9fb3fc99294b8ef3fe4118e6ce3ff955ce7714b64b6"
+    },
+    {
+      "command": "cargo test -p leverage_delegate",
+      "passed": true,
+      "logSha256": "6abfeabf03db5a412dcfa91c68415f192370b4d30025dd9b8586e5a8f0dcdfb3"
+    },
+    {
+      "command": "cargo test -p faucet",
+      "passed": true,
+      "logSha256": "355ab18741ef4cb98054223bdb47a6a8fc8bce864198741fac8a475add0131a1"
+    },
+    {
+      "command": "yarn typecheck",
+      "passed": true,
+      "logSha256": "8d7fd7cafc69500c5bfe2d2d1edac67a3b14ae829c30b0e1a67de2c7439b962a"
+    },
+    {
+      "command": "yarn build:litesvm",
+      "passed": true,
+      "logSha256": "33c5c060fc61c96de2d447a131f2ac37c7ac29429da102043d1491ca5d892055"
+    },
+    {
+      "command": "yarn check:build-identity",
+      "passed": true,
+      "logSha256": "73dd158b3932bbe759dcfd830040222000c077ba76a098311fee2a2ede5c99e7"
+    },
+    {
+      "command": "npm run check:dusk-sdk",
+      "passed": true,
+      "logSha256": "0d7468f4a28204b980ca62937a32ce84c9534d569c1ab097942a458f26308307"
+    },
+    {
+      "command": "DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending",
+      "passed": true,
+      "logSha256": "5ecbda5335f296a043d775ba1a4333c85d33a4ca12ae853349b49384ab1ff8fe"
+    }
+  ],
+  "tests": {
+    "dusk": 579,
+    "duskProduction": 579,
+    "delegate": 16,
+    "sdk": 83,
+    "svm": 155,
+    "instructionCoverage": "77/77",
+    "pending": 0,
+    "decimalScaleParityChecks": 655360,
+    "successfulTransactions": 5243,
+    "averageCu": 95430,
+    "maximumCu": 1322073,
+    "partialDelegatedCloseCu": 1322073,
+    "repositoryDefaultCuLimit": 1355000,
+    "solanaTransactionCuLimit": 1400000
+  },
+  "binaries": {
+    "dusk": {
+      "sha256": "289800fdf2862ec6b7e55617fad6b64ad245529333f19a60b248948a171e36aa",
+      "bytes": 4585808,
+      "idlRawSha256": "f655c03652871b4880d945571c28a726da62345f324809b4d442cffe866d3609"
+    },
+    "leverage_delegate": {
+      "sha256": "53dcc389152559dfe88a25dc646f44a58cf52944840258e9b70f92072b0f32c5",
+      "bytes": 1316592,
+      "idlRawSha256": "170d29e1617104a4718214fd5e0c475aff14793bcf721e0caedb5a92550c5d76"
+    }
+  },
+  "idlChanged": false,
+  "deployment": {
+    "performed": false,
+    "previousDevnetProtocolCommit": "8fadcc31fbe542f4f822060724639a5057fad2cc"
+  }
+}
