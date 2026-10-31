@@ -422,14 +422,16 @@ instruction in a transaction without signing or sending it.
 
 ### Direct-yLP Parameter Governance
 
-Market layout v2 has no market manager. The program exposes seven independent
+Market layout v2 has no market manager. The program exposes eight independent
 parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
-Limit, Center Controller, and Insurance. A direct yLP holder burn-locks at least
+Limit, Center Controller, Insurance, and Oracle. A direct yLP holder burn-locks at least
 1% of eligible direct yLP to create a typed proposal. Strictly more than 50%
 support queues it for a 7-day timelock and a 7-day execution window. Execution
-is permissionless and succeeds only while both lending sides are below 80%
-utilization. These thresholds, the timelock, and the utilization guard are
-immutable.
+is permissionless. Proposals containing exactly one Oracle update can restore
+pricing despite distress or high utilization; positive weight still verifies a
+fresh proposed source. Every other proposal, including mixed Oracle proposals,
+requires both lending sides below 80% utilization and adequate market health.
+Support thresholds, timelock, and execution window apply to every proposal.
 
 Use the typed update constructors so values are checked against the same hard
 bounds before an instruction is built:

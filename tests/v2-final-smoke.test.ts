@@ -11731,8 +11731,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         expect(String(error)).to.include("OracleAuthenticationFailed");
         refresh(policy);svm.expireBlockhash();
       }
-      await connection.sendTransaction(new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}),
-        ...execution.transaction.instructions),[payer]);
+      await connection.sendTransaction(new Transaction().add(...execution.transaction.instructions),[payer]);
       const after=accountCoder.decode("LeveragePosition",Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
       expect(after.debt_shares.toString()).to.equal(before.debt_shares.toString());
       expect(after.collateral_amount.toString()).to.equal(before.collateral_amount.toString());
@@ -11750,6 +11749,92 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const withdrawn=await writer.withdrawParameterSupport({market:f.market,proposal:created.proposal,proposer:payer.publicKey,
         supporter:payer.publicKey,supporterYlpAccount:f.ownerYlpAccount});
       await connection.sendTransaction(withdrawn.transaction,[payer]);
+    }
+  });
+
+  it("recovers a stale oracle in distress while retaining admission for mixed proposals", async function () {
+    const writer = new DuskWrite(createDuskProgram({provider: program.provider}));
+    for (const mode of ["replace", "disable", "mixed"] as const) {
+      const config = marketConfig(); config.swapFeeBps = 0;
+      const oracle = normalizedTestOracle(9000);
+      oracle.policy.adjustmentCapNad = new BN(20_000_000_000);
+      let sequence = 0n;
+      const publish = (source: ReturnType<typeof normalizedTestOracle>, f: Awaited<ReturnType<typeof initializeFinalMarket>>, price: bigint) => {
+        source.publish(f);
+        const account = svm.getAccount(source.key)!;
+        const data = Buffer.from(account.data);
+        data.writeBigUInt64LE(price, 104); data.writeBigUInt64LE(++sequence, 136);
+        svm.setAccount(source.key, {...account, data});
+      };
+      const f = await addBalancedLiquidity(203, config, {
+        baseDeposit: 1_000_000_000, quoteDeposit: 1_000_000_000, minYlp: 1,
+        baseMint: 2_000_000_000, quoteMint: 2_000_000_000,
+      }, 6, TOKEN_PROGRAM_ID, undefined, async f => {
+        publish(oracle, f, 1_000_000_000n); return oracle.metas;
+      }, oracle.policy);
+      const positionId = Keypair.generate().publicKey;
+      const borrowPosition = deriveBorrowPositionAddress(f.market, payer.publicKey, positionId)[0];
+      await connection.sendTransaction(await writer.transaction("depositCollateral", {positionId, depositAmount: new BN(50_000_000)}, {
+        accounts: {market:f.market,owner:payer.publicKey,assetMint:f.baseMint,collateralVault:f.baseCollateralVault,
+          ownerAssetAccount:f.ownerBaseAccount,borrowPosition,tokenProgram:TOKEN_PROGRAM_ID,
+          token2022Program:TOKEN_2022_PROGRAM_ID,systemProgram:SystemProgram.programId},
+      }), [payer]);
+      const borrowAccounts = {market:f.market,futarchyAuthority,owner:payer.publicKey,debtAssetMint:f.quoteMint,
+        collateralAssetMint:f.baseMint,reserveVault:f.quoteReserveVault,ownerDebtAccount:f.ownerQuoteAccount,
+        borrowPosition,referralPartner:null,referralAccrual:null,tokenProgram:TOKEN_PROGRAM_ID,
+        token2022Program:TOKEN_2022_PROGRAM_ID};
+      await connection.sendTransaction(await writer.transaction("borrow", {borrowAmount:new BN(10_000_000),
+        minDebtAmountOut:new BN(10_000_000),minLiquidationCfBps:0,referrer:null}, {accounts:borrowAccounts}), [payer]);
+      const replacement = normalizedTestOracle(9000);
+      replacement.policy.adjustmentCapNad = oracle.policy.adjustmentCapNad;
+      const next = mode === "disable" ? {...oracle.policy,lambdaBps:0} : replacement.policy;
+      const supply = (await getMint(connection as any,f.ylpMint,undefined,TOKEN_2022_PROGRAM_ID)).supply;
+      const updates = mode === "mixed" ? [{kind:"dailyBorrowLimit" as const,maxDailyBorrowBps:1000},
+        {kind:"oracle" as const,policy:next}] : [{kind:"oracle" as const,policy:next}];
+      const proposal = await writer.createParameterProposal({market:f.market,proposer:payer.publicKey,nonce:1,
+        holderYlpAccount:f.ownerYlpAccount,initialSupport:supply/2n+1n,updates,
+        metadata:{version:1,title:"Oracle recovery",descriptionUri:"ipfs://oracle-recovery",
+          descriptionSha256:Array(32).fill(1),descriptionLen:1}});
+      await connection.sendTransaction(proposal.transaction,[payer]);
+      const clock=svm.getClock();clock.unixTimestamp+=7n*86400n+1n;clock.slot+=1n;svm.setClock(clock);
+      const trade = async () => connection.sendTransaction(await writer.buildSwapTransaction({market:f.market,
+        trader:payer.publicKey,assetInMint:f.baseMint,assetOutMint:f.quoteMint,exactAssetIn:1000,minAssetOut:1}),[payer]);
+      publish(oracle,f,100_000_000n);svm.expireBlockhash();await trade();
+      const later=svm.getClock();later.slot+=100_000n;later.unixTimestamp+=40_000n;svm.setClock(later);
+      publish(oracle,f,100_000_000n);svm.expireBlockhash();await trade();
+      const preview = decodePreviewMarketReturnData(await simulateReturnData(
+        await writer.transaction("previewMarket",[],{accounts:{market:f.market}}))) as any;
+      expect(preview.health.quoteDebtHealthBps.toNumber(),mode).to.be.lessThan(config.borrowMarketHealthFloorBps);
+      const outage=svm.getClock();outage.slot+=101n;outage.unixTimestamp+=61n;svm.setClock(outage);svm.expireBlockhash();
+      let stale:unknown;
+      try {await trade();} catch(e) {stale=e;}
+      expect(String(stale),mode).to.include("OracleStale");
+      if(mode!=="disable") publish(replacement,f,100_000_000n);
+      const execute=await writer.executeParameterProposal({market:f.market,proposal:proposal.proposal});
+      const protectedKeys=[f.market,proposal.proposal,borrowPosition,f.baseReserveVault,f.quoteReserveVault];
+      const before=protectedKeys.map(key=>Buffer.from(svm.getAccount(key)!.data));
+      if(mode==="mixed") {
+        let rejected:unknown;
+        try {await connection.sendTransaction(execute.transaction,[payer]);} catch(e) {rejected=e;}
+        expect(String(rejected)).to.include("InsufficientMarketHealth");
+        protectedKeys.forEach((key,i)=>expect(Buffer.from(svm.getAccount(key)!.data).equals(before[i])).to.equal(true));
+        continue;
+      }
+      await connection.sendTransaction(execute.transaction,[payer]);
+      expect(Buffer.from(svm.getAccount(borrowPosition)!.data).equals(before[2])).to.equal(true);
+      expect(Buffer.from(svm.getAccount(f.baseReserveVault)!.data).equals(before[3])).to.equal(true);
+      expect(Buffer.from(svm.getAccount(f.quoteReserveVault)!.data).equals(before[4])).to.equal(true);
+      const stored=accountCoder.decode("ParameterProposal",Buffer.from(svm.getAccount(proposal.proposal)!.data)) as any;
+      expect(Object.keys(stored.status)).to.deep.equal(["Executed"]);
+      const observation=await writer.transaction("observeLiquidation",[1],{accounts:{market:f.market,borrowPosition,
+        leveragePosition:null,collateralMint:f.baseMint,debtMint:f.quoteMint}});
+      await connection.sendTransaction(observation,[payer]);
+      const distressed=accountCoder.decode("BorrowPosition",Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
+      expect(distressed.quote_distress.active,mode).to.equal(true);
+      let newRisk:unknown;
+      try {await connection.sendTransaction(await writer.transaction("borrow", {borrowAmount:new BN(1),
+        minDebtAmountOut:new BN(1),minLiquidationCfBps:0,referrer:null}, {accounts:borrowAccounts}),[payer]);} catch(e){newRisk=e;}
+      expect(newRisk,mode).to.not.equal(undefined);
     }
   });
 

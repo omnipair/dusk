@@ -113,6 +113,13 @@ pub fn updated_family_revisions(
 }
 
 impl MarketParameterUpdate {
+    // Oracle policy changes move no inventory and create no debt. An approved
+    // standalone policy must remain executable when stale pricing and distress
+    // prevent liquidation. Mixed proposals retain ordinary admission guards.
+    pub(crate) fn is_oracle_only(updates: &[Self]) -> bool {
+        matches!(updates, [Self::Oracle(_)])
+    }
+
     pub fn family(&self) -> ParameterFamily {
         match self {
             Self::Fee(_) => ParameterFamily::Fee,

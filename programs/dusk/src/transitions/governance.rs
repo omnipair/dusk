@@ -703,8 +703,8 @@ impl Market {
     }
 
     /// Checkpoint all elapsed state under the old parameters, apply every
-    /// family as one atomic change, enforce the point-in-time utilization
-    /// guard once, and then advance the revision of each family that changed.
+    /// family as one atomic change, enforce admission for non-oracle-only
+    /// changes, and then advance the revision of each family that changed.
     /// Any failure leaves the market untouched.
     pub fn execute_parameter_updates(&mut self, updates: &[MarketParameterUpdate], current_slot: u64) -> Result<()> {
         self.execute_parameter_updates_inner(updates, current_slot, None)
@@ -755,6 +755,7 @@ impl Market {
     ) -> Result<()> {
         self.assert_current_version()?;
         let next_config = self.validate_parameter_updates(updates)?;
+        let oracle_only = MarketParameterUpdate::is_oracle_only(updates);
         let changes_oracle = updates.iter().any(|u| matches!(u, MarketParameterUpdate::Oracle(_)));
         require!(
             changes_oracle == next_oracle.is_some(),
@@ -790,7 +791,9 @@ impl Market {
             if !changes_oracle {
                 self.refresh_risk_at_slot(current_slot)?;
             }
-            self.assert_parameter_execution_utilization()?;
+            if !oracle_only {
+                self.assert_parameter_execution_utilization()?;
+            }
 
             // Every family closes its elapsed windows under the old values
             // before any value moves, so one family's change never reaches
@@ -889,7 +892,9 @@ impl Market {
                     .checkpoint_trade(&self.config.amm, before, after, current_slot)?;
             }
             self.refresh_risk_at_slot(current_slot)?;
-            self.assert_market_health()?;
+            if !oracle_only {
+                self.assert_market_health()?;
+            }
             for update in updates {
                 let family_index = update.family().code() as usize;
                 self.parameter_revisions[family_index] = self.parameter_revisions[family_index]

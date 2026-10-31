@@ -155,6 +155,21 @@ test("positive-weight previews append feeds after caller accounts and transactio
   assert.equal(native.instructions[0].keys.at(-1).pubkey.toBase58(), key(24).toBase58());
 });
 
+test("governance execution budgets activation and disable without requiring the old feed", async () => {
+  for (const [current, next, expectedInstructions] of [[0,2500,3],[2500,0,3],[0,0,1]]) {
+    const client = new anchor.Program(IDL, provider);
+    client.account.market.fetch = async () => ({baseSide:{assetMint:baseMint},quoteSide:{assetMint:quoteMint},
+      oracle:{policy:policy(current)}});
+    client.account.parameterProposal.fetch = async () => ({updates:[{oracle:{0:policy(next)}}]});
+    const result = await new DuskWrite(client).executeParameterProposal({market,proposal:key(12)});
+    assert.equal(result.transaction.instructions.length,expectedInstructions);
+    if (expectedInstructions===3)
+      assert.deepEqual(result.transaction.instructions.slice(0,2).map(ix=>ix.data[0]),[1,2]);
+    assert.deepEqual(result.transaction.instructions.at(-1).data,result.instruction.data);
+    assert.equal(result.instruction.keys.some(meta=>meta.pubkey.equals(key(21))),next>0);
+  }
+});
+
 test("oracle-selected creation fits a versioned transaction and rejects oversized metadata", async () => {
   const input=creationParams(policy());
   const ix=await write.initializeMarketInstruction(input);

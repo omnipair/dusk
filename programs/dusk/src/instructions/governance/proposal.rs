@@ -475,13 +475,15 @@ impl<'info> ExecuteParameterProposal<'info> {
             &clock,
             ctx.remaining_accounts,
         )?;
-        let fees = crate::instructions::lending_market_admission_fees(
-            &ctx.accounts.market,
-            &ctx.accounts.base_mint,
-            &ctx.accounts.quote_mint,
-            clock.epoch,
-        )?;
-        ctx.accounts.market.assert_market_health_with_fees(fees)?;
+        if !MarketParameterUpdate::is_oracle_only(&ctx.accounts.proposal.updates) {
+            let fees = crate::instructions::lending_market_admission_fees(
+                &ctx.accounts.market,
+                &ctx.accounts.base_mint,
+                &ctx.accounts.quote_mint,
+                clock.epoch,
+            )?;
+            ctx.accounts.market.assert_market_health_with_fees(fees)?;
+        }
         ctx.accounts.proposal.status = ParameterProposalStatus::Executed;
         emit_cpi!(ParameterProposalExecuted {
             proposal: ctx.accounts.proposal.key(),

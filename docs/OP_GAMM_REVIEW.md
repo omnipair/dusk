@@ -8,6 +8,7 @@ This is author verification of the bounded OP-GAMM changes, not an independent s
 - **Carried interest reconstruction:** endpoint net NAV and backing require distinct treatment. Added explicit carry cover and certification of the exact rounded endpoint; repeated carry/materialization and fee/frozen cycle tests pass.
 - **OP credit admission:** movement across native invariant scales must not create new recognized credit depth. `checkpoint_oracle_risk_depth` enforces the ceiling, exercised by both-direction and split exit-loan tests.
 - **Transaction feasibility:** duplicate quote computation and unreclaimed temporary allocations caused concrete SBF failures. The authenticated callback context, value-only output path, exact integer optimizations and SPL-equivalent allocation changes resolve the exercised full/partial and Token-2022 routes without increasing test budgets.
+- **Oracle recovery in distress:** ordinary proposal admission blocked replacing or disabling a stale source after an adverse price move. Exactly one oracle-policy update now bypasses utilization and market-health admission in both execution layers. Authentication and governance checks remain mandatory, and mixed proposals retain ordinary admission. Regressions cover both debt directions, replacement/disable, rollback, liquidatability and the utilization boundary.
 
 ## Boundaries verified
 

@@ -2020,3 +2020,117 @@ fn unavailable_oracle_allows_principal_and_interest_repayment_without_seizure() 
         }
     }
 }
+
+#[test]
+fn oracle_recovery_in_distress_preserves_debt_and_rejects_mixed_proposals() {
+    use crate::state::{NormalizedOracleV1, OraclePolicy, NORMALIZED_ORACLE_MAGIC, NORMALIZED_ORACLE_V1};
+    for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        let mut position = borrow_position_for_debt(debt_asset, 50_000);
+        market.borrow(&mut position, debt_asset, 10_000, 0, 0).unwrap();
+        let provider = Pubkey::new_unique();
+        let key = Pubkey::new_unique();
+        let policy = OraclePolicy {
+            format: NORMALIZED_ORACLE_V1, provider, base_account: key, base_feed_id: [7; 32],
+            lambda_bps: 9_000, adjustment_cap_nad: 20 * NAD, max_age_seconds: 30,
+            max_age_slots: 20, max_confidence_bps: 100, ..Default::default()
+        };
+        let mut feed = NormalizedOracleV1 {
+            magic: NORMALIZED_ORACLE_MAGIC, feed_id: [7; 32],
+            base_mint: market.base_side.asset_mint, quote_mint: market.quote_side.asset_mint,
+            price_nad: if debt_asset == MarketAsset::Quote { NAD / 10 } else { 10 * NAD },
+            publish_time: 100, sequence: 1, status: 1, ..Default::default()
+        };
+        let mut lamports = 1;
+        let mut bytes = feed.try_to_vec().unwrap();
+        let account = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &provider, false, 0);
+        market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],
+            &Clock { unix_timestamp: 100, ..Default::default() }, &[account]).unwrap();
+        // Close the EMA window with a fresh old-provider report before outage.
+        let clock = Clock { slot: 1_000_000, unix_timestamp: 100_000, ..Default::default() };
+        feed.publish_slot = clock.slot;
+        feed.publish_time = clock.unix_timestamp;
+        feed.sequence += 1;
+        bytes = feed.try_to_vec().unwrap();
+        let account = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &provider, false, 0);
+        market.bind_oracle(&[account], &clock).unwrap();
+        market.accrue_interest_to_slot(clock.slot).unwrap();
+        market.refresh_risk_at_slot(clock.slot).unwrap();
+        assert!(market.assert_market_health().is_err());
+        let serialized = market.try_to_vec().unwrap();
+        let clock = Clock { slot: clock.slot + 21, unix_timestamp: clock.unix_timestamp + 50, ..clock };
+        let replacement_key = Pubkey::new_unique();
+        let replacement_provider = Pubkey::new_unique();
+        let replacement = OraclePolicy { provider: replacement_provider, base_account: replacement_key, ..policy };
+        let stale = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &provider, false, 0);
+        let mut unbound = Market::try_from_slice(&serialized).unwrap();
+        assert_eq!(unbound.bind_oracle(&[stale], &clock).unwrap_err(), error!(ErrorCode::OracleStale));
+
+        feed.publish_time = clock.unix_timestamp;
+        feed.publish_slot = clock.slot;
+        feed.sequence += 1;
+        for disable in [false, true] {
+            let mut recovered = Market::try_from_slice(&serialized).unwrap();
+            let next = if disable { OraclePolicy::default() } else { replacement };
+            let mut bytes = feed.try_to_vec().unwrap();
+            let account = AccountInfo::new(&replacement_key, false, false, &mut lamports, &mut bytes,
+                &replacement_provider, false, 0);
+            let accounts = if disable { vec![] } else { vec![account] };
+            let mixed = [MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps: 1_000 },
+                MarketParameterUpdate::Oracle(next)];
+            assert_eq!(recovered.execute_parameter_updates_authenticated(&mixed, &clock, &accounts).unwrap_err(),
+                error!(ErrorCode::InsufficientMarketHealth));
+            assert_eq!(recovered.try_to_vec().unwrap(), serialized);
+            if !disable {
+                assert!(recovered.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(next)],
+                    &clock, &[]).is_err());
+                assert_eq!(recovered.try_to_vec().unwrap(), serialized);
+            }
+            let debt_shares = position.debt_shares(debt_asset);
+            let reserves = (recovered.base_side.reserves, recovered.quote_side.reserves);
+            recovered.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(next)],
+                &clock, &accounts).unwrap();
+            assert_eq!(recovered.oracle.policy, next);
+            assert_eq!(recovered.oracle.revision, market.oracle.revision + 1);
+            assert_eq!(position.debt_shares(debt_asset), debt_shares);
+            assert_eq!(recovered.debt.fixed_base_shares, market.debt.fixed_base_shares);
+            assert_eq!(recovered.debt.fixed_quote_shares, market.debt.fixed_quote_shares);
+            assert_eq!(recovered.base_side.reserves.cash_reserve, reserves.0.cash_reserve);
+            assert_eq!(recovered.quote_side.reserves.cash_reserve, reserves.1.cash_reserve);
+            assert!(recovered.is_position_liquidatable(&position, debt_asset).unwrap());
+            recovered.assert_market_invariants().unwrap();
+        }
+    }
+}
+
+#[test]
+fn oracle_only_policy_can_execute_at_the_utilization_guard_boundary() {
+    use crate::state::{NormalizedOracleV1, OraclePolicy, NORMALIZED_ORACLE_MAGIC, NORMALIZED_ORACLE_V1};
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.debt.fixed_base_shares = 800_000;
+    market.debt.fixed_base_principal = 800_000;
+    market.base_side.reserves.cash_reserve = 200_000;
+    assert_eq!(market.lending_utilization_bps(MarketAsset::Base).unwrap(), 8_000);
+    let provider = Pubkey::new_unique();
+    let key = Pubkey::new_unique();
+    let policy = OraclePolicy { format: NORMALIZED_ORACLE_V1, provider, base_account: key,
+        base_feed_id: [7; 32], lambda_bps: 5_000, adjustment_cap_nad: 2 * NAD,
+        max_age_seconds: 30, max_age_slots: 20, max_confidence_bps: 100, ..Default::default() };
+    let feed = NormalizedOracleV1 { magic: NORMALIZED_ORACLE_MAGIC, feed_id: [7; 32],
+        base_mint: market.base_side.asset_mint, quote_mint: market.quote_side.asset_mint,
+        price_nad: NAD, publish_time: 100, sequence: 1, status: 1, ..Default::default() };
+    let clock = Clock { unix_timestamp: 100, ..Default::default() };
+    let mut lamports = 1;
+    let mut bytes = feed.try_to_vec().unwrap();
+    let account = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &provider, false, 0);
+    let mixed = [MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps: 1_000 },
+        MarketParameterUpdate::Oracle(policy)];
+    let before = market.try_to_vec().unwrap();
+    assert_eq!(market.execute_parameter_updates_authenticated(&mixed, &clock, &[account.clone()]).unwrap_err(),
+        error!(ErrorCode::UtilizationGuardExceeded));
+    assert_eq!(market.try_to_vec().unwrap(), before);
+    market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)], &clock, &[account]).unwrap();
+    assert_eq!(market.debt.fixed_base_shares, 800_000);
+    assert_eq!(market.debt.fixed_base_principal, 800_000);
+    market.assert_market_invariants().unwrap();
+}

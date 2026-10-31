@@ -195,6 +195,7 @@ export interface ParameterGovernanceBuild {
 }
 
 interface GovernanceMarketState {
+  oracle?: { policy: OraclePolicyInput };
   ylpMint: PublicKey;
   baseSide: { assetMint: PublicKey };
   quoteSide: { assetMint: PublicKey };
@@ -1123,26 +1124,28 @@ export class DuskWrite {
     return { proposal, instruction, transaction: new Transaction().add(instruction) };
   }
 
-  /** Permissionlessly execute inside the 7-day window; on-chain utilization checks remain authoritative. */
+  /** Execute inside the 7-day window. Standalone oracle policies can restore
+   * pricing during distress; other updates retain utilization/health guards. */
   async executeParameterProposal(
     params: ExecuteParameterProposalParams
   ): Promise<ParameterGovernanceBuild> {
     const market = address(params.market);
     const proposal = address(params.proposal);
     const state = await this.governanceMarketState(market);
-    const instruction = await this.instruction(
-      "executeParameterProposal" as DuskInstructionName,
-      undefined,
-      {
-        accounts: {
-          market,
-          baseMint: address(state.baseSide.assetMint),
-          quoteMint: address(state.quoteSide.assetMint),
-          proposal,
-        },
-      }
-    );
-    return { proposal, instruction, transaction: new Transaction().add(instruction) };
+    const options = await this.withOraclePolicy("executeParameterProposal", {
+      accounts: {
+        market,
+        baseMint: address(state.baseSide.assetMint),
+        quoteMint: address(state.quoteSide.assetMint),
+        proposal,
+      },
+    });
+    const instruction = await this.instruction("executeParameterProposal", undefined, options);
+    const budgetPolicy = options.oraclePolicy?.lambdaBps
+      ? options.oraclePolicy : state.oracle?.policy;
+    return { proposal, instruction, transaction: new Transaction().add(
+      ...oracleComputeBudgetInstructions(budgetPolicy), instruction,
+    ) };
   }
 
   /** Release all or part of direct support and credit earned yield to its owner. */
