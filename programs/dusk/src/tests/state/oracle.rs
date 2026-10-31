@@ -203,3 +203,78 @@ fn ratio_rounding_handles_different_exponents_without_a_quote_peg() {
         }
     }
 }
+
+#[test]
+fn pyth_direct_prices_the_selected_pair_with_one_verified_account() {
+    let (_, _, mut fixture)=normalized();
+    fixture.owner=PYTH_RECEIVER;
+    fixture.data=pyth([7;32],123_456_789,Verification::Full,995,95);
+    let policy=OraclePolicy {format:PYTH_DIRECT_V3,provider:PYTH_RECEIVER,base_account:fixture.key,
+        base_feed_id:[7;32],lambda_bps:3500,adjustment_cap_nad:2*NAD,max_age_seconds:30,max_age_slots:20,
+        max_confidence_bps:100,..Default::default()};
+    policy.validate().unwrap();
+    let observed=policy.read(&[fixture.info()],&clock(),Pubkey::new_unique(),Pubkey::new_unique()).unwrap();
+    assert_eq!(observed.price_nad,1_234_567_890);
+    assert_eq!(observed.confidence_nad,0);
+    assert_eq!(observed.source_times,[995,0]);
+    for offset in [40,41] {let saved=fixture.data[offset];fixture.data[offset]^=1;
+        assert!(policy.read(&[fixture.info()],&clock(),Pubkey::default(),Pubkey::default()).is_err());
+        fixture.data[offset]=saved;}
+    for bad in [OraclePolicy {quote_account:Pubkey::new_unique(),..policy},
+        OraclePolicy {max_publish_skew_seconds:1,..policy},OraclePolicy {provider:Pubkey::new_unique(),..policy}] {
+        assert!(bad.validate().is_err());
+    }
+}
+
+#[test]
+fn normalized_ratio_authenticates_both_assets_denomination_and_uncertainty() {
+    let (mut market,mut base,mut a)=normalized();
+    let denomination=Pubkey::new_unique();
+    base.quote_mint=denomination;
+    base.price_nad=20*NAD;base.confidence_nad=NAD/100;
+    let mut quote=NormalizedOracleV1 {base_mint:market.quote_side.asset_mint,feed_id:[8;32],
+        price_nad:NAD,confidence_nad:NAD/1000,..base};
+    let mut b=FeedAccount {key:Pubkey::new_unique(),owner:a.owner,lamports:1,data:quote.try_to_vec().unwrap()};
+    let policy=OraclePolicy {format:NORMALIZED_RATIO_V4,quote_account:b.key,quote_feed_id:quote.feed_id,
+        max_publish_skew_seconds:5,..market.oracle.policy};
+    policy.validate().unwrap();market.oracle.policy=policy;a.data=base.try_to_vec().unwrap();
+    let observation=policy.read(&[a.info(),b.info()],&clock(),market.base_side.asset_mint,market.quote_side.asset_mint).unwrap();
+    assert_eq!(observation.price_nad,20*NAD);
+    assert!(observation.confidence_nad>=30_000_000 && observation.confidence_nad<=30_031_000);
+    market.bind_oracle(&[a.info(),b.info()],&clock()).unwrap();
+    // Independent updates do not require synchronized counters, and the idle
+    // leg must still be immutable at its previously observed counter.
+    base.sequence+=1;base.publish_time+=1;base.publish_slot+=1;base.price_nad+=NAD;
+    a.data=base.try_to_vec().unwrap();
+    market.bind_oracle(&[a.info(),b.info()],&clock()).unwrap();
+    let saved=market.oracle.last_observation;
+    quote.price_nad+=1;b.data=quote.try_to_vec().unwrap();
+    assert!(market.bind_oracle(&[a.info(),b.info()],&clock()).is_err());
+    assert_eq!(market.oracle.last_observation,saved);
+    quote.sequence+=1;quote.publish_time+=1;quote.publish_slot+=1;
+    b.data=quote.try_to_vec().unwrap();market.bind_oracle(&[a.info(),b.info()],&clock()).unwrap();
+    // Advancing the minimum aggregate sequence must not hide one leg's rollback.
+    base.sequence=1;base.publish_time+=1;base.publish_slot+=1;a.data=base.try_to_vec().unwrap();
+    quote.sequence=10;b.data=quote.try_to_vec().unwrap();
+    assert!(market.bind_oracle(&[a.info(),b.info()],&clock()).is_err());
+    base.sequence=3;a.data=base.try_to_vec().unwrap();
+    for case in 0..13 {
+        let mut bad=quote;
+        match case {
+            0=>bad.quote_mint=Pubkey::new_unique(),1=>bad.base_mint=market.base_side.asset_mint,
+            2=>bad.feed_id=[9;32],3=>bad.price_nad=0,4=>bad.confidence_nad=bad.price_nad,
+            5=>bad.confidence_nad=bad.price_nad/2,6=>bad.status=0,7=>bad.sequence=0,
+            8=>bad.publish_time=1001,9=>bad.publish_time=969,10=>bad.publish_slot=101,
+            11=>bad.publish_slot=79,12=>bad.publish_time=990,_=>unreachable!(),
+        }
+        b.data=bad.try_to_vec().unwrap();
+        assert!(policy.read(&[a.info(),b.info()],&clock(),market.base_side.asset_mint,market.quote_side.asset_mint).is_err(),"accepted {case}");
+    }
+    b.data=quote.try_to_vec().unwrap();b.owner=Pubkey::new_unique();
+    assert!(policy.read(&[a.info(),b.info()],&clock(),market.base_side.asset_mint,market.quote_side.asset_mint).is_err());
+    b.owner=a.owner;
+    assert!(policy.read(&[a.info()],&clock(),market.base_side.asset_mint,market.quote_side.asset_mint).is_err());
+    base.quote_mint=Pubkey::default();quote.quote_mint=Pubkey::default();
+    a.data=base.try_to_vec().unwrap();b.data=quote.try_to_vec().unwrap();
+    assert!(policy.read(&[a.info(),b.info()],&clock(),market.base_side.asset_mint,market.quote_side.asset_mint).is_err());
+}

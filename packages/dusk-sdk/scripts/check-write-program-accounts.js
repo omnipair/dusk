@@ -130,14 +130,16 @@ const policy = (lambdaBps = 2500) => ({
 });
 
 test("oracle policy wire encoding matches Anchor and rejects ambiguous feed identities", async () => {
-  const { encodeOraclePolicy, oraclePolicy, oracleReadAccounts, PYTH_RECEIVER_PROGRAM } = await import("../dist/oracle.js");
+  const { encodeOraclePolicy, oraclePolicy, oracleReadAccounts, oracleUsesTwoFeeds, PYTH_RECEIVER_PROGRAM } = await import("../dist/oracle.js");
   for (const input of [policy(), {...policy(), format: 2, provider: PYTH_RECEIVER_PROGRAM,
-    quoteAccount: key(22), quoteFeedId: Array(32).fill(2), maxPublishSkewSeconds: 3}]) {
+    quoteAccount: key(22), quoteFeedId: Array(32).fill(2), maxPublishSkewSeconds: 3},
+    {...policy(), format:3, provider:PYTH_RECEIVER_PROGRAM},
+    {...policy(), format:4, quoteAccount:key(22),quoteFeedId:Array(32).fill(2),maxPublishSkewSeconds:3}]) {
     const ix = await write.initializeMarketInstruction(creationParams(input));
     const decoded=program.coder.instruction.decode(ix.data);
     assert.deepEqual(program.coder.types.encode("oraclePolicy",decoded.data.args.oracle), Buffer.from(encodeOraclePolicy(input)));
     assert.deepEqual(oracleReadAccounts(input).map(meta => meta.pubkey.toBase58()),
-      [input.baseAccount, ...(input.format === 2 ? [input.quoteAccount] : [])].map(key => key.toBase58()));
+      [input.baseAccount, ...(oracleUsesTwoFeeds(input.format) ? [input.quoteAccount] : [])].map(key => key.toBase58()));
     assert.ok(oracleReadAccounts(input).every(meta => !meta.isWritable && !meta.isSigner));
   }
   assert.throws(() => oraclePolicy({...policy(), lambdaBps: 10_000}));
@@ -147,6 +149,10 @@ test("oracle policy wire encoding matches Anchor and rejects ambiguous feed iden
   assert.equal(oraclePolicy({...policy(),lambdaBps:9999,adjustmentCapNad:3_000_000_000}).lambdaBps,9999);
   assert.throws(() => oraclePolicy({...policy(), baseFeedId: [1]}));
   assert.deepEqual(oracleReadAccounts(policy(0)), []);
+  assert.throws(() => oraclePolicy({...policy(),format:3}));
+  assert.throws(() => oraclePolicy({...policy(),format:3,provider:PYTH_RECEIVER_PROGRAM,quoteAccount:key(22)}));
+  assert.throws(() => oraclePolicy({...policy(),format:4}));
+  assert.throws(() => oraclePolicy({...policy(),format:5}));
 });
 
 test("positive-weight previews append feeds after caller accounts and transaction budgets precede execution", async () => {

@@ -9,10 +9,10 @@ Market creation accepts an optional oracle policy alongside the other parameters
 - **λ = 0:** native Dusk pricing, no feed-account dependency. Lending, leverage and hLP use that same native pricing path.
 - **Positive λ:** 1–9,999 basis points. For native price N, external reference O and cap M, the marginal price is `N × exp(clip(λ × ln(O/N), −ln(M), ln(M)))`. Clipping preserves full-range native tails; it limits adjustment rather than guaranteeing exact oracle tracking.
 - **One consumer path:** read authenticated on-chain accounts. Upstream verification/update can precede Dusk in the same transaction. Dusk does not fetch off-chain data or verify a separate raw signed-report format.
-- **Source formats:** a versioned normalized pair account and fully verified Pyth `PriceUpdateV2` accounts for both assets. The latter computes a ratio, including quote-asset uncertainty, rather than assuming a dollar peg.
+- **Independent provider/layout choices:** one directly denominated pair feed or two asset feeds in a common denomination, for both normalized providers and fully verified Pyth `PriceUpdateV2` accounts. Ratios include quote-asset uncertainty without assuming a dollar peg. Layout 8 persists per-leg replay counters/content hashes; normalized legs identify their respective mints and common denomination.
 - **Invalid/stale source:** price-sensitive actions reject. Debt-token repayment and collateral additions can proceed without granting price authority. There is no automatic switch to native pricing, time-decay liquidation, or guaranteed external execution during an outage.
 
-The provider, accounts, feed identities, age in seconds and slots, confidence limits, and Pyth publication skew are selected by the market. Account owner, format, instrument identity, status, positivity, future timestamps and replay/equivocation are checked on-chain. A stored observation is history, not an execution capability: authentication is repeated after every account deserialization.
+The provider, accounts, feed identities, age in seconds and slots, confidence limits, and ratio publication skew are selected by the market. Account owner, format, instrument identity, status, positivity, future timestamps and replay/equivocation are checked on-chain. A stored observation is history, not an execution capability: authentication is repeated after every account deserialization.
 
 A proposal containing exactly one oracle-policy update can execute despite market distress or utilization at/above 80%. This lets governance replace a dead source or explicitly disable the oracle before liquidation can resume. Positive weight still requires a fresh authenticated proposed source; support, timelock, execution window and revision checks still apply. Adding any other parameter update restores the ordinary utilization and market-health guards for the whole proposal. This exception grants no new borrowing authority and performs no automatic inventory fallback.
 
@@ -81,3 +81,14 @@ the unchanged 1,355,000-CU repository guard and 1.4M network cap. No curve,
 invariant, liquidation, interest or rounding rule was changed for this saving.
 The full 155-case SVM suite passes with 77/77 instruction coverage and the
 complete required compute baselines.
+
+
+The independent-feed-layout extension passes the full required local CI:
+581 normal and production Dusk tests, 16 delegate tests, 83 SDK tests, and 156
+LiteSVM tests covering 77/77 instructions with a complete CU baseline and no
+pending cases. The transaction suite records 5,303 successful transactions and
+1,327,398 CU maximum, below the unchanged 1,355,000-CU default guard. It seeds all
+four provider/layout combinations and checks atomic rollback for missing/stale
+legs. See `docs/evidence/oracle-feed-layouts-2026-10-31/validation.json`.
+This layout-8 extension has not been deployed; live layout-7 receipts remain
+historical evidence for that earlier deployed build.

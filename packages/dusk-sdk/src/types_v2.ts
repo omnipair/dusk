@@ -19515,6 +19515,35 @@ export type Dusk = {
                 2
               ]
             }
+          },
+          {
+            "name": "sourceSequences",
+            "docs": [
+              "Independent counters retain replay protection when only one leg updates."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "sourceHashes",
+            "docs": [
+              "Each normalized report is immutable at an already observed counter."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                },
+                2
+              ]
+            }
           }
         ]
       }
@@ -22837,7 +22866,7 @@ export type Dusk = {
         "decode as this structure."
       ],
       "type": "u8",
-      "value": "7"
+      "value": "8"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

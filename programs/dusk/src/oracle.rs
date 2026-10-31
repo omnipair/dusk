@@ -10,6 +10,8 @@ use anchor_lang::{prelude::*, solana_program::hash::hashv};
 
 pub const NORMALIZED_ORACLE_V1: u8 = 1;
 pub const PYTH_RATIO_V2: u8 = 2;
+pub const PYTH_DIRECT_V3: u8 = 3;
+pub const NORMALIZED_RATIO_V4: u8 = 4;
 pub const NORMALIZED_ORACLE_MAGIC: [u8; 8] = *b"DOPRV001";
 pub const PYTH_RECEIVER: Pubkey = pubkey!("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
 
@@ -57,22 +59,31 @@ impl OraclePolicy {
                 && self.base_feed_id != [0; 32],
             ErrorCode::InvalidMarketConfig
         );
-        match self.format {
-            NORMALIZED_ORACLE_V1 => require!(
-                self.quote_account == Pubkey::default()
-                    && self.quote_feed_id == [0; 32]
-                    && self.max_publish_skew_seconds == 0,
-                ErrorCode::InvalidMarketConfig
+        require!(
+            matches!(
+                self.format,
+                NORMALIZED_ORACLE_V1 | PYTH_RATIO_V2 | PYTH_DIRECT_V3 | NORMALIZED_RATIO_V4
             ),
-            PYTH_RATIO_V2 => require!(
-                self.provider == PYTH_RECEIVER
-                    && self.quote_account != Pubkey::default()
+            ErrorCode::InvalidMarketConfig
+        );
+        if matches!(self.format, PYTH_RATIO_V2 | PYTH_DIRECT_V3) {
+            require_keys_eq!(self.provider, PYTH_RECEIVER, ErrorCode::InvalidMarketConfig);
+        }
+        if self.two_feeds() {
+            require!(
+                self.quote_account != Pubkey::default()
                     && self.quote_feed_id != [0; 32]
                     && self.base_account != self.quote_account
                     && self.base_feed_id != self.quote_feed_id,
                 ErrorCode::InvalidMarketConfig
-            ),
-            _ => return err!(ErrorCode::InvalidMarketConfig),
+            );
+        } else {
+            require!(
+                self.quote_account == Pubkey::default()
+                    && self.quote_feed_id == [0; 32]
+                    && self.max_publish_skew_seconds == 0,
+                ErrorCode::InvalidMarketConfig
+            );
         }
         Ok(())
     }
@@ -84,96 +95,55 @@ impl OraclePolicy {
         base_mint: Pubkey,
         quote_mint: Pubkey,
     ) -> Result<OracleObservation> {
-        let primary = accounts
-            .iter()
-            .find(|a| *a.key == self.base_account)
-            .ok_or(ErrorCode::OracleAccountMissing)?;
-        require_keys_eq!(*primary.owner, self.provider, ErrorCode::OracleAuthenticationFailed);
-        require!(!primary.executable, ErrorCode::OracleAuthenticationFailed);
-        let primary_data = primary.try_borrow_data()?;
-        let (price, confidence, publish_time, posted_slot, sequence, hash, source_times, source_slots) =
-            match self.format {
-                NORMALIZED_ORACLE_V1 => {
-                    let feed = NormalizedOracleV1::try_from_slice(&primary_data)
-                        .map_err(|_| ErrorCode::OracleAuthenticationFailed)?;
-                    require!(
-                        feed.magic == NORMALIZED_ORACLE_MAGIC && feed.feed_id == self.base_feed_id,
-                        ErrorCode::OracleAuthenticationFailed
-                    );
-                    require_keys_eq!(feed.base_mint, base_mint, ErrorCode::OracleAuthenticationFailed);
-                    require_keys_eq!(feed.quote_mint, quote_mint, ErrorCode::OracleAuthenticationFailed);
-                    require!(
-                        feed.status == 1 && feed.sequence > 0,
-                        ErrorCode::OracleInvalidObservation
-                    );
-                    (
-                        feed.price_nad,
-                        feed.confidence_nad,
-                        feed.publish_time,
-                        feed.publish_slot,
-                        feed.sequence,
-                        hashv(&[primary.key.as_ref(), &primary_data]).to_bytes(),
-                        [feed.publish_time, 0],
-                        [feed.publish_slot, 0],
-                    )
-                }
-                PYTH_RATIO_V2 => {
-                    require_keys_eq!(self.provider, PYTH_RECEIVER, ErrorCode::OracleAuthenticationFailed);
-                    let secondary = accounts
-                        .iter()
-                        .find(|a| *a.key == self.quote_account)
-                        .ok_or(ErrorCode::OracleAccountMissing)?;
-                    require_keys_eq!(*secondary.owner, PYTH_RECEIVER, ErrorCode::OracleAuthenticationFailed);
-                    require!(!secondary.executable, ErrorCode::OracleAuthenticationFailed);
-                    let secondary_data = secondary.try_borrow_data()?;
-                    let base = PythPrice::decode(&primary_data, self.base_feed_id)?;
-                    let quote = PythPrice::decode(&secondary_data, self.quote_feed_id)?;
-                    self.validate_age(base.publish_time, base.posted_slot, clock)?;
-                    self.validate_age(quote.publish_time, quote.posted_slot, clock)?;
-                    require!(
-                        base.publish_time.abs_diff(quote.publish_time) <= u64::from(self.max_publish_skew_seconds),
-                        ErrorCode::OracleInvalidObservation
-                    );
-                    let price = ratio_nad(base.price, quote.price, base.exponent - quote.exponent, false)?;
-                    let lower = ratio_nad(
-                        base.price - base.confidence,
-                        quote
-                            .price
-                            .checked_add(quote.confidence)
-                            .ok_or(ErrorCode::MarketMathOverflow)?,
-                        base.exponent - quote.exponent,
-                        false,
-                    )?;
-                    let upper = ratio_nad(
-                        base.price
-                            .checked_add(base.confidence)
-                            .ok_or(ErrorCode::MarketMathOverflow)?,
-                        quote.price - quote.confidence,
-                        base.exponent - quote.exponent,
-                        true,
-                    )?;
-                    let confidence = price.abs_diff(lower).max(price.abs_diff(upper));
-                    let time = base.publish_time.min(quote.publish_time);
-                    (
-                        price,
-                        confidence,
-                        time,
-                        base.posted_slot.min(quote.posted_slot),
-                        u64::try_from(time).map_err(|_| ErrorCode::OracleInvalidObservation)?,
-                        hashv(&[
-                            primary.key.as_ref(),
-                            &primary_data,
-                            secondary.key.as_ref(),
-                            &secondary_data,
-                        ])
-                        .to_bytes(),
-                        [base.publish_time, quote.publish_time],
-                        [base.posted_slot, quote.posted_slot],
-                    )
-                }
-                _ => return err!(ErrorCode::OracleAuthenticationFailed),
-            };
-        self.validate_age(publish_time, posted_slot, clock)?;
+        let base = self.read_source(accounts, self.base_account, self.base_feed_id)?;
+        let quote = if self.two_feeds() {
+            let quote = self.read_source(accounts, self.quote_account, self.quote_feed_id)?;
+            self.validate_age(quote.publish_time, quote.posted_slot, clock)?;
+            require!(
+                base.publish_time.abs_diff(quote.publish_time) <= u64::from(self.max_publish_skew_seconds),
+                ErrorCode::OracleInvalidObservation
+            );
+            if self.format == NORMALIZED_RATIO_V4 {
+                require!(
+                    base.base_mint == base_mint
+                        && quote.base_mint == quote_mint
+                        && base.quote_mint != Pubkey::default()
+                        && base.quote_mint == quote.quote_mint,
+                    ErrorCode::OracleAuthenticationFailed
+                );
+            }
+            Some(quote)
+        } else {
+            if self.format == NORMALIZED_ORACLE_V1 {
+                require_keys_eq!(base.base_mint, base_mint, ErrorCode::OracleAuthenticationFailed);
+                require_keys_eq!(base.quote_mint, quote_mint, ErrorCode::OracleAuthenticationFailed);
+            }
+            None
+        };
+        self.validate_age(base.publish_time, base.posted_slot, clock)?;
+        // A direct report is already denominated in the market quote asset.
+        // Two asset reports must share a denomination; no stablecoin peg is assumed.
+        let denominator = quote.map_or(1, |q| q.price);
+        let denominator_confidence = quote.map_or(0, |q| q.confidence);
+        let exponent = base.exponent - quote.map_or(0, |q| q.exponent);
+        let price = ratio_nad(base.price, denominator, exponent, false)?;
+        let lower = ratio_nad(
+            base.price - base.confidence,
+            denominator
+                .checked_add(denominator_confidence)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            exponent,
+            false,
+        )?;
+        let upper = ratio_nad(
+            base.price
+                .checked_add(base.confidence)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            denominator - denominator_confidence,
+            exponent,
+            true,
+        )?;
+        let confidence = price.abs_diff(lower).max(price.abs_diff(upper));
         require!(price > 0 && confidence < price, ErrorCode::OracleInvalidObservation);
         require!(
             u128::from(confidence) * 10_000 <= u128::from(price) * u128::from(self.max_confidence_bps),
@@ -182,13 +152,92 @@ impl OraclePolicy {
         Ok(OracleObservation {
             price_nad: price,
             confidence_nad: confidence,
-            publish_time,
-            posted_slot,
-            sequence,
-            hash,
-            source_times,
-            source_slots,
+            publish_time: quote.map_or(base.publish_time, |q| base.publish_time.min(q.publish_time)),
+            posted_slot: quote.map_or(base.posted_slot, |q| base.posted_slot.min(q.posted_slot)),
+            sequence: quote.map_or(base.sequence, |q| base.sequence.min(q.sequence)),
+            hash: quote.map_or(base.hash, |q| hashv(&[&base.hash, &q.hash]).to_bytes()),
+            source_times: [base.publish_time, quote.map_or(0, |q| q.publish_time)],
+            source_slots: [base.posted_slot, quote.map_or(0, |q| q.posted_slot)],
+            source_sequences: [base.sequence, quote.map_or(0, |q| q.sequence)],
+            source_hashes: [base.hash, quote.map_or([0; 32], |q| q.hash)],
         })
+    }
+
+    fn two_feeds(self) -> bool {
+        matches!(self.format, PYTH_RATIO_V2 | NORMALIZED_RATIO_V4)
+    }
+
+    fn read_source(self, accounts: &[AccountInfo], key: Pubkey, id: [u8; 32]) -> Result<OracleSource> {
+        let account = accounts
+            .iter()
+            .find(|a| *a.key == key)
+            .ok_or(ErrorCode::OracleAccountMissing)?;
+        require_keys_eq!(*account.owner, self.provider, ErrorCode::OracleAuthenticationFailed);
+        require!(!account.executable, ErrorCode::OracleAuthenticationFailed);
+        let data = account.try_borrow_data()?;
+        let hash = hashv(&[account.key.as_ref(), &data]).to_bytes();
+        let source = match self.format {
+            NORMALIZED_ORACLE_V1 | NORMALIZED_RATIO_V4 => {
+                let feed =
+                    NormalizedOracleV1::try_from_slice(&data).map_err(|_| ErrorCode::OracleAuthenticationFailed)?;
+                require!(
+                    feed.magic == NORMALIZED_ORACLE_MAGIC && feed.feed_id == id,
+                    ErrorCode::OracleAuthenticationFailed
+                );
+                require!(
+                    feed.status == 1 && feed.sequence > 0,
+                    ErrorCode::OracleInvalidObservation
+                );
+                OracleSource {
+                    price: feed.price_nad,
+                    confidence: feed.confidence_nad,
+                    exponent: -9,
+                    publish_time: feed.publish_time,
+                    posted_slot: feed.publish_slot,
+                    sequence: feed.sequence,
+                    base_mint: feed.base_mint,
+                    quote_mint: feed.quote_mint,
+                    hash,
+                }
+            }
+            PYTH_RATIO_V2 | PYTH_DIRECT_V3 => {
+                require_keys_eq!(self.provider, PYTH_RECEIVER, ErrorCode::OracleAuthenticationFailed);
+                // Pinned PriceUpdateV2 wire layout. Full verification is mandatory.
+                // https://github.com/pyth-network/pyth-crosschain/blob/main/target_chains/solana/pyth_solana_receiver_sdk/src/price_update.rs
+                require!(
+                    data.len() == 133 || data.len() == 134,
+                    ErrorCode::OracleAuthenticationFailed
+                );
+                require!(
+                    data[..8] == hashv(&[b"account:PriceUpdateV2"]).to_bytes()[..8]
+                        && data[40] == 1
+                        && data[41..73] == id,
+                    ErrorCode::OracleAuthenticationFailed
+                );
+                let i64_at = |offset: usize| i64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+                let price = u64::try_from(i64_at(73)).map_err(|_| ErrorCode::OracleInvalidObservation)?;
+                let exponent = i32::from_le_bytes(data[89..93].try_into().unwrap());
+                require!((-18..=18).contains(&exponent), ErrorCode::OracleInvalidObservation);
+                let publish_time = i64_at(93);
+                OracleSource {
+                    price,
+                    confidence: u64::from_le_bytes(data[81..89].try_into().unwrap()),
+                    exponent,
+                    publish_time,
+                    posted_slot: u64::from_le_bytes(data[125..133].try_into().unwrap()),
+                    sequence: u64::try_from(publish_time).map_err(|_| ErrorCode::OracleInvalidObservation)?,
+                    base_mint: Pubkey::default(),
+                    quote_mint: Pubkey::default(),
+                    hash,
+                }
+            }
+            _ => return err!(ErrorCode::OracleAuthenticationFailed),
+        };
+        require!(
+            source.price > 0 && source.confidence < source.price,
+            ErrorCode::OracleInvalidObservation
+        );
+        Ok(source)
     }
 
     fn validate_age(self, time: i64, slot: u64, clock: &Clock) -> Result<()> {
@@ -202,6 +251,19 @@ impl OraclePolicy {
         );
         Ok(())
     }
+}
+
+#[derive(Clone, Copy)]
+struct OracleSource {
+    price: u64,
+    confidence: u64,
+    exponent: i32,
+    publish_time: i64,
+    posted_slot: u64,
+    sequence: u64,
+    base_mint: Pubkey,
+    quote_mint: Pubkey,
+    hash: [u8; 32],
 }
 
 /// Provider-owned ABI for a directly denominated base/quote report. A provider
@@ -232,6 +294,10 @@ pub struct OracleObservation {
     pub hash: [u8; 32],
     pub source_times: [i64; 2],
     pub source_slots: [u64; 2],
+    /// Independent counters retain replay protection when only one leg updates.
+    pub source_sequences: [u64; 2],
+    /// Each normalized report is immutable at an already observed counter.
+    pub source_hashes: [[u8; 32]; 2],
 }
 impl OracleObservation {
     pub(crate) fn assert_not_before(self, previous: Self, format: u8) -> Result<()> {
@@ -241,50 +307,20 @@ impl OracleObservation {
                 self.source_times[i] >= previous.source_times[i] && self.source_slots[i] >= previous.source_slots[i],
                 ErrorCode::OracleReplay
             );
-        }
-        if format == NORMALIZED_ORACLE_V1 && self.sequence == previous.sequence {
-            require!(self.hash == previous.hash, ErrorCode::OracleReplay);
+            require!(
+                self.source_sequences[i] >= previous.source_sequences[i],
+                ErrorCode::OracleReplay
+            );
+            if matches!(format, NORMALIZED_ORACLE_V1 | NORMALIZED_RATIO_V4)
+                && self.source_sequences[i] == previous.source_sequences[i]
+            {
+                require!(
+                    self.source_hashes[i] == previous.source_hashes[i],
+                    ErrorCode::OracleReplay
+                );
+            }
         }
         Ok(())
-    }
-}
-
-// Pinned PriceUpdateV2 wire layout; full verification is mandatory. Upstream:
-// https://github.com/pyth-network/pyth-crosschain/blob/main/target_chains/solana/pyth_solana_receiver_sdk/src/price_update.rs
-// Parsing the small wire record avoids pulling a second Anchor/Solana version
-// into Dusk. Tests cover the full and partial encodings and field offsets.
-struct PythPrice {
-    price: u64,
-    confidence: u64,
-    exponent: i32,
-    publish_time: i64,
-    posted_slot: u64,
-}
-impl PythPrice {
-    fn decode(data: &[u8], id: [u8; 32]) -> Result<Self> {
-        require!(
-            data.len() == 133 || data.len() == 134,
-            ErrorCode::OracleAuthenticationFailed
-        );
-        require!(
-            data[..8] == hashv(&[b"account:PriceUpdateV2"]).to_bytes()[..8] && data[40] == 1 && data[41..73] == id,
-            ErrorCode::OracleAuthenticationFailed
-        );
-        let i64_at = |offset: usize| i64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
-        let price = u64::try_from(i64_at(73)).map_err(|_| ErrorCode::OracleInvalidObservation)?;
-        let confidence = u64::from_le_bytes(data[81..89].try_into().unwrap());
-        let exponent = i32::from_le_bytes(data[89..93].try_into().unwrap());
-        require!(
-            price > 0 && confidence < price && (-18..=18).contains(&exponent),
-            ErrorCode::OracleInvalidObservation
-        );
-        Ok(Self {
-            price,
-            confidence,
-            exponent,
-            publish_time: i64_at(93),
-            posted_slot: u64::from_le_bytes(data[125..133].try_into().unwrap()),
-        })
     }
 }
 

@@ -1757,6 +1757,62 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }
   });
 
+  it("funds all four provider/layout combinations and rejects a missing or stale leg atomically", async function () {
+    const receiver=new PublicKey("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
+    for (const format of [1,2,3,4]) {
+      const source=normalizedTestOracle();
+      const ratio=[2,4].includes(format), pyth=[2,3].includes(format);
+      const secondary=Keypair.generate().publicKey;
+      const policy={...source.policy,format,provider:pyth?receiver:source.owner,
+        quoteAccount:ratio?secondary:PublicKey.default,quoteFeedId:Array(32).fill(ratio?8:0),maxPublishSkewSeconds:ratio?5:0};
+      const f=await initializeFinalMarket(207+format,marketConfig(),policy);
+      const accounts=await createOwnerAssetAccounts(f);
+      let clock=svm.getClock();if(clock.unixTimestamp<=0n){clock.unixTimestamp=1000n;svm.setClock(clock);}
+      const denomination=Keypair.generate().publicKey;
+      const publish=(key:PublicKey,id:number,price:bigint,asset:PublicKey) => {
+        clock=svm.getClock();
+        const data=Buffer.alloc(pyth?134:145);
+        if(pyth){
+          data.set(createHash("sha256").update("account:PriceUpdateV2").digest().subarray(0,8));
+          data[40]=1;data.fill(id,41,73);data.writeBigInt64LE(price,73);data.writeInt32LE(-9,89);
+          data.writeBigInt64LE(clock.unixTimestamp,93);data.writeBigUInt64LE(clock.slot,125);
+        }else{
+          data.set(Buffer.from("DOPRV001"));data.fill(id,8,40);data.set(asset.toBytes(),40);
+          data.set((ratio?denomination:f.quoteMint).toBytes(),72);data.writeBigUInt64LE(price,104);
+          data.writeBigInt64LE(clock.unixTimestamp,120);data.writeBigUInt64LE(clock.slot,128);
+          data.writeBigUInt64LE(1n,136);data[144]=1;
+        }
+        svm.setAccount(key,{lamports:10_000_000,owner:policy.provider,data,executable:false});
+      };
+      publish(source.key,7,ratio?6_000_000_000n:3_000_000_000n,f.baseMint);
+      if(ratio)publish(secondary,8,2_000_000_000n,f.quoteMint);
+      const writer=new DuskWrite(createDuskProgram({provider:program.provider}));
+      const ix=await writer.addLiquidityInstruction({market:f.market,owner:payer.publicKey,
+        baseMint:f.baseMint,quoteMint:f.quoteMint,ylpMint:f.ylpMint,...accounts,
+        baseDepositAmount:100_000,quoteDepositAmount:200_000,minYlpAmount:1});
+      const unchanged=[f.market,f.baseReserveVault,f.quoteReserveVault,f.ylpMint,accounts.ownerBaseAccount,accounts.ownerQuoteAccount];
+      const before=unchanged.map(k=>Buffer.from(svm.getAccount(k)!.data));
+      const target=ratio?secondary:source.key;
+      if(ratio){
+        const missing=new TransactionInstruction({...ix,keys:ix.keys.filter(meta=>!meta.pubkey.equals(secondary))});
+        let error:unknown;try{await connection.sendTransaction(new Transaction().add(missing),[payer]);}catch(e){error=e;}
+        expect(String(error)).to.include("OracleAccountMissing");svm.expireBlockhash();
+      }
+      const original=svm.getAccount(target)!;const stale=Buffer.from(original.data);
+      stale.writeBigInt64LE(clock.unixTimestamp-61n,pyth?93:120);
+      svm.setAccount(target,{...original,data:stale});
+      let error:unknown;try{await connection.sendTransaction(new Transaction().add(ix),[payer]);}catch(e){error=e;}
+      expect(String(error)).to.include("OracleStale");
+      unchanged.forEach((k,i)=>expect(Buffer.from(svm.getAccount(k)!.data).equals(before[i])).to.equal(true));
+      svm.setAccount(target,original);svm.expireBlockhash();
+      await connection.sendTransaction(new Transaction().add(ix),[payer]);
+      expect((await getAccount(connection as any,f.baseReserveVault)).amount).to.equal(66_666n);
+      expect((await getAccount(connection as any,f.quoteReserveVault)).amount).to.equal(199_998n);
+      const state=accountCoder.decode("Market",Buffer.from(svm.getAccount(f.market)!.data)) as any;
+      expect(state.oracle.last_observation.price_nad.toString()).to.equal("3000000000");
+    }
+  });
+
   it("rolls back market creation and its treasury fee when the initial oracle policy is invalid", async function () {
     const policy=normalizedTestOracle().policy;
     for (const oracle of [{...policy,lambdaBps:10_000},{...policy,adjustmentCapNad:new BN(1_000_000_000)},

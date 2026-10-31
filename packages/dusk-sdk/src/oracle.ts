@@ -5,6 +5,13 @@ import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js
 
 export const NORMALIZED_ORACLE_V1 = 1;
 export const PYTH_RATIO_V2 = 2;
+export const PYTH_DIRECT_V3 = 3;
+export const NORMALIZED_RATIO_V4 = 4;
+
+/** Whether the pinned source composes two independently validated asset feeds. */
+export function oracleUsesTwoFeeds(format: number): boolean {
+  return format === PYTH_RATIO_V2 || format === NORMALIZED_RATIO_V4;
+}
 export const PYTH_RECEIVER_PROGRAM = new PublicKey("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
 
 export interface OraclePolicyInput {
@@ -64,15 +71,16 @@ export function oraclePolicy(input: OraclePolicyInput): OraclePolicy {
   if (BigInt(policy.adjustmentCapNad.toString()) <= 1_000_000_000n || policy.maxAgeSeconds === 0
     || policy.maxAgeSlots.isZero() || policy.provider.equals(zero) || policy.baseAccount.equals(zero)
     || emptyId(policy.baseFeedId)) throw new Error("invalid oracle policy");
-  if (policy.format === NORMALIZED_ORACLE_V1) {
-    if (!policy.quoteAccount.equals(zero) || !emptyId(policy.quoteFeedId) || policy.maxPublishSkewSeconds !== 0)
-      throw new Error("normalized report must identify one pair account");
-  } else if (policy.format === PYTH_RATIO_V2) {
-    if (!policy.provider.equals(PYTH_RECEIVER_PROGRAM) || policy.quoteAccount.equals(zero)
-      || policy.baseAccount.equals(policy.quoteAccount) || emptyId(policy.quoteFeedId)
-      || policy.baseFeedId.every((v, i) => v === policy.quoteFeedId[i]))
-      throw new Error("Pyth ratio requires two distinct fully verified feeds");
-  } else throw new Error("unsupported oracle format");
+  if (![NORMALIZED_ORACLE_V1, PYTH_RATIO_V2, PYTH_DIRECT_V3, NORMALIZED_RATIO_V4].includes(policy.format))
+    throw new Error("unsupported oracle format");
+  if ((policy.format === PYTH_RATIO_V2 || policy.format === PYTH_DIRECT_V3)
+    && !policy.provider.equals(PYTH_RECEIVER_PROGRAM)) throw new Error("Pyth requires the verified receiver program");
+  if (oracleUsesTwoFeeds(policy.format)) {
+    if (policy.quoteAccount.equals(zero) || policy.baseAccount.equals(policy.quoteAccount)
+      || emptyId(policy.quoteFeedId) || policy.baseFeedId.every((v, i) => v === policy.quoteFeedId[i]))
+      throw new Error("ratio requires two distinct feeds with a common denomination");
+  } else if (!policy.quoteAccount.equals(zero) || !emptyId(policy.quoteFeedId) || policy.maxPublishSkewSeconds !== 0)
+    throw new Error("direct report must identify one pair account");
   return policy;
 }
 
@@ -80,7 +88,7 @@ export function oraclePolicy(input: OraclePolicyInput): OraclePolicy {
 export function oracleReadAccounts(policy?: OraclePolicyInput): AccountMeta[] {
   if (!policy || policy.lambdaBps === 0) return [];
   const checked = oraclePolicy(policy);
-  return [checked.baseAccount, ...(checked.format === PYTH_RATIO_V2 ? [checked.quoteAccount] : [])]
+  return [checked.baseAccount, ...(oracleUsesTwoFeeds(checked.format) ? [checked.quoteAccount] : [])]
     .map(pubkey => ({ pubkey, isSigner: false, isWritable: false }));
 }
 

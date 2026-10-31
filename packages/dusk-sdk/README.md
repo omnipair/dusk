@@ -9,7 +9,7 @@ collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
 
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
-targets Dusk market layout 7, including bounded oracle policies, aggregate leverage exposure and stored
+targets Dusk market layout 8, including bounded oracle policies, aggregate leverage exposure and stored
 position margin terms. Regenerate clients and use matching account layouts.
 
 ## Bounded oracle markets
@@ -67,9 +67,16 @@ vendored IDL. The removed `configureInitialOracle` instruction and
 `InitialOracleConfigured` event are replaced by creation parameters and
 `MarketCreated.oracle`.
 
-The supported policies read either a normalized pair account (`NORMALIZED_ORACLE_V1`)
-or two fully verified Pyth accounts (`PYTH_RATIO_V2`). A market selects the
-provider, feed identities, age and confidence policy. The normalized provider
+Provider and feed layout are independent: normalized direct pair
+(`NORMALIZED_ORACLE_V1`, format 1), fully verified Pyth ratio (`PYTH_RATIO_V2`, 2),
+fully verified Pyth direct pair (`PYTH_DIRECT_V3`, 3), or normalized ratio
+(`NORMALIZED_RATIO_V4`, 4). One feed must actually quote the ordered market pair;
+META/USD alone is not META/USDC. Two feeds must share a denomination and include
+an observed quote-asset price. Ratio uncertainty is rounded outward and each leg
+is authenticated and checked for age and publication skew. Layout 8 stores
+per-leg counters/content hashes so independent updates cannot hide normalized
+report equivocation or rollback. Do not decode layout-7 accounts with this SDK.
+A market selects the provider, feed identities, age and confidence policy. The normalized provider
 must serialize the exact Borsh `NormalizedOracleV1` envelope defined in
 [oracle.rs](../../programs/dusk/src/oracle.rs), including the underlying source
 observation time, both mints and a monotonically increasing nonzero sequence.

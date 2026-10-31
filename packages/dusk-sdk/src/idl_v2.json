@@ -19509,6 +19509,35 @@
                 2
               ]
             }
+          },
+          {
+            "name": "source_sequences",
+            "docs": [
+              "Independent counters retain replay protection when only one leg updates."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                2
+              ]
+            }
+          },
+          {
+            "name": "source_hashes",
+            "docs": [
+              "Each normalized report is immutable at an already observed counter."
+            ],
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                },
+                2
+              ]
+            }
           }
         ]
       }
@@ -22831,7 +22860,7 @@
         "decode as this structure."
       ],
       "type": "u8",
-      "value": "7"
+      "value": "8"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

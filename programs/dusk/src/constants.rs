@@ -164,7 +164,7 @@ pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// economic checkpoints use slots. Earlier development layouts must not
 /// decode as this structure.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 7;
+pub const MARKET_LAYOUT_VERSION: u8 = 8;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

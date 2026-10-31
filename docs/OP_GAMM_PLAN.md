@@ -175,3 +175,28 @@ The remaining decisions are concrete:
 | Optional depth interest | Base APR plus a calibrated nonnegative spread with fast-down/slow-up depth memory. | Rate-accrual contract, scope of charged debt, executable depth evidence and demand/LP-loss comparisons. |
 
 **Completed design inputs:** [coupled model](OP_GAMM_COUPLED_MODEL.md) and [bounded adjustment comparison](OP_GAMM_BOUNDED_ADJUSTMENT.md). **Current implementation input:** [runtime feasibility and remaining work](OP_GAMM_IMPLEMENTATION_STATUS.md). The mathematical checks and isolated compute probes do not certify full transaction admission or production attack resistance.
+
+### Provider-independent feed layout
+
+The deployer chooses the provider separately from the input layout. One feed
+must quote the market's ordered base/quote pair directly. Two feeds divide
+base/common-denomination by quote/common-denomination; the quote asset is not
+assumed to be pegged. Pyth's signed records carry a feed ID rather than mint
+metadata, so the deployer must pin the actual denomination through the correct
+feed IDs; the catalog must establish exact ordered-asset matches, never symbols.
+
+The supported wire formats are normalized direct pair (1), Pyth ratio (2),
+Pyth direct pair (3), and normalized ratio (4). Both normalized legs must be
+owned by the selected provider, identify their respective asset mints, and name
+the same nonzero denomination. Both ratio legs are authenticated and checked
+for freshness independently, with a maximum publication-time skew. Ratio
+uncertainty encloses `(base − confidence)/(quote + confidence)` through
+`(base + confidence)/(quote − confidence)`, rounded outward.
+
+Layout 8 persists each leg's sequence and content hash. This allows one leg to
+update independently while rejecting rollback or changed content at the other
+leg's unchanged normalized sequence. Policy arguments and proposal digests keep
+their existing 189-byte encoding. Market account layout and generated SDK/IDL
+change; the deployed layout-7 devnet pin must not be relabeled as this build.
+A new verified devnet rollout and corresponding indexer/FE identity are required
+before the new formats can be exercised against that deployment.
