@@ -151,8 +151,8 @@ have been replaced. Use `dusk.liquidations` for either borrowing or leverage:
 ```typescript
 const position = { market, position: positionAddress, kind: "leverage" as const,
   debtAsset: "quote" as const };
-// Send this separately to commit the incentive clock even if execution fails.
-const observe = await dusk.liquidations.observeInstruction(position);
+// Read-only simulation; no registration transaction is required.
+const health = await dusk.liquidations.previewHealth(position);
 const quote = await dusk.liquidations.preview({ ...position, maxRepayment: 1_000_000n });
 const plan = await dusk.liquidations.buildFlash({
   ...position, buyer, maxRepayment: 1_000_000n,
@@ -239,11 +239,11 @@ liquidity or guarantee keeper profitability. Simulate the complete transaction.
 `liquidationHealth`, `liquidationIncentives`, `liquidationFeeAllocation`,
 `liquidationInsuranceTarget`, and `liquidationLossAllocation` use integer atoms
 and mirror the policy arithmetic. They do not replace the on-chain execution
-preview. Time raises incentives over 120 seconds but never grants emergency
-access. A verified healthy position ends its distress episode.
+preview. Incentives depend only on current health; there is no time ramp or
+stored distress episode. `liquidationIncentives` takes only the health input.
 
 Indexers should consume `FlashLiquidationBegun`, `FlashLiquidationSettled`,
-`EmergencyLiquidationSettled` and `LiquidationObserved`. AMM settlement also emits
+`EmergencyLiquidationSettled`. AMM settlement also emits
 `SwapExecuted`; external purchases do not generate Dusk swap volume. For emergency
 settlement, its start price/output describe the reference-priced debt offset;
 its final reserve/spot snapshots describe the actual pool. Correlate it with

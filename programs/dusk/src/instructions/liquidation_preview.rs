@@ -49,28 +49,6 @@ pub struct PreviewEmergencyLiquidation<'info> {
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
 }
 
-#[event_cpi]
-#[derive(Accounts)]
-pub struct ObserveLiquidation<'info> {
-    #[account(mut, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
-    pub market: Box<Account<'info, Market>>,
-    #[account(mut)]
-    pub borrow_position: Option<Box<Account<'info, BorrowPosition>>>,
-    #[account(mut)]
-    pub leverage_position: Option<Box<Account<'info, LeveragePosition>>>,
-    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
-    pub debt_mint: Box<InterfaceAccount<'info, Mint>>,
-}
-
-#[event]
-pub struct LiquidationObserved {
-    pub market: Pubkey,
-    pub position: Pubkey,
-    pub debt_asset: u8,
-    pub health: LiquidationHealth,
-    pub distress: LiquidationDistress,
-}
-
 fn validate_position<'a>(
     market: &Account<Market>,
     borrow: &'a Option<Box<Account<BorrowPosition>>>,
@@ -212,12 +190,32 @@ impl PreviewEmergencyLiquidation<'_> {
 }
 
 impl PreviewFlashLiquidation<'_> {
+    pub fn handle_health(ctx: Context<Self>, debt_asset: u8) -> Result<LiquidationHealth> {
+        let clock = Clock::get()?;
+        let a = &mut *ctx.accounts;
+        let asset = MarketAsset::try_from_code(debt_asset)?;
+        a.market.accrue_interest()?;
+        a.market.update()?;
+        let position = validate_position(
+            &a.market,
+            &a.borrow_position,
+            &a.leverage_position,
+            asset,
+            &a.collateral_mint,
+            &a.debt_mint,
+        )?;
+        a.market.flash_liquidation_health(
+            &position,
+            asset,
+            leverage_collateral_liquidation_fee(&a.collateral_mint, clock.epoch)?,
+        )
+    }
+
     pub fn handle(ctx: Context<Self>, args: PreviewFlashLiquidationArgs) -> Result<FlashLiquidationQuote> {
         let clock = Clock::get()?;
         let a = &mut *ctx.accounts;
         let asset = MarketAsset::try_from_code(args.debt_asset)?;
-        // The account is read-only: clock advancement exists only in this
-        // deserialized copy and cannot start or reset a distress episode.
+        // Risk and interest refresh only this disposable read-only snapshot.
         a.market.accrue_interest()?;
         a.market.update()?;
         let position = validate_position(
@@ -239,54 +237,5 @@ impl PreviewFlashLiquidation<'_> {
             clock.unix_timestamp,
             clock.slot,
         )
-    }
-}
-
-impl ObserveLiquidation<'_> {
-    pub fn handle(ctx: Context<Self>, debt_asset: u8) -> Result<LiquidationHealth> {
-        let clock = Clock::get()?;
-        let a = &mut *ctx.accounts;
-        let asset = MarketAsset::try_from_code(debt_asset)?;
-        crate::instructions::accounting::accrue_market_interest(
-            &mut a.market,
-            clock.slot,
-            a.event_authority.to_account_info(),
-        )?;
-        a.market.update()?;
-        let position = validate_position(
-            &a.market,
-            &a.borrow_position,
-            &a.leverage_position,
-            asset,
-            &a.collateral_mint,
-            &a.debt_mint,
-        )?;
-        let health = a.market.flash_liquidation_health(
-            &position,
-            asset,
-            leverage_collateral_liquidation_fee(&a.collateral_mint, clock.epoch)?,
-        )?;
-        let (position, distress) = match (&mut a.borrow_position, &mut a.leverage_position) {
-            (Some(p), None) => {
-                p.distress_mut(asset)
-                    .observe(health.eligible()?, clock.unix_timestamp, clock.slot)?;
-                (p.key(), p.distress(asset))
-            }
-            (None, Some(p)) => {
-                p.distress
-                    .observe(health.eligible()?, clock.unix_timestamp, clock.slot)?;
-                (p.key(), p.distress)
-            }
-            _ => return err!(ErrorCode::InvalidLiquidationSession),
-        };
-        let event = LiquidationObserved {
-            market: a.market.key(),
-            position,
-            debt_asset: asset.code(),
-            health,
-            distress,
-        };
-        emit_cpi!(event);
-        Ok(health)
     }
 }

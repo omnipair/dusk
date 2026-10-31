@@ -44,7 +44,6 @@ fn recreated_position_requires_owner_to_reauthorize_order() {
     let mut position = dusk::state::LeveragePosition {
         active_liquidation_session: Pubkey::default(),
         close_approval: Default::default(),
-        distress: Default::default(),
         owner: order.owner,
         market: order.market,
         namespace_authority: order.owner,

@@ -84,7 +84,7 @@ impl Market {
             slot,
             protocol_fee_bps,
         )?;
-        if !full && prepared.quote.health_after.recovered()? && collateral_debit > 1 {
+        if !full && collateral_debit > 1 {
             require!(
                 before.proves_partial_bound(
                     position,
@@ -148,7 +148,7 @@ impl Market {
         } else {
             require!(collateral_debit < available, ErrorCode::LiquidationRepayTooLarge);
         }
-        let rates = health_before.rates(position.age(asset, now)?)?;
+        let rates = health_before.rates()?;
         let collateral_credit = collateral_fee.unwind_credit(collateral_debit)?;
         let mut swap = if collateral_credit == 0 {
             None
@@ -320,8 +320,6 @@ impl Market {
         position: &mut LiquidationPositionMut<'_>,
         asset: MarketAsset,
         prepared: &mut PreparedEmergencyLiquidation,
-        eligibility_fee: LeverageCollateralFee,
-        now: i64,
         slot: u64,
         protocol_fee_bps: u16,
         split: ProtocolAuctionSplit,
@@ -342,15 +340,7 @@ impl Market {
                 self.insurance.consume_draw(asset, q.insurance_debit, slot)?;
             }
             self.apply_liquidation_position(position, asset, prepared.allocation, q.collateral_debit, q.full)?;
-            self.observe_liquidation_settlement(
-                position,
-                asset,
-                prepared.allocation.remaining_debt,
-                q.full,
-                eligibility_fee,
-                now,
-                slot,
-            )?;
+            self.reconcile_liquidation_position(position, asset, prepared.allocation.remaining_debt)?;
             Ok(Some(state))
         } else {
             require!(q.full && q.swap_output == 0, ErrorCode::BrokenInvariant);
@@ -363,8 +353,6 @@ impl Market {
                 q.insurance_debit,
                 q.loss.insurance_credit,
                 true,
-                eligibility_fee,
-                now,
                 slot,
             )?;
             require!(loss == q.loss, ErrorCode::BrokenInvariant);

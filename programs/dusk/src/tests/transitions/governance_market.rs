@@ -184,8 +184,8 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
 fn borrow_position_for_debt(debt_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
     let mut position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-        base_distress: Default::default(),
-        quote_distress: Default::default(),
+
+
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -248,8 +248,8 @@ fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     let mut borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-        base_distress: Default::default(),
-        quote_distress: Default::default(),
+
+
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -1211,8 +1211,8 @@ fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
     market.debt.fixed_base_principal = 100;
     let mut borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-        base_distress: Default::default(),
-        quote_distress: Default::default(),
+
+
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),

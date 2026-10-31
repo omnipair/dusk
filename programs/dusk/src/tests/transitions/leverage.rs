@@ -146,7 +146,6 @@ fn empty_position() -> LeveragePosition {
     LeveragePosition {
         active_liquidation_session: Pubkey::default(),
         close_approval: Default::default(),
-        distress: Default::default(),
         owner: Pubkey::default(),
         market: Pubkey::default(),
         namespace_authority: Pubkey::default(),

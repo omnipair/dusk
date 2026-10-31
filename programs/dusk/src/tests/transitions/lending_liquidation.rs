@@ -89,8 +89,8 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     market.refresh_risk().unwrap();
     let borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-        base_distress: Default::default(),
-        quote_distress: Default::default(),
+
+
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -156,8 +156,8 @@ fn market_with_cash_backed_debt(
     let collateral_amount = u64::try_from(current_debt).unwrap().checked_mul(2).unwrap();
     let mut borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-        base_distress: Default::default(),
-        quote_distress: Default::default(),
+
+
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),

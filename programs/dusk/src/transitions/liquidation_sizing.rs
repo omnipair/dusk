@@ -54,7 +54,7 @@ impl Market {
         if collateral <= 1 || shares <= 1 {
             return Ok(true);
         }
-        let rates = before.rates(position.age(asset, now)?)?;
+        let rates = before.rates()?;
         // Risk is fixed for this proof. Recomputing current_risk for every
         // interval needlessly re-evaluates the concentrated curve and EMA.
         let risk = self.current_risk_at_slot(slot)?;

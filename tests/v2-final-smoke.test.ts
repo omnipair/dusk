@@ -8486,7 +8486,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(after - before).to.equal(BigInt(quote.collateralCredit.toString()));
   });
 
-  it("resets the committed liquidation episode when a deposit restores health", async function () {
+  it("rejects liquidation after a deposit restores health without registration", async function () {
     const fixture = await addBalancedLiquidity(145, marketConfig());
     const borrowPositionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
@@ -8545,12 +8545,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     letPricesSettle();
     const accounts = { market: fixture.market, borrowPosition, leveragePosition: null,
       collateralMint: fixture.baseMint, debtMint: fixture.quoteMint };
-    await connection.sendTransaction(await program.methods.observeLiquidation(1).accounts(accounts).transaction(), [payer]);
-    const distressed = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-    expect(distressed.quote_distress.active).to.equal(true);
+    const before = Buffer.from(svm.getAccount(borrowPosition)!.data);
+    const healthTx = await program.methods.previewLiquidationHealth(1).accounts(accounts).transaction();
+    const health = program.coder.types.decode("liquidationHealth", await simulateReturnData(healthTx)) as any;
+    expect(health.debt.gt(new BN(0))).to.equal(true);
+    expect(Buffer.from(svm.getAccount(borrowPosition)!.data).equals(before)).to.equal(true);
     await depositCollateral(50_000);
-    const recovered = accountCoder.decode("BorrowPosition", Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-    expect(recovered.quote_distress.active).to.equal(false);
+
     let rejected = false;
     try { await executeFlash(fixture, borrowPosition, false, fixture.baseCollateralVault, 100); } catch { rejected = true; }
     expect(rejected).to.equal(true);
@@ -10244,7 +10245,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   }
 
   for (const referenceValue of [1_000_000n, 959_500n]) {
-    it(`settles a late affordable flash discount at reference value ${referenceValue}`, async function () {
+    it(`settles a health-only affordable flash discount at reference value ${referenceValue}`, async function () {
       const f = await addBalancedLiquidity(271, marketConfig(), {
         baseDeposit: 100_000_000, quoteDeposit: 200_000_000, minYlp: 1,
         baseMint: 500_000_000, quoteMint: 500_000_000,
@@ -10268,10 +10269,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         svm.expireBlockhash();
       };
       seedReference();
-      await connection.sendTransaction(await program.methods.observeLiquidation(1).accounts({ market: f.market,
-        borrowPosition: null, leveragePosition, collateralMint: f.baseMint, debtMint: f.quoteMint }).transaction(), [payer]);
-      const clock = svm.getClock(); clock.slot += 300n; clock.unixTimestamp += 120n;
-      svm.setClock(clock); seedReference();
+      const accounts = { market: f.market, borrowPosition: null, leveragePosition,
+        collateralMint: f.baseMint, debtMint: f.quoteMint };
+      const preview = async () => program.coder.types.decode("flashLiquidationQuote", await simulateReturnData(
+        await program.methods.previewFlashLiquidation({ debtAsset: 1, maxRepayment: new BN(100_000), full: false }).accounts(accounts).transaction())) as any;
+      const marketBefore = Buffer.from(svm.getAccount(f.market)!.data);
+      const positionBefore = Buffer.from(svm.getAccount(leveragePosition)!.data);
+      const early = await preview();
+      const clock = svm.getClock(); clock.unixTimestamp += 120n;
+      svm.setClock(clock); svm.expireBlockhash();
+      const late = await preview();
+      expect(late.rates.buyerDiscountBps).to.equal(early.rates.buyerDiscountBps);
+      expect(late.payment.toString()).to.equal(early.payment.toString());
+      expect(late.collateralDebit.toString()).to.equal(early.collateralDebit.toString());
+      expect(Buffer.from(svm.getAccount(f.market)!.data).equals(marketBefore)).to.equal(true);
+      expect(Buffer.from(svm.getAccount(leveragePosition)!.data).equals(positionBefore)).to.equal(true);
       const { quote, event } = await executeFlash(f, leveragePosition, true, leverageCollateralVault, 100_000);
       expect(quote.rates.buyerDiscountBps).to.be.within(50, 499);
       expect(quote.repayment.toNumber()).to.be.within(99_999, 100_000);
@@ -10294,8 +10306,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     svm.expireBlockhash();
     const readAccounts = { market: f.market, borrowPosition: null, leveragePosition,
       collateralMint: f.baseMint, debtMint: f.quoteMint };
-    await connection.sendTransaction(await program.methods.observeLiquidation(1).accounts(readAccounts).transaction(), [payer]);
-    trackV2Instruction("observeLiquidation", this.test?.title);
+    const healthTx = await program.methods.previewLiquidationHealth(1).accounts(readAccounts).transaction();
+    const health = program.coder.types.decode("liquidationHealth", await simulateReturnData(healthTx)) as any;
+    expect(health.debt.gt(new BN(0))).to.equal(true);
+    trackV2Instruction("previewLiquidationHealth", this.test?.title);
     const quote = program.coder.types.decode("flashLiquidationQuote", await simulateReturnData(
       await program.methods.previewFlashLiquidation({ debtAsset: 1, maxRepayment: new BN(0), full: true })
         .accounts(readAccounts).transaction())) as any;
@@ -10498,8 +10512,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const body = Buffer.alloc(account.data.length-8);
       const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market,body);
       svm.setAccount(f.market,{...account,data:new Uint8Array(Buffer.concat([(accountCoder as any).accountDiscriminator("Market"),body.subarray(0,length)]))});
-      position.distress.active=true;position.distress.started_at=new BN((svm.getClock().unixTimestamp-120n).toString());
-      position.distress.observed_slot=new BN(svm.getClock().slot.toString());
       svm.setAccount(leveragePosition,{...positionAccount,data:new Uint8Array(await accountCoder.encode("LeveragePosition",position))});
       svm.expireBlockhash();
       const preview=await program.methods.previewEmergencyLiquidation({debtAsset:1,collateralDebit:position.collateral_amount,full:true})
@@ -11809,6 +11821,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       let stale:unknown;
       try {await trade();} catch(e) {stale=e;}
       expect(String(stale),mode).to.include("OracleStale");
+      let staleHealth:unknown;
+      try {await simulateReturnData(await writer.transaction("previewLiquidationHealth",[1],{accounts:{
+        market:f.market,borrowPosition,leveragePosition:null,collateralMint:f.baseMint,debtMint:f.quoteMint}}));
+      } catch(e) {staleHealth=e;}
+      expect(String(staleHealth),mode).to.include("OracleStale");
       if(mode!=="disable") publish(replacement,f,100_000_000n);
       const execute=await writer.executeParameterProposal({market:f.market,proposal:proposal.proposal});
       const protectedKeys=[f.market,proposal.proposal,borrowPosition,f.baseReserveVault,f.quoteReserveVault];
@@ -11826,11 +11843,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(Buffer.from(svm.getAccount(f.quoteReserveVault)!.data).equals(before[4])).to.equal(true);
       const stored=accountCoder.decode("ParameterProposal",Buffer.from(svm.getAccount(proposal.proposal)!.data)) as any;
       expect(Object.keys(stored.status)).to.deep.equal(["Executed"]);
-      const observation=await writer.transaction("observeLiquidation",[1],{accounts:{market:f.market,borrowPosition,
+      const observation=await writer.transaction("previewLiquidationHealth",[1],{accounts:{market:f.market,borrowPosition,
         leveragePosition:null,collateralMint:f.baseMint,debtMint:f.quoteMint}});
-      await connection.sendTransaction(observation,[payer]);
-      const distressed=accountCoder.decode("BorrowPosition",Buffer.from(svm.getAccount(borrowPosition)!.data)) as any;
-      expect(distressed.quote_distress.active,mode).to.equal(true);
+      const health=program.coder.types.decode("liquidationHealth",await simulateReturnData(observation)) as any;
+      expect(health.debt.gt(health.collateralValue),mode).to.equal(true);
+      expect(Buffer.from(svm.getAccount(borrowPosition)!.data).equals(before[2])).to.equal(true);
       let newRisk:unknown;
       try {await connection.sendTransaction(await writer.transaction("borrow", {borrowAmount:new BN(1),
         minDebtAmountOut:new BN(1),minLiquidationCfBps:0,referrer:null}, {accounts:borrowAccounts}),[payer]);} catch(e){newRisk=e;}

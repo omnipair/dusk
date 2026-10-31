@@ -6,18 +6,30 @@ import { TOKEN_PROGRAM_ID, createTransferCheckedInstruction, calculateFee } from
 import IDL from "../dist/idl_v2.js";
 import { DEFAULT_PROTOCOL_REVENUE_SHARE_BPS } from "../dist/constants.js";
 import { DuskLiquidations } from "../dist/liquidation-client.js";
-import { LIQUIDATION_POLICY, liquidationHealth, liquidationIncentives, liquidationFeeAllocation, liquidationInsuranceTarget, liquidationLossAllocation, liquidationDistressAge, grossLiquidationPayment, deriveLiquidationSessionAddress, deriveLiquidationPaymentAddress } from "../dist/liquidation.js";
+import { LIQUIDATION_POLICY, liquidationHealth, liquidationIncentives, liquidationFeeAllocation, liquidationInsuranceTarget, liquidationLossAllocation, grossLiquidationPayment, deriveLiquidationSessionAddress, deriveLiquidationPaymentAddress } from "../dist/liquidation.js";
 
-test("time raises the reward without turning 6% equity into emergency permission", () => {
-  const health = { collateralValue: 1_000_000n, debt: 940_000n, maintenanceBps: 700 };
-  assert.equal(liquidationHealth(health).eligible, true);
-  assert.equal(liquidationIncentives(health, 120n).emergencyAllowed, false);
-  assert.equal(liquidationIncentives(health, 120n).maximumBuyerDiscountBps, 500);
-  const boundary = { ...health, debt: 951_000n };
-  assert.deepEqual([0n, 60n, 120n].map(age => liquidationIncentives(boundary, age).emergencyRewardBps), [30, 65, 100]);
-  assert.equal(liquidationIncentives({ ...health, debt: 1_000_001n }, 0n).emergencyRewardBps, 100);
-  assert.throws(() => liquidationDistressAge({ active: true, startedAt: 121n }, 120n));
-  assert.equal(liquidationDistressAge({ active: false, startedAt: 0n }, 1000n), 0n);
+test("health alone determines bounded incentives and exact eligibility", () => {
+  for (const maintenanceBps of [1, 700, 1200, 1700, 9999]) {
+    const collateralValue = 100_000_000n;
+    const required = collateralValue * BigInt(maintenanceBps) / 10_000n;
+    const h = { collateralValue, debt: collateralValue - required, maintenanceBps };
+    assert.equal(liquidationIncentives(h).maximumBuyerDiscountBps, 50);
+    assert.equal(liquidationIncentives(h).emergencyRewardBps, 0);
+    assert.throws(() => liquidationIncentives({ ...h, debt: h.debt - 1n }));
+    const emergency = { ...h, debt: collateralValue - required * 70n / 100n };
+    assert.equal(liquidationIncentives(emergency).emergencyAllowed, true);
+    assert.equal(liquidationIncentives(emergency).emergencyRewardBps, 30);
+    assert.equal(liquidationHealth({ ...emergency, debt: emergency.debt - 1n }).emergencyAllowed, false);
+    assert.equal(liquidationIncentives({ ...h, debt: collateralValue - required / 2n }).maximumBuyerDiscountBps, 275);
+    for (const debt of [collateralValue, collateralValue + 1n, (1n << 64n) - 1n]) {
+      assert.equal(liquidationIncentives({ ...h, debt }).maximumBuyerDiscountBps, 500);
+      assert.equal(liquidationIncentives({ ...h, debt }).emergencyRewardBps, 100);
+    }
+    assert.throws(() => liquidationIncentives({ ...h, debt: 0n }));
+  }
+  for (const maintenanceBps of [0, 10_000, -1, 1.5]) assert.throws(() => liquidationIncentives({ collateralValue: 100n, debt: 100n, maintenanceBps }));
+  assert.equal(liquidationIncentives({ collateralValue: 0n, debt: 1n, maintenanceBps: 700 }).maximumBuyerDiscountBps, 500);
+  assert.throws(() => liquidationIncentives({ collateralValue: 0n, debt: 0n, maintenanceBps: 700 }));
 });
 
 test("one percent liquidation fee follows the 80/20 split and insurance taper", () => {
@@ -114,6 +126,15 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   await assert.rejects(client.get.simulateWithContext(result.instructions.filter(ix =>
     !ix.programId.equals(ComputeBudgetProgram.programId)), { requireReturnData: false }),
     /requires planned heap and compute budgets/);
+  let healthInstruction;
+  client.get.simulateReturnData = async instruction => {
+    healthInstruction = instruction;
+    return { data: [program.coder.types.encode("liquidationHealth", { collateralValue: new anchor.BN(1000), debt: new anchor.BN(940), maintenanceBps: 700 }).toString("base64"), "base64"] };
+  };
+  const health = await client.previewHealth(request);
+  assert.equal(health.debt.toString(), "940");
+  assert.equal(program.coder.instruction.decode(healthInstruction.data).name, "previewLiquidationHealth");
+  assert.ok(healthInstruction.keys.every(meta => !meta.isWritable && !meta.isSigner));
   client.write.hlpRemainingAccounts = async () => [];
   const internal = await client.buildFlash({ ...request, buyer, maxRepayment: 1000n, settlement: "duskAmm" });
   assert.equal(internal.requiredPaymentCredit, 0n);
@@ -137,7 +158,7 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   assert.equal(emergencyDecoded.data.args.minSwapOutput.toString(), "900");
   assert.ok(!emergency.ownerDebtAccount.equals(emergency.callerDebtAccount));
   await assert.rejects(client.buildFlash({ ...request, buyer, maxRepayment: 1000n }), /explicit payment route/);
-  const observe = await client.observeInstruction(request);
-  assert.equal(program.coder.instruction.decode(observe.data).name, "observeLiquidation");
-  assert.ok(!result.instructions.includes(observe));
+  assert.equal(typeof client.observeInstruction, "undefined");
+  assert.ok(!program.idl.instructions.some(i => i.name === "observeLiquidation"));
+  assert.ok(!result.instructions.some(ix => ix.programId.equals(programId) && program.coder.instruction.decode(ix.data)?.name === "previewLiquidationHealth"));
 });

@@ -5839,117 +5839,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "observeLiquidation",
-      "discriminator": [
-        142,
-        159,
-        189,
-        212,
-        245,
-        60,
-        54,
-        113
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "borrowPosition",
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "leveragePosition",
-          "writable": true,
-          "optional": true
-        },
-        {
-          "name": "collateralMint"
-        },
-        {
-          "name": "debtMint"
-        },
-        {
-          "name": "eventAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "debtAsset",
-          "type": "u8"
-        }
-      ],
-      "returns": {
-        "defined": {
-          "name": "liquidationHealth"
-        }
-      }
-    },
-    {
       "name": "openLeverage",
       "discriminator": [
         182,
@@ -7066,6 +6955,85 @@ export type Dusk = {
       "returns": {
         "defined": {
           "name": "hlpOrderTriggerPreview"
+        }
+      }
+    },
+    {
+      "name": "previewLiquidationHealth",
+      "docs": [
+        "Read current liquidation health without starting an episode or mutating accounts."
+      ],
+      "discriminator": [
+        123,
+        158,
+        120,
+        122,
+        95,
+        28,
+        6,
+        172
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "borrowPosition",
+          "optional": true
+        },
+        {
+          "name": "leveragePosition",
+          "optional": true
+        },
+        {
+          "name": "collateralMint"
+        },
+        {
+          "name": "debtMint"
+        }
+      ],
+      "args": [
+        {
+          "name": "debtAsset",
+          "type": "u8"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "liquidationHealth"
         }
       }
     },
@@ -11941,19 +11909,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "liquidationObserved",
-      "discriminator": [
-        94,
-        27,
-        52,
-        51,
-        81,
-        236,
-        3,
-        0
-      ]
-    },
-    {
       "name": "liquidityAdded",
       "discriminator": [
         154,
@@ -13029,8 +12984,8 @@ export type Dusk = {
     },
     {
       "code": 6139,
-      "name": "invalidLiquidationClock",
-      "msg": "Liquidation observation clock moved backwards"
+      "name": "reservedLiquidationClock",
+      "msg": "Reserved retired liquidation clock error"
     },
     {
       "code": 6140,
@@ -13914,22 +13869,6 @@ export type Dusk = {
           {
             "name": "activeLiquidationSession",
             "type": "pubkey"
-          },
-          {
-            "name": "baseDistress",
-            "type": {
-              "defined": {
-                "name": "liquidationDistress"
-              }
-            }
-          },
-          {
-            "name": "quoteDistress",
-            "type": {
-              "defined": {
-                "name": "liquidationDistress"
-              }
-            }
           },
           {
             "name": "auctionDebtAsset",
@@ -17517,14 +17456,6 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "distress",
-            "type": {
-              "defined": {
-                "name": "liquidationDistress"
-              }
-            }
-          },
-          {
             "name": "closeApproval",
             "type": {
               "defined": {
@@ -18027,31 +17958,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "liquidationDistress",
-      "docs": [
-        "A committed observation is separate from an atomic flash transaction: a",
-        "reverted route must not erase the incentive clock. Each debt leg owns its",
-        "episode. Recovery ends it; a useful partial while still unhealthy does not."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "startedAt",
-            "type": "i64"
-          },
-          {
-            "name": "observedSlot",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "liquidationFeeAllocation",
       "docs": [
         "Whole spendable atoms. Transfer-fee gross-ups are separate from the net fee",
@@ -18135,42 +18041,6 @@ export type Dusk = {
           {
             "name": "surplus",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "liquidationObserved",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "position",
-            "type": "pubkey"
-          },
-          {
-            "name": "debtAsset",
-            "type": "u8"
-          },
-          {
-            "name": "health",
-            "type": {
-              "defined": {
-                "name": "liquidationHealth"
-              }
-            }
-          },
-          {
-            "name": "distress",
-            "type": {
-              "defined": {
-                "name": "liquidationDistress"
-              }
-            }
           }
         ]
       }
@@ -20217,14 +20087,6 @@ export type Dusk = {
                 "defined": {
                   "name": "liquidationRates"
                 }
-              }
-            }
-          },
-          {
-            "name": "liquidationDistress",
-            "type": {
-              "defined": {
-                "name": "liquidationDistress"
               }
             }
           }

@@ -419,8 +419,8 @@ pub enum ErrorCode {
     #[msg("Parameter proposal does not match the digest the supporter reviewed")]
     ProposalDigestMismatch,
 
-    #[msg("Liquidation observation clock moved backwards")]
-    InvalidLiquidationClock,
+    #[msg("Reserved retired liquidation clock error")]
+    ReservedLiquidationClock,
 
     #[msg("Position has an active liquidation session")]
     LiquidationSessionActive,

@@ -1469,8 +1469,7 @@ impl BenchmarkBorrowPosition {
         require_keys_neq!(market, Pubkey::default(), ErrorCode::InvalidPositionMarket);
         let mut position = Box::new(BorrowPosition {
             active_liquidation_session: Pubkey::default(),
-            base_distress: Default::default(),
-            quote_distress: Default::default(),
+
             owner: Pubkey::default(),
             market: Pubkey::default(),
             position_id: Pubkey::default(),
@@ -4453,7 +4452,7 @@ fn empty_leverage_position() -> LeveragePosition {
     LeveragePosition {
         close_approval: Default::default(),
         active_liquidation_session: Pubkey::default(),
-        distress: Default::default(),
+
         owner: Pubkey::default(),
         market: Pubkey::default(),
         namespace_authority: Pubkey::default(),
@@ -5644,8 +5643,7 @@ mod tests {
     fn borrow_position_with_collateral(collateral_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
         let mut position = BorrowPosition {
             active_liquidation_session: Pubkey::default(),
-            base_distress: Default::default(),
-            quote_distress: Default::default(),
+
             owner: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             position_id: Pubkey::new_unique(),

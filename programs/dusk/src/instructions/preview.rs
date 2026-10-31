@@ -412,7 +412,6 @@ pub struct PositionDebtSidePreview {
     pub max_repay_amount: u64,
     pub liquidation_health: crate::state::LiquidationHealth,
     pub liquidation_rates: Option<crate::state::LiquidationRates>,
-    pub liquidation_distress: crate::state::LiquidationDistress,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -898,14 +897,12 @@ impl<'info> PreviewBorrowPosition<'info> {
                 borrow_position,
                 MarketAsset::Base,
                 crate::instructions::leverage_collateral_liquidation_fee(&ctx.accounts.quote_mint, epoch)?,
-                clock.unix_timestamp,
             )?,
             quote_debt: preview_position_debt_side(
                 market,
                 borrow_position,
                 MarketAsset::Quote,
                 crate::instructions::leverage_collateral_liquidation_fee(&ctx.accounts.base_mint, epoch)?,
-                clock.unix_timestamp,
             )?,
         })
     }
@@ -976,7 +973,6 @@ fn preview_position_debt_side(
     borrow_position: &BorrowPosition,
     debt_asset: MarketAsset,
     collateral_fee: crate::transitions::LeverageCollateralFee,
-    now: i64,
 ) -> Result<PositionDebtSidePreview> {
     let quote = market.position_debt_side_quote(borrow_position, debt_asset, collateral_fee)?;
 
@@ -985,7 +981,7 @@ fn preview_position_debt_side(
         debt_asset,
         collateral_fee,
     )?;
-    let distress = borrow_position.distress(debt_asset);
+
     let eligible = health.eligible()?;
     Ok(PositionDebtSidePreview {
         debt_asset: quote.debt_asset,
@@ -1002,12 +998,7 @@ fn preview_position_debt_side(
         is_liquidatable: eligible,
         max_repay_amount: quote.max_repay_amount,
         liquidation_health: health,
-        liquidation_rates: if eligible {
-            Some(health.rates(distress.age(now)?)?)
-        } else {
-            None
-        },
-        liquidation_distress: distress,
+        liquidation_rates: if eligible { Some(health.rates()?) } else { None },
     })
 }
 

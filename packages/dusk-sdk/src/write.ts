@@ -2556,7 +2556,7 @@ const ORACLE_READ_INSTRUCTIONS = new Set<string>([
   "previewFlashAmmLiquidation",
   "emergencyLiquidation",
   "previewEmergencyLiquidation",
-  "observeLiquidation",
+  "previewLiquidationHealth",
   "settleFlashLiquidation",
   "depositCollateral",
   "withdrawCollateral",

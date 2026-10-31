@@ -17,7 +17,6 @@ type DuskAccountTypes = [
   TypeNamed<"hlpFlashSession">,
   TypeNamed<"governanceBalance">,
   TypeNamed<"governanceSupport">,
-  TypeNamed<"liquidationDistress">,
   TypeNamed<"liquidationSession">,
   TypeNamed<"liquidationHealth">,
   TypeNamed<"liquidationRates">,
@@ -71,7 +70,6 @@ type DuskEventTypes = [
   TypeNamed<"oraclePolicy">,
   TypeNamed<"governanceBalanceUpdated">,
   TypeNamed<"governanceSupportChanged">,
-  TypeNamed<"liquidationDistress">,
   TypeNamed<"liquidationHealth">,
   TypeNamed<"liquidationRates">,
   TypeNamed<"liquidationFeeAllocation">,
@@ -82,7 +80,6 @@ type DuskEventTypes = [
   TypeNamed<"flashLiquidationBegun">,
   TypeNamed<"flashLiquidationSettled">,
   TypeNamed<"emergencyLiquidationSettled">,
-  TypeNamed<"liquidationObserved">,
   TypeNamed<"ammConfig">,
   TypeNamed<"fundInterestReceipt">,
   TypeNamed<"publicInterestFunded">,
@@ -240,11 +237,11 @@ export type MarketSideSnapshot = SwapExecuted["base"];
 export type YieldClaimed = IdlTypes<DuskEventIdl>["yieldClaimed"];
 export type YieldRecipientUpdated = IdlTypes<DuskEventIdl>["yieldRecipientUpdated"];
 
+export type LiquidationHealth = IdlTypes<DuskAccountIdl>["liquidationHealth"];
 export type LiquidationSession = IdlTypes<DuskAccountIdl>["liquidationSession"];
 export type FlashLiquidationBegun = IdlTypes<DuskEventIdl>["flashLiquidationBegun"];
 export type FlashLiquidationSettled = IdlTypes<DuskEventIdl>["flashLiquidationSettled"];
 export type EmergencyLiquidationSettled = IdlTypes<DuskEventIdl>["emergencyLiquidationSettled"];
-export type LiquidationObserved = IdlTypes<DuskEventIdl>["liquidationObserved"];
 
 export type GovernanceBalance = IdlTypes<DuskAccountIdl>["governanceBalance"];
 export type GovernanceSupport = IdlTypes<DuskAccountIdl>["governanceSupport"];

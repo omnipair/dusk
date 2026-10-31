@@ -8,10 +8,8 @@ const max = (a: bigint, b: bigint) => a > b ? a : b;
 const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b;
 
 export const LIQUIDATION_POLICY = Object.freeze({
-  incentiveSeconds: 120,
   minimumDiscountBps: 50,
   maximumDiscountBps: 500,
-  initialEmergencyRewardBps: 30,
   maximumEmergencyRewardBps: 100,
   emergencyMaintenanceFractionBps: 7_000,
   recoveryBufferBps: 200,
@@ -52,32 +50,21 @@ export function liquidationHealth(input: LiquidationHealthInput) {
   return { eligible, emergencyAllowed, referenceInsolvent: input.debt > 0n && equity <= 0n, recoveryTargetReached, distressProgressBps: Number(distressProgressBps), equityAtoms: equity, equityBps: value === 0n ? null : Number(equity * BPS / value) };
 }
 
-/** Time raises the discount ceiling; it never grants emergency or full-close
- * access. A partial quote may select a smaller affordable discount (at least
+/** Current health determines incentives; emergency and full-close gates remain separate. A partial quote may select a smaller affordable discount (at least
  * 50 bps). Use preview.rates.buyerDiscountBps for the actual payment terms.
  */
-export function liquidationIncentives(input: LiquidationHealthInput, distressAgeSeconds: bigint) {
-  amount(distressAgeSeconds, "distressAgeSeconds");
+export function liquidationIncentives(input: LiquidationHealthInput) {
   const health = liquidationHealth(input);
   if (!health.eligible) throw new Error("Position is not liquidatable");
   const progress = BigInt(health.distressProgressBps);
-  const elapsed = min(distressAgeSeconds, 120n);
-  const maximumBuyerDiscountBps = Number(50n + max(450n * progress / BPS, 450n * elapsed / 120n));
+  const maximumBuyerDiscountBps = Number(50n + (450n * progress / BPS));
   return {
     maximumBuyerDiscountBps,
     /** @deprecated This is the ceiling. Read the actual discount from preview. */
     buyerDiscountBps: maximumBuyerDiscountBps,
-    emergencyRewardBps: Number(max(100n * progress / BPS, 30n + 70n * elapsed / 120n)),
+    emergencyRewardBps: Number((100n * progress / BPS)),
     emergencyAllowed: health.emergencyAllowed,
   };
-}
-
-export function liquidationDistressAge(episode: { active: boolean; startedAt: bigint }, now: bigint): bigint {
-  if (!episode.active) return 0n;
-  if (now < episode.startedAt) throw new RangeError("Clock precedes the committed distress episode");
-  const age = now - episode.startedAt;
-  amount(age, "distressAgeSeconds");
-  return age;
 }
 
 /** P excludes hLP funding. H is current indexed hLP debt, including interest. */

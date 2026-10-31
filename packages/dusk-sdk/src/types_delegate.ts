@@ -2904,22 +2904,6 @@ export type LeverageDelegate = {
             "type": "pubkey"
           },
           {
-            "name": "baseDistress",
-            "type": {
-              "defined": {
-                "name": "liquidationDistress"
-              }
-            }
-          },
-          {
-            "name": "quoteDistress",
-            "type": {
-              "defined": {
-                "name": "liquidationDistress"
-              }
-            }
-          },
-          {
             "name": "auctionDebtAsset",
             "type": "u8"
           },
@@ -4416,14 +4400,6 @@ export type LeverageDelegate = {
             "type": "pubkey"
           },
           {
-            "name": "distress",
-            "type": {
-              "defined": {
-                "name": "liquidationDistress"
-              }
-            }
-          },
-          {
             "name": "closeApproval",
             "type": {
               "defined": {
@@ -4434,31 +4410,6 @@ export type LeverageDelegate = {
           {
             "name": "bump",
             "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "liquidationDistress",
-      "docs": [
-        "A committed observation is separate from an atomic flash transaction: a",
-        "reverted route must not erase the incentive clock. Each debt leg owns its",
-        "episode. Recovery ends it; a useful partial while still unhealthy does not."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "active",
-            "type": "bool"
-          },
-          {
-            "name": "startedAt",
-            "type": "i64"
-          },
-          {
-            "name": "observedSlot",
-            "type": "u64"
           }
         ]
       }

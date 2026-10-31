@@ -198,14 +198,6 @@ impl<'info> Repay<'info> {
                 Some(current_slot),
             )?;
             require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
-            accounts.market.reset_borrow_distress_if_recovered(
-                &mut accounts.borrow_position,
-                repay_asset,
-                crate::instructions::leverage_collateral_liquidation_fee(
-                    &accounts.collateral_asset_mint,
-                    Clock::get()?.epoch,
-                )?,
-            )?;
 
             let eligibility = crate::transitions::HlpYieldEligibility {
                 ylp_supply: accounts.market.base_side.shares.ylp_supply,

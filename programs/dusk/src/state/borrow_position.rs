@@ -44,8 +44,7 @@ pub struct BorrowPosition {
     /// Original quote borrowed by this position that has not been repaid or written off.
     pub fixed_quote_principal: u64,
     pub active_liquidation_session: Pubkey,
-    pub base_distress: crate::state::LiquidationDistress,
-    pub quote_distress: crate::state::LiquidationDistress,
+
     pub auction_debt_asset: u8,
     pub auction_start_time: i64,
     pub auction_start_price_nad: u64,
@@ -59,8 +58,7 @@ impl BorrowPosition {
         self.market = market;
         self.position_id = position_id;
         self.active_liquidation_session = Pubkey::default();
-        self.base_distress = crate::state::LiquidationDistress::default();
-        self.quote_distress = crate::state::LiquidationDistress::default();
+
         self.clear_liquidation_auction();
         self.base_liquidation_cf_bps = 0;
         self.quote_liquidation_cf_bps = 0;
@@ -176,20 +174,6 @@ impl BorrowPosition {
             .ok_or(ErrorCode::DebtMathOverflow)?
             .min(u128::from(principal));
         u64::try_from(reduced).map_err(|_| ErrorCode::DebtMathOverflow.into())
-    }
-
-    pub fn distress(&self, asset: MarketAsset) -> crate::state::LiquidationDistress {
-        match asset {
-            MarketAsset::Base => self.base_distress,
-            MarketAsset::Quote => self.quote_distress,
-        }
-    }
-
-    pub fn distress_mut(&mut self, asset: MarketAsset) -> &mut crate::state::LiquidationDistress {
-        match asset {
-            MarketAsset::Base => &mut self.base_distress,
-            MarketAsset::Quote => &mut self.quote_distress,
-        }
     }
 
     pub fn fixed_quote_debt(&self, debt: &Debt) -> Result<u128> {

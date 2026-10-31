@@ -97,11 +97,7 @@ impl<'info> EmergencyLiquidation<'info> {
             .market
             .flash_liquidation_health(&a.position()?, asset, eligibility_fee)?;
         require!(health.emergency_allowed()?, ErrorCode::PositionNotLiquidatable);
-        match (&mut a.borrow_position, &mut a.leverage_position) {
-            (Some(p), None) => p.distress_mut(asset).observe(true, clock.unix_timestamp, clock.slot)?,
-            (None, Some(p)) => p.distress.observe(true, clock.unix_timestamp, clock.slot)?,
-            _ => return err!(ErrorCode::InvalidLiquidationSession),
-        }
+
         let mut prepared = match (&a.borrow_position, &a.leverage_position) {
             (Some(p), None) => a.market.prepare_emergency_liquidation(
                 &crate::transitions::flash_liquidation::LiquidationPositionRef::Borrow(p),
@@ -200,8 +196,6 @@ impl<'info> EmergencyLiquidation<'info> {
                 &mut position,
                 asset,
                 &mut prepared,
-                eligibility_fee,
-                clock.unix_timestamp,
                 clock.slot,
                 a.futarchy_authority.revenue_share.swap_bps,
                 a.futarchy_authority.protocol_auction_split,

@@ -388,11 +388,7 @@ impl<'info> BeginFlashLiquidation<'info> {
             .market
             .flash_liquidation_health(&a.position()?, asset, eligibility_fee)?;
         require!(health.eligible()?, ErrorCode::PositionNotLiquidatable);
-        match (&mut a.borrow_position, &mut a.leverage_position) {
-            (Some(p), None) => p.distress_mut(asset).observe(true, clock.unix_timestamp, clock.slot)?,
-            (None, Some(p)) => p.distress.observe(true, clock.unix_timestamp, clock.slot)?,
-            _ => return err!(ErrorCode::InvalidLiquidationSession),
-        }
+
         let quote = a.market.quote_flash_liquidation(
             &a.position()?,
             asset,
@@ -736,7 +732,6 @@ impl<'info> SettleFlashLiquidation<'info> {
                 ErrorCode::BrokenInvariant
             );
         }
-        let eligibility_fee = leverage_collateral_liquidation_fee(&a.collateral_mint, clock.epoch)?;
         let loss = {
             let mut position = match (&mut a.borrow_position, &mut a.leverage_position) {
                 (Some(p), None) => LiquidationPositionMut::Borrow(p),
@@ -752,8 +747,6 @@ impl<'info> SettleFlashLiquidation<'info> {
                 insurance_debit,
                 insurance_credit,
                 quote.full,
-                eligibility_fee,
-                clock.unix_timestamp,
                 clock.slot,
             )?
         };

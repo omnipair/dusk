@@ -1,5 +1,9 @@
 # Flash liquidation settlement contract
 
+**2026-10-30 superseding policy:** incentives now depend only on current health.
+The distress clock and observation transaction are removed. Older timing clauses
+below are historical. See [health-only liquidation](HEALTH_ONLY_LIQUIDATION.md).
+
 **2026-10-24 implementation note:** PR #45 now includes borrowing, leverage,
 and hLP atomic flash settlement, plus internal borrowing/leverage emergency
 settlement and native hLP terminal recovery. The dated design proposals and

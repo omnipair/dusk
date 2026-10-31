@@ -1,5 +1,9 @@
 # Margin and flash liquidation decisions
 
+**2026-10-30 superseding policy:** incentives now depend only on current health.
+The distress clock and observation transaction are removed. Older timing clauses
+below are historical. See [health-only liquidation](HEALTH_ONLY_LIQUIDATION.md).
+
 Updated 2026-10-17. This is the current decision record for implementation in
 [PR #45](https://github.com/omnipair/dusk/pull/45). It supersedes conflicting
 pricing, eligibility, reward, clock and composability proposals in the earlier

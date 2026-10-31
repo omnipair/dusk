@@ -120,7 +120,6 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                         health.debt >= health.collateral_value,
                         "non-insolvent: {amp} {hlp} {side:?} {tbps}"
                     );
-                    p.distress.observe(true, 0, 1000).unwrap();
                     let price = m.pessimistic_collateral_price_nad(side.opposite(), &m.current_risk().unwrap(), false);
                     let depth = m.current_risk().unwrap().curve_depth_ema_nad;
                     let mut baseline_quote = None;
@@ -166,16 +165,7 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                                 assert_eq!(q.reference_price_nad, price);
                                 assert_eq!(q.reference_depth_nad, depth);
                                 let ownership = prep.swap.as_ref().unwrap().interest_eligibility;
-                                t.apply_emergency_liquidation(
-                                    &mut Mut::Leverage(&mut next),
-                                    side,
-                                    &mut prep,
-                                    f,
-                                    120,
-                                    1000,
-                                    2000,
-                                    ProtocolAuctionSplit::default(),
-                                )
+                                t.apply_emergency_liquidation(&mut Mut::Leverage(&mut next), side, &mut prep, 1000, 2000, ProtocolAuctionSplit::default())
                                 .unwrap();
                                 cmp_publish_fee(&mut t, side, q.fee, 1000, ownership).unwrap();
                                 assert_eq!(q.loss.interest_paid, 0);

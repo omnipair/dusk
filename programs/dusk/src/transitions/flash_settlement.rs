@@ -19,13 +19,6 @@ impl LiquidationPositionMut<'_> {
             Self::Leverage(p) => LiquidationPositionRef::Leverage(p),
         }
     }
-
-    pub(crate) fn observe(&mut self, asset: MarketAsset, eligible: bool, now: i64, slot: u64) -> Result<()> {
-        match self {
-            Self::Borrow(p) => p.distress_mut(asset).observe(eligible, now, slot),
-            Self::Leverage(p) => p.distress.observe(eligible, now, slot),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -169,8 +162,6 @@ impl Market {
         insurance_debit: u64,
         insurance_credit: u64,
         full: bool,
-        eligibility_fee: LeverageCollateralFee,
-        now: i64,
         slot: u64,
     ) -> Result<LiquidationLossAllocation> {
         let current = self.liquidation_debt_allocation(&position.as_ref(), asset, allocation.shares)?;
@@ -248,15 +239,7 @@ impl Market {
         } else {
             self.finalize_debt_repayment(slot, before_curve)?;
         }
-        self.observe_liquidation_settlement(
-            position,
-            asset,
-            allocation.remaining_debt,
-            full,
-            eligibility_fee,
-            now,
-            slot,
-        )?;
+        self.reconcile_liquidation_position(position, asset, allocation.remaining_debt)?;
         Ok(loss)
     }
 
@@ -336,15 +319,11 @@ impl Market {
         Ok(())
     }
 
-    pub(crate) fn observe_liquidation_settlement(
+    pub(crate) fn reconcile_liquidation_position(
         &mut self,
         position: &mut LiquidationPositionMut<'_>,
         asset: MarketAsset,
         remaining_debt: u64,
-        full: bool,
-        eligibility_fee: LeverageCollateralFee,
-        now: i64,
-        slot: u64,
     ) -> Result<()> {
         if let LiquidationPositionMut::Borrow(p) = position {
             let contribution = self.debt_capped_global_health_contribution(
@@ -354,12 +333,6 @@ impl Market {
                 &self.risk,
             )?;
             self.reconcile_global_health_contribution(p, asset, contribution)?;
-        }
-        if full {
-            position.observe(asset, false, now, slot)?;
-        } else {
-            let health = self.flash_liquidation_health(&position.as_ref(), asset, eligibility_fee)?;
-            position.observe(asset, health.eligible()?, now, slot)?;
         }
         Ok(())
     }
