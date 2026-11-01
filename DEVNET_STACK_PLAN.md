@@ -153,7 +153,7 @@ envelope on every read, so a served payload cannot come from a program the
 client was not built against.
 
 Current pin: revision `devnet-1`, dusk `JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X`,
-delegate `AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv`.
+delegate `3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi`.
 
 ## 5. Devnet deployment and market bootstrap
 

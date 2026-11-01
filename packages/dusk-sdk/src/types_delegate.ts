@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/leverage_delegate.json`.
  */
 export type LeverageDelegate = {
-  "address": "AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv",
+  "address": "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi",
   "metadata": {
     "name": "leverageDelegate",
     "version": "2.0.0",

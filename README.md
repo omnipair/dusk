@@ -441,7 +441,7 @@ Dusk extends the invariant set where hLP needs curve-aware one-sided hedging:
 | Status | Program ID |
 | --- | --- |
 | Dusk source / devnet | `JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X` |
-| Leverage delegate source / devnet | `AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv` |
+| Leverage delegate source / devnet | `3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi` |
 | Devnet faucet | `EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz` |
 
 ## Verification
