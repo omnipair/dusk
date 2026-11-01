@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "html": "report.html",
+  "stages": {
+    "validation": "passed",
+    "package": "passed",
+    "verification": "passed"
+  },
+  "counts": {
+    "blocks": 35,
+    "charts": 6,
+    "html": 0,
+    "metrics": 0,
+    "tables": 6
+  },
+  "sourceDialog": "passed",
+  "sourceInteraction": "keyboard_menu_semantic_click",
+  "viewports": [
+    1440,
+    390
+  ],
+  "timings_ms": {
+    "validateAndPackage": 2103.1,
+    "staticChartExtraction": 2007.7,
+    "browserRun": 1482.1,
+    "readerReady": 66.0,
+    "contentChecks": 32.0,
+    "sourceDialog": 32.0,
+    "responsiveChecks": 32.0,
+    "verification": 1499.8,
+    "total": 3608.8
+  }
+}

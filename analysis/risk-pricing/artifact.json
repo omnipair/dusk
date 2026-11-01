@@ -1,0 +1,1067 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Dusk risk pricing: a SOL/USDC worked example",
+    "description": "A reproducible expected-shortfall and tail-capital comparison of pair-average, marginal-fee, and position-level risk pricing for Dusk.",
+    "generatedAt": "2026-07-31T12:13:36.689618Z",
+    "sources": [
+      {
+        "id": "summary",
+        "label": "Model summary and protocol constants",
+        "path": "results/model_summary.json"
+      },
+      {
+        "id": "scenarios",
+        "label": "Nine regime and depth scenarios",
+        "path": "results/scenario_results.csv"
+      },
+      {
+        "id": "positions",
+        "label": "Shapley position pricing",
+        "path": "results/position_pricing.csv"
+      },
+      {
+        "id": "structures",
+        "label": "Pricing-structure comparison",
+        "path": "results/pricing_structures.csv"
+      },
+      {
+        "id": "history-profile",
+        "label": "Sealed history stratum profile",
+        "path": "results/stratum_profile.csv"
+      },
+      {
+        "id": "validation",
+        "label": "Reproducibility and economic validation",
+        "path": "results/validation.json"
+      },
+      {
+        "id": "precedents",
+        "label": "Primary-source precedent ledger",
+        "path": "results/precedents.json"
+      },
+      {
+        "id": "notebook",
+        "label": "Executed reproducible notebook",
+        "path": "dusk_risk_pricing.ipynb"
+      },
+      {
+        "id": "model-code",
+        "label": "Dependency-free model implementation",
+        "path": "risk_pricing.py"
+      },
+      {
+        "id": "aave",
+        "label": "Aave V4 risk premiums",
+        "href": "https://aave.com/blog/aave-v4-risk-premiums"
+      },
+      {
+        "id": "aave-launch",
+        "label": "Aave V4 Ethereum activation parameters",
+        "href": "https://governance.aave.com/t/arfc-aave-v4-activation-on-ethereum-mainnet/24293/4"
+      },
+      {
+        "id": "gearbox",
+        "label": "Gearbox collateral-specific rates",
+        "href": "https://docs.gearbox.finance/core/collateral-limits-specific-rates"
+      },
+      {
+        "id": "imf",
+        "label": "IMF DeFi credit-risk model annex",
+        "href": "https://www.imf.org/-/media/Files/Publications/GFSR/2022/April/English/ch3onlineannex.ashx"
+      },
+      {
+        "id": "option-paper",
+        "label": "Pricing and Hedging of Decentralised Lending Contracts",
+        "href": "https://arxiv.org/abs/2409.04233"
+      },
+      {
+        "id": "fair-rate-paper",
+        "label": "Fair Interest Rates Are Impossible",
+        "href": "https://arxiv.org/abs/2410.11053"
+      },
+      {
+        "id": "binance",
+        "label": "Official Binance public market-data archive",
+        "href": "https://data.binance.vision/?prefix=data/spot/monthly/klines/SOLUSDT/1m/"
+      }
+    ],
+    "charts": [
+      {
+        "id": "risk-grid",
+        "title": "Pair risk APR is dominated by regime mix and liquidation depth",
+        "description": "Risk-only add-on; utilization APR is excluded. Each bar prices gross delayed-liquidation shortfall plus a 15% annual charge on ES99 economic capital.",
+        "showDescription": true,
+        "dataset": "scenarios",
+        "type": "bar",
+        "source": {
+          "label": "Nine explicit regime-mix and liquidation-depth scenarios",
+          "path": "results/scenario_results.csv",
+          "query": {
+            "language": "sql",
+            "engine": "artifact snapshot",
+            "sql": "SELECT regime_label, depth_label, pair_risk_apr_bps FROM scenarios ORDER BY regime_label, depth_factor DESC",
+            "description": "Nine explicit regime-mix and liquidation-depth scenarios",
+            "tables_used": [
+              "scenarios"
+            ]
+          }
+        },
+        "encodings": {
+          "x": {
+            "field": "depth_label",
+            "type": "nominal",
+            "title": "Available liquidation depth"
+          },
+          "y": {
+            "field": "pair_risk_apr_bps",
+            "type": "quantitative",
+            "title": "Risk APR (bps)"
+          },
+          "color": {
+            "field": "regime_label",
+            "type": "nominal"
+          }
+        },
+        "options": {
+          "grouping": "grouped"
+        }
+      },
+      {
+        "id": "position-premiums",
+        "title": "One pair rate hides a 0% to 58.7% position-risk range",
+        "description": "Central illustrative delayed-liquidation stress: 55% calm, 35% typical, 10% stress per 12-hour segment, with 75% of starting depth.",
+        "showDescription": true,
+        "dataset": "central_positions",
+        "type": "bar",
+        "source": {
+          "label": "Shapley allocation of annual risk cost in the central illustrative scenario",
+          "path": "results/position_pricing.csv",
+          "query": {
+            "language": "sql",
+            "engine": "artifact snapshot",
+            "sql": "SELECT position, impact_ltv_pct, position_risk_apr_bps, pair_risk_apr_bps FROM central_positions WHERE scenario_id = 'illustrative_base_075pct_depth' ORDER BY impact_ltv_pct",
+            "description": "Shapley allocation of annual risk cost in the central illustrative scenario",
+            "tables_used": [
+              "central_positions"
+            ]
+          }
+        },
+        "encodings": {
+          "x": {
+            "field": "position",
+            "type": "nominal",
+            "title": "Borrower position"
+          },
+          "y": {
+            "field": "position_risk_apr_bps",
+            "type": "quantitative",
+            "title": "Allocated risk APR (bps)"
+          },
+          "color": {
+            "field": "position",
+            "type": "nominal"
+          }
+        }
+      },
+      {
+        "id": "marginal-fee-depth",
+        "title": "The high-LTV action fee rises nonlinearly as depth disappears",
+        "description": "Upfront seven-day risk cost of adding the 80% impact-LTV position to the low- and mid-LTV book under the illustrative regime mix.",
+        "showDescription": true,
+        "dataset": "base_depth_fees",
+        "type": "bar",
+        "source": {
+          "label": "Marginal portfolio risk cost for the high-LTV position",
+          "path": "results/scenario_results.csv",
+          "query": {
+            "language": "sql",
+            "engine": "artifact snapshot",
+            "sql": "SELECT depth_label, marginal_high_ltv_fee_bps FROM base_depth_fees ORDER BY depth_factor DESC",
+            "description": "Marginal portfolio risk cost for the high-LTV position",
+            "tables_used": [
+              "base_depth_fees"
+            ]
+          }
+        },
+        "encodings": {
+          "x": {
+            "field": "depth_label",
+            "type": "nominal",
+            "title": "Available liquidation depth"
+          },
+          "y": {
+            "field": "marginal_high_ltv_fee_bps",
+            "type": "quantitative",
+            "title": "Upfront fee (bps)"
+          }
+        }
+      }
+    ],
+    "tables": [
+      {
+        "id": "central-position-table",
+        "title": "Central position pricing and pair-rate cross-subsidy",
+        "description": "Positive pair-minus-position values mean the common pair rate overcharges that position; negative values mean it undercharges it.",
+        "showDescription": true,
+        "dataset": "central_positions",
+        "source": {
+          "label": "Central Shapley position allocation and common-rate cross-subsidy",
+          "path": "results/position_pricing.csv",
+          "query": {
+            "language": "sql",
+            "engine": "artifact snapshot",
+            "sql": "SELECT position, impact_ltv_pct, debt_usdc, liquidation_probability_pct, position_risk_apr_pct, pair_minus_position_pct_points FROM central_positions WHERE scenario_id = 'illustrative_base_075pct_depth' ORDER BY impact_ltv_pct",
+            "description": "Central Shapley position allocation and common-rate cross-subsidy",
+            "tables_used": [
+              "central_positions"
+            ]
+          }
+        },
+        "columns": [
+          {
+            "field": "position",
+            "label": "Position"
+          },
+          {
+            "field": "impact_ltv_pct",
+            "label": "Impact LTV (%)",
+            "format": "number"
+          },
+          {
+            "field": "debt_usdc",
+            "label": "Debt (USDC)",
+            "format": "number"
+          },
+          {
+            "field": "liquidation_probability_pct",
+            "label": "Liquidation probability (%)",
+            "format": "number"
+          },
+          {
+            "field": "position_risk_apr_pct",
+            "label": "Position risk APR (%)",
+            "format": "number"
+          },
+          {
+            "field": "pair_minus_position_pct_points",
+            "label": "Pair minus position (pp)",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "structure-table",
+        "title": "Three ways Dusk could collect the same risk cost",
+        "description": "Quotes are central-scenario illustrations; each structure allocates the charge differently.",
+        "showDescription": true,
+        "dataset": "central_structures",
+        "source": {
+          "label": "Pricing structure comparison for the central illustrative scenario",
+          "path": "results/pricing_structures.csv",
+          "query": {
+            "language": "sql",
+            "engine": "artifact snapshot",
+            "sql": "SELECT pricing_structure, quote, prices, accounting_fit FROM central_structures WHERE scenario_id = 'illustrative_base_075pct_depth'",
+            "description": "Pricing structure comparison for the central illustrative scenario",
+            "tables_used": [
+              "central_structures"
+            ]
+          }
+        },
+        "columns": [
+          {
+            "field": "pricing_structure",
+            "label": "Structure"
+          },
+          {
+            "field": "quote",
+            "label": "Illustrative quote"
+          },
+          {
+            "field": "prices",
+            "label": "What it prices"
+          },
+          {
+            "field": "accounting_fit",
+            "label": "Dusk accounting fit"
+          }
+        ]
+      },
+      {
+        "id": "precedent-table",
+        "title": "Deployed precedents stop short of actuarial expected-loss pricing",
+        "description": "Production protocols have risk tariffs; the Dusk model supplies an expected-loss calibration layer.",
+        "showDescription": true,
+        "dataset": "precedents",
+        "source": {
+          "label": "Primary project documentation and research papers",
+          "path": "results/precedents.json",
+          "query": {
+            "language": "sql",
+            "engine": "artifact snapshot",
+            "sql": "SELECT source, pricing_mechanism, calibration_status, dusk_takeaway, primary_source FROM precedents",
+            "description": "Primary project documentation and research papers",
+            "tables_used": [
+              "precedents"
+            ]
+          }
+        },
+        "columns": [
+          {
+            "field": "source",
+            "label": "Source"
+          },
+          {
+            "field": "pricing_mechanism",
+            "label": "Mechanism"
+          },
+          {
+            "field": "calibration_status",
+            "label": "Status"
+          },
+          {
+            "field": "dusk_takeaway",
+            "label": "Dusk takeaway"
+          }
+        ]
+      },
+      {
+        "id": "history-table",
+        "title": "The historical input is deliberately stratified",
+        "description": "Five sealed 12-hour score windows per stratum; these do not reveal unconditional real-world regime frequencies.",
+        "showDescription": true,
+        "dataset": "strata",
+        "source": {
+          "label": "Profile of the sealed SOLUSDT score windows",
+          "path": "results/stratum_profile.csv",
+          "query": {
+            "language": "sql",
+            "engine": "artifact snapshot",
+            "sql": "SELECT stratum, windows, median_12h_return_pct, median_12h_minimum_from_start_pct, worst_12h_minimum_from_start_pct FROM strata ORDER BY stratum",
+            "description": "Profile of the sealed SOLUSDT score windows",
+            "tables_used": [
+              "strata"
+            ]
+          }
+        },
+        "columns": [
+          {
+            "field": "stratum",
+            "label": "Stratum"
+          },
+          {
+            "field": "windows",
+            "label": "Windows",
+            "format": "number"
+          },
+          {
+            "field": "median_12h_return_pct",
+            "label": "Median 12h return (%)",
+            "format": "number"
+          },
+          {
+            "field": "median_12h_minimum_from_start_pct",
+            "label": "Median minimum (%)",
+            "format": "number"
+          },
+          {
+            "field": "worst_12h_minimum_from_start_pct",
+            "label": "Worst minimum (%)",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Dusk risk pricing: a SOL/USDC worked example"
+      },
+      {
+        "id": "executive-summary",
+        "type": "markdown",
+        "sourceId": "summary",
+        "body": "## Executive summary\n\nThe model's central **delayed-liquidation stress** produces a **24.44% risk-only pair APR**, on top of\u2014not inside\u2014the utilization IRM. That common rate masks a **0.00% / 1.04% / 58.72%** Shapley allocation across 50%, 65%, and 80% impact-LTV positions. The pair rate therefore overcharges the low-LTV position by **24.44 percentage points** and undercharges the high-LTV position by **34.28 points**.\n\nFor the same state, the marginal seven-day fee for adding the 80% LTV position is **114.2 bps upfront**. Across the declared regime/depth grid, the pair quote ranges from **2.48% to 83.00% APR**. These are scenario prices, not production parameters."
+      },
+      {
+        "id": "definitions",
+        "type": "markdown",
+        "sourceId": "model-code",
+        "body": "## What is being priced\n\nThis is lender-loss pricing, not a safeguard score. For horizon `H`, the model uses:\n\n`risk cost = expected gross shortfall + 15% \u00d7 H \u00d7 (ES99 \u2212 expected shortfall)`\n\n`risk APR = expected shortfall / (debt \u00d7 H) + 15% \u00d7 (ES99 \u2212 expected shortfall) / debt`\n\nLiquidation probability alone is not charged: most prompt liquidations repay lenders. Loss appears only when post-trigger price/depth deterioration makes collateral recovery insufficient. The modeled shortfall is gross of any pre-funded USDC insurance draw."
+      },
+      {
+        "id": "setup",
+        "type": "markdown",
+        "sourceId": "summary",
+        "body": "## Representative Dusk market and assumptions\n\nThe worked book is SOL collateral against USDC debt in a balanced **$2.0M default-CPMM market** at $150/SOL. Three positions each pledge 333.33 SOL at 50%, 65%, and 80% impact LTV; total debt is about $92.8k. Dusk inputs are the 85% liquidation collateral factor, 80.75% maximum borrow factor, 1%\u20135% incentive, 2% insurance-funding penalty, 500 ppm price safety, and 25 ppm Q haircut.\n\nFifty thousand seven-day paths bootstrap 14 sealed 12-hour SOLUSDT score segments. The central scenario draws each segment from a 55% calm / 35% typical / 10% stress mixture and assumes 75% of starting liquidation depth. USDT is only a return proxy for USDC."
+      },
+      {
+        "id": "timing-warning",
+        "type": "markdown",
+        "sourceId": "summary",
+        "body": "### Read the 24.44% correctly\n\nRecovery is valued at the **seven-day path minimum after trigger**. That is a deliberately conservative delayed-liquidation stress, while Dusk's auction floor becomes reachable in roughly 21 seconds. At the trigger boundary itself, collateral still covers debt plus the configured penalty. The large quote therefore measures gap/depth risk under delayed recovery; it must not be installed as a live APR without keeper-fill and execution-delay calibration."
+      },
+      {
+        "id": "risk-grid-chart",
+        "type": "chart",
+        "chartId": "risk-grid"
+      },
+      {
+        "id": "risk-grid-explanation",
+        "type": "markdown",
+        "sourceId": "scenarios",
+        "body": "The scenario fan is the useful output\u2014not the central point estimate. At unchanged utilization, moving from 100% to 50% depth roughly doubles or quadruples the price depending on the regime mix. In the central case, the **24.44%** APR decomposes into **23.48%** annualized expected shortfall and **0.96%** tail-capital return."
+      },
+      {
+        "id": "allocation-text",
+        "type": "markdown",
+        "sourceId": "positions",
+        "body": "## Pair pricing is operationally easy but economically blunt\n\nDusk currently has one shared borrow index per asset side, so a pair-wide spread is the smallest accounting change. Economically, it invites adverse selection: the 80% LTV borrower is underpriced by more than 34 percentage points in the central stress while the 50% LTV borrower pays for risk it does not add in these paths."
+      },
+      {
+        "id": "position-chart",
+        "type": "chart",
+        "chartId": "position-premiums"
+      },
+      {
+        "id": "position-chart-explanation",
+        "type": "markdown",
+        "sourceId": "positions",
+        "body": "The Shapley calculation reruns every borrower coalition, so each position receives both its stand-alone loss and its share of the nonlinear shared-depth externality. Allocations reconcile exactly to the market risk cost. A zero estimate for the 50% LTV position means zero loss in the declared paths\u2014not zero real-world risk."
+      },
+      {
+        "id": "central-position-table-block",
+        "type": "table",
+        "tableId": "central-position-table"
+      },
+      {
+        "id": "collection-text",
+        "type": "markdown",
+        "sourceId": "structures",
+        "body": "## Collection choice: rolling premium versus marginal action fee\n\nThe economically clean target is a position-level additive premium: `borrow APR = utilization APR + position risk APR`. It needs separate premium debt or a second index because today's quote-debt index is shared. A practical interim route is a marginal fee whenever a borrower increases debt or withdraws collateral; the fee is recomputed from the whole book, so concentration and shared liquidation depth are included. Calling it an origination result from the option papers would be incorrect\u2014it is a Dusk design inference."
+      },
+      {
+        "id": "marginal-chart",
+        "type": "chart",
+        "chartId": "marginal-fee-depth"
+      },
+      {
+        "id": "marginal-chart-explanation",
+        "type": "markdown",
+        "sourceId": "scenarios",
+        "body": "The action fee is nonlinear because adding the high-LTV position can consume recovery depth already relied upon by existing debt. It should be recomputed on every risk-increasing action and tied to an explicit seven-day repricing horizon."
+      },
+      {
+        "id": "structure-table-block",
+        "type": "table",
+        "tableId": "structure-table"
+      },
+      {
+        "id": "precedent-text",
+        "type": "markdown",
+        "sourceId": "precedents",
+        "body": "## What exists elsewhere\n\n[Aave V4](https://aave.com/blog/aave-v4-risk-premiums) separates utilization from borrower collateral risk, but its premium is a configured multiplicative factor; Ethereum activation set the scores to zero. [Gearbox](https://docs.gearbox.finance/core/collateral-limits-specific-rates) uses the closest deployed additive shape, with collateral quota rates and a quota-increase fee, but those are configured tariffs. The [IMF annex](https://www.imf.org/-/media/Files/Publications/GFSR/2022/April/English/ch3onlineannex.ashx) supplies the direct expected-loss decomposition used here."
+      },
+      {
+        "id": "precedent-table-block",
+        "type": "table",
+        "tableId": "precedent-table"
+      },
+      {
+        "id": "recommendation",
+        "type": "markdown",
+        "sourceId": "validation",
+        "body": "## Decision\n\nRun a **shadow position quote**, not a production rate change, with three outputs on each risk-increasing action: seven-day marginal expected loss, ES99 capital charge, and the equivalent additive APR. Use position-level premium accounting as the target architecture; use the marginal action fee only as an accounting-compatible bridge. Do not ship a pair-average premium except as a temporary portfolio surcharge because its cross-subsidy is structurally large."
+      },
+      {
+        "id": "calibration-plan",
+        "type": "markdown",
+        "sourceId": "summary",
+        "body": "## What would make the quote production-calibrated\n\n1. Record trigger-to-bid and trigger-to-floor timing, bid premiums, failed auctions, and realized collateral resale values.\n2. Replay minute/slot paths to the first trigger and simulate repeated 50% closes rather than valuing recovery at the horizon minimum.\n3. Include external venue depth, keeper profit/gas, funded USDC insurance, repayment duration, isolated leverage, and hLP debt.\n4. Backtest whether quoted premium revenue covers realized shortfall by LTV bucket and re-estimate the regime transition model."
+      },
+      {
+        "id": "history-table-block",
+        "type": "table",
+        "tableId": "history-table"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "sourceId": "summary",
+        "body": "## Caveats and further questions\n\nThe history contains five deliberately selected calm, typical, and stress windows; the regime weights are assumptions. SOLUSDT proxies SOL/USDC. The joint CPMM unwind represents shared resale capacity even though Dusk auctions transfer collateral to external liquidators. No funded-insurance balance, borrower repayment behavior, oracle/external-market basis, jump overlay, or keeper failure model is calibrated. The output is therefore a reproducible stress-pricing laboratory, not an actuarial live quote."
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "status": "ready",
+    "generatedAt": "2026-07-31T12:13:36.689618Z",
+    "datasets": {
+      "scenarios": [
+        {
+          "scenario_id": "mostly_calm_100pct_depth",
+          "regime_mix": "mostly_calm",
+          "depth_label": "100%",
+          "depth_factor": 1.0,
+          "calm_weight": 0.8,
+          "typical_weight": 0.18,
+          "stress_weight": 0.02,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.40422,
+          "probability_lender_shortfall": 0.03768,
+          "expected_loss_usdc": 38.10247885217479,
+          "expected_loss_bps_of_ead": 4.10535258107293,
+          "expected_shortfall_99_usdc": 2160.2201443505305,
+          "expected_shortfall_99_bps_of_ead": 232.75297598620668,
+          "economic_capital_usdc": 2122.1176654983556,
+          "pair_risk_apr": 0.024836195666671567,
+          "pair_risk_apr_bps": 248.36195666671568,
+          "marginal_high_ltv_fee": 0.0011609444882478511,
+          "marginal_high_ltv_fee_bps": 11.609444882478511,
+          "marginal_high_ltv_annualized_bps": 605.3496260149508,
+          "minimum_path_price_ratio_p01": 0.822186434052399,
+          "minimum_path_price_ratio_median": 0.9513103665005351,
+          "regime_label": "Mostly calm"
+        },
+        {
+          "scenario_id": "mostly_calm_075pct_depth",
+          "regime_mix": "mostly_calm",
+          "depth_label": "75%",
+          "depth_factor": 0.75,
+          "calm_weight": 0.8,
+          "typical_weight": 0.18,
+          "stress_weight": 0.02,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.53964,
+          "probability_lender_shortfall": 0.0685,
+          "expected_loss_usdc": 65.26367094855196,
+          "expected_loss_bps_of_ead": 7.031835934307969,
+          "expected_shortfall_99_usdc": 2701.7256982840436,
+          "expected_shortfall_99_bps_of_ead": 291.09750606602296,
+          "economic_capital_usdc": 2636.4620273354917,
+          "pair_risk_apr": 0.04092698670943871,
+          "pair_risk_apr_bps": 409.26986709438705,
+          "marginal_high_ltv_fee": 0.0019128614072783491,
+          "marginal_high_ltv_fee_bps": 19.128614072783492,
+          "marginal_high_ltv_annualized_bps": 997.4205909379964,
+          "minimum_path_price_ratio_p01": 0.822186434052399,
+          "minimum_path_price_ratio_median": 0.9513103665005351,
+          "regime_label": "Mostly calm"
+        },
+        {
+          "scenario_id": "mostly_calm_050pct_depth",
+          "regime_mix": "mostly_calm",
+          "depth_label": "50%",
+          "depth_factor": 0.5,
+          "calm_weight": 0.8,
+          "typical_weight": 0.18,
+          "stress_weight": 0.02,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.82136,
+          "probability_lender_shortfall": 0.13122,
+          "expected_loss_usdc": 170.8322074360554,
+          "expected_loss_bps_of_ead": 18.406320660892284,
+          "expected_shortfall_99_usdc": 4052.96745767597,
+          "expected_shortfall_99_bps_of_ead": 436.68708479382644,
+          "economic_capital_usdc": 3882.1352502399145,
+          "pair_risk_apr": 0.10225002633664665,
+          "pair_risk_apr_bps": 1022.5002633664665,
+          "marginal_high_ltv_fee": 0.004778979446677059,
+          "marginal_high_ltv_fee_bps": 47.789794466770594,
+          "marginal_high_ltv_annualized_bps": 2491.8964257673233,
+          "minimum_path_price_ratio_p01": 0.822186434052399,
+          "minimum_path_price_ratio_median": 0.9513103665005351,
+          "regime_label": "Mostly calm"
+        },
+        {
+          "scenario_id": "illustrative_base_100pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "100%",
+          "depth_factor": 1.0,
+          "calm_weight": 0.55,
+          "typical_weight": 0.35,
+          "stress_weight": 0.1,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.65812,
+          "probability_lender_shortfall": 0.19076,
+          "expected_loss_usdc": 289.0631095634963,
+          "expected_loss_bps_of_ead": 31.145112304726926,
+          "expected_shortfall_99_usdc": 4876.7287537960165,
+          "expected_shortfall_99_bps_of_ead": 525.4432672021893,
+          "economic_capital_usdc": 4587.66564423252,
+          "pair_risk_apr": 0.1698139864838238,
+          "pair_risk_apr_bps": 1698.1398648382378,
+          "marginal_high_ltv_fee": 0.007936979172885737,
+          "marginal_high_ltv_fee_bps": 79.36979172885738,
+          "marginal_high_ltv_annualized_bps": 4138.567711576134,
+          "minimum_path_price_ratio_p01": 0.7635895853649456,
+          "minimum_path_price_ratio_median": 0.908710221563473,
+          "regime_label": "Illustrative base"
+        },
+        {
+          "scenario_id": "illustrative_base_075pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "75%",
+          "depth_factor": 0.75,
+          "calm_weight": 0.55,
+          "typical_weight": 0.35,
+          "stress_weight": 0.1,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.73774,
+          "probability_lender_shortfall": 0.27872,
+          "expected_loss_usdc": 417.9622898533486,
+          "expected_loss_bps_of_ead": 45.0333578583604,
+          "expected_shortfall_99_usdc": 6332.723159658627,
+          "expected_shortfall_99_bps_of_ead": 682.3194225653631,
+          "economic_capital_usdc": 5914.760869805278,
+          "pair_risk_apr": 0.24437608551776996,
+          "pair_risk_apr_bps": 2443.7608551777,
+          "marginal_high_ltv_fee": 0.011418623974310503,
+          "marginal_high_ltv_fee_bps": 114.18623974310503,
+          "marginal_high_ltv_annualized_bps": 5953.996786604763,
+          "minimum_path_price_ratio_p01": 0.7635895853649456,
+          "minimum_path_price_ratio_median": 0.908710221563473,
+          "regime_label": "Illustrative base"
+        },
+        {
+          "scenario_id": "illustrative_base_050pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "50%",
+          "depth_factor": 0.5,
+          "calm_weight": 0.55,
+          "typical_weight": 0.35,
+          "stress_weight": 0.1,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.89068,
+          "probability_lender_shortfall": 0.40404,
+          "expected_loss_usdc": 837.0478496483602,
+          "expected_loss_bps_of_ead": 90.18774246598136,
+          "expected_shortfall_99_usdc": 9790.334104197747,
+          "expected_shortfall_99_bps_of_ead": 1054.8598042707254,
+          "economic_capital_usdc": 8953.286254549388,
+          "pair_risk_apr": 0.48473473807111683,
+          "pair_risk_apr_bps": 4847.347380711169,
+          "marginal_high_ltv_fee": 0.022636051593106648,
+          "marginal_high_ltv_fee_bps": 226.3605159310665,
+          "marginal_high_ltv_annualized_bps": 11803.084044977037,
+          "minimum_path_price_ratio_p01": 0.7635895853649456,
+          "minimum_path_price_ratio_median": 0.908710221563473,
+          "regime_label": "Illustrative base"
+        },
+        {
+          "scenario_id": "stress_heavy_100pct_depth",
+          "regime_mix": "stress_heavy",
+          "depth_label": "100%",
+          "depth_factor": 1.0,
+          "calm_weight": 0.25,
+          "typical_weight": 0.5,
+          "stress_weight": 0.25,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.72704,
+          "probability_lender_shortfall": 0.29566,
+          "expected_loss_usdc": 582.374134746591,
+          "expected_loss_bps_of_ead": 62.747916389055824,
+          "expected_shortfall_99_usdc": 8286.57589892425,
+          "expected_shortfall_99_bps_of_ead": 892.8373370900425,
+          "economic_capital_usdc": 7704.201764177658,
+          "pair_risk_apr": 0.339636905339163,
+          "pair_risk_apr_bps": 3396.36905339163,
+          "marginal_high_ltv_fee": 0.01581929093860047,
+          "marginal_high_ltv_fee_bps": 158.19290938600471,
+          "marginal_high_ltv_annualized_bps": 8248.630275127389,
+          "minimum_path_price_ratio_p01": 0.7263965405029718,
+          "minimum_path_price_ratio_median": 0.8872433969072924,
+          "regime_label": "Stress-heavy"
+        },
+        {
+          "scenario_id": "stress_heavy_075pct_depth",
+          "regime_mix": "stress_heavy",
+          "depth_label": "75%",
+          "depth_factor": 0.75,
+          "calm_weight": 0.25,
+          "typical_weight": 0.5,
+          "stress_weight": 0.25,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.78636,
+          "probability_lender_shortfall": 0.40336,
+          "expected_loss_usdc": 797.0415835435693,
+          "expected_loss_bps_of_ead": 85.87726627755302,
+          "expected_shortfall_99_usdc": 9814.867878507355,
+          "expected_shortfall_99_bps_of_ead": 1057.503196425765,
+          "economic_capital_usdc": 9017.826294963786,
+          "pair_risk_apr": 0.46236299168517825,
+          "pair_risk_apr_bps": 4623.629916851783,
+          "marginal_high_ltv_fee": 0.021522256621375014,
+          "marginal_high_ltv_fee_bps": 215.22256621375013,
+          "marginal_high_ltv_annualized_bps": 11222.319524002683,
+          "minimum_path_price_ratio_p01": 0.7263965405029718,
+          "minimum_path_price_ratio_median": 0.8872433969072924,
+          "regime_label": "Stress-heavy"
+        },
+        {
+          "scenario_id": "stress_heavy_050pct_depth",
+          "regime_mix": "stress_heavy",
+          "depth_label": "50%",
+          "depth_factor": 0.5,
+          "calm_weight": 0.25,
+          "typical_weight": 0.5,
+          "stress_weight": 0.25,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.9022,
+          "probability_lender_shortfall": 0.52554,
+          "expected_loss_usdc": 1445.0508878860405,
+          "expected_loss_bps_of_ead": 155.69704573239534,
+          "expected_shortfall_99_usdc": 12651.7063856247,
+          "expected_shortfall_99_bps_of_ead": 1363.1584356154467,
+          "economic_capital_usdc": 11206.65549773866,
+          "pair_risk_apr": 0.8299608021671644,
+          "pair_risk_apr_bps": 8299.608021671644,
+          "marginal_high_ltv_fee": 0.038585483577615896,
+          "marginal_high_ltv_fee_bps": 385.85483577615895,
+          "marginal_high_ltv_annualized_bps": 20119.57357975686,
+          "minimum_path_price_ratio_p01": 0.7263965405029718,
+          "minimum_path_price_ratio_median": 0.8872433969072924,
+          "regime_label": "Stress-heavy"
+        }
+      ],
+      "central_positions": [
+        {
+          "scenario_id": "illustrative_base_075pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "75%",
+          "depth_factor": 0.75,
+          "position": "Low LTV",
+          "impact_ltv": 0.5,
+          "impact_ltv_pct": 50.0,
+          "collateral_sol": 333.33333333333337,
+          "debt_usdc": 23797.874066639037,
+          "liquidation_probability": 0.0,
+          "allocated_annual_risk_cost_usdc": 0.0,
+          "position_risk_apr": 0.0,
+          "position_risk_apr_bps": 0.0,
+          "pair_risk_apr_bps": 2443.7608551777,
+          "cross_subsidy_bps": 2443.7608551777,
+          "liquidation_probability_pct": 0.0,
+          "position_risk_apr_pct": 0.0,
+          "pair_risk_apr_pct": 24.437608551776997,
+          "pair_minus_position_pct_points": 24.437608551776997
+        },
+        {
+          "scenario_id": "illustrative_base_075pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "75%",
+          "depth_factor": 0.75,
+          "position": "Mid LTV",
+          "impact_ltv": 0.65,
+          "impact_ltv_pct": 65.0,
+          "collateral_sol": 333.33333333333337,
+          "debt_usdc": 30937.23628663075,
+          "liquidation_probability": 0.01342,
+          "allocated_annual_risk_cost_usdc": 322.32550212340544,
+          "position_risk_apr": 0.010418690898472258,
+          "position_risk_apr_bps": 104.18690898472258,
+          "pair_risk_apr_bps": 2443.7608551777,
+          "cross_subsidy_bps": 2339.573946192977,
+          "liquidation_probability_pct": 1.3419999999999999,
+          "position_risk_apr_pct": 1.0418690898472258,
+          "pair_risk_apr_pct": 24.437608551776997,
+          "pair_minus_position_pct_points": 23.39573946192977
+        },
+        {
+          "scenario_id": "illustrative_base_075pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "75%",
+          "depth_factor": 0.75,
+          "position": "High LTV",
+          "impact_ltv": 0.8,
+          "impact_ltv_pct": 80.0,
+          "collateral_sol": 333.33333333333337,
+          "debt_usdc": 38076.59850662246,
+          "liquidation_probability": 0.73774,
+          "allocated_annual_risk_cost_usdc": 22358.636599271988,
+          "position_risk_apr": 0.5872015220945555,
+          "position_risk_apr_bps": 5872.0152209455555,
+          "pair_risk_apr_bps": 2443.7608551777,
+          "cross_subsidy_bps": -3428.254365767855,
+          "liquidation_probability_pct": 73.774,
+          "position_risk_apr_pct": 58.720152209455556,
+          "pair_risk_apr_pct": 24.437608551776997,
+          "pair_minus_position_pct_points": -34.282543657678545
+        }
+      ],
+      "base_depth_fees": [
+        {
+          "scenario_id": "illustrative_base_100pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "100%",
+          "depth_factor": 1.0,
+          "calm_weight": 0.55,
+          "typical_weight": 0.35,
+          "stress_weight": 0.1,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.65812,
+          "probability_lender_shortfall": 0.19076,
+          "expected_loss_usdc": 289.0631095634963,
+          "expected_loss_bps_of_ead": 31.145112304726926,
+          "expected_shortfall_99_usdc": 4876.7287537960165,
+          "expected_shortfall_99_bps_of_ead": 525.4432672021893,
+          "economic_capital_usdc": 4587.66564423252,
+          "pair_risk_apr": 0.1698139864838238,
+          "pair_risk_apr_bps": 1698.1398648382378,
+          "marginal_high_ltv_fee": 0.007936979172885737,
+          "marginal_high_ltv_fee_bps": 79.36979172885738,
+          "marginal_high_ltv_annualized_bps": 4138.567711576134,
+          "minimum_path_price_ratio_p01": 0.7635895853649456,
+          "minimum_path_price_ratio_median": 0.908710221563473,
+          "regime_label": "Illustrative base"
+        },
+        {
+          "scenario_id": "illustrative_base_075pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "75%",
+          "depth_factor": 0.75,
+          "calm_weight": 0.55,
+          "typical_weight": 0.35,
+          "stress_weight": 0.1,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.73774,
+          "probability_lender_shortfall": 0.27872,
+          "expected_loss_usdc": 417.9622898533486,
+          "expected_loss_bps_of_ead": 45.0333578583604,
+          "expected_shortfall_99_usdc": 6332.723159658627,
+          "expected_shortfall_99_bps_of_ead": 682.3194225653631,
+          "economic_capital_usdc": 5914.760869805278,
+          "pair_risk_apr": 0.24437608551776996,
+          "pair_risk_apr_bps": 2443.7608551777,
+          "marginal_high_ltv_fee": 0.011418623974310503,
+          "marginal_high_ltv_fee_bps": 114.18623974310503,
+          "marginal_high_ltv_annualized_bps": 5953.996786604763,
+          "minimum_path_price_ratio_p01": 0.7635895853649456,
+          "minimum_path_price_ratio_median": 0.908710221563473,
+          "regime_label": "Illustrative base"
+        },
+        {
+          "scenario_id": "illustrative_base_050pct_depth",
+          "regime_mix": "illustrative_base",
+          "depth_label": "50%",
+          "depth_factor": 0.5,
+          "calm_weight": 0.55,
+          "typical_weight": 0.35,
+          "stress_weight": 0.1,
+          "paths": 50000,
+          "horizon_days": 7,
+          "ead_usdc": 92811.70885989224,
+          "probability_any_liquidation": 0.89068,
+          "probability_lender_shortfall": 0.40404,
+          "expected_loss_usdc": 837.0478496483602,
+          "expected_loss_bps_of_ead": 90.18774246598136,
+          "expected_shortfall_99_usdc": 9790.334104197747,
+          "expected_shortfall_99_bps_of_ead": 1054.8598042707254,
+          "economic_capital_usdc": 8953.286254549388,
+          "pair_risk_apr": 0.48473473807111683,
+          "pair_risk_apr_bps": 4847.347380711169,
+          "marginal_high_ltv_fee": 0.022636051593106648,
+          "marginal_high_ltv_fee_bps": 226.3605159310665,
+          "marginal_high_ltv_annualized_bps": 11803.084044977037,
+          "minimum_path_price_ratio_p01": 0.7635895853649456,
+          "minimum_path_price_ratio_median": 0.908710221563473,
+          "regime_label": "Illustrative base"
+        }
+      ],
+      "central_structures": [
+        {
+          "scenario_id": "illustrative_base_075pct_depth",
+          "pricing_structure": "Pair-average rolling spread",
+          "quote": "24.44% APR for every position",
+          "quote_bps": 2443.7608551777,
+          "prices": "Average expected shortfall and shared depth by debt side",
+          "accounting_fit": "Fits today's one shared quote-debt index"
+        },
+        {
+          "scenario_id": "illustrative_base_075pct_depth",
+          "pricing_structure": "Marginal risk-increasing action fee",
+          "quote": "1.14% upfront on the high-LTV debt",
+          "quote_bps": 114.18623974310503,
+          "prices": "Incremental portfolio loss from adding the high-LTV position",
+          "accounting_fit": "Can be charged on borrow or collateral withdrawal"
+        },
+        {
+          "scenario_id": "illustrative_base_075pct_depth",
+          "pricing_structure": "Position-level rolling premium",
+          "quote": "Low LTV: 0.00% / Mid LTV: 1.04% / High LTV: 58.72%",
+          "quote_bps": null,
+          "prices": "Shapley share of expected loss and joint depth externality",
+          "accounting_fit": "Needs separate premium debt or position fee accrual"
+        }
+      ],
+      "strata": [
+        {
+          "stratum": "calm",
+          "windows": 5,
+          "median_12h_return_pct": -0.03639539962148053,
+          "worst_12h_minimum_from_start_pct": -0.8779038357644597,
+          "median_12h_minimum_from_start_pct": -0.5947586890527323
+        },
+        {
+          "stratum": "typical",
+          "windows": 5,
+          "median_12h_return_pct": -2.021428571428585,
+          "worst_12h_minimum_from_start_pct": -3.8214285714285645,
+          "median_12h_minimum_from_start_pct": -3.5455278001611634
+        },
+        {
+          "stratum": "stress",
+          "windows": 5,
+          "median_12h_return_pct": 4.141365071654102,
+          "worst_12h_minimum_from_start_pct": -13.719512195121952,
+          "median_12h_minimum_from_start_pct": -1.7495732748110226
+        }
+      ],
+      "precedents": [
+        {
+          "source": "Aave V4",
+          "pricing_mechanism": "Base utilization rate multiplied by a borrower collateral-risk factor",
+          "calibration_status": "Governance-configured; Ethereum activation set collateral-risk scores to zero",
+          "dusk_takeaway": "Separates liquidity price from user risk, but is not actuarial expected-loss pricing",
+          "primary_source": "https://aave.com/blog/aave-v4-risk-premiums"
+        },
+        {
+          "source": "Gearbox",
+          "pricing_mechanism": "Additive quota rate weighted by collateral exposure, plus quota-increase fee",
+          "calibration_status": "Gauge- or curator-configured tariff",
+          "dusk_takeaway": "Closest deployed accounting shape for an additive Dusk premium",
+          "primary_source": "https://docs.gearbox.finance/core/collateral-limits-specific-rates"
+        },
+        {
+          "source": "IMF DeFi credit-risk annex",
+          "pricing_mechanism": "Liquidation probability multiplied by conditional liquidation shortfall",
+          "calibration_status": "Research model; includes relative volatility, correlation, bonus, and delay",
+          "dusk_takeaway": "Use expected lender loss, not liquidation probability, as the rate numerator",
+          "primary_source": "https://www.imf.org/-/media/Files/Publications/GFSR/2022/April/English/ch3onlineannex.ashx"
+        },
+        {
+          "source": "Szpruch et al.",
+          "pricing_mechanism": "Overcollateralized loan valued as a perpetual barrier-like option",
+          "calibration_status": "Preprint valuation framework",
+          "dusk_takeaway": "Borrower optionality and LTV matter; it does not prescribe an origination fee",
+          "primary_source": "https://arxiv.org/abs/2409.04233"
+        },
+        {
+          "source": "Halpern, Pass, Saraf",
+          "pricing_mechanism": "Shows no single fair continuous rate in its freely repayable perpetual-loan model",
+          "calibration_status": "Preprint impossibility result; studies a fee paid on repayment",
+          "dusk_takeaway": "A Dusk action fee is a design inference, not this paper's result",
+          "primary_source": "https://arxiv.org/abs/2410.11053"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "summary",
+      "label": "Model summary and protocol constants",
+      "path": "results/model_summary.json"
+    },
+    {
+      "id": "scenarios",
+      "label": "Nine regime and depth scenarios",
+      "path": "results/scenario_results.csv"
+    },
+    {
+      "id": "positions",
+      "label": "Shapley position pricing",
+      "path": "results/position_pricing.csv"
+    },
+    {
+      "id": "structures",
+      "label": "Pricing-structure comparison",
+      "path": "results/pricing_structures.csv"
+    },
+    {
+      "id": "history-profile",
+      "label": "Sealed history stratum profile",
+      "path": "results/stratum_profile.csv"
+    },
+    {
+      "id": "validation",
+      "label": "Reproducibility and economic validation",
+      "path": "results/validation.json"
+    },
+    {
+      "id": "precedents",
+      "label": "Primary-source precedent ledger",
+      "path": "results/precedents.json"
+    },
+    {
+      "id": "notebook",
+      "label": "Executed reproducible notebook",
+      "path": "dusk_risk_pricing.ipynb"
+    },
+    {
+      "id": "model-code",
+      "label": "Dependency-free model implementation",
+      "path": "risk_pricing.py"
+    },
+    {
+      "id": "aave",
+      "label": "Aave V4 risk premiums",
+      "href": "https://aave.com/blog/aave-v4-risk-premiums"
+    },
+    {
+      "id": "aave-launch",
+      "label": "Aave V4 Ethereum activation parameters",
+      "href": "https://governance.aave.com/t/arfc-aave-v4-activation-on-ethereum-mainnet/24293/4"
+    },
+    {
+      "id": "gearbox",
+      "label": "Gearbox collateral-specific rates",
+      "href": "https://docs.gearbox.finance/core/collateral-limits-specific-rates"
+    },
+    {
+      "id": "imf",
+      "label": "IMF DeFi credit-risk model annex",
+      "href": "https://www.imf.org/-/media/Files/Publications/GFSR/2022/April/English/ch3onlineannex.ashx"
+    },
+    {
+      "id": "option-paper",
+      "label": "Pricing and Hedging of Decentralised Lending Contracts",
+      "href": "https://arxiv.org/abs/2409.04233"
+    },
+    {
+      "id": "fair-rate-paper",
+      "label": "Fair Interest Rates Are Impossible",
+      "href": "https://arxiv.org/abs/2410.11053"
+    },
+    {
+      "id": "binance",
+      "label": "Official Binance public market-data archive",
+      "href": "https://data.binance.vision/?prefix=data/spot/monthly/klines/SOLUSDT/1m/"
+    }
+  ]
+}

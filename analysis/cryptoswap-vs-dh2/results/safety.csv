@@ -1,0 +1,7 @@
+model,solver_failures,non_monotonic_quotes,max_relative_invariant_error,max_zero_fee_roundtrip_gain_quote,max_invariant_roots,root_evidence,hard_rejected,rejection_reason,runtime_seconds,arithmetic_scope
+cpmm,0,0,3.141931159689193e-14,0.0,1,,False,,0.00039154099999905156,high_precision_analytical_reference
+curve,0,0,3.197442310920451e-14,0.0,1,,False,,0.03221116700001403,high_precision_analytical_reference
+current_dh2,0,0,3.597122599785507e-14,0.0,1,,False,,0.032506792000049245,rust_fixed_point_fixture_validated_with_10ppm_quote_haircut
+proposed_dh2,0,0,3.1530333899354446e-14,0.0,1,,False,,0.010263582999868959,high_precision_analytical_reference
+sharp_dh2,11,4,0.3565231712452557,0.0,3,sharp_root_evidence.csv,True,multiple invariant roots,0.07565316599993821,analytical_experiment_not_rust_validated
+hyperbolic_p4_dh2,0,0,2.3314683517128287e-14,0.0,1,hyperbolic_p4_root_scan.csv,False,,0.15332970800000112,analytical_experiment_not_rust_validated

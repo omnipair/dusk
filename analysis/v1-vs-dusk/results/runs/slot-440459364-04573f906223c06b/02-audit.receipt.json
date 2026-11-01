@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "stage": "audit",
+  "status": "blocked",
+  "run_id": "slot-440459364-04573f906223c06b",
+  "config_sha256": "f83654933be5e3cceadcba5e36bf7afb4a2518ebd72ace5d566f5b777357ad9b",
+  "source_identity_sha256": "0150f145ea2b6d3985e85fe61079f2d45a95b42e2ac4e22cd84414f11756e7cf",
+  "cutoff_slot": 440459364,
+  "input_receipt_sha256": "34353d2025b1785dd63c0a4d44ccb28a2d33f40d5d2db7c32fe7f7ab643edd0e",
+  "artifact_sha256": {},
+  "blocker_codes": [
+    "archival_rpc_unavailable"
+  ],
+  "receipt_sha256": "5e3ca44ec4be9cb6710ece6a033cd6dfdf49d1c90befd19790736cd074c2a7fd"
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "training_start_unix_seconds": 1776283200,
+  "training_end_unix_seconds_exclusive": 1782847234,
+  "validation_start_unix_seconds": 1782847234,
+  "validation_end_unix_seconds_exclusive": 1785035245,
+  "holdout_start_unix_seconds": 1785035245,
+  "holdout_end_unix_seconds_exclusive": 1787223258
+}

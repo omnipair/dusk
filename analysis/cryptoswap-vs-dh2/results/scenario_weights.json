@@ -1,0 +1,26 @@
+{
+  "policy": "Do not pool synthetic and historical classes into one winner statistic.",
+  "within_class": {
+    "path": "equal",
+    "flow_regime": "equal",
+    "seed": "equal"
+  },
+  "flow_regimes": [
+    {
+      "flow_regime": "benign",
+      "arb_latency_steps": 1,
+      "informed_flow_share": 0.0,
+      "daily_volume_pool_ratio": 0.25
+    },
+    {
+      "flow_regime": "toxic_delayed",
+      "arb_latency_steps": 6,
+      "informed_flow_share": 0.5,
+      "daily_volume_pool_ratio": 0.25
+    }
+  ],
+  "seeds": [
+    7,
+    41
+  ]
+}

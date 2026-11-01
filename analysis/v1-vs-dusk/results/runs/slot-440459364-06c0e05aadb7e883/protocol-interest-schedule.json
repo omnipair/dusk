@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "source": {
+    "operations_sha256": "b6352b816b49d9f50e1eb94e82a652fde6f68a0f0873da801c53694ad03245f0",
+    "factual_ledger_sha256": "bb9df989fdfdc4fdc2db08e9c7dbd3146fdf25d1d1dbee95d1a0ccab027315ab",
+    "training_start_unix_seconds": 1776283200,
+    "training_end_unix_seconds_exclusive": 1782847234
+  },
+  "side_weights": {
+    "token0": 1,
+    "token1": 1
+  },
+  "epochs": [
+    {
+      "key": {
+        "market": "5aSf28bo5Nfkq3QCAKpVyzCPmtGL9kWdLn18ERZia7Kp",
+        "config_epoch_id": "1e451498017ea87d70ed0b06a76e7308cc8944d8c842c2b76b4bb4d70ae6523c"
+      },
+      "valid_from": {
+        "slot": 398236430,
+        "transaction_index": 890,
+        "outer_instruction_index": 3,
+        "inner_execution_index": 0,
+        "event_sequence": 0
+      },
+      "valid_to_exclusive": null,
+      "v1_interest_surcharge_bps": 1500,
+      "dusk_protocol_interest_share_bps": 1304,
+      "training_fit_available": true,
+      "training_observation_count": 3689,
+      "training_samples_sha256": "a9a0e372a669a6b3d0cb53864c742f4c4134c54de923e0b8281099668f734b81",
+      "token0_borrower_interest": "4491056459",
+      "token0_nominal_protocol_interest": "585788445",
+      "token0_cash_covered_protocol_interest": "585788445",
+      "token0_absolute_floor_error": "156442",
+      "token1_borrower_interest": "0",
+      "token1_nominal_protocol_interest": "0",
+      "token1_cash_covered_protocol_interest": "0",
+      "token1_absolute_floor_error": "0"
+    },
+    {
+      "key": {
+        "market": "6FkrhorTJcQbdvUnYLa5Ksv1ReoGTfc95Hu4U2jniYW5",
+        "config_epoch_id": "1e451498017ea87d70ed0b06a76e7308cc8944d8c842c2b76b4bb4d70ae6523c"
+      },
+      "valid_from": {
+        "slot": 398236430,
+        "transaction_index": 890,
+        "outer_instruction_index": 3,
+        "inner_execution_index": 0,
+        "event_sequence": 0
+      },
+      "valid_to_exclusive": null,
+      "v1_interest_surcharge_bps": 1500,
+      "dusk_protocol_interest_share_bps": 1304,
+      "training_fit_available": false,
+      "training_observation_count": 0,
+      "training_samples_sha256": "338b5b20efcd448e888615cc69439d88a1327cbef4f4897c2d36ef8d5f7cadeb",
+      "token0_borrower_interest": "0",
+      "token0_nominal_protocol_interest": "0",
+      "token0_cash_covered_protocol_interest": "0",
+      "token0_absolute_floor_error": "0",
+      "token1_borrower_interest": "0",
+      "token1_nominal_protocol_interest": "0",
+      "token1_cash_covered_protocol_interest": "0",
+      "token1_absolute_floor_error": "0"
+    },
+    {
+      "key": {
+        "market": "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p",
+        "config_epoch_id": "1e451498017ea87d70ed0b06a76e7308cc8944d8c842c2b76b4bb4d70ae6523c"
+      },
+      "valid_from": {
+        "slot": 398236430,
+        "transaction_index": 890,
+        "outer_instruction_index": 3,
+        "inner_execution_index": 0,
+        "event_sequence": 0
+      },
+      "valid_to_exclusive": null,
+      "v1_interest_surcharge_bps": 1500,
+      "dusk_protocol_interest_share_bps": 1304,
+      "training_fit_available": false,
+      "training_observation_count": 0,
+      "training_samples_sha256": "338b5b20efcd448e888615cc69439d88a1327cbef4f4897c2d36ef8d5f7cadeb",
+      "token0_borrower_interest": "0",
+      "token0_nominal_protocol_interest": "0",
+      "token0_cash_covered_protocol_interest": "0",
+      "token0_absolute_floor_error": "0",
+      "token1_borrower_interest": "0",
+      "token1_nominal_protocol_interest": "0",
+      "token1_cash_covered_protocol_interest": "0",
+      "token1_absolute_floor_error": "0"
+    },
+    {
+      "key": {
+        "market": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+        "config_epoch_id": "1e451498017ea87d70ed0b06a76e7308cc8944d8c842c2b76b4bb4d70ae6523c"
+      },
+      "valid_from": {
+        "slot": 398236430,
+        "transaction_index": 890,
+        "outer_instruction_index": 3,
+        "inner_execution_index": 0,
+        "event_sequence": 0
+      },
+      "valid_to_exclusive": null,
+      "v1_interest_surcharge_bps": 1500,
+      "dusk_protocol_interest_share_bps": 1305,
+      "training_fit_available": true,
+      "training_observation_count": 12417,
+      "training_samples_sha256": "64270240cbb41ba274320f8aef4a030a61e6e6b73998955715bbea65a228b5c3",
+      "token0_borrower_interest": "3872055",
+      "token0_nominal_protocol_interest": "500226",
+      "token0_cash_covered_protocol_interest": "500226",
+      "token0_absolute_floor_error": "36",
+      "token1_borrower_interest": "31995111",
+      "token1_nominal_protocol_interest": "4168240",
+      "token1_cash_covered_protocol_interest": "4168240",
+      "token1_absolute_floor_error": "1469"
+    },
+    {
+      "key": {
+        "market": "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo",
+        "config_epoch_id": "1e451498017ea87d70ed0b06a76e7308cc8944d8c842c2b76b4bb4d70ae6523c"
+      },
+      "valid_from": {
+        "slot": 398236430,
+        "transaction_index": 890,
+        "outer_instruction_index": 3,
+        "inner_execution_index": 0,
+        "event_sequence": 0
+      },
+      "valid_to_exclusive": null,
+      "v1_interest_surcharge_bps": 1500,
+      "dusk_protocol_interest_share_bps": 1305,
+      "training_fit_available": true,
+      "training_observation_count": 31184,
+      "training_samples_sha256": "e9668149699015ad2df821e4fa0ba9855290da19f81a20be588f84adb13ac53f",
+      "token0_borrower_interest": "0",
+      "token0_nominal_protocol_interest": "0",
+      "token0_cash_covered_protocol_interest": "0",
+      "token0_absolute_floor_error": "0",
+      "token1_borrower_interest": "7916825",
+      "token1_nominal_protocol_interest": "1020717",
+      "token1_cash_covered_protocol_interest": "1020717",
+      "token1_absolute_floor_error": "50"
+    }
+  ],
+  "schedule_sha256": "ccf71122102d0921daedf87859f21ed1d7fb07195d48c2ae021daeeb69cb48bc"
+}

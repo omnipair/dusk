@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "source_operations_sha256": "694008a6077c8111bea08c9d7c29b069d450516d3bf7180b4bae85c4498046e5",
+  "source_factual_ledger_sha256": "20ea5c91a4ac83efef00f2eef22fe918d0b1c32e8278501151fed8e5d8ac0d32",
+  "source_historical_prices_sha256": "954f701110f04823133e4935d63bf46a817541a1a11c7bd6b6d00e3437b0cb92",
+  "source_transfer_fee_registry_sha256": "6affcf08feb048a54c4b8cd746f0fe1d683d50cd976a47498ec1e471faf38919",
+  "splits": {
+    "schema_version": 1,
+    "training_start_unix_seconds": 1776283200,
+    "training_end_unix_seconds_exclusive": 1782847234,
+    "validation_start_unix_seconds": 1782847234,
+    "validation_end_unix_seconds_exclusive": 1785035245,
+    "holdout_start_unix_seconds": 1785035245,
+    "holdout_end_unix_seconds_exclusive": 1787223258
+  },
+  "training_prefix": {
+    "operations_file_name": "training-prefix-operations.jsonl",
+    "operations": {
+      "row_count": 113735,
+      "sha256": "b6352b816b49d9f50e1eb94e82a652fde6f68a0f0873da801c53694ad03245f0"
+    },
+    "factual_ledger_file_name": "training-prefix-v1-ledger.jsonl",
+    "factual_ledger": {
+      "row_count": 113748,
+      "sha256": "bb9df989fdfdc4fdc2db08e9c7dbd3146fdf25d1d1dbee95d1a0ccab027315ab"
+    },
+    "historical_prices_file_name": "training-prefix-historical-prices.jsonl",
+    "historical_prices": {
+      "row_count": 17619,
+      "sha256": "508f8849a3a765e55cd5677a246b1bc3374c4a54c659320583317f97029f427e"
+    },
+    "transfer_fee_registry_file_name": "training-prefix-transfer-fees.json",
+    "transfer_fee_registry": {
+      "byte_length": 6564,
+      "sha256": "6affcf08feb048a54c4b8cd746f0fe1d683d50cd976a47498ec1e471faf38919"
+    },
+    "max_slot_inclusive": 429938308,
+    "end_unix_seconds_exclusive": 1782847234
+  },
+  "validation_prefix": {
+    "operations_file_name": "validation-prefix-operations.jsonl",
+    "operations": {
+      "row_count": 129529,
+      "sha256": "1317f747b11f1e1f96a1ccc8bdb3824d267652c431ab4854f97fcfcb938f8d49"
+    },
+    "factual_ledger_file_name": "validation-prefix-v1-ledger.jsonl",
+    "factual_ledger": {
+      "row_count": 129542,
+      "sha256": "a32f8f54c91a68566d4db7541a038da902572f5b88fe01ea268b51b45b581440"
+    },
+    "historical_prices_file_name": "validation-prefix-historical-prices.jsonl",
+    "historical_prices": {
+      "row_count": 19988,
+      "sha256": "a0ff04d2901e3522169fa85a35b4ad6d8cdc82e7c1211e6b36e5223b94ca92b7"
+    },
+    "transfer_fee_registry_file_name": "validation-prefix-transfer-fees.json",
+    "transfer_fee_registry": {
+      "byte_length": 6564,
+      "sha256": "6affcf08feb048a54c4b8cd746f0fe1d683d50cd976a47498ec1e471faf38919"
+    },
+    "max_slot_inclusive": 435251045,
+    "end_unix_seconds_exclusive": 1785035245
+  },
+  "sealed_holdout_operations": {
+    "row_count": 10283,
+    "sha256": "1e072a3db123f8b76ead999f40ad11f66857378835ad30bfb96b8051c248dd7a"
+  },
+  "sealed_holdout_factual_ledger": {
+    "row_count": 10283,
+    "sha256": "4e48109e25ea5bdd59ba1152322d252b5bd45995254c862b69f3eb0c778f7638"
+  },
+  "sealed_holdout_historical_prices": {
+    "row_count": 2083,
+    "sha256": "dfd98c7d6ad58400d8cfe41d068cbdd2b029d032aa05f4fca3577daf62c06b8e"
+  },
+  "sealed_holdout_transfer_fee_epochs": {
+    "row_count": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "holdout_opened_by_calibration": false,
+  "manifest_sha256": "8a75afc04821935416c8160b4afae65974a96f968dce384b22922fc0279b09d7"
+}

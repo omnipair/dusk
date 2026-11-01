@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "purpose": "post-lock historical diagnostics for already-selected profiles",
+  "selection_performed": false,
+  "feeds_profile_selection": false,
+  "winner_or_recommendation_emitted": false,
+  "profile_lock": {
+    "fingerprint": "da132fb9f1c1edd06ecea1bd30d3252170f37744b7764813cf5217e543cb9081",
+    "locked_at_utc": "2026-07-29T12:45:24.212949Z",
+    "profiles": {
+      "curve_native_v2_1": {
+        "profile_id": "curve_grid_c01_f02",
+        "description": "controller=pinned_v21; EMA=10.0167m; step=1.46bp; allowance=2ppm; fees=base_like_flat; mid=5bp; out=5bp; fee_gamma=0.01"
+      },
+      "dusk_native": {
+        "profile_id": "grid_c09_f10",
+        "description": "EMA 60m; threshold 200bp; step 50bp; interval 5m; dynamic cap 0bp; div 0; vol 0; vol half-life 15m"
+      },
+      "dusk_cpmm": {
+        "profile_id": "grid_c08_f10",
+        "description": "independent CPMM candidate; EMA 30m; threshold 100bp; step 25bp; interval 5m; dynamic cap 0bp; div 0; vol 0; vol half-life 15m"
+      }
+    }
+  },
+  "input_hashes": {
+    "profile_lock_sha256": "a0ee3ef678a0831aeedd3f57b492f519d348f95206069678296e1e041fb3302d",
+    "history_csv_sha256": "e7e6078f81eab5151fbd39343d6b67ba7644dda185fbebc4f729c72ce717fa05",
+    "history_metadata_sha256": "b4742812a3d03027587da37a2d706910dcbf3618c4cfd0e26b3406911a5b35c1"
+  },
+  "matrix": {
+    "months": [
+      "2025-05",
+      "2025-08",
+      "2025-11",
+      "2026-02",
+      "2026-05"
+    ],
+    "strata": [
+      "calm",
+      "typical",
+      "stress"
+    ],
+    "flows": [
+      "benign",
+      "mixed",
+      "toxic_delayed",
+      "low_volume_stuck"
+    ],
+    "seeds": [
+      7,
+      41
+    ],
+    "routes": [
+      "fixed",
+      "elastic"
+    ],
+    "windows": 15,
+    "base_cells": 240,
+    "result_rows": 720,
+    "paired_rows": 720
+  },
+  "locked_system_diagnostics": {
+    "curve_native_v2_1": {
+      "rows": 240,
+      "median_net_lp_return_after_protocol_fee_bps": 0.12883059944557373,
+      "p10_net_lp_return_after_protocol_fee_bps": -12.554736828605199,
+      "median_selected_execution_cost_bps": 21.259596897226043,
+      "p90_selected_execution_cost_bps": 260.8412149457332,
+      "median_captured_volume_fraction": 0.9664210784275962,
+      "median_marginal_tracking_stale_fraction": 0.03819444444444445,
+      "p90_marginal_tracking_stale_fraction": 0.24374999999999997,
+      "median_depth_degradation_fraction": 0.9861111111111112
+    },
+    "dusk_native": {
+      "rows": 240,
+      "median_net_lp_return_after_protocol_fee_bps": 0.09968717411983141,
+      "p10_net_lp_return_after_protocol_fee_bps": -11.83683897768044,
+      "median_selected_execution_cost_bps": 19.627536024335416,
+      "p90_selected_execution_cost_bps": 222.59934861998323,
+      "median_captured_volume_fraction": 0.9532800772515575,
+      "median_marginal_tracking_stale_fraction": 0.034722222222222224,
+      "p90_marginal_tracking_stale_fraction": 0.25,
+      "median_depth_degradation_fraction": 0.9930555555555556
+    },
+    "dusk_cpmm": {
+      "rows": 240,
+      "median_net_lp_return_after_protocol_fee_bps": 0.019317472361441303,
+      "p10_net_lp_return_after_protocol_fee_bps": -3.0133729214880396,
+      "median_selected_execution_cost_bps": 31.42823277856602,
+      "p90_selected_execution_cost_bps": 286.6685467875255,
+      "median_captured_volume_fraction": 0.8567462896413824,
+      "median_marginal_tracking_stale_fraction": 0.06944444444444445,
+      "p90_marginal_tracking_stale_fraction": 0.3479166666666666,
+      "median_depth_degradation_fraction": 0.06944444444444445
+    }
+  },
+  "paired_diagnostics": {
+    "dusk_minus_curve": {
+      "rows": 240,
+      "orientation": "left minus right; diagnostics only",
+      "median_net_lp_return_delta_bps": 0.05805063876575969,
+      "p10_net_lp_return_delta_bps": -4.659644421073807,
+      "left_win_fraction": 0.6208333333333333,
+      "median_execution_cost_delta_bps": -1.8172749755289832,
+      "p90_marginal_tracking_stale_delta_fraction": 0.013888888888888888
+    },
+    "dusk_minus_cpmm": {
+      "rows": 240,
+      "orientation": "left minus right; diagnostics only",
+      "median_net_lp_return_delta_bps": 0.018351133091388305,
+      "p10_net_lp_return_delta_bps": -11.052865304011991,
+      "left_win_fraction": 0.5375,
+      "median_execution_cost_delta_bps": -13.590134339980281,
+      "p90_marginal_tracking_stale_delta_fraction": 0.020833333333333343
+    },
+    "curve_minus_cpmm": {
+      "rows": 240,
+      "orientation": "left minus right; diagnostics only",
+      "median_net_lp_return_delta_bps": 0.023016165009794417,
+      "p10_net_lp_return_delta_bps": -11.57262202784314,
+      "left_win_fraction": 0.5333333333333333,
+      "median_execution_cost_delta_bps": -10.546843102468863,
+      "p90_marginal_tracking_stale_delta_fraction": 0.027777777777777783
+    }
+  },
+  "validation": {
+    "expected_result_rows": 720,
+    "expected_paired_rows": 720,
+    "all_decision_metrics_finite": true,
+    "maximum_accounting_identity_error": 2.0809096668017446e-07,
+    "controller_external_price_reads": 0,
+    "arbitrage_capped_event_count": 0,
+    "arbitrage_numerical_failure_count": 0,
+    "input_hashes_verified": true,
+    "profile_lock_verified": true,
+    "selection_isolation_verified": true
+  },
+  "interpretation_limit": "prices are sealed historical observations; flow, routing, and arbitrage remain modeled; these diagnostics do not re-select profiles",
+  "output_hashes": {
+    "sealed_native_results_sha256": "7017fccfb0c059eaa230dafa916f852fda528ff5ce8b22b01f8317b0b8900109",
+    "sealed_native_paired_sha256": "408b1078298b1a6a7c1c38a575556bf4009ccb2c6faffff5ffd4a19218171cb8"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "status": "passed",
+  "checks": [
+    "Piecewise inverse matches forward curve at boundaries",
+    "Base-only optimizer matches prior closed-form jump benchmark",
+    "Buy/sell reciprocal symmetry",
+    "Protocol/base/LP/retention accounting conservation",
+    "50% total fee bound",
+    "Distance potential agrees with independent exact-rational atom expression",
+    "Restorative flow has zero distance fee",
+    "Quiet accumulator has zero volatility fee",
+    "Half-life decay",
+    "100-point optimizer matches 1000-point bracketing",
+    "Independent SQLite recomputation of dynamic LP shortfalls"
+  ]
+}

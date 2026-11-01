@@ -1,0 +1,65 @@
+{
+  "generated_at": "2026-09-07T02:51:18.853581+00:00",
+  "dusk_head": "26bc75b217a96a6241b82b05cd52c1b587272dc1",
+  "v1_head": "84a8ef7a2a3a81e750435b86d7191bf43413d6a4",
+  "files": [
+    {
+      "path": "$DUSK_REPO_ROOT/programs/dusk/CONCENTRATION.md",
+      "sha256": "e9a1a17691d11d50a3fadcbf1da1a72ffe14e3e78fc1d655013383fdc3925e5c"
+    },
+    {
+      "path": "$DUSK_REPO_ROOT/programs/dusk/src/transitions/amm/curve.rs",
+      "sha256": "03635013d2f7d9182ae5b5763a11fa4d6d62bb9c8acc362614ed823e8f3f05e9"
+    },
+    {
+      "path": "$DUSK_REPO_ROOT/programs/dusk/src/transitions/amm/fees.rs",
+      "sha256": "4ae3096812613ebaffaf431c597c26c162cc2913144c2f1d2a006a568a7ce453"
+    },
+    {
+      "path": "$DUSK_REPO_ROOT/programs/dusk/src/transitions/amm/mod.rs",
+      "sha256": "62de22987445a734d2b288835ed50b000b91c21ffd8026d893bded715d0491d5"
+    },
+    {
+      "path": "$DUSK_REPO_ROOT/programs/dusk/src/state/market.rs",
+      "sha256": "6742c4cafa901c6b20be4e6612d70289aa4d4b0ebd1f7482d919cc831bfa9654"
+    },
+    {
+      "path": "$DUSK_REPO_ROOT/programs/dusk/README.md",
+      "sha256": "ad5ac4deb870e96e608262649f8799293d6662b9e2a8561d49858233d1c06f4d"
+    },
+    {
+      "path": "$OMNIPAIR_V1_REPO_ROOT/programs/omnipair/src/instructions/spot/swap.rs",
+      "sha256": "146f9793c8c6796a63aa1c70a213b7f9e517da819c33d692f96e1d10ec25e8cc"
+    },
+    {
+      "path": "$OMNIPAIR_V1_REPO_ROOT/programs/omnipair/src/utils/gamm_math.rs",
+      "sha256": "3010072a9d6ef4cd9de6f8a7a8fe4b1fbdcb86ea453a3c8a5000a8ba41fc894d"
+    },
+    {
+      "path": "$OMNIPAIR_V1_REPO_ROOT/programs/omnipair/src/state/pair.rs",
+      "sha256": "ab3d3b738a728fc9d6a7cb68108992a491410da257ec6fcadec27698bbdf606f"
+    },
+    {
+      "path": "$DUSK_REPO_ROOT/programs/dusk/src/transitions/ledger.rs",
+      "sha256": "ad60558a6585275119c7399c25d25ad65465c8f7c05a4c9d7c092255379dc0a0"
+    },
+    {
+      "path": "$DUSK_REPO_ROOT/analysis/capital-efficiency/model.py",
+      "sha256": "1c2322e4ab4112a90dc14d090e1e8d998fa25b3965b0b9d0d7fd4e62e099fb68"
+    },
+    {
+      "path": "$DUSK_REPO_ROOT/analysis/capital-efficiency/dynamic_fees.py",
+      "sha256": "fee4115f154115b764f4a6e9b394d03a5521e35e38b5efc715d1d9b96a83fb80"
+    }
+  ],
+  "source_authority": "Current local code controls mechanics; documentation adds intent. Research supplies benchmark definitions. Scenario numbers are original calculations.",
+  "report_audience": "product stakeholders",
+  "report_structure": "Title, executive summary, definitions, findings with charts/table, parameter/replay recommendations, further questions, caveats.",
+  "chart_contract": "Two original full-width comparison bar charts plus a grouped dynamic-loss chart with five profiles and two ownership treatments. These are discrete magnitude comparisons, with zero baselines and category/legend labels. Tables support exact region and fee/capital lookup. No fabricated time series. Direct Codex visual inspection is unavailable; report schema and data are checked.",
+  "notebook_execution": "All code cells executed sequentially in one fresh Python namespace, outputs captured. nbformat/nbclient unavailable; no Jupyter kernel execution or independent nbformat schema validation.",
+  "replay_not_claimed": [
+    "No real market performance estimates",
+    "No historically calibrated dynamic-fee effectiveness; conditional formula experiments included",
+    "No active-hLP or on-chain quote parity certification"
+  ]
+}

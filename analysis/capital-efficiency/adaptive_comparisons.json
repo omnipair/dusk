@@ -1,0 +1,58 @@
+[
+  {
+    "policy": "fixed_1",
+    "mean_delta_fixed_10": -1548.1718341065182,
+    "median_delta_fixed_10": -690.315264743709,
+    "wins": 27,
+    "cases": 96
+  },
+  {
+    "policy": "fixed_3",
+    "mean_delta_fixed_10": -1239.8190764145427,
+    "median_delta_fixed_10": -739.5726286708175,
+    "wins": 18,
+    "cases": 96
+  },
+  {
+    "policy": "fixed_5",
+    "mean_delta_fixed_10": -614.1032937043883,
+    "median_delta_fixed_10": -320.7484468600719,
+    "wins": 22,
+    "cases": 96
+  },
+  {
+    "policy": "fixed_10",
+    "mean_delta_fixed_10": 0.0,
+    "median_delta_fixed_10": 0.0,
+    "wins": 0,
+    "cases": 96
+  },
+  {
+    "policy": "coverage_150",
+    "mean_delta_fixed_10": -2781.0988825444797,
+    "median_delta_fixed_10": -542.2975779139247,
+    "wins": 15,
+    "cases": 96
+  },
+  {
+    "policy": "flow_050",
+    "mean_delta_fixed_10": -965.1096287129785,
+    "median_delta_fixed_10": -594.5477910204124,
+    "wins": 19,
+    "cases": 96
+  },
+  {
+    "policy": "volatility_100",
+    "mean_delta_fixed_10": -1280.9885707056753,
+    "median_delta_fixed_10": -333.056646164232,
+    "wins": 19,
+    "cases": 96
+  },
+  {
+    "policy": "coverage_cost_gate",
+    "mean_delta_fixed_10": -90.14446069567201,
+    "median_delta_fixed_10": -23.653838359582096,
+    "wins": 38,
+    "cases": 96
+  }
+]

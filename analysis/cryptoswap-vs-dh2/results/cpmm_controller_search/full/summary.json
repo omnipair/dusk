@@ -1,0 +1,56 @@
+{
+  "status": "cpmm_controller_search_complete",
+  "canonical_native_output": false,
+  "mode": "full",
+  "schema_version": 2,
+  "initial_profiles": 150,
+  "exact_profile_budget": 150,
+  "cells_per_profile": 128,
+  "rows": 19200,
+  "complete_matrix_evaluated_for_every_profile": true,
+  "decision_grade_search": true,
+  "historical_reads": 0,
+  "fingerprint": "8ae83a055a21d0c6783474e7f1e9de5976756ee2e1ed719a3a6f2378d39aee83",
+  "selection_rule": "hard validity; minimum independent Dusk service relaxation; maximum worst-route fee-adjusted LP utility; maximum mean-route utility; stable profile id",
+  "winner": {
+    "profile_id": "grid_c08_f10",
+    "description": "independent CPMM candidate; EMA 30m; threshold 100bp; step 25bp; interval 5m; dynamic cap 0bp; div 0; vol 0; vol half-life 15m",
+    "hard_valid": true,
+    "independent_cpmm_service_relaxation": 1.704681841679827,
+    "original_service_envelope_pass": false,
+    "minimum_route_selection_utility": -46.46886963281785,
+    "mean_route_selection_utility": -45.63726486302936,
+    "full_config": {
+      "model": {
+        "peak_depth": 0.0,
+        "fade_scale": 0.0,
+        "base_fee": 0.0005,
+        "divergence_coefficient": 0.02,
+        "volatility_coefficient": 0.02,
+        "max_dynamic_fee": 0.02,
+        "name": "Current DH2"
+      },
+      "controller": {
+        "fee": {
+          "base_fee_rate_nad": 500000,
+          "max_fee_rate_nad": 500000,
+          "divergence_coefficient_nad": 0,
+          "volatility_coefficient_nad": 0,
+          "volatility_half_life_ms": 900000,
+          "volatility_shock_cap_nad": 100000000,
+          "volatility_accumulator_cap_nad": 1000000000
+        },
+        "center_ema_half_life_minutes": 30.0,
+        "adjustment_threshold": 0.01,
+        "adjustment_step": 0.0025,
+        "min_adjustment_interval_minutes": 5,
+        "arb_min_profit_quote": 0.1,
+        "solver_haircut_ppm": 10.0,
+        "recenter_enabled": true,
+        "manager_fee_bps": 500,
+        "protocol_fee_bps": 0
+      }
+    }
+  },
+  "scope": "synthetic pre-lock selection only; exact CPMM invariant; no historical reads; no local refinement"
+}

@@ -1,0 +1,5 @@
+core_bps,fade_bps,strict_amplification_upper_bound,ten_times_feasible
+50,50,268.33126207027664,True
+100,400,68.81664348780946,True
+500,1500,17.980922584830065,True
+1000,4000,8.694108787152476,False

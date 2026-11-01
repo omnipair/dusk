@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:parquet-file-manifest:v1",
+  "title": "ParquetFileManifestV1 structural snapshot",
+  "description": "Deterministic Parquet sidecar shape. File bytes, row count, Arrow schema fingerprint, and self-hash still require validate_parquet_artifact.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::parquet::ParquetFileManifestV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset",
+    "logical_name",
+    "source_file_name",
+    "source_byte_length",
+    "source_jsonl_sha256",
+    "parquet_file_name",
+    "parquet_byte_length",
+    "parquet_sha256",
+    "row_count",
+    "schema_fingerprint_sha256",
+    "settings",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "dataset": {
+      "enum": [
+        "canonical_operations",
+        "canonical_events",
+        "configuration_history",
+        "historical_prices",
+        "v1_replay_ledger",
+        "counterfactual_replay_ledger",
+        "paired_metric_ledger"
+      ]
+    },
+    "logical_name": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "source_file_name": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "source_byte_length": {
+      "$ref": "common-v1.schema.json#/$defs/u64"
+    },
+    "source_jsonl_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "parquet_file_name": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "parquet_byte_length": {
+      "$ref": "common-v1.schema.json#/$defs/u64"
+    },
+    "parquet_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "row_count": {
+      "$ref": "common-v1.schema.json#/$defs/u64"
+    },
+    "schema_fingerprint_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "writer_version",
+        "compression",
+        "compression_level",
+        "row_group_rows",
+        "write_batch_rows",
+        "dictionary_enabled",
+        "statistics",
+        "created_by"
+      ],
+      "properties": {
+        "writer_version": {
+          "const": "parquet_2_0"
+        },
+        "compression": {
+          "const": "zstd"
+        },
+        "compression_level": {
+          "const": 3
+        },
+        "row_group_rows": {
+          "const": 4096
+        },
+        "write_batch_rows": {
+          "const": 1024
+        },
+        "dictionary_enabled": {
+          "const": true
+        },
+        "statistics": {
+          "const": "chunk"
+        },
+        "created_by": {
+          "const": "omnipair-v1-vs-dusk-parquet-v1"
+        }
+      }
+    },
+    "manifest_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    }
+  }
+}

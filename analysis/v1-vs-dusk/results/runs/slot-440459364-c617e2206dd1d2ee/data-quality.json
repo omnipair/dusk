@@ -1,0 +1,329 @@
+{
+  "schema_version": 2,
+  "run_id": "slot-440459364-c617e2206dd1d2ee",
+  "cutoff_slot": 440459364,
+  "hard_gate_phase_input": {
+    "extraction": {
+      "transaction_inventory": {
+        "observed": 137329,
+        "expected": 137329
+      },
+      "state_changing_instruction_decode": {
+        "observed": 160749,
+        "expected": 160749
+      },
+      "state_changing_decode_blockers": 0,
+      "canonical_event_order": {
+        "observed": 264017,
+        "expected": 264017
+      },
+      "authoritative_block_time": {
+        "observed": 264017,
+        "expected": 264017
+      },
+      "versioned_config_coverage": {
+        "observed": 838848,
+        "expected": 838848
+      },
+      "historical_transfer_fee_coverage": {
+        "observed": 11,
+        "expected": 11
+      },
+      "transfer_fee_history_blockers": 0,
+      "db_rpc_raw_field_agreement": {
+        "observed": 263977,
+        "expected": 263977
+      },
+      "terminal_state_fields": {
+        "observed": 0,
+        "expected": 5
+      },
+      "economic_replay_events": {
+        "observed": 0,
+        "expected": 139812
+      },
+      "unresolved_rpc_slots": 0,
+      "reconciliations": [],
+      "historical_price_coverage": {
+        "observed": 279608,
+        "expected": 279608
+      }
+    },
+    "decoder_revision_certification": {
+      "observed": 0,
+      "expected": 1
+    }
+  },
+  "audit_phase_report": {
+    "schema_version": 1,
+    "phase": "extraction_audit",
+    "report": {
+      "accepted": true,
+      "gates": [
+        {
+          "gate": "transaction_inventory",
+          "status": "pass",
+          "observed": 137329,
+          "expected": 137329,
+          "blocking_records": 0,
+          "detail_code": "all_successful_state_changing_transactions_fetched"
+        },
+        {
+          "gate": "state_changing_decode",
+          "status": "pass",
+          "observed": 160749,
+          "expected": 160749,
+          "blocking_records": 0,
+          "detail_code": "all_state_changing_instructions_version_decoded"
+        },
+        {
+          "gate": "decoder_revision_certification",
+          "status": "pending",
+          "observed": 0,
+          "expected": 1,
+          "blocking_records": 0,
+          "detail_code": "awaiting_historical_decoder_revision_certification"
+        },
+        {
+          "gate": "canonical_order",
+          "status": "pass",
+          "observed": 264017,
+          "expected": 264017,
+          "blocking_records": 0,
+          "detail_code": "all_events_have_block_transaction_instruction_order"
+        },
+        {
+          "gate": "authoritative_block_time",
+          "status": "pass",
+          "observed": 264017,
+          "expected": 264017,
+          "blocking_records": 0,
+          "detail_code": "all_events_use_rpc_block_time"
+        },
+        {
+          "gate": "versioned_config",
+          "status": "pass",
+          "observed": 838848,
+          "expected": 838848,
+          "blocking_records": 0,
+          "detail_code": "every_event_has_exactly_one_active_config_version"
+        },
+        {
+          "gate": "historical_transfer_fees",
+          "status": "pass",
+          "observed": 11,
+          "expected": 11,
+          "blocking_records": 0,
+          "detail_code": "every_market_mint_has_complete_owner_and_transfer_fee_history"
+        },
+        {
+          "gate": "source_agreement",
+          "status": "pass",
+          "observed": 263977,
+          "expected": 263977,
+          "blocking_records": 0,
+          "detail_code": "db_rpc_raw_fields_exact_or_documented_db_omission"
+        },
+        {
+          "gate": "terminal_state",
+          "status": "pending",
+          "observed": 0,
+          "expected": 5,
+          "blocking_records": 0,
+          "detail_code": "awaiting_post_replay_terminal_reconciliation"
+        },
+        {
+          "gate": "economic_replay",
+          "status": "pending",
+          "observed": 0,
+          "expected": 139812,
+          "blocking_records": 0,
+          "detail_code": "awaiting_native_economic_replay"
+        },
+        {
+          "gate": "historical_prices",
+          "status": "pass",
+          "observed": 279608,
+          "expected": 279608,
+          "blocking_records": 0,
+          "detail_code": "all_revenue_events_have_historical_prices"
+        }
+      ]
+    }
+  },
+  "audit_phase_decision": {
+    "phase": "extraction_audit",
+    "evidence_tier": "decision_grade",
+    "phase_eligible": true,
+    "raw_market_eligible": true,
+    "usd_headline_eligible": true,
+    "raw_certification": "pending",
+    "usd_certification": "pending",
+    "raw_blocking_gates": [],
+    "usd_blocking_gates": [],
+    "limitations": []
+  },
+  "cohort_selection_sha256": "1dd117116fb7d6995d5f7afae85cc7dd27f675ed3ce2f39f2fa3f570cddb3eaa",
+  "cohort_final_audit_qualification": {
+    "accepted_markets": [
+      "5aSf28bo5Nfkq3QCAKpVyzCPmtGL9kWdLn18ERZia7Kp",
+      "6FkrhorTJcQbdvUnYLa5Ksv1ReoGTfc95Hu4U2jniYW5",
+      "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p",
+      "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+      "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo"
+    ],
+    "rejected_markets": [],
+    "minimum_final_panel_met": true
+  },
+  "gates": {
+    "accepted": true,
+    "gates": [
+      {
+        "gate": "transaction_inventory",
+        "status": "pass",
+        "observed": 137329,
+        "expected": 137329,
+        "blocking_records": 0,
+        "detail_code": "all_successful_state_changing_transactions_fetched"
+      },
+      {
+        "gate": "state_changing_decode",
+        "status": "pass",
+        "observed": 160749,
+        "expected": 160749,
+        "blocking_records": 0,
+        "detail_code": "all_state_changing_instructions_version_decoded"
+      },
+      {
+        "gate": "decoder_revision_certification",
+        "status": "pending",
+        "observed": 0,
+        "expected": 1,
+        "blocking_records": 0,
+        "detail_code": "awaiting_historical_decoder_revision_certification"
+      },
+      {
+        "gate": "canonical_order",
+        "status": "pass",
+        "observed": 264017,
+        "expected": 264017,
+        "blocking_records": 0,
+        "detail_code": "all_events_have_block_transaction_instruction_order"
+      },
+      {
+        "gate": "authoritative_block_time",
+        "status": "pass",
+        "observed": 264017,
+        "expected": 264017,
+        "blocking_records": 0,
+        "detail_code": "all_events_use_rpc_block_time"
+      },
+      {
+        "gate": "versioned_config",
+        "status": "pass",
+        "observed": 838848,
+        "expected": 838848,
+        "blocking_records": 0,
+        "detail_code": "every_event_has_exactly_one_active_config_version"
+      },
+      {
+        "gate": "historical_transfer_fees",
+        "status": "pass",
+        "observed": 11,
+        "expected": 11,
+        "blocking_records": 0,
+        "detail_code": "every_market_mint_has_complete_owner_and_transfer_fee_history"
+      },
+      {
+        "gate": "source_agreement",
+        "status": "pass",
+        "observed": 263977,
+        "expected": 263977,
+        "blocking_records": 0,
+        "detail_code": "db_rpc_raw_fields_exact_or_documented_db_omission"
+      },
+      {
+        "gate": "terminal_state",
+        "status": "pending",
+        "observed": 0,
+        "expected": 5,
+        "blocking_records": 0,
+        "detail_code": "awaiting_post_replay_terminal_reconciliation"
+      },
+      {
+        "gate": "economic_replay",
+        "status": "pending",
+        "observed": 0,
+        "expected": 139812,
+        "blocking_records": 0,
+        "detail_code": "awaiting_native_economic_replay"
+      },
+      {
+        "gate": "historical_prices",
+        "status": "pass",
+        "observed": 279608,
+        "expected": 279608,
+        "blocking_records": 0,
+        "detail_code": "all_revenue_events_have_historical_prices"
+      }
+    ]
+  },
+  "market_eligibility": [
+    {
+      "pair_address": "5aSf28bo5Nfkq3QCAKpVyzCPmtGL9kWdLn18ERZia7Kp",
+      "eligible": true,
+      "reason": "eligible",
+      "usd_headline_eligible": false,
+      "usd_headline_reason": "historical_tvl_unavailable",
+      "median_time_weighted_tvl_usd_micros": null,
+      "visible_market_p10_tvl_usd_micros": null
+    },
+    {
+      "pair_address": "6FkrhorTJcQbdvUnYLa5Ksv1ReoGTfc95Hu4U2jniYW5",
+      "eligible": true,
+      "reason": "eligible",
+      "usd_headline_eligible": false,
+      "usd_headline_reason": "historical_tvl_unavailable",
+      "median_time_weighted_tvl_usd_micros": null,
+      "visible_market_p10_tvl_usd_micros": null
+    },
+    {
+      "pair_address": "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p",
+      "eligible": true,
+      "reason": "eligible",
+      "usd_headline_eligible": false,
+      "usd_headline_reason": "historical_tvl_unavailable",
+      "median_time_weighted_tvl_usd_micros": null,
+      "visible_market_p10_tvl_usd_micros": null
+    },
+    {
+      "pair_address": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+      "eligible": true,
+      "reason": "eligible",
+      "usd_headline_eligible": false,
+      "usd_headline_reason": "historical_tvl_unavailable",
+      "median_time_weighted_tvl_usd_micros": null,
+      "visible_market_p10_tvl_usd_micros": null
+    },
+    {
+      "pair_address": "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo",
+      "eligible": true,
+      "reason": "eligible",
+      "usd_headline_eligible": false,
+      "usd_headline_reason": "historical_tvl_unavailable",
+      "median_time_weighted_tvl_usd_micros": null,
+      "visible_market_p10_tvl_usd_micros": null
+    }
+  ],
+  "visible_market_count": 5,
+  "eligible_raw_market_count": 5,
+  "eligible_usd_headline_market_count": 0,
+  "factual_swap_count": 135426,
+  "limitations": [
+    "Historical decoder revisions remain hard-gated until deployed program binaries are verified and dispatched to their exact implementations.",
+    "Terminal account state and native V1 economic replay remain hard-gated until reconcile-v1 completes.",
+    "Missing historical TVL marks preserve raw/invariant eligibility but exclude USD headlines.",
+    "DecisionGrade block targets are seeded from selected-market database signatures plus successful program signatures absent from every database event row. A transaction indexed only under a non-selected market could also contain a global side effect outside the scoped block inventory; only full-universe block replay rules out this mixed-transaction edge.",
+    "The full historical DB window contains 1277 event rows across 13 market addresses absent from the current market catalog; 1257 rows across 13 addresses occur in the sealed training prefix. Every unbound row and its checksum are retained in cohort-catalog-unbound-db-events.jsonl, they are excluded from visible-market cohort ranking, and this fixed-override DecisionGrade run makes no claim about those catalog-unbound markets."
+  ]
+}

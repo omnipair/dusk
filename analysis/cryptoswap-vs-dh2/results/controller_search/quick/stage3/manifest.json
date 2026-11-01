@@ -1,0 +1,22 @@
+{
+  "status": "controller_search_stage_complete",
+  "canonical_native_output": false,
+  "mode": "quick",
+  "stage": "stage3",
+  "schema_version": 2,
+  "fingerprint": "2e29164c4e89fe9cbbee86ce607bb288c7ec3512b66ec3717a041f4380a688e5",
+  "upstream_fingerprint": "fdc3019c200ebd1572b3deeb427a8fd75fc46b08aaa1265b319d414b4d93b1a8",
+  "rows": 96,
+  "profiles": 12,
+  "cells_per_profile": 8,
+  "reused_rows": 48,
+  "resumed_progress_rows": 0,
+  "new_rows": 48,
+  "checkpoint_batch_size": 256,
+  "selection_eligible_profiles": 12,
+  "selection_excluded_nonfinite_rho_profiles": 0,
+  "nonfinite_rho_selection_policy": "excluded",
+  "selected_profile_ids": [
+    "grid_c01_f13"
+  ]
+}

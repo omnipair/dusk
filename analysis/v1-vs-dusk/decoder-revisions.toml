@@ -1,0 +1,15 @@
+schema_version = 2
+
+# This compiled decoder is useful for reconstruction but deliberately cannot
+# pass headline verification until archival upgrade transactions bind exact
+# slot ranges to deployed program-binary hashes.
+[[revisions]]
+decoder_version_id = "indexer-working-tree-current"
+valid_from_slot = 0
+source_git_commit = "84a8ef7a2a3a81e750435b86d7191bf43413d6a4"
+idl_sha256 = "42181773707e3726e2b95d1b28d8aeeabf1cb50b84e7c027bf7a5bb8c940aa46"
+# Raw SHA-256 of the locally compiled v0.10.5 candidate ELF. The optional
+# `program_binary_sha256` deployed-ELF field remains absent until chain history
+# certifies it.
+candidate_program_binary_sha256 = "ca676f1763be474a0035e1c9f5dc4003be41250e134c366ff8d91d8cdc7452eb"
+provisional = true

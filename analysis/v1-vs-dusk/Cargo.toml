@@ -1,0 +1,45 @@
+[package]
+name = "v1-vs-dusk-benchmark"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[profile.release]
+overflow-checks = true
+
+[[bin]]
+name = "v1-vs-dusk"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+anchor-lang = "=0.31.1"
+arrow-array = { version = "=59.2.0", default-features = false }
+arrow-schema = { version = "=59.2.0", default-features = false }
+bs58 = "0.5"
+hex = "0.4"
+num-bigint = { version = "0.4", features = ["serde"] }
+num-rational = { version = "0.4", features = ["serde"] }
+num-traits = "0.2"
+parquet = { version = "=59.2.0", default-features = false, features = ["arrow", "zstd"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+serde_path_to_error = "0.1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-postgres = "0.7"
+toml = "0.8"
+zstd = { version = "=0.13.3", default-features = false }
+
+dusk = { path = "../../programs/dusk", features = ["benchmark", "no-entrypoint"] }
+omnipair = { path = "../../../omnipair-rs/programs/omnipair", features = ["no-entrypoint"] }
+carbon-core = { path = "../../../omnipair-indexer/indexer/crates/core" }
+carbon-omnipair-decoder = { path = "../../../omnipair-indexer/indexer/decoders/omnipair_decoder" }
+solana-instruction = { version = "~2.2", default-features = false }
+solana-pubkey = { version = "~2.2", features = ["serde"] }
+spl-token-2022 = { version = "=6.0.0", default-features = false, features = ["no-entrypoint"] }
+spl-token-metadata-interface = { version = "=0.6.0", default-features = false }

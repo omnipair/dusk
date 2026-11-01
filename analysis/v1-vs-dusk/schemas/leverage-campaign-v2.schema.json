@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:leverage-campaign:v2",
+  "title": "LeverageCampaignArtifactV1",
+  "description": "Strict, self-hashed per-global-profile leverage campaign contract. Runtime verification remains authoritative for hashes, exact grid completeness, identity equality, and availability invariants.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::leverage_campaign::LeverageCampaignArtifactV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "spec",
+    "plan_sha256",
+    "selection_policy",
+    "standardized_margin_nav_bps",
+    "factual_lending_markets",
+    "non_lending_usd_headline_markets",
+    "market_status",
+    "selections",
+    "v1_traversal",
+    "dusk_replays",
+    "private_capture_set_sha256",
+    "cells",
+    "all_core_cells_available",
+    "all_realized_dusk_paths_complete",
+    "artifact_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "spec": { "$ref": "#/$defs/spec" },
+    "plan_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "selection_policy": { "$ref": "common-v1.schema.json#/$defs/nonempty_string" },
+    "standardized_margin_nav_bps": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "const": 10 },
+        { "const": 100 },
+        { "const": 500 }
+      ],
+      "items": false
+    },
+    "factual_lending_markets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common-v1.schema.json#/$defs/pubkey" }
+    },
+    "non_lending_usd_headline_markets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common-v1.schema.json#/$defs/pubkey" }
+    },
+    "market_status": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/market_status" }
+    },
+    "selections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/selection" }
+    },
+    "v1_traversal": { "$ref": "#/$defs/v1_traversal" },
+    "dusk_replays": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/replay_evidence" }
+    },
+    "private_capture_set_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "cells": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cell" }
+    },
+    "all_core_cells_available": { "type": "boolean" },
+    "all_realized_dusk_paths_complete": { "type": "boolean" },
+    "artifact_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "nullable_sha256": {
+      "oneOf": [
+        { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "nullable_token": {
+      "oneOf": [
+        { "$ref": "common-v1.schema.json#/$defs/token_amount" },
+        { "type": "null" }
+      ]
+    },
+    "checkpoint_kind": { "enum": ["first", "median", "last"] },
+    "replay_arm": { "enum": ["fixed_flow", "intent"] },
+    "hlp_scenario": { "enum": ["no_hlp", "maximum_feasible"] },
+    "direction": { "enum": ["long_base", "long_quote"] },
+    "adverse_path_availability": {
+      "enum": [
+        "complete",
+        "missing_exact_dusk_future_counterfactual_state"
+      ]
+    },
+    "blocker": {
+      "enum": [
+        "no_holdout_operation",
+        "missing_full_v1_pre_operation_state",
+        "missing_dusk_pre_operation_state",
+        "missing_mint_eligibility_evidence",
+        "native_collateral_mint_ineligible",
+        "zero_or_overflowing_starting_margin",
+        "factual_marginal_price_path_unavailable",
+        "exact_dusk_future_position_branch_unavailable",
+        "v1_open_loop_iteration_cap_reached",
+        "v1_unwind_iteration_cap_reached",
+        "dusk_full_unwind_unavailable",
+        "native_dusk_transition_rejected",
+        "native_v1_transition_rejected",
+        "historical_transfer_fee_resolution_rejected",
+        "native_benchmark_input_rejected",
+        "native_benchmark_arithmetic_rejected"
+      ]
+    },
+    "order": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot",
+        "transaction_index",
+        "outer_instruction_index",
+        "inner_execution_index",
+        "event_sequence"
+      ],
+      "properties": {
+        "slot": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "transaction_index": { "$ref": "common-v1.schema.json#/$defs/u32" },
+        "outer_instruction_index": { "$ref": "common-v1.schema.json#/$defs/u32" },
+        "inner_execution_index": {
+          "oneOf": [
+            { "$ref": "common-v1.schema.json#/$defs/u32" },
+            { "type": "null" }
+          ]
+        },
+        "event_sequence": { "$ref": "common-v1.schema.json#/$defs/u32" }
+      }
+    },
+    "mint_eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mint",
+        "decoded_mint_sha256",
+        "native_leverage_eligible"
+      ],
+      "properties": {
+        "mint": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+        "decoded_mint_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "native_leverage_eligible": { "type": "boolean" }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "profile_id",
+        "profile_freeze_sha256",
+        "operations_sha256",
+        "factual_ledger_sha256",
+        "configurations_sha256",
+        "transfer_fee_registry_sha256",
+        "v1_replay_certification_policy",
+        "holdout_start_unix_seconds",
+        "holdout_end_unix_seconds_exclusive",
+        "cutoff_slot",
+        "usd_headline_markets",
+        "mint_eligibility",
+        "v1_open_loop_iteration_cap",
+        "v1_unwind_iteration_cap",
+        "spec_sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 2 },
+        "profile_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "profile_freeze_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "operations_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "factual_ledger_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "configurations_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "transfer_fee_registry_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "v1_replay_certification_policy": {
+          "enum": ["audit_grade", "decision_grade_exact_selected_scope"]
+        },
+        "holdout_start_unix_seconds": { "$ref": "common-v1.schema.json#/$defs/i64" },
+        "holdout_end_unix_seconds_exclusive": { "$ref": "common-v1.schema.json#/$defs/i64" },
+        "cutoff_slot": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "usd_headline_markets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "common-v1.schema.json#/$defs/pubkey" }
+        },
+        "mint_eligibility": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/mint_eligibility" }
+        },
+        "v1_open_loop_iteration_cap": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "v1_unwind_iteration_cap": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "spec_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "market",
+        "checkpoint_kind",
+        "operation_id",
+        "order",
+        "block_time_unix_seconds"
+      ],
+      "properties": {
+        "market": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+        "checkpoint_kind": { "$ref": "#/$defs/checkpoint_kind" },
+        "operation_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "order": { "$ref": "#/$defs/order" },
+        "block_time_unix_seconds": { "$ref": "common-v1.schema.json#/$defs/i64" }
+      }
+    },
+    "replay_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "arm",
+        "hlp_scenario",
+        "evaluation_schema_version",
+        "records_sha256",
+        "complete_for_scoring"
+      ],
+      "properties": {
+        "arm": { "$ref": "#/$defs/replay_arm" },
+        "hlp_scenario": { "$ref": "#/$defs/hlp_scenario" },
+        "evaluation_schema_version": { "$ref": "common-v1.schema.json#/$defs/u16" },
+        "records_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "complete_for_scoring": { "type": "boolean" }
+      }
+    },
+    "realized_adverse_excursion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mark_count",
+        "first_slot",
+        "last_slot",
+        "entry_collateral_price_nad",
+        "worst_collateral_price_nad",
+        "adverse_excursion_bps",
+        "path_end_unix_seconds_exclusive",
+        "source_sha256"
+      ],
+      "properties": {
+        "mark_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "first_slot": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "last_slot": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "entry_collateral_price_nad": { "$ref": "common-v1.schema.json#/$defs/token_amount" },
+        "worst_collateral_price_nad": { "$ref": "common-v1.schema.json#/$defs/token_amount" },
+        "adverse_excursion_bps": { "$ref": "common-v1.schema.json#/$defs/token_amount" },
+        "path_end_unix_seconds_exclusive": { "$ref": "common-v1.schema.json#/$defs/i64" },
+        "source_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+      }
+    },
+    "market_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "market",
+        "factual_lending_activity",
+        "selected_holdout_state_count",
+        "blocker"
+      ],
+      "properties": {
+        "market": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+        "factual_lending_activity": { "type": "boolean" },
+        "selected_holdout_state_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "blocker": {
+          "oneOf": [
+            { "$ref": "#/$defs/blocker" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "v1_traversal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "cutoff_slot",
+        "canonical_operation_count",
+        "replayed_transition_count",
+        "market_count",
+        "terminal_state_set_sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "cutoff_slot": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "canonical_operation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "replayed_transition_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "market_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "terminal_state_set_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "cell_id",
+        "market",
+        "checkpoint_kind",
+        "operation_id",
+        "order",
+        "block_time_unix_seconds",
+        "profile_id",
+        "arm",
+        "hlp_scenario",
+        "direction",
+        "starting_margin_nav_bps",
+        "factual_accounted_pool_nav_in_debt_atoms",
+        "starting_margin_gross",
+        "v1_pre_state_sha256",
+        "dusk_pre_state_sha256",
+        "realized_adverse_excursion",
+        "dusk_adverse_path_availability",
+        "unwind_horizon",
+        "core_benchmark_available",
+        "complete_for_headline_path_claim",
+        "blockers",
+        "benchmark",
+        "cell_sha256"
+      ],
+      "properties": {
+        "schema_version": { "const": 2 },
+        "cell_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "market": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+        "checkpoint_kind": { "$ref": "#/$defs/checkpoint_kind" },
+        "operation_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "order": { "$ref": "#/$defs/order" },
+        "block_time_unix_seconds": { "$ref": "common-v1.schema.json#/$defs/i64" },
+        "profile_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "arm": { "$ref": "#/$defs/replay_arm" },
+        "hlp_scenario": { "$ref": "#/$defs/hlp_scenario" },
+        "direction": { "$ref": "#/$defs/direction" },
+        "starting_margin_nav_bps": { "enum": [10, 100, 500] },
+        "factual_accounted_pool_nav_in_debt_atoms": { "$ref": "#/$defs/nullable_token" },
+        "starting_margin_gross": { "$ref": "#/$defs/nullable_token" },
+        "v1_pre_state_sha256": { "$ref": "#/$defs/nullable_sha256" },
+        "dusk_pre_state_sha256": { "$ref": "#/$defs/nullable_sha256" },
+        "realized_adverse_excursion": {
+          "oneOf": [
+            { "$ref": "#/$defs/realized_adverse_excursion" },
+            { "type": "null" }
+          ]
+        },
+        "dusk_adverse_path_availability": { "$ref": "#/$defs/adverse_path_availability" },
+        "unwind_horizon": { "const": "immediate_same_checkpoint" },
+        "core_benchmark_available": { "type": "boolean" },
+        "complete_for_headline_path_claim": { "type": "boolean" },
+        "blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/blocker" }
+        },
+        "benchmark": {
+          "oneOf": [
+            { "$ref": "leverage-benchmark-result-v2.schema.json" },
+            { "type": "null" }
+          ]
+        },
+        "cell_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "core_benchmark_available": { "const": true } },
+            "required": ["core_benchmark_available"]
+          },
+          "then": {
+            "properties": {
+              "benchmark": { "$ref": "leverage-benchmark-result-v2.schema.json" }
+            }
+          },
+          "else": {
+            "properties": { "benchmark": { "type": "null" } }
+          }
+        }
+      ]
+    }
+  }
+}

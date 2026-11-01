@@ -1,0 +1,168 @@
+{
+  "generated_at": "2026-07-31T12:13:36.689618Z",
+  "status": "illustrative_not_calibrated",
+  "market": "SOL collateral / USDC debt (SOLUSDT used as the return proxy)",
+  "model": "7-day historical segment bootstrap plus Dusk default-CPMM gross shortfall",
+  "config": {
+    "initial_price_usdc_per_sol": 150.0,
+    "base_reserve_sol": 6666.666666666667,
+    "quote_reserve_usdc": 1000000.0,
+    "position_collateral_sol": 333.33333333333337,
+    "horizon_days": 7,
+    "capital_return_apr": 0.15,
+    "expected_shortfall_quantile": 0.99,
+    "path_count": 50000,
+    "seed": 42
+  },
+  "protocol_constants": {
+    "liquidation_cf_bps": 8500,
+    "max_borrow_cf_bps": 8075,
+    "liquidation_health_floor_bps": 11765,
+    "minimum_liquidation_incentive_bps": 100,
+    "maximum_liquidation_incentive_bps": 500,
+    "insurance_funding_bps": 200,
+    "price_safety_ppm": 500,
+    "q_haircut_ppm": 25
+  },
+  "positions": [
+    {
+      "name": "Low LTV",
+      "impact_ltv": 0.5,
+      "collateral_sol": 333.33333333333337,
+      "debt_usdc": 23797.874066639037
+    },
+    {
+      "name": "Mid LTV",
+      "impact_ltv": 0.65,
+      "collateral_sol": 333.33333333333337,
+      "debt_usdc": 30937.23628663075
+    },
+    {
+      "name": "High LTV",
+      "impact_ltv": 0.8,
+      "collateral_sol": 333.33333333333337,
+      "debt_usdc": 38076.59850662246
+    }
+  ],
+  "history_diagnostics": {
+    "path": "$DUSK_REPO_ROOT/analysis/cryptoswap-vs-dh2/data/solusdt_sealed_native_windows.csv",
+    "sha256": "e7e6078f81eab5151fbd39343d6b67ba7644dda185fbebc4f729c72ce717fa05",
+    "expected_sha256": "e7e6078f81eab5151fbd39343d6b67ba7644dda185fbebc4f729c72ce717fa05",
+    "checksum_matches": true,
+    "total_rows": 32400,
+    "score_rows": 10800,
+    "segment_count": 15,
+    "segments_by_stratum": {
+      "calm": 5,
+      "stress": 5,
+      "typical": 5
+    }
+  },
+  "central_scenario": {
+    "scenario_id": "illustrative_base_075pct_depth",
+    "regime_mix": "illustrative_base",
+    "depth_label": "75%",
+    "depth_factor": 0.75,
+    "calm_weight": 0.55,
+    "typical_weight": 0.35,
+    "stress_weight": 0.1,
+    "paths": 50000,
+    "horizon_days": 7,
+    "ead_usdc": 92811.70885989224,
+    "probability_any_liquidation": 0.73774,
+    "probability_lender_shortfall": 0.27872,
+    "expected_loss_usdc": 417.9622898533486,
+    "expected_loss_bps_of_ead": 45.0333578583604,
+    "expected_shortfall_99_usdc": 6332.723159658627,
+    "expected_shortfall_99_bps_of_ead": 682.3194225653631,
+    "economic_capital_usdc": 5914.760869805278,
+    "pair_risk_apr": 0.24437608551776996,
+    "pair_risk_apr_bps": 2443.7608551777,
+    "marginal_high_ltv_fee": 0.011418623974310503,
+    "marginal_high_ltv_fee_bps": 114.18623974310503,
+    "marginal_high_ltv_annualized_bps": 5953.996786604763,
+    "minimum_path_price_ratio_p01": 0.7635895853649456,
+    "minimum_path_price_ratio_median": 0.908710221563473
+  },
+  "central_position_pricing": [
+    {
+      "scenario_id": "illustrative_base_075pct_depth",
+      "regime_mix": "illustrative_base",
+      "depth_label": "75%",
+      "depth_factor": 0.75,
+      "position": "Low LTV",
+      "impact_ltv": 0.5,
+      "impact_ltv_pct": 50.0,
+      "collateral_sol": 333.33333333333337,
+      "debt_usdc": 23797.874066639037,
+      "liquidation_probability": 0.0,
+      "allocated_annual_risk_cost_usdc": 0.0,
+      "position_risk_apr": 0.0,
+      "position_risk_apr_bps": 0.0,
+      "pair_risk_apr_bps": 2443.7608551777,
+      "cross_subsidy_bps": 2443.7608551777
+    },
+    {
+      "scenario_id": "illustrative_base_075pct_depth",
+      "regime_mix": "illustrative_base",
+      "depth_label": "75%",
+      "depth_factor": 0.75,
+      "position": "Mid LTV",
+      "impact_ltv": 0.65,
+      "impact_ltv_pct": 65.0,
+      "collateral_sol": 333.33333333333337,
+      "debt_usdc": 30937.23628663075,
+      "liquidation_probability": 0.01342,
+      "allocated_annual_risk_cost_usdc": 322.32550212340544,
+      "position_risk_apr": 0.010418690898472258,
+      "position_risk_apr_bps": 104.18690898472258,
+      "pair_risk_apr_bps": 2443.7608551777,
+      "cross_subsidy_bps": 2339.573946192977
+    },
+    {
+      "scenario_id": "illustrative_base_075pct_depth",
+      "regime_mix": "illustrative_base",
+      "depth_label": "75%",
+      "depth_factor": 0.75,
+      "position": "High LTV",
+      "impact_ltv": 0.8,
+      "impact_ltv_pct": 80.0,
+      "collateral_sol": 333.33333333333337,
+      "debt_usdc": 38076.59850662246,
+      "liquidation_probability": 0.73774,
+      "allocated_annual_risk_cost_usdc": 22358.636599271988,
+      "position_risk_apr": 0.5872015220945555,
+      "position_risk_apr_bps": 5872.0152209455555,
+      "pair_risk_apr_bps": 2443.7608551777,
+      "cross_subsidy_bps": -3428.254365767855
+    }
+  ],
+  "monte_carlo_repeat": {
+    "seed": 1000041,
+    "pair_risk_apr_bps": 2409.3478360173367,
+    "absolute_difference_bps": 34.41301916036309
+  },
+  "validation": {
+    "history_checksum_matches": true,
+    "history_has_15_segments": true,
+    "history_has_five_segments_per_stratum": true,
+    "max_impact_ltv_within_borrow_cap": true,
+    "risk_apr_monotonic_with_depth_loss": true,
+    "risk_apr_monotonic_with_stress_weight": true,
+    "shapley_revenue_identity_max_abs_usdc": 1.4551915228366852e-11,
+    "shapley_revenue_identity_pass": true,
+    "central_repeat_pair_apr_difference_bps": 34.41301916036309,
+    "central_repeat_pair_apr_relative_difference": 0.014081991323926303,
+    "central_repeat_within_3pct_relative": true,
+    "all_losses_bounded_by_ead": true,
+    "all_checks_pass": true
+  },
+  "interpretation": {
+    "loss_definition": "Gross pool shortfall before drawing any pre-funded USDC insurance reserve.",
+    "depth_definition": "A joint liquidation-resale proxy using one conservative Dusk CPMM curve; Dusk auctions transfer collateral to external liquidators rather than swapping it internally.",
+    "recovery_timing": "Recovery is valued at the seven-day path minimum after a trigger. This is a deliberately conservative delayed-liquidation stress, not a calibration of Dusk's roughly 21-second auction-floor timing.",
+    "prompt_liquidation": "At the liquidation boundary, collateral supports debt plus the configured penalty; lender loss arises from the post-trigger price/depth gap, not from liquidation probability alone.",
+    "regime_weights": "Explicit policy scenarios, not frequencies estimated from the deliberately stratified history sample.",
+    "fee_label": "The marginal action fee is a Dusk design inference, not a result claimed by the option-pricing papers."
+  }
+}

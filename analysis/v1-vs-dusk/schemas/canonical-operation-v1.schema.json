@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:canonical-operation:v1",
+  "title": "CanonicalOperationV1 structural snapshot",
+  "description": "Canonical operation envelope and operation-kind tag. Variant payload semantics remain authoritative in crate::replay::OperationPayloadV1.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::replay::CanonicalOperationV1",
+  "x-validation-scope": "envelope_and_variant_tag",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "operation_id",
+    "signature",
+    "pair",
+    "actor",
+    "order",
+    "block_time_unix_seconds",
+    "decoder_version_id",
+    "payload",
+    "assertions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "operation_id": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "signature": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "pair": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "actor": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "order": {
+      "$ref": "common-v1.schema.json#/$defs/chain_order"
+    },
+    "block_time_unix_seconds": {
+      "$ref": "common-v1.schema.json#/$defs/i64"
+    },
+    "decoder_version_id": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "initialize_market",
+            "add_liquidity",
+            "remove_liquidity",
+            "swap_exact_in",
+            "collateral_delta",
+            "borrow",
+            "repay",
+            "liquidate",
+            "flashloan",
+            "claim_protocol_revenue",
+            "update_config",
+            "clock_only"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "$ref": "canonical-event-v1.schema.json"
+      }
+    }
+  }
+}

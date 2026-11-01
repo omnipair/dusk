@@ -1,0 +1,76 @@
+{
+  "checks": {
+    "all_numeric_outputs_finite": true,
+    "exact_cpmm_tail_shape": true,
+    "path_lvr_reconciliation": true,
+    "reciprocal_jump_symmetry": true,
+    "row_counts": {
+      "bridge_sensitivity.csv": {
+        "actual": 9,
+        "expected": 9
+      },
+      "execution.csv": {
+        "actual": 108,
+        "expected": 108
+      },
+      "jump_loss.csv": {
+        "actual": 162,
+        "expected": 162
+      },
+      "pareto_sweep.csv": {
+        "actual": 200,
+        "expected": 200
+      },
+      "path_lvr.csv": {
+        "actual": 54,
+        "expected": 54
+      },
+      "recenter_impairment.csv": {
+        "actual": 540,
+        "expected": 540
+      },
+      "restoring_quotes.csv": {
+        "actual": 180,
+        "expected": 180
+      },
+      "safety_grid.csv": {
+        "actual": 420,
+        "expected": 420
+      },
+      "service_constrained_matches.csv": {
+        "actual": 3,
+        "expected": 3
+      },
+      "solver_proxy.csv": {
+        "actual": 108,
+        "expected": 108
+      },
+      "tail_behavior.csv": {
+        "actual": 81,
+        "expected": 81
+      }
+    },
+    "safety": {
+      "all_passed": true,
+      "balanced_outward_quote_order_cpmm_le_dusk_le_cryptoswap": true,
+      "failed_parameter_cells": 0,
+      "global_quote_order_claimed": false,
+      "maximum_join_error": 5.2128788373580204e-11,
+      "maximum_offcenter_exact_in_out_error": 8.545182339503299e-10,
+      "maximum_offcenter_split_error": 1.2483165612309222e-09,
+      "maximum_split_error": 7.771872034822991e-11,
+      "offcenter_solver_failures": 0,
+      "tested_parameter_cells": 420
+    },
+    "same_tail_zero_protected_q_impairment": 41,
+    "service_constrained_matches_and_limit_valid": true,
+    "source_hashes_match": true
+  },
+  "limitations": [
+    "Analytical floating-point reference, not production Q48/u128 arithmetic",
+    "No Solana SBF compute-unit measurement",
+    "No dynamic fees, retained funding, hLP, lending, or controller replay",
+    "Synthetic deterministic paths are stress cases, not an order-flow forecast"
+  ],
+  "status": "passed"
+}

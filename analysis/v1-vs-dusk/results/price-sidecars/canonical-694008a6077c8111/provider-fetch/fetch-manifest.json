@@ -1,0 +1,420 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-08-22T14:45:07.338Z",
+  "purpose": "proof_bound_read_only_historical_provider_sidecar",
+  "provider": "birdeye",
+  "chain": "solana",
+  "endpoint": "/defi/history_price",
+  "interval": "1H",
+  "allow_current_fallback": false,
+  "interpolation": false,
+  "forward_fill": false,
+  "source_inputs": {
+    "classification_summary": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/classification/classification-summary.json",
+      "sha256": "0a3f13fd46c35d2286c7ac1113d703de87bbe1544e1b52d7a1c23b6706be1a22"
+    },
+    "missing_price_keys": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/classification/missing-price-keys.jsonl",
+      "sha256": "cf0e3da6e81ab2b28b47c0f51785e51665caa7d2885661e94bf879cbe58f1d5a"
+    },
+    "sidecar_script": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/scripts/historical_price_sidecar.mjs",
+      "sha256": "435eb884d0d5cb1b7ebfaed5acdbb08af81952d8a4f08dc31e5ba40c2f6390a4"
+    }
+  },
+  "request_plan": {
+    "chunk_hours": 168,
+    "complete_request_count": 60,
+    "executed_request_count": 60,
+    "complete": true,
+    "timeout_ms": 15000,
+    "retries": 2,
+    "delay_ms": 50
+  },
+  "outcome": {
+    "processed_unique_keys": 2587,
+    "recovered_unique_keys": 2587,
+    "recovered_operation_references": 40776,
+    "unresolved_unique_keys": 0,
+    "unresolved_operation_references": 0,
+    "unresolved_by_reason": {}
+  },
+  "artifacts": {
+    "historical_price_marks": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/historical-price-marks.jsonl",
+      "sha256": "edbad4c9609be0ae0421c8a4eb42546f90f7ff331280516f195ff4dae4284a86"
+    },
+    "historical_price_mark_provenance": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/historical-price-mark-provenance.jsonl",
+      "sha256": "acbca4ee9e98b66af99cbac9188942e3681d009c347f46104c0a5c3d76b63a80"
+    },
+    "unresolved_price_keys": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/unresolved-price-keys.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "provider_responses": [
+      {
+        "request_index": 0,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0000-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1778364000.json",
+        "sha256": "d08712a2d397e7f58f016b22a92d5913b66529e6c50e71cd6ca0292cc358a5c6",
+        "ok": true
+      },
+      {
+        "request_index": 1,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0001-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1779022800.json",
+        "sha256": "d42d0cb86f97e00c7b432c7fedf4792ae3ff9a276b331940ee22221f919a8880",
+        "ok": true
+      },
+      {
+        "request_index": 2,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0002-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1779865200.json",
+        "sha256": "2a19cd30ba66f77332d4c471ad4bc17ad24e2af6a25860089ae7e07978a65527",
+        "ok": true
+      },
+      {
+        "request_index": 3,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0003-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1780484400.json",
+        "sha256": "cf75d3a9523cc4ea9d89155ebe274efba7e3bc2f0b2f8109e9982224afb740ed",
+        "ok": true
+      },
+      {
+        "request_index": 4,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0004-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1781139600.json",
+        "sha256": "34d84a7d8425fed93065ecce4af5301c0d2913a4c329acfd3dff0e9dcc399135",
+        "ok": true
+      },
+      {
+        "request_index": 5,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0005-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1781748000.json",
+        "sha256": "8edeeb1d66375412d50f551bcb34038c5a55e6ee186ae129a886274c3807f60d",
+        "ok": true
+      },
+      {
+        "request_index": 6,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0006-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1782360000.json",
+        "sha256": "2d4fa18192622dbaa1153fc57fa7120a4c360ccb1b114b52b4a3358878050c90",
+        "ok": true
+      },
+      {
+        "request_index": 7,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0007-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1782986400.json",
+        "sha256": "ce060aca7fd016881f00a72145d944ca248cd9804ac4dd1925ffefc576a6493d",
+        "ok": true
+      },
+      {
+        "request_index": 8,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0008-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1785258000.json",
+        "sha256": "95439ee90130c7e849b588fc4e03d9755c3d6521d00ea856ac9ea0e9fd9e717f",
+        "ok": true
+      },
+      {
+        "request_index": 9,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0009-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1786197600.json",
+        "sha256": "9f4bba586fc5b3028e5c905ab7eee78e2383bc084fa8f00dafe1098618daf90e",
+        "ok": true
+      },
+      {
+        "request_index": 10,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0010-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1787151600.json",
+        "sha256": "adb822821fa745b04a6c040c8d74d2b9b614252212ee039c0014861c1cb58946",
+        "ok": true
+      },
+      {
+        "request_index": 11,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0011-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1778360400.json",
+        "sha256": "4abda0a96f1ff63c95f816057abca863e43044a061b37912493deca5f88b5cc2",
+        "ok": true
+      },
+      {
+        "request_index": 12,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0012-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1778968800.json",
+        "sha256": "dc69d9de66ae94fab1c0743d439510a56228c43befe29837ee8ed5bf4d4b09be",
+        "ok": true
+      },
+      {
+        "request_index": 13,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0013-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1779573600.json",
+        "sha256": "ca45404a220afe0dc836462d0e941c3472c4cdf907823ca97e369fbc86300d21",
+        "ok": true
+      },
+      {
+        "request_index": 14,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0014-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1780185600.json",
+        "sha256": "135fd0dad92569cab3b9e6518a3aaa6f6bac0bd67f36e5cdb5f79c3f6b07c529",
+        "ok": true
+      },
+      {
+        "request_index": 15,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0015-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1780862400.json",
+        "sha256": "29a27aa72fd2e5c159915868f28503b6984442e5b67c09e76aabcd3db872388c",
+        "ok": true
+      },
+      {
+        "request_index": 16,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0016-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1781467200.json",
+        "sha256": "aebd538c95ba08be84e98aada89196e88905668e62c6839f44b16306e12b6c9e",
+        "ok": true
+      },
+      {
+        "request_index": 17,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0017-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1782111600.json",
+        "sha256": "8f210131c41d6e2b5fa25de0ba7d8c1e8e617e3dcae784c60de7fd1de05b2cef",
+        "ok": true
+      },
+      {
+        "request_index": 18,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0018-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1782813600.json",
+        "sha256": "db2cdfa08f55403f40c6d7b4ef9e81ff9fc5a28a364cb9a779272915c1d25f18",
+        "ok": true
+      },
+      {
+        "request_index": 19,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0019-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1783551600.json",
+        "sha256": "ba711da2c0b59ce1f10245b4595bb7058459b89c0c8a6b6db9ec698e7652ed6e",
+        "ok": true
+      },
+      {
+        "request_index": 20,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0020-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1784167200.json",
+        "sha256": "20def6a2d3591701cdc8212173e216c856da4c88ffc2b6a161dbf760c6045c7e",
+        "ok": true
+      },
+      {
+        "request_index": 21,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0021-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1784786400.json",
+        "sha256": "fc92ccb891677fcd478f9ee6b11f506cc233632e52d9c7e796fe272c50fa8163",
+        "ok": true
+      },
+      {
+        "request_index": 22,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0022-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1785434400.json",
+        "sha256": "98538b2b1ed7e3d7bc57a1eee259f8adb06549b627d833e541d5f6a3e03d3340",
+        "ok": true
+      },
+      {
+        "request_index": 23,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0023-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1786050000.json",
+        "sha256": "98d2799a2f3b3a410c1ad6590c7f6d8e31bfdc416623d8236d6c8e58c867ab1f",
+        "ok": true
+      },
+      {
+        "request_index": 24,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0024-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1786654800.json",
+        "sha256": "fdafe0c71f09fd84731b0cd6f120193f98fba34faf7a3a6e5ec39c7d553d2417",
+        "ok": true
+      },
+      {
+        "request_index": 25,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0025-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1778360400.json",
+        "sha256": "20f1de3071d199352df887484361166374fdb5fa05c4d068a906b8573ee4aab4",
+        "ok": true
+      },
+      {
+        "request_index": 26,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0026-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1778965200.json",
+        "sha256": "e7cc1417bb97f9de61191db76be8cf8afd6eff5f3c8775da71d86c582bb6b640",
+        "ok": true
+      },
+      {
+        "request_index": 27,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0027-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1779570000.json",
+        "sha256": "de23742cdaf663b9bca9849dccd253f932dc1de4418fdcbf44ae979b99aab642",
+        "ok": true
+      },
+      {
+        "request_index": 28,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0028-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1781834400.json",
+        "sha256": "5aa464aa0ccf94657b7fd713355fb60e250e21ed032bf2290b297b2332e4ad26",
+        "ok": true
+      },
+      {
+        "request_index": 29,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0029-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1786521600.json",
+        "sha256": "6c97a3b6db445f9262e502bd355e5e7bdc24a27d251d1b32363359ed61ec648c",
+        "ok": true
+      },
+      {
+        "request_index": 30,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0030-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1787144400.json",
+        "sha256": "154abc6dba4ac1019ca91253ef3e1cbdef94eb7dbc744d0273edb932512e1de5",
+        "ok": true
+      },
+      {
+        "request_index": 31,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0031-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1778360400.json",
+        "sha256": "908650d6a049c2e5bc5147147c1c9c70f0a0fb39846f4e813b2f294acddc6666",
+        "ok": true
+      },
+      {
+        "request_index": 32,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0032-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1778965200.json",
+        "sha256": "d9169b683e696dad1828cbf738fb929ace20e8e446c72dada6c7f95a2383077b",
+        "ok": true
+      },
+      {
+        "request_index": 33,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0033-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1779570000.json",
+        "sha256": "19604361433004a81911fa92463e4c97f699fbaf569c7e51350559e0c53253db",
+        "ok": true
+      },
+      {
+        "request_index": 34,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0034-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1781834400.json",
+        "sha256": "d10a4857f4fab584d38aa010a4928fe2f9fcd95e82a00c62887ca3d4f56a70b4",
+        "ok": true
+      },
+      {
+        "request_index": 35,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0035-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1786518000.json",
+        "sha256": "91d64b93596b7540ca86efbc0785b1e832599ddbf1b0feed3c10a323971ba961",
+        "ok": true
+      },
+      {
+        "request_index": 36,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0036-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1787158800.json",
+        "sha256": "c68ff801e72920530f84d48597bf7291bb0885367a45d966548a9094961fac3e",
+        "ok": true
+      },
+      {
+        "request_index": 37,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0037-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1778360400.json",
+        "sha256": "f16e4723e4c4e9fad3a6b18fa95d06581f1c5d63b64fbed7fcd3445c4bce0a9b",
+        "ok": true
+      },
+      {
+        "request_index": 38,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0038-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1778976000.json",
+        "sha256": "524f363546835c1aa302faf7b958b80273a179f570243c97c32d77fce0b3f9ee",
+        "ok": true
+      },
+      {
+        "request_index": 39,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0039-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1781845200.json",
+        "sha256": "58bef6bc500b4d4e628f07d6ab56e66086ef3a85e76344d41d58ff8a11375d16",
+        "ok": true
+      },
+      {
+        "request_index": 40,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0040-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1782630000.json",
+        "sha256": "96e836ac1c4ba27e926e8bc072e137970d879c49f4492f355b43a1e62a6cd8d8",
+        "ok": true
+      },
+      {
+        "request_index": 41,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0041-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1783447200.json",
+        "sha256": "e73949ec624b57f3c196fe12848b47cc5f6c6e737567987afa07dbcebd5acd02",
+        "ok": true
+      },
+      {
+        "request_index": 42,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0042-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1784120400.json",
+        "sha256": "73f9502cd4d65256a8f7e19548984caddba1532dadc10c42335159113b513fce",
+        "ok": true
+      },
+      {
+        "request_index": 43,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0043-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1785020400.json",
+        "sha256": "73b0df5b6c99a905f6bee6f4ae4ee80955c3b36651ab7b63c1ed8fd8bc70425d",
+        "ok": true
+      },
+      {
+        "request_index": 44,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0044-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1786168800.json",
+        "sha256": "cda50d44984c56c24e78d5fc4a97f0f16d52dfa087808fc39dd666d16d985be2",
+        "ok": true
+      },
+      {
+        "request_index": 45,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0045-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1786986000.json",
+        "sha256": "e07ce3d2fa0ae98b0fd8629906fb1fb7c81497c8123627df86dc7608a34e8a92",
+        "ok": true
+      },
+      {
+        "request_index": 46,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0046-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1778360400.json",
+        "sha256": "a08a9f528497b317fd8afc73a22622508cbd21102aad7ddb82d30ed8db4c1c96",
+        "ok": true
+      },
+      {
+        "request_index": 47,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0047-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1778965200.json",
+        "sha256": "ad9a6cc028bd794a24dae12f4b2e73d756a898a1bd27871ebd1f594393235dfb",
+        "ok": true
+      },
+      {
+        "request_index": 48,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0048-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1779570000.json",
+        "sha256": "d4b934f0357558d3e0ec0c4d6efc4d6553fbddd790dfcc9d3c08faeac92c1dc0",
+        "ok": true
+      },
+      {
+        "request_index": 49,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0049-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1780185600.json",
+        "sha256": "0f9e9bca408816e130bac70e02ae5350aa59814cff153e64879fb370cf0c1730",
+        "ok": true
+      },
+      {
+        "request_index": 50,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0050-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1780801200.json",
+        "sha256": "3922d6bf761074bb71d610da82a8d1173b4d4a97626b629de68011372ee77be6",
+        "ok": true
+      },
+      {
+        "request_index": 51,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0051-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1781834400.json",
+        "sha256": "3337f9c5999047898f6a12170ffb9a9970c26a4c7161a23b0fdc7b38f5e1325f",
+        "ok": true
+      },
+      {
+        "request_index": 52,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0052-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1782450000.json",
+        "sha256": "7b6ce1ec4de828767871a30982dc995a4ed39300f1c4f04910f8fe0e09c4d019",
+        "ok": true
+      },
+      {
+        "request_index": 53,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0053-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1783058400.json",
+        "sha256": "0a0f71e230b4c9b4be4d5a046bb6e48fa848a539edd747259bfbf9262c1c8637",
+        "ok": true
+      },
+      {
+        "request_index": 54,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0054-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1783670400.json",
+        "sha256": "be0babc9e5ff640e06740c5fab772b3082c52d66bbb17b2f58817fb4ca0f8de6",
+        "ok": true
+      },
+      {
+        "request_index": 55,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0055-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1784307600.json",
+        "sha256": "0db046d99c23379c3d63126ee87885fb9a1ff98889a51bd704b176112dfe1ea4",
+        "ok": true
+      },
+      {
+        "request_index": 56,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0056-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1784912400.json",
+        "sha256": "b5264e62e81b0e316e2ac497e80de855fef40af9af1549b5068924a46949765b",
+        "ok": true
+      },
+      {
+        "request_index": 57,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0057-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1785549600.json",
+        "sha256": "fb9a6345b2a7709c153360272876d97a8f670b566ba740c6233a186614c6d9d3",
+        "ok": true
+      },
+      {
+        "request_index": 58,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0058-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1786158000.json",
+        "sha256": "df2b671ece352743be3b5ddfd19a870e28154788a97454e902d7682319ef5e1b",
+        "ok": true
+      },
+      {
+        "request_index": 59,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/price-sidecars/canonical-694008a6077c8111/provider-fetch/provider-responses/0059-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1786827600.json",
+        "sha256": "b75055b6e7eb349920f63c9b40485b4c7275bb20f4260b00fed9d2713b537a1e",
+        "ok": true
+      }
+    ],
+    "provider_responses_manifest_sha256": "ff8b486354f5abf9fa319359772bbaad80f27a1cf0d493d01e9a96cbdfd9c439"
+  }
+}

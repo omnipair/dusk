@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "title": "V1 vs Dusk defaults \u2014 accessible three-market evidence",
+  "html": "dusk-vs-v1-three-market.html",
+  "notebook": "scoped-benchmark.ipynb",
+  "evidence": "evidence/accessible-benchmark-results.json",
+  "generated_at": "2026-08-23T05:13:49Z",
+  "decision": {
+    "recommendation": "Keep V1; do not replace it with the checked-in Dusk defaults.",
+    "scope": "Decision on accessible three-market evidence, not a certified global winner."
+  }
+}

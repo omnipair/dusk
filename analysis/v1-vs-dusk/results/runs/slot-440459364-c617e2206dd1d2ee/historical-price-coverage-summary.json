@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "coverage": {
+    "observed": 279608,
+    "expected": 279608
+  },
+  "blocking_records": 0,
+  "by_market": {
+    "5aSf28bo5Nfkq3QCAKpVyzCPmtGL9kWdLn18ERZia7Kp": {
+      "observed": 14804,
+      "expected": 14804
+    },
+    "6FkrhorTJcQbdvUnYLa5Ksv1ReoGTfc95Hu4U2jniYW5": {
+      "observed": 3426,
+      "expected": 3426
+    },
+    "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p": {
+      "observed": 124584,
+      "expected": 124584
+    },
+    "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB": {
+      "observed": 52104,
+      "expected": 52104
+    },
+    "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo": {
+      "observed": 84690,
+      "expected": 84690
+    }
+  },
+  "detail_counts": {}
+}

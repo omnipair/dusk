@@ -1,0 +1,15 @@
+{
+  "history_checksum_matches": true,
+  "history_has_15_segments": true,
+  "history_has_five_segments_per_stratum": true,
+  "max_impact_ltv_within_borrow_cap": true,
+  "risk_apr_monotonic_with_depth_loss": true,
+  "risk_apr_monotonic_with_stress_weight": true,
+  "shapley_revenue_identity_max_abs_usdc": 1.4551915228366852e-11,
+  "shapley_revenue_identity_pass": true,
+  "central_repeat_pair_apr_difference_bps": 34.41301916036309,
+  "central_repeat_pair_apr_relative_difference": 0.014081991323926303,
+  "central_repeat_within_3pct_relative": true,
+  "all_losses_bounded_by_ead": true,
+  "all_checks_pass": true
+}

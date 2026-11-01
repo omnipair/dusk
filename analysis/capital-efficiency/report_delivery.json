@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "html": "$DUSK_REPO_ROOT/analysis/capital-efficiency/report.html",
+  "stages": {
+    "validation": "passed",
+    "package": "passed",
+    "verification": "passed"
+  },
+  "counts": {
+    "blocks": 58,
+    "charts": 11,
+    "html": 0,
+    "metrics": 0,
+    "tables": 5
+  },
+  "sourceDialog": "passed",
+  "sourceInteraction": "keyboard_menu_semantic_click",
+  "viewports": [
+    1440,
+    390
+  ],
+  "timings": {
+    "validateAndPackageMs": 3885.9,
+    "staticChartExtractionMs": 3806.3,
+    "browserRunMs": 1623.4,
+    "readerReadyMs": 89.6,
+    "contentChecksMs": 32,
+    "sourceDialogMs": 32,
+    "responsiveChecksMs": 32,
+    "verificationMs": 1669.6,
+    "totalMs": 5563
+  }
+}

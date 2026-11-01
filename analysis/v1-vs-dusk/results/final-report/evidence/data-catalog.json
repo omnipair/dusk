@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "run_id": "slot-440459364-06c0e05aadb7e883",
+  "cutoff_slot": 440459364,
+  "selected_market_count": 5,
+  "datasets": [
+    {
+      "dataset": "Canonical operations",
+      "rows": 139812,
+      "grain": "one normalized state-changing V1 operation",
+      "formats": "JSONL + PARQUET",
+      "size": "359.5 MiB + 123.3 MiB",
+      "location": "data/slot-440459364-06c0e05aadb7e883/canonical-operations.jsonl + data/slot-440459364-06c0e05aadb7e883/parquet/canonical-operations.parquet",
+      "quality": "Exact; zero normalization gaps",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/canonical-operations.jsonl",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/canonical-operations.jsonl",
+          "bytes": 376918641
+        },
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/parquet/canonical-operations.parquet",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/parquet/canonical-operations.parquet",
+          "bytes": 129302417
+        }
+      ]
+    },
+    {
+      "dataset": "Canonical events",
+      "rows": 264017,
+      "grain": "one canonical decoded event/assertion",
+      "formats": "JSONL + PARQUET",
+      "size": "260.9 MiB + 89.1 MiB",
+      "location": "data/slot-440459364-06c0e05aadb7e883/canonical-events.jsonl + data/slot-440459364-06c0e05aadb7e883/parquet/canonical-events.parquet",
+      "quality": "Exact chronological order",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/canonical-events.jsonl",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/canonical-events.jsonl",
+          "bytes": 273581900
+        },
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/parquet/canonical-events.parquet",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/parquet/canonical-events.parquet",
+          "bytes": 93394270
+        }
+      ]
+    },
+    {
+      "dataset": "V1 replay ledger",
+      "rows": 139825,
+      "grain": "one factual replay transition",
+      "formats": "JSONL + PARQUET",
+      "size": "675.5 MiB + 90.7 MiB",
+      "location": "results/runs/slot-440459364-06c0e05aadb7e883/v1-replay-ledger.jsonl + data/slot-440459364-06c0e05aadb7e883/parquet/v1-replay-ledger.parquet",
+      "quality": "Zero raw-unit differences; zero conservation failures",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-06c0e05aadb7e883/v1-replay-ledger.jsonl",
+          "relative_path": "results/runs/slot-440459364-06c0e05aadb7e883/v1-replay-ledger.jsonl",
+          "bytes": 708267722
+        },
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/parquet/v1-replay-ledger.parquet",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/parquet/v1-replay-ledger.parquet",
+          "bytes": 95127149
+        }
+      ]
+    },
+    {
+      "dataset": "Historical prices",
+      "rows": 22071,
+      "grain": "one mint-hour historical USD mark",
+      "formats": "JSONL + PARQUET",
+      "size": "3.9 MiB + 597.5 KiB",
+      "location": "data/slot-440459364-06c0e05aadb7e883/historical-prices.jsonl + data/slot-440459364-06c0e05aadb7e883/parquet/historical-prices.parquet",
+      "quality": "Historical-only; no interpolation/current fallback",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/historical-prices.jsonl",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/historical-prices.jsonl",
+          "bytes": 4061013
+        },
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/parquet/historical-prices.parquet",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/parquet/historical-prices.parquet",
+          "bytes": 611791
+        }
+      ]
+    },
+    {
+      "dataset": "Decoded transactions",
+      "rows": 137280,
+      "grain": "one successful program transaction",
+      "formats": "JSONL",
+      "size": "1.1 GiB",
+      "location": "data/slot-440459364-06c0e05aadb7e883/decoded-transactions.jsonl",
+      "quality": "Zero transaction decode failures",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/decoded-transactions.jsonl",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/decoded-transactions.jsonl",
+          "bytes": 1176070985
+        }
+      ]
+    },
+    {
+      "dataset": "Decoded instructions",
+      "rows": 462312,
+      "grain": "one decoded program instruction",
+      "formats": "JSONL",
+      "size": "468.9 MiB",
+      "location": "data/slot-440459364-06c0e05aadb7e883/decoded-instructions.jsonl",
+      "quality": "160,749/160,749 state-changing instructions decoded",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/decoded-instructions.jsonl",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/decoded-instructions.jsonl",
+          "bytes": 491690784
+        }
+      ]
+    },
+    {
+      "dataset": "Execution provenance",
+      "rows": 137280,
+      "grain": "one transaction execution/provenance record",
+      "formats": "JSONL",
+      "size": "1.4 GiB",
+      "location": "data/slot-440459364-06c0e05aadb7e883/execution-provenance.jsonl",
+      "quality": "Exact instruction/CPI ownership evidence",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/execution-provenance.jsonl",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/execution-provenance.jsonl",
+          "bytes": 1508839520
+        }
+      ]
+    },
+    {
+      "dataset": "Database events",
+      "rows": 895276,
+      "grain": "one indexer event row",
+      "formats": "JSONL",
+      "size": "543.1 MiB",
+      "location": "data/slot-440459364-06c0e05aadb7e883/db-events.jsonl",
+      "quality": "Discovery source; reconciled against RPC",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/db-events.jsonl",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/db-events.jsonl",
+          "bytes": 569434456
+        }
+      ]
+    },
+    {
+      "dataset": "DB/RPC reconciliation",
+      "rows": 263977,
+      "grain": "one database-to-RPC event comparison",
+      "formats": "JSONL",
+      "size": "74.4 MiB",
+      "location": "results/runs/slot-440459364-06c0e05aadb7e883/db-rpc-reconciliation.jsonl",
+      "quality": "263,977/263,977 pass or documented duplicate/omission",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-06c0e05aadb7e883/db-rpc-reconciliation.jsonl",
+          "relative_path": "results/runs/slot-440459364-06c0e05aadb7e883/db-rpc-reconciliation.jsonl",
+          "bytes": 78019146
+        }
+      ]
+    },
+    {
+      "dataset": "Archived proof blocks",
+      "rows": 115850,
+      "grain": "one proof-bound finalized block per target slot",
+      "formats": "JSON.ZST",
+      "size": "11.0 GiB",
+      "location": "data/slot-440459364-06c0e05aadb7e883/blocks",
+      "quality": "115,850/115,850 present; zero unresolved blocks",
+      "files": [
+        {
+          "absolute_path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/blocks",
+          "relative_path": "data/slot-440459364-06c0e05aadb7e883/blocks",
+          "bytes": 11786449724
+        }
+      ]
+    }
+  ],
+  "samples": {
+    "canonical-operations": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/final-report/data-samples/canonical-operations.sample.json",
+    "v1-replay-ledger": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/final-report/data-samples/v1-replay-ledger.sample.json",
+    "historical-prices": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/final-report/data-samples/historical-prices.sample.json",
+    "db-rpc-reconciliation": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/final-report/data-samples/db-rpc-reconciliation.sample.json"
+  },
+  "quality_summary": {
+    "normalization_gaps": 0,
+    "transaction_decode_failures": 0,
+    "unresolved_archival_blocks": 0,
+    "raw_unit_differences": 0,
+    "conservation_failures": 0
+  }
+}

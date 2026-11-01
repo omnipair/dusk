@@ -1,0 +1,174 @@
+{
+  "dense_adaptive_hour": {
+    "policy": "coverage_150",
+    "net_trading_quote": 2129.1873645622004,
+    "dense_net_trading_quote": 2129.186672755398,
+    "fills": 379,
+    "switches": 1
+  },
+  "python_reshape_median_ms": 0.06620899999987273,
+  "benchmark_note": "100 warm Python calls; indicative only, not Solana compute units.",
+  "source_hashes": {
+    "programs/dusk/src/transitions/amm/mod.rs": "62de22987445a734d2b288835ed50b000b91c21ffd8026d893bded715d0491d5",
+    "programs/dusk/src/transitions/amm/curve.rs": "03635013d2f7d9182ae5b5763a11fa4d6d62bb9c8acc362614ed823e8f3f05e9",
+    "programs/dusk/src/state/market.rs": "6742c4cafa901c6b20be4e6612d70289aa4d4b0ebd1f7482d919cc831bfa9654",
+    "programs/dusk/src/state/parameter_proposal.rs": "2959bfb59c904c112635a8dcede8166bedf6eeb3fc9ff841c7894fb42faf2893",
+    "programs/dusk/src/constants.rs": "ae032c9f802804a802e708359bf5d5ae1a1535a9b45651bd70bbf522d1054b5b"
+  },
+  "method_hashes": {
+    "adaptive_replay.py": "92bef89117ce8c9f662bbbeb3218d01559120af72980a8ae8a8fcf1f37476dd3",
+    "adaptive_diagnostics.py": "ce4f8fda4cb48a80024f881842094c5333ebb3a70ae8e6280e454fc0cde8e7bf"
+  },
+  "governance": {
+    "timelock_seconds": 604800,
+    "coverage_bps": 12500,
+    "guard_bps": 1,
+    "hard_cap_bps": 100
+  },
+  "examples": [
+    {
+      "old_price": 1,
+      "old_amplification": 3,
+      "new_amplification": 10,
+      "new_price": 1.0000000000000004,
+      "switch_loss_quote": 0.0,
+      "required_depth_fraction": 0,
+      "exceeds_one_percent_hard_cap": false
+    },
+    {
+      "old_price": 1,
+      "old_amplification": 10,
+      "new_amplification": 3,
+      "new_price": 0.9999999999999999,
+      "switch_loss_quote": 0.0,
+      "required_depth_fraction": 0.8751000000000005,
+      "exceeds_one_percent_hard_cap": true
+    },
+    {
+      "old_price": 1,
+      "old_amplification": 5,
+      "new_amplification": 10,
+      "new_price": 1.0000000000000004,
+      "switch_loss_quote": 0.0,
+      "required_depth_fraction": 0,
+      "exceeds_one_percent_hard_cap": false
+    },
+    {
+      "old_price": 1,
+      "old_amplification": 10,
+      "new_amplification": 5,
+      "new_price": 0.9999999999999999,
+      "switch_loss_quote": 0.0,
+      "required_depth_fraction": 0.625100000000001,
+      "exceeds_one_percent_hard_cap": true
+    },
+    {
+      "old_price": 1.005,
+      "old_amplification": 3,
+      "new_amplification": 10,
+      "new_price": 1.0014973740409268,
+      "switch_loss_quote": 0.0,
+      "required_depth_fraction": 0,
+      "exceeds_one_percent_hard_cap": false
+    },
+    {
+      "old_price": 1.005,
+      "old_amplification": 10,
+      "new_amplification": 3,
+      "new_price": 1.020240737034252,
+      "switch_loss_quote": 40.53182406084857,
+      "required_depth_fraction": 0.8751304133670805,
+      "exceeds_one_percent_hard_cap": true
+    },
+    {
+      "old_price": 1.005,
+      "old_amplification": 5,
+      "new_amplification": 10,
+      "new_price": 1.0024968652975605,
+      "switch_loss_quote": 0.0,
+      "required_depth_fraction": 0,
+      "exceeds_one_percent_hard_cap": false
+    },
+    {
+      "old_price": 1.005,
+      "old_amplification": 10,
+      "new_amplification": 5,
+      "new_price": 1.0100425553253984,
+      "switch_loss_quote": 3.9611419147073637,
+      "required_depth_fraction": 0.6251194352439883,
+      "exceeds_one_percent_hard_cap": true
+    },
+    {
+      "old_price": 1.02,
+      "old_amplification": 3,
+      "new_amplification": 10,
+      "new_price": 1.0049529273897866,
+      "switch_loss_quote": 0.0,
+      "required_depth_fraction": 0,
+      "exceeds_one_percent_hard_cap": false
+    },
+    {
+      "old_price": 1.02,
+      "old_amplification": 10,
+      "new_amplification": 3,
+      "new_price": 1.1012056889828985,
+      "switch_loss_quote": 765.111756593491,
+      "required_depth_fraction": 0.8755191599240139,
+      "exceeds_one_percent_hard_cap": true
+    },
+    {
+      "old_price": 1.02,
+      "old_amplification": 5,
+      "new_amplification": 10,
+      "new_price": 1.0079324467083959,
+      "switch_loss_quote": 0.0,
+      "required_depth_fraction": 0,
+      "exceeds_one_percent_hard_cap": false
+    },
+    {
+      "old_price": 1.02,
+      "old_amplification": 10,
+      "new_amplification": 5,
+      "new_price": 1.0457564413054015,
+      "switch_loss_quote": 190.42530481591626,
+      "required_depth_fraction": 0.6253782539658771,
+      "exceeds_one_percent_hard_cap": true
+    },
+    {
+      "old_price": 1.05,
+      "old_amplification": 3,
+      "new_amplification": 10,
+      "new_price": 1.011379159896622,
+      "switch_loss_quote": 154.14482712217603,
+      "required_depth_fraction": 0,
+      "exceeds_one_percent_hard_cap": false
+    },
+    {
+      "old_price": 1.05,
+      "old_amplification": 10,
+      "new_amplification": 3,
+      "new_price": 1.2969860115544105,
+      "switch_loss_quote": 5396.571959613003,
+      "required_depth_fraction": 0.8776493207396994,
+      "exceeds_one_percent_hard_cap": true
+    },
+    {
+      "old_price": 1.05,
+      "old_amplification": 5,
+      "new_amplification": 10,
+      "new_price": 1.0222577607324201,
+      "switch_loss_quote": 11.631768125438285,
+      "required_depth_fraction": 0,
+      "exceeds_one_percent_hard_cap": false
+    },
+    {
+      "old_price": 1.05,
+      "old_amplification": 10,
+      "new_amplification": 5,
+      "new_price": 1.2266183709158467,
+      "switch_loss_quote": 2817.8439914976243,
+      "required_depth_fraction": 0.6275039245053226,
+      "exceeds_one_percent_hard_cap": true
+    }
+  ]
+}

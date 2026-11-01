@@ -1,0 +1,35 @@
+# Local build output.
+/target/
+
+# Raw/enriched chain history, archival RPC responses, price rows, terminal
+# bindings/snapshots, account bytes, and Parquet sidecars live below this root.
+/data/
+
+# Defense in depth if output roots are reconfigured: terminal imports and raw
+# account/block trees must never become retainable merely because they moved.
+**/terminal-binding.json
+**/terminal-snapshot.json
+**/blocks/
+
+# Large per-record artifacts are reproducible inputs, not reviewable aggregate
+# evidence. Their JSON summaries/manifests remain retainable after review.
+*.jsonl
+*.parquet
+*.partial
+*.partial-*
+*.tmp
+
+# Prefix material and profile-search caches can be large and may retain
+# operation-level detail even when individual filenames are JSON.
+/results/runs/*/calibration-inputs/
+/results/runs/*/calibration-cache/
+
+# Runtime credentials and local overrides.
+.env
+.env.*
+!.env.example
+
+# Intentionally not ignored:
+# - results/runs/<run-id>/*.json aggregate evidence/receipts/notebooks
+# - reports/generated/<run-id>/<audience>/ rendered specs, SQL, HTML, receipts
+# These are only retainable after explicit privacy, provenance, and claim review.

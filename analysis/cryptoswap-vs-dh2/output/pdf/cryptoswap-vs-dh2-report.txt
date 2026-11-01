@@ -1,0 +1,637 @@
+Data Analytics report                                                                          Jul 29, 2026, 1:07
+Curve CryptoSwap vs current DH2, with CPMM control                                             PM UTC
+Matched invariant-shape, common-controller, and native-controller economic comparison
+of Curve CryptoSwap and current DH2, with CPMM retained as the zero-concentration
+control.
+
+Executive summary
+At the equal-execution scalar cross-section, Current DH2 has the numerically lowest one-jump LP loss. At the
+equal-jump-risk scalar cross-section, Current DH2 has the numerically lowest execution index. These are
+boundary-conditioned results from the declared sampled domains—not Pareto results or global family optima.
+Equal-execution LP-loss scalar leader status: Current DH2 is boundary-censored within peak_depth = 2…
+2,000; fade_scale = 1e-6…0.5. Equal-jump-risk execution scalar leader status: Current DH2 is boundary-
+censored within peak_depth = 2…2,000; fade_scale = 1e-6…0.5. The common-controller paired
+medians favor current DH2 over the CryptoSwap invariant in both synthetic and historical classes.
+Source: Corrected deterministic economic benchmark
+File: results/summary.json
+Native-controller result
+Under the LP-net fee-adjusted ledger, neither system clears every native acceptance rule at the primary equal-
+execution lock across routes, flows, the top-ranked policy shortlist, pool scales, volume levels, and one-minute
+cadence. For the same profiles selected on fee-adjusted synthetic return, the gross development-history
+outcome is diagnostic only: Fixed routing favors Curve by 0.12 bps per 12 hours; Elastic routing favors Curve by
+0.08 bps per 12 hours. It is not a gross universal-winner claim. Fixed routing's median fee-adjusted result favors
+Dusk by 0.06 bps per 12 hours. Elastic routing's median fee-adjusted result favors Dusk by 0.03 bps per 12
+hours. The locked-profile LP-return-only result at the primary equal-execution invariant match favors Current
+DH2 + Dusk controller by 0.05 bps per 12 hours at the all-cell median. No system clears the stricter 1-bp,
+same-direction materiality threshold in both routes. Fixed and elastic route medians are +0.06 bps and +0.03
+bps; positive values favor Dusk. This ranks LP return only. Execution cost, captured flow, tracking, and the
+stricter universal gate remain separate. Dusk synthetic product-readiness gate: fail. The selected DH2 profile
+requires its own rho = 2.069; the common Curve–DH2 comparison relaxation cannot make it ready. Sealed
+confirmation: PASS. The locked development classification was neither system; the post-lock sealed core
+classification is neither system. They agree under the predeclared route, flow-route, and CPMM core
+thresholds. The original route-level training envelope was infeasible for the concentrated pair. The smallest
+common normalized widening was 206.9% (rho = 2.069). Original-envelope pass: Curve no, Dusk no.
+Because rho > 1, bounded fraction guardrails cease to bind and cost ceilings are widened by more than 2×;
+this shared rho governs only the fair Curve-versus-DH2 profile lock, not Dusk product readiness. The
+independently selected CPMM also fails its original route-service envelope. Its separate normalized widening is
+170.5% (rho = 1.705). It remains an economic comparator, but it is not eligible for a ship or product-ready
+recommendation. The result is a fixed-liquidity simulation under the declared routing, flow, accounting, and
+robustness gates—not a live-volume forecast.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Three comparison layers keep curve shape separate from controller economics
+Invariant only: At the equal-execution scalar cross-section, Current DH2 has the numerically lowest one-jump
+LP loss. At the equal-jump-risk scalar cross-section, Current DH2 has the numerically lowest execution index.
+These are boundary-conditioned results from the declared sampled domains—not Pareto results or global family
+optima. Equal-execution LP-loss scalar leader status: Current DH2 is boundary-censored within peak_depth
+= 2…2,000; fade_scale = 1e-6…0.5. Equal-jump-risk execution scalar leader status: Current DH2 is
+boundary-censored within peak_depth = 2…2,000; fade_scale = 1e-6…0.5.
+Controlled system: with the same Dusk fees, internal EMA, order tape, retention, and center controller, current
+DH2 leads the CryptoSwap invariant by $2 at the synthetic paired-cell median. Current DH2 leads the
+CryptoSwap invariant by $167 at the historical paired-cell median. These paired medians use the common
+controller; they are path-dependent and do not establish a Pareto or global invariant winner.
+Native system: each system keeps its own fee, EMA, profit budget, and recenter controller. Under the LP-net
+fee-adjusted ledger, neither system clears every native acceptance rule at the primary equal-execution lock
+across routes, flows, the top-ranked policy shortlist, pool scales, volume levels, and one-minute cadence.
+Holding service constant makes the scalar comparison like-for-like
+The prior ranking rewarded designs that simply quoted worse or accepted less flow. These bars hold the broad
+execution index equal before comparing LP jump loss. At the equal-execution scalar cross-section, Current DH2
+has the numerically lowest one-jump LP loss. At the equal-jump-risk scalar cross-section, Current DH2 has the
+numerically lowest execution index. These are boundary-conditioned results from the declared sampled domains
+—not Pareto results or global family optima. Equal-execution LP-loss scalar leader status: Current DH2 is
+boundary-censored within peak_depth = 2…2,000; fade_scale = 1e-6…0.5. Equal-jump-risk execution
+scalar leader status: Current DH2 is boundary-censored within peak_depth = 2…2,000; fade_scale =
+1e-6…0.5.
+
+Declared domains: Curve CryptoSwap: paper A = 0.1…1,000; gamma = 1e-8…0.199; Current DH2: peak_depth
+= 2…2,000; fade_scale = 1e-6…0.5. The boundary-cell censor marks these selected scalar points: equal
+execution / Curve CryptoSwap, equal execution / Current DH2, equal jump risk / Curve CryptoSwap, equal jump
+risk / Current DH2. Their precise gaps and apparent direction are conditional on the declared domains; they are
+not global family optima.
+Source: Corrected deterministic economic benchmark
+File: results/summary.json
+One-jump LP loss at equal execution service
+Source: Corrected deterministic economic benchmark
+Table: reference_comparison
+                      100
+                                                        86.43                                                    86.07
+
+
+
+
+spb_noitucexe_lauqe_ssol_pmuj
+                                75
+
+                                50
+
+                                25
+
+                                 0
+                                                   Curve CryptoSwap                                           Current DH2
+                                                                                      model
+Reference-region comparison
+Source: Corrected deterministic economic benchmark
+Table: reference_comparison
+    Curve family                     Jump loss @    Execution @ Center impact Equal-        Equal-      Equal-risk   Equal-risk   Declared
+                                           equal      equal risk              execution     execution   parameters   boundary-    search domain
+                                       execution                              parameters    boundary-                censored
+                                                                                            censored
+    Current DH2                           86.07          63.77          1.95 peak_depth=2 true          peak_depth=2 true         peak_depth =
+                                                                             000;fade_scale             000;fade_scale            2…2,000;
+                                                                             =2.1348254e-               =2.9455007e-              fade_scale =
+                                                                             05                         05                        1e-6…0.5
+    Curve                                 86.43           64.7          0.35 A=1000;gamm true           A=1000;gamm true          paper A = 0.1…
+    CryptoSwap                                                               a=0.00046123               a=0.00062037              1,000; gamma
+                                                                             335                        164                       = 1e-8…0.199
+
+Concrete center quotes expose how the same broad service is distributed
+These are zero-fee exact-input quotes for a balanced $2.0M marked-TVL pool. Each direction's cost and output
+value are computed independently before the two-direction mean. Matching the aggregate execution index does
+not force identical center slippage: the invariants distribute liquidity differently across the curve.
+At an illustrative $150/SOL center, a 100-bps-of-TVL trade means selling either 133.333 SOL or 20,000 USDC:
+       Curve CryptoSwap: sell 133.333 SOL for 19,999.30 USDC (0.348 bps), or sell 20,000 USDC for
+       133.328699 SOL (0.348 bps).
+       Current DH2: sell 133.333 SOL for 19,996.09 USDC (1.954 bps), or sell 20,000 USDC for 133.307274 SOL
+       (1.955 bps).
+     CPMM: sell 133.333 SOL for 19,607.84 USDC (196.078 bps), or sell 20,000 USDC for 130.718954 SOL
+     (200.000 bps).
+Source: Center quote and slippage sweep
+File: results/shape.csv
+Center exact-input slippage by trade size
+Source: Center quote and slippage sweep
+Table: center_quotes
+              2,000
+
+              1,500
+
+
+spb_tsoc_noitucexe
+              1,000
+
+                     500
+
+                      0
+                           10               100                                     500                               1000
+                                                           trade_bps_of_tvl
+                                               Curve        DH2       CPMM
+Concrete center quote examples
+Source: Center quote and slippage sweep
+Table: center_quotes
+  Invariant                      Size (bps TVL) Input value (USD)         Execution cost (bps)   Quoted output value (USD)
+  Curve CryptoSwap                           10 $2,000                    0.010 bps              $2,000.00
+  Current DH2                                10 $2,000                    0.012 bps              $2,000.00
+  CPMM                                       10 $2,000                    19.980 bps             $1,996.01
+  Curve CryptoSwap                          100 $20,000                   0.348 bps              $19,999.30
+  Current DH2                               100 $20,000                   1.955 bps              $19,996.09
+  CPMM                                      100 $20,000                   198.039 bps            $19,607.84
+  Curve CryptoSwap                          500 $100,000                  153.479 bps            $98,476.99
+  Current DH2                               500 $100,000                  186.732 bps            $98,150.11
+  CPMM                                      500 $100,000                  954.545 bps            $90,909.09
+  Curve CryptoSwap                        1,000 $200,000                  913.594 bps            $182,561.04
+  Current DH2                             1,000 $200,000                  894.077 bps            $182,916.24
+  CPMM                                    1,000 $200,000                  1833.333 bps           $166,666.67
+
+The recomputed Curve–DH2 Pareto frontier contains both ranked families
+Curve CryptoSwap has 23 sampled frontier points, Current DH2 has 14 sampled frontier points. The zero-
+concentration CPMM control has 1 sampled frontier point. Frontier membership means only that a family has at
+least one non-dominated sampled configuration; point count is not a quality score. Scalar cross-section
+leadership does not prove Pareto or global dominance. The lower-left envelope is boundary- and grid-
+conditioned.
+Source: Invariant parameter sweep
+File: results/pareto.csv
+Execution cost versus one-jump LP loss
+Source: Invariant parameter sweep
+Table: pareto
+              800
+
+              600
+
+
+spb_xedni_ssol_pmuj
+              400
+
+              200
+
+                      0
+                          0            30                    60                     90                        120
+                                                    execution_index_bps
+                                            Curve       DH2      CPMM
+Paired controlled paths are derived pair by pair
+Current DH2 leads the CryptoSwap invariant by $2 at the synthetic paired-cell median. Current DH2 leads the
+CryptoSwap invariant by $167 at the historical paired-cell median. These paired medians use the common
+controller; they are path-dependent and do not establish a Pareto or global invariant winner.
+Source: Paired controlled path replay
+File: results/paired_differences.csv
+Synthetic-path median LP return difference versus Curve
+Source: Paired controlled path replay
+Table: path_delta_synthetic
+                        4,000
+                                              +4        +6.54         +843.83                                          +261.64
+                        -1,000
+
+
+evruc_sv_atled_naidem
+                                                                                        -44.3   -479.28   -428.37
+                        -6,000
+
+                -11,000
+                                 -12,121.04
+                -16,000
+                                    chop      flat     reversal       mean rev          jump     stairs    trend      vol cluster
+                                                                                 path
+
+                                                                  positive      negative
+Historical-window median LP return difference versus Curve
+Source: Paired controlled path replay
+Table: path_delta_historical
+                   270                                                       +239.57            +216.53
+                                                                                                                    +185.6
+
+
+
+evruc_sv_atled_naidem
+                   120
+
+                        -30
+                                                     -54.07
+                -180               -108.93
+                                    Mar-24           Aug-24                  Dec-24              Jan-25             Apr-25
+                                                                              path
+
+                                                                  positive      negative
+Quote specialization is not the same as economic dominance
+The static tournament shows which curve is cheapest at each declared state and order size. A high share means
+a design specializes in more grid cells; it does not forecast Jupiter volume because real intent sizes and state
+frequencies are unknown.
+Source: Corrected deterministic economic benchmark
+File: results/summary.json
+Binary Curve–DH2 equal-intent quote tournament
+Source: Static equal-intent quote tournament
+Table: routing_summary
+Curve family                              Best-quote share            Median cost (bps)                 Intent rows
+Current DH2                                         50.4%                       110.63                         264
+Curve CryptoSwap                                    49.6%                       112.26                         264
+
+Fees and recentering now reconcile
+Claimable fees remain token-denominated LP wealth but are not executable. Retained surcharge is counted once
+inside reserves. Divergence is outward-only, volatility comes from AMM trade shocks, and protected liquidity
+uses the center-normalized Q. Recenter impairment is a capacity diagnostic, not a second P&L subtraction.
+Source: Corrected deterministic economic benchmark
+File: results/summary.json
+
+Synthetic profile lock does not read development history
+The original route-level training envelope was infeasible for the concentrated pair. The smallest common
+normalized widening was 206.9% (rho = 2.069). Original-envelope pass: Curve no, Dusk no. Because rho >
+1, bounded fraction guardrails cease to bind and cost ceilings are widened by more than 2×; this shared rho
+governs only the fair Curve-versus-DH2 profile lock, not Dusk product readiness. The independently selected
+CPMM also fails its original route-service envelope. Its separate normalized widening is 170.5% (rho = 1.705).
+It remains an economic comparator, but it is not eligible for a ship or product-ready recommendation.
+The selected Dusk profile independently fails its original product-readiness envelope. Its own minimum
+normalized widening is 206.9% (rho = 2.069). Curve's comparative rho neither blocks nor rescues this Dusk-
+only gate, so the profile is not product-ready on synthetic training.
+Hard numerical, finite-metric, accounting, and no-oracle gates never relax. Service uses the smallest identical
+normalized widening that admits Curve and concentrated Dusk; CPMM uses a separate widening and cannot
+contaminate that lock. Dusk product readiness uses the selected Dusk profile's own rho and is independent of
+both comparison rho values. Within each envelope, selection first minimizes the profile's own required rho, then
+maximizes worse-route fee-adjusted return utility among ties. Historical windows are not read.
+Original per-route guardrails include median capture ≥50%, median selected-order cost ≤25 bps, p90 selected-
+order cost ≤100 bps, median marginal-tracking stale time ≤75%, and worst-flow service tails. The selected rows
+show each original-envelope result:
+      Curve: original pass no; elastic capture 62.3%; p90 cost 280.71 bps fixed / 281.51 bps elastic; marginal-
+      tracking stale 6.6% fixed / 1.4% elastic; 1%-TVL depth degradation (diagnostic only) 87.5% fixed / 87.5%
+      elastic.
+      Current DH2: original pass no; elastic capture 58.7%; p90 cost 306.86 bps fixed / 281.83 bps elastic;
+      marginal-tracking stale 6.2% fixed / 0.7% elastic; 1%-TVL depth degradation (diagnostic only) 77.1% fixed /
+      77.1% elastic.
+      Dusk CPMM: original pass no; elastic capture 51.4%; p90 cost 270.47 bps fixed / 269.52 bps elastic;
+      marginal-tracking stale 9.7% fixed / 2.1% elastic; 1%-TVL depth degradation (diagnostic only) 9.0% fixed /
+      1.7% elastic.
+Selected-order costs are finite-size service measures. The 1%-TVL depth-degradation probe remains a raw
+diagnostic; it is not the stale-price gate.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Three service-relaxation policies
+Source: Canonical native selection policies
+Table: native_service_policy
+Policy                                      Required rho rho = 0 pass    Selected profile              Authority
+CPMM fallback qualification                      170.5% false            grid_c08_f10                  Qualifies CPMM only; cannot
+                                                                                                       change Curve–DH2 or Dusk
+                                                                                                       readiness
+Curve–DH2 comparative lock                       206.9% false            paired family lock            Fair profile comparison only;
+                                                                                                       cannot block or rescue Dusk
+Dusk product readiness                           206.9% false            grid_c09_f10                  Authoritative synthetic
+                                                                                                       readiness gate for Dusk
+
+Symmetric concentrated searches and an independent CPMM search bind every
+promoted policy
+Curve and concentrated Dusk each receive 150 initial profiles across the same 128 synthetic cells, for 19,200
+decision cells per family. CPMM independently receives the same 150-by-128 budget. The audit rejects quick or
+partial output, stale source hashes, a missing promoted search winner, and any canonical profile outside its
+source-bound top-ranked policy shortlist. Search winner and canonical lock remain separate because the service
+envelope may select another source-ranked promoted policy.
+Source: Fail-closed final report evidence receipt
+File: results/final_report_audit.json
+Symmetric concentrated searches, independent CPMM search, and canonical lock
+Source: Final report evidence audit
+Table: search_lock
+Family                          Full search cells Search winner         Promoted Canonical lock             Locked configuration
+Curve Twocrypto-NG                      19,200 curve_grid_c01_f02               5 curve_grid_c01_f02        A=1000;
+v2.1                                                                                                        gamma=0.000461233;
+                                                                                                            mid/out=5.0/5.0 bps;
+                                                                                                            EMA=10.0167m; min
+                                                                                                            step=1.5 bps
+Current DH2 + Dusk                      19,200 grid_c09_f10                     5 grid_c09_f10              peak=2000;
+controller                                                                                                  fade=2.13483e-05;
+                                                                                                            EMA=60m;
+                                                                                                            threshold/step=200.0/5
+    Family                                        Full search cells Search winner                            Promoted Canonical lock           Locked configuration
+                                                                                                                                               0.0 bps; dynamic
+                                                                                                                                               cap=0.0 bps
+    Independently selected                                  19,200 grid_c08_f10                                     5 grid_c08_f10             peak=0; fade=0;
+    Dusk CPMM                                                                                                                                  EMA=30m;
+                                                                                                                                               threshold/step=100.0/2
+                                                                                                                                               5.0 bps; dynamic
+                                                                                                                                               cap=0.0 bps
+
+Fee-adjusted ranking keeps gross outcome diagnostic
+Under the LP-net fee-adjusted ledger, neither system clears every native acceptance rule at the primary equal-
+execution lock across routes, flows, the top-ranked policy shortlist, pool scales, volume levels, and one-minute
+cadence. For the same profiles selected on fee-adjusted synthetic return, the gross development-history
+outcome is diagnostic only: Fixed routing favors Curve by 0.12 bps per 12 hours; Elastic routing favors Curve by
+0.08 bps per 12 hours. It is not a gross universal-winner claim. Positive bars favor Dusk. Gross return is a
+diagnostic for the fee-adjusted-selected profiles and is measured before external revenue liabilities; fee-adjusted
+return applies the declared Curve admin and Dusk manager/protocol ownership while preserving liabilities
+already present at the score boundary.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Native Dusk-minus-Curve LP return by routing mode
+Source: Canonical fixed-liquidity native decision summary
+Table: native_route_return
+                            0.07                                              0.06
+
+
+
+
+spb_nruter_pl_evruc_sunim_ksud
+                                                                                                                                                0.03
+                                 -0
+
+                       -0.08
+                                                                                                                    -0.08
+                       -0.15                   -0.12
+                                                              fixed                                                              elastic
+                                                                                              routing_mode
+
+                                                                                      Gross       LP net
+Native route-level paired outcomes
+Source: Canonical fixed-liquidity native decision summary
+Table: native_route
+  Routing                             Gross return delta Fee-adjusted delta    p10 fee-adjusted    Execution-cost     Capture delta Marginal-tracking    1%-TVL depth
+                                                  (bps)              (bps)                delta             delta                         stale delta degradation delta
+                                                                                                                                                           (diagnostic)
+  elastic                                        -0.08                +0.03               -3.42             -1.62           +2.5%                  0%               0%
+  fixed                                          -0.12                +0.06               -4.91             -2.89               0%              -0.7%               0%
+LP-return leadership and universal dominance are separate questions
+The locked-profile LP-return-only result at the primary equal-execution invariant match favors Current DH2 +
+Dusk controller by 0.05 bps per 12 hours at the all-cell median. No system clears the stricter 1-bp, same-
+direction materiality threshold in both routes. Fixed and elastic route medians are +0.06 bps and +0.03 bps;
+positive values favor Dusk. This ranks LP return only. Execution cost, captured flow, tracking, and the stricter
+universal gate remain separate. The p10/p90 distribution and adjacent service deltas remain visible in the table,
+so a null universal winner cannot hide the measured LP-return direction.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Locked-profile LP-return leader at primary equal execution
+Source: Canonical locked-profile LP-return result
+Table: native_lp_leader
+LP-return     Material both- Median return   p10 return      p90 return Dusk cell wins   Fixed-route Elastic-route   Execution- Capture delta Marginal-stale
+leader        routes leader delta (bps)           delta            delta                     median        median     cost delta                       delta
+Current DH2 + neither system         +0.05        -4.58           +0.49        57.5%           +0.06         +0.03        -2.22           0%             0%
+Dusk
+controller
+
+Sealed post-lock history confirms or rejects replication without retuning
+Sealed confirmation: PASS. The locked development classification was neither system; the post-lock sealed
+core classification is neither system. They agree under the predeclared route, flow-route, and CPMM core
+thresholds. Development history was selection-blind but visible during benchmark development; sealed history
+was fetched only after profiles, searches, matrix, and replay engine were locked. The confirmation uses the
+existing route, flow-route, and CPMM core thresholds. It cannot change the selected profile.
+Source: Fail-closed final report evidence receipt
+File: results/final_report_audit.json
+Development-history versus sealed-history outcomes
+Source: Post-lock sealed evidence audit
+Table: sealed_route_comparison
+Route                             Development return (bps)               Sealed return (bps) Development window wins                  Sealed window wins
+fixed                                                     0.06                           0.09                        66.7%                            60%
+elastic                                                   0.03                           0.05                         60%                             60%
+
+Audit correction preserved without changing economics
+During the evidence audit, the first sealed-summary producer was found to take the maximum signed accounting
+residual instead of the maximum absolute residual. The economic result and paired ledgers were unchanged;
+their preserved hashes are 7017fccfb0c059eaa230dafa916f852fda528ff5ce8b22b01f8317b0b8900109
+and 408b1078298b1a6a7c1c38a575556bf4009ccb2c6faffff5ffd4a19218171cb8. The corrected producer
+is covered by a mixed-sign regression, and the true maximum absolute residual is 2.081e-07, below the 1.0e-05
+limit.
+Source: Sealed accounting-summary correction receipt
+File: results/sealed_accounting_summary_correction.json
+
+Route and flow tails—not a pooled median—control the native decision
+Each flow-by-route cell must avoid a median return reversal, and its return, selected-order execution, capture,
+and marginal-tracking stale tails must stay inside the declared limits. This chart shows the median fee-adjusted
+return delta; the decision also uses the richer tail fields preserved in the report dataset.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Native fee-adjusted LP return by flow and route
+Source: Canonical fixed-liquidity native decision summary
+Table: native_flow_route
+                    0.12                                                                                                      0.11
+
+
+
+
+spb_egatnavda_nruter_naidem
+                    0.09                      0.09                                        0.09
+
+                                   0.06                                                             0.06
+                    0.06
+                                                                          0.04
+                                                                                                                0.03
+                    0.03                                   0.02
+
+                              0
+                                  benign ·   benign     low volume     low volume        mixed ·   mixed ·   toxic dela…   toxic dela…
+                                   elastic    · fixed    stuck · el…    stuck · fi…      elastic    fixed      · elastic      · fixed
+                                                                                flow_route
+Alternate invariant matches are locked-controller diagnostics
+The native replay is repeated under nearest full quote-profile, equal one-jump risk, and pinned v2.1 deployment-
+invariant matching while retaining the controllers and fees selected on equal execution. These are non-optimized
+transfer diagnostics; a reversal here cannot grant, revoke, or reverse the primary universal label.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Locked-controller alternate invariant-match diagnostics
+Source: Native locked-controller matching-basis diagnostics
+Table: native_basis
+Basis                 Route                  Median return delta   Bottom-decile   p90 execution      p10 capture p90 marginal-stale
+                                                                          mean        regression       advantage         regression
+equal_jump_risk elastic                                   +0.01          -11.01            -0.09           -1.4%               2.2%
+equal_jump_risk fixed                                     +0.05          -11.89             0.95              0%               0.7%
+nearest_full_profile elastic                              -0.04          -18.52            -0.59             -0%               2.8%
+nearest_full_profile fixed                                -0.05          -18.84            -1.71              0%               0.7%
+v21_deployed_invar elastic                                +0.16           -1.23            16.07          -28.9%               0.7%
+iant
+v21_deployed_invar fixed                                  +0.56             -0.7          28.68               0%                8.4%
+iant
+
+Locked profiles are tested from 5% to 400% daily volume
+Notional throughput changes while arrival frequency, profiles, fees, and controllers stay locked. This tests
+transfer rather than reoptimizing a different winner for each volume. The universal gate reads every underlying
+flow-route cell; the table reports compact medians and worst tails.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Locked-profile transfer across daily-volume regimes
+Source: Native locked-profile daily-volume sensitivity
+Table: native_volume
+Comparison             Daily volume / pool        Median of cell   Worst bottom-      Worst p90 Worst p10 capture         Worst p90
+                                                       medians       decile mean       execution       advantage       marginal-stale
+                                                                                      regression                          regression
+Curve − CPMM                          5%                  -0.06            -39.6            0.85          -16.6%                3.5%
+Dusk − CPMM                           5%                  +0.01            -40.1           -0.94             -0%                3.8%
+Dusk − Curve                          5%                  +0.07            -0.62            0.76           -0.4%                2.1%
+Curve − CPMM                         25%                  -0.11           -40.02           25.04          -13.6%              10.8%
+Dusk − CPMM                          25%                  +0.02           -40.46            7.51          -10.4%                9.4%
+Dusk − Curve                         25%                  -0.06            -0.78            0.97           -3.5%                4.2%
+Curve − CPMM                        100%                   +0.1           -60.48            92.2          -26.3%                7.3%
+Dusk − CPMM                         100%                  -0.05           -42.28           91.68          -25.6%              10.8%
+Dusk − Curve                        100%                  +0.47            -3.18           37.09           -4.6%                17%
+Curve − CPMM                        400%                 -10.37           -76.33           79.69          -10.1%               -1.4%
+Dusk − CPMM                         400%                  +3.97           -67.46           92.39              0%              20.8%
+Dusk − Curve                        400%                  +14.9           -70.78         121.03            -9.8%              39.2%
+
+Revenue ownership can change LP ranking without changing quotes
+The primary ledger assigns 5% of Dusk base fees to the manager, keeps all Dusk dynamic surcharge with LPs,
+and applies Curve's 25% effective gross-xcp-profit liability. The sensitivity revalues Dusk ownership without
+altering any trade, quote, reserve, or controller path.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Native LP return under alternate Dusk base-fee ownership
+Source: Dusk base-fee ownership sensitivity
+Table: native_fee_split
+                     0.4
+                              0.06        0.09               0.03         0.06
+
+
+spb_atled_nruter_naidem
+                          0
+                                                                                             -0.08         -0.09
+                 -0.4
+                 -0.8                                                                                                       -0.65
+                 -1.2                                                                                                                      -0.93
+                                     0%                             5%                               25%                            100%
+                                                                              base_fee_share
+
+                                                                         elastic     fixed
+Center-movement counterfactual isolates the value and cost of recentering
+Enabling center movement changes median LP return by +0.00 bps for Curve and +0.00 bps for Dusk across
+paired fixed/elastic route, flow, seed, and window cells. Execution, capture, marginal tracking, and tracking
+changes are reported alongside return so recentering is not credited for P&L while hiding a service regression.
+Source: Native center-movement-off counterfactual
+File: results/native_controller_counterfactual.csv
+Native center movement on minus off effects
+Source: Native center-movement-off counterfactual
+Table: native_controller
+   System                                  LP return delta   Execution-cost delta        Capture delta Marginal-tracking stale   Tracking-RMSE delta
+                                                                                                                         delta
+   Current DH2 + Dusk                                   0                        0                 0%                      0%                      0
+   controller
+   Curve Twocrypto-NG                                  +0                  -0.13                     0%                    0%                  -14.47
+   v2.1
+
+Curve can reopen same-slot arbitrage after recentering
+A deterministic regression witness required 20 profitable fills and 19 price-scale recenters before no
+profitable follow-up remained. It converged without a numerical failure. The benchmark therefore uses a Curve-
+local emergency ceiling of 64 fills; the shared DH2/CPMM ceiling remains 16. This is a controller-mechanics
+witness, not a claimed canonical-matrix maximum or an on-chain execution count.
+Source: Deterministic Curve same-slot cascade regression
+File: tests/test_curve_native.py
+CPMM comparator and invariant ablation answer different questions
+The product CPMM independently selects profile grid_c08_f10 on synthetic training. Against it, current DH2
+changes median LP return by -0.01 bps and selected execution cost by -8.48 bps. The independently selected
+CPMM also fails its original route-service envelope. Its separate normalized widening is 170.5% (rho = 1.705).
+It remains an economic comparator, but it is not eligible for a ship or product-ready recommendation. This
+comparison gates the universal claim. The matched-policy row preserves current DH2's selected fees/controller
+and zeros only peak_depth and fade_scale; it isolates concentration and remains diagnostic.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+CPMM product comparator versus concentration ablation
+Source: Canonical native CPMM comparison summaries
+Table: native_cpmm
+Comparison    CPMM profile       CPMM service Product status Winner gate   LP return delta Cell-win share Execution-cost Capture delta     Marginal-
+                                          rho                                                                      delta               tracking stale
+                                                                                                                                                delta
+Current DH2 grid_c08_f10              170.5% not ready       true                   -0.01          47.9%           -8.48           0%          -0.7%
+minus
+independently
+selected CPMM
+Current DH2 grid_c09_f10                   — not applicable false                   -0.01          47.9%            -8.48               0%           -0.7%
+minus matched-
+policy CPMM
+
+Universal means every primary equal-execution predicate passes
+The table preserves the complete fee-adjusted pass/fail audit for both systems. Gross outcomes do not receive a
+universal label. A failed predicate blocks the fee-adjusted universal label even when the headline median is
+positive. No universal winner therefore means insufficient dominance under the declared gate, not equal
+economic performance. Alternate invariant matches are reported separately and do not enter this gate.
+Source: Canonical fixed-liquidity native decision summary
+File: results/native_summary.json
+Native universal-winner acceptance predicates
+Source: Canonical fixed-liquidity native decision summary
+Table: native_predicates
+Economics view                         Candidate                           Required predicate                                                Pass
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       all arbitrage cascades converged before hard cap                  true
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       all arbitrage searches numerically valid                          true
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       selected profile passes original training service envelope        false
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       both concentrated profiles pass original training service         false
+                                                                           envelope
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       training service is deployment ready                              false
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       common training service relaxation is zero                        false
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       both routes median advantage at least 1bp                         false
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       both routes window win fraction at least 70pct                    false
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       both routes bottom decile mean not below minus 1bp                false
+Fee-adjusted LP universal gate         Current DH2 + Dusk controller       both routes tail service regressions within limits                false
+Economics view                        Candidate                        Required predicate                                                Pass
+Fee-adjusted LP universal gate        Current DH2 + Dusk controller    every flow route median has no return reversal                    true
+Fee-adjusted LP universal gate        Current DH2 + Dusk controller    every flow route bottom decile mean not below minus 1bp           false
+Fee-adjusted LP universal gate        Current DH2 + Dusk controller    every flow route tail service regressions within limits           false
+Fee-adjusted LP universal gate        Current DH2 + Dusk controller    top ranked policy shortlist win fraction at least 60pct           false
+Fee-adjusted LP universal gate        Current DH2 + Dusk controller    every top ranked policy shortlist flow route has no reversal      false
+56 results · Showing first 15
+Decision-grade references pass; the sharp fade is hard rejected
+Curve, current DH2, and CPMM pass the common numerical sweep. The fixed exponent-2 sharp-DH2
+experiment fails a stronger uniqueness check: one reserve state has three invariant roots. Current DH2 is cross-
+validated against Rust; the rejected sharp experiment is analytical only.
+Source: Corrected deterministic economic benchmark
+File: results/summary.json
+Common reference checks
+Source: Common numerical reference checks
+Table: safety
+Model                      Solver failures     Non-monotonic Max invariant error       Invariant roots Hard rejected            Arithmetic scope
+                                                     quotes
+CPMM                                    0                  0                   0                      1 false                   high_precision_anal
+                                                                                                                                ytical_reference
+Current DH2                             0                    0                 0                      1 false                   rust_fixed_point_fix
+                                                                                                                                ture_validated_with
+                                                                                                                                _10ppm_quote_hair
+                                                                                                                                cut
+Curve CryptoSwap                        0                    0                 0                      1 false                   high_precision_anal
+                                                                                                                                ytical_reference
+Hyperbolic p4 DH2                       0                    0                 0                      1 false                   analytical_experime
+(experiment)                                                                                                                    nt_not_rust_validat
+                                                                                                                                ed
+Sharp DH2                              11                    4              0.36                      3 true                    analytical_experime
+(rejected)                                                                                                                      nt_not_rust_validat
+                                                                                                                                ed
+
+Fixed sharper fade: do not implement
+The experiment keeps only peak_depth and fade_scale; exponent 2 is protocol-fixed. It decays faster only
+after its shoulder, but the stronger D-dependence creates three valid invariant roots in the committed witness.
+That is a hard safety rejection before LP-return comparisons.
+Source: Sharp-DH2 multiple-root safety witness
+File: results/sharp_root_evidence.csv
+D-independent p4 repair: economically rejected
+The D-independent p4 repair has one invariant root in every scanned state, but this remains a sampled
+analytical-float check rather than a fixed-point proof.
+       Jump loss at equal execution: current DH2 86.07 bps; p4 104.08 bps — 20.9% higher, favoring current
+       DH2.
+       Execution index at equal jump risk: current DH2 63.77 bps; p4 76.71 bps — 20.3% higher, favoring current
+       DH2.
+Both like-for-like scalar objectives favor current DH2, so the p4 repair is economically rejected in this
+experiment. The evidence-derived production status is keep_current_dh2_fade.
+Source: D-independent p4 iso-service comparison
+File: results/hyperbolic_p4_comparison.csv
+
+Decision: controlled paths favor current dh2; keep native and scalar claims
+separate
+The common-controller paired medians favor current DH2 over the CryptoSwap invariant in both synthetic and
+historical classes. At the equal-execution scalar cross-section, Current DH2 has the numerically lowest one-
+jump LP loss. At the equal-jump-risk scalar cross-section, Current DH2 has the numerically lowest execution
+index. These are boundary-conditioned results from the declared sampled domains—not Pareto results or global
+family optima. Equal-execution LP-loss scalar leader status: Current DH2 is boundary-censored within
+peak_depth = 2…2,000; fade_scale = 1e-6…0.5. Equal-jump-risk execution scalar leader status:
+Current DH2 is boundary-censored within peak_depth = 2…2,000; fade_scale = 1e-6…0.5. For the
+product-level replay, under the LP-net fee-adjusted ledger, neither system clears every native acceptance rule at
+the primary equal-execution lock across routes, flows, the top-ranked policy shortlist, pool scales, volume levels,
+and one-minute cadence. Dusk synthetic product-readiness gate: fail. The selected DH2 profile requires its
+own rho = 2.069; the common Curve–DH2 comparison relaxation cannot make it ready. Retain exact CPMM as
+the zero-concentration comparator and keep the common comparison rho separate from Dusk's own product-
+readiness decision.
+Native conclusions remain simulation-conditioned
+The native result uses 15 development historical price windows plus 15 post-lock sealed windows, but user
+arrivals, information, outside routing, and arbitrage remain modeled. The scalar cross-sections use these
+declared domains: Curve CryptoSwap: paper A = 0.1…1,000; gamma = 1e-8…0.199; Current DH2: peak_depth =
+2…2,000; fade_scale = 1e-6…0.5. The boundary-cell censor marks these selected scalar points: equal execution /
+Curve CryptoSwap, equal execution / Current DH2, equal jump risk / Curve CryptoSwap, equal jump risk / Current
+DH2. Their precise gaps and apparent direction are conditional on the declared domains; they are not global
+family optima. The independent Curve reference covers fixed-parameter swap, fee, EMA, profit gate, and price-
+scale updates; it does not simulate liquidity-event hooks, parameter ramps, or the liquidity-operation-triggered
+claim that is time-gated to at most once per 24 hours; no automatic daily transaction is assumed. Signed routed
+orders and markouts are still required for a Jupiter-volume claim.
+

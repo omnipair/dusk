@@ -1,0 +1,67 @@
+{
+  "status": "smoke_only",
+  "canonical_native_output": false,
+  "mode": "quick",
+  "schema_version": 2,
+  "initial_profiles": 150,
+  "complete_matrix_evaluated_for_every_initial_profile": false,
+  "decision_grade_search": false,
+  "stage_counts": {
+    "stage1": {
+      "profiles": 150,
+      "cells_per_profile": 2,
+      "rows": 300,
+      "selected": 30
+    },
+    "stage2": {
+      "profiles": 30,
+      "cells_per_profile": 4,
+      "rows": 120,
+      "selected": 12
+    },
+    "stage3": {
+      "profiles": 12,
+      "cells_per_profile": 8,
+      "rows": 96,
+      "selected": 1
+    },
+    "local": {
+      "profiles": 13,
+      "cells_per_profile": 8,
+      "rows": 104,
+      "selected": 1
+    }
+  },
+  "fingerprints": {
+    "stage1": "0976b87c839bf8c1be9f41b8c11571663f0f504e19f75b413ee02b662bafbc1a",
+    "stage2": "fdc3019c200ebd1572b3deeb427a8fd75fc46b08aaa1265b319d414b4d93b1a8",
+    "stage3": "2e29164c4e89fe9cbbee86ce607bb288c7ec3512b66ec3717a041f4380a688e5",
+    "local": "0ab2fdabca003f3ea4d1833641b8b01fccee362fa0e1c2e681cc663071ddd274"
+  },
+  "selection_rule": "hard validity; minimum independent Dusk service relaxation; maximum worst-route fee-adjusted LP utility; maximum mean-route utility; stable profile id",
+  "winner": {
+    "profile_id": "local_grid_c01_f13_volatility_coefficient_down_0p01",
+    "description": "one-step local perturbation of grid_c01_f13: volatility_coefficient down",
+    "hard_valid": true,
+    "independent_dusk_service_relaxation": 1.2531099332259261,
+    "original_service_envelope_pass": false,
+    "minimum_route_selection_utility": -61.90217324869809,
+    "config": {
+      "center_ema_half_life_minutes": 1.0,
+      "adjustment_threshold_bps": 10.0,
+      "adjustment_step_bps": 2.5,
+      "min_adjustment_interval_minutes": 1,
+      "base_fee_bps": 5.0,
+      "dynamic_cap_bps": 100.0,
+      "divergence_coefficient": 0.0,
+      "volatility_coefficient": 0.01,
+      "volatility_half_life_minutes": 30.0,
+      "volatility_shock_cap": 0.1,
+      "volatility_accumulator_cap": 1.0,
+      "manager_fee_bps": 500,
+      "protocol_fee_bps": 0,
+      "solver_haircut_ppm": 10.0
+    }
+  },
+  "promotion_policy": "search output is not canonical; explicitly promote the winner and a compact neighborhood into data/dusk_controller_profiles.json, freeze the complete configuration and engine fingerprint, then run post-lock confirmatory history before changing a product recommendation"
+}

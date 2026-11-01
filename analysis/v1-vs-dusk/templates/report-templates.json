@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "templates": [
+    {
+      "audience": "technical_audit",
+      "title": "Dusk versus V1: Technical Benchmark",
+      "description": "Audit-first evidence from the verified historical holdout replay.",
+      "summary_heading": "Technical Summary",
+      "evidence_heading": "The verified metrics show trade-offs, not a universal direction",
+      "scope_heading": "Scope, units, and metric definitions",
+      "methodology_heading": "Replay and reporting method",
+      "limitations_heading": "Limitations, uncertainty, and robustness",
+      "next_steps_heading": "Recommended audit steps",
+      "questions_heading": "Open technical questions"
+    },
+    {
+      "audience": "governance_product",
+      "title": "Dusk versus V1: Governance Brief",
+      "description": "Decision-oriented product and governance evidence from the verified holdout.",
+      "summary_heading": "Executive Summary",
+      "evidence_heading": "The choice depends on which outcome governance prioritizes",
+      "scope_heading": "What the comparison measures",
+      "methodology_heading": "How to read the evidence",
+      "limitations_heading": "Caveats and assumptions",
+      "next_steps_heading": "Recommended decision process",
+      "questions_heading": "Questions to resolve before choosing"
+    },
+    {
+      "audience": "public",
+      "title": "Dusk versus V1: Public Benchmark",
+      "description": "A conservative public summary of the verified historical counterfactual.",
+      "summary_heading": "Executive Summary",
+      "evidence_heading": "The comparison is metric-specific",
+      "scope_heading": "What was compared",
+      "methodology_heading": "How to read the chart",
+      "limitations_heading": "Important limitations",
+      "next_steps_heading": "What happens next",
+      "questions_heading": "What remains open"
+    }
+  ]
+}

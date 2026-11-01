@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-09-07T04:48:14.803231+00:00",
+  "dusk_head": "a90ad30047f465bca634cd43bf19923afab88a4f",
+  "status": "share with caveats",
+  "checks": [
+    "A=1: centered capital, gamma, equal-depth LVR, reciprocal symmetry, boundary continuity, fee conservation",
+    "A=2: centered capital, gamma, equal-depth LVR, reciprocal symmetry, boundary continuity, fee conservation",
+    "A=5: centered capital, gamma, equal-depth LVR, reciprocal symmetry, boundary continuity, fee conservation",
+    "A=10: centered capital, gamma, equal-depth LVR, reciprocal symmetry, boundary continuity, fee conservation",
+    "CPMM exact swap formula",
+    "CPMM fee-free jump arbitrage closed form",
+    "Infeasible wide/high-amplification rejection",
+    "Piecewise inverse matches forward curve at boundaries",
+    "Base-only optimizer matches prior closed-form jump benchmark",
+    "Buy/sell reciprocal symmetry",
+    "Protocol/base/LP/retention accounting conservation",
+    "50% total fee bound",
+    "Distance potential agrees with independent exact-rational atom expression",
+    "Restorative flow has zero distance fee",
+    "Quiet accumulator has zero volatility fee",
+    "Half-life decay",
+    "100-point optimizer matches 1000-point bracketing",
+    "All shock rows: LP loss = arbitrage profit + protocol base fee",
+    "Every finite capital match repriced; impossible targets checked against fee floor",
+    "Every path: fees + execution edge = net trading P&L; customer and arb totals reconcile",
+    "Independent endpoint inventory ledger less price-change P&L plus fees reconciles every path",
+    "Customer intentions reconcile to filled/rejected orders; flat zero-flow path earns zero",
+    "High/low A and both directions: 100 vs 1000-point optimizer brackets agree",
+    "Capital-scaled adverse-selection loss matches independently recomputed resized market",
+    "High-A choppy path: denser arbitrage search agrees within one cent and same fills"
+  ],
+  "sources": [
+    {
+      "path": "analysis/capital-efficiency/model.py",
+      "sha256": "1c2322e4ab4112a90dc14d090e1e8d998fa25b3965b0b9d0d7fd4e62e099fb68"
+    },
+    {
+      "path": "analysis/capital-efficiency/dynamic_fees.py",
+      "sha256": "fee4115f154115b764f4a6e9b394d03a5521e35e38b5efc715d1d9b96a83fb80"
+    },
+    {
+      "path": "analysis/capital-efficiency/concentration_sweep.py",
+      "sha256": "bb6071eef43b6f0b86a7ffb6d30e058b3b0fc963483b9e859a773ee74e825beb"
+    },
+    {
+      "path": "programs/dusk/src/transitions/amm/curve.rs",
+      "sha256": "03635013d2f7d9182ae5b5763a11fa4d6d62bb9c8acc362614ed823e8f3f05e9"
+    },
+    {
+      "path": "programs/dusk/src/transitions/amm/fees.rs",
+      "sha256": "4ae3096812613ebaffaf431c597c26c162cc2913144c2f1d2a006a568a7ce453"
+    },
+    {
+      "path": "programs/dusk/src/transitions/amm/mod.rs",
+      "sha256": "62de22987445a734d2b288835ed50b000b91c21ffd8026d893bded715d0491d5"
+    },
+    {
+      "path": "programs/dusk/src/transitions/ledger.rs",
+      "sha256": "ad60558a6585275119c7399c25d25ad65465c8f7c05a4c9d7c092255379dc0a0"
+    }
+  ],
+  "limitations": [
+    "Synthetic paths and uncalibrated demand; no expected market return estimated",
+    "Real-valued input fees; no integer program parity or compute-unit benchmark",
+    "Fixed center and fixed A; no controller, hLP, borrowing, retention or fee compounding",
+    "Greedy arbitrage with discrete 30-second observations, not global strategic splitting",
+    "Three order-direction seeds and three routing limits are sensitivity tests, not statistical confidence intervals or a fitted optimum"
+  ],
+  "report": {
+    "delivery": "mcp-app",
+    "sql_cross_check": "All capital, risk and path display metrics reconciled",
+    "structure": "Existing full report preserved. Updated executive summary; fixed-fee definitions, findings with three charts and a table, shortlist, questions and caveats.",
+    "chart_contract": "Numeric amplification axes, grouped state/order-size lines with legends, explicit monetary units; exact path P&L in a table.",
+    "visual_qa": "Earlier native success was not visual certification. All concentration sections are preserved in report.html; the complete portable report now passes packaged browser verification. See report_delivery.json.",
+    "native_validation": "passed: 34 blocks, 6 charts, 3 tables, 19 datasets, 8 sources",
+    "native_render": "Tool returned ok=true; UI delivery was not verified. Subsequent user screenshot showed missing_artifact_payload."
+  }
+}

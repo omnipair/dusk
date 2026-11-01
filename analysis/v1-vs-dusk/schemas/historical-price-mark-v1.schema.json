@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:historical-price-mark:v1",
+  "title": "HistoricalPriceMarkV1 structural snapshot",
+  "description": "One real historical hourly USD mark. The configured provider/window identity is enforced outside this single-record schema.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::canonical::HistoricalPriceMarkV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mint",
+    "bucket_unix_seconds",
+    "price_usd",
+    "token_decimals",
+    "provider",
+    "quality"
+  ],
+  "properties": {
+    "mint": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "bucket_unix_seconds": {
+      "type": "integer",
+      "multipleOf": 3600
+    },
+    "price_usd": {
+      "type": "string",
+      "pattern": "^(0\\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(\\.[0-9]+)?)$"
+    },
+    "token_decimals": {
+      "oneOf": [
+        {
+          "$ref": "common-v1.schema.json#/$defs/u8"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "provider": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "quality": {
+      "const": "historical"
+    }
+  }
+}

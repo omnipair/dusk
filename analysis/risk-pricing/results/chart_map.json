@@ -1,0 +1,9 @@
+{
+  "scenario_results.csv": {
+    "pair_risk_apr_bps": "Pair-wide expected-loss plus ES99 capital spread by regime mix and depth",
+    "marginal_high_ltv_fee_bps": "Upfront marginal risk cost of adding the high-LTV position"
+  },
+  "position_pricing.csv": {
+    "position_risk_apr_bps": "Shapley-allocated position risk APR; filter to the illustrative central scenario"
+  }
+}

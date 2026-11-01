@@ -1,0 +1,3 @@
+__pycache__/
+market-data/*.zip
+shortlist_replay_checkpoint.json

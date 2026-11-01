@@ -1,0 +1,52 @@
+{
+  "retrieved_at": "2026-09-07T05:06:42.794187+00:00",
+  "sources": [
+    {
+      "file": "SOLUSDT-1m-2025-01.zip",
+      "url": "https://data.binance.vision/data/spot/monthly/klines/SOLUSDT/1m/SOLUSDT-1m-2025-01.zip",
+      "checksum_url": "https://data.binance.vision/data/spot/monthly/klines/SOLUSDT/1m/SOLUSDT-1m-2025-01.zip.CHECKSUM",
+      "sha256": "17417b784a28ba659dcd6adb3598f67cc1a987ceda7e5048ce20807617d2c603",
+      "bytes": 1979391
+    },
+    {
+      "file": "SOLUSDT-1s-2025-01-08.zip",
+      "url": "https://data.binance.vision/data/spot/daily/klines/SOLUSDT/1s/SOLUSDT-1s-2025-01-08.zip",
+      "checksum_url": "https://data.binance.vision/data/spot/daily/klines/SOLUSDT/1s/SOLUSDT-1s-2025-01-08.zip.CHECKSUM",
+      "sha256": "e0411a9f925bc4e534c1cce9266412a893d973b7c553735839e1f28642c3176d",
+      "bytes": 2410542
+    },
+    {
+      "file": "SOLUSDT-1s-2025-01-09.zip",
+      "url": "https://data.binance.vision/data/spot/daily/klines/SOLUSDT/1s/SOLUSDT-1s-2025-01-09.zip",
+      "checksum_url": "https://data.binance.vision/data/spot/daily/klines/SOLUSDT/1s/SOLUSDT-1s-2025-01-09.zip.CHECKSUM",
+      "sha256": "aa99062cb6899c02030fa0f3e241791481daa26caba3df43e08c3ed39fe80be3",
+      "bytes": 2337954
+    },
+    {
+      "file": "SOLUSDT-1s-2025-01-15.zip",
+      "url": "https://data.binance.vision/data/spot/daily/klines/SOLUSDT/1s/SOLUSDT-1s-2025-01-15.zip",
+      "checksum_url": "https://data.binance.vision/data/spot/daily/klines/SOLUSDT/1s/SOLUSDT-1s-2025-01-15.zip.CHECKSUM",
+      "sha256": "1f87f2c3d19cc1dff1f688824e41d1e75f0f27cd6fa39a4c0872317e38057e91",
+      "bytes": 2305235
+    },
+    {
+      "file": "SOLUSDT-1s-2025-01-19.zip",
+      "url": "https://data.binance.vision/data/spot/daily/klines/SOLUSDT/1s/SOLUSDT-1s-2025-01-19.zip",
+      "checksum_url": "https://data.binance.vision/data/spot/daily/klines/SOLUSDT/1s/SOLUSDT-1s-2025-01-19.zip.CHECKSUM",
+      "sha256": "5b3c5452afd07cae58ba45a1eea59916707df8ee50617ed7ee523b9f61afcb1b",
+      "bytes": 3244694
+    },
+    {
+      "file": "SOLUSDT-aggTrades-2025-01-01.zip",
+      "url": "https://data.binance.vision/data/spot/daily/aggTrades/SOLUSDT/SOLUSDT-aggTrades-2025-01-01.zip",
+      "checksum_url": "https://data.binance.vision/data/spot/daily/aggTrades/SOLUSDT/SOLUSDT-aggTrades-2025-01-01.zip.CHECKSUM",
+      "sha256": "243468de9acc73af1476792283d208dedb1dcabdbb6c32a5a91fa2ca861051cc",
+      "bytes": 4218102
+    }
+  ],
+  "documentation": "https://github.com/binance/binance-public-data/blob/master/README.md",
+  "period": "January 2025, historical sample; not current performance",
+  "access_note": "Attempt to retrieve August 2026 monthly data returned HTTP 404; no local historical dataset existed. January 2025 is an explicit historical test period.",
+  "selection": "Five hourly windows selected from January 2\u201331 minute data: variance percentiles 10,50,90,99 and largest absolute hourly return. Selection is independent of simulated LP outcomes.",
+  "training": "January 1 aggregated-trade clips supply a size proxy; no Dusk customer demand or routing behavior is observed."
+}

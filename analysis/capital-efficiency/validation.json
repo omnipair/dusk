@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "checks": [
+    "A=1: centered capital, gamma, equal-depth LVR, reciprocal symmetry, boundary continuity, fee conservation",
+    "A=2: centered capital, gamma, equal-depth LVR, reciprocal symmetry, boundary continuity, fee conservation",
+    "A=5: centered capital, gamma, equal-depth LVR, reciprocal symmetry, boundary continuity, fee conservation",
+    "A=10: centered capital, gamma, equal-depth LVR, reciprocal symmetry, boundary continuity, fee conservation",
+    "CPMM exact swap formula",
+    "CPMM fee-free jump arbitrage closed form",
+    "Infeasible wide/high-amplification rejection"
+  ]
+}

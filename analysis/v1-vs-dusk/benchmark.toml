@@ -1,0 +1,96 @@
+schema_version = "v4"
+
+[source]
+env_file = "../../../omnipair-indexer/api/.env"
+database_url_env = "DATABASE_URL"
+rpc_url_env = "SOLANA_RPC_URL"
+program_id_env = "OMNIPAIR_PROGRAM_ID"
+historical_price_provider = "birdeye"
+commitment = "finalized"
+rpc_concurrency = 64
+rpc_max_attempts = 6
+
+[source.archival_block_cache]
+# Immutable, proof-bound donor from the completed selected-panel crawl. Only
+# raw compressed blocks are reused; every source-dependent artifact is rebuilt.
+root = "data/slot-440459364-ff2f0f0e6bdc0aba"
+manifest_file_sha256 = "c1a45a25c3d24b946cbfc7e099b75fc8190c7fae23154d4b830f7af8d63a9167"
+manifest_sha256 = "eb14d9a69d473f08144f541d42c7160e9a3e3baf8217350771f9d7e6a5d77d00"
+policy = "require_complete_hardlink"
+
+[source.historical_price_sidecar]
+# Immutable, read-only historical Birdeye responses for the exact 2,587
+# selected-panel mint-hour gaps. The integration revalidates every raw response
+# and refuses current-price fallback, interpolation, forward-fill, or DB writes.
+root = "results/price-sidecars/canonical-694008a6077c8111/provider-fetch"
+manifest_file_sha256 = "13d5c42fb0b42537be40df9a1c90dd7fe5030ff0f887e74ea1282d3e69c8f056"
+historical_price_marks_file_sha256 = "edbad4c9609be0ae0421c8a4eb42546f90f7ff331280516f195ff4dae4284a86"
+historical_price_mark_provenance_file_sha256 = "acbca4ee9e98b66af99cbac9188942e3681d009c347f46104c0a5c3d76b63a80"
+expected_unique_keys = 2587
+policy = "require_complete_proofs"
+
+[window]
+# Frozen finalized cutoff for this benchmark campaign.
+cutoff_slot = 440459364
+common_market_fraction_bps = 9000
+common_tvl_fraction_bps = 0
+price_bucket_seconds = 3600
+
+[universe]
+visible_only = true
+minimum_swaps = 10
+minimum_active_days = 3
+median_tvl_percentile_bps = 0
+headline_swap_coverage_bps = 9500
+headline_lending_coverage_bps = 9500
+
+[scope]
+mode = "hybrid_panel"
+evidence_tier = "decision_grade"
+target_count = 5
+minimum_panel_markets = 5
+selection_training_bps = 6000
+keep_global_signature_inventory = true
+# Decision-grade fast path: rank one shared profile across the frozen panel.
+# Per-market optimization is a secondary opportunity-ceiling study and is not
+# required for the selected-panel venue verdict.
+per_market_opportunity_ceiling = false
+# Frozen before replay/holdout access: top spot, token0 lending, token1
+# lending, liquidation-heavy, and low-activity liquidation-tail archetypes.
+explicit_market_overrides = [
+  "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p",
+  "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo",
+  "5aSf28bo5Nfkq3QCAKpVyzCPmtGL9kWdLn18ERZia7Kp",
+  "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+  "6FkrhorTJcQbdvUnYLa5Ksv1ReoGTfc95Hu4U2jniYW5",
+]
+
+[replay]
+fixed_flow = true
+intent_with_arbitrage = true
+maximum_feasible_hlp = true
+no_hlp_control = true
+# 0.1%, 1%, and 5% of pool NAV.
+standardized_trade_nav_bps = [10, 100, 500]
+
+[calibration]
+seed = 20260820
+training_bps = 6000
+validation_bps = 2000
+holdout_bps = 2000
+# Reduced, preregistered DecisionGrade search. This preserves broad exploration
+# plus local refinement while avoiding the much larger per-market campaign.
+exploration_points = 32
+pareto_shortlist = 1
+local_refinement_rounds = 1
+minimum_optimized_swaps_per_split = 100
+minimum_optimized_active_days_per_split = 7
+bootstrap_samples = 1000
+
+[output]
+data_dir = "data"
+run_dir = "results/runs"
+report_dir = "reports/generated"
+python_executable = "python3"
+node_executable = "node"
+portable_report_builder_env = "V1_VS_DUSK_REPORT_BUILDER"

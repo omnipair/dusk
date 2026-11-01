@@ -1,0 +1,56 @@
+{
+  "status": "share with caveats",
+  "replays": 1440,
+  "training_replays": 768,
+  "evaluation_replays": 672,
+  "evaluation_cases_per_policy": 96,
+  "checks": [
+    "63 reserve-preserving reconfigurations and round-trip reconstructions conserve holdings and curve scale",
+    "All four fixed policies reproduce prior engine P&L, fills and arbitrage counts on identical intentions",
+    "Identical first 20-minute decisions and accounting when all later prices/orders are removed",
+    "Post-reconfiguration arbitrage solver agrees with independent 1600-point search",
+    "Every replay reconciles endpoint reserve NAV minus inventory beta plus fees to trading P&L",
+    "All paired policies receive exactly identical intentions, budgets and offered volume",
+    "Every executed change preserves both reserves and NAV, and predicted immediate arbitrage cost reconciles to execution",
+    "Policy selection file frozen before later-date evaluation begins; evaluation never feeds back into selection",
+    "One adaptive hour with executed reconfiguration agrees within 0.05 USDT and identical fills/switch count against the independent dense-search engine; see adaptive_extra_validation.json"
+  ],
+  "elapsed_seconds": 133.936346375,
+  "source_hashes": {
+    "adaptive_replay.py": "92bef89117ce8c9f662bbbeb3218d01559120af72980a8ae8a8fcf1f37476dd3",
+    "adaptive_plan.json": "30e9f73215d835038561ca401ab01a340a5908aaa35d9868ab253b3da19902d7",
+    "fee_optimizer.py": "48633b98263df45d28d95d93b356c521fbd2efc8b8e40cd6b1e1c59af5eff922",
+    "dynamic_fees.py": "fee4115f154115b764f4a6e9b394d03a5521e35e38b5efc715d1d9b96a83fb80",
+    "model.py": "1c2322e4ab4112a90dc14d090e1e8d998fa25b3965b0b9d0d7fd4e62e099fb68"
+  },
+  "limitations": [
+    "Historical external prices with synthetic flow; all-swap external markouts require an off-chain reference",
+    "Four days in one month; only two later-date evaluation days and three demand seeds",
+    "Some evaluation hours were previously explored; no fully blind performance claim",
+    "Governance timelock and protected-depth admission deliberately relaxed; current program cannot execute this fast controller",
+    "Greedy arbitrage, no strategic manipulation or sandwich/front-running of predictable changes; zero base transaction overhead",
+    "30-second markouts are controller signals only; not an additional loss deduction or true toxicity classification",
+    "No integer program parity, Solana compute-unit benchmark, active hLP, lending, retention, compounding or recentering"
+  ],
+  "exploratory_gated_replays": 96,
+  "report": {
+    "source_arithmetic": "Independent SQLite recomputation reconciles all report means",
+    "preservation": "Every earlier block except executive summary, chart, table, source and dataset preserved exactly",
+    "delivery": "html",
+    "portable_verification": {
+      "validation": "passed",
+      "package": "passed",
+      "verification": "passed"
+    },
+    "chart_map": [
+      "Discrete policy means: full-width zero-based bar",
+      "Additional switch-cost sensitivity: numeric line plot",
+      "Demand scenario exact lookup: table; all policies use matched cases"
+    ],
+    "delivery_receipt": "report_delivery.json",
+    "browser_qa": "Passed at 1440px and 390px: exact payload, all 58 blocks, 11 charts and 5 tables visible; source interaction passed; no external requests or browser errors. Narrow legend wording corrected before final packaging.",
+    "canonical_sha256": "1260e18d88eaabfbd162dbd5a1769c82470ac080ad70ec827d421152eb9e9b70",
+    "html_sha256": "f3330252ce07b7473f44c38a5ea95c92dd5b4faea549c058f07b746c6599e249",
+    "notebook": "Two new code cells executed sequentially in Python, including independent SQL reconciliation; no Jupyter kernel certification."
+  }
+}

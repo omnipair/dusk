@@ -1,0 +1,47 @@
+{
+  "status": "share with caveats",
+  "generated_at": "2026-09-07T05:17:31.756791+00:00",
+  "checks": [
+    "Every replay reconciles fee components, customer/arb P&L, and an independent endpoint inventory ledger",
+    "Identical generated intentions and cost budgets are offered to all concentrations for each paired case",
+    "Training clip sizes precede every replay window; intent directions and budgets do not use future returns",
+    "Minimum-toll screening agrees with unscreened optimizer in 69 sampled no-arbitrage states",
+    "Four extreme-volatility replays agree within 0.05 quote units and identical fills against independent 1600-point grid bracketing",
+    "Sixty randomized off-center buy/sell opportunities: two-regime solver agrees with independent dense search"
+  ],
+  "replays": 1015,
+  "summary_rows": 235,
+  "elapsed_seconds": 39.567398917,
+  "data_quality_file": "shortlist_data_quality.json",
+  "source_manifest": "market-data/manifest.json",
+  "method_sha256": "e968bcf2d6d19b5f7981244225dfc3578180a59ead014281a00138aec252eea7",
+  "source_hashes": {
+    "shortlist_replay.py": "e968bcf2d6d19b5f7981244225dfc3578180a59ead014281a00138aec252eea7",
+    "fee_optimizer.py": "48633b98263df45d28d95d93b356c521fbd2efc8b8e40cd6b1e1c59af5eff922",
+    "concentration_sweep.py": "bb6071eef43b6f0b86a7ffb6d30e058b3b0fc963483b9e859a773ee74e825beb",
+    "dynamic_fees.py": "fee4115f154115b764f4a6e9b394d03a5521e35e38b5efc715d1d9b96a83fb80",
+    "model.py": "1c2322e4ab4112a90dc14d090e1e8d998fa25b3965b0b9d0d7fd4e62e099fb68"
+  },
+  "limitations": [
+    "Historical reference prices with synthetic demand, not observed Dusk performance",
+    "CEX aggregate clips supply only a size proxy; demand capture and price tolerance remain assumptions",
+    "Five selected hours and five demand seeds do not estimate regime frequencies or real-world confidence intervals",
+    "One-second last-trade reference; subsecond movements, cross-venue basis and strategic MEV not modeled",
+    "Fixed center, fixed concentration, no active hLP/debt/retention/compounding or integer program parity"
+  ],
+  "report": {
+    "source_arithmetic": "Independent SQLite mean, fee and capital-normalized metrics reconcile",
+    "delivery": "html",
+    "structure": "Earlier full report preserved; executive summary updated; historical evidence, drivers, matched capital, decision and caveats added",
+    "visual_qa": "Packaged portable browser verification passed at 1440px and 390px: complete content visible, no horizontal overflow, source interaction passed, no external requests or browser errors. Static chart extraction completed. This is not broader browser/device certification.",
+    "native_validation": "passed: 46 blocks, 9 charts, 4 tables, 24 datasets, 10 sources",
+    "native_render": "Failed delivery: render_artifact returned ok=true, but user screenshot confirmed missing_artifact_payload.",
+    "portable_delivery_receipt": "report_delivery.json",
+    "portable_verification": {
+      "validation": "passed",
+      "package": "passed",
+      "verification": "passed"
+    },
+    "presentation_fix": "Scoped header CSS uses container width plus gutters instead of 100vw; canonical artifact is unchanged."
+  }
+}

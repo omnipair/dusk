@@ -1,0 +1,33 @@
+{
+  "status": "controller_search_stage_complete",
+  "canonical_native_output": false,
+  "mode": "quick",
+  "stage": "stage2",
+  "schema_version": 2,
+  "fingerprint": "fdc3019c200ebd1572b3deeb427a8fd75fc46b08aaa1265b319d414b4d93b1a8",
+  "upstream_fingerprint": "0976b87c839bf8c1be9f41b8c11571663f0f504e19f75b413ee02b662bafbc1a",
+  "rows": 120,
+  "profiles": 30,
+  "cells_per_profile": 4,
+  "reused_rows": 60,
+  "resumed_progress_rows": 0,
+  "new_rows": 60,
+  "checkpoint_batch_size": 256,
+  "selection_eligible_profiles": 30,
+  "selection_excluded_nonfinite_rho_profiles": 0,
+  "nonfinite_rho_selection_policy": "excluded",
+  "selected_profile_ids": [
+    "grid_c00_f14",
+    "grid_c01_f14",
+    "grid_c02_f14",
+    "grid_c03_f14",
+    "grid_c04_f14",
+    "grid_c05_f14",
+    "grid_c06_f14",
+    "grid_c09_f14",
+    "grid_c07_f14",
+    "grid_c08_f14",
+    "grid_c00_f13",
+    "grid_c01_f13"
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:sensitivity-artifact:v2",
+  "title": "SensitivityArtifactV1",
+  "description": "Strict structural snapshot of the deterministic paired seven-day block-bootstrap and top-market-exclusion evidence.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::sensitivity::SensitivityArtifactV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "run_id", "profile_id", "arm", "hlp_scenario",
+    "holdout_start_unix_seconds", "holdout_end_unix_seconds_exclusive",
+    "paired_metric_ledger_sha256", "paired_metric_summary_sha256",
+    "included_markets_sha256", "historical_prices_sha256", "historical_price_provider",
+    "historical_price_rows", "paired_metric_rows", "holdout_metric_rows",
+    "included_market_count", "reporting_rounding", "point_estimate", "paired_bootstrap",
+    "top_market_rankings", "top_market_exclusions",
+    "top_market_exclusion_unsupported_reason", "artifact_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "run_id": { "$ref": "common-v1.schema.json#/$defs/nonempty_string" },
+    "profile_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "arm": { "enum": ["fixed_flow", "intent"] },
+    "hlp_scenario": { "enum": ["no_hlp", "maximum_feasible"] },
+    "holdout_start_unix_seconds": { "$ref": "common-v1.schema.json#/$defs/i64" },
+    "holdout_end_unix_seconds_exclusive": { "$ref": "common-v1.schema.json#/$defs/i64" },
+    "paired_metric_ledger_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "paired_metric_summary_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "included_markets_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "historical_prices_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "historical_price_provider": { "$ref": "common-v1.schema.json#/$defs/nonempty_string" },
+    "historical_price_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "paired_metric_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "holdout_metric_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "included_market_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "reporting_rounding": { "const": "truncate_toward_zero" },
+    "point_estimate": { "$ref": "#/$defs/point_estimate" },
+    "paired_bootstrap": { "$ref": "#/$defs/bootstrap" },
+    "top_market_rankings": { "type": "array", "items": { "$ref": "#/$defs/ranking" } },
+    "top_market_exclusions": { "type": "array", "items": { "$ref": "#/$defs/exclusion" } },
+    "top_market_exclusion_unsupported_reason": { "type": ["string", "null"] },
+    "artifact_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "exact_rational": {
+      "type": "object", "additionalProperties": false,
+      "required": ["numerator", "denominator"],
+      "properties": {
+        "numerator": { "$ref": "common-v1.schema.json#/$defs/signed_token_amount" },
+        "denominator": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+      }
+    },
+    "exact_and_reported": {
+      "type": "object", "additionalProperties": false,
+      "required": ["exact", "reported_signed_integer"],
+      "properties": {
+        "exact": { "$ref": "#/$defs/exact_rational" },
+        "reported_signed_integer": { "$ref": "common-v1.schema.json#/$defs/signed_token_amount" }
+      }
+    },
+    "nullable_exact_and_reported": { "oneOf": [{ "$ref": "#/$defs/exact_and_reported" }, { "type": "null" }] },
+    "point_estimate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stakeholder_revenue_v1_usd_micro", "stakeholder_revenue_dusk_user_flow_usd_micro", "stakeholder_user_flow_revenue_delta_usd_micro", "dusk_synthetic_arbitrage_revenue_usd_micro", "dusk_synthetic_protocol_settlement_revenue_usd_micro", "factual_swap_input_usd_micro", "quoted_execution_cost_delta_ppb", "quoted_execution_cost_unsupported_reason", "unsupported_execution_rows"],
+      "properties": {
+        "stakeholder_revenue_v1_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "stakeholder_revenue_dusk_user_flow_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "stakeholder_user_flow_revenue_delta_usd_micro": { "$ref": "#/$defs/exact_and_reported" },
+        "dusk_synthetic_arbitrage_revenue_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "dusk_synthetic_protocol_settlement_revenue_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "factual_swap_input_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "quoted_execution_cost_delta_ppb": { "$ref": "#/$defs/nullable_exact_and_reported" },
+        "quoted_execution_cost_unsupported_reason": { "type": ["string", "null"] },
+        "unsupported_execution_rows": { "$ref": "common-v1.schema.json#/$defs/u64" }
+      }
+    },
+    "interval": {
+      "type": "object", "additionalProperties": false,
+      "required": ["lower_2_5_percent", "median", "upper_97_5_percent"],
+      "properties": {
+        "lower_2_5_percent": { "$ref": "#/$defs/exact_and_reported" },
+        "median": { "$ref": "#/$defs/exact_and_reported" },
+        "upper_97_5_percent": { "$ref": "#/$defs/exact_and_reported" }
+      }
+    },
+    "nullable_interval": { "oneOf": [{ "$ref": "#/$defs/interval" }, { "type": "null" }] },
+    "bootstrap": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithm", "block_seconds", "seed", "samples", "observed_block_count", "sampled_block_sequence_sha256", "stakeholder_user_flow_revenue_delta_usd_micro", "dusk_synthetic_arbitrage_revenue_usd_micro", "dusk_synthetic_protocol_settlement_revenue_usd_micro", "quoted_execution_cost_delta_ppb", "execution_cost_unsupported_reason"],
+      "properties": {
+        "algorithm": { "const": "splitmix64_paired_utc_7d_with_replacement_v1" },
+        "block_seconds": { "const": 604800 },
+        "seed": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "samples": { "$ref": "common-v1.schema.json#/$defs/u32" },
+        "observed_block_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "sampled_block_sequence_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "stakeholder_user_flow_revenue_delta_usd_micro": { "$ref": "#/$defs/interval" },
+        "dusk_synthetic_arbitrage_revenue_usd_micro": { "$ref": "#/$defs/interval" },
+        "dusk_synthetic_protocol_settlement_revenue_usd_micro": { "$ref": "#/$defs/interval" },
+        "quoted_execution_cost_delta_ppb": { "$ref": "#/$defs/nullable_interval" },
+        "execution_cost_unsupported_reason": { "type": ["string", "null"] }
+      }
+    },
+    "ranking_basis": { "enum": ["factual_usd_swap_input", "factual_stakeholder_revenue_usd"] },
+    "ranked_market": {
+      "type": "object", "additionalProperties": false,
+      "required": ["rank", "market", "factual_value_usd_micro"],
+      "properties": {
+        "rank": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "market": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+        "factual_value_usd_micro": { "$ref": "#/$defs/exact_rational" }
+      }
+    },
+    "ranking": {
+      "type": "object", "additionalProperties": false,
+      "required": ["basis", "markets"],
+      "properties": {
+        "basis": { "$ref": "#/$defs/ranking_basis" },
+        "markets": { "type": "array", "items": { "$ref": "#/$defs/ranked_market" } }
+      }
+    },
+    "exclusion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["basis", "excluded_market", "excluded_factual_value_usd_micro", "remaining_market_count", "estimate_without_top_market"],
+      "properties": {
+        "basis": { "$ref": "#/$defs/ranking_basis" },
+        "excluded_market": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+        "excluded_factual_value_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "remaining_market_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "estimate_without_top_market": { "$ref": "#/$defs/point_estimate" }
+      }
+    }
+  }
+}

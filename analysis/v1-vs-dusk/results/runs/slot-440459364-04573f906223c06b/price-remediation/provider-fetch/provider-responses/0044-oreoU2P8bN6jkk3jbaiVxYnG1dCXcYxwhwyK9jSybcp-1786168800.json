@@ -1,0 +1,877 @@
+{
+  "schema_version": 1,
+  "request_index": 44,
+  "request": {
+    "method": "GET",
+    "url": "https://public-api.birdeye.so/defi/history_price?address=oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp&address_type=token&type=1H&time_from=1786168800&time_to=1786773600&ui_amount_mode=raw",
+    "provider": "birdeye",
+    "chain": "solana",
+    "interval": "1H",
+    "allow_current_fallback": false,
+    "requested_bucket_count": 6
+  },
+  "attempts": [
+    {
+      "started_at": "2026-08-22T02:22:40.962Z",
+      "completed_at": "2026-08-22T02:22:41.821Z",
+      "status": 200,
+      "ok": true,
+      "response_body_sha256": "5a9a1a0cef6fe907618cab2dc7e2e31b302e1e8b4552e1a940c2575fe029ac2d",
+      "body_text": "{\"data\":{\"items\":[{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786168800,\"value\":58.858103509646206},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786172400,\"value\":58.77309844667859},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786176000,\"value\":58.83538372452692},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786179600,\"value\":59.58125124348541},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786183200,\"value\":59.28476135343222},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786186800,\"value\":60.06629702879751},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786190400,\"value\":59.28873768041402},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786194000,\"value\":59.76165129957766},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786197600,\"value\":60.10971387870751},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786201200,\"value\":60.797376977499866},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786204800,\"value\":60.801781236593335},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786208400,\"value\":60.293620891759595},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786212000,\"value\":60.28921182501279},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786215600,\"value\":60.28046064206554},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786219200,\"value\":60.500181745937404},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786222800,\"value\":60.55071439284237},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786226400,\"value\":60.71338910295813},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786230000,\"value\":60.585616333933714},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786233600,\"value\":60.871165525349156},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786237200,\"value\":60.263142979110675},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786240800,\"value\":60.08807311346903},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786244400,\"value\":59.73675702305712},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786248000,\"value\":59.582816612217805},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786251600,\"value\":59.738977501849476},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786255200,\"value\":59.877934455630914},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786258800,\"value\":59.68438760335442},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786262400,\"value\":59.60670963646522},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786266000,\"value\":60.29110795769302},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786269600,\"value\":60.306243508177744},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786273200,\"value\":60.5020386487675},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786276800,\"value\":60.61212121994524},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786280400,\"value\":60.55575073127264},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786284000,\"value\":60.870726041765906},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786287600,\"value\":61.23190589153428},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786291200,\"value\":61.27526506778809},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786294800,\"value\":60.91515583448909},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786298400,\"value\":58.9483024603533},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786302000,\"value\":59.17638366242145},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786305600,\"value\":58.928005249874715},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786309200,\"value\":58.66875380994753},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786312800,\"value\":58.49385586601981},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786316400,\"value\":57.2284289511033},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786320000,\"value\":56.99122006587406},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786323600,\"value\":57.06316782678131},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786327200,\"value\":57.24708228426484},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786330800,\"value\":57.263100774231376},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786334400,\"value\":57.11735703846275},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786338000,\"value\":57.851267036700676},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786341600,\"value\":58.02663126196159},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786345200,\"value\":58.02756227993321},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786348800,\"value\":58.40170964137594},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786352400,\"value\":57.978018929186696},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786356000,\"value\":58.282183513082},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786359600,\"value\":58.21684468908293},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786363200,\"value\":57.952850720204246},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786366800,\"value\":58.33366168142026},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786370400,\"value\":58.5611867090772},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786374000,\"value\":58.42620652100382},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786377600,\"value\":57.533198654994415},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786381200,\"value\":57.343352968485554},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786384800,\"value\":57.384059275521516},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786388400,\"value\":57.822119362494064},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786392000,\"value\":57.225860710998525},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786395600,\"value\":55.58682205664184},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786399200,\"value\":55.60727571548119},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786402800,\"value\":55.56460132335557},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786406400,\"value\":56.062305489058836},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786410000,\"value\":59.60628085760041},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786413600,\"value\":59.574220501338374},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786417200,\"value\":57.26001551717486},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786420800,\"value\":56.96230399835616},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786424400,\"value\":57.583711716868144},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786428000,\"value\":62.27227649984325},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786431600,\"value\":59.36554202483655},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786435200,\"value\":59.39180750472295},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786438800,\"value\":59.758557661580895},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786442400,\"value\":60.17232789161601},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786446000,\"value\":60.54923289188758},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786449600,\"value\":60.72800512966997},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786453200,\"value\":60.57360136458843},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786456800,\"value\":60.284702642600074},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786460400,\"value\":62.67981238501673},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786464000,\"value\":61.64468266325116},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786467600,\"value\":61.85350400083031},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786471200,\"value\":61.93209834597652},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786474800,\"value\":64.59907388190358},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786478400,\"value\":64.73694543071514},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786482000,\"value\":63.79222649618034},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786485600,\"value\":63.8863268497131},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786489200,\"value\":64.3142764642994},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786492800,\"value\":64.00443324906233},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786496400,\"value\":64.14183154464702},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786500000,\"value\":64.5250108041365},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786503600,\"value\":63.86586104526611},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786507200,\"value\":64.04480096333764},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786510800,\"value\":64.22687507665073},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786514400,\"value\":64.29692369726708},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786518000,\"value\":64.79911313755568},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786521600,\"value\":64.62433262024052},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786525200,\"value\":64.97125968944675},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786528800,\"value\":65.59770485639764},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786532400,\"value\":65.68415897973237},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786536000,\"value\":66.1621279904456},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786539600,\"value\":66.1611786115428},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786543200,\"value\":66.1580898523758},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786546800,\"value\":67.23888674174411},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786550400,\"value\":67.86754782300216},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786554000,\"value\":68.23398398618282},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786557600,\"value\":67.24709128534924},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786561200,\"value\":66.98217811550225},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786564800,\"value\":65.51673943703152},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786568400,\"value\":66.9134597164603},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786572000,\"value\":65.70338968929542},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786575600,\"value\":65.54717027167808},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786579200,\"value\":65.09168779204218},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786582800,\"value\":65.30119750250756},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786586400,\"value\":63.303228491461724},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786590000,\"value\":62.3643164898501},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786593600,\"value\":62.77344471880278},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786597200,\"value\":62.87487832861642},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786600800,\"value\":62.954281350484},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786604400,\"value\":62.38415886250233},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786608000,\"value\":62.33381688104408},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786611600,\"value\":62.67864536860069},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786615200,\"value\":61.95998938909068},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786618800,\"value\":61.9768655603042},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786622400,\"value\":62.022613943249375},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786626000,\"value\":62.312728257703704},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786629600,\"value\":62.31120388616633},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786633200,\"value\":61.86654020840198},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786636800,\"value\":61.8789155981412},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786640400,\"value\":61.975350300113035},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786644000,\"value\":62.191363691916756},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786647600,\"value\":61.675772979494845},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786651200,\"value\":61.27357704984472},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786654800,\"value\":61.34738112193096},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786658400,\"value\":61.8827948367039},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786662000,\"value\":61.98260757048816},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786665600,\"value\":61.602604259716735},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786669200,\"value\":61.35645276549017},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786672800,\"value\":61.38926407241071},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786676400,\"value\":61.68576542842147},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786680000,\"value\":61.053095459384764},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786683600,\"value\":61.61710036341424},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786687200,\"value\":61.1790637710409},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786690800,\"value\":61.450168822350875},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786694400,\"value\":61.30386811101284},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786698000,\"value\":61.14223316480008},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786701600,\"value\":60.8321329949056},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786705200,\"value\":61.187002031161725},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786708800,\"value\":61.224663353912014},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786712400,\"value\":61.13255930178385},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786716000,\"value\":61.18892674295389},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786719600,\"value\":61.548895756172286},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786723200,\"value\":61.4091558992734},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786726800,\"value\":61.29210509796186},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786730400,\"value\":60.778315495459985},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786734000,\"value\":60.760456763769696},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786737600,\"value\":60.605584466619895},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786741200,\"value\":61.38541861357992},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786744800,\"value\":61.14259461898878},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786748400,\"value\":61.417247402894},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786752000,\"value\":61.3664749530214},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786755600,\"value\":61.06672178474124},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786759200,\"value\":61.5776947695587},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786762800,\"value\":60.90674129546158},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786766400,\"value\":60.79407345920983},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786770000,\"value\":60.66282079867242},{\"address\":\"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp\",\"unixTime\":1786773600,\"value\":60.84580417973121}],\"isScaledUiToken\":false,\"multiplier\":null},\"success\":true}",
+      "body": {
+        "data": {
+          "items": [
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786168800,
+              "value": 58.858103509646206
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786172400,
+              "value": 58.77309844667859
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786176000,
+              "value": 58.83538372452692
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786179600,
+              "value": 59.58125124348541
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786183200,
+              "value": 59.28476135343222
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786186800,
+              "value": 60.06629702879751
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786190400,
+              "value": 59.28873768041402
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786194000,
+              "value": 59.76165129957766
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786197600,
+              "value": 60.10971387870751
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786201200,
+              "value": 60.797376977499866
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786204800,
+              "value": 60.801781236593335
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786208400,
+              "value": 60.293620891759595
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786212000,
+              "value": 60.28921182501279
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786215600,
+              "value": 60.28046064206554
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786219200,
+              "value": 60.500181745937404
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786222800,
+              "value": 60.55071439284237
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786226400,
+              "value": 60.71338910295813
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786230000,
+              "value": 60.585616333933714
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786233600,
+              "value": 60.871165525349156
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786237200,
+              "value": 60.263142979110675
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786240800,
+              "value": 60.08807311346903
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786244400,
+              "value": 59.73675702305712
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786248000,
+              "value": 59.582816612217805
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786251600,
+              "value": 59.738977501849476
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786255200,
+              "value": 59.877934455630914
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786258800,
+              "value": 59.68438760335442
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786262400,
+              "value": 59.60670963646522
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786266000,
+              "value": 60.29110795769302
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786269600,
+              "value": 60.306243508177744
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786273200,
+              "value": 60.5020386487675
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786276800,
+              "value": 60.61212121994524
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786280400,
+              "value": 60.55575073127264
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786284000,
+              "value": 60.870726041765906
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786287600,
+              "value": 61.23190589153428
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786291200,
+              "value": 61.27526506778809
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786294800,
+              "value": 60.91515583448909
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786298400,
+              "value": 58.9483024603533
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786302000,
+              "value": 59.17638366242145
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786305600,
+              "value": 58.928005249874715
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786309200,
+              "value": 58.66875380994753
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786312800,
+              "value": 58.49385586601981
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786316400,
+              "value": 57.2284289511033
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786320000,
+              "value": 56.99122006587406
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786323600,
+              "value": 57.06316782678131
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786327200,
+              "value": 57.24708228426484
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786330800,
+              "value": 57.263100774231376
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786334400,
+              "value": 57.11735703846275
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786338000,
+              "value": 57.851267036700676
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786341600,
+              "value": 58.02663126196159
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786345200,
+              "value": 58.02756227993321
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786348800,
+              "value": 58.40170964137594
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786352400,
+              "value": 57.978018929186696
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786356000,
+              "value": 58.282183513082
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786359600,
+              "value": 58.21684468908293
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786363200,
+              "value": 57.952850720204246
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786366800,
+              "value": 58.33366168142026
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786370400,
+              "value": 58.5611867090772
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786374000,
+              "value": 58.42620652100382
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786377600,
+              "value": 57.533198654994415
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786381200,
+              "value": 57.343352968485554
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786384800,
+              "value": 57.384059275521516
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786388400,
+              "value": 57.822119362494064
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786392000,
+              "value": 57.225860710998525
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786395600,
+              "value": 55.58682205664184
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786399200,
+              "value": 55.60727571548119
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786402800,
+              "value": 55.56460132335557
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786406400,
+              "value": 56.062305489058836
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786410000,
+              "value": 59.60628085760041
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786413600,
+              "value": 59.574220501338374
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786417200,
+              "value": 57.26001551717486
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786420800,
+              "value": 56.96230399835616
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786424400,
+              "value": 57.583711716868144
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786428000,
+              "value": 62.27227649984325
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786431600,
+              "value": 59.36554202483655
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786435200,
+              "value": 59.39180750472295
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786438800,
+              "value": 59.758557661580895
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786442400,
+              "value": 60.17232789161601
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786446000,
+              "value": 60.54923289188758
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786449600,
+              "value": 60.72800512966997
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786453200,
+              "value": 60.57360136458843
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786456800,
+              "value": 60.284702642600074
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786460400,
+              "value": 62.67981238501673
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786464000,
+              "value": 61.64468266325116
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786467600,
+              "value": 61.85350400083031
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786471200,
+              "value": 61.93209834597652
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786474800,
+              "value": 64.59907388190358
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786478400,
+              "value": 64.73694543071514
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786482000,
+              "value": 63.79222649618034
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786485600,
+              "value": 63.8863268497131
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786489200,
+              "value": 64.3142764642994
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786492800,
+              "value": 64.00443324906233
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786496400,
+              "value": 64.14183154464702
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786500000,
+              "value": 64.5250108041365
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786503600,
+              "value": 63.86586104526611
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786507200,
+              "value": 64.04480096333764
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786510800,
+              "value": 64.22687507665073
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786514400,
+              "value": 64.29692369726708
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786518000,
+              "value": 64.79911313755568
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786521600,
+              "value": 64.62433262024052
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786525200,
+              "value": 64.97125968944675
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786528800,
+              "value": 65.59770485639764
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786532400,
+              "value": 65.68415897973237
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786536000,
+              "value": 66.1621279904456
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786539600,
+              "value": 66.1611786115428
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786543200,
+              "value": 66.1580898523758
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786546800,
+              "value": 67.23888674174411
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786550400,
+              "value": 67.86754782300216
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786554000,
+              "value": 68.23398398618282
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786557600,
+              "value": 67.24709128534924
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786561200,
+              "value": 66.98217811550225
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786564800,
+              "value": 65.51673943703152
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786568400,
+              "value": 66.9134597164603
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786572000,
+              "value": 65.70338968929542
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786575600,
+              "value": 65.54717027167808
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786579200,
+              "value": 65.09168779204218
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786582800,
+              "value": 65.30119750250756
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786586400,
+              "value": 63.303228491461724
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786590000,
+              "value": 62.3643164898501
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786593600,
+              "value": 62.77344471880278
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786597200,
+              "value": 62.87487832861642
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786600800,
+              "value": 62.954281350484
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786604400,
+              "value": 62.38415886250233
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786608000,
+              "value": 62.33381688104408
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786611600,
+              "value": 62.67864536860069
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786615200,
+              "value": 61.95998938909068
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786618800,
+              "value": 61.9768655603042
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786622400,
+              "value": 62.022613943249375
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786626000,
+              "value": 62.312728257703704
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786629600,
+              "value": 62.31120388616633
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786633200,
+              "value": 61.86654020840198
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786636800,
+              "value": 61.8789155981412
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786640400,
+              "value": 61.975350300113035
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786644000,
+              "value": 62.191363691916756
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786647600,
+              "value": 61.675772979494845
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786651200,
+              "value": 61.27357704984472
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786654800,
+              "value": 61.34738112193096
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786658400,
+              "value": 61.8827948367039
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786662000,
+              "value": 61.98260757048816
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786665600,
+              "value": 61.602604259716735
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786669200,
+              "value": 61.35645276549017
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786672800,
+              "value": 61.38926407241071
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786676400,
+              "value": 61.68576542842147
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786680000,
+              "value": 61.053095459384764
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786683600,
+              "value": 61.61710036341424
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786687200,
+              "value": 61.1790637710409
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786690800,
+              "value": 61.450168822350875
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786694400,
+              "value": 61.30386811101284
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786698000,
+              "value": 61.14223316480008
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786701600,
+              "value": 60.8321329949056
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786705200,
+              "value": 61.187002031161725
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786708800,
+              "value": 61.224663353912014
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786712400,
+              "value": 61.13255930178385
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786716000,
+              "value": 61.18892674295389
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786719600,
+              "value": 61.548895756172286
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786723200,
+              "value": 61.4091558992734
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786726800,
+              "value": 61.29210509796186
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786730400,
+              "value": 60.778315495459985
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786734000,
+              "value": 60.760456763769696
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786737600,
+              "value": 60.605584466619895
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786741200,
+              "value": 61.38541861357992
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786744800,
+              "value": 61.14259461898878
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786748400,
+              "value": 61.417247402894
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786752000,
+              "value": 61.3664749530214
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786755600,
+              "value": 61.06672178474124
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786759200,
+              "value": 61.5776947695587
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786762800,
+              "value": 60.90674129546158
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786766400,
+              "value": 60.79407345920983
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786770000,
+              "value": 60.66282079867242
+            },
+            {
+              "address": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+              "unixTime": 1786773600,
+              "value": 60.84580417973121
+            }
+          ],
+          "isScaledUiToken": false,
+          "multiplier": null
+        },
+        "success": true
+      }
+    }
+  ]
+}

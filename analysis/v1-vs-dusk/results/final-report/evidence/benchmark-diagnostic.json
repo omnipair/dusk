@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-22T20:10:05Z",
+  "run_id": "slot-440459364-06c0e05aadb7e883",
+  "cutoff_slot": 440459364,
+  "decision": "no_certified_comparative_winner",
+  "evidence_tier": "decision_grade",
+  "certification": {
+    "raw": "limited",
+    "usd": "limited",
+    "limitations": [
+      {
+        "gate": "decoder_revision_certification",
+        "underlying_status": "fail",
+        "detail_code": "every_historical_program_revision_has_one_verified_decoder"
+      },
+      {
+        "gate": "terminal_state",
+        "underlying_status": "fail",
+        "detail_code": "terminal_raw_state_matches_on_chain_exactly"
+      }
+    ]
+  },
+  "replay": {
+    "canonical_operations": 139812,
+    "replayed_transitions": 139825,
+    "authority_seed_operations": 1,
+    "global_broadcast_applications": 21,
+    "markets": 5,
+    "raw_unit_comparisons": 5599341,
+    "raw_unit_differences": 0,
+    "conservation_checks": 838950,
+    "conservation_failures": 0
+  },
+  "cohort_coverage": [
+    {
+      "activity": "Swaps",
+      "visible_rows": 472002,
+      "selected_rows": 135426,
+      "coverage_bps": 2869,
+      "coverage_pct": 28.69
+    },
+    {
+      "activity": "Debt actions",
+      "visible_rows": 3868,
+      "selected_rows": 3227,
+      "coverage_bps": 8342,
+      "coverage_pct": 83.42
+    },
+    {
+      "activity": "Liquidations",
+      "visible_rows": 99,
+      "selected_rows": 72,
+      "coverage_bps": 7272,
+      "coverage_pct": 72.72
+    }
+  ],
+  "market_transitions": [
+    {
+      "market": "5aSf28...a7Kp",
+      "market_address": "5aSf28bo5Nfkq3QCAKpVyzCPmtGL9kWdLn18ERZia7Kp",
+      "transitions": 7406,
+      "raw_unit_comparisons": 292520,
+      "conservation_checks": 44436
+    },
+    {
+      "market": "6Fkrho...iYW5",
+      "market_address": "6FkrhorTJcQbdvUnYLa5Ksv1ReoGTfc95Hu4U2jniYW5",
+      "transitions": 1717,
+      "raw_unit_comparisons": 70334,
+      "conservation_checks": 10302
+    },
+    {
+      "market": "8cWJ9U...857p",
+      "market_address": "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p",
+      "transitions": 62296,
+      "raw_unit_comparisons": 2559483,
+      "conservation_checks": 373776
+    },
+    {
+      "market": "BZi9iP...L4UB",
+      "market_address": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+      "transitions": 26057,
+      "raw_unit_comparisons": 1006485,
+      "conservation_checks": 156342
+    },
+    {
+      "market": "Ep18Gz...MtFo",
+      "market_address": "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo",
+      "transitions": 42349,
+      "raw_unit_comparisons": 1670519,
+      "conservation_checks": 254094
+    }
+  ],
+  "gate_rows": [
+    {
+      "gate": "Transaction Inventory",
+      "status": "pass",
+      "observed": 137329,
+      "expected": 137329,
+      "coverage": "137,329 / 137,329",
+      "blocking_records": 0,
+      "detail": "all successful state changing transactions fetched"
+    },
+    {
+      "gate": "State Changing Decode",
+      "status": "pass",
+      "observed": 160749,
+      "expected": 160749,
+      "coverage": "160,749 / 160,749",
+      "blocking_records": 0,
+      "detail": "all state changing instructions version decoded"
+    },
+    {
+      "gate": "Decoder Revision Certification",
+      "status": "fail",
+      "observed": 0,
+      "expected": 1,
+      "coverage": "0 / 1",
+      "blocking_records": 1,
+      "detail": "every historical program revision has one verified decoder"
+    },
+    {
+      "gate": "Canonical Order",
+      "status": "pass",
+      "observed": 264017,
+      "expected": 264017,
+      "coverage": "264,017 / 264,017",
+      "blocking_records": 0,
+      "detail": "all events have block transaction instruction order"
+    },
+    {
+      "gate": "Authoritative Block Time",
+      "status": "pass",
+      "observed": 264017,
+      "expected": 264017,
+      "coverage": "264,017 / 264,017",
+      "blocking_records": 0,
+      "detail": "all events use rpc block time"
+    },
+    {
+      "gate": "Versioned Config",
+      "status": "pass",
+      "observed": 838848,
+      "expected": 838848,
+      "coverage": "838,848 / 838,848",
+      "blocking_records": 0,
+      "detail": "every event has exactly one active config version"
+    },
+    {
+      "gate": "Historical Transfer Fees",
+      "status": "pass",
+      "observed": 11,
+      "expected": 11,
+      "coverage": "11 / 11",
+      "blocking_records": 0,
+      "detail": "every market mint has complete owner and transfer fee history"
+    },
+    {
+      "gate": "Source Agreement",
+      "status": "pass",
+      "observed": 263977,
+      "expected": 263977,
+      "coverage": "263,977 / 263,977",
+      "blocking_records": 0,
+      "detail": "db rpc raw fields exact or documented db omission"
+    },
+    {
+      "gate": "Terminal State",
+      "status": "fail",
+      "observed": 0,
+      "expected": 5,
+      "coverage": "0 / 5",
+      "blocking_records": 5,
+      "detail": "terminal raw state matches on chain exactly"
+    },
+    {
+      "gate": "Economic Replay",
+      "status": "pass",
+      "observed": 139812,
+      "expected": 139812,
+      "coverage": "139,812 / 139,812",
+      "blocking_records": 0,
+      "detail": "swaps interest and lp supply replay exactly"
+    },
+    {
+      "gate": "Historical Prices",
+      "status": "pass",
+      "observed": 279608,
+      "expected": 279608,
+      "coverage": "279,608 / 279,608",
+      "blocking_records": 0,
+      "detail": "all revenue events have historical prices"
+    }
+  ],
+  "calibration": {
+    "profiles_sampled": 32,
+    "geometry_rejected_profiles": 31,
+    "executable_profiles": 1,
+    "executable_profile_id": "d36b6a5465308a79cb68c7fa815eca2ef41ad688d31cfe6610817cdf390e0d3b",
+    "certified_scored_profiles": 0,
+    "deferred_lp_withdrawals_per_arm": 77,
+    "missing_continuous_price_keys_per_arm": 1695,
+    "canonical_operations_in_training": 113735,
+    "rejected_counterfactual_operations_fixed_flow": 110061,
+    "rejected_counterfactual_operations_intent": 203914,
+    "blocking_reasons": [
+      "capital_state_missing_at_window_start",
+      "counterfactual_replay_deferred_external_state",
+      "fixed_flow_arm_has_no_complete_candidate_score",
+      "intent_arm_has_no_complete_candidate_score",
+      "missing_historical_usd_marks",
+      "no_capital_denominator",
+      "no_equal_market_revenue_observations"
+    ]
+  },
+  "source_artifacts": {
+    "v1_reconciliation": {
+      "sha256": "594bc75439edef55dba4b16b567b8ecf0950dacc1ef58307d2ea95d25dbb16a8",
+      "bytes": 3124
+    },
+    "final_phase_gate": {
+      "sha256": "2b0016d6dceed9e73b6e3319f921ead59e61ec07d133a1a9b4ef254cd2d1a2e8",
+      "bytes": 3864
+    },
+    "cohort_representativeness": {
+      "sha256": "96e0b085e5f8b2490bb3b0429f75aac5b3bda198d97747509d99fd1f316758e7",
+      "bytes": 679
+    },
+    "extraction_inventory": {
+      "sha256": "f656efecfe01d7cc890bb88f459c87348b2e09d0be67a885e875dc5fcdb86b0d",
+      "bytes": 11268
+    },
+    "data_quality": {
+      "sha256": "693ebeaf032c3ed446ee4ba58420eb6e1e11a3107b80a54f2bcf63dba28b9798",
+      "bytes": 10794
+    },
+    "fixed_flow_preflight": {
+      "sha256": "2bc52bb3a644c2d7229e182babbe7d1b895ff64c330fabcf31a72ce344eb028e",
+      "bytes": 599154
+    },
+    "intent_preflight": {
+      "sha256": "66fe8e4211048b6e7e5703c79defea8cde88fd574c89fec803d67373bc253f10",
+      "bytes": 599150
+    },
+    "canonical_operations": {
+      "sha256": "694008a6077c8111bea08c9d7c29b069d450516d3bf7180b4bae85c4498046e5",
+      "bytes": 376918641
+    },
+    "historical_prices": {
+      "sha256": "954f701110f04823133e4935d63bf46a817541a1a11c7bd6b6d00e3437b0cb92",
+      "bytes": 4061013
+    }
+  }
+}
