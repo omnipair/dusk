@@ -14,7 +14,7 @@
  *
  *   mkdir -p /tmp/replay && cd /tmp/replay
  *   npm init -y && npm install litesvm@1 @solana/kit
- *   solana program dump JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X dusk.so -u devnet
+ *   solana program dump 5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ dusk.so -u devnet
  *   DUSK_PROGRAM_SO=dusk.so node <path-to-this-file>
  *
  * Result so far: the swap **succeeds** at every accrual point sampled, from

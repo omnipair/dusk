@@ -8,7 +8,7 @@ skip-lint = false
 
 [programs.devnet]
 faucet = "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz"
-dusk = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X"
+dusk = "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ"
 leverage_delegate = "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi"
 
 [registry]

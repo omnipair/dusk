@@ -11,7 +11,7 @@ use crate::{
 // authority bump is fixed. Avoiding a repeated PDA search for every event is
 // material for composite instructions that already sit near Solana's compute
 // ceiling.
-const EVENT_AUTHORITY_BUMP: u8 = 254;
+const EVENT_AUTHORITY_BUMP: u8 = 255;
 
 /// Emit through the same self-CPI format as `emit_cpi!`, from shared account
 /// preparation where an Anchor `Context` is not available. Callers supply

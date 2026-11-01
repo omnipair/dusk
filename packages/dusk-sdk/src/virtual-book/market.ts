@@ -52,7 +52,8 @@ export async function previewVirtualBookSnapshot(
   const [address, bump] = deriveMarketAddress(
     account.baseSide.assetMint,
     account.quoteSide.assetMint,
-    account.paramsHash
+    account.paramsHash,
+    program.programId
   );
   if (
     preview.slot.toString() !== String(slot) ||

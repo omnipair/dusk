@@ -33,7 +33,7 @@ security_txt! {
     policy: "https://omnipair.fi/security"
 }
 
-declare_id!("JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X");
+declare_id!("5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ");
 
 #[program]
 pub mod dusk {
