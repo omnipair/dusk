@@ -10268,8 +10268,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect((await getAccount(connection as any, attackerAccount, undefined, assetProgram)).amount).to.equal(0n);
       expect(svm.getAccount(leveragePosition)).to.not.equal(null);
 
+      // The default 32 KiB heap is sufficient. Reserving 256 KiB here charges
+      // compute for unused heap and can starve the oracle-partial settlement.
       if (oracleMode) delegatedCloseTx.instructions.unshift(
-        ComputeBudgetProgram.requestHeapFrame({bytes: 256 * 1024}),
         ComputeBudgetProgram.setComputeUnitLimit({units: 1_400_000}));
       const measuredClose = await connection.sendTransactionMeasured(delegatedCloseTx, [payer, executor]);
       const signature = measuredClose.signature;
