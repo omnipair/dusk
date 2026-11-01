@@ -1,0 +1,1024 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Dusk versus V1 historical benchmark: implementation and audit report",
+    "description": "Technical implementation status, exact benchmark contracts, verification evidence, and mandatory blockers. Contains no historical performance result.",
+    "charts": [
+      {
+        "id": "verification_layer_counts",
+        "title": "Passed verification items by layer",
+        "subtitle": "Heterogeneous implementation checks; these are not Dusk-versus-V1 performance observations.",
+        "type": "horizontalBar",
+        "dataset": "verification_counts",
+        "sourceId": "verification_evidence",
+        "encodings": {
+          "x": {
+            "field": "suite",
+            "type": "nominal",
+            "label": "Verification layer"
+          },
+          "y": {
+            "field": "verified_items",
+            "type": "quantitative",
+            "label": "Passed items",
+            "unit": "items"
+          },
+          "tooltip": [
+            {
+              "field": "suite",
+              "type": "text",
+              "label": "Layer"
+            },
+            {
+              "field": "verified_items",
+              "type": "number",
+              "label": "Passed items"
+            },
+            {
+              "field": "evidence_kind",
+              "type": "text",
+              "label": "Evidence kind"
+            },
+            {
+              "field": "result",
+              "type": "text",
+              "label": "Result"
+            }
+          ]
+        },
+        "xAxisTitle": "Verification layer",
+        "yAxisTitle": "Passed items",
+        "valueFormat": "number",
+        "unit": "items",
+        "layout": "full",
+        "maxRows": 5
+      }
+    ],
+    "tables": [
+      {
+        "id": "verification_commands_table",
+        "title": "Reproducible verification commands",
+        "subtitle": "Final locked/offline commands and observed outcomes from 21 August 2026.",
+        "dataset": "verification_commands",
+        "density": "compact",
+        "sourceId": "verification_commands",
+        "layout": "full",
+        "defaultSort": {
+          "field": "layer",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "layer",
+            "label": "Layer",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "command",
+            "label": "Command",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "result",
+            "label": "Observed result",
+            "type": "text",
+            "align": "left"
+          }
+        ]
+      },
+      {
+        "id": "benchmark_angles_table",
+        "title": "Requested benchmark angles",
+        "subtitle": "Each comparison is implemented, but no historical outcome is published without a sealed result manifest.",
+        "dataset": "benchmark_angles",
+        "density": "compact",
+        "sourceId": "benchmark_contract",
+        "layout": "full",
+        "defaultSort": {
+          "field": "angle",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "angle",
+            "label": "Angle",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "factual_control",
+            "label": "V1 factual control",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "dusk_counterfactual",
+            "label": "Dusk counterfactual",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "headline_outputs",
+            "label": "Outputs",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "implementation_status",
+            "label": "Status",
+            "type": "text",
+            "align": "left"
+          }
+        ]
+      },
+      {
+        "id": "pipeline_stages_table",
+        "title": "Immutable seven-stage pipeline",
+        "subtitle": "A stage receipt is consumable only after its exact acceptance rule passes.",
+        "dataset": "pipeline_stages",
+        "density": "compact",
+        "sourceId": "pipeline_contract",
+        "layout": "full",
+        "defaultSort": {
+          "field": "stage_order",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "stage_order",
+            "label": "#",
+            "type": "number",
+            "align": "right"
+          },
+          {
+            "field": "stage",
+            "label": "Stage",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "purpose",
+            "label": "Purpose",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "primary_artifacts",
+            "label": "Primary artifacts",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "acceptance_rule",
+            "label": "Acceptance rule",
+            "type": "text",
+            "align": "left"
+          }
+        ]
+      },
+      {
+        "id": "revenue_lanes_table",
+        "title": "Exhaustive revenue accounting lanes",
+        "subtitle": "Economic accrual is additive; cash, inventory, principal disposition, claims, and flash supplements are memos or venue-only evidence.",
+        "dataset": "revenue_lanes",
+        "density": "compact",
+        "sourceId": "revenue_contract",
+        "layout": "full",
+        "defaultSort": {
+          "field": "lane",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "lane",
+            "label": "Lane",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "accounting_class",
+            "label": "Accounting class",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "economic_core",
+            "label": "In stakeholder core",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "interpretation",
+            "label": "Interpretation",
+            "type": "text",
+            "align": "left"
+          }
+        ]
+      },
+      {
+        "id": "source_inventory_table",
+        "title": "Reproducibility source inventory",
+        "subtitle": "Exact working-tree file hashes used to assemble this implementation-status report.",
+        "dataset": "source_inventory",
+        "density": "compact",
+        "sourceId": "source_inventory",
+        "layout": "full",
+        "defaultSort": {
+          "field": "artifact",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "artifact",
+            "label": "Artifact",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "purpose",
+            "label": "Purpose",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "sha256",
+            "label": "SHA-256",
+            "type": "text",
+            "align": "left"
+          }
+        ]
+      },
+      {
+        "id": "blockers_table",
+        "title": "Evidence still required before historical results",
+        "subtitle": "Both blockers are fail-closed; neither can be replaced with labels, current state, or approximate data.",
+        "dataset": "blockers",
+        "density": "spacious",
+        "sourceId": "blocking_evidence",
+        "layout": "full",
+        "defaultSort": {
+          "field": "blocker",
+          "direction": "asc"
+        },
+        "columns": [
+          {
+            "field": "blocker",
+            "label": "Blocker",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "current_state",
+            "label": "Current state",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "why_it_blocks",
+            "label": "Why it blocks",
+            "type": "text",
+            "align": "left"
+          },
+          {
+            "field": "required_evidence",
+            "label": "Required evidence",
+            "type": "text",
+            "align": "left"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "verification_evidence",
+        "label": "Verified offline test and rendering evidence",
+        "path": "verification-evidence.sql",
+        "query": {
+          "engine": "duckdb",
+          "id": "dusk_v1_verification_evidence_20260821",
+          "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH verification_counts(suite, verified_items, evidence_kind, result) AS (\n  VALUES\n    ('Benchmark library tests', 164, 'Rust unit tests', 'passed'),\n    ('Dusk native benchmark tests', 22, 'Native parity and rollback tests', 'passed'),\n    ('Schema contracts', 18, '16 artifact snapshots plus 2 supporting schemas', 'passed'),\n    ('Data-quality integration tests', 14, 'Extraction and audit fixtures', 'passed'),\n    ('Portable report audiences', 3, 'Chromium desktop and narrow-layout verification', 'passed')\n)\nSELECT * FROM verification_counts ORDER BY verified_items DESC;\n",
+          "description": "Frozen counts from the final locked/offline verification run.",
+          "language": "sql",
+          "tables_used": [
+            "analysis/v1-vs-dusk/Cargo.toml",
+            "programs/dusk/Cargo.toml"
+          ],
+          "filters": [
+            "Commands executed on 21 August 2026",
+            "No live RPC or database writes"
+          ],
+          "metric_definitions": [
+            "verified_items: independently passed tests, schema artifacts, or report audiences in the named layer"
+          ]
+        }
+      },
+      {
+        "id": "verification_commands",
+        "label": "Reproducible verification commands",
+        "path": "verification-commands.sql",
+        "query": {
+          "engine": "duckdb",
+          "id": "dusk_v1_verification_commands_20260821",
+          "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH verification_commands(layer, command, result) AS (\n  VALUES\n    ('Benchmark workspace', 'CARGO_INCREMENTAL=0 cargo test --locked --offline --manifest-path analysis/v1-vs-dusk/Cargo.toml --no-fail-fast', '164 library + 14 data-quality passed; 0 failed'),\n    ('All analysis targets', 'CARGO_INCREMENTAL=0 cargo check --locked --offline --manifest-path analysis/v1-vs-dusk/Cargo.toml --all-targets', 'passed'),\n    ('Dusk native benchmark API', 'CARGO_INCREMENTAL=0 cargo test --locked --offline -p dusk --features benchmark benchmark_api::tests --no-fail-fast', '22 passed; 0 failed'),\n    ('Default Dusk build', 'CARGO_INCREMENTAL=0 cargo check --locked --offline -p dusk', 'passed with benchmark feature disabled'),\n    ('Dusk benchmark build', 'CARGO_INCREMENTAL=0 cargo check --locked --offline -p dusk --features benchmark', 'passed'),\n    ('Schema catalog', 'PYTHONDONTWRITEBYTECODE=1 python3 analysis/v1-vs-dusk/schemas/validate.py --self-test', '16 artifact snapshots + 2 supporting schemas passed'),\n    ('Notebook executor', 'PYTHONDONTWRITEBYTECODE=1 python3 analysis/v1-vs-dusk/scripts/execute_notebook.py --self-test', 'checksum, identity, duplicate-key, winner, exact-value, sandbox, and determinism passed'),\n    ('Portable reports', 'cargo test ... caller_supplied_canonical_builder_accepts_all_three_artifacts -- --ignored', 'technical, governance, and public audiences passed Chromium verification')\n)\nSELECT * FROM verification_commands ORDER BY layer;\n",
+          "description": "Exact commands and observed final status for each verification layer.",
+          "language": "sql",
+          "tables_used": [
+            "analysis/v1-vs-dusk/Cargo.lock",
+            "programs/dusk/Cargo.toml"
+          ],
+          "filters": [
+            "Locked and offline Cargo resolution",
+            "CARGO_INCREMENTAL=0 for bounded disk usage"
+          ],
+          "metric_definitions": [
+            "result: final process outcome observed by the implementation run"
+          ]
+        }
+      },
+      {
+        "id": "pipeline_contract",
+        "label": "Seven-stage benchmark pipeline contract",
+        "path": "pipeline-contract.sql",
+        "query": {
+          "engine": "duckdb",
+          "id": "dusk_v1_pipeline_contract_20260821",
+          "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH pipeline_stages(stage_order, stage, purpose, primary_artifacts, acceptance_rule) AS (\n  VALUES\n    (1, 'extract', 'Export a repeatable-read database snapshot and enrich it with finalized archival RPC evidence.', 'Ordered operations/events, configs, prices, transfer-fee proofs, Parquet', 'Complete certified signature/page/block chains and exact typed decoding'),\n    (2, 'audit', 'Reconcile DB and RPC sources and calculate global plus per-market eligibility.', 'data-quality.json and coverage evidence', 'Every non-USD hard gate passes; missing prices only remove USD claims'),\n    (3, 'reconcile-v1', 'Replay V1 natively and prove terminal raw-unit equality at the cutoff.', 'V1 replay ledger, terminal proof, universe/common window, 60/20/20 splits', 'Zero raw-unit differences plus exact-cutoff terminal snapshot equality'),\n    (4, 'calibrate', 'Fit the training-only interest schedule and search global/per-market Dusk profiles.', 'Interest schedule, calibration evidence, Pareto set, profile freeze', 'Validation gates pass and holdout remains sealed before freeze'),\n    (5, 'evaluate', 'Replay the sealed holdout across both behavior arms and both hLP scenarios.', 'Paired metrics, leverage campaigns, sensitivity, metrics manifest', 'Safety/execution gates and conservation identities remain exact'),\n    (6, 'verify', 'Recheck every manifest/source hash and execute the bounded notebook.', 'verification.json and benchmark.executed.ipynb', 'Manifest, notebook sandbox, exact values, and source commitments pass'),\n    (7, 'render', 'Build technical, governance, and public portable reports from one manifest.', 'artifact.json, provenance.sql, report.html, render receipt', 'Canonical packaging and Chromium desktop/mobile verification pass')\n)\nSELECT * FROM pipeline_stages ORDER BY stage_order;\n",
+          "description": "Ordered stage responsibilities and fail-closed acceptance rules.",
+          "language": "sql",
+          "tables_used": [
+            "analysis/v1-vs-dusk/src/pipeline.rs",
+            "analysis/v1-vs-dusk/README.md"
+          ],
+          "filters": [
+            "Canonical stage order only",
+            "No production deployment action"
+          ],
+          "metric_definitions": [
+            "acceptance_rule: evidence that must exist before the next stage may consume a receipt"
+          ]
+        }
+      },
+      {
+        "id": "benchmark_contract",
+        "label": "Requested benchmark-angle implementation contract",
+        "path": "benchmark-contract.sql",
+        "query": {
+          "engine": "duckdb",
+          "id": "dusk_v1_benchmark_contract_20260821",
+          "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH benchmark_angles(angle, factual_control, dusk_counterfactual, headline_outputs, implementation_status) AS (\n  VALUES\n    ('Collateral efficiency', 'V1 debt, collateral, capacity, and observed debt-action fractions', 'Native gross health ceiling plus actionable cash/daily/global/reduce-only bounds with exact share rounding', 'Gross/actionable headroom, capacity multiplier, filled/unmet demand, limiting constraints', 'implemented and tested; historical result unavailable'),\n    ('Spot capital efficiency', 'Every historical exact-in swap, fee split, min-out, and reserve checkpoint', 'Concentrated curve, same-slot dynamic fees, recentering, hLP settlement, and intent arbitrage', 'Execution cost, slippage, equivalent depth, supported volume, fee return, inventory PnL', 'implemented and tested; historical result unavailable'),\n    ('Leverage', 'Bounded V1 borrow-swap-deposit loops from identical historical pre-state', 'Native isolated open/full unwind at 72 cells per eligible lending market', 'Executable leverage, opening/unwind cost, funding APR, thresholds, buffers, realized MAE', 'implemented and tested; historical result unavailable'),\n    ('LP and protocol economics', 'V1 native fee, interest, claim, flashloan, cash-covered surcharge, and inventory transitions', 'Exact swap/public-interest/hLP/recenter lanes with user and synthetic origins separated', '15 lane totals, common-capital return, >=30-day APR, cash/inventory memos, shortfall', 'implemented and tested; historical result unavailable')\n)\nSELECT * FROM benchmark_angles ORDER BY angle;\n",
+          "description": "Mapping from each requested decision angle to factual control, counterfactual, and outputs.",
+          "language": "sql",
+          "tables_used": [
+            "analysis/v1-vs-dusk/docs/METHODOLOGY.md"
+          ],
+          "filters": [
+            "Historical counterfactual only",
+            "No certified ResultManifestV1 exists"
+          ],
+          "metric_definitions": [
+            "implementation_status: code/test readiness, never a Dusk-versus-V1 performance conclusion"
+          ]
+        }
+      },
+      {
+        "id": "revenue_contract",
+        "label": "Exhaustive revenue-lane accounting contract",
+        "path": "revenue-contract.sql",
+        "query": {
+          "engine": "duckdb",
+          "id": "dusk_v1_revenue_contract_20260821",
+          "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH revenue_lanes(lane, accounting_class, economic_core, interpretation) AS (\n  VALUES\n    ('lp_swap_earned', 'economic_revenue', 'yes', 'LP swap-fee economics'),\n    ('protocol_fee_auction_swap_earned', 'economic_revenue', 'yes', 'Protocol swap fee-auction lane'),\n    ('protocol_buyback_swap_earned', 'economic_revenue', 'yes', 'Protocol swap buyback lane'),\n    ('retained_recenter_inventory', 'inventory_memo', 'no', 'Protected inventory until economically realized'),\n    ('compounded_lp_swap_principal', 'principal_disposition_memo', 'no', 'LP fee amount capitalized into principal'),\n    ('lp_public_interest_accrued', 'economic_revenue', 'yes', 'LP public-borrow interest accrual'),\n    ('protocol_public_interest_accrued', 'economic_revenue', 'yes', 'Protocol public-borrow interest accrual'),\n    ('lp_public_interest_cash_realized', 'cash_realization_memo', 'no', 'Cash realization; V1 remains typed unavailable'),\n    ('protocol_fee_auction_public_interest_cash_realized', 'cash_realization_memo', 'no', 'Fee-auction public-interest cash'),\n    ('protocol_buyback_public_interest_cash_realized', 'cash_realization_memo', 'no', 'Buyback public-interest cash'),\n    ('hlp_funding_interest_earned', 'economic_revenue', 'yes', 'Net hLP funding earned by hLP providers'),\n    ('protocol_fee_auction_hlp_funding_interest_earned', 'economic_revenue', 'yes', 'Protocol fee-auction share of hLP funding'),\n    ('protocol_buyback_hlp_funding_interest_earned', 'economic_revenue', 'yes', 'Protocol buyback share of hLP funding'),\n    ('flashloan_fee_v1_only', 'venue_only_supplement', 'no', 'V1-only supplement outside apples-to-apples core'),\n    ('protocol_claim_realized_v1_only', 'cash_realization_memo', 'no', 'V1 claim realization, never new revenue')\n)\nSELECT * FROM revenue_lanes ORDER BY lane;\n",
+          "description": "All 15 stable revenue lanes and their non-double-counting classes.",
+          "language": "sql",
+          "tables_used": [
+            "analysis/v1-vs-dusk/src/metric_engine.rs"
+          ],
+          "filters": [
+            "Three mutually exclusive origins retained separately",
+            "Cash, inventory, principal, claims, and flash never enter economic core"
+          ],
+          "metric_definitions": [
+            "economic_core=yes only for economic_revenue accounting-class lanes"
+          ]
+        }
+      },
+      {
+        "id": "blocking_evidence",
+        "label": "Mandatory evidence blockers",
+        "path": "blocking-evidence.sql",
+        "query": {
+          "engine": "duckdb",
+          "id": "dusk_v1_blocking_evidence_20260821",
+          "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH blockers(blocker, current_state, why_it_blocks, required_evidence) AS (\n  VALUES\n    ('Historical decoder dispatch is provisional', 'One all-slot provisional v0.10.5 decoder; headline_verified=false', 'Historical upgrades cannot be attributed to exact deployed binary/IDL revisions from labels alone.', 'Sealed Program/ProgramData/buffer histories, reconstructed deployed ELF hashes, and order-aware revision decoders'),\n    ('Exact terminal snapshot is not supplied', 'Runner validates but deliberately does not fabricate or fetch current-state substitutes', 'Transition replay cannot be accepted until every terminal account equals the exact cutoff state.', 'Independent binding plus full requested account set with response_context_slot exactly equal to cutoff')\n)\nSELECT * FROM blockers ORDER BY blocker;\n",
+          "description": "The two unresolved inputs that intentionally prevent historical result publication.",
+          "language": "sql",
+          "tables_used": [
+            "analysis/v1-vs-dusk/decoder-revisions.toml",
+            "analysis/v1-vs-dusk/src/v1_terminal_reconciliation.rs"
+          ],
+          "filters": [
+            "No gate relaxation",
+            "No current-state substitution"
+          ],
+          "metric_definitions": [
+            "required_evidence: minimum external proof needed to unblock the certified campaign"
+          ]
+        }
+      },
+      {
+        "id": "source_inventory",
+        "label": "Source artifact checksum inventory",
+        "path": "source-inventory.sql",
+        "query": {
+          "engine": "duckdb",
+          "id": "dusk_v1_source_inventory_20260821",
+          "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH source_inventory(artifact, purpose, sha256) AS (\n  VALUES\n    ('analysis/v1-vs-dusk/README.md', 'Operator entry point and current status', '4c439ef3f1def12be5a7fdc0d4fc2762903c7faf3a135744f1e4ffe4cc695a60'),\n    ('analysis/v1-vs-dusk/docs/METHODOLOGY.md', 'Normative benchmark methodology', '7c5cd2e860c6c93047f36ec1b1f69f5a9d9f07008d354455ea85770b5bf385fe'),\n    ('analysis/v1-vs-dusk/src/pipeline.rs', 'Seven-stage orchestration', 'e899d3d498d968c3545e1c025013a045cf87a4808061ab47dca877e7dc697ad7'),\n    ('programs/dusk/src/benchmark_api.rs', 'Feature-only native transition wrappers', '3f86115819074f77fd9eaf2b1500f3524241ed18573849d38219dbd140684901'),\n    ('analysis/v1-vs-dusk/notebooks/benchmark.ipynb', 'Bounded reader-facing notebook', '2802c0d6a37b32f6219290730cfa70f65b326a178f1974e03ffd5e8c29cc9e57'),\n    ('analysis/v1-vs-dusk/scripts/execute_notebook.py', 'Restricted notebook validator/executor', '43b5526982b54a69dce67067f1d9c6f54e38cec46493a76445cb45bccd559477'),\n    ('analysis/v1-vs-dusk/schemas/catalog.v1.json', 'Strict schema snapshot catalog', '84caa1ba19d4f3bfbb850e1b396654ba24ec298b02ca5f1f35fd86b5d94fa122')\n)\nSELECT * FROM source_inventory ORDER BY artifact;\n",
+          "description": "SHA-256 inventory of the principal implementation and documentation inputs.",
+          "language": "sql",
+          "tables_used": [
+            "analysis/v1-vs-dusk/README.md",
+            "analysis/v1-vs-dusk/docs/METHODOLOGY.md",
+            "analysis/v1-vs-dusk/src/pipeline.rs",
+            "programs/dusk/src/benchmark_api.rs",
+            "analysis/v1-vs-dusk/notebooks/benchmark.ipynb",
+            "analysis/v1-vs-dusk/scripts/execute_notebook.py",
+            "analysis/v1-vs-dusk/schemas/catalog.v1.json"
+          ],
+          "filters": [
+            "Current working-tree bytes",
+            "Generated report outputs excluded"
+          ],
+          "metric_definitions": [
+            "sha256: lowercase SHA-256 of the exact local file bytes used for this report"
+          ]
+        }
+      }
+    ],
+    "blocks": [
+      {
+        "type": "markdown",
+        "id": "title",
+        "body": "# Dusk versus V1 historical benchmark: implementation and audit report"
+      },
+      {
+        "type": "markdown",
+        "id": "technical_summary",
+        "body": "## The benchmark system is ready; the historical verdict is not yet certifiable\n\nThe complete extraction, factual replay, Dusk counterfactual, calibration, metric, sensitivity, notebook, and reporting stack is implemented and verified. No Dusk-versus-V1 winner or performance number appears in this report because two mandatory evidence inputs are still absent. This is the intended fail-closed outcome, not a substituted estimate."
+      },
+      {
+        "type": "markdown",
+        "id": "verification_intro",
+        "body": "## Independent verification covers the critical implementation layers\n\nThe chart summarizes passed items across five different verification layers. Counts are intentionally not combined into one quality score; the value is breadth across native transition parity, benchmark logic, extraction quality, schemas, and rendered reports."
+      },
+      {
+        "type": "chart",
+        "id": "verification_chart",
+        "chartId": "verification_layer_counts"
+      },
+      {
+        "type": "markdown",
+        "id": "verification_commands_intro",
+        "body": "## Every verification result is reproducible offline\n\nThe command table records the exact locked/offline entry points. The only browser-dependent check is the portable report verifier; it passed all three report audiences at desktop and narrow widths."
+      },
+      {
+        "type": "table",
+        "id": "verification_commands",
+        "tableId": "verification_commands_table"
+      },
+      {
+        "type": "markdown",
+        "id": "angles_intro",
+        "body": "## All four requested decision angles have an exact metric contract\n\nThe factual side always comes from native V1 history. The Dusk side replays the same ordered flow through feature-only native transitions. Unavailable behavior is rejected or typed N/A rather than filled with synthetic cash, volume, ownership, or prices."
+      },
+      {
+        "type": "table",
+        "id": "benchmark_angles",
+        "tableId": "benchmark_angles_table"
+      },
+      {
+        "type": "markdown",
+        "id": "pipeline_intro",
+        "body": "## The pipeline prevents holdout leakage and partial-evidence promotion\n\nSeven immutable stages separate extraction, acceptance, factual reconciliation, training, holdout evaluation, verification, and presentation. Each receipt binds the cutoff, source identity, configuration, and predecessor state."
+      },
+      {
+        "type": "table",
+        "id": "pipeline_stages",
+        "tableId": "pipeline_stages_table"
+      },
+      {
+        "type": "markdown",
+        "id": "revenue_intro",
+        "body": "## Revenue is exhaustive without double counting\n\nFifteen token-side lanes are preserved separately for V1 and Dusk. Factual user flow, synthetic arbitrage, and synthetic protocol settlement are mutually exclusive origins. Only economic-revenue lanes enter stakeholder totals; realization and balance-sheet movements remain visible but non-additive."
+      },
+      {
+        "type": "table",
+        "id": "revenue_lanes",
+        "tableId": "revenue_lanes_table"
+      },
+      {
+        "type": "markdown",
+        "id": "source_inventory_intro",
+        "body": "## Reproducibility is bound to exact source bytes\n\nThe source inventory fingerprints the principal runner, native API, methodology, notebook, executor, and schema catalog. A later source change invalidates these hashes and requires regeneration."
+      },
+      {
+        "type": "table",
+        "id": "source_inventory",
+        "tableId": "source_inventory_table"
+      },
+      {
+        "type": "markdown",
+        "id": "limitations_intro",
+        "body": "## Two external evidence gaps block the real historical report\n\nHistorical decoder provenance and terminal account equality are correctness requirements. Until both are independently supplied and validated, the runner must stop before calibration/evaluation and no report may claim a winner, Pareto conclusion, yield, or efficiency uplift."
+      },
+      {
+        "type": "table",
+        "id": "blockers",
+        "tableId": "blockers_table"
+      },
+      {
+        "type": "markdown",
+        "id": "next_steps",
+        "body": "## Recommended next steps\n\n1. Reconstruct each deployed V1 program binary and bind every upgrade interval to a real revision decoder.\n2. Supply the independently captured exact-cutoff terminal binding and account snapshot.\n3. Run `extract`, `audit`, and `reconcile-v1`; stop if any headline market fails exact coverage.\n4. Run `calibrate`, `evaluate`, `verify`, and `render` only after the factual replay and terminal state reconcile at zero raw-unit difference."
+      },
+      {
+        "type": "markdown",
+        "id": "questions",
+        "body": "## Open technical questions\n\n- Does the archival provider retain complete finalized history for every ephemeral upgrade buffer and Token-2022 mint?\n- Can an independent provider return every required terminal account with response context exactly equal to the cutoff slot?\n- After those gates pass, does any one global profile satisfy both safety and execution non-inferiority on the sealed holdout?"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "status": "ready",
+    "datasets": {
+      "verification_counts": [
+        {
+          "suite": "Benchmark library tests",
+          "verified_items": 164,
+          "evidence_kind": "Rust unit tests",
+          "result": "passed"
+        },
+        {
+          "suite": "Dusk native benchmark tests",
+          "verified_items": 22,
+          "evidence_kind": "Native parity and rollback tests",
+          "result": "passed"
+        },
+        {
+          "suite": "Schema contracts",
+          "verified_items": 18,
+          "evidence_kind": "16 artifact snapshots plus 2 supporting schemas",
+          "result": "passed"
+        },
+        {
+          "suite": "Data-quality integration tests",
+          "verified_items": 14,
+          "evidence_kind": "Extraction and audit fixtures",
+          "result": "passed"
+        },
+        {
+          "suite": "Portable report audiences",
+          "verified_items": 3,
+          "evidence_kind": "Chromium desktop and narrow-layout verification",
+          "result": "passed"
+        }
+      ],
+      "verification_commands": [
+        {
+          "layer": "Benchmark workspace",
+          "command": "CARGO_INCREMENTAL=0 cargo test --locked --offline --manifest-path analysis/v1-vs-dusk/Cargo.toml --no-fail-fast",
+          "result": "164 library + 14 data-quality passed; 0 failed"
+        },
+        {
+          "layer": "All analysis targets",
+          "command": "CARGO_INCREMENTAL=0 cargo check --locked --offline --manifest-path analysis/v1-vs-dusk/Cargo.toml --all-targets",
+          "result": "passed"
+        },
+        {
+          "layer": "Dusk native benchmark API",
+          "command": "CARGO_INCREMENTAL=0 cargo test --locked --offline -p dusk --features benchmark benchmark_api::tests --no-fail-fast",
+          "result": "22 passed; 0 failed"
+        },
+        {
+          "layer": "Default Dusk build",
+          "command": "CARGO_INCREMENTAL=0 cargo check --locked --offline -p dusk",
+          "result": "passed with benchmark feature disabled"
+        },
+        {
+          "layer": "Dusk benchmark build",
+          "command": "CARGO_INCREMENTAL=0 cargo check --locked --offline -p dusk --features benchmark",
+          "result": "passed"
+        },
+        {
+          "layer": "Schema catalog",
+          "command": "PYTHONDONTWRITEBYTECODE=1 python3 analysis/v1-vs-dusk/schemas/validate.py --self-test",
+          "result": "16 artifact snapshots + 2 supporting schemas passed"
+        },
+        {
+          "layer": "Notebook executor",
+          "command": "PYTHONDONTWRITEBYTECODE=1 python3 analysis/v1-vs-dusk/scripts/execute_notebook.py --self-test",
+          "result": "checksum, identity, duplicate-key, winner, exact-value, sandbox, and determinism passed"
+        },
+        {
+          "layer": "Portable reports",
+          "command": "cargo test ... caller_supplied_canonical_builder_accepts_all_three_artifacts -- --ignored",
+          "result": "technical, governance, and public audiences passed Chromium verification"
+        }
+      ],
+      "pipeline_stages": [
+        {
+          "stage_order": 1,
+          "stage": "extract",
+          "purpose": "Export a repeatable-read database snapshot and enrich it with finalized archival RPC evidence.",
+          "primary_artifacts": "Ordered operations/events, configs, prices, transfer-fee proofs, Parquet",
+          "acceptance_rule": "Complete certified signature/page/block chains and exact typed decoding"
+        },
+        {
+          "stage_order": 2,
+          "stage": "audit",
+          "purpose": "Reconcile DB and RPC sources and calculate global plus per-market eligibility.",
+          "primary_artifacts": "data-quality.json and coverage evidence",
+          "acceptance_rule": "Every non-USD hard gate passes; missing prices only remove USD claims"
+        },
+        {
+          "stage_order": 3,
+          "stage": "reconcile-v1",
+          "purpose": "Replay V1 natively and prove terminal raw-unit equality at the cutoff.",
+          "primary_artifacts": "V1 replay ledger, terminal proof, universe/common window, 60/20/20 splits",
+          "acceptance_rule": "Zero raw-unit differences plus exact-cutoff terminal snapshot equality"
+        },
+        {
+          "stage_order": 4,
+          "stage": "calibrate",
+          "purpose": "Fit the training-only interest schedule and search global/per-market Dusk profiles.",
+          "primary_artifacts": "Interest schedule, calibration evidence, Pareto set, profile freeze",
+          "acceptance_rule": "Validation gates pass and holdout remains sealed before freeze"
+        },
+        {
+          "stage_order": 5,
+          "stage": "evaluate",
+          "purpose": "Replay the sealed holdout across both behavior arms and both hLP scenarios.",
+          "primary_artifacts": "Paired metrics, leverage campaigns, sensitivity, metrics manifest",
+          "acceptance_rule": "Safety/execution gates and conservation identities remain exact"
+        },
+        {
+          "stage_order": 6,
+          "stage": "verify",
+          "purpose": "Recheck every manifest/source hash and execute the bounded notebook.",
+          "primary_artifacts": "verification.json and benchmark.executed.ipynb",
+          "acceptance_rule": "Manifest, notebook sandbox, exact values, and source commitments pass"
+        },
+        {
+          "stage_order": 7,
+          "stage": "render",
+          "purpose": "Build technical, governance, and public portable reports from one manifest.",
+          "primary_artifacts": "artifact.json, provenance.sql, report.html, render receipt",
+          "acceptance_rule": "Canonical packaging and Chromium desktop/mobile verification pass"
+        }
+      ],
+      "benchmark_angles": [
+        {
+          "angle": "Collateral efficiency",
+          "factual_control": "V1 debt, collateral, capacity, and observed debt-action fractions",
+          "dusk_counterfactual": "Native gross health ceiling plus actionable cash/daily/global/reduce-only bounds with exact share rounding",
+          "headline_outputs": "Gross/actionable headroom, capacity multiplier, filled/unmet demand, limiting constraints",
+          "implementation_status": "implemented and tested; historical result unavailable"
+        },
+        {
+          "angle": "Spot capital efficiency",
+          "factual_control": "Every historical exact-in swap, fee split, min-out, and reserve checkpoint",
+          "dusk_counterfactual": "Concentrated curve, same-slot dynamic fees, recentering, hLP settlement, and intent arbitrage",
+          "headline_outputs": "Execution cost, slippage, equivalent depth, supported volume, fee return, inventory PnL",
+          "implementation_status": "implemented and tested; historical result unavailable"
+        },
+        {
+          "angle": "Leverage",
+          "factual_control": "Bounded V1 borrow-swap-deposit loops from identical historical pre-state",
+          "dusk_counterfactual": "Native isolated open/full unwind at 72 cells per eligible lending market",
+          "headline_outputs": "Executable leverage, opening/unwind cost, funding APR, thresholds, buffers, realized MAE",
+          "implementation_status": "implemented and tested; historical result unavailable"
+        },
+        {
+          "angle": "LP and protocol economics",
+          "factual_control": "V1 native fee, interest, claim, flashloan, cash-covered surcharge, and inventory transitions",
+          "dusk_counterfactual": "Exact swap/public-interest/hLP/recenter lanes with user and synthetic origins separated",
+          "headline_outputs": "15 lane totals, common-capital return, >=30-day APR, cash/inventory memos, shortfall",
+          "implementation_status": "implemented and tested; historical result unavailable"
+        }
+      ],
+      "revenue_lanes": [
+        {
+          "lane": "lp_swap_earned",
+          "accounting_class": "economic_revenue",
+          "economic_core": "yes",
+          "interpretation": "LP swap-fee economics"
+        },
+        {
+          "lane": "protocol_fee_auction_swap_earned",
+          "accounting_class": "economic_revenue",
+          "economic_core": "yes",
+          "interpretation": "Protocol swap fee-auction lane"
+        },
+        {
+          "lane": "protocol_buyback_swap_earned",
+          "accounting_class": "economic_revenue",
+          "economic_core": "yes",
+          "interpretation": "Protocol swap buyback lane"
+        },
+        {
+          "lane": "retained_recenter_inventory",
+          "accounting_class": "inventory_memo",
+          "economic_core": "no",
+          "interpretation": "Protected inventory until economically realized"
+        },
+        {
+          "lane": "compounded_lp_swap_principal",
+          "accounting_class": "principal_disposition_memo",
+          "economic_core": "no",
+          "interpretation": "LP fee amount capitalized into principal"
+        },
+        {
+          "lane": "lp_public_interest_accrued",
+          "accounting_class": "economic_revenue",
+          "economic_core": "yes",
+          "interpretation": "LP public-borrow interest accrual"
+        },
+        {
+          "lane": "protocol_public_interest_accrued",
+          "accounting_class": "economic_revenue",
+          "economic_core": "yes",
+          "interpretation": "Protocol public-borrow interest accrual"
+        },
+        {
+          "lane": "lp_public_interest_cash_realized",
+          "accounting_class": "cash_realization_memo",
+          "economic_core": "no",
+          "interpretation": "Cash realization; V1 remains typed unavailable"
+        },
+        {
+          "lane": "protocol_fee_auction_public_interest_cash_realized",
+          "accounting_class": "cash_realization_memo",
+          "economic_core": "no",
+          "interpretation": "Fee-auction public-interest cash"
+        },
+        {
+          "lane": "protocol_buyback_public_interest_cash_realized",
+          "accounting_class": "cash_realization_memo",
+          "economic_core": "no",
+          "interpretation": "Buyback public-interest cash"
+        },
+        {
+          "lane": "hlp_funding_interest_earned",
+          "accounting_class": "economic_revenue",
+          "economic_core": "yes",
+          "interpretation": "Net hLP funding earned by hLP providers"
+        },
+        {
+          "lane": "protocol_fee_auction_hlp_funding_interest_earned",
+          "accounting_class": "economic_revenue",
+          "economic_core": "yes",
+          "interpretation": "Protocol fee-auction share of hLP funding"
+        },
+        {
+          "lane": "protocol_buyback_hlp_funding_interest_earned",
+          "accounting_class": "economic_revenue",
+          "economic_core": "yes",
+          "interpretation": "Protocol buyback share of hLP funding"
+        },
+        {
+          "lane": "flashloan_fee_v1_only",
+          "accounting_class": "venue_only_supplement",
+          "economic_core": "no",
+          "interpretation": "V1-only supplement outside apples-to-apples core"
+        },
+        {
+          "lane": "protocol_claim_realized_v1_only",
+          "accounting_class": "cash_realization_memo",
+          "economic_core": "no",
+          "interpretation": "V1 claim realization, never new revenue"
+        }
+      ],
+      "blockers": [
+        {
+          "blocker": "Historical decoder dispatch is provisional",
+          "current_state": "One all-slot provisional v0.10.5 decoder; headline_verified=false",
+          "why_it_blocks": "Historical upgrades cannot be attributed to exact deployed binary/IDL revisions from labels alone.",
+          "required_evidence": "Sealed Program/ProgramData/buffer histories, reconstructed deployed ELF hashes, and order-aware revision decoders"
+        },
+        {
+          "blocker": "Exact terminal snapshot is not supplied",
+          "current_state": "Runner validates but deliberately does not fabricate or fetch current-state substitutes",
+          "why_it_blocks": "Transition replay cannot be accepted until every terminal account equals the exact cutoff state.",
+          "required_evidence": "Independent binding plus full requested account set with response_context_slot exactly equal to cutoff"
+        }
+      ],
+      "source_inventory": [
+        {
+          "artifact": "analysis/v1-vs-dusk/README.md",
+          "purpose": "Operator entry point and current status",
+          "sha256": "4c439ef3f1def12be5a7fdc0d4fc2762903c7faf3a135744f1e4ffe4cc695a60"
+        },
+        {
+          "artifact": "analysis/v1-vs-dusk/docs/METHODOLOGY.md",
+          "purpose": "Normative benchmark methodology",
+          "sha256": "7c5cd2e860c6c93047f36ec1b1f69f5a9d9f07008d354455ea85770b5bf385fe"
+        },
+        {
+          "artifact": "analysis/v1-vs-dusk/src/pipeline.rs",
+          "purpose": "Seven-stage orchestration",
+          "sha256": "e899d3d498d968c3545e1c025013a045cf87a4808061ab47dca877e7dc697ad7"
+        },
+        {
+          "artifact": "programs/dusk/src/benchmark_api.rs",
+          "purpose": "Feature-only native transition wrappers",
+          "sha256": "3f86115819074f77fd9eaf2b1500f3524241ed18573849d38219dbd140684901"
+        },
+        {
+          "artifact": "analysis/v1-vs-dusk/notebooks/benchmark.ipynb",
+          "purpose": "Bounded reader-facing notebook",
+          "sha256": "2802c0d6a37b32f6219290730cfa70f65b326a178f1974e03ffd5e8c29cc9e57"
+        },
+        {
+          "artifact": "analysis/v1-vs-dusk/scripts/execute_notebook.py",
+          "purpose": "Restricted notebook validator/executor",
+          "sha256": "43b5526982b54a69dce67067f1d9c6f54e38cec46493a76445cb45bccd559477"
+        },
+        {
+          "artifact": "analysis/v1-vs-dusk/schemas/catalog.v1.json",
+          "purpose": "Strict schema snapshot catalog",
+          "sha256": "84caa1ba19d4f3bfbb850e1b396654ba24ec298b02ca5f1f35fd86b5d94fa122"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "verification_evidence",
+      "label": "Verified offline test and rendering evidence",
+      "path": "verification-evidence.sql",
+      "query": {
+        "engine": "duckdb",
+        "id": "dusk_v1_verification_evidence_20260821",
+        "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH verification_counts(suite, verified_items, evidence_kind, result) AS (\n  VALUES\n    ('Benchmark library tests', 164, 'Rust unit tests', 'passed'),\n    ('Dusk native benchmark tests', 22, 'Native parity and rollback tests', 'passed'),\n    ('Schema contracts', 18, '16 artifact snapshots plus 2 supporting schemas', 'passed'),\n    ('Data-quality integration tests', 14, 'Extraction and audit fixtures', 'passed'),\n    ('Portable report audiences', 3, 'Chromium desktop and narrow-layout verification', 'passed')\n)\nSELECT * FROM verification_counts ORDER BY verified_items DESC;\n",
+        "description": "Frozen counts from the final locked/offline verification run.",
+        "language": "sql",
+        "tables_used": [
+          "analysis/v1-vs-dusk/Cargo.toml",
+          "programs/dusk/Cargo.toml"
+        ],
+        "filters": [
+          "Commands executed on 21 August 2026",
+          "No live RPC or database writes"
+        ],
+        "metric_definitions": [
+          "verified_items: independently passed tests, schema artifacts, or report audiences in the named layer"
+        ]
+      }
+    },
+    {
+      "id": "verification_commands",
+      "label": "Reproducible verification commands",
+      "path": "verification-commands.sql",
+      "query": {
+        "engine": "duckdb",
+        "id": "dusk_v1_verification_commands_20260821",
+        "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH verification_commands(layer, command, result) AS (\n  VALUES\n    ('Benchmark workspace', 'CARGO_INCREMENTAL=0 cargo test --locked --offline --manifest-path analysis/v1-vs-dusk/Cargo.toml --no-fail-fast', '164 library + 14 data-quality passed; 0 failed'),\n    ('All analysis targets', 'CARGO_INCREMENTAL=0 cargo check --locked --offline --manifest-path analysis/v1-vs-dusk/Cargo.toml --all-targets', 'passed'),\n    ('Dusk native benchmark API', 'CARGO_INCREMENTAL=0 cargo test --locked --offline -p dusk --features benchmark benchmark_api::tests --no-fail-fast', '22 passed; 0 failed'),\n    ('Default Dusk build', 'CARGO_INCREMENTAL=0 cargo check --locked --offline -p dusk', 'passed with benchmark feature disabled'),\n    ('Dusk benchmark build', 'CARGO_INCREMENTAL=0 cargo check --locked --offline -p dusk --features benchmark', 'passed'),\n    ('Schema catalog', 'PYTHONDONTWRITEBYTECODE=1 python3 analysis/v1-vs-dusk/schemas/validate.py --self-test', '16 artifact snapshots + 2 supporting schemas passed'),\n    ('Notebook executor', 'PYTHONDONTWRITEBYTECODE=1 python3 analysis/v1-vs-dusk/scripts/execute_notebook.py --self-test', 'checksum, identity, duplicate-key, winner, exact-value, sandbox, and determinism passed'),\n    ('Portable reports', 'cargo test ... caller_supplied_canonical_builder_accepts_all_three_artifacts -- --ignored', 'technical, governance, and public audiences passed Chromium verification')\n)\nSELECT * FROM verification_commands ORDER BY layer;\n",
+        "description": "Exact commands and observed final status for each verification layer.",
+        "language": "sql",
+        "tables_used": [
+          "analysis/v1-vs-dusk/Cargo.lock",
+          "programs/dusk/Cargo.toml"
+        ],
+        "filters": [
+          "Locked and offline Cargo resolution",
+          "CARGO_INCREMENTAL=0 for bounded disk usage"
+        ],
+        "metric_definitions": [
+          "result: final process outcome observed by the implementation run"
+        ]
+      }
+    },
+    {
+      "id": "pipeline_contract",
+      "label": "Seven-stage benchmark pipeline contract",
+      "path": "pipeline-contract.sql",
+      "query": {
+        "engine": "duckdb",
+        "id": "dusk_v1_pipeline_contract_20260821",
+        "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH pipeline_stages(stage_order, stage, purpose, primary_artifacts, acceptance_rule) AS (\n  VALUES\n    (1, 'extract', 'Export a repeatable-read database snapshot and enrich it with finalized archival RPC evidence.', 'Ordered operations/events, configs, prices, transfer-fee proofs, Parquet', 'Complete certified signature/page/block chains and exact typed decoding'),\n    (2, 'audit', 'Reconcile DB and RPC sources and calculate global plus per-market eligibility.', 'data-quality.json and coverage evidence', 'Every non-USD hard gate passes; missing prices only remove USD claims'),\n    (3, 'reconcile-v1', 'Replay V1 natively and prove terminal raw-unit equality at the cutoff.', 'V1 replay ledger, terminal proof, universe/common window, 60/20/20 splits', 'Zero raw-unit differences plus exact-cutoff terminal snapshot equality'),\n    (4, 'calibrate', 'Fit the training-only interest schedule and search global/per-market Dusk profiles.', 'Interest schedule, calibration evidence, Pareto set, profile freeze', 'Validation gates pass and holdout remains sealed before freeze'),\n    (5, 'evaluate', 'Replay the sealed holdout across both behavior arms and both hLP scenarios.', 'Paired metrics, leverage campaigns, sensitivity, metrics manifest', 'Safety/execution gates and conservation identities remain exact'),\n    (6, 'verify', 'Recheck every manifest/source hash and execute the bounded notebook.', 'verification.json and benchmark.executed.ipynb', 'Manifest, notebook sandbox, exact values, and source commitments pass'),\n    (7, 'render', 'Build technical, governance, and public portable reports from one manifest.', 'artifact.json, provenance.sql, report.html, render receipt', 'Canonical packaging and Chromium desktop/mobile verification pass')\n)\nSELECT * FROM pipeline_stages ORDER BY stage_order;\n",
+        "description": "Ordered stage responsibilities and fail-closed acceptance rules.",
+        "language": "sql",
+        "tables_used": [
+          "analysis/v1-vs-dusk/src/pipeline.rs",
+          "analysis/v1-vs-dusk/README.md"
+        ],
+        "filters": [
+          "Canonical stage order only",
+          "No production deployment action"
+        ],
+        "metric_definitions": [
+          "acceptance_rule: evidence that must exist before the next stage may consume a receipt"
+        ]
+      }
+    },
+    {
+      "id": "benchmark_contract",
+      "label": "Requested benchmark-angle implementation contract",
+      "path": "benchmark-contract.sql",
+      "query": {
+        "engine": "duckdb",
+        "id": "dusk_v1_benchmark_contract_20260821",
+        "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH benchmark_angles(angle, factual_control, dusk_counterfactual, headline_outputs, implementation_status) AS (\n  VALUES\n    ('Collateral efficiency', 'V1 debt, collateral, capacity, and observed debt-action fractions', 'Native gross health ceiling plus actionable cash/daily/global/reduce-only bounds with exact share rounding', 'Gross/actionable headroom, capacity multiplier, filled/unmet demand, limiting constraints', 'implemented and tested; historical result unavailable'),\n    ('Spot capital efficiency', 'Every historical exact-in swap, fee split, min-out, and reserve checkpoint', 'Concentrated curve, same-slot dynamic fees, recentering, hLP settlement, and intent arbitrage', 'Execution cost, slippage, equivalent depth, supported volume, fee return, inventory PnL', 'implemented and tested; historical result unavailable'),\n    ('Leverage', 'Bounded V1 borrow-swap-deposit loops from identical historical pre-state', 'Native isolated open/full unwind at 72 cells per eligible lending market', 'Executable leverage, opening/unwind cost, funding APR, thresholds, buffers, realized MAE', 'implemented and tested; historical result unavailable'),\n    ('LP and protocol economics', 'V1 native fee, interest, claim, flashloan, cash-covered surcharge, and inventory transitions', 'Exact swap/public-interest/hLP/recenter lanes with user and synthetic origins separated', '15 lane totals, common-capital return, >=30-day APR, cash/inventory memos, shortfall', 'implemented and tested; historical result unavailable')\n)\nSELECT * FROM benchmark_angles ORDER BY angle;\n",
+        "description": "Mapping from each requested decision angle to factual control, counterfactual, and outputs.",
+        "language": "sql",
+        "tables_used": [
+          "analysis/v1-vs-dusk/docs/METHODOLOGY.md"
+        ],
+        "filters": [
+          "Historical counterfactual only",
+          "No certified ResultManifestV1 exists"
+        ],
+        "metric_definitions": [
+          "implementation_status: code/test readiness, never a Dusk-versus-V1 performance conclusion"
+        ]
+      }
+    },
+    {
+      "id": "revenue_contract",
+      "label": "Exhaustive revenue-lane accounting contract",
+      "path": "revenue-contract.sql",
+      "query": {
+        "engine": "duckdb",
+        "id": "dusk_v1_revenue_contract_20260821",
+        "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH revenue_lanes(lane, accounting_class, economic_core, interpretation) AS (\n  VALUES\n    ('lp_swap_earned', 'economic_revenue', 'yes', 'LP swap-fee economics'),\n    ('protocol_fee_auction_swap_earned', 'economic_revenue', 'yes', 'Protocol swap fee-auction lane'),\n    ('protocol_buyback_swap_earned', 'economic_revenue', 'yes', 'Protocol swap buyback lane'),\n    ('retained_recenter_inventory', 'inventory_memo', 'no', 'Protected inventory until economically realized'),\n    ('compounded_lp_swap_principal', 'principal_disposition_memo', 'no', 'LP fee amount capitalized into principal'),\n    ('lp_public_interest_accrued', 'economic_revenue', 'yes', 'LP public-borrow interest accrual'),\n    ('protocol_public_interest_accrued', 'economic_revenue', 'yes', 'Protocol public-borrow interest accrual'),\n    ('lp_public_interest_cash_realized', 'cash_realization_memo', 'no', 'Cash realization; V1 remains typed unavailable'),\n    ('protocol_fee_auction_public_interest_cash_realized', 'cash_realization_memo', 'no', 'Fee-auction public-interest cash'),\n    ('protocol_buyback_public_interest_cash_realized', 'cash_realization_memo', 'no', 'Buyback public-interest cash'),\n    ('hlp_funding_interest_earned', 'economic_revenue', 'yes', 'Net hLP funding earned by hLP providers'),\n    ('protocol_fee_auction_hlp_funding_interest_earned', 'economic_revenue', 'yes', 'Protocol fee-auction share of hLP funding'),\n    ('protocol_buyback_hlp_funding_interest_earned', 'economic_revenue', 'yes', 'Protocol buyback share of hLP funding'),\n    ('flashloan_fee_v1_only', 'venue_only_supplement', 'no', 'V1-only supplement outside apples-to-apples core'),\n    ('protocol_claim_realized_v1_only', 'cash_realization_memo', 'no', 'V1 claim realization, never new revenue')\n)\nSELECT * FROM revenue_lanes ORDER BY lane;\n",
+        "description": "All 15 stable revenue lanes and their non-double-counting classes.",
+        "language": "sql",
+        "tables_used": [
+          "analysis/v1-vs-dusk/src/metric_engine.rs"
+        ],
+        "filters": [
+          "Three mutually exclusive origins retained separately",
+          "Cash, inventory, principal, claims, and flash never enter economic core"
+        ],
+        "metric_definitions": [
+          "economic_core=yes only for economic_revenue accounting-class lanes"
+        ]
+      }
+    },
+    {
+      "id": "blocking_evidence",
+      "label": "Mandatory evidence blockers",
+      "path": "blocking-evidence.sql",
+      "query": {
+        "engine": "duckdb",
+        "id": "dusk_v1_blocking_evidence_20260821",
+        "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH blockers(blocker, current_state, why_it_blocks, required_evidence) AS (\n  VALUES\n    ('Historical decoder dispatch is provisional', 'One all-slot provisional v0.10.5 decoder; headline_verified=false', 'Historical upgrades cannot be attributed to exact deployed binary/IDL revisions from labels alone.', 'Sealed Program/ProgramData/buffer histories, reconstructed deployed ELF hashes, and order-aware revision decoders'),\n    ('Exact terminal snapshot is not supplied', 'Runner validates but deliberately does not fabricate or fetch current-state substitutes', 'Transition replay cannot be accepted until every terminal account equals the exact cutoff state.', 'Independent binding plus full requested account set with response_context_slot exactly equal to cutoff')\n)\nSELECT * FROM blockers ORDER BY blocker;\n",
+        "description": "The two unresolved inputs that intentionally prevent historical result publication.",
+        "language": "sql",
+        "tables_used": [
+          "analysis/v1-vs-dusk/decoder-revisions.toml",
+          "analysis/v1-vs-dusk/src/v1_terminal_reconciliation.rs"
+        ],
+        "filters": [
+          "No gate relaxation",
+          "No current-state substitution"
+        ],
+        "metric_definitions": [
+          "required_evidence: minimum external proof needed to unblock the certified campaign"
+        ]
+      }
+    },
+    {
+      "id": "source_inventory",
+      "label": "Source artifact checksum inventory",
+      "path": "source-inventory.sql",
+      "query": {
+        "engine": "duckdb",
+        "id": "dusk_v1_source_inventory_20260821",
+        "sql": "-- Generated implementation-status evidence for the Dusk versus V1 benchmark.\n-- This is implementation evidence, not historical performance data.\nWITH source_inventory(artifact, purpose, sha256) AS (\n  VALUES\n    ('analysis/v1-vs-dusk/README.md', 'Operator entry point and current status', '4c439ef3f1def12be5a7fdc0d4fc2762903c7faf3a135744f1e4ffe4cc695a60'),\n    ('analysis/v1-vs-dusk/docs/METHODOLOGY.md', 'Normative benchmark methodology', '7c5cd2e860c6c93047f36ec1b1f69f5a9d9f07008d354455ea85770b5bf385fe'),\n    ('analysis/v1-vs-dusk/src/pipeline.rs', 'Seven-stage orchestration', 'e899d3d498d968c3545e1c025013a045cf87a4808061ab47dca877e7dc697ad7'),\n    ('programs/dusk/src/benchmark_api.rs', 'Feature-only native transition wrappers', '3f86115819074f77fd9eaf2b1500f3524241ed18573849d38219dbd140684901'),\n    ('analysis/v1-vs-dusk/notebooks/benchmark.ipynb', 'Bounded reader-facing notebook', '2802c0d6a37b32f6219290730cfa70f65b326a178f1974e03ffd5e8c29cc9e57'),\n    ('analysis/v1-vs-dusk/scripts/execute_notebook.py', 'Restricted notebook validator/executor', '43b5526982b54a69dce67067f1d9c6f54e38cec46493a76445cb45bccd559477'),\n    ('analysis/v1-vs-dusk/schemas/catalog.v1.json', 'Strict schema snapshot catalog', '84caa1ba19d4f3bfbb850e1b396654ba24ec298b02ca5f1f35fd86b5d94fa122')\n)\nSELECT * FROM source_inventory ORDER BY artifact;\n",
+        "description": "SHA-256 inventory of the principal implementation and documentation inputs.",
+        "language": "sql",
+        "tables_used": [
+          "analysis/v1-vs-dusk/README.md",
+          "analysis/v1-vs-dusk/docs/METHODOLOGY.md",
+          "analysis/v1-vs-dusk/src/pipeline.rs",
+          "programs/dusk/src/benchmark_api.rs",
+          "analysis/v1-vs-dusk/notebooks/benchmark.ipynb",
+          "analysis/v1-vs-dusk/scripts/execute_notebook.py",
+          "analysis/v1-vs-dusk/schemas/catalog.v1.json"
+        ],
+        "filters": [
+          "Current working-tree bytes",
+          "Generated report outputs excluded"
+        ],
+        "metric_definitions": [
+          "sha256: lowercase SHA-256 of the exact local file bytes used for this report"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "run_id": "slot-440459364-06c0e05aadb7e883",
+  "cutoff_slot": 440459364,
+  "cohort_selection_sha256": "03081119b70b6ecff2f25071545f835dcc9f589abc34b7af86a99439b9c4be39",
+  "phase_report": {
+    "schema_version": 1,
+    "phase": "post_replay_final",
+    "report": {
+      "accepted": false,
+      "gates": [
+        {
+          "gate": "transaction_inventory",
+          "status": "pass",
+          "observed": 137329,
+          "expected": 137329,
+          "blocking_records": 0,
+          "detail_code": "all_successful_state_changing_transactions_fetched"
+        },
+        {
+          "gate": "state_changing_decode",
+          "status": "pass",
+          "observed": 160749,
+          "expected": 160749,
+          "blocking_records": 0,
+          "detail_code": "all_state_changing_instructions_version_decoded"
+        },
+        {
+          "gate": "decoder_revision_certification",
+          "status": "fail",
+          "observed": 0,
+          "expected": 1,
+          "blocking_records": 1,
+          "detail_code": "every_historical_program_revision_has_one_verified_decoder"
+        },
+        {
+          "gate": "canonical_order",
+          "status": "pass",
+          "observed": 264017,
+          "expected": 264017,
+          "blocking_records": 0,
+          "detail_code": "all_events_have_block_transaction_instruction_order"
+        },
+        {
+          "gate": "authoritative_block_time",
+          "status": "pass",
+          "observed": 264017,
+          "expected": 264017,
+          "blocking_records": 0,
+          "detail_code": "all_events_use_rpc_block_time"
+        },
+        {
+          "gate": "versioned_config",
+          "status": "pass",
+          "observed": 838848,
+          "expected": 838848,
+          "blocking_records": 0,
+          "detail_code": "every_event_has_exactly_one_active_config_version"
+        },
+        {
+          "gate": "historical_transfer_fees",
+          "status": "pass",
+          "observed": 11,
+          "expected": 11,
+          "blocking_records": 0,
+          "detail_code": "every_market_mint_has_complete_owner_and_transfer_fee_history"
+        },
+        {
+          "gate": "source_agreement",
+          "status": "pass",
+          "observed": 263977,
+          "expected": 263977,
+          "blocking_records": 0,
+          "detail_code": "db_rpc_raw_fields_exact_or_documented_db_omission"
+        },
+        {
+          "gate": "terminal_state",
+          "status": "fail",
+          "observed": 0,
+          "expected": 5,
+          "blocking_records": 5,
+          "detail_code": "terminal_raw_state_matches_on_chain_exactly"
+        },
+        {
+          "gate": "economic_replay",
+          "status": "pass",
+          "observed": 139812,
+          "expected": 139812,
+          "blocking_records": 0,
+          "detail_code": "swaps_interest_and_lp_supply_replay_exactly"
+        },
+        {
+          "gate": "historical_prices",
+          "status": "pass",
+          "observed": 279608,
+          "expected": 279608,
+          "blocking_records": 0,
+          "detail_code": "all_revenue_events_have_historical_prices"
+        }
+      ]
+    }
+  },
+  "decision": {
+    "phase": "post_replay_final",
+    "evidence_tier": "decision_grade",
+    "phase_eligible": true,
+    "raw_market_eligible": true,
+    "usd_headline_eligible": true,
+    "raw_certification": "limited",
+    "usd_certification": "limited",
+    "raw_blocking_gates": [],
+    "usd_blocking_gates": [],
+    "limitations": [
+      {
+        "gate": "decoder_revision_certification",
+        "underlying_status": "fail",
+        "detail_code": "every_historical_program_revision_has_one_verified_decoder"
+      },
+      {
+        "gate": "terminal_state",
+        "underlying_status": "fail",
+        "detail_code": "terminal_raw_state_matches_on_chain_exactly"
+      }
+    ]
+  }
+}

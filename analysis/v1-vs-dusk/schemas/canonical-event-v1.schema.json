@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:canonical-event:v1",
+  "title": "CanonicalEventV1 structural snapshot",
+  "description": "Canonical event envelope and event-kind tag. Event identity, execution provenance, payload semantics, and DB-to-RPC agreement require the Rust validators.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::canonical::CanonicalEventV1",
+  "x-validation-scope": "envelope_and_variant_tag",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "cluster",
+    "program_id",
+    "pair",
+    "actor",
+    "signature",
+    "order",
+    "execution_path",
+    "block_time_unix_seconds",
+    "decoder_version_id",
+    "raw_payload_sha256",
+    "db_source",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "cluster": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "program_id": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "pair": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actor": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "signature": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "order": {
+      "$ref": "common-v1.schema.json#/$defs/chain_order"
+    },
+    "execution_path": {
+      "type": "array",
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/u32"
+      }
+    },
+    "block_time_unix_seconds": {
+      "$ref": "common-v1.schema.json#/$defs/i64"
+    },
+    "decoder_version_id": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "raw_payload_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "db_source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "table",
+            "row_id"
+          ],
+          "properties": {
+            "table": {
+              "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+            },
+            "row_id": {
+              "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "swap",
+            "liquidity",
+            "lp_position",
+            "collateral_delta",
+            "debt_delta",
+            "position",
+            "liquidation",
+            "pair_update",
+            "flashloan",
+            "protocol_fee_claim",
+            "config"
+          ]
+        },
+        "payload": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

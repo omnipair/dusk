@@ -1,0 +1,26 @@
+{
+  "question": "Can a causal concentration controller improve trading-only LP P&L over fixed 3x, 5x and 10x after reserve-preserving repricing costs?",
+  "audience": "product stakeholders",
+  "scope": "Research model only; no protocol changes. Keep existing fees, widths, fee ownership and fixed center.",
+  "prices": "All four cached January 2025 SOL/USDT one-second days, in separate continuous six-hour blocks. Training January 8-9; later-date evaluation January 15 and 19. Some hours were examined in the preceding analysis, so evaluation is not fully blind.",
+  "demand": "Prior January 1 empirical CEX clip sizes. Independent synthetic directions and lognormal budgets. Steady strong (1m/hour,100bps), steady weak (100k/hour,20bps), steady cheap (1m/hour,50bps), and randomized half-hour regimes from those three plus 100k/hour,100bps. Equal scenario weights are a designed test grid, not market frequencies.",
+  "selection": "Train with seeds 201,202; select one candidate each from coverage, flow and volatility families using mean six-hour net trading P&L. Freeze candidates and fixed benchmark before running evaluation seeds 301,302,303.",
+  "controller": "Start at 5x, 10-minute warmup included in P&L, evaluate every minute, at most one step among 3x,5x,10x and at least five minutes between executed changes. Use only completed past data, no customer/arbitrage labels or rejected intentions.",
+  "coverage": "Trailing five-minute all-swap 30-second markouts: (LP fees + positive pre-fee markouts)/max(1 USDT,negative pre-fee markout losses). Threshold pairs (1.05,1.5),(1.1,2),(1.25,3); fourth candidate uses (1.1,2) and permits estimated immediate repricing loss up to 25% of trailing positive net markout P&L.",
+  "controls": "All-swap executed turnover per capital per hour: low/high (0.125,0.5) or (0.375,1.5). External trailing five-minute realized variance extrapolated to an hour: low/high (0.000025,0.0001) or (0.0001,0.0004). Volatility-only controls deliberately increase concentration as volatility rises.",
+  "switch": "Reconstruct new fixed-center curve through exactly the existing reserves; change curve scale and marginal price, preserve fee accumulator. Settle immediately profitable arbitrage at the last observed reference before the next price tick. Include resulting trading losses. No free recenter, reserve reset, capital injection or hindsight choice.",
+  "execution_cost": "Primary results include endogenous repricing loss, with zero additional transaction overhead. Report deductions for 0.1,1,10 USDT per executed change and break-even additional overhead. Overhead is paid from the external fee wallet and does not alter pool reserves or controller signals.",
+  "feasibility": "Current code requires governance approval, a seven-day proposal timelock and protected-depth funding. Economic controller runs relax that authorization/funding admission for research, count depth-reducing changes requiring funding, and cannot be described as executable current-program performance.",
+  "validation": "Match fixed-policy traces to existing replay, conserve reserves/NAV at reconfiguration, reconcile endpoint inventory ledger, prefix-causality check, test optimizer after reconfiguration against dense search, pair identical opportunities, independently recompute aggregate P&L, preserve the complete report.",
+  "sources": [
+    "market-data/manifest.json",
+    "shortlist_replay.py",
+    "fee_optimizer.py",
+    "programs/dusk/src/transitions/amm/mod.rs",
+    "programs/dusk/src/transitions/amm/curve.rs",
+    "programs/dusk/src/state/parameter_proposal.rs",
+    "programs/dusk/src/constants.rs",
+    "https://arxiv.org/html/2208.06046v5",
+    "https://arxiv.org/abs/2305.14604"
+  ]
+}

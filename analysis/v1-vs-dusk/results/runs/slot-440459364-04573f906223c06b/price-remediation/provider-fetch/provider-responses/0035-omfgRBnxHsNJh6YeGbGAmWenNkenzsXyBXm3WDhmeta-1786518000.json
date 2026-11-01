@@ -1,0 +1,877 @@
+{
+  "schema_version": 1,
+  "request_index": 35,
+  "request": {
+    "method": "GET",
+    "url": "https://public-api.birdeye.so/defi/history_price?address=omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta&address_type=token&type=1H&time_from=1786518000&time_to=1787122800&ui_amount_mode=raw",
+    "provider": "birdeye",
+    "chain": "solana",
+    "interval": "1H",
+    "allow_current_fallback": false,
+    "requested_bucket_count": 47
+  },
+  "attempts": [
+    {
+      "started_at": "2026-08-22T02:22:34.153Z",
+      "completed_at": "2026-08-22T02:22:34.942Z",
+      "status": 200,
+      "ok": true,
+      "response_body_sha256": "03b9a56955555723156aed2574cef57d33449564ccee91201be0a0803035d353",
+      "body_text": "{\"data\":{\"items\":[{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786518000,\"value\":0.16612561969385367},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786521600,\"value\":0.16612561969385367},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786525200,\"value\":0.16720119834941827},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786528800,\"value\":0.16726636846637002},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786532400,\"value\":0.16726636846637002},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786536000,\"value\":0.1672869711769607},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786539600,\"value\":0.1673046641552208},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786543200,\"value\":0.16724655509618272},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786546800,\"value\":0.16746627284093446},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786550400,\"value\":0.1674126021911394},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786554000,\"value\":0.16754369410548628},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786557600,\"value\":0.165860587278501},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786561200,\"value\":0.16570426415306513},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786564800,\"value\":0.16558235502852997},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786568400,\"value\":0.16727044994036885},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786572000,\"value\":0.16563636009969404},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786575600,\"value\":0.16551530014348861},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786579200,\"value\":0.1654319982317394},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786582800,\"value\":0.16542235859254725},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786586400,\"value\":0.1651919002009432},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786590000,\"value\":0.1649261250335915},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786593600,\"value\":0.16486806079494568},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786597200,\"value\":0.16486806079494568},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786600800,\"value\":0.16486806079494568},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786604400,\"value\":0.16486806079494568},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786608000,\"value\":0.16486806079494568},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786611600,\"value\":0.16376076653159574},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786615200,\"value\":0.16535900541329776},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786618800,\"value\":0.16535900541329776},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786622400,\"value\":0.16535900541329776},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786626000,\"value\":0.16361233241274886},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786629600,\"value\":0.16324355242101415},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786633200,\"value\":0.16310906583344922},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786636800,\"value\":0.16304472142684442},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786640400,\"value\":0.16292645083683707},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786644000,\"value\":0.16469641656883655},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786647600,\"value\":0.16261912224940303},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786651200,\"value\":0.16270193558637977},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786654800,\"value\":0.16270193558637977},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786658400,\"value\":0.16432354452519157},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786662000,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786665600,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786669200,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786672800,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786676400,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786680000,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786683600,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786687200,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786690800,\"value\":0.165525997879504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786694400,\"value\":0.16562061142121465},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786698000,\"value\":0.16576399941345005},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786701600,\"value\":0.16576399941345005},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786705200,\"value\":0.16576399941345005},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786708800,\"value\":0.16410671392531773},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786712400,\"value\":0.16410671392531773},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786716000,\"value\":0.1636482101091838},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786719600,\"value\":0.16365811485861714},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786723200,\"value\":0.16540335474948684},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786726800,\"value\":0.16540335474948684},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786730400,\"value\":0.16553272059485089},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786734000,\"value\":0.1663237952596184},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786737600,\"value\":0.16746125582573204},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786741200,\"value\":0.16746125582573204},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786744800,\"value\":0.16746125582573204},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786748400,\"value\":0.16748150861879402},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786752000,\"value\":0.16596120871567063},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786755600,\"value\":0.16596120871567063},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786759200,\"value\":0.16596120871567063},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786762800,\"value\":0.16431585679672825},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786766400,\"value\":0.16431585679672825},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786770000,\"value\":0.16431585679672825},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786773600,\"value\":0.16431585679672825},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786777200,\"value\":0.16431585679672825},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786780800,\"value\":0.16431585679672825},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786784400,\"value\":0.16431585679672825},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786788000,\"value\":0.16431585679672825},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786791600,\"value\":0.16605113111235856},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786795200,\"value\":0.16595491302560333},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786798800,\"value\":0.16583192303065733},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786802400,\"value\":0.16583192303065733},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786806000,\"value\":0.16583192303065733},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786809600,\"value\":0.16583192303065733},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786813200,\"value\":0.16572001374182657},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786816800,\"value\":0.16572001374182657},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786820400,\"value\":0.16572001374182657},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786824000,\"value\":0.1673785287665936},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786827600,\"value\":0.1673785287665936},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786831200,\"value\":0.16749871713087483},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786834800,\"value\":0.16749871713087483},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786838400,\"value\":0.1674922330515609},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786842000,\"value\":0.1674922330515609},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786845600,\"value\":0.1674922330515609},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786849200,\"value\":0.1674922330515609},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786852800,\"value\":0.1674922330515609},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786856400,\"value\":0.16768828255066948},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786860000,\"value\":0.16608594132364668},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786863600,\"value\":0.16608594132364668},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786867200,\"value\":0.16608594132364668},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786870800,\"value\":0.16608594132364668},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786874400,\"value\":0.16608594132364668},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786878000,\"value\":0.16608594132364668},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786881600,\"value\":0.1656718286910333},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786885200,\"value\":0.16530445053910434},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786888800,\"value\":0.16530445053910434},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786892400,\"value\":0.16530445053910434},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786896000,\"value\":0.1652521657823695},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786899600,\"value\":0.16493404199781053},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786903200,\"value\":0.1634804101741143},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786906800,\"value\":0.1634804101741143},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786910400,\"value\":0.1634804101741143},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786914000,\"value\":0.1634804101741143},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786917600,\"value\":0.16339181700891753},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786921200,\"value\":0.16339181700891753},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786924800,\"value\":0.16517321950076908},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786928400,\"value\":0.16517321950076908},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786932000,\"value\":0.1651517693426373},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786935600,\"value\":0.1651517693426373},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786939200,\"value\":0.16513881483457762},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786942800,\"value\":0.16513881483457762},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786946400,\"value\":0.16515533236150293},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786950000,\"value\":0.16515533236150293},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786953600,\"value\":0.16515533236150293},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786957200,\"value\":0.16515533236150293},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786960800,\"value\":0.16515533236150293},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786964400,\"value\":0.16517498648415407},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786968000,\"value\":0.16517498648415407},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786971600,\"value\":0.1638347419059333},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786975200,\"value\":0.1638347419059333},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786978800,\"value\":0.16357920634637604},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786982400,\"value\":0.16307451725702604},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786986000,\"value\":0.16474272126832562},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786989600,\"value\":0.16315414945941348},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786993200,\"value\":0.1632124589342833},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1786996800,\"value\":0.16461335722741305},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787000400,\"value\":0.16461335722741305},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787004000,\"value\":0.16461335722741305},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787007600,\"value\":0.16469042613224588},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787011200,\"value\":0.16472427252617614},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787014800,\"value\":0.16472427252617614},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787018400,\"value\":0.16472427252617614},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787022000,\"value\":0.16472427252617614},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787025600,\"value\":0.16473276651091884},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787029200,\"value\":0.16473276651091884},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787032800,\"value\":0.1629498670633115},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787036400,\"value\":0.1629498670633115},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787040000,\"value\":0.1629498670633115},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787043600,\"value\":0.16472671068356648},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787047200,\"value\":0.16472671068356648},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787050800,\"value\":0.16474032990604878},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787054400,\"value\":0.1631366954274504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787058000,\"value\":0.1631366954274504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787061600,\"value\":0.1631366954274504},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787065200,\"value\":0.16486521597102424},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787068800,\"value\":0.16368517640192856},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787072400,\"value\":0.16368517640192856},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787076000,\"value\":0.1632163144776021},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787079600,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787083200,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787086800,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787090400,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787094000,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787097600,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787101200,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787104800,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787108400,\"value\":0.16328001938471112},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787112000,\"value\":0.16153068448758176},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787115600,\"value\":0.16128488168396374},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787119200,\"value\":0.16244575362307365},{\"address\":\"omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta\",\"unixTime\":1787122800,\"value\":0.1618901284433698}],\"isScaledUiToken\":false,\"multiplier\":null},\"success\":true}",
+      "body": {
+        "data": {
+          "items": [
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786518000,
+              "value": 0.16612561969385367
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786521600,
+              "value": 0.16612561969385367
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786525200,
+              "value": 0.16720119834941827
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786528800,
+              "value": 0.16726636846637002
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786532400,
+              "value": 0.16726636846637002
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786536000,
+              "value": 0.1672869711769607
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786539600,
+              "value": 0.1673046641552208
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786543200,
+              "value": 0.16724655509618272
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786546800,
+              "value": 0.16746627284093446
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786550400,
+              "value": 0.1674126021911394
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786554000,
+              "value": 0.16754369410548628
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786557600,
+              "value": 0.165860587278501
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786561200,
+              "value": 0.16570426415306513
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786564800,
+              "value": 0.16558235502852997
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786568400,
+              "value": 0.16727044994036885
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786572000,
+              "value": 0.16563636009969404
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786575600,
+              "value": 0.16551530014348861
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786579200,
+              "value": 0.1654319982317394
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786582800,
+              "value": 0.16542235859254725
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786586400,
+              "value": 0.1651919002009432
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786590000,
+              "value": 0.1649261250335915
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786593600,
+              "value": 0.16486806079494568
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786597200,
+              "value": 0.16486806079494568
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786600800,
+              "value": 0.16486806079494568
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786604400,
+              "value": 0.16486806079494568
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786608000,
+              "value": 0.16486806079494568
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786611600,
+              "value": 0.16376076653159574
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786615200,
+              "value": 0.16535900541329776
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786618800,
+              "value": 0.16535900541329776
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786622400,
+              "value": 0.16535900541329776
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786626000,
+              "value": 0.16361233241274886
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786629600,
+              "value": 0.16324355242101415
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786633200,
+              "value": 0.16310906583344922
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786636800,
+              "value": 0.16304472142684442
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786640400,
+              "value": 0.16292645083683707
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786644000,
+              "value": 0.16469641656883655
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786647600,
+              "value": 0.16261912224940303
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786651200,
+              "value": 0.16270193558637977
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786654800,
+              "value": 0.16270193558637977
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786658400,
+              "value": 0.16432354452519157
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786662000,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786665600,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786669200,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786672800,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786676400,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786680000,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786683600,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786687200,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786690800,
+              "value": 0.165525997879504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786694400,
+              "value": 0.16562061142121465
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786698000,
+              "value": 0.16576399941345005
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786701600,
+              "value": 0.16576399941345005
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786705200,
+              "value": 0.16576399941345005
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786708800,
+              "value": 0.16410671392531773
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786712400,
+              "value": 0.16410671392531773
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786716000,
+              "value": 0.1636482101091838
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786719600,
+              "value": 0.16365811485861714
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786723200,
+              "value": 0.16540335474948684
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786726800,
+              "value": 0.16540335474948684
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786730400,
+              "value": 0.16553272059485089
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786734000,
+              "value": 0.1663237952596184
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786737600,
+              "value": 0.16746125582573204
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786741200,
+              "value": 0.16746125582573204
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786744800,
+              "value": 0.16746125582573204
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786748400,
+              "value": 0.16748150861879402
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786752000,
+              "value": 0.16596120871567063
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786755600,
+              "value": 0.16596120871567063
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786759200,
+              "value": 0.16596120871567063
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786762800,
+              "value": 0.16431585679672825
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786766400,
+              "value": 0.16431585679672825
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786770000,
+              "value": 0.16431585679672825
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786773600,
+              "value": 0.16431585679672825
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786777200,
+              "value": 0.16431585679672825
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786780800,
+              "value": 0.16431585679672825
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786784400,
+              "value": 0.16431585679672825
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786788000,
+              "value": 0.16431585679672825
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786791600,
+              "value": 0.16605113111235856
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786795200,
+              "value": 0.16595491302560333
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786798800,
+              "value": 0.16583192303065733
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786802400,
+              "value": 0.16583192303065733
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786806000,
+              "value": 0.16583192303065733
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786809600,
+              "value": 0.16583192303065733
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786813200,
+              "value": 0.16572001374182657
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786816800,
+              "value": 0.16572001374182657
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786820400,
+              "value": 0.16572001374182657
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786824000,
+              "value": 0.1673785287665936
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786827600,
+              "value": 0.1673785287665936
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786831200,
+              "value": 0.16749871713087483
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786834800,
+              "value": 0.16749871713087483
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786838400,
+              "value": 0.1674922330515609
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786842000,
+              "value": 0.1674922330515609
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786845600,
+              "value": 0.1674922330515609
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786849200,
+              "value": 0.1674922330515609
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786852800,
+              "value": 0.1674922330515609
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786856400,
+              "value": 0.16768828255066948
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786860000,
+              "value": 0.16608594132364668
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786863600,
+              "value": 0.16608594132364668
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786867200,
+              "value": 0.16608594132364668
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786870800,
+              "value": 0.16608594132364668
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786874400,
+              "value": 0.16608594132364668
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786878000,
+              "value": 0.16608594132364668
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786881600,
+              "value": 0.1656718286910333
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786885200,
+              "value": 0.16530445053910434
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786888800,
+              "value": 0.16530445053910434
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786892400,
+              "value": 0.16530445053910434
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786896000,
+              "value": 0.1652521657823695
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786899600,
+              "value": 0.16493404199781053
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786903200,
+              "value": 0.1634804101741143
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786906800,
+              "value": 0.1634804101741143
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786910400,
+              "value": 0.1634804101741143
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786914000,
+              "value": 0.1634804101741143
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786917600,
+              "value": 0.16339181700891753
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786921200,
+              "value": 0.16339181700891753
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786924800,
+              "value": 0.16517321950076908
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786928400,
+              "value": 0.16517321950076908
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786932000,
+              "value": 0.1651517693426373
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786935600,
+              "value": 0.1651517693426373
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786939200,
+              "value": 0.16513881483457762
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786942800,
+              "value": 0.16513881483457762
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786946400,
+              "value": 0.16515533236150293
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786950000,
+              "value": 0.16515533236150293
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786953600,
+              "value": 0.16515533236150293
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786957200,
+              "value": 0.16515533236150293
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786960800,
+              "value": 0.16515533236150293
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786964400,
+              "value": 0.16517498648415407
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786968000,
+              "value": 0.16517498648415407
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786971600,
+              "value": 0.1638347419059333
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786975200,
+              "value": 0.1638347419059333
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786978800,
+              "value": 0.16357920634637604
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786982400,
+              "value": 0.16307451725702604
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786986000,
+              "value": 0.16474272126832562
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786989600,
+              "value": 0.16315414945941348
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786993200,
+              "value": 0.1632124589342833
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1786996800,
+              "value": 0.16461335722741305
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787000400,
+              "value": 0.16461335722741305
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787004000,
+              "value": 0.16461335722741305
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787007600,
+              "value": 0.16469042613224588
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787011200,
+              "value": 0.16472427252617614
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787014800,
+              "value": 0.16472427252617614
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787018400,
+              "value": 0.16472427252617614
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787022000,
+              "value": 0.16472427252617614
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787025600,
+              "value": 0.16473276651091884
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787029200,
+              "value": 0.16473276651091884
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787032800,
+              "value": 0.1629498670633115
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787036400,
+              "value": 0.1629498670633115
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787040000,
+              "value": 0.1629498670633115
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787043600,
+              "value": 0.16472671068356648
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787047200,
+              "value": 0.16472671068356648
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787050800,
+              "value": 0.16474032990604878
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787054400,
+              "value": 0.1631366954274504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787058000,
+              "value": 0.1631366954274504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787061600,
+              "value": 0.1631366954274504
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787065200,
+              "value": 0.16486521597102424
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787068800,
+              "value": 0.16368517640192856
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787072400,
+              "value": 0.16368517640192856
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787076000,
+              "value": 0.1632163144776021
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787079600,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787083200,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787086800,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787090400,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787094000,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787097600,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787101200,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787104800,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787108400,
+              "value": 0.16328001938471112
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787112000,
+              "value": 0.16153068448758176
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787115600,
+              "value": 0.16128488168396374
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787119200,
+              "value": 0.16244575362307365
+            },
+            {
+              "address": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "unixTime": 1787122800,
+              "value": 0.1618901284433698
+            }
+          ],
+          "isScaledUiToken": false,
+          "multiplier": null
+        },
+        "success": true
+      }
+    }
+  ]
+}

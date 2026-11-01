@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:paired-operation-metric-row:v5",
+  "title": "PairedOperationMetricRowV1",
+  "description": "Strict structural snapshot of one exact factual-V1 versus Dusk metric-ledger row. Rust replay and hash checks remain authoritative.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::metric_engine::PairedOperationMetricRowV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "profile_id", "market", "token0", "token1",
+    "token0_decimals", "token1_decimals", "operation_id", "order",
+    "block_time_unix_seconds", "arm", "hlp_scenario", "synthetic_arbitrage",
+    "synthetic_protocol_settlement", "dusk_status", "swap", "spot_probes",
+    "borrow", "repay", "safety", "revenue", "capital_after",
+    "factual_record_sha256", "dusk_state_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 5 },
+    "profile_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "market": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+    "token0": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+    "token1": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+    "token0_decimals": { "$ref": "common-v1.schema.json#/$defs/u8" },
+    "token1_decimals": { "$ref": "common-v1.schema.json#/$defs/u8" },
+    "operation_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "order": { "$ref": "common-v1.schema.json#/$defs/chain_order" },
+    "block_time_unix_seconds": { "$ref": "common-v1.schema.json#/$defs/i64" },
+    "arm": { "$ref": "#/$defs/replay_arm" },
+    "hlp_scenario": { "$ref": "#/$defs/hlp_scenario" },
+    "synthetic_arbitrage": { "type": "boolean" },
+    "synthetic_protocol_settlement": { "type": "boolean" },
+    "dusk_status": { "$ref": "#/$defs/dusk_status" },
+    "swap": { "$ref": "#/$defs/nullable_paired_swap" },
+    "spot_probes": { "$ref": "#/$defs/nullable_spot_probe_set" },
+    "borrow": { "$ref": "#/$defs/nullable_paired_borrow" },
+    "repay": { "$ref": "#/$defs/nullable_paired_repay" },
+    "safety": { "$ref": "#/$defs/nullable_safety" },
+    "revenue": { "$ref": "#/$defs/paired_revenue" },
+    "capital_after": { "$ref": "#/$defs/capital_checkpoint" },
+    "factual_record_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "dusk_state_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "token": { "$ref": "common-v1.schema.json#/$defs/token_amount" },
+    "signed_token": { "$ref": "common-v1.schema.json#/$defs/signed_token_amount" },
+    "sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "replay_arm": { "enum": ["fixed_flow", "intent"] },
+    "hlp_scenario": { "enum": ["no_hlp", "maximum_feasible"] },
+    "dusk_status": {
+      "enum": [
+        "executed", "partially_filled", "rejected", "skipped_intent_min_out",
+        "no_economic_counterpart", "deferred_external_state"
+      ]
+    },
+    "nullable_token": { "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] },
+    "nullable_signed_token": { "oneOf": [{ "$ref": "#/$defs/signed_token" }, { "type": "null" }] },
+    "revenue_side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lp_swap_earned", "protocol_fee_auction_swap_earned",
+        "protocol_buyback_swap_earned", "retained_recenter_inventory",
+        "compounded_lp_swap_principal", "lp_public_interest_accrued",
+        "protocol_public_interest_accrued", "lp_public_interest_cash_realized",
+        "protocol_fee_auction_public_interest_cash_realized",
+        "protocol_buyback_public_interest_cash_realized", "hlp_funding_interest_earned",
+        "protocol_fee_auction_hlp_funding_interest_earned",
+        "protocol_buyback_hlp_funding_interest_earned",
+        "flashloan_fee_v1_only", "protocol_claim_realized_v1_only"
+      ],
+      "properties": {
+        "lp_swap_earned": { "$ref": "#/$defs/token" },
+        "protocol_fee_auction_swap_earned": { "$ref": "#/$defs/token" },
+        "protocol_buyback_swap_earned": { "$ref": "#/$defs/token" },
+        "retained_recenter_inventory": { "$ref": "#/$defs/token" },
+        "compounded_lp_swap_principal": { "$ref": "#/$defs/token" },
+        "lp_public_interest_accrued": { "$ref": "#/$defs/token" },
+        "protocol_public_interest_accrued": { "$ref": "#/$defs/token" },
+        "lp_public_interest_cash_realized": { "$ref": "#/$defs/token" },
+        "protocol_fee_auction_public_interest_cash_realized": { "$ref": "#/$defs/token" },
+        "protocol_buyback_public_interest_cash_realized": { "$ref": "#/$defs/token" },
+        "hlp_funding_interest_earned": { "$ref": "#/$defs/token" },
+        "protocol_fee_auction_hlp_funding_interest_earned": { "$ref": "#/$defs/token" },
+        "protocol_buyback_hlp_funding_interest_earned": { "$ref": "#/$defs/token" },
+        "flashloan_fee_v1_only": { "$ref": "#/$defs/token" },
+        "protocol_claim_realized_v1_only": { "$ref": "#/$defs/token" }
+      }
+    },
+    "paired_revenue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v1_base", "v1_quote", "dusk_base", "dusk_quote", "dusk_revenue_origin"],
+      "properties": {
+        "v1_base": { "$ref": "#/$defs/revenue_side" },
+        "v1_quote": { "$ref": "#/$defs/revenue_side" },
+        "dusk_base": { "$ref": "#/$defs/revenue_side" },
+        "dusk_quote": { "$ref": "#/$defs/revenue_side" },
+        "dusk_revenue_origin": { "$ref": "#/$defs/revenue_origin" }
+      }
+    },
+    "swap_execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_in_base", "gross_amount_in", "reserve_credit_in", "gross_amount_out", "recipient_credit_out", "slippage_ppb"],
+      "properties": {
+        "asset_in_base": { "type": "boolean" },
+        "gross_amount_in": { "$ref": "#/$defs/token" },
+        "reserve_credit_in": { "$ref": "#/$defs/token" },
+        "gross_amount_out": { "$ref": "#/$defs/token" },
+        "recipient_credit_out": { "$ref": "#/$defs/token" },
+        "slippage_ppb": { "$ref": "#/$defs/signed_token" }
+      }
+    },
+    "nullable_swap_execution": { "oneOf": [{ "$ref": "#/$defs/swap_execution" }, { "type": "null" }] },
+    "paired_swap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v1", "dusk_quote", "dusk_realized", "original_min_out_passed", "quoted_execution_cost_delta_ppb", "realized_execution_cost_delta_ppb", "slippage_delta_ppb"],
+      "properties": {
+        "v1": { "$ref": "#/$defs/nullable_swap_execution" },
+        "dusk_quote": { "$ref": "#/$defs/nullable_swap_execution" },
+        "dusk_realized": { "type": "boolean" },
+        "original_min_out_passed": { "type": ["boolean", "null"] },
+        "quoted_execution_cost_delta_ppb": { "$ref": "#/$defs/nullable_signed_token" },
+        "realized_execution_cost_delta_ppb": { "$ref": "#/$defs/nullable_signed_token" },
+        "slippage_delta_ppb": { "$ref": "#/$defs/nullable_signed_token" }
+      }
+    },
+    "nullable_paired_swap": { "oneOf": [{ "$ref": "#/$defs/paired_swap" }, { "type": "null" }] },
+    "paired_borrow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "debt_asset_base", "v1_actual_debt_before", "v1_actual_debt_after",
+        "v1_gross_admissible_max_debt", "v1_actionable_max_debt",
+        "dusk_gross_admissible_max_debt", "dusk_actionable_max_debt",
+        "v1_gross_additional_headroom", "dusk_gross_additional_headroom",
+        "v1_actionable_additional_headroom", "dusk_actionable_additional_headroom",
+        "dusk_underwriting_max_additional", "dusk_global_health_floor_max_additional",
+        "dusk_cash_max_additional", "dusk_daily_bucket_max_additional",
+        "dusk_reduce_only_max_additional", "dusk_actionable_max_additional",
+        "dusk_current_underwriting_satisfied", "dusk_current_global_health_floor_satisfied",
+        "dusk_limiting_constraints",
+        "preserved_capacity_fraction_numerator", "preserved_capacity_fraction_denominator",
+        "dusk_target_debt", "dusk_debt_after", "dusk_raw_borrow_request",
+        "dusk_requested_change", "dusk_filled_change", "dusk_unmet_change",
+        "dusk_target_debt_gap",
+        "actionable_capacity_multiplier_numerator", "actionable_capacity_multiplier_denominator"
+      ],
+      "properties": {
+        "debt_asset_base": { "type": "boolean" },
+        "v1_actual_debt_before": { "$ref": "#/$defs/token" },
+        "v1_actual_debt_after": { "$ref": "#/$defs/token" },
+        "v1_gross_admissible_max_debt": { "$ref": "#/$defs/token" },
+        "v1_actionable_max_debt": { "$ref": "#/$defs/token" },
+        "dusk_gross_admissible_max_debt": { "$ref": "#/$defs/token" },
+        "dusk_actionable_max_debt": { "$ref": "#/$defs/token" },
+        "v1_gross_additional_headroom": { "$ref": "#/$defs/token" },
+        "dusk_gross_additional_headroom": { "$ref": "#/$defs/token" },
+        "v1_actionable_additional_headroom": { "$ref": "#/$defs/token" },
+        "dusk_actionable_additional_headroom": { "$ref": "#/$defs/token" },
+        "dusk_underwriting_max_additional": { "$ref": "#/$defs/token" },
+        "dusk_global_health_floor_max_additional": { "$ref": "#/$defs/token" },
+        "dusk_cash_max_additional": { "$ref": "#/$defs/token" },
+        "dusk_daily_bucket_max_additional": { "$ref": "#/$defs/token" },
+        "dusk_reduce_only_max_additional": { "$ref": "#/$defs/nullable_token" },
+        "dusk_actionable_max_additional": { "$ref": "#/$defs/token" },
+        "dusk_current_underwriting_satisfied": { "type": "boolean" },
+        "dusk_current_global_health_floor_satisfied": { "type": "boolean" },
+        "dusk_limiting_constraints": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["underwriting", "global_health_floor", "cash", "daily_borrow_bucket", "reduce_only"] }
+        },
+        "preserved_capacity_fraction_numerator": { "$ref": "#/$defs/token" },
+        "preserved_capacity_fraction_denominator": { "$ref": "#/$defs/token" },
+        "dusk_target_debt": { "$ref": "#/$defs/token" },
+        "dusk_debt_after": { "$ref": "#/$defs/token" },
+        "dusk_raw_borrow_request": { "$ref": "#/$defs/token" },
+        "dusk_requested_change": { "$ref": "#/$defs/token" },
+        "dusk_filled_change": { "$ref": "#/$defs/token" },
+        "dusk_unmet_change": { "$ref": "#/$defs/token" },
+        "dusk_target_debt_gap": { "$ref": "#/$defs/token" },
+        "actionable_capacity_multiplier_numerator": { "$ref": "#/$defs/token" },
+        "actionable_capacity_multiplier_denominator": { "$ref": "#/$defs/token" }
+      }
+    },
+    "nullable_paired_borrow": { "oneOf": [{ "$ref": "#/$defs/paired_borrow" }, { "type": "null" }] },
+    "paired_repay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v1_debt_before", "v1_debt_after", "preserved_reduction_fraction_numerator", "preserved_reduction_fraction_denominator", "dusk_debt_before", "dusk_debt_after", "dusk_filled_reduction", "dusk_unmet_reduction"],
+      "properties": {
+        "v1_debt_before": { "$ref": "#/$defs/token" },
+        "v1_debt_after": { "$ref": "#/$defs/token" },
+        "preserved_reduction_fraction_numerator": { "$ref": "#/$defs/token" },
+        "preserved_reduction_fraction_denominator": { "$ref": "#/$defs/token" },
+        "dusk_debt_before": { "$ref": "#/$defs/token" },
+        "dusk_debt_after": { "$ref": "#/$defs/token" },
+        "dusk_filled_reduction": { "$ref": "#/$defs/token" },
+        "dusk_unmet_reduction": { "$ref": "#/$defs/token" }
+      }
+    },
+    "nullable_paired_repay": { "oneOf": [{ "$ref": "#/$defs/paired_repay" }, { "type": "null" }] },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_operation_id", "debt_asset_base", "v1_liquidation_shortfall", "dusk_liquidation_shortfall", "dusk_exact_liquidation_available", "dusk_settlement_final", "dusk_residual_auction_open", "synthetic_protocol_settlement"],
+      "properties": {
+        "source_operation_id": { "$ref": "#/$defs/sha256" },
+        "debt_asset_base": { "type": "boolean" },
+        "v1_liquidation_shortfall": { "$ref": "#/$defs/token" },
+        "dusk_liquidation_shortfall": { "$ref": "#/$defs/nullable_token" },
+        "dusk_exact_liquidation_available": { "type": "boolean" },
+        "dusk_settlement_final": { "type": "boolean" },
+        "dusk_residual_auction_open": { "type": "boolean" },
+        "synthetic_protocol_settlement": { "type": "boolean" }
+      }
+    },
+    "nullable_safety": { "oneOf": [{ "$ref": "#/$defs/safety" }, { "type": "null" }] },
+    "capital_checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v1_reserve0", "v1_reserve1", "v1_cash_reserve0", "v1_cash_reserve1", "v1_total_debt0", "v1_total_debt1", "v1_total_collateral0", "v1_total_collateral1", "v1_lp_supply", "dusk_base_live_reserve", "dusk_quote_live_reserve", "dusk_base_cash_reserve", "dusk_quote_cash_reserve", "dusk_base_total_debt", "dusk_quote_total_debt", "dusk_ylp_supply"],
+      "properties": {
+        "v1_reserve0": { "$ref": "#/$defs/token" }, "v1_reserve1": { "$ref": "#/$defs/token" },
+        "v1_cash_reserve0": { "$ref": "#/$defs/token" }, "v1_cash_reserve1": { "$ref": "#/$defs/token" },
+        "v1_total_debt0": { "$ref": "#/$defs/token" }, "v1_total_debt1": { "$ref": "#/$defs/token" },
+        "v1_total_collateral0": { "$ref": "#/$defs/token" }, "v1_total_collateral1": { "$ref": "#/$defs/token" },
+        "v1_lp_supply": { "$ref": "#/$defs/token" },
+        "dusk_base_live_reserve": { "$ref": "#/$defs/token" }, "dusk_quote_live_reserve": { "$ref": "#/$defs/token" },
+        "dusk_base_cash_reserve": { "$ref": "#/$defs/token" }, "dusk_quote_cash_reserve": { "$ref": "#/$defs/token" },
+        "dusk_base_total_debt": { "$ref": "#/$defs/token" }, "dusk_quote_total_debt": { "$ref": "#/$defs/token" },
+        "dusk_ylp_supply": { "$ref": "#/$defs/token" }
+      }
+    },
+    "probe_direction": { "enum": ["token0_in", "token1_in"] },
+    "revenue_origin": { "enum": ["factual_user_flow", "synthetic_arbitrage", "synthetic_protocol_settlement"] },
+    "probe_size": { "enum": ["factual_nav10_bps", "factual_nav100_bps", "factual_nav500_bps", "factual_gross_input_p50", "factual_gross_input_p90"] },
+    "probe_reason": { "enum": ["no_factual_gross_input_for_direction", "rounded_gross_input_is_zero", "curve_input_is_zero", "insufficient_cash", "native_preview_rejected", "hlp_settlement_rejected", "missing_hlp_owned_state", "zero_external_lp_nav", "external_lp_ownership_nav_unavailable", "nonpositive_marginal_impact"] },
+    "external_lp_nav_basis": { "enum": ["factual_v1_accounted_lp_reserves", "dusk_aggregate_external_owner_claim"] },
+    "nullable_probe_reason": { "oneOf": [{ "$ref": "#/$defs/probe_reason" }, { "type": "null" }] },
+    "probe_ratio": {
+      "type": "object", "additionalProperties": false,
+      "required": ["numerator", "denominator"],
+      "properties": { "numerator": { "$ref": "#/$defs/token" }, "denominator": { "$ref": "#/$defs/token" } }
+    },
+    "nullable_probe_ratio": { "oneOf": [{ "$ref": "#/$defs/probe_ratio" }, { "type": "null" }] },
+    "probe_quote": {
+      "type": "object", "additionalProperties": false,
+      "required": ["executable", "unsupported_reason", "gross_input", "input_transfer_fee", "net_input", "curve_input", "curve_gross_output", "gross_output", "output_transfer_fee", "net_output", "lp_swap_fee", "protocol_swap_fee", "dynamic_swap_fee", "start_price_nad", "end_price_nad", "common_reference_price_nad", "execution_cost_ppb", "slippage_ppb", "cpmm_equivalent_depth_per_external_lp_value", "external_lp_nav_in_input", "external_lp_nav_basis", "depth_unsupported_reason"],
+      "properties": {
+        "executable": { "type": "boolean" }, "unsupported_reason": { "$ref": "#/$defs/nullable_probe_reason" },
+        "gross_input": { "$ref": "#/$defs/token" }, "input_transfer_fee": { "$ref": "#/$defs/token" }, "net_input": { "$ref": "#/$defs/token" },
+        "curve_input": { "$ref": "#/$defs/token" }, "curve_gross_output": { "$ref": "#/$defs/token" }, "gross_output": { "$ref": "#/$defs/token" },
+        "output_transfer_fee": { "$ref": "#/$defs/token" }, "net_output": { "$ref": "#/$defs/token" }, "lp_swap_fee": { "$ref": "#/$defs/token" },
+        "protocol_swap_fee": { "$ref": "#/$defs/token" }, "dynamic_swap_fee": { "$ref": "#/$defs/token" }, "start_price_nad": { "$ref": "#/$defs/token" },
+        "end_price_nad": { "$ref": "#/$defs/token" }, "common_reference_price_nad": { "$ref": "#/$defs/token" },
+        "execution_cost_ppb": { "$ref": "#/$defs/signed_token" }, "slippage_ppb": { "$ref": "#/$defs/signed_token" },
+        "cpmm_equivalent_depth_per_external_lp_value": { "$ref": "#/$defs/nullable_probe_ratio" },
+        "external_lp_nav_in_input": { "$ref": "#/$defs/nullable_probe_ratio" },
+        "external_lp_nav_basis": { "oneOf": [{ "$ref": "#/$defs/external_lp_nav_basis" }, { "type": "null" }] },
+        "depth_unsupported_reason": { "$ref": "#/$defs/nullable_probe_reason" }
+      }
+    },
+    "nullable_probe_quote": { "oneOf": [{ "$ref": "#/$defs/probe_quote" }, { "type": "null" }] },
+    "probe_observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["size_kind", "direction", "factual_nav_bps", "gross_input", "size_unsupported_reason", "v1", "dusk", "gross_quote_improvement_ppb", "net_quote_improvement_ppb"],
+      "properties": {
+        "size_kind": { "$ref": "#/$defs/probe_size" }, "direction": { "$ref": "#/$defs/probe_direction" },
+        "factual_nav_bps": { "oneOf": [{ "$ref": "common-v1.schema.json#/$defs/u16" }, { "type": "null" }] },
+        "gross_input": { "$ref": "#/$defs/nullable_token" }, "size_unsupported_reason": { "$ref": "#/$defs/nullable_probe_reason" },
+        "v1": { "$ref": "#/$defs/nullable_probe_quote" }, "dusk": { "$ref": "#/$defs/nullable_probe_quote" },
+        "gross_quote_improvement_ppb": { "$ref": "#/$defs/nullable_signed_token" },
+        "net_quote_improvement_ppb": { "$ref": "#/$defs/nullable_signed_token" }
+      }
+    },
+    "sizing_window": {
+      "type": "object", "additionalProperties": false,
+      "required": ["start_unix_seconds", "end_unix_seconds_exclusive", "standardized_trade_nav_bps"],
+      "properties": {
+        "start_unix_seconds": { "$ref": "common-v1.schema.json#/$defs/i64" },
+        "end_unix_seconds_exclusive": { "$ref": "common-v1.schema.json#/$defs/i64" },
+        "standardized_trade_nav_bps": {
+          "type": "array", "prefixItems": [{ "const": 10 }, { "const": 100 }, { "const": 500 }],
+          "items": false, "minItems": 3, "maxItems": 3
+        }
+      }
+    },
+    "spot_probe_set": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "profile_id", "arm", "hlp_scenario", "operation_id", "market", "slot", "factual_record_sha256", "factual_pre_state_sha256", "dusk_pre_state_sha256", "sizing_window", "sizing_source_sha256", "observations", "probe_set_sha256"],
+      "properties": {
+        "schema_version": { "const": 2 }, "profile_id": { "$ref": "#/$defs/sha256" }, "arm": { "$ref": "#/$defs/replay_arm" },
+        "hlp_scenario": { "$ref": "#/$defs/hlp_scenario" }, "operation_id": { "$ref": "#/$defs/sha256" }, "market": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+        "slot": { "$ref": "common-v1.schema.json#/$defs/u64" }, "factual_record_sha256": { "$ref": "#/$defs/sha256" },
+        "factual_pre_state_sha256": { "$ref": "#/$defs/sha256" }, "dusk_pre_state_sha256": { "$ref": "#/$defs/sha256" },
+        "sizing_window": { "$ref": "#/$defs/sizing_window" },
+        "sizing_source_sha256": { "$ref": "#/$defs/sha256" }, "observations": { "type": "array", "items": { "$ref": "#/$defs/probe_observation" } },
+        "probe_set_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "nullable_spot_probe_set": { "oneOf": [{ "$ref": "#/$defs/spot_probe_set" }, { "type": "null" }] }
+  }
+}

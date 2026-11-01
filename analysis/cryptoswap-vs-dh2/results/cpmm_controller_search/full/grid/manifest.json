@@ -1,0 +1,26 @@
+{
+  "status": "controller_search_stage_complete",
+  "canonical_native_output": false,
+  "mode": "cpmm_full",
+  "stage": "grid",
+  "schema_version": 2,
+  "fingerprint": "8ae83a055a21d0c6783474e7f1e9de5976756ee2e1ed719a3a6f2378d39aee83",
+  "upstream_fingerprint": "",
+  "rows": 19200,
+  "profiles": 150,
+  "cells_per_profile": 128,
+  "reused_rows": 0,
+  "resumed_progress_rows": 0,
+  "new_rows": 19200,
+  "checkpoint_batch_size": 256,
+  "selection_eligible_profiles": 150,
+  "selection_excluded_nonfinite_rho_profiles": 0,
+  "nonfinite_rho_selection_policy": "excluded",
+  "selected_profile_ids": [
+    "grid_c08_f10"
+  ],
+  "content_hashes": {
+    "rows.csv": "6c56be2a823081cf11c4c5ea3117e790d61a16c6ca6563593a1f4cfe98d2a7ce",
+    "profiles.csv": "fc1b1250c66859a1666aadae55f305a85212df98cb011bb844d60fb0a68307a1"
+  }
+}

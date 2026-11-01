@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "run_id": "slot-440459364-04573f906223c06b",
+  "cutoff_slot": 440459364,
+  "cohort_selection_sha256": "999b6ba83ee1e8fd9200ec298d62a1f7cfd0b7f9a5287c9d2f7583c9388de5eb",
+  "swaps": {
+    "visible_universe_rows": 472002,
+    "selected_panel_rows": 135426,
+    "selected_panel_coverage_bps": 2869
+  },
+  "debt_actions": {
+    "visible_universe_rows": 3868,
+    "selected_panel_rows": 3227,
+    "selected_panel_coverage_bps": 8342
+  },
+  "liquidations": {
+    "visible_universe_rows": 99,
+    "selected_panel_rows": 72,
+    "selected_panel_coverage_bps": 7272
+  },
+  "artifact_sha256": "4d9c553c0533ac77dcd72c7090a18940ed303445cfa58da8d4abeb48852ce320"
+}

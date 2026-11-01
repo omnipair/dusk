@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "stage": "reconcile-v1",
+  "status": "blocked",
+  "run_id": "slot-440459364-7f17298e51c76e4b",
+  "config_sha256": "66a387d067b96445c9c135cba887a4a3f4bf795cdc07d39659637fcdd04af821",
+  "source_identity_sha256": "7cbb746bdac6260323426a0784f944ace768397707d488d923424ef312167bbf",
+  "cutoff_slot": 440459364,
+  "input_receipt_sha256": "6e240f50d116819c3a3500f31ddaa75bdd9a2506d91395d2f833d1ccd4d0c4b7",
+  "artifact_sha256": {},
+  "blocker_codes": [
+    "stage_execution_failed"
+  ],
+  "receipt_sha256": "43708f6dc7cd6e96ad47707fd531a9c1f935b4ccd55a9ebdd1c1fee874e70f3c"
+}

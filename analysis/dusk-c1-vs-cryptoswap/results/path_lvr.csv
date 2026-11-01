@@ -1,0 +1,55 @@
+profile,model,model_label,scenario,price_steps,final_price_multiple,cumulative_path_lvr_bps_of_initial_tvl,final_loss_versus_hold_bps_of_initial_tvl,maximum_imbalance_v,transition_steps,tail_steps,fees_included
+broad,cpmm,CPMM,single_jump_2x,1,2.0,857.8643762690508,857.8643762690508,0.3535533905932767,0,0,False
+broad,cpmm,CPMM,staircase_2x,20,2.0,36.20162767516977,857.8643762690508,0.3535533905932767,0,0,False
+broad,cpmm,CPMM,staircase_4x,40,4.0,87.3984605134237,5000.0,0.7499999999999432,0,0,False
+broad,cpmm,CPMM,jump_reversal_2x,2,1.0,1464.4660940672738,0.0,0.3535533905932767,0,0,False
+broad,cpmm,CPMM,alternating_chop_10pct,21,1.0,885.718956557422,0.0,0.04767312946222546,0,0,False
+broad,cpmm,CPMM,volatility_cluster,9,1.0,111.8932503044856,0.0,0.05270462766947048,0,0,False
+broad,cryptoswap,CryptoSwap,single_jump_2x,1,2.0,1673.0180748055611,1673.0180748055611,0.5451562960401475,0,0,False
+broad,cryptoswap,CryptoSwap,staircase_2x,20,2.0,53.83462715734755,1673.0180748055611,0.5451562960401475,0,0,False
+broad,cryptoswap,CryptoSwap,staircase_4x,40,4.0,96.39304700506779,7171.474240420474,0.9480344500472598,0,0,False
+broad,cryptoswap,CryptoSwap,jump_reversal_2x,2,1.0,2244.325909377123,0.0,0.5451562960401475,0,0,False
+broad,cryptoswap,CryptoSwap,alternating_chop_10pct,21,1.0,3854.174249268405,0.0,0.21135628019970903,0,0,False
+broad,cryptoswap,CryptoSwap,volatility_cluster,9,1.0,594.2072877230487,0.0,0.2199368487372908,0,0,False
+broad,dusk_c1,Dusk C1,single_jump_2x,1,2.0,1210.4608420425488,1210.4608420425488,0.36698066645732297,1,0,False
+broad,dusk_c1,Dusk C1,staircase_2x,20,2.0,39.497569847588565,1210.4608420425488,0.36698066645732297,19,0,False
+broad,dusk_c1,Dusk C1,staircase_4x,40,4.0,87.73731769037063,5506.411310382071,0.7499999999999432,24,15,False
+broad,dusk_c1,Dusk C1,jump_reversal_2x,2,1.0,1596.161721901801,0.0,0.36698066645732297,1,0,False
+broad,dusk_c1,Dusk C1,alternating_chop_10pct,21,1.0,3292.4614014505214,0.0,0.17965837123102804,20,0,False
+broad,dusk_c1,Dusk C1,volatility_cluster,9,1.0,546.4565663667231,0.0,0.18228551913131238,2,0,False
+balanced,cpmm,CPMM,single_jump_2x,1,2.0,857.8643762690508,857.8643762690508,0.3535533905932767,0,0,False
+balanced,cpmm,CPMM,staircase_2x,20,2.0,36.20162767516977,857.8643762690508,0.3535533905932767,0,0,False
+balanced,cpmm,CPMM,staircase_4x,40,4.0,87.3984605134237,5000.0,0.7499999999999432,0,0,False
+balanced,cpmm,CPMM,jump_reversal_2x,2,1.0,1464.4660940672738,0.0,0.3535533905932767,0,0,False
+balanced,cpmm,CPMM,alternating_chop_10pct,21,1.0,885.718956557422,0.0,0.04767312946222546,0,0,False
+balanced,cpmm,CPMM,volatility_cluster,9,1.0,111.8932503044856,0.0,0.05270462766947048,0,0,False
+balanced,cryptoswap,CryptoSwap,single_jump_2x,1,2.0,1351.799793176105,1351.799793176105,0.4482704100050228,0,0,False
+balanced,cryptoswap,CryptoSwap,staircase_2x,20,2.0,48.53750313633887,1351.799793176105,0.4482704100050228,0,0,False
+balanced,cryptoswap,CryptoSwap,staircase_4x,40,4.0,94.64108900240743,6212.492677781589,0.8408535659991118,0,0,False
+balanced,cryptoswap,CryptoSwap,jump_reversal_2x,2,1.0,1887.0934002979434,0.0,0.4482704100050228,0,0,False
+balanced,cryptoswap,CryptoSwap,alternating_chop_10pct,21,1.0,3009.4134358823644,0.0,0.1637901399871566,0,0,False
+balanced,cryptoswap,CryptoSwap,volatility_cluster,9,1.0,489.1566393895508,0.0,0.16943670507913577,0,0,False
+balanced,dusk_c1,Dusk C1,single_jump_2x,1,2.0,893.2640203341169,893.2640203341169,0.3535533905932767,0,1,False
+balanced,dusk_c1,Dusk C1,staircase_2x,20,2.0,40.03499402364996,893.2640203341169,0.3535533905932767,7,13,False
+balanced,dusk_c1,Dusk C1,staircase_4x,40,4.0,91.10367438847521,5050.062656739995,0.7499999999999432,7,33,False
+balanced,dusk_c1,Dusk C1,jump_reversal_2x,2,1.0,1473.3160050835404,0.0,0.3535533905932767,0,1,False
+balanced,dusk_c1,Dusk C1,alternating_chop_10pct,21,1.0,1346.1587293150078,0.0,0.0725740898969321,20,0,False
+balanced,dusk_c1,Dusk C1,volatility_cluster,9,1.0,229.26270264958526,0.0,0.07522983632719621,8,0,False
+aggressive,cpmm,CPMM,single_jump_2x,1,2.0,857.8643762690508,857.8643762690508,0.3535533905932767,0,0,False
+aggressive,cpmm,CPMM,staircase_2x,20,2.0,36.20162767516977,857.8643762690508,0.3535533905932767,0,0,False
+aggressive,cpmm,CPMM,staircase_4x,40,4.0,87.3984605134237,5000.0,0.7499999999999432,0,0,False
+aggressive,cpmm,CPMM,jump_reversal_2x,2,1.0,1464.4660940672738,0.0,0.3535533905932767,0,0,False
+aggressive,cpmm,CPMM,alternating_chop_10pct,21,1.0,885.718956557422,0.0,0.04767312946222546,0,0,False
+aggressive,cpmm,CPMM,volatility_cluster,9,1.0,111.8932503044856,0.0,0.05270462766947048,0,0,False
+aggressive,cryptoswap,CryptoSwap,single_jump_2x,1,2.0,1113.0808168646756,1113.0808168646756,0.3965220035194647,0,0,False
+aggressive,cryptoswap,CryptoSwap,staircase_2x,20,2.0,43.32699569091325,1113.0808168646756,0.3965220035194647,0,0,False
+aggressive,cryptoswap,CryptoSwap,staircase_4x,40,4.0,92.10052064961616,5601.14472078451,0.7908674198656059,0,0,False
+aggressive,cryptoswap,CryptoSwap,jump_reversal_2x,2,1.0,1667.8645271809155,0.0,0.3965220035194647,0,0,False
+aggressive,cryptoswap,CryptoSwap,alternating_chop_10pct,21,1.0,2125.0305957961223,0.0,0.11494456061490148,0,0,False
+aggressive,cryptoswap,CryptoSwap,volatility_cluster,9,1.0,343.2446862751737,0.0,0.11950127164237755,0,0,False
+aggressive,dusk_c1,Dusk C1,single_jump_2x,1,2.0,861.4003522272374,861.4003522272374,0.3535533905932767,0,1,False
+aggressive,dusk_c1,Dusk C1,staircase_2x,20,2.0,37.4413991113598,861.4003522272374,0.3535533905932767,2,18,False
+aggressive,dusk_c1,Dusk C1,staircase_4x,40,4.0,88.62543114109833,5005.000625156297,0.7499999999999432,2,38,False
+aggressive,dusk_c1,Dusk C1,jump_reversal_2x,2,1.0,1465.3500880568183,0.0,0.3535533905932767,0,1,False
+aggressive,dusk_c1,Dusk C1,alternating_chop_10pct,21,1.0,885.6225147615481,0.0,0.04767312946222552,0,20,False
+aggressive,dusk_c1,Dusk C1,volatility_cluster,9,1.0,125.13574897510593,0.0,0.052704627669470504,6,2,False

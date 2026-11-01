@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-08-22T02:18:10.221Z",
+  "purpose": "read_only_historical_price_gap_classification",
+  "provider": "birdeye",
+  "source_inputs": {
+    "canonical_operations": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-04573f906223c06b/canonical-operations.jsonl",
+      "sha256": "d37c949663c9f731adb603e85e6c0a09e30fc42d4403ce3625111ea716bb62d2",
+      "rows": 139812
+    },
+    "exported_historical_prices": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-04573f906223c06b/historical-prices.jsonl",
+      "sha256": "73a66f8553244ce5eb4d6fbb9d409aa60258c9c55d1bd8a4d340a17a12daa4e4",
+      "rows": 19484
+    }
+  },
+  "audit_grain": {
+    "expected_operation_references": 279608,
+    "expected_unique_mint_hour_keys": 14842,
+    "exported_expected_unique_mint_hour_keys": 12255,
+    "missing_operation_references": 40776,
+    "missing_unique_mint_hour_keys": 2587
+  },
+  "database_query": {
+    "table": "token_price_snapshots",
+    "quality_filter_applied": false,
+    "provider_filter_applied": false,
+    "transaction": {
+      "transaction_read_only": "on",
+      "transaction_timestamp": "2026-08-22T02:18:09.166Z",
+      "transaction_snapshot": "2299936:2299936:",
+      "schema_sha256": "b99f0e851ed6a990844b78a9da50cfc7a0c3d740e1859646518bb7503c8c237d"
+    },
+    "sql_sha256": "934644c0e7c330be9e3d1d1049d23a8426e85854195d37005a7cbc5078c8c1c8",
+    "matched_rows": 178,
+    "rows_sha256": "f5119e56c1f4af3df67ca862a143b43d630cbb3a976f0f34687e3192ca80fa00"
+  },
+  "classification_counts_by_unique_key": {
+    "absent": 2409,
+    "configured_provider_estimated": 178
+  },
+  "classification_counts_by_operation_reference": {
+    "absent": 38743,
+    "configured_provider_estimated": 2033
+  },
+  "by_mint": {
+    "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump": {
+      "keys": 647,
+      "operation_references": 9148,
+      "classifications": {
+        "absent": 601,
+        "configured_provider_estimated": 46
+      }
+    },
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": {
+      "keys": 410,
+      "operation_references": 17886,
+      "classifications": {
+        "absent": 352,
+        "configured_provider_estimated": 58
+      }
+    },
+    "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta": {
+      "keys": 372,
+      "operation_references": 3422,
+      "classifications": {
+        "absent": 323,
+        "configured_provider_estimated": 49
+      }
+    },
+    "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp": {
+      "keys": 181,
+      "operation_references": 861,
+      "classifications": {
+        "absent": 178,
+        "configured_provider_estimated": 3
+      }
+    },
+    "sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH": {
+      "keys": 761,
+      "operation_references": 9072,
+      "classifications": {
+        "absent": 739,
+        "configured_provider_estimated": 22
+      }
+    },
+    "6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev": {
+      "keys": 216,
+      "operation_references": 387,
+      "classifications": {
+        "absent": 216
+      }
+    }
+  },
+  "artifacts": {
+    "missing_price_keys": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/classification/missing-price-keys.jsonl",
+      "sha256": "cf0e3da6e81ab2b28b47c0f51785e51665caa7d2885661e94bf879cbe58f1d5a"
+    },
+    "database_price_rows": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/classification/database-price-rows.jsonl",
+      "sha256": "f5119e56c1f4af3df67ca862a143b43d630cbb3a976f0f34687e3192ca80fa00"
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "status": "controller_search_complete",
+  "canonical_native_output": false,
+  "mode": "full",
+  "schema_version": 2,
+  "initial_profiles": 150,
+  "exact_profile_budget": 150,
+  "complete_matrix_evaluated_for_every_initial_profile": true,
+  "decision_grade_search": true,
+  "historical_reads": 0,
+  "stage_counts": {
+    "grid": {
+      "profiles": 150,
+      "cells_per_profile": 128,
+      "rows": 19200,
+      "selected": 1,
+      "exhaustive": true
+    },
+    "local": {
+      "profiles": 5,
+      "cells_per_profile": 128,
+      "rows": 640,
+      "selected": 1,
+      "exhaustive": true
+    }
+  },
+  "fingerprints": {
+    "grid": "9690b9e37c1cb56bc1c3fd59054ee9d2e20ecdeaae0af7c215d99611eeac3f14",
+    "local": "2cea3931195af453a46811c2d868e50ce183d339d09141324010c6e3743562ff"
+  },
+  "selection_rule": "hard validity; minimum independent Dusk service relaxation; maximum worst-route fee-adjusted LP utility; maximum mean-route utility; stable profile id",
+  "winner": {
+    "profile_id": "grid_c09_f10",
+    "description": "EMA 60m; threshold 200bp; step 50bp; interval 5m; dynamic cap 0bp; div 0; vol 0; vol half-life 15m",
+    "hard_valid": true,
+    "independent_dusk_service_relaxation": 2.0685803528403777,
+    "original_service_envelope_pass": false,
+    "minimum_route_selection_utility": -82.54423154955387,
+    "config": {
+      "invariant_peak_depth": 2000.0,
+      "invariant_fade_scale": 2.1348253657956496e-05,
+      "center_ema_half_life_minutes": 60.0,
+      "adjustment_threshold_bps": 200.0,
+      "adjustment_step_bps": 50.0,
+      "min_adjustment_interval_minutes": 5,
+      "base_fee_bps": 5.0,
+      "dynamic_cap_bps": 0.0,
+      "divergence_coefficient": 0.0,
+      "volatility_coefficient": 0.0,
+      "volatility_half_life_minutes": 15.0,
+      "volatility_shock_cap": 0.1,
+      "volatility_accumulator_cap": 1.0,
+      "manager_fee_bps": 500,
+      "protocol_fee_bps": 0,
+      "solver_haircut_ppm": 10.0
+    },
+    "full_config": {
+      "model": {
+        "peak_depth": 2000.0,
+        "fade_scale": 2.1348253657956496e-05,
+        "base_fee": 0.0005,
+        "divergence_coefficient": 0.02,
+        "volatility_coefficient": 0.02,
+        "max_dynamic_fee": 0.02,
+        "name": "Current DH2"
+      },
+      "controller": {
+        "fee": {
+          "base_fee_rate_nad": 500000,
+          "max_fee_rate_nad": 500000,
+          "divergence_coefficient_nad": 0,
+          "volatility_coefficient_nad": 0,
+          "volatility_half_life_ms": 900000,
+          "volatility_shock_cap_nad": 100000000,
+          "volatility_accumulator_cap_nad": 1000000000
+        },
+        "center_ema_half_life_minutes": 60.0,
+        "adjustment_threshold": 0.02,
+        "adjustment_step": 0.005,
+        "min_adjustment_interval_minutes": 5,
+        "arb_min_profit_quote": 0.1,
+        "solver_haircut_ppm": 10.0,
+        "recenter_enabled": true,
+        "manager_fee_bps": 500,
+        "protocol_fee_bps": 0
+      }
+    }
+  },
+  "local_diagnostic_best": {
+    "profile_id": "grid_c09_f10",
+    "description": "EMA 60m; threshold 200bp; step 50bp; interval 5m; dynamic cap 0bp; div 0; vol 0; vol half-life 15m",
+    "hard_valid": true,
+    "independent_dusk_service_relaxation": 2.0685803528403777,
+    "minimum_route_selection_utility": -82.54423154955387,
+    "config": {
+      "invariant_peak_depth": 2000.0,
+      "invariant_fade_scale": 2.1348253657956496e-05,
+      "center_ema_half_life_minutes": 60.0,
+      "adjustment_threshold_bps": 200.0,
+      "adjustment_step_bps": 50.0,
+      "min_adjustment_interval_minutes": 5,
+      "base_fee_bps": 5.0,
+      "dynamic_cap_bps": 0.0,
+      "divergence_coefficient": 0.0,
+      "volatility_coefficient": 0.0,
+      "volatility_half_life_minutes": 15.0,
+      "volatility_shock_cap": 0.1,
+      "volatility_accumulator_cap": 1.0,
+      "manager_fee_bps": 500,
+      "protocol_fee_bps": 0,
+      "solver_haircut_ppm": 10.0
+    },
+    "selection_authority": "diagnostic_only"
+  },
+  "promotion_policy": "promote the exhaustive 150-profile grid winner and adjacent already-grid-evaluated profiles only; the extra local pass is diagnostic and cannot replace the equal-budget winner"
+}

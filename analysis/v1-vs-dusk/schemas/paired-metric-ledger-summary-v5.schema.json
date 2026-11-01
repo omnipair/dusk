@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:paired-metric-ledger-summary:v5",
+  "title": "PairedMetricLedgerSummaryV1",
+  "description": "Strict structural snapshot of the hash-bound paired metric JSONL summary.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::metric_engine::PairedMetricLedgerSummaryV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "profile_id", "hlp_scenario", "row_count", "market_count",
+    "synthetic_arbitrage_rows", "synthetic_protocol_settlement_rows", "swap_rows",
+    "spot_probes_enabled", "spot_probe_sizing_window",
+    "spot_probe_rows", "spot_probe_observation_count", "spot_probe_sizing_source_sha256",
+    "spot_probe_sets_sha256", "borrow_rows", "repay_rows",
+    "liquidation_rows_without_dusk_exactness", "first_order", "last_order", "ledger_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 5 },
+    "profile_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "hlp_scenario": { "enum": ["no_hlp", "maximum_feasible"] },
+    "row_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "market_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "synthetic_arbitrage_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "synthetic_protocol_settlement_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "swap_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "spot_probes_enabled": { "type": "boolean" },
+    "spot_probe_sizing_window": {
+      "oneOf": [
+        { "$ref": "paired-operation-metric-row-v5.schema.json#/$defs/sizing_window" },
+        { "type": "null" }
+      ]
+    },
+    "spot_probe_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "spot_probe_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "spot_probe_sizing_source_sha256": {
+      "oneOf": [
+        { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "spot_probe_sets_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "borrow_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "repay_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "liquidation_rows_without_dusk_exactness": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "first_order": { "$ref": "#/$defs/nullable_order" },
+    "last_order": { "$ref": "#/$defs/nullable_order" },
+    "ledger_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "nullable_order": {
+      "oneOf": [
+        { "$ref": "common-v1.schema.json#/$defs/chain_order" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

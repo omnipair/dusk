@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "database_rows": 263241,
+  "rpc_events_in_db_covered_families": 263928,
+  "expected_records": 263977,
+  "reconciled_records": 263977,
+  "blocking_records": 0,
+  "classifications": {
+    "dbcollapsedsametransaction": 295,
+    "dbduplicate": 49,
+    "dbmissingrpccanonical": 441,
+    "exact": 185050,
+    "orderingrecoveredfromrpc": 78142,
+    "rpc_missing_critical": 0
+  },
+  "by_market": {
+    "5aSf28bo5Nfkq3QCAKpVyzCPmtGL9kWdLn18ERZia7Kp": {
+      "expected_records": 14173,
+      "reconciled_records": 14173,
+      "blocking_records": 0
+    },
+    "6FkrhorTJcQbdvUnYLa5Ksv1ReoGTfc95Hu4U2jniYW5": {
+      "expected_records": 3443,
+      "reconciled_records": 3443,
+      "blocking_records": 0
+    },
+    "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p": {
+      "expected_records": 120560,
+      "reconciled_records": 120560,
+      "blocking_records": 0
+    },
+    "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB": {
+      "expected_records": 46812,
+      "reconciled_records": 46812,
+      "blocking_records": 0
+    },
+    "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo": {
+      "expected_records": 78989,
+      "reconciled_records": 78989,
+      "blocking_records": 0
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "source": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-06c0e05aadb7e883/db-rpc-reconciliation.jsonl",
+  "record_count": 5,
+  "records": [
+    {
+      "signature": "2WvpGuQD2BaBjhL3LGcismixmZmsJqzQAWavF41Xk57d25Kkga1ixjj3qKMdaTPpbpPb3B9fp7ee5rpkkCoZTa2Y",
+      "db_event_ref": "adjust_liquidity:1",
+      "rpc_event_id": "4f0cd3d859fcdc78900c155cf9c957db66772a958c39376fef7555be7e81d260",
+      "classification": "ordering_recovered_from_rpc",
+      "differing_fields": [],
+      "detail_code": null
+    },
+    {
+      "signature": "2WvpGuQD2BaBjhL3LGcismixmZmsJqzQAWavF41Xk57d25Kkga1ixjj3qKMdaTPpbpPb3B9fp7ee5rpkkCoZTa2Y",
+      "db_event_ref": null,
+      "rpc_event_id": "cf7d40437eeb8205f23397ff91cb04e27f5fbb3f9ca84fdf97295502fa63cd3a",
+      "classification": "db_missing_rpc_canonical",
+      "differing_fields": [],
+      "detail_code": "database_row_absent"
+    },
+    {
+      "signature": "4qWBoUSVJTbyUMgZapHi7G8XKsrtTDmGh5aP9wYUcFQJcPPHNprFdyLv7gRpSt7mxMADWcqg9EGqBCDvaKF9n5KV",
+      "db_event_ref": "adjust_liquidity:3",
+      "rpc_event_id": "13875f1349ff398261950d06c8a6d70099f1ea0dfcd8059203309415c6c618b6",
+      "classification": "ordering_recovered_from_rpc",
+      "differing_fields": [],
+      "detail_code": null
+    },
+    {
+      "signature": "4qWBoUSVJTbyUMgZapHi7G8XKsrtTDmGh5aP9wYUcFQJcPPHNprFdyLv7gRpSt7mxMADWcqg9EGqBCDvaKF9n5KV",
+      "db_event_ref": null,
+      "rpc_event_id": "29aaec39177cfe379e6716923533b4b54921b9b59fc45feb29cd98292c80e01c",
+      "classification": "db_missing_rpc_canonical",
+      "differing_fields": [],
+      "detail_code": "database_row_absent"
+    },
+    {
+      "signature": "41HE3vGYXKCMjr2wf8sA1GCAnR87ciEpftYNVmw1ztvRAbbnsRqnNw3rCRiY42Lmk89jF4xgc2eSryBETqkR7xP2",
+      "db_event_ref": "adjust_collateral_events:1",
+      "rpc_event_id": "3e965e5d83cb70652330a41a713647ec9042cec9a0155d0266ce39432d1d693c",
+      "classification": "ordering_recovered_from_rpc",
+      "differing_fields": [],
+      "detail_code": null
+    }
+  ]
+}

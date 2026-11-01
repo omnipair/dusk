@@ -1,0 +1,802 @@
+{
+  "benchmark_configuration": {
+    "bridge_fractions_swept": [
+      0.25,
+      0.5,
+      0.75
+    ],
+    "center_move_fractions_of_log_gap": [
+      0.01,
+      0.05,
+      0.1,
+      0.25,
+      0.5,
+      1.0
+    ],
+    "jump_price_multiples": [
+      0.1,
+      0.25,
+      0.5,
+      0.6666666666666666,
+      0.8,
+      0.9090909090909091,
+      0.9523809523809523,
+      0.9803921568627451,
+      0.9900990099009901,
+      1.01,
+      1.02,
+      1.05,
+      1.1,
+      1.25,
+      1.5,
+      2.0,
+      4.0,
+      10.0
+    ],
+    "network_required": false,
+    "profiles": [
+      {
+        "curve_A": 10.0,
+        "description": "broad low-concentration long-tail profile",
+        "fade_scale": 0.05,
+        "peak_depth": 20.0,
+        "profile": "broad"
+      },
+      {
+        "curve_A": 100.0,
+        "description": "middle concentration and fade profile",
+        "fade_scale": 0.005,
+        "peak_depth": 200.0,
+        "profile": "balanced"
+      },
+      {
+        "curve_A": 1000.0,
+        "description": "high central depth with a narrow fade",
+        "fade_scale": 0.0005,
+        "peak_depth": 2000.0,
+        "profile": "aggressive"
+      }
+    ],
+    "random_seed": null,
+    "selected_bridge_fraction": 0.5,
+    "service_search": {
+      "fade_scale_geometric_bisection_iterations": 35,
+      "fade_scale_max": 0.199,
+      "fade_scale_min": 1e-07,
+      "feasibility_tolerance_bps": 1e-09,
+      "peak_depth_log_points": 31,
+      "peak_depth_max": 2000.0,
+      "peak_depth_min": 2.0,
+      "qualification": "bounded tested envelope, not an unbounded global optimum",
+      "scope": "balanced-start outward exact-in at 10/100/1000/2000 bps of initial TVL"
+    },
+    "synthetic_paths": {
+      "alternating_chop_10pct": [
+        1.0,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.1,
+        0.9090909090909091,
+        1.0
+      ],
+      "jump_reversal_2x": [
+        1.0,
+        2.0,
+        1.0
+      ],
+      "single_jump_2x": [
+        1.0,
+        2.0
+      ],
+      "staircase_2x": [
+        1.0,
+        1.0352649238413776,
+        1.0717734625362931,
+        1.109569472067845,
+        1.148698354997035,
+        1.189207115002721,
+        1.2311444133449163,
+        1.2745606273192622,
+        1.3195079107728942,
+        1.3660402567543954,
+        1.4142135623730951,
+        1.4640856959456254,
+        1.515716566510398,
+        1.5691681957935015,
+        1.624504792712471,
+        1.681792830507429,
+        1.7411011265922482,
+        1.8025009252216604,
+        1.8660659830736148,
+        1.931872657849691,
+        2.0
+      ],
+      "staircase_4x": [
+        1.0,
+        1.0352649238413776,
+        1.0717734625362931,
+        1.109569472067845,
+        1.148698354997035,
+        1.189207115002721,
+        1.2311444133449163,
+        1.2745606273192622,
+        1.3195079107728942,
+        1.3660402567543954,
+        1.4142135623730951,
+        1.4640856959456254,
+        1.515716566510398,
+        1.5691681957935015,
+        1.624504792712471,
+        1.681792830507429,
+        1.7411011265922482,
+        1.8025009252216604,
+        1.8660659830736148,
+        1.931872657849691,
+        2.0,
+        2.070529847682755,
+        2.1435469250725863,
+        2.2191389441356897,
+        2.2973967099940698,
+        2.378414230005442,
+        2.4622888266898326,
+        2.5491212546385245,
+        2.6390158215457884,
+        2.732080513508791,
+        2.8284271247461903,
+        2.928171391891251,
+        3.0314331330207964,
+        3.1383363915870026,
+        3.249009585424942,
+        3.363585661014858,
+        3.4822022531844965,
+        3.605001850443321,
+        3.7321319661472296,
+        3.863745315699382,
+        4.0
+      ],
+      "volatility_cluster": [
+        1.0,
+        1.01,
+        0.99,
+        1.02,
+        0.98,
+        1.05,
+        0.95,
+        1.1,
+        0.9,
+        1.0
+      ]
+    },
+    "tail_x_over_d": [
+      0.5,
+      0.75,
+      1.0,
+      2.0,
+      5.0,
+      10.0,
+      50.0,
+      100.0,
+      200.0
+    ],
+    "trade_sizes_bps_of_initial_tvl": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200,
+      500,
+      1000,
+      1500,
+      2000
+    ]
+  },
+  "bridge_selection_status": "provisional pending fixed-point SBF validation",
+  "bridge_sensitivity": [
+    {
+      "bridge_join_absolute_log_price_curvature": 3.0234497140769263,
+      "bridge_start_fraction": 0.25,
+      "inner_join_absolute_log_price_curvature": 0.47307123742296564,
+      "inner_join_curvature_ratio": 6.391108727190926,
+      "maximum_absolute_log_price_curvature": 3.0112031761027938,
+      "profile": "broad",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 192.6487564222697,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 4272.977062254916,
+      "stress_grid_mean_execution_premium_bps": 405.18240198595896,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 212.53364556368925,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 764.0719514294768,
+      "stress_grid_mean_one_jump_loss_bps": 3508.9051108254394,
+      "transition_width_v": 0.548526567023716,
+      "v_start": 0.1168756497831361,
+      "v_tail": 0.6654022168068522
+    },
+    {
+      "bridge_join_absolute_log_price_curvature": 4.599294568890526,
+      "bridge_start_fraction": 0.5,
+      "inner_join_absolute_log_price_curvature": 0.9347358588187042,
+      "inner_join_curvature_ratio": 4.920421662974393,
+      "maximum_absolute_log_price_curvature": 4.567160909974572,
+      "profile": "broad",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 192.6487564222697,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 4272.977062254916,
+      "stress_grid_mean_execution_premium_bps": 348.227127633002,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 155.57837121073226,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 749.6222856459709,
+      "stress_grid_mean_one_jump_loss_bps": 3523.354776608945,
+      "transition_width_v": 0.2783972510370528,
+      "v_start": 0.1691204869728789,
+      "v_tail": 0.4475177380099317
+    },
+    {
+      "bridge_join_absolute_log_price_curvature": 8.707421959518207,
+      "bridge_start_fraction": 0.75,
+      "inner_join_absolute_log_price_curvature": 1.397384921519367,
+      "inner_join_curvature_ratio": 6.2312265041837485,
+      "maximum_absolute_log_price_curvature": 8.615593342075169,
+      "profile": "broad",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 192.6487564222697,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 4272.977062254916,
+      "stress_grid_mean_execution_premium_bps": 330.44657672285706,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 137.79782030058732,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 743.0751721704299,
+      "stress_grid_mean_one_jump_loss_bps": 3529.9018900844862,
+      "transition_width_v": 0.12353276898855715,
+      "v_start": 0.21252912920895345,
+      "v_tail": 0.3360618981975106
+    },
+    {
+      "bridge_join_absolute_log_price_curvature": 2.9734799030907806,
+      "bridge_start_fraction": 0.25,
+      "inner_join_absolute_log_price_curvature": 0.050353492765134546,
+      "inner_join_curvature_ratio": 59.05210820151208,
+      "maximum_absolute_log_price_curvature": 2.9625725563548713,
+      "profile": "balanced",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 304.99901703301134,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 3841.928155455255,
+      "stress_grid_mean_execution_premium_bps": 741.4463007649993,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 436.4472837319879,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 528.5388037631742,
+      "stress_grid_mean_one_jump_loss_bps": 3313.3893516920807,
+      "transition_width_v": 0.16051775654188963,
+      "v_start": 0.03551555383794551,
+      "v_tail": 0.19603331037983512
+    },
+    {
+      "bridge_join_absolute_log_price_curvature": 4.821192495920233,
+      "bridge_start_fraction": 0.5,
+      "inner_join_absolute_log_price_curvature": 0.1095693852843378,
+      "inner_join_curvature_ratio": 44.00127356203567,
+      "maximum_absolute_log_price_curvature": 4.789540311730023,
+      "profile": "balanced",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 304.99901703301134,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 3841.928155455255,
+      "stress_grid_mean_execution_premium_bps": 734.6977976705278,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 429.69878063751645,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 527.2736977926272,
+      "stress_grid_mean_one_jump_loss_bps": 3314.6544576626275,
+      "transition_width_v": 0.07626905083777138,
+      "v_start": 0.05034413588008342,
+      "v_tail": 0.12661318671785482
+    },
+    {
+      "bridge_join_absolute_log_price_curvature": 10.271834852831653,
+      "bridge_start_fraction": 0.75,
+      "inner_join_absolute_log_price_curvature": 0.18635696538145588,
+      "inner_join_curvature_ratio": 55.11913564274957,
+      "maximum_absolute_log_price_curvature": 10.177508952488248,
+      "profile": "balanced",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 304.99901703301134,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 3841.928155455255,
+      "stress_grid_mean_execution_premium_bps": 733.58788736451,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 428.58887033149864,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 526.5860058158594,
+      "stress_grid_mean_one_jump_loss_bps": 3315.3421496393953,
+      "transition_width_v": 0.03143024914545489,
+      "v_start": 0.06182209346384249,
+      "v_tail": 0.09325234260929738
+    },
+    {
+      "bridge_join_absolute_log_price_curvature": 2.9195051748873824,
+      "bridge_start_fraction": 0.25,
+      "inner_join_absolute_log_price_curvature": 0.004985057057465381,
+      "inner_join_curvature_ratio": 585.6513057388726,
+      "maximum_absolute_log_price_curvature": 2.909908188550133,
+      "profile": "aggressive",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 485.47750018234547,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 3564.8813062882527,
+      "stress_grid_mean_execution_premium_bps": 850.9037382119221,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 365.4262380295766,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 275.86012959337677,
+      "stress_grid_mean_one_jump_loss_bps": 3289.021176694876,
+      "transition_width_v": 0.050356343701695755,
+      "v_start": 0.011185406010715345,
+      "v_tail": 0.0615417497124111
+    },
+    {
+      "bridge_join_absolute_log_price_curvature": 4.732904526987111,
+      "bridge_start_fraction": 0.5,
+      "inner_join_absolute_log_price_curvature": 0.010890154496028315,
+      "inner_join_curvature_ratio": 434.6039836912526,
+      "maximum_absolute_log_price_curvature": 4.704450540579759,
+      "profile": "aggressive",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 485.47750018234547,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 3564.8813062882527,
+      "stress_grid_mean_execution_premium_bps": 847.3121356727871,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 361.8346354904417,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 275.75091895679685,
+      "stress_grid_mean_one_jump_loss_bps": 3289.1303873314555,
+      "transition_width_v": 0.023757115741676067,
+      "v_start": 0.015822259836268303,
+      "v_tail": 0.03957937557794437
+    },
+    {
+      "bridge_join_absolute_log_price_curvature": 10.160924585510466,
+      "bridge_start_fraction": 0.75,
+      "inner_join_absolute_log_price_curvature": 0.018709618137421044,
+      "inner_join_curvature_ratio": 543.0856210361469,
+      "maximum_absolute_log_price_curvature": 10.075792078078125,
+      "profile": "aggressive",
+      "stress_grid_mean_cryptoswap_execution_premium_bps": 485.47750018234547,
+      "stress_grid_mean_cryptoswap_one_jump_loss_bps": 3564.8813062882527,
+      "stress_grid_mean_execution_premium_bps": 845.7680037023262,
+      "stress_grid_mean_execution_premium_increase_vs_cryptoswap_bps": 360.29050351998075,
+      "stress_grid_mean_jump_loss_reduction_vs_cryptoswap_bps": 275.68770793856714,
+      "stress_grid_mean_one_jump_loss_bps": 3289.1935983496855,
+      "transition_width_v": 0.009708035767919714,
+      "v_start": 0.019383377607966868,
+      "v_tail": 0.029091413375886582
+    }
+  ],
+  "decision_examples": {
+    "aggressive": {
+      "execution_premium_bps_by_trade_size": {
+        "10": {
+          "cpmm": 19.999999999735785,
+          "cryptoswap": 0.010155409049250608,
+          "dusk_c1": 0.010155409049250608
+        },
+        "100": {
+          "cpmm": 199.99999999997797,
+          "cryptoswap": 0.3231319042185099,
+          "dusk_c1": 19.789608356046706
+        },
+        "1000": {
+          "cpmm": 2000.000000000004,
+          "cryptoswap": 916.2660820998015,
+          "dusk_c1": 1970.0748129675883
+        },
+        "2000": {
+          "cpmm": 4000.0000000000014,
+          "cryptoswap": 2880.975842344289,
+          "dusk_c1": 3982.52184769039
+        }
+      },
+      "fraction_of_cryptoswap_excess_loss_removed_by_dusk": 0.9861451873949253,
+      "full_restore_from_2x_output_difference_vs_same_reserve_cpmm_bps": {
+        "cpmm": 0.0,
+        "cryptoswap": -774.6361519261047,
+        "dusk_c1": -12.066802840580149
+      },
+      "one_jump_2x_loss_bps_initial_tvl": {
+        "cpmm": 857.8643762690508,
+        "cryptoswap": 1113.0808168646756,
+        "dusk_c1": 861.4003522272374
+      },
+      "ten_percent_recenter_protected_q_impairment_bps": {
+        "cpmm": 0.0,
+        "cryptoswap": 14.193704776764848,
+        "dusk_c1": 0.0
+      }
+    },
+    "balanced": {
+      "execution_premium_bps_by_trade_size": {
+        "10": {
+          "cpmm": 19.999999999735785,
+          "cryptoswap": 0.09966052494148059,
+          "dusk_c1": 0.09966052494148059
+        },
+        "100": {
+          "cpmm": 199.99999999997797,
+          "cryptoswap": 1.1590858806043158,
+          "dusk_c1": 1.1590858806043158
+        },
+        "1000": {
+          "cpmm": 2000.000000000004,
+          "cryptoswap": 412.51822744627685,
+          "dusk_c1": 1707.3170731707355
+        },
+        "2000": {
+          "cpmm": 4000.0000000000014,
+          "cryptoswap": 2044.8699586596342,
+          "dusk_c1": 3827.160493827162
+        }
+      },
+      "fraction_of_cryptoswap_excess_loss_removed_by_dusk": 0.928331431897042,
+      "full_restore_from_2x_output_difference_vs_same_reserve_cpmm_bps": {
+        "cpmm": 0.0,
+        "cryptoswap": -1352.7793279260359,
+        "dusk_c1": -120.28668706550505
+      },
+      "one_jump_2x_loss_bps_initial_tvl": {
+        "cpmm": 857.8643762690508,
+        "cryptoswap": 1351.799793176105,
+        "dusk_c1": 893.2640203341169
+      },
+      "ten_percent_recenter_protected_q_impairment_bps": {
+        "cpmm": 0.0,
+        "cryptoswap": 30.876969513987667,
+        "dusk_c1": 0.0
+      }
+    },
+    "broad": {
+      "execution_premium_bps_by_trade_size": {
+        "10": {
+          "cpmm": 19.999999999735785,
+          "cryptoswap": 0.9525226596096559,
+          "dusk_c1": 0.9525226596096559
+        },
+        "100": {
+          "cpmm": 199.99999999997797,
+          "cryptoswap": 9.665709591362148,
+          "dusk_c1": 9.665709591362148
+        },
+        "1000": {
+          "cpmm": 2000.000000000004,
+          "cryptoswap": 255.09729713461437,
+          "dusk_c1": 324.42306823636136
+        },
+        "2000": {
+          "cpmm": 4000.0000000000014,
+          "cryptoswap": 1284.9192953715606,
+          "dusk_c1": 2459.515192907533
+        }
+      },
+      "fraction_of_cryptoswap_excess_loss_removed_by_dusk": 0.5674478734421085,
+      "full_restore_from_2x_output_difference_vs_same_reserve_cpmm_bps": {
+        "cpmm": 0.0,
+        "cryptoswap": -1974.05751396189,
+        "dusk_c1": -1108.0838793398063
+      },
+      "one_jump_2x_loss_bps_initial_tvl": {
+        "cpmm": 857.8643762690508,
+        "cryptoswap": 1673.0180748055611,
+        "dusk_c1": 1210.4608420425488
+      },
+      "ten_percent_recenter_protected_q_impairment_bps": {
+        "cpmm": 0.0,
+        "cryptoswap": 60.27415480488574,
+        "dusk_c1": 6.630979550843463
+      }
+    }
+  },
+  "decision_scope": "Invariant economics and algorithmic work only; actual SBF CU remains unmeasured",
+  "generated_at": "2026-08-04T21:49:18.559928+00:00",
+  "parameter_identity": {
+    "equation": "peak_depth = 2 * Curve A; fade_scale = Curve gamma",
+    "matching_required": false,
+    "reason": "The Dusk and CryptoSwap inner equations are algebraically identical"
+  },
+  "pareto": {
+    "interpretation": "Within the sampled multi-size frontier, neither family dominates; Dusk adds deep-center/safe-tail points while CryptoSwap retains stronger medium/large execution points",
+    "multi_size_frontier_counts": {
+      "cryptoswap": 81,
+      "dusk_c1": 31
+    },
+    "parameter_cells": 200,
+    "service_constrained_curve_matches": [
+      {
+        "dusk_execution_premium_1000bps_trade": 324.42306823636136,
+        "dusk_execution_premium_100bps_trade": 9.665709591362148,
+        "dusk_execution_premium_10bps_trade": 0.9525226596096559,
+        "dusk_execution_premium_2000bps_trade": 2459.515192907533,
+        "dusk_fade_scale": 0.05,
+        "dusk_loss_reduction_vs_limit_curve_bps": 177.51155094287265,
+        "dusk_loss_reduction_vs_no_worse_execution_curve_bps": 187.30578561310563,
+        "dusk_one_jump_loss_2x_bps_initial_tvl": 1210.4608420425488,
+        "dusk_peak_depth": 20.0,
+        "dusk_profile": "broad",
+        "feasible_peak_depth_grid_points": 21,
+        "limit_active_trade_size_bps": 1000,
+        "limit_concentration_budget_P_times_s_squared": 0.005623933792858937,
+        "limit_curve_execution_premium_1000bps_trade": 324.42306823498245,
+        "limit_curve_execution_premium_100bps_trade": 0.005691746307601164,
+        "limit_curve_execution_premium_10bps_trade": 3.163247441761996e-08,
+        "limit_curve_execution_premium_2000bps_trade": 1924.06594994053,
+        "limit_curve_one_jump_loss_2x_bps_initial_tvl": 1387.9723929854215,
+        "limit_status": "infimum as fade_scale\u21920 and peak_depth\u2192\u221e; no finite parameter pair attains it",
+        "matched_curve_A": 1000.0,
+        "matched_curve_execution_premium_1000bps_trade": 324.4230681486937,
+        "matched_curve_execution_premium_100bps_trade": 0.15026446551935635,
+        "matched_curve_execution_premium_10bps_trade": 0.010040228173302523,
+        "matched_curve_execution_premium_2000bps_trade": 1897.9512571133127,
+        "matched_curve_gamma": 0.001768244183340137,
+        "matched_curve_one_jump_loss_2x_bps_initial_tvl": 1397.7666276556545,
+        "matched_curve_peak_depth": 2000.0,
+        "search_fade_bisection_iterations": 35,
+        "search_fade_scale_max": 0.199,
+        "search_fade_scale_min": 1e-07,
+        "search_peak_depth_max": 2000.0,
+        "search_peak_depth_min": 2.0,
+        "search_peak_depth_points": 31,
+        "search_scope": "balanced-start outward exact-in only"
+      },
+      {
+        "dusk_execution_premium_1000bps_trade": 1707.3170731707355,
+        "dusk_execution_premium_100bps_trade": 1.1590858806043158,
+        "dusk_execution_premium_10bps_trade": 0.09966052494148059,
+        "dusk_execution_premium_2000bps_trade": 3827.160493827162,
+        "dusk_fade_scale": 0.005,
+        "dusk_loss_reduction_vs_limit_curve_bps": 66.68233392376874,
+        "dusk_loss_reduction_vs_no_worse_execution_curve_bps": 91.50930233898782,
+        "dusk_one_jump_loss_2x_bps_initial_tvl": 893.2640203341169,
+        "dusk_peak_depth": 200.0,
+        "dusk_profile": "balanced",
+        "feasible_peak_depth_grid_points": 11,
+        "limit_active_trade_size_bps": 100,
+        "limit_concentration_budget_P_times_s_squared": 2.7135241007097756e-05,
+        "limit_curve_execution_premium_1000bps_trade": 1490.4377980279482,
+        "limit_curve_execution_premium_100bps_trade": 1.1590858774379598,
+        "limit_curve_execution_premium_10bps_trade": 1.182386633047372e-05,
+        "limit_curve_execution_premium_2000bps_trade": 3524.1084508934837,
+        "limit_curve_one_jump_loss_2x_bps_initial_tvl": 959.9463542578857,
+        "limit_status": "infimum as fade_scale\u21920 and peak_depth\u2192\u221e; no finite parameter pair attains it",
+        "matched_curve_A": 1000.0,
+        "matched_curve_execution_premium_1000bps_trade": 1384.1256571457604,
+        "matched_curve_execution_premium_100bps_trade": 1.1590858811594273,
+        "matched_curve_execution_premium_10bps_trade": 0.010485830421735898,
+        "matched_curve_execution_premium_2000bps_trade": 3414.2600094375553,
+        "matched_curve_gamma": 0.00016473675263528514,
+        "matched_curve_one_jump_loss_2x_bps_initial_tvl": 984.7733226731048,
+        "matched_curve_peak_depth": 2000.0,
+        "search_fade_bisection_iterations": 35,
+        "search_fade_scale_max": 0.199,
+        "search_fade_scale_min": 1e-07,
+        "search_peak_depth_max": 2000.0,
+        "search_peak_depth_min": 2.0,
+        "search_peak_depth_points": 31,
+        "search_scope": "balanced-start outward exact-in only"
+      },
+      {
+        "dusk_execution_premium_1000bps_trade": 1970.0748129675883,
+        "dusk_execution_premium_100bps_trade": 19.789608356046706,
+        "dusk_execution_premium_10bps_trade": 0.010155409049250608,
+        "dusk_execution_premium_2000bps_trade": 3982.52184769039,
+        "dusk_fade_scale": 0.0005,
+        "dusk_loss_reduction_vs_limit_curve_bps": 33.04835805841617,
+        "dusk_loss_reduction_vs_no_worse_execution_curve_bps": 251.68262980642885,
+        "dusk_one_jump_loss_2x_bps_initial_tvl": 861.4003522272374,
+        "dusk_peak_depth": 2000.0,
+        "dusk_profile": "aggressive",
+        "feasible_peak_depth_grid_points": 1,
+        "limit_active_trade_size_bps": 100,
+        "limit_concentration_budget_P_times_s_squared": 1.1786946875637052e-06,
+        "limit_curve_execution_premium_1000bps_trade": 1805.2269806662591,
+        "limit_curve_execution_premium_100bps_trade": 19.789608361118205,
+        "limit_curve_execution_premium_10bps_trade": 0.00027150337311709904,
+        "limit_curve_execution_premium_2000bps_trade": 3825.0099062416543,
+        "limit_curve_one_jump_loss_2x_bps_initial_tvl": 894.4487102856535,
+        "limit_status": "infimum as fade_scale\u21920 and peak_depth\u2192\u221e; no finite parameter pair attains it",
+        "matched_curve_A": 1000.0,
+        "matched_curve_execution_premium_1000bps_trade": 916.2593848254463,
+        "matched_curve_execution_premium_100bps_trade": 0.3231279601734194,
+        "matched_curve_execution_premium_10bps_trade": 0.010155407939027583,
+        "matched_curve_execution_premium_2000bps_trade": 2880.9673282893455,
+        "matched_curve_gamma": 0.0005000068891781374,
+        "matched_curve_one_jump_loss_2x_bps_initial_tvl": 1113.0829820336662,
+        "matched_curve_peak_depth": 2000.0,
+        "search_fade_bisection_iterations": 35,
+        "search_fade_scale_max": 0.199,
+        "search_fade_scale_min": 1e-07,
+        "search_peak_depth_max": 2000.0,
+        "search_peak_depth_min": 2.0,
+        "search_peak_depth_points": 31,
+        "search_scope": "balanced-start outward exact-in only"
+      }
+    ]
+  },
+  "path_lvr_examples": {
+    "aggressive": {
+      "alternating_chop_10pct": {
+        "cpmm": 885.718956557422,
+        "cryptoswap": 2125.0305957961223,
+        "dusk_c1": 885.6225147615481
+      },
+      "jump_reversal_2x": {
+        "cpmm": 1464.4660940672738,
+        "cryptoswap": 1667.8645271809155,
+        "dusk_c1": 1465.3500880568183
+      },
+      "single_jump_2x": {
+        "cpmm": 857.8643762690508,
+        "cryptoswap": 1113.0808168646756,
+        "dusk_c1": 861.4003522272374
+      },
+      "staircase_2x": {
+        "cpmm": 36.20162767516977,
+        "cryptoswap": 43.32699569091325,
+        "dusk_c1": 37.4413991113598
+      },
+      "staircase_4x": {
+        "cpmm": 87.3984605134237,
+        "cryptoswap": 92.10052064961616,
+        "dusk_c1": 88.62543114109833
+      },
+      "volatility_cluster": {
+        "cpmm": 111.8932503044856,
+        "cryptoswap": 343.2446862751737,
+        "dusk_c1": 125.13574897510593
+      }
+    },
+    "balanced": {
+      "alternating_chop_10pct": {
+        "cpmm": 885.718956557422,
+        "cryptoswap": 3009.4134358823644,
+        "dusk_c1": 1346.1587293150078
+      },
+      "jump_reversal_2x": {
+        "cpmm": 1464.4660940672738,
+        "cryptoswap": 1887.0934002979434,
+        "dusk_c1": 1473.3160050835404
+      },
+      "single_jump_2x": {
+        "cpmm": 857.8643762690508,
+        "cryptoswap": 1351.799793176105,
+        "dusk_c1": 893.2640203341169
+      },
+      "staircase_2x": {
+        "cpmm": 36.20162767516977,
+        "cryptoswap": 48.53750313633887,
+        "dusk_c1": 40.03499402364996
+      },
+      "staircase_4x": {
+        "cpmm": 87.3984605134237,
+        "cryptoswap": 94.64108900240743,
+        "dusk_c1": 91.10367438847521
+      },
+      "volatility_cluster": {
+        "cpmm": 111.8932503044856,
+        "cryptoswap": 489.1566393895508,
+        "dusk_c1": 229.26270264958526
+      }
+    },
+    "broad": {
+      "alternating_chop_10pct": {
+        "cpmm": 885.718956557422,
+        "cryptoswap": 3854.174249268405,
+        "dusk_c1": 3292.4614014505214
+      },
+      "jump_reversal_2x": {
+        "cpmm": 1464.4660940672738,
+        "cryptoswap": 2244.325909377123,
+        "dusk_c1": 1596.161721901801
+      },
+      "single_jump_2x": {
+        "cpmm": 857.8643762690508,
+        "cryptoswap": 1673.0180748055611,
+        "dusk_c1": 1210.4608420425488
+      },
+      "staircase_2x": {
+        "cpmm": 36.20162767516977,
+        "cryptoswap": 53.83462715734755,
+        "dusk_c1": 39.497569847588565
+      },
+      "staircase_4x": {
+        "cpmm": 87.3984605134237,
+        "cryptoswap": 96.39304700506779,
+        "dusk_c1": 87.73731769037063
+      },
+      "volatility_cluster": {
+        "cpmm": 111.8932503044856,
+        "cryptoswap": 594.2072877230487,
+        "dusk_c1": 546.4565663667231
+      }
+    }
+  },
+  "profile_results": {
+    "aggressive": {
+      "stress_grid_mean_execution_premium_bps": {
+        "cpmm": 898.0000000001614,
+        "cryptoswap": 485.47750018234547,
+        "dusk_c1": 847.3121356727871
+      },
+      "stress_grid_mean_one_jump_loss_bps": {
+        "cpmm": 1879.3317053010824,
+        "cryptoswap": 2053.590737373308,
+        "dusk_c1": 1881.7756532010026
+      },
+      "warning": "Unweighted stress-grid index; not expected economics or a scenario-weighted mean"
+    },
+    "balanced": {
+      "stress_grid_mean_execution_premium_bps": {
+        "cpmm": 898.0000000001614,
+        "cryptoswap": 304.99901703301134,
+        "dusk_c1": 734.6977976705278
+      },
+      "stress_grid_mean_one_jump_loss_bps": {
+        "cpmm": 1879.3317053010824,
+        "cryptoswap": 2223.740118811072,
+        "dusk_c1": 1900.0788677588596
+      },
+      "warning": "Unweighted stress-grid index; not expected economics or a scenario-weighted mean"
+    },
+    "broad": {
+      "stress_grid_mean_execution_premium_bps": {
+        "cpmm": 898.0000000001614,
+        "cryptoswap": 192.6487564222697,
+        "dusk_c1": 348.227127633002
+      },
+      "stress_grid_mean_one_jump_loss_bps": {
+        "cpmm": 1879.3317053010824,
+        "cryptoswap": 2482.820699935435,
+        "dusk_c1": 2039.3950444139975
+      },
+      "warning": "Unweighted stress-grid index; not expected economics or a scenario-weighted mean"
+    }
+  },
+  "recenter": {
+    "dusk_same_tail_cases": 41,
+    "dusk_same_tail_exact_zero_impairment_cases": 41,
+    "metric_scope": "Protected-Q impairment only; excludes subsequent arbitrage, fees, funding, and controller timing"
+  },
+  "recommendation": "For Dusk's long-tail target, advance the finite-tail C1 candidate to a standalone Q48/u128 SBF prototype. Do not claim universal superiority or alter production until restoring-flow, fixed-point, and CU gates pass in Rust.",
+  "restoring": {
+    "minimum_dusk_output_difference_vs_same_reserve_cpmm_bps": -2377.777262665972,
+    "structural_tail_rebuild": "A full exact-tail restore to D=2 center withholds exactly fade_scale quote units"
+  },
+  "safety": {
+    "all_passed": true,
+    "balanced_outward_quote_order_cpmm_le_dusk_le_cryptoswap": true,
+    "failed_parameter_cells": 0,
+    "global_quote_order_claimed": false,
+    "maximum_join_error": 5.2128788373580204e-11,
+    "maximum_offcenter_exact_in_out_error": 8.545182339503299e-10,
+    "maximum_offcenter_split_error": 1.2483165612309222e-09,
+    "maximum_split_error": 7.771872034822991e-11,
+    "offcenter_solver_failures": 0,
+    "tested_parameter_cells": 420
+  },
+  "selected_protocol_bridge_start_fraction": 0.5,
+  "solver_proxy": {
+    "actual_compute_units": null,
+    "reference_curve_tail_mean_nested_iterations": 2357.0833333333335,
+    "reference_dusk_tail_mean_nested_iterations": 0.0,
+    "sampled_dusk_same_tail_both_directions_and_quote_modes_all_exact_fast_path": true,
+    "warning": "Reference-algorithm counts cannot rank production CU"
+  },
+  "source_hashes": {
+    "benchmark.py": "ed0d472f641345c368d6245ba7d5388dbf6edd2c4e6dc125cd5c6d0fb68ffdd1",
+    "current_dusk_concentrated_math": "aa762ee79fdde7a44446cf731225def3d36bc9b50ef8987a74cbf3ce773e9cb6",
+    "current_dusk_concentration_spec": "5d71f3a553d9aee8254affe017e0064524ded41b18231fba2fbb175bd1af7397",
+    "legacy_curve_fixture": "a60352ec92bf0c96a0b55c344cacae936ab586015ffd701b9b8d79a30f017ff9",
+    "models.py": "354c6908e8f521031da3442c03a0d6f3b0846f179ac94f96f7506cfa2fd1e794",
+    "test_models.py": "aed8c9ee1caab1f38fd5b1ca89fddde7a5e9944cb9d9175ddd832d5bf29d6c59",
+    "validate_results.py": "1bc0129bbf7015a9c44c710c491ca6ac6a7ffa45838c3350abccae14992b191a"
+  },
+  "status": "complete",
+  "tail": {
+    "cryptoswap_reachable_local_exponent_max_x_over_d_le_200": 1.8767441366886475,
+    "cryptoswap_x2y_is_asymptotic_not_reachable_default": true,
+    "dusk_exact_tail_local_exponent_max": 1.0,
+    "dusk_exact_tail_local_exponent_min": 1.0,
+    "dusk_tail_product_level": "xy = D^2 * (1 - fade_scale) / 4",
+    "qualification": "Exact CPMM shape on a reduced product level, not the original balanced CPMM product"
+  }
+}

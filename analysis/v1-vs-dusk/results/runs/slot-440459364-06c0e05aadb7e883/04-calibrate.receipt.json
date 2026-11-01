@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "stage": "calibrate",
+  "status": "blocked",
+  "run_id": "slot-440459364-06c0e05aadb7e883",
+  "config_sha256": "801017892879f30b112106afc0e6247c1fdce800363b84c3d38b5d63640c20e7",
+  "source_identity_sha256": "d1143635f7f7eedd06de008cb53952b08e37da434a2c9560a5dcf9e517a6e0a3",
+  "cutoff_slot": 440459364,
+  "input_receipt_sha256": "097195e6235cfc82bf4485cee7d184f8df9cf50a4f2b90a44a869672d78dc156",
+  "artifact_sha256": {},
+  "blocker_codes": [
+    "stage_execution_failed"
+  ],
+  "receipt_sha256": "ca02c20e874e1ee495c20490e8c2e7466f9bc7cb5bbdff1a4d3fcbdbe2afe812"
+}

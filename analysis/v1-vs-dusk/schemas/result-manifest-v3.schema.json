@@ -1,0 +1,954 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:result-manifest:v3",
+  "title": "ResultManifestV1 interoperability snapshot",
+  "description": "Current top-level result identity plus exact-rational metric structures. ResultManifestV1::verify remains authoritative for self-hashes, source identities, accounting, coverage, sensitivity evidence, and winner state.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::metrics::ResultManifestV1",
+  "x-validation-scope": "top_level_and_metric_structures",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "dataset_id",
+    "profile_freeze_sha256",
+    "dusk_source_sha256",
+    "cutoff_slot",
+    "scope",
+    "common_window_start_unix_seconds",
+    "common_window_end_unix_seconds_exclusive",
+    "holdout_start_unix_seconds",
+    "holdout_end_unix_seconds_exclusive",
+    "holdout_evidence_sha256",
+    "universe_window_sha256",
+    "source_artifact_sha256",
+    "coverage",
+    "headline_hlp_scenario",
+    "no_hlp_control_included",
+    "global_winner_profile_id",
+    "no_global_winner",
+    "pareto_profile_ids",
+    "per_market_calibration_qualification_sha256",
+    "per_market_holdout_qualification_sha256",
+    "per_market_opportunity_ceilings",
+    "sensitivity_evidence",
+    "markets",
+    "aggregate_metrics",
+    "bootstrap_intervals",
+    "conservation_identities",
+    "accounting_verification",
+    "limitations",
+    "report_metric_ids",
+    "manifest_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 3
+    },
+    "run_id": {
+      "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+    },
+    "dataset_id": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "profile_freeze_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "dusk_source_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "cutoff_slot": {
+      "$ref": "common-v1.schema.json#/$defs/u64"
+    },
+    "scope": {
+      "$ref": "#/$defs/result_scope"
+    },
+    "common_window_start_unix_seconds": {
+      "$ref": "common-v1.schema.json#/$defs/i64"
+    },
+    "common_window_end_unix_seconds_exclusive": {
+      "$ref": "common-v1.schema.json#/$defs/i64"
+    },
+    "holdout_start_unix_seconds": {
+      "$ref": "common-v1.schema.json#/$defs/i64"
+    },
+    "holdout_end_unix_seconds_exclusive": {
+      "$ref": "common-v1.schema.json#/$defs/i64"
+    },
+    "holdout_evidence_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "universe_window_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "source_artifact_sha256": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "common-v1.schema.json#/$defs/sha256"
+      }
+    },
+    "coverage": {
+      "$ref": "#/$defs/headline_coverage"
+    },
+    "headline_hlp_scenario": {
+      "const": "maximum_feasible"
+    },
+    "no_hlp_control_included": {
+      "type": "boolean"
+    },
+    "global_winner_profile_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "no_global_winner": {
+      "type": "boolean"
+    },
+    "pareto_profile_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+      }
+    },
+    "per_market_calibration_qualification_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "per_market_holdout_qualification_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    },
+    "per_market_opportunity_ceilings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/market_opportunity_ceiling"
+      }
+    },
+    "sensitivity_evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sensitivity_evidence"
+      }
+    },
+    "markets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/market_metric_set"
+      }
+    },
+    "aggregate_metrics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/named_metric"
+      }
+    },
+    "bootstrap_intervals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/bootstrap_interval"
+      }
+    },
+    "conservation_identities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/conservation_identity"
+      }
+    },
+    "accounting_verification": {
+      "$ref": "#/$defs/accounting_verification"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "report_metric_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+      }
+    },
+    "manifest_sha256": {
+      "$ref": "common-v1.schema.json#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "result_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope_mode",
+        "evidence_tier",
+        "selected_markets",
+        "selected_market_set_sha256",
+        "cohort_selection_sha256",
+        "cohort_representativeness",
+        "final_phase_gate_sha256",
+        "final_phase_gate_decision",
+        "legacy_global_profile_semantics"
+      ],
+      "properties": {
+        "scope_mode": {
+          "enum": ["hybrid_panel", "full_universe"]
+        },
+        "evidence_tier": {
+          "enum": ["decision_grade", "audit_grade"]
+        },
+        "selected_markets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+          }
+        },
+        "selected_market_set_sha256": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "cohort_selection_sha256": {
+          "oneOf": [
+            { "$ref": "common-v1.schema.json#/$defs/sha256" },
+            { "type": "null" }
+          ]
+        },
+        "cohort_representativeness": {
+          "oneOf": [
+            { "$ref": "#/$defs/cohort_representativeness" },
+            { "type": "null" }
+          ]
+        },
+        "final_phase_gate_sha256": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "final_phase_gate_decision": {
+          "$ref": "#/$defs/phase_gate_decision"
+        },
+        "legacy_global_profile_semantics": {
+          "const": "Legacy global_* fields and global_profile metric-ID segments identify the single protocol-wide shared Dusk profile evaluated over the explicitly bound evidence scope; they do not assert full-universe evidence."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "scope_mode": { "const": "hybrid_panel" } },
+            "required": ["scope_mode"]
+          },
+          "then": {
+            "properties": {
+              "cohort_selection_sha256": {
+                "$ref": "common-v1.schema.json#/$defs/sha256"
+              },
+              "cohort_representativeness": {
+                "$ref": "#/$defs/cohort_representativeness"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "evidence_tier": { "const": "audit_grade" },
+              "cohort_selection_sha256": { "type": "null" },
+              "cohort_representativeness": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "scope_activity_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "visible_universe_rows",
+        "selected_panel_rows",
+        "selected_panel_coverage_bps"
+      ],
+      "properties": {
+        "visible_universe_rows": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "selected_panel_rows": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "selected_panel_coverage_bps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      }
+    },
+    "cohort_representativeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_sha256",
+        "cohort_selection_sha256",
+        "swaps",
+        "debt_actions",
+        "liquidations"
+      ],
+      "properties": {
+        "artifact_sha256": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "cohort_selection_sha256": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "swaps": {
+          "$ref": "#/$defs/scope_activity_coverage"
+        },
+        "debt_actions": {
+          "$ref": "#/$defs/scope_activity_coverage"
+        },
+        "liquidations": {
+          "$ref": "#/$defs/scope_activity_coverage"
+        }
+      }
+    },
+    "gate_limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "underlying_status", "detail_code"],
+      "properties": {
+        "gate": {
+          "enum": ["decoder_revision_certification", "terminal_state"]
+        },
+        "underlying_status": {
+          "const": "fail"
+        },
+        "detail_code": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        }
+      }
+    },
+    "phase_gate_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "evidence_tier",
+        "phase_eligible",
+        "raw_market_eligible",
+        "usd_headline_eligible",
+        "raw_certification",
+        "usd_certification",
+        "raw_blocking_gates",
+        "usd_blocking_gates",
+        "limitations"
+      ],
+      "properties": {
+        "phase": { "const": "post_replay_final" },
+        "evidence_tier": {
+          "enum": ["decision_grade", "audit_grade"]
+        },
+        "phase_eligible": { "const": true },
+        "raw_market_eligible": { "const": true },
+        "usd_headline_eligible": { "const": true },
+        "raw_certification": {
+          "enum": ["pass", "limited"]
+        },
+        "usd_certification": {
+          "enum": ["pass", "limited"]
+        },
+        "raw_blocking_gates": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "usd_blocking_gates": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "limitations": {
+          "type": "array",
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/gate_limitation" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "evidence_tier": { "const": "audit_grade" } },
+            "required": ["evidence_tier"]
+          },
+          "then": {
+            "properties": {
+              "raw_certification": { "const": "pass" },
+              "usd_certification": { "const": "pass" },
+              "limitations": { "maxItems": 0 }
+            }
+          },
+          "else": {
+            "oneOf": [
+              {
+                "properties": {
+                  "raw_certification": { "const": "pass" },
+                  "usd_certification": { "const": "pass" },
+                  "limitations": { "maxItems": 0 }
+                }
+              },
+              {
+                "properties": {
+                  "raw_certification": { "const": "limited" },
+                  "usd_certification": { "const": "limited" },
+                  "limitations": { "minItems": 1 }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "availability": {
+      "enum": [
+        "available",
+        "not_applicable_no_lending_activity",
+        "not_applicable_venue_mechanism",
+        "missing_historical_usd_mark",
+        "window_too_short_for_annualization",
+        "missing_ownership_denominator",
+        "missing_cash_realization_evidence",
+        "outside_common_window",
+        "failed_coverage_gate",
+        "not_evaluated"
+      ]
+    },
+    "replay_arm": {
+      "enum": [
+        "fixed_flow",
+        "intent"
+      ]
+    },
+    "hlp_scenario": {
+      "enum": [
+        "no_hlp",
+        "maximum_feasible"
+      ]
+    },
+    "revenue_dimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lane", "accounting_class", "origin", "v1_venue", "dusk_venue"],
+      "properties": {
+        "lane": { "enum": ["lp_swap_earned", "protocol_fee_auction_swap_earned", "protocol_buyback_swap_earned", "retained_recenter_inventory", "compounded_lp_swap_principal", "lp_public_interest_accrued", "protocol_public_interest_accrued", "lp_public_interest_cash_realized", "protocol_fee_auction_public_interest_cash_realized", "protocol_buyback_public_interest_cash_realized", "hlp_funding_interest_earned", "protocol_fee_auction_hlp_funding_interest_earned", "protocol_buyback_hlp_funding_interest_earned", "flashloan_fee_v1_only", "protocol_claim_realized_v1_only"] },
+        "accounting_class": { "enum": ["economic_revenue", "cash_realization_memo", "inventory_memo", "principal_disposition_memo", "venue_only_supplement"] },
+        "origin": { "enum": ["factual_user_flow", "synthetic_arbitrage", "synthetic_protocol_settlement"] },
+        "v1_venue": { "enum": ["v1", null] },
+        "dusk_venue": { "enum": ["dusk", null] }
+      }
+    },
+    "metric_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "availability",
+        "numerator",
+        "denominator",
+        "unit",
+        "denominator_definition"
+      ],
+      "properties": {
+        "availability": {
+          "$ref": "#/$defs/availability"
+        },
+        "numerator": {
+          "oneOf": [
+            {
+              "$ref": "common-v1.schema.json#/$defs/signed_token_amount"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "denominator": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unit": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "denominator_definition": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "availability": {
+                "const": "available"
+              }
+            },
+            "required": [
+              "availability"
+            ]
+          },
+          "then": {
+            "properties": {
+              "numerator": {
+                "$ref": "common-v1.schema.json#/$defs/signed_token_amount"
+              },
+              "denominator": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "numerator": {
+                "type": "null"
+              },
+              "denominator": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "named_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric_id",
+        "family",
+        "profile_id",
+        "replay_arm",
+        "hlp_scenario",
+        "definition",
+        "revenue_dimensions",
+        "v1",
+        "dusk",
+        "paired_delta"
+      ],
+      "properties": {
+        "metric_id": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "family": {
+          "enum": [
+            "collateral_efficiency",
+            "spot_capital_efficiency",
+            "leverage",
+            "lp_revenue",
+            "protocol_revenue",
+            "balance_sheet",
+            "safety",
+            "coverage"
+          ]
+        },
+        "profile_id": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "replay_arm": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/replay_arm"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hlp_scenario": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/hlp_scenario"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "definition": {
+          "type": "string"
+        },
+        "revenue_dimensions": {
+          "oneOf": [
+            { "$ref": "#/$defs/revenue_dimensions" },
+            { "type": "null" }
+          ]
+        },
+        "v1": {
+          "$ref": "#/$defs/metric_value"
+        },
+        "dusk": {
+          "$ref": "#/$defs/metric_value"
+        },
+        "paired_delta": {
+          "$ref": "#/$defs/metric_value"
+        }
+      }
+    },
+    "market_metric_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "market",
+        "token0",
+        "token1",
+        "has_lending_activity",
+        "raw_metrics",
+        "usd_metrics"
+      ],
+      "properties": {
+        "market": {
+          "type": "string"
+        },
+        "token0": {
+          "type": "string"
+        },
+        "token1": {
+          "type": "string"
+        },
+        "has_lending_activity": {
+          "type": "boolean"
+        },
+        "raw_metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/named_metric"
+          }
+        },
+        "usd_metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/named_metric"
+          }
+        }
+      }
+    },
+    "coverage_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "availability",
+        "covered_numerator",
+        "total_denominator",
+        "required_bps",
+        "actual_bps",
+        "passes"
+      ],
+      "properties": {
+        "availability": {
+          "enum": [
+            "available",
+            "not_applicable_no_lending_activity"
+          ]
+        },
+        "covered_numerator": {
+          "$ref": "common-v1.schema.json#/$defs/token_amount"
+        },
+        "total_denominator": {
+          "$ref": "common-v1.schema.json#/$defs/token_amount"
+        },
+        "required_bps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "actual_bps": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passes": {
+          "type": "boolean"
+        }
+      }
+    },
+    "headline_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "visible_swap_volume",
+        "borrowed_notional",
+        "revenue_notional",
+        "exact_transaction_fetch_bps",
+        "exact_decode_bps",
+        "v1_zero_difference_reconciled"
+      ],
+      "properties": {
+        "visible_swap_volume": {
+          "$ref": "#/$defs/coverage_metric"
+        },
+        "borrowed_notional": {
+          "$ref": "#/$defs/coverage_metric"
+        },
+        "revenue_notional": {
+          "$ref": "#/$defs/coverage_metric"
+        },
+        "exact_transaction_fetch_bps": {
+          "const": 10000
+        },
+        "exact_decode_bps": {
+          "const": 10000
+        },
+        "v1_zero_difference_reconciled": {
+          "const": true
+        }
+      }
+    },
+    "market_opportunity_ceiling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "market",
+        "training_swap_count",
+        "training_active_days",
+        "validation_swap_count",
+        "validation_active_days",
+        "holdout_swap_count",
+        "holdout_active_days",
+        "selected_profile_id",
+        "claim_available",
+        "unavailable_reason"
+      ],
+      "properties": {
+        "market": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "training_swap_count": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "training_active_days": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "validation_swap_count": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "validation_active_days": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "holdout_swap_count": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "holdout_active_days": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "selected_profile_id": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "claim_available": {
+          "type": "boolean"
+        },
+        "unavailable_reason": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "sensitivity_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "replay_arm",
+        "hlp_scenario",
+        "sensitivity_artifact_sha256",
+        "included_markets_sha256",
+        "sampled_block_sequence_sha256",
+        "bootstrap_samples",
+        "top_market_rankings",
+        "top_market_exclusions",
+        "top_market_exclusion_unsupported_reason"
+      ],
+      "properties": {
+        "profile_id": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "replay_arm": {
+          "$ref": "#/$defs/replay_arm"
+        },
+        "hlp_scenario": {
+          "$ref": "#/$defs/hlp_scenario"
+        },
+        "sensitivity_artifact_sha256": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "included_markets_sha256": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "sampled_block_sequence_sha256": {
+          "$ref": "common-v1.schema.json#/$defs/sha256"
+        },
+        "bootstrap_samples": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "top_market_rankings": {
+          "type": "array",
+          "items": {
+            "$ref": "sensitivity-artifact-v2.schema.json#/$defs/ranking"
+          }
+        },
+        "top_market_exclusions": {
+          "type": "array",
+          "items": {
+            "$ref": "sensitivity-artifact-v2.schema.json#/$defs/exclusion"
+          }
+        },
+        "top_market_exclusion_unsupported_reason": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "bootstrap_interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric_id",
+        "block_days",
+        "samples",
+        "lower_025",
+        "median",
+        "upper_975",
+        "unit"
+      ],
+      "properties": {
+        "metric_id": {
+          "type": "string"
+        },
+        "block_days": {
+          "$ref": "common-v1.schema.json#/$defs/u16"
+        },
+        "samples": {
+          "$ref": "common-v1.schema.json#/$defs/u32"
+        },
+        "lower_025": {
+          "$ref": "common-v1.schema.json#/$defs/signed_token_amount"
+        },
+        "median": {
+          "$ref": "common-v1.schema.json#/$defs/signed_token_amount"
+        },
+        "upper_975": {
+          "$ref": "common-v1.schema.json#/$defs/signed_token_amount"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "conservation_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_id",
+        "initial",
+        "external_credits",
+        "external_debits",
+        "final_balance"
+      ],
+      "properties": {
+        "identity_id": {
+          "type": "string"
+        },
+        "initial": {
+          "$ref": "common-v1.schema.json#/$defs/token_amount"
+        },
+        "external_credits": {
+          "$ref": "common-v1.schema.json#/$defs/token_amount"
+        },
+        "external_debits": {
+          "$ref": "common-v1.schema.json#/$defs/token_amount"
+        },
+        "final_balance": {
+          "$ref": "common-v1.schema.json#/$defs/token_amount"
+        }
+      }
+    },
+    "accounting_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v1_conservation_checks",
+        "v1_conservation_failures",
+        "dusk_atomic_transition_checks",
+        "dusk_atomic_transition_failures",
+        "paired_revenue_lane_checks",
+        "paired_revenue_lane_failures"
+      ],
+      "properties": {
+        "v1_conservation_checks": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "v1_conservation_failures": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "dusk_atomic_transition_checks": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "dusk_atomic_transition_failures": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "paired_revenue_lane_checks": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        },
+        "paired_revenue_lane_failures": {
+          "$ref": "common-v1.schema.json#/$defs/u64"
+        }
+      }
+    }
+  }
+}

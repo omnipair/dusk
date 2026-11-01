@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-23T05:13:49Z",
+  "status": "accessible_evidence_only",
+  "decision": {
+    "recommendation": "Keep V1; do not replace it with the checked-in Dusk defaults.",
+    "scope": "Decision on accessible three-market evidence, not a certified global winner."
+  },
+  "scope": {
+    "run_id": "slot-440459364-06c0e05aadb7e883",
+    "dusk_profile_id": "d34eb2a34ed5c388ee58546c3bd650df70d6def21f1aaa085a2ae05a7ea5f981",
+    "dusk_profile_basis": "checked-in prospective program defaults",
+    "markets": [
+      "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p",
+      "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo",
+      "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB"
+    ],
+    "market_count": 3,
+    "split": "training",
+    "window_start_unix_seconds": 1776283200,
+    "window_end_unix_seconds_exclusive": 1782847234,
+    "arms": [
+      "fixed_flow",
+      "intent"
+    ],
+    "arms_agree_exactly": true,
+    "hlp_scenario": "maximum_feasible"
+  },
+  "questions": {
+    "collateral_efficiency": {
+      "available": true,
+      "verdict": "V1 wins the accessible matched-prestate comparison.",
+      "matched_borrow_observations": 1227,
+      "v1_actionable_headroom_usd": 153262.14650172723,
+      "dusk_actionable_headroom_usd": 54315.36617045531,
+      "actionable_headroom_delta_pct": -64.5604818866065,
+      "v1_actionable_total_capacity_usd": 202283.70466341093,
+      "dusk_gross_total_capacity_usd": 149768.19303628284,
+      "dusk_actionable_total_capacity_usd": 62109.693244301394,
+      "actionable_total_capacity_delta_pct": -69.29575056594473,
+      "v1_debt_increase_usd": 33427.307504170116,
+      "dusk_debt_increase_usd": 6545.441628672675,
+      "dusk_to_v1_debt_increase_pct": 19.58112129688016,
+      "dusk_unmet_borrow_usd": 21630.93399886951,
+      "dusk_limiting_constraints": [
+        {
+          "constraint": "underwriting",
+          "label": "Underwriting",
+          "observations": 445
+        },
+        {
+          "constraint": "global_health_floor",
+          "label": "Global health floor",
+          "observations": 369
+        },
+        {
+          "constraint": "cash",
+          "label": "Cash",
+          "observations": 0
+        },
+        {
+          "constraint": "daily_borrow_bucket",
+          "label": "Daily borrow bucket",
+          "observations": 413
+        },
+        {
+          "constraint": "reduce_only",
+          "label": "Reduce-only",
+          "observations": 0
+        }
+      ]
+    },
+    "spot_capital_efficiency": {
+      "available": false,
+      "verdict": "No Dusk advantage claim; comparable execution evidence is absent.",
+      "comparable_swap_notional_usd": 0.0,
+      "volume_weighted_execution_cost_delta_ppb": null,
+      "p95_slippage_delta_ppb": null,
+      "standardized_spot_probe_count": 0
+    },
+    "leverage": {
+      "full_campaign_available": false,
+      "verdict": "V1 wins executable debt capacity; relative margin safety is not established.",
+      "dusk_gross_vs_v1_actionable_pct": 74.03868407763689,
+      "dusk_actionable_vs_v1_actionable_pct": 30.704249434055274,
+      "v1_bad_debt_usd": 0.0,
+      "dusk_bad_debt_usd": 0.0,
+      "tail_liquidation_shortfall_delta_usd_micro": "0",
+      "global_health_unsatisfied_observations": 264
+    },
+    "lp_protocol_economics": {
+      "available": true,
+      "verdict": "V1 wins available factual-user-flow economic revenue.",
+      "v1_economic_revenue_usd": 1434.640510697192,
+      "dusk_economic_revenue_usd": 0.7443325146499151,
+      "economic_revenue_delta_pct": -99.94811714090743,
+      "dusk_swap_fee_revenue_usd": 0.0,
+      "dusk_interest_revenue_usd": 0.7443325146499151,
+      "hlp_yield_available": false
+    }
+  },
+  "markets": [
+    {
+      "market": "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p",
+      "label": "Fartcoin / USDC",
+      "role": "spot archetype",
+      "borrow_observations": 0,
+      "liquidations": 0,
+      "v1_revenue_usd": 221.31231873149852,
+      "dusk_revenue_usd": 0.0,
+      "missing_capital_price_keys": 9
+    },
+    {
+      "market": "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo",
+      "label": "stORE / USDC",
+      "role": "borrowing archetype",
+      "borrow_observations": 1106,
+      "liquidations": 6,
+      "v1_revenue_usd": 378.4489273100233,
+      "dusk_revenue_usd": 0.6899843308673336,
+      "missing_capital_price_keys": 10
+    },
+    {
+      "market": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+      "label": "OMFG / USDC",
+      "role": "liquidation archetype",
+      "borrow_observations": 121,
+      "liquidations": 7,
+      "v1_revenue_usd": 834.8792646556701,
+      "dusk_revenue_usd": 0.054348183782581584,
+      "missing_capital_price_keys": 74
+    }
+  ],
+  "limitations": {
+    "complete_for_scoring": false,
+    "combined_score": null,
+    "deferred_external_state_operations": 77,
+    "missing_counterfactual_capital_price_keys": 93,
+    "capital_window_seed_gap_seconds": 64,
+    "blocking_reasons": [
+      "capital_state_missing_at_window_start",
+      "counterfactual_replay_deferred_external_state",
+      "missing_historical_usd_marks",
+      "no_capital_denominator",
+      "no_equal_market_revenue_observations",
+      "no_execution_cost_observations",
+      "no_slippage_observations"
+    ],
+    "not_reported": [
+      "combined/global winner score",
+      "spot execution cost and slippage",
+      "standardized spot depth probes",
+      "capital-normalized APY",
+      "full leverage loop, adverse path, and unwind campaign",
+      "complete hLP funding yield"
+    ]
+  },
+  "sources": {
+    "fixed_flow_arm": {
+      "path": "results/scoped-three-market/default-baseline-cache/training-d34eb2a34ed5c388ee58546c3bd650df70d6def21f1aaa085a2ae05a7ea5f981-fixed-flow-maximum-feasible-hlp.arm.json",
+      "bytes": 259806,
+      "sha256": "5364b7b017a2d33f47a2b1c5db9f8f103c778f6175734419834d1fb5b04ff251"
+    },
+    "intent_arm": {
+      "path": "results/scoped-three-market/default-baseline-cache/training-d34eb2a34ed5c388ee58546c3bd650df70d6def21f1aaa085a2ae05a7ea5f981-intent-maximum-feasible-hlp.arm.json",
+      "bytes": 259802,
+      "sha256": "91c8c8c3e064d68d5a62f46564195a45231fe6a74c7dd67a1b0ba8706d755b2e"
+    },
+    "combined_profile": {
+      "path": "results/scoped-three-market/default-baseline-cache/training-d34eb2a34ed5c388ee58546c3bd650df70d6def21f1aaa085a2ae05a7ea5f981-maximum-feasible-hlp.profile.json",
+      "bytes": 578516,
+      "sha256": "e3c09521ed165533365863723a2dac60cac9404f9ccec677b722b82024cdfa26"
+    },
+    "v1_reconciliation": {
+      "path": "results/runs/slot-440459364-06c0e05aadb7e883/v1-reconciliation.json",
+      "bytes": 3124,
+      "sha256": "594bc75439edef55dba4b16b567b8ecf0950dacc1ef58307d2ea95d25dbb16a8"
+    }
+  },
+  "evidence_sha256": "27cb0d77f9918c82966745805cae1ffe5ce07ac274e84b516b4bd896980e6cc7"
+}

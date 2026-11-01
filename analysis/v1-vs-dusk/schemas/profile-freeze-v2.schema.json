@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:profile-freeze:v2",
+  "title": "ProfileFreezeV1 structural snapshot",
+  "description": "Self-hashed training/validation-only global and per-market profile selection, including the exact protocol-interest schedule commitment frozen before holdout access.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::calibrate::ProfileFreezeV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "config_sha256",
+    "dusk_source_sha256",
+    "protocol_interest_schedule_sha256",
+    "hlp_scenario",
+    "selected_profile_id",
+    "pareto_profile_ids",
+    "training_metrics_sha256",
+    "validation_metrics_sha256",
+    "per_market_qualification_sha256",
+    "per_market_training_metrics_sha256",
+    "per_market_validation_metrics_sha256",
+    "per_market_selected_profile_ids",
+    "per_market_pareto_profile_ids",
+    "holdout_read_before_freeze",
+    "freeze_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "dataset_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "config_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "dusk_source_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "protocol_interest_schedule_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "hlp_scenario": {
+      "enum": ["no_hlp", "maximum_feasible"]
+    },
+    "selected_profile_id": {
+      "oneOf": [
+        { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "pareto_profile_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+    },
+    "training_metrics_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "validation_metrics_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "per_market_qualification_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "per_market_training_metrics_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "per_market_validation_metrics_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "per_market_selected_profile_ids": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+    },
+    "per_market_pareto_profile_ids": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+      }
+    },
+    "holdout_read_before_freeze": { "const": false },
+    "freeze_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" }
+  }
+}

@@ -1,0 +1,37 @@
+[
+  {
+    "source": "Aave V4",
+    "pricing_mechanism": "Base utilization rate multiplied by a borrower collateral-risk factor",
+    "calibration_status": "Governance-configured; Ethereum activation set collateral-risk scores to zero",
+    "dusk_takeaway": "Separates liquidity price from user risk, but is not actuarial expected-loss pricing",
+    "primary_source": "https://aave.com/blog/aave-v4-risk-premiums"
+  },
+  {
+    "source": "Gearbox",
+    "pricing_mechanism": "Additive quota rate weighted by collateral exposure, plus quota-increase fee",
+    "calibration_status": "Gauge- or curator-configured tariff",
+    "dusk_takeaway": "Closest deployed accounting shape for an additive Dusk premium",
+    "primary_source": "https://docs.gearbox.finance/core/collateral-limits-specific-rates"
+  },
+  {
+    "source": "IMF DeFi credit-risk annex",
+    "pricing_mechanism": "Liquidation probability multiplied by conditional liquidation shortfall",
+    "calibration_status": "Research model; includes relative volatility, correlation, bonus, and delay",
+    "dusk_takeaway": "Use expected lender loss, not liquidation probability, as the rate numerator",
+    "primary_source": "https://www.imf.org/-/media/Files/Publications/GFSR/2022/April/English/ch3onlineannex.ashx"
+  },
+  {
+    "source": "Szpruch et al.",
+    "pricing_mechanism": "Overcollateralized loan valued as a perpetual barrier-like option",
+    "calibration_status": "Preprint valuation framework",
+    "dusk_takeaway": "Borrower optionality and LTV matter; it does not prescribe an origination fee",
+    "primary_source": "https://arxiv.org/abs/2409.04233"
+  },
+  {
+    "source": "Halpern, Pass, Saraf",
+    "pricing_mechanism": "Shows no single fair continuous rate in its freely repayable perpetual-loan model",
+    "calibration_status": "Preprint impossibility result; studies a fee paid on repayment",
+    "dusk_takeaway": "A Dusk action fee is a design inference, not this paper's result",
+    "primary_source": "https://arxiv.org/abs/2410.11053"
+  }
+]

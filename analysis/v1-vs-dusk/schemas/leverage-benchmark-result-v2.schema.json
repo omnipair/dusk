@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:leverage-benchmark-result:v2",
+  "title": "LeverageBenchmarkResultV1 serialized contract v2",
+  "description": "Strict structural snapshot of one exact same-checkpoint Dusk-versus-V1 leverage cell. File/URN version 2 follows the serialized schema_version even though the compatibility-oriented Rust type name ends in V1.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::leverage::LeverageBenchmarkResultV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "benchmark_id",
+    "direction",
+    "hlp_scenario",
+    "dusk",
+    "v1"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "benchmark_id": { "$ref": "common-v1.schema.json#/$defs/nonempty_string" },
+    "direction": { "$ref": "#/$defs/direction" },
+    "hlp_scenario": { "$ref": "#/$defs/hlp_scenario" },
+    "dusk": { "$ref": "#/$defs/venue" },
+    "v1": { "$ref": "#/$defs/venue" }
+  },
+  "$defs": {
+    "token": { "$ref": "common-v1.schema.json#/$defs/token_amount" },
+    "signed": { "$ref": "common-v1.schema.json#/$defs/signed_token_amount" },
+    "nullable_token": {
+      "oneOf": [
+        { "$ref": "#/$defs/token" },
+        { "type": "null" }
+      ]
+    },
+    "nullable_sha256": {
+      "oneOf": [
+        { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "direction": { "enum": ["long_base", "long_quote"] },
+    "hlp_scenario": { "enum": ["no_hlp", "maximum_feasible"] },
+    "ratio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["numerator", "denominator", "unbounded"],
+      "properties": {
+        "numerator": { "$ref": "#/$defs/token" },
+        "denominator": { "$ref": "#/$defs/token" },
+        "unbounded": { "type": "boolean" }
+      }
+    },
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "starting_margin_gross",
+        "starting_margin_net",
+        "borrowed_amount",
+        "deployed_notional",
+        "collateral_acquired",
+        "transfer_fees_paid",
+        "immediate_closeout_value",
+        "opening_cost",
+        "limiting_borrow_liquidity",
+        "loop_iterations",
+        "loop_iteration_limit_reached"
+      ],
+      "properties": {
+        "starting_margin_gross": { "$ref": "#/$defs/token" },
+        "starting_margin_net": { "$ref": "#/$defs/token" },
+        "borrowed_amount": { "$ref": "#/$defs/token" },
+        "deployed_notional": { "$ref": "#/$defs/token" },
+        "collateral_acquired": { "$ref": "#/$defs/token" },
+        "transfer_fees_paid": { "$ref": "#/$defs/token" },
+        "immediate_closeout_value": { "$ref": "#/$defs/token" },
+        "opening_cost": { "$ref": "#/$defs/signed" },
+        "limiting_borrow_liquidity": { "$ref": "#/$defs/token" },
+        "loop_iterations": { "$ref": "#/$defs/token" },
+        "loop_iteration_limit_reached": { "type": "boolean" }
+      }
+    },
+    "funding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "utilization_scale",
+        "utilization",
+        "target_utilization_bps",
+        "rate_at_target_nad",
+        "instantaneous_borrow_apr_nad"
+      ],
+      "properties": {
+        "utilization_scale": { "$ref": "common-v1.schema.json#/$defs/nonempty_string" },
+        "utilization": { "$ref": "#/$defs/token" },
+        "target_utilization_bps": { "$ref": "#/$defs/nullable_token" },
+        "rate_at_target_nad": { "$ref": "#/$defs/nullable_token" },
+        "instantaneous_borrow_apr_nad": { "$ref": "#/$defs/token" }
+      }
+    },
+    "liquidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "threshold_kind",
+        "threshold",
+        "initial_margin_bps",
+        "maintenance_margin_bps",
+        "equity_bps",
+        "initial_buffer_bps",
+        "maintenance_buffer_bps",
+        "adverse_path_availability",
+        "first_adverse_path_breach",
+        "standardized_max_adverse_excursion_bps",
+        "realized_max_adverse_excursion_bps",
+        "realized_mae_source_sha256"
+      ],
+      "properties": {
+        "threshold_kind": { "enum": ["closeout_value", "collateral_price_nad"] },
+        "threshold": { "$ref": "#/$defs/token" },
+        "initial_margin_bps": { "$ref": "#/$defs/token" },
+        "maintenance_margin_bps": { "$ref": "#/$defs/token" },
+        "equity_bps": { "$ref": "#/$defs/token" },
+        "initial_buffer_bps": { "$ref": "#/$defs/signed" },
+        "maintenance_buffer_bps": { "$ref": "#/$defs/signed" },
+        "adverse_path_availability": {
+          "enum": [
+            "complete",
+            "missing_exact_dusk_future_counterfactual_state"
+          ]
+        },
+        "first_adverse_path_breach": { "$ref": "#/$defs/nullable_token" },
+        "standardized_max_adverse_excursion_bps": { "$ref": "#/$defs/token" },
+        "realized_max_adverse_excursion_bps": { "$ref": "#/$defs/nullable_token" },
+        "realized_mae_source_sha256": { "$ref": "#/$defs/nullable_sha256" }
+      }
+    },
+    "unwind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executable_full_unwind",
+        "limiting_reason",
+        "collateral_sold",
+        "gross_debt_output",
+        "terminal_owner_debt_balance",
+        "remaining_debt",
+        "remaining_collateral",
+        "transfer_fees_paid",
+        "unwind_impact_bps",
+        "cost_vs_starting_margin",
+        "iterations"
+      ],
+      "properties": {
+        "executable_full_unwind": { "type": "boolean" },
+        "limiting_reason": {
+          "enum": [
+            "none",
+            "iteration_limit",
+            "collateral_vault_liquidity",
+            "health_rounding",
+            "insufficient_swap_proceeds"
+          ]
+        },
+        "collateral_sold": { "$ref": "#/$defs/token" },
+        "gross_debt_output": { "$ref": "#/$defs/token" },
+        "terminal_owner_debt_balance": { "$ref": "#/$defs/token" },
+        "remaining_debt": { "$ref": "#/$defs/token" },
+        "remaining_collateral": { "$ref": "#/$defs/token" },
+        "transfer_fees_paid": { "$ref": "#/$defs/token" },
+        "unwind_impact_bps": { "$ref": "#/$defs/token" },
+        "cost_vs_starting_margin": { "$ref": "#/$defs/signed" },
+        "iterations": { "$ref": "#/$defs/token" }
+      }
+    },
+    "venue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "theoretical_leverage",
+        "executable_leverage",
+        "opening",
+        "funding",
+        "liquidation",
+        "unwind"
+      ],
+      "properties": {
+        "theoretical_leverage": { "$ref": "#/$defs/ratio" },
+        "executable_leverage": { "$ref": "#/$defs/ratio" },
+        "opening": { "$ref": "#/$defs/opening" },
+        "funding": { "$ref": "#/$defs/funding" },
+        "liquidation": { "$ref": "#/$defs/liquidation" },
+        "unwind": { "$ref": "#/$defs/unwind" }
+      }
+    }
+  }
+}

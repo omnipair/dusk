@@ -1,0 +1,2230 @@
+{
+  "scenarios": [
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "core_bps": 0,
+      "fade_bps": 0,
+      "tail_depth_vs_v1": 1.0,
+      "shoulder_depth_vs_v1": 1,
+      "gross_lvr_usd_day": 342.4657534246575,
+      "gross_lvr_bps_day": 3.4246575342465753,
+      "same_peak_depth_capital_usd": 1000000.0,
+      "same_peak_depth_capital_saved": 0.0,
+      "incremental_residual_reduction_needed": 0.0,
+      "fee_turnover_to_cover_gross_lvr": 0.14269406392694062
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "core_bps": 100,
+      "fade_bps": 400,
+      "tail_depth_vs_v1": 0.9852543572112978,
+      "shoulder_depth_vs_v1": 1.4926271786056489,
+      "gross_lvr_usd_day": 684.931506849315,
+      "gross_lvr_bps_day": 6.8493150684931505,
+      "same_peak_depth_capital_usd": 500000.0,
+      "same_peak_depth_capital_saved": 0.5,
+      "incremental_residual_reduction_needed": 0.5,
+      "fee_turnover_to_cover_gross_lvr": 0.28538812785388123
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "core_bps": 100,
+      "fade_bps": 400,
+      "tail_depth_vs_v1": 0.9410174288451914,
+      "shoulder_depth_vs_v1": 2.970508714422596,
+      "gross_lvr_usd_day": 1712.3287671232877,
+      "gross_lvr_bps_day": 17.123287671232877,
+      "same_peak_depth_capital_usd": 200000.0,
+      "same_peak_depth_capital_saved": 0.8,
+      "incremental_residual_reduction_needed": 0.8,
+      "fee_turnover_to_cover_gross_lvr": 0.7134703196347031
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "core_bps": 100,
+      "fade_bps": 400,
+      "tail_depth_vs_v1": 0.8672892149016801,
+      "shoulder_depth_vs_v1": 5.43364460745084,
+      "gross_lvr_usd_day": 3424.6575342465753,
+      "gross_lvr_bps_day": 34.24657534246575,
+      "same_peak_depth_capital_usd": 100000.0,
+      "same_peak_depth_capital_saved": 0.9,
+      "incremental_residual_reduction_needed": 0.9,
+      "fee_turnover_to_cover_gross_lvr": 1.4269406392694062
+    }
+  ],
+  "executions": [
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 100,
+      "base_out": 99.98000399908051,
+      "end_price": 1.0004000399999997,
+      "average_cost_bps": 2.0000000119702044
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 100,
+      "base_out": 99.68012378335698,
+      "end_price": 1.00039883976036,
+      "average_cost_bps": 32.09027080847582
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 1000,
+      "base_out": 998.0039920158451,
+      "end_price": 1.0040039999999997,
+      "average_cost_bps": 20.000000001234586
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 1000,
+      "base_out": 995.0159382192069,
+      "end_price": 1.003991976036,
+      "average_cost_bps": 50.090270812275236
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 10000,
+      "base_out": 9803.92156862747,
+      "end_price": 1.0404,
+      "average_cost_bps": 199.9999999999802
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 10000,
+      "base_out": 9775.084808910266,
+      "end_price": 1.0402776035999999,
+      "average_cost_bps": 230.0902708125019
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 50000,
+      "base_out": 45454.54545454547,
+      "end_price": 1.21,
+      "average_cost_bps": 999.9999999999965
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 50000,
+      "base_out": 45330.544694007316,
+      "end_price": 1.2093400899999995,
+      "average_cost_bps": 1030.0902708124715
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 100000,
+      "base_out": 83333.33333333326,
+      "end_price": 1.4399999999999995,
+      "average_cost_bps": 2000.0000000000107
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 100000,
+      "base_out": 83124.89578122395,
+      "end_price": 1.4385603599999999,
+      "average_cost_bps": 2030.0902708124368
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 100,
+      "base_out": 99.99000099988189,
+      "end_price": 1.00020001,
+      "average_cost_bps": 1.0000000018117738
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 100,
+      "base_out": 99.69006090075709,
+      "end_price": 1.0001994099400897,
+      "average_cost_bps": 31.090270829652322
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 1000,
+      "base_out": 999.0009990009712,
+      "end_price": 1.002001,
+      "average_cost_bps": 10.000000000278675
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 1000,
+      "base_out": 996.0069810401183,
+      "end_price": 1.0019949940090003,
+      "average_cost_bps": 40.09027081026906
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 10000,
+      "base_out": 9892.673640791269,
+      "end_price": 1.0235446285038314,
+      "average_cost_bps": 108.49075093934513
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 10000,
+      "base_out": 9863.362567108183,
+      "end_price": 1.0234632940294062,
+      "average_cost_bps": 138.53027500729587
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 50000,
+      "base_out": 46471.96055838169,
+      "end_price": 1.1798544962966173,
+      "average_cost_bps": 759.1759416274501
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 50000,
+      "base_out": 46344.7905889448,
+      "end_price": 1.1791931084099367,
+      "average_cost_bps": 788.6990888523115
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 100000,
+      "base_out": 85228.6081413168,
+      "end_price": 1.4106495964194452,
+      "average_cost_bps": 1733.1494882787358
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 100000,
+      "base_out": 85015.83106308652,
+      "end_price": 1.4092033872759244,
+      "average_cost_bps": 1762.5151397737193
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 100,
+      "base_out": 99.99600015964825,
+      "end_price": 1.0000800015999998,
+      "average_cost_bps": 0.4000000345372179
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 100,
+      "base_out": 99.6960241222987,
+      "end_price": 1.0000797615904142,
+      "average_cost_bps": 30.490270838525735
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 1000,
+      "base_out": 999.6001599365845,
+      "end_price": 1.0008001600000003,
+      "average_cost_bps": 3.999999994406256
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 1000,
+      "base_out": 996.6025549009792,
+      "end_price": 1.0007977590414399,
+      "average_cost_bps": 34.09027081370919
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 10000,
+      "base_out": 9960.159362549253,
+      "end_price": 1.0080159999999996,
+      "average_cost_bps": 40.00000000055293
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 10000,
+      "base_out": 9930.397574473289,
+      "end_price": 1.0079919041440002,
+      "average_cost_bps": 70.09027081214647
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 50000,
+      "base_out": 48565.06269254902,
+      "end_price": 1.0862880685575993,
+      "average_cost_bps": 295.46699373892204
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 50000,
+      "base_out": 48426.935523171036,
+      "end_price": 1.0856236226026872,
+      "average_cost_bps": 324.8325461511592
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 100000,
+      "base_out": 90334.551905928,
+      "end_price": 1.3190968109251964,
+      "average_cost_bps": 1069.9613702780453
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 100000,
+      "base_out": 90106.99723601644,
+      "end_price": 1.3176326077420621,
+      "average_cost_bps": 1097.9172614165477
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 100,
+      "base_out": 99.998000039428,
+      "end_price": 1.0000400003999999,
+      "average_cost_bps": 0.20000005712228486
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 100,
+      "base_out": 99.69801202096278,
+      "end_price": 1.0000398803976034,
+      "average_cost_bps": 30.290270880599657
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 1000,
+      "base_out": 999.800039991911,
+      "end_price": 1.0004000400000002,
+      "average_cost_bps": 2.0000000009057217
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 1000,
+      "base_out": 996.8012378336862,
+      "end_price": 1.00039883976036,
+      "average_cost_bps": 32.090270807303426
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 10000,
+      "base_out": 9980.039920158859,
+      "end_price": 1.0040039999999997,
+      "average_cost_bps": 20.000000000826024
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 10000,
+      "base_out": 9950.159382192127,
+      "end_price": 1.003991976036,
+      "average_cost_bps": 50.09027081221751
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 50000,
+      "base_out": 49402.40052828926,
+      "end_price": 1.0286267505909006,
+      "average_cost_bps": 120.96567480937237
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 50000,
+      "base_out": 49256.56709936203,
+      "end_price": 1.0285147611421692,
+      "average_cost_bps": 150.93071734745277
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 0,
+      "gross_quote": 100000,
+      "base_out": 96355.02617650613,
+      "end_price": 1.1541673970893158,
+      "average_cost_bps": 378.28580076527453
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "fee_bps": 30,
+      "gross_quote": 100000,
+      "base_out": 96094.93105462391,
+      "end_price": 1.152681420913316,
+      "average_cost_bps": 406.37616391610675
+    }
+  ],
+  "shocks": [
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.001,
+      "fee_bps": 30,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.001,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.003,
+      "fee_bps": 30,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.003,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.01,
+      "fee_bps": 30,
+      "gross_quote": 1744.7083544686325,
+      "curve_shortfall": 11.303875504280995,
+      "fee_paid": 5.234125063405897,
+      "lp_fee": 4.187300050724718,
+      "arb_profit": 6.069750440875098,
+      "lp_net_shortfall": 7.116575453556277,
+      "endpoint": 1.00697
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.01,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.02,
+      "fee_bps": 30,
+      "gross_quote": 4229.904811260797,
+      "curve_shortfall": 48.36655129020892,
+      "fee_paid": 12.689714433782392,
+      "lp_fee": 10.151771547025914,
+      "arb_profit": 35.676836856426526,
+      "lp_net_shortfall": 38.214779743183,
+      "endpoint": 1.01694
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.02,
+      "fee_bps": 100,
+      "gross_quote": 2468.7138720472562,
+      "curve_shortfall": 36.75434412092454,
+      "fee_paid": 24.687138720472564,
+      "lp_fee": 19.749710976378054,
+      "arb_profit": 12.067205400451979,
+      "lp_net_shortfall": 17.00463314454649,
+      "endpoint": 1.0098
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.05,
+      "fee_bps": 30,
+      "gross_quote": 11613.279572057567,
+      "curve_shortfall": 303.76715397916087,
+      "fee_paid": 34.8398387161727,
+      "lp_fee": 27.87187097293816,
+      "arb_profit": 268.92731526298815,
+      "lp_net_shortfall": 275.8952830062227,
+      "endpoint": 1.04685
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.05,
+      "fee_bps": 100,
+      "gross_quote": 9878.14549393217,
+      "curve_shortfall": 291.9854165698671,
+      "fee_paid": 98.7814549393217,
+      "lp_fee": 79.02516395145737,
+      "arb_profit": 193.2039616305454,
+      "lp_net_shortfall": 212.9602526184097,
+      "endpoint": 1.0395
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.1,
+      "fee_bps": 30,
+      "gross_quote": 23688.2914818213,
+      "curve_shortfall": 1189.9683701809518,
+      "fee_paid": 71.0648744454639,
+      "lp_fee": 56.85189955637112,
+      "arb_profit": 1118.903495735488,
+      "lp_net_shortfall": 1133.1164706245806,
+      "endpoint": 1.0967
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.1,
+      "fee_bps": 100,
+      "gross_quote": 21995.77164422483,
+      "curve_shortfall": 1177.9093774875691,
+      "fee_paid": 219.9577164422483,
+      "lp_fee": 175.96617315379865,
+      "arb_profit": 957.9516610453209,
+      "lp_net_shortfall": 1001.9432043337705,
+      "endpoint": 1.089
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.3,
+      "fee_bps": 30,
+      "gross_quote": 69440.25944657715,
+      "curve_shortfall": 9823.288344563553,
+      "fee_paid": 208.32077833973148,
+      "lp_fee": 166.6566226717852,
+      "arb_profit": 9614.96756622382,
+      "lp_net_shortfall": 9656.631721891767,
+      "endpoint": 1.2961
+    },
+    {
+      "amplification": 1,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.3,
+      "fee_bps": 100,
+      "gross_quote": 67909.20407643549,
+      "curve_shortfall": 9810.178837388361,
+      "fee_paid": 679.0920407643549,
+      "lp_fee": 543.273632611484,
+      "arb_profit": 9131.086796624006,
+      "lp_net_shortfall": 9266.905204776876,
+      "endpoint": 1.287
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.001,
+      "fee_bps": 30,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.001,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.003,
+      "fee_bps": 30,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.003,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.01,
+      "fee_bps": 30,
+      "gross_quote": 3489.4167089373236,
+      "curve_shortfall": 22.607751008503783,
+      "fee_paid": 10.468250126811972,
+      "lp_fee": 8.374600101449579,
+      "arb_profit": 12.139500881691811,
+      "lp_net_shortfall": 14.233150907054204,
+      "endpoint": 1.00697
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.01,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.02,
+      "fee_bps": 30,
+      "gross_quote": 7582.75486649469,
+      "curve_shortfall": 91.09384929873977,
+      "fee_paid": 22.74826459948407,
+      "lp_fee": 18.198611679587255,
+      "arb_profit": 68.3455846992557,
+      "lp_net_shortfall": 72.89523761915251,
+      "endpoint": 1.01694
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.02,
+      "fee_bps": 100,
+      "gross_quote": 4937.427744094454,
+      "curve_shortfall": 73.5086882419073,
+      "fee_paid": 49.374277440944546,
+      "lp_fee": 39.49942195275564,
+      "arb_profit": 24.134410800962748,
+      "lp_net_shortfall": 34.009266289151654,
+      "endpoint": 1.0098
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.05,
+      "fee_bps": 30,
+      "gross_quote": 18603.38070429091,
+      "curve_shortfall": 510.0816523826252,
+      "fee_paid": 55.81014211287273,
+      "lp_fee": 44.64811369029819,
+      "arb_profit": 454.27151026975247,
+      "lp_net_shortfall": 465.433538692327,
+      "endpoint": 1.04685
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.05,
+      "fee_bps": 100,
+      "gross_quote": 16022.445741842908,
+      "curve_shortfall": 492.4959109143856,
+      "fee_paid": 160.2244574184291,
+      "lp_fee": 128.1795659347433,
+      "arb_profit": 332.2714534959565,
+      "lp_net_shortfall": 364.3163449796423,
+      "endpoint": 1.0395
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.1,
+      "fee_bps": 30,
+      "gross_quote": 30891.732692106012,
+      "curve_shortfall": 1752.4429815845833,
+      "fee_paid": 92.67519807631804,
+      "lp_fee": 74.14015846105444,
+      "arb_profit": 1659.7677835082652,
+      "lp_net_shortfall": 1678.302823123529,
+      "endpoint": 1.0967
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.1,
+      "fee_bps": 100,
+      "gross_quote": 29277.57336165282,
+      "curve_shortfall": 1740.5618064897972,
+      "fee_paid": 292.7757336165282,
+      "lp_fee": 234.2205868932226,
+      "arb_profit": 1447.786072873269,
+      "lp_net_shortfall": 1506.3412195965745,
+      "endpoint": 1.089
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.3,
+      "fee_bps": 30,
+      "gross_quote": 75969.05848037338,
+      "curve_shortfall": 11733.023382414627,
+      "fee_paid": 227.90717544112013,
+      "lp_fee": 182.3257403528961,
+      "arb_profit": 11505.116206973507,
+      "lp_net_shortfall": 11550.69764206173,
+      "endpoint": 1.2961
+    },
+    {
+      "amplification": 2,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.3,
+      "fee_bps": 100,
+      "gross_quote": 74513.98272001476,
+      "curve_shortfall": 11720.107183349392,
+      "fee_paid": 745.1398272001476,
+      "lp_fee": 596.1118617601181,
+      "arb_profit": 10974.967356149244,
+      "lp_net_shortfall": 11123.995321589273,
+      "endpoint": 1.287
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.001,
+      "fee_bps": 30,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.001,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.003,
+      "fee_bps": 30,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.003,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.01,
+      "fee_bps": 30,
+      "gross_quote": 8723.541772343222,
+      "curve_shortfall": 56.519377521230126,
+      "fee_paid": 26.170625317029668,
+      "lp_fee": 20.936500253623734,
+      "arb_profit": 30.34875220420046,
+      "lp_net_shortfall": 35.58287726760639,
+      "endpoint": 1.00697
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.01,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.02,
+      "fee_bps": 30,
+      "gross_quote": 17641.305032196076,
+      "curve_shortfall": 219.27574332438599,
+      "fee_paid": 52.92391509658823,
+      "lp_fee": 42.33913207727059,
+      "arb_profit": 166.35182822779774,
+      "lp_net_shortfall": 176.9366112471154,
+      "endpoint": 1.01694
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.02,
+      "fee_bps": 100,
+      "gross_quote": 12343.569360236224,
+      "curve_shortfall": 183.77172060468,
+      "fee_paid": 123.43569360236225,
+      "lp_fee": 98.7485548818898,
+      "arb_profit": 60.33602700231776,
+      "lp_net_shortfall": 85.02316572279021,
+      "endpoint": 1.0098
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.05,
+      "fee_bps": 30,
+      "gross_quote": 39573.684100990584,
+      "curve_shortfall": 1129.02514759294,
+      "fee_paid": 118.72105230297176,
+      "lp_fee": 94.97684184237741,
+      "arb_profit": 1010.3040952899681,
+      "lp_net_shortfall": 1034.0483057505626,
+      "endpoint": 1.04685
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.05,
+      "fee_bps": 100,
+      "gross_quote": 34455.34648557512,
+      "curve_shortfall": 1094.0273939476974,
+      "fee_paid": 344.55346485575126,
+      "lp_fee": 275.642771884601,
+      "arb_profit": 749.4739290919462,
+      "lp_net_shortfall": 818.3846220630965,
+      "endpoint": 1.0395
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.1,
+      "fee_bps": 30,
+      "gross_quote": 52502.0563229598,
+      "curve_shortfall": 3439.8668157955035,
+      "fee_paid": 157.5061689688794,
+      "lp_fee": 126.00493517510353,
+      "arb_profit": 3282.360646826624,
+      "lp_net_shortfall": 3313.8618806204,
+      "endpoint": 1.0967
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.1,
+      "fee_bps": 100,
+      "gross_quote": 51122.9785139365,
+      "curve_shortfall": 3428.519093496645,
+      "fee_paid": 511.229785139365,
+      "lp_fee": 408.983828111492,
+      "arb_profit": 2917.28930835728,
+      "lp_net_shortfall": 3019.535265385153,
+      "endpoint": 1.089
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.3,
+      "fee_bps": 30,
+      "gross_quote": 95555.45558176187,
+      "curve_shortfall": 17462.22849596766,
+      "fee_paid": 286.6663667452856,
+      "lp_fee": 229.3330933962285,
+      "arb_profit": 17175.562129222377,
+      "lp_net_shortfall": 17232.895402571434,
+      "endpoint": 1.2961
+    },
+    {
+      "amplification": 5,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.3,
+      "fee_bps": 100,
+      "gross_quote": 94328.31865075271,
+      "curve_shortfall": 17449.892221232265,
+      "fee_paid": 943.2831865075271,
+      "lp_fee": 754.6265492060218,
+      "arb_profit": 16506.609034724737,
+      "lp_net_shortfall": 16695.265672026242,
+      "endpoint": 1.287
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.001,
+      "fee_bps": 30,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.001,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.003,
+      "fee_bps": 30,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.003,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.01,
+      "fee_bps": 30,
+      "gross_quote": 17447.083544686444,
+      "curve_shortfall": 113.03875504228199,
+      "fee_paid": 52.341250634059335,
+      "lp_fee": 41.87300050724747,
+      "arb_profit": 60.697504408222656,
+      "lp_net_shortfall": 71.16575453503452,
+      "endpoint": 1.00697
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.01,
+      "fee_bps": 100,
+      "gross_quote": 0.0,
+      "curve_shortfall": 0.0,
+      "fee_paid": 0.0,
+      "lp_fee": 0.0,
+      "arb_profit": 0.0,
+      "lp_net_shortfall": 0.0,
+      "endpoint": 1.0
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.02,
+      "fee_bps": 30,
+      "gross_quote": 34405.555308365365,
+      "curve_shortfall": 432.91223336691473,
+      "fee_paid": 103.2166659250961,
+      "lp_fee": 82.57333274007688,
+      "arb_profit": 329.69556744181864,
+      "lp_net_shortfall": 350.33890062683787,
+      "endpoint": 1.01694
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.02,
+      "fee_bps": 100,
+      "gross_quote": 24687.13872047245,
+      "curve_shortfall": 367.5434412093018,
+      "fee_paid": 246.8713872047245,
+      "lp_fee": 197.4971097637796,
+      "arb_profit": 120.67205400457732,
+      "lp_net_shortfall": 170.0463314455222,
+      "endpoint": 1.0098
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.05,
+      "fee_bps": 30,
+      "gross_quote": 74524.18976215705,
+      "curve_shortfall": 2160.597639609943,
+      "fee_paid": 223.57256928647115,
+      "lp_fee": 178.85805542917694,
+      "arb_profit": 1937.025070323472,
+      "lp_net_shortfall": 1981.739584180766,
+      "endpoint": 1.04685
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.05,
+      "fee_bps": 100,
+      "gross_quote": 65176.84772512899,
+      "curve_shortfall": 2096.579865669686,
+      "fee_paid": 651.7684772512899,
+      "lp_fee": 521.414781801032,
+      "arb_profit": 1444.8113884183963,
+      "lp_net_shortfall": 1575.1650838686542,
+      "endpoint": 1.0395
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.1,
+      "fee_bps": 30,
+      "gross_quote": 88519.26237438295,
+      "curve_shortfall": 6252.239872813618,
+      "fee_paid": 265.55778712314884,
+      "lp_fee": 212.4462296985191,
+      "arb_profit": 5986.682085690469,
+      "lp_net_shortfall": 6039.793643115098,
+      "endpoint": 1.0967
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.1,
+      "fee_bps": 100,
+      "gross_quote": 87531.98710107621,
+      "curve_shortfall": 6241.781238507887,
+      "fee_paid": 875.3198710107622,
+      "lp_fee": 700.2558968086098,
+      "arb_profit": 5366.461367497124,
+      "lp_net_shortfall": 5541.525341699277,
+      "endpoint": 1.089
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.3,
+      "fee_bps": 30,
+      "gross_quote": 128199.45075074288,
+      "curve_shortfall": 27010.9036852227,
+      "fee_paid": 384.59835225222866,
+      "lp_fee": 307.67868180178294,
+      "arb_profit": 26626.30533297047,
+      "lp_net_shortfall": 26703.225003420917,
+      "endpoint": 1.2961
+    },
+    {
+      "amplification": 10,
+      "capital_usd": 1000000,
+      "lp_fee_share": 0.8,
+      "jump": 0.3,
+      "fee_bps": 100,
+      "gross_quote": 127352.21186864938,
+      "curve_shortfall": 26999.53395103701,
+      "fee_paid": 1273.5221186864937,
+      "lp_fee": 1018.817694949195,
+      "arb_profit": 25726.011832350516,
+      "lp_net_shortfall": 25980.716256087817,
+      "endpoint": 1.287
+    }
+  ],
+  "feasibility": [
+    {
+      "core_bps": 50,
+      "fade_bps": 50,
+      "strict_amplification_upper_bound": 268.33126207027664,
+      "ten_times_feasible": true
+    },
+    {
+      "core_bps": 100,
+      "fade_bps": 400,
+      "strict_amplification_upper_bound": 68.81664348780946,
+      "ten_times_feasible": true
+    },
+    {
+      "core_bps": 500,
+      "fade_bps": 1500,
+      "strict_amplification_upper_bound": 17.980922584830065,
+      "ten_times_feasible": true
+    },
+    {
+      "core_bps": 1000,
+      "fade_bps": 4000,
+      "strict_amplification_upper_bound": 8.694108787152476,
+      "ten_times_feasible": false
+    }
+  ],
+  "sensitivity": [
+    {
+      "amplification": 1,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 0.8561643835616438,
+      "required_organic_turnover": 0.035673515981735154
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 0.4280821917808219,
+      "required_organic_turnover": 0.017836757990867577
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 0.17123287671232879,
+      "required_organic_turnover": 0.0071347031963470324
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 0.08561643835616439,
+      "required_organic_turnover": 0.0035673515981735162
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 3.4246575342465753,
+      "required_organic_turnover": 0.14269406392694062
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 1.7123287671232876,
+      "required_organic_turnover": 0.07134703196347031
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 0.6849315068493151,
+      "required_organic_turnover": 0.02853881278538813
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 0.34246575342465757,
+      "required_organic_turnover": 0.014269406392694065
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 7.705479452054794,
+      "required_organic_turnover": 0.3210616438356164
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 3.852739726027397,
+      "required_organic_turnover": 0.1605308219178082
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 1.5410958904109588,
+      "required_organic_turnover": 0.06421232876712328
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 0.7705479452054794,
+      "required_organic_turnover": 0.03210616438356164
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 13.698630136986301,
+      "required_organic_turnover": 0.5707762557077625
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 6.8493150684931505,
+      "required_organic_turnover": 0.28538812785388123
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 2.7397260273972606,
+      "required_organic_turnover": 0.11415525114155252
+    },
+    {
+      "amplification": 1,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 1.3698630136986303,
+      "required_organic_turnover": 0.05707762557077626
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 1.7123287671232876,
+      "required_organic_turnover": 0.07134703196347031
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 0.8561643835616438,
+      "required_organic_turnover": 0.035673515981735154
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 0.34246575342465757,
+      "required_organic_turnover": 0.014269406392694065
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 0.17123287671232879,
+      "required_organic_turnover": 0.0071347031963470324
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 6.8493150684931505,
+      "required_organic_turnover": 0.28538812785388123
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 3.4246575342465753,
+      "required_organic_turnover": 0.14269406392694062
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 1.3698630136986303,
+      "required_organic_turnover": 0.05707762557077626
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 0.6849315068493151,
+      "required_organic_turnover": 0.02853881278538813
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 15.410958904109588,
+      "required_organic_turnover": 0.6421232876712328
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 7.705479452054794,
+      "required_organic_turnover": 0.3210616438356164
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 3.0821917808219177,
+      "required_organic_turnover": 0.12842465753424656
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 1.5410958904109588,
+      "required_organic_turnover": 0.06421232876712328
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 27.397260273972602,
+      "required_organic_turnover": 1.141552511415525
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 13.698630136986301,
+      "required_organic_turnover": 0.5707762557077625
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 5.479452054794521,
+      "required_organic_turnover": 0.22831050228310504
+    },
+    {
+      "amplification": 2,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 2.7397260273972606,
+      "required_organic_turnover": 0.11415525114155252
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 4.280821917808219,
+      "required_organic_turnover": 0.17836757990867577
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 2.1404109589041096,
+      "required_organic_turnover": 0.08918378995433789
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 0.8561643835616439,
+      "required_organic_turnover": 0.035673515981735154
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 0.42808219178082196,
+      "required_organic_turnover": 0.017836757990867577
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 17.123287671232877,
+      "required_organic_turnover": 0.7134703196347031
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 8.561643835616438,
+      "required_organic_turnover": 0.35673515981735154
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 3.4246575342465757,
+      "required_organic_turnover": 0.14269406392694062
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 1.7123287671232879,
+      "required_organic_turnover": 0.07134703196347031
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 38.52739726027397,
+      "required_organic_turnover": 1.605308219178082
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 19.263698630136986,
+      "required_organic_turnover": 0.802654109589041
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 7.705479452054795,
+      "required_organic_turnover": 0.3210616438356165
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 3.8527397260273974,
+      "required_organic_turnover": 0.16053082191780824
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 68.4931506849315,
+      "required_organic_turnover": 2.8538812785388123
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 34.24657534246575,
+      "required_organic_turnover": 1.4269406392694062
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 13.698630136986303,
+      "required_organic_turnover": 0.5707762557077625
+    },
+    {
+      "amplification": 5,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 6.849315068493151,
+      "required_organic_turnover": 0.28538812785388123
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 8.561643835616438,
+      "required_organic_turnover": 0.35673515981735154
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 4.280821917808219,
+      "required_organic_turnover": 0.17836757990867577
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 1.7123287671232879,
+      "required_organic_turnover": 0.07134703196347031
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 0.5,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 0.8561643835616439,
+      "required_organic_turnover": 0.035673515981735154
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 34.24657534246575,
+      "required_organic_turnover": 1.4269406392694062
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 17.123287671232877,
+      "required_organic_turnover": 0.7134703196347031
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 6.849315068493151,
+      "required_organic_turnover": 0.28538812785388123
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 1,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 3.4246575342465757,
+      "required_organic_turnover": 0.14269406392694062
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 77.05479452054794,
+      "required_organic_turnover": 3.210616438356164
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 38.52739726027397,
+      "required_organic_turnover": 1.605308219178082
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 15.41095890410959,
+      "required_organic_turnover": 0.642123287671233
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 1.5,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 7.705479452054795,
+      "required_organic_turnover": 0.3210616438356165
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 1,
+      "residual_cost_bps_day": 136.986301369863,
+      "required_organic_turnover": 5.707762557077625
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.5,
+      "residual_cost_bps_day": 68.4931506849315,
+      "required_organic_turnover": 2.8538812785388123
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.2,
+      "residual_cost_bps_day": 27.397260273972606,
+      "required_organic_turnover": 1.141552511415525
+    },
+    {
+      "amplification": 10,
+      "annual_volatility": 2,
+      "residual_fraction_assumed": 0.1,
+      "residual_cost_bps_day": 13.698630136986303,
+      "required_organic_turnover": 0.5707762557077625
+    }
+  ],
+  "depth": [
+    {
+      "amplification": 1,
+      "price_change_pct": -20,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 894427.1909999158,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": -10,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 948683.2980505137,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": -5,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 974679.4344808965,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.424657534246575
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": -4,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 979795.8971132713,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": -2,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 989949.4936611666,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": -1,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 994987.4371066199,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": -0.9,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 995489.8291795854,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.424657534246575
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": -0.5,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 997496.8671630002,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 0,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1000000.0,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 0.5,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1002496.8827881711,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 0.9,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1004489.9203078147,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.424657534246575
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 1.1,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1005484.9576199537,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.424657534246575
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 2,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1009950.4938362078,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 4,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1019803.902718557,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465753
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 5.1,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1025182.9105091442,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.424657534246575
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 10,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1048808.8481701515,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465757
+    },
+    {
+      "amplification": 1,
+      "price_change_pct": 20,
+      "active_depth_vs_v1_same_initial_capital": 1.0,
+      "current_nav_usd": 1095445.1150103323,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.4246575342465744
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": -20,
+      "active_depth_vs_v1_same_initial_capital": 0.9852543572112978,
+      "current_nav_usd": 893160.6099155024,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.3789436144180622
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": -10,
+      "active_depth_vs_v1_same_initial_capital": 0.9852543572112978,
+      "current_nav_usd": 948106.9661392482,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.376209829271719
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": -5,
+      "active_depth_vs_v1_same_initial_capital": 0.9852543572112978,
+      "current_nav_usd": 974464.9180013529,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.374901537168923
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": -4,
+      "active_depth_vs_v1_same_initial_capital": 1.4926271786056489,
+      "current_nav_usd": 979651.0187425673,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 5.1124928762293855
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": -2,
+      "active_depth_vs_v1_same_initial_capital": 1.4926271786056489,
+      "current_nav_usd": 989905.5866591027,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 5.111963642780018
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": -1,
+      "active_depth_vs_v1_same_initial_capital": 1.4926271786056489,
+      "current_nav_usd": 994974.8748443399,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 5.1118014523309006
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": -0.9,
+      "active_depth_vs_v1_same_initial_capital": 2.0,
+      "current_nav_usd": 995479.6583591704,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 6.849385047977857
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": -0.5,
+      "active_depth_vs_v1_same_initial_capital": 2.0,
+      "current_nav_usd": 997493.7343260002,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 6.849336580194861
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 0,
+      "active_depth_vs_v1_same_initial_capital": 2.0,
+      "current_nav_usd": 1000000.0,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 6.8493150684931505
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 0.5,
+      "active_depth_vs_v1_same_initial_capital": 2.0,
+      "current_nav_usd": 1002493.765576342,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 6.849336366147745
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 0.9,
+      "active_depth_vs_v1_same_initial_capital": 2.0,
+      "current_nav_usd": 1004479.8406156292,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 6.849383799576423
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 1.1,
+      "active_depth_vs_v1_same_initial_capital": 1.4926271786056489,
+      "current_nav_usd": 1005469.9776910276,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 5.11181306991226
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 2,
+      "active_depth_vs_v1_same_initial_capital": 1.4926271786056489,
+      "current_nav_usd": 1009907.2051341075,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 5.111956022724824
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 4,
+      "active_depth_vs_v1_same_initial_capital": 1.4926271786056489,
+      "current_nav_usd": 1019663.2192997078,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 5.112442181803725
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 5.1,
+      "active_depth_vs_v1_same_initial_capital": 0.9852543572112978,
+      "current_nav_usd": 1024968.8329859113,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.3748634927088457
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 10,
+      "active_depth_vs_v1_same_initial_capital": 0.9852543572112978,
+      "current_nav_usd": 1048246.3910096214,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.3759692286322607
+    },
+    {
+      "amplification": 2,
+      "price_change_pct": 20,
+      "active_depth_vs_v1_same_initial_capital": 0.9852543572112978,
+      "current_nav_usd": 1094194.976117978,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.3780137991184445
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": -20,
+      "active_depth_vs_v1_same_initial_capital": 0.9410174288451914,
+      "current_nav_usd": 889360.866662262,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.241020614538624
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": -10,
+      "active_depth_vs_v1_same_initial_capital": 0.9410174288451914,
+      "current_nav_usd": 946377.9704054517,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.2305126660584813
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": -5,
+      "active_depth_vs_v1_same_initial_capital": 0.9410174288451914,
+      "current_nav_usd": 973821.3685627226,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.2255020210176553
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": -4,
+      "active_depth_vs_v1_same_initial_capital": 2.970508714422596,
+      "current_nav_usd": 979216.3836304555,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 10.178995553440405
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": -2,
+      "active_depth_vs_v1_same_initial_capital": 2.970508714422596,
+      "current_nav_usd": 989773.8656529111,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 10.17478016812508
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": -1,
+      "active_depth_vs_v1_same_initial_capital": 2.970508714422596,
+      "current_nav_usd": 994937.1880574997,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 10.17348883290471
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": -0.9,
+      "active_depth_vs_v1_same_initial_capital": 5.0,
+      "current_nav_usd": 995449.1458979263,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 17.12398748753
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": -0.5,
+      "active_depth_vs_v1_same_initial_capital": 5.0,
+      "current_nav_usd": 997484.3358150005,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 17.12350279027686
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 0,
+      "active_depth_vs_v1_same_initial_capital": 5.0,
+      "current_nav_usd": 999999.9999999997,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 17.123287671232884
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 0.5,
+      "active_depth_vs_v1_same_initial_capital": 5.0,
+      "current_nav_usd": 1002484.4139408551,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 17.12350064976556
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 0.9,
+      "active_depth_vs_v1_same_initial_capital": 5.0,
+      "current_nav_usd": 1004449.6015390733,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 17.123975002757174
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 1.1,
+      "active_depth_vs_v1_same_initial_capital": 2.970508714422596,
+      "current_nav_usd": 1005425.0379042495,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 10.173581322112787
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 2,
+      "active_depth_vs_v1_same_initial_capital": 2.970508714422596,
+      "current_nav_usd": 1009777.339027807,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 10.174719492922188
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 4,
+      "active_depth_vs_v1_same_initial_capital": 2.970508714422596,
+      "current_nav_usd": 1019241.1690431602,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 10.178591654974268
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 5.1,
+      "active_depth_vs_v1_same_initial_capital": 0.9410174288451914,
+      "current_nav_usd": 1024326.6004162128,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.225356488568992
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 10,
+      "active_depth_vs_v1_same_initial_capital": 0.9410174288451914,
+      "current_nav_usd": 1046559.0195280307,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.2295903103547197
+    },
+    {
+      "amplification": 5,
+      "price_change_pct": 20,
+      "active_depth_vs_v1_same_initial_capital": 0.9410174288451914,
+      "current_nav_usd": 1090444.559440916,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.2374408978657345
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": -20,
+      "active_depth_vs_v1_same_initial_capital": 0.8672892149016801,
+      "current_nav_usd": 883027.9612401942,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.008511195998278
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": -10,
+      "active_depth_vs_v1_same_initial_capital": 0.8672892149016801,
+      "current_nav_usd": 943496.3108491239,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 2.9864974116605802
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": -5,
+      "active_depth_vs_v1_same_initial_capital": 0.8672892149016801,
+      "current_nav_usd": 972748.7861650051,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 2.976063540897581
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": -4,
+      "active_depth_vs_v1_same_initial_capital": 5.43364460745084,
+      "current_nav_usd": 978491.9917769354,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 18.63316883045451
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": -2,
+      "active_depth_vs_v1_same_initial_capital": 5.43364460745084,
+      "current_nav_usd": 989554.3306425915,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 18.615802905122635
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": -1,
+      "active_depth_vs_v1_same_initial_capital": 5.43364460745084,
+      "current_nav_usd": 994874.376746099,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 18.610486651764166
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": -0.9,
+      "active_depth_vs_v1_same_initial_capital": 10.0,
+      "current_nav_usd": 995398.2917958519,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 34.24972467669158
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": -0.5,
+      "active_depth_vs_v1_same_initial_capital": 10.0,
+      "current_nav_usd": 997468.6716300002,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 34.24754339336566
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 0,
+      "active_depth_vs_v1_same_initial_capital": 10.0,
+      "current_nav_usd": 999999.9999999986,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 34.246575342465796
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 0.5,
+      "active_depth_vs_v1_same_initial_capital": 10.0,
+      "current_nav_usd": 1002468.8278817094,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 34.2475337607638
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 0.9,
+      "active_depth_vs_v1_same_initial_capital": 10.0,
+      "current_nav_usd": 1004399.2030781461,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 34.24966848952439
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 1.1,
+      "active_depth_vs_v1_same_initial_capital": 5.43364460745084,
+      "current_nav_usd": 1005350.138259619,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 18.610867361295902
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 2,
+      "active_depth_vs_v1_same_initial_capital": 5.43364460745084,
+      "current_nav_usd": 1009560.8955173055,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 18.615553075695136
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 4,
+      "active_depth_vs_v1_same_initial_capital": 5.43364460745084,
+      "current_nav_usd": 1018537.7519489138,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 18.63150412906142
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 5.1,
+      "active_depth_vs_v1_same_initial_capital": 0.8672892149016801,
+      "current_nav_usd": 1023256.2128000481,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 2.9757610994579924
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 10,
+      "active_depth_vs_v1_same_initial_capital": 0.8672892149016801,
+      "current_nav_usd": 1043746.7337253792,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 2.9845736988110096
+    },
+    {
+      "amplification": 10,
+      "price_change_pct": 20,
+      "active_depth_vs_v1_same_initial_capital": 0.8672892149016801,
+      "current_nav_usd": 1084193.8649791447,
+      "capital_usd": 1000000,
+      "gross_lvr_bps_day_current_nav": 3.000991545498295
+    }
+  ]
+}

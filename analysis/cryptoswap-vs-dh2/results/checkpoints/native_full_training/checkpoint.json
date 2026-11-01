@@ -1,0 +1,8 @@
+{
+  "status": "training_complete",
+  "rows": 1920,
+  "training_replay_fingerprint": "541dbaf93317b07e65569a49bab8ab3380e619d1033d38039bb0171ce44530b0",
+  "training_replay_schema_version": 5,
+  "profile_rows": 0,
+  "purpose": "non-canonical deterministic checkpoint; final report requires the complete atomic native output matrix"
+}

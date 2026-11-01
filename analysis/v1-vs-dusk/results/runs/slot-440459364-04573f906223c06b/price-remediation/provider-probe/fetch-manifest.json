@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-08-22T02:18:48.757Z",
+  "purpose": "proof_bound_read_only_historical_provider_sidecar",
+  "provider": "birdeye",
+  "chain": "solana",
+  "endpoint": "/defi/history_price",
+  "interval": "1H",
+  "allow_current_fallback": false,
+  "interpolation": false,
+  "forward_fill": false,
+  "source_inputs": {
+    "classification_summary": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/classification/classification-summary.json",
+      "sha256": "a15d93a6e599994686725d2091e522b5e665f5686e021c0c48bd4fc3611ee782"
+    },
+    "missing_price_keys": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/classification/missing-price-keys.jsonl",
+      "sha256": "cf0e3da6e81ab2b28b47c0f51785e51665caa7d2885661e94bf879cbe58f1d5a"
+    },
+    "sidecar_script": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/scripts/historical_price_sidecar.mjs",
+      "sha256": "0a240282620cd824a153dd602e4adda42569e80f01a33a49804ae6c847aa2b5b"
+    }
+  },
+  "request_plan": {
+    "chunk_hours": 168,
+    "complete_request_count": 60,
+    "executed_request_count": 1,
+    "complete": false,
+    "timeout_ms": 15000,
+    "retries": 2,
+    "delay_ms": 50
+  },
+  "outcome": {
+    "processed_unique_keys": 61,
+    "recovered_unique_keys": 61,
+    "recovered_operation_references": 120,
+    "unresolved_unique_keys": 0,
+    "unresolved_operation_references": 0,
+    "unresolved_by_reason": {}
+  },
+  "artifacts": {
+    "historical_price_marks": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-probe/historical-price-marks.jsonl",
+      "sha256": "c1c2fd97fc1fe3696c3efb7b7c22dc33d4ae71b8f60dcdd1ae626d06e789dfe4"
+    },
+    "unresolved_price_keys": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-probe/unresolved-price-keys.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "provider_responses": [
+      {
+        "request_index": 0,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-probe/provider-responses/0000-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1778364000.json",
+        "sha256": "6d0a8b863d161b0b8cf78418a0a2696086a74180d35f6730f964fb9b2093cf5a",
+        "ok": true
+      }
+    ],
+    "provider_responses_manifest_sha256": "78e6710a4ce272ea418d5f2dd75b2b49255dfdde9a163e5c486c173830aa485c"
+  }
+}

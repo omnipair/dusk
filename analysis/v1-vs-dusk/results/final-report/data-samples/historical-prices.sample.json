@@ -1,0 +1,46 @@
+{
+  "source": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/historical-prices.jsonl",
+  "record_count": 5,
+  "records": [
+    {
+      "mint": "6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev",
+      "bucket_unix_seconds": 1771261200,
+      "price_usd": "0.00005987447799223474",
+      "token_decimals": 6,
+      "provider": "birdeye",
+      "quality": "historical"
+    },
+    {
+      "mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+      "bucket_unix_seconds": 1771261200,
+      "price_usd": "0.1956178257019262",
+      "token_decimals": 6,
+      "provider": "birdeye",
+      "quality": "historical"
+    },
+    {
+      "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "bucket_unix_seconds": 1771261200,
+      "price_usd": "0.99992",
+      "token_decimals": 6,
+      "provider": "birdeye",
+      "quality": "historical"
+    },
+    {
+      "mint": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+      "bucket_unix_seconds": 1771261200,
+      "price_usd": "0.40048548368242487",
+      "token_decimals": 6,
+      "provider": "birdeye",
+      "quality": "historical"
+    },
+    {
+      "mint": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+      "bucket_unix_seconds": 1771261200,
+      "price_usd": "82.47493081609487",
+      "token_decimals": 11,
+      "provider": "birdeye",
+      "quality": "historical"
+    }
+  ]
+}

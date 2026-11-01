@@ -1,0 +1,363 @@
+{
+  "source": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/data/slot-440459364-06c0e05aadb7e883/canonical-operations.jsonl",
+  "record_count": 5,
+  "records": [
+    {
+      "schema_version": 1,
+      "operation_id": "1ba34c727c8eb694c9e98b42e534baabe9db5c943eec73204686c832c01b7cd1",
+      "signature": "5rknMFPUArsYLbKJmQroXHwPMHvLVmkPen4UYxusdmfduHAzcyRqwzSdfiZdUF2XTWtaKWbjTra51wNcfHk8sAH2",
+      "pair": "__global__",
+      "actor": "4JpPs9Mi11qoj6GthQPiTjUc4gXq8BAoSs3AD6NVjQUZ",
+      "order": {
+        "slot": 398236430,
+        "transaction_index": 890,
+        "outer_instruction_index": 3,
+        "inner_execution_index": 0,
+        "event_sequence": 0
+      },
+      "block_time_unix_seconds": 1770300205,
+      "decoder_version_id": "indexer-working-tree-current",
+      "payload": {
+        "kind": "update_config",
+        "payload": {
+          "fields": {
+            "args.authority": "4JpPs9Mi11qoj6GthQPiTjUc4gXq8BAoSs3AD6NVjQUZ",
+            "args.buybacks_vault": "34rned2SLUcYjUrM9meQkuyJY4QDBcKhkcUPXCgGuXD9",
+            "args.buybacks_vault_bps": "0",
+            "args.futarchy_treasury": "34rned2SLUcYjUrM9meQkuyJY4QDBcKhkcUPXCgGuXD9",
+            "args.futarchy_treasury_bps": "10000",
+            "args.interest_bps": "1500",
+            "args.swap_bps": "1000",
+            "args.team_treasury": "4JpPs9Mi11qoj6GthQPiTjUc4gXq8BAoSs3AD6NVjQUZ",
+            "args.team_treasury_bps": "0",
+            "instruction_kind": "init_futarchy_authority"
+          }
+        }
+      },
+      "assertions": []
+    },
+    {
+      "schema_version": 1,
+      "operation_id": "8b0a22cf405f2d2350f021dbf870f423ca45de81d85da8331ca77035ef75eb71",
+      "signature": "3CduJPuZ5AWSEDn2dsGF1Bkvn4FwFh7sGjyiirCFM5uTHQNojK94qFF55VRcGutBW7E562z2NxMXYH5WRsW1Raqa",
+      "pair": "__global__",
+      "actor": "4JpPs9Mi11qoj6GthQPiTjUc4gXq8BAoSs3AD6NVjQUZ",
+      "order": {
+        "slot": 399387526,
+        "transaction_index": 351,
+        "outer_instruction_index": 3,
+        "inner_execution_index": 0,
+        "event_sequence": 0
+      },
+      "block_time_unix_seconds": 1770751967,
+      "decoder_version_id": "indexer-working-tree-current",
+      "payload": {
+        "kind": "update_config",
+        "payload": {
+          "fields": {
+            "args.reduce_only": "true",
+            "instruction_kind": "set_global_reduce_only"
+          }
+        }
+      },
+      "assertions": []
+    },
+    {
+      "schema_version": 1,
+      "operation_id": "0d2ad425450a5782fdb2e552b213eadefd3a444fcde2059d0fd5b7d362d9c599",
+      "signature": "4FqGiuVVSbbC8TXpXCkurG2EDrXs9ckxzFuXjiqid1bYfGQXkzH34mVTdFywqgT7kgcunSxGvfFngTzUtz4338JU",
+      "pair": "__global__",
+      "actor": "4JpPs9Mi11qoj6GthQPiTjUc4gXq8BAoSs3AD6NVjQUZ",
+      "order": {
+        "slot": 399389124,
+        "transaction_index": 944,
+        "outer_instruction_index": 3,
+        "inner_execution_index": 0,
+        "event_sequence": 0
+      },
+      "block_time_unix_seconds": 1770752595,
+      "decoder_version_id": "indexer-working-tree-current",
+      "payload": {
+        "kind": "update_config",
+        "payload": {
+          "fields": {
+            "args.reduce_only": "false",
+            "instruction_kind": "set_global_reduce_only"
+          }
+        }
+      },
+      "assertions": []
+    },
+    {
+      "schema_version": 1,
+      "operation_id": "32c2e03e5bc5d7d7170a3bcd1b2230d551a33901929316b83031274fb02edbe4",
+      "signature": "2WvpGuQD2BaBjhL3LGcismixmZmsJqzQAWavF41Xk57d25Kkga1ixjj3qKMdaTPpbpPb3B9fp7ee5rpkkCoZTa2Y",
+      "pair": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+      "actor": "8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt",
+      "order": {
+        "slot": 400690092,
+        "transaction_index": 170,
+        "outer_instruction_index": 3,
+        "inner_execution_index": null,
+        "event_sequence": 0
+      },
+      "block_time_unix_seconds": 1771261226,
+      "decoder_version_id": "indexer-working-tree-current",
+      "payload": {
+        "kind": "initialize_market",
+        "payload": {
+          "token0": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+          "token1": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "token0_decimals": 6,
+          "token1_decimals": 6,
+          "gross_amount0": "1000000000",
+          "gross_amount1": "409000000",
+          "vault_credit0": "1000000000",
+          "vault_credit1": "409000000",
+          "minted_lp": "639530078",
+          "min_liquidity_out": "575577070",
+          "fields": {
+            "event_kind": "pair_created",
+            "half_life": "420000",
+            "instruction.args.amount0_in": "1000000000",
+            "instruction.args.amount1_in": "409000000",
+            "instruction.args.fixed_cf_bps": "null",
+            "instruction.args.half_life": "420000",
+            "instruction.args.initial_rate_bps": "null",
+            "instruction.args.lp_name": "OMFG/USDC omLP",
+            "instruction.args.lp_symbol": "OM.US-omLP",
+            "instruction.args.lp_uri": "https://ipfs.omnipair.fi/ipfs/bafkreic22l6tja3rdfaw5345gcybaybnsfkt6zpdpkebyr2dldwbd4rjoq",
+            "instruction.args.max_rate_bps": "null",
+            "instruction.args.min_liquidity_out": "575577070",
+            "instruction.args.min_rate_bps": "null",
+            "instruction.args.params_hash": "[\"97\",\"172\",\"78\",\"80\",\"187\",\"119\",\"42\",\"8\",\"96\",\"160\",\"37\",\"129\",\"49\",\"113\",\"91\",\"124\",\"216\",\"58\",\"19\",\"77\",\"166\",\"164\",\"195\",\"18\",\"39\",\"104\",\"211\",\"37\",\"70\",\"196\",\"90\",\"129\"]",
+            "instruction.args.rate_half_life_ms": "null",
+            "instruction.args.swap_fee_bps": "25",
+            "instruction.args.target_util_end_bps": "null",
+            "instruction.args.target_util_start_bps": "null",
+            "instruction.args.version": "1",
+            "lp_mint": "DziJQV1XqgYkH3c7Xc2amFQHRRnuc5D7eoagu9yromLP",
+            "max_rate_bps": "0",
+            "min_rate_bps": "0",
+            "params_hash": "[97,172,78,80,187,119,42,8,96,160,37,129,49,113,91,124,216,58,19,77,166,164,195,18,39,104,211,37,70,196,90,129]",
+            "rate_half_life_ms": "0",
+            "rate_model": "4ETWZmPqQqAA4EYbVpNKZ9vE3pV1JQ4GUhHY2Yx3nFAi",
+            "swap_fee_bps": "25",
+            "target_util_end_bps": "0",
+            "target_util_start_bps": "0",
+            "token0": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+            "token0_decimals": "6",
+            "token1": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "token1_decimals": "6",
+            "version": "1"
+          }
+        }
+      },
+      "assertions": [
+        {
+          "event_id": "4c45137a4068e6e8f0d17aa6c3550da1b4f76f69cdec50958dacf2043d3e1688",
+          "cluster": "mainnet-beta",
+          "program_id": "omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE",
+          "pair": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+          "actor": "8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt",
+          "signature": "2WvpGuQD2BaBjhL3LGcismixmZmsJqzQAWavF41Xk57d25Kkga1ixjj3qKMdaTPpbpPb3B9fp7ee5rpkkCoZTa2Y",
+          "order": {
+            "slot": 400690092,
+            "transaction_index": 170,
+            "outer_instruction_index": 3,
+            "inner_execution_index": 25,
+            "event_sequence": 0
+          },
+          "execution_path": [
+            3,
+            18
+          ],
+          "block_time_unix_seconds": 1771261226,
+          "decoder_version_id": "indexer-working-tree-current",
+          "raw_payload_sha256": "f4e06be1c7b07d0666b8fba4c848dfbfe62c03aaae653754bf955ccd13001262",
+          "db_source": null,
+          "payload": {
+            "kind": "config",
+            "payload": {
+              "event_kind": "pair_created",
+              "half_life": "420000",
+              "lp_mint": "DziJQV1XqgYkH3c7Xc2amFQHRRnuc5D7eoagu9yromLP",
+              "max_rate_bps": "0",
+              "min_rate_bps": "0",
+              "params_hash": "[97,172,78,80,187,119,42,8,96,160,37,129,49,113,91,124,216,58,19,77,166,164,195,18,39,104,211,37,70,196,90,129]",
+              "rate_half_life_ms": "0",
+              "rate_model": "4ETWZmPqQqAA4EYbVpNKZ9vE3pV1JQ4GUhHY2Yx3nFAi",
+              "swap_fee_bps": "25",
+              "target_util_end_bps": "0",
+              "target_util_start_bps": "0",
+              "token0": "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+              "token0_decimals": "6",
+              "token1": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "token1_decimals": "6",
+              "version": "1"
+            }
+          }
+        },
+        {
+          "event_id": "4f0cd3d859fcdc78900c155cf9c957db66772a958c39376fef7555be7e81d260",
+          "cluster": "mainnet-beta",
+          "program_id": "omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE",
+          "pair": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+          "actor": "8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt",
+          "signature": "2WvpGuQD2BaBjhL3LGcismixmZmsJqzQAWavF41Xk57d25Kkga1ixjj3qKMdaTPpbpPb3B9fp7ee5rpkkCoZTa2Y",
+          "order": {
+            "slot": 400690092,
+            "transaction_index": 170,
+            "outer_instruction_index": 3,
+            "inner_execution_index": 26,
+            "event_sequence": 0
+          },
+          "execution_path": [
+            3,
+            19
+          ],
+          "block_time_unix_seconds": 1771261226,
+          "decoder_version_id": "indexer-working-tree-current",
+          "raw_payload_sha256": "eb29b271c1ba3a69a26f41a15897e7ae2a9bd81aec6e29765702076af00e9d8d",
+          "db_source": null,
+          "payload": {
+            "kind": "liquidity",
+            "payload": {
+              "action": "mint",
+              "amount0": "1000000000",
+              "amount1": "409000000",
+              "liquidity": "639530078"
+            }
+          }
+        },
+        {
+          "event_id": "cf7d40437eeb8205f23397ff91cb04e27f5fbb3f9ca84fdf97295502fa63cd3a",
+          "cluster": "mainnet-beta",
+          "program_id": "omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE",
+          "pair": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+          "actor": "8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt",
+          "signature": "2WvpGuQD2BaBjhL3LGcismixmZmsJqzQAWavF41Xk57d25Kkga1ixjj3qKMdaTPpbpPb3B9fp7ee5rpkkCoZTa2Y",
+          "order": {
+            "slot": 400690092,
+            "transaction_index": 170,
+            "outer_instruction_index": 3,
+            "inner_execution_index": 27,
+            "event_sequence": 0
+          },
+          "execution_path": [
+            3,
+            20
+          ],
+          "block_time_unix_seconds": 1771261226,
+          "decoder_version_id": "indexer-working-tree-current",
+          "raw_payload_sha256": "2ad38760ecf84346d80a22e101a4ac57bd1c76dbb3dfcdd70397ea4fd7772221",
+          "db_source": null,
+          "payload": {
+            "kind": "lp_position",
+            "payload": {
+              "lp_amount": "639530078",
+              "amount0": "999998436",
+              "amount1": "408999360",
+              "cash_reserve0": "1000000000",
+              "cash_reserve1": "409000000"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "schema_version": 1,
+      "operation_id": "9d34edac5e81de5b4b2d362f5fab125cb921b1581d8e484166a4f35bad02388c",
+      "signature": "4qWBoUSVJTbyUMgZapHi7G8XKsrtTDmGh5aP9wYUcFQJcPPHNprFdyLv7gRpSt7mxMADWcqg9EGqBCDvaKF9n5KV",
+      "pair": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+      "actor": "XZWJhmpSh34WKuPuJfhERwPuhramGHoXwSisbBpeomg",
+      "order": {
+        "slot": 400697655,
+        "transaction_index": 1059,
+        "outer_instruction_index": 2,
+        "inner_execution_index": null,
+        "event_sequence": 0
+      },
+      "block_time_unix_seconds": 1771264200,
+      "decoder_version_id": "indexer-working-tree-current",
+      "payload": {
+        "kind": "add_liquidity",
+        "payload": {
+          "gross_amount0": "24449877751",
+          "gross_amount1": "10000000000",
+          "vault_credit0": "24449877750",
+          "vault_credit1": "10000000000",
+          "minted_lp": "15636456674",
+          "min_liquidity_out": "0"
+        }
+      },
+      "assertions": [
+        {
+          "event_id": "13875f1349ff398261950d06c8a6d70099f1ea0dfcd8059203309415c6c618b6",
+          "cluster": "mainnet-beta",
+          "program_id": "omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE",
+          "pair": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+          "actor": "XZWJhmpSh34WKuPuJfhERwPuhramGHoXwSisbBpeomg",
+          "signature": "4qWBoUSVJTbyUMgZapHi7G8XKsrtTDmGh5aP9wYUcFQJcPPHNprFdyLv7gRpSt7mxMADWcqg9EGqBCDvaKF9n5KV",
+          "order": {
+            "slot": 400697655,
+            "transaction_index": 1059,
+            "outer_instruction_index": 2,
+            "inner_execution_index": 8,
+            "event_sequence": 0
+          },
+          "execution_path": [
+            2,
+            4
+          ],
+          "block_time_unix_seconds": 1771264200,
+          "decoder_version_id": "indexer-working-tree-current",
+          "raw_payload_sha256": "0e501bae06e3a6c4a2b9cd560d1804cf0e4a5fa7624f593ad520cf5bb7166370",
+          "db_source": null,
+          "payload": {
+            "kind": "liquidity",
+            "payload": {
+              "action": "mint",
+              "amount0": "24449877750",
+              "amount1": "10000000000",
+              "liquidity": "15636456674"
+            }
+          }
+        },
+        {
+          "event_id": "29aaec39177cfe379e6716923533b4b54921b9b59fc45feb29cd98292c80e01c",
+          "cluster": "mainnet-beta",
+          "program_id": "omnixgS8fnqHfCcTGKWj6JtKjzpJZ1Y5y9pyFkQDkYE",
+          "pair": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+          "actor": "XZWJhmpSh34WKuPuJfhERwPuhramGHoXwSisbBpeomg",
+          "signature": "4qWBoUSVJTbyUMgZapHi7G8XKsrtTDmGh5aP9wYUcFQJcPPHNprFdyLv7gRpSt7mxMADWcqg9EGqBCDvaKF9n5KV",
+          "order": {
+            "slot": 400697655,
+            "transaction_index": 1059,
+            "outer_instruction_index": 2,
+            "inner_execution_index": 9,
+            "event_sequence": 0
+          },
+          "execution_path": [
+            2,
+            5
+          ],
+          "block_time_unix_seconds": 1771264200,
+          "decoder_version_id": "indexer-working-tree-current",
+          "raw_payload_sha256": "516611cf533c32a2642ecd825399c49dc7e8f7c62dcbeb52e34eb1631131f870",
+          "db_source": null,
+          "payload": {
+            "kind": "lp_position",
+            "payload": {
+              "lp_amount": "15636456674",
+              "amount0": "24449877749",
+              "amount1": "9999999999",
+              "cash_reserve0": "25449877750",
+              "cash_reserve1": "10409000000"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

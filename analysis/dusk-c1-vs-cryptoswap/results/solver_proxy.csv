@@ -1,0 +1,109 @@
+profile,model,model_label,state,direction,quote_mode,state_v,q_root_iterations,reserve_root_iterations,total_nonlinear_iterations_proxy,exact_tail_fast_path,note
+broad,cpmm,CPMM,center,outward,exact_in,0.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,center,outward,exact_out,0.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,transition,outward,exact_in,0.3083191124914053,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,transition,outward,exact_out,0.3083191124914053,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,transition,restoring,exact_in,0.3083191124914053,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,transition,restoring,exact_out,0.3083191124914053,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,tail,outward,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,tail,outward,exact_out,2.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,tail,restoring,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,tail,restoring,exact_out,2.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,tail_crossing,restoring,exact_in,0.6712766070148976,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,cpmm,CPMM,tail_crossing,restoring,exact_out,0.6712766070148976,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,center,outward,exact_in,0.0,1793,36,1829,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,center,outward,exact_out,0.0,2083,42,2125,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,transition,outward,exact_in,0.3083191124914053,2230,43,2273,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,transition,outward,exact_out,0.3083191124914053,2230,43,2273,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,transition,restoring,exact_in,0.3083191124914053,2467,46,2513,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,transition,restoring,exact_out,0.3083191124914053,2423,45,2468,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,tail,outward,exact_in,2.0,2436,46,2482,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,tail,outward,exact_out,2.0,2572,49,2621,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,tail,restoring,exact_in,2.0,2185,42,2227,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,tail,restoring,exact_out,2.0,2236,43,2279,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,tail_crossing,restoring,exact_in,0.6712766070148976,2426,46,2472,False,Reference-algorithm proxy only; not Solana compute units
+broad,cryptoswap,CryptoSwap,tail_crossing,restoring,exact_out,0.6712766070148976,2228,42,2270,False,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,center,outward,exact_in,0.0,1745,36,1781,False,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,center,outward,exact_out,0.0,1938,42,1980,False,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,transition,outward,exact_in,0.3083191124914053,45,43,88,False,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,transition,outward,exact_out,0.3083191124914053,0,47,47,False,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,transition,restoring,exact_in,0.3083191124914053,0,47,47,False,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,transition,restoring,exact_out,0.3083191124914053,45,44,89,False,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,tail,outward,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,tail,outward,exact_out,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,tail,restoring,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,tail,restoring,exact_out,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,tail_crossing,restoring,exact_in,0.6712766070148976,0,47,47,False,Reference-algorithm proxy only; not Solana compute units
+broad,dusk_c1,Dusk C1,tail_crossing,restoring,exact_out,0.6712766070148976,0,43,43,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,center,outward,exact_in,0.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,center,outward,exact_out,0.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,transition,outward,exact_in,0.08847866129896911,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,transition,outward,exact_out,0.08847866129896911,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,transition,restoring,exact_in,0.08847866129896911,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,transition,restoring,exact_out,0.08847866129896911,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,tail,outward,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,tail,outward,exact_out,2.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,tail,restoring,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,tail,restoring,exact_out,2.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,tail_crossing,restoring,exact_in,0.18991978007678223,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,cpmm,CPMM,tail_crossing,restoring,exact_out,0.18991978007678223,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,center,outward,exact_in,0.0,1691,34,1725,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,center,outward,exact_out,0.0,2226,45,2271,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,transition,outward,exact_in,0.08847866129896911,2261,42,2303,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,transition,outward,exact_out,0.08847866129896911,2459,46,2505,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,transition,restoring,exact_in,0.08847866129896911,2296,45,2341,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,transition,restoring,exact_out,0.08847866129896911,2012,39,2051,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,tail,outward,exact_in,2.0,2332,44,2376,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,tail,outward,exact_out,2.0,2515,48,2563,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,tail,restoring,exact_in,2.0,2097,40,2137,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,tail,restoring,exact_out,2.0,2187,42,2229,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,tail_crossing,restoring,exact_in,0.18991978007678223,2174,44,2218,False,Reference-algorithm proxy only; not Solana compute units
+balanced,cryptoswap,CryptoSwap,tail_crossing,restoring,exact_out,0.18991978007678223,1997,40,2037,False,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,center,outward,exact_in,0.0,1642,34,1676,False,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,center,outward,exact_out,0.0,1984,45,2029,False,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,transition,outward,exact_in,0.08847866129896911,0,41,41,False,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,transition,outward,exact_out,0.08847866129896911,0,47,47,False,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,transition,restoring,exact_in,0.08847866129896911,0,46,46,False,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,transition,restoring,exact_out,0.08847866129896911,45,42,87,False,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,tail,outward,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,tail,outward,exact_out,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,tail,restoring,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,tail,restoring,exact_out,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,tail_crossing,restoring,exact_in,0.18991978007678223,0,46,46,False,Reference-algorithm proxy only; not Solana compute units
+balanced,dusk_c1,Dusk C1,tail_crossing,restoring,exact_out,0.18991978007678223,51,43,94,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,center,outward,exact_in,0.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,center,outward,exact_out,0.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,transition,outward,exact_in,0.027700817707106338,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,transition,outward,exact_out,0.027700817707106338,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,transition,restoring,exact_in,0.027700817707106338,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,transition,restoring,exact_out,0.027700817707106338,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,tail,outward,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,tail,outward,exact_out,2.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,tail,restoring,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,tail,restoring,exact_out,2.0,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,tail_crossing,restoring,exact_in,0.05936906336691656,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,cpmm,CPMM,tail_crossing,restoring,exact_out,0.05936906336691656,0,0,0,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,center,outward,exact_in,0.0,1742,35,1777,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,center,outward,exact_out,0.0,2178,44,2222,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,transition,outward,exact_in,0.027700817707106338,2023,38,2061,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,transition,outward,exact_out,0.027700817707106338,2260,43,2303,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,transition,restoring,exact_in,0.027700817707106338,2243,43,2286,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,transition,restoring,exact_out,0.027700817707106338,1909,36,1945,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,tail,outward,exact_in,2.0,2231,42,2273,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,tail,outward,exact_out,2.0,2541,48,2589,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,tail,restoring,exact_in,2.0,2090,40,2130,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,tail,restoring,exact_out,2.0,2334,45,2379,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,tail_crossing,restoring,exact_in,0.05936906336691656,2235,43,2278,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,cryptoswap,CryptoSwap,tail_crossing,restoring,exact_out,0.05936906336691656,2001,38,2039,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,center,outward,exact_in,0.0,1693,35,1728,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,center,outward,exact_out,0.0,1789,44,1833,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,transition,outward,exact_in,0.027700817707106338,0,41,41,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,transition,outward,exact_out,0.027700817707106338,0,43,43,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,transition,restoring,exact_in,0.027700817707106338,0,42,42,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,transition,restoring,exact_out,0.027700817707106338,135,37,172,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,tail,outward,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,tail,outward,exact_out,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,tail,restoring,exact_in,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,tail,restoring,exact_out,2.0,0,0,0,True,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,tail_crossing,restoring,exact_in,0.05936906336691656,0,43,43,False,Reference-algorithm proxy only; not Solana compute units
+aggressive,dusk_c1,Dusk C1,tail_crossing,restoring,exact_out,0.05936906336691656,44,41,85,False,Reference-algorithm proxy only; not Solana compute units

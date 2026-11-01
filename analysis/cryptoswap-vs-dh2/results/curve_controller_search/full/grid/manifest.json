@@ -1,0 +1,25 @@
+{
+  "status": "curve_controller_search_stage_complete",
+  "canonical_native_output": false,
+  "mode": "full",
+  "stage": "grid",
+  "schema_version": 1,
+  "fingerprint": "3ed08457a2866b2124e65de29d0ce915911f1b5dcda1ea9cffd85483c6e63aec",
+  "rows": 19200,
+  "profiles": 150,
+  "cells_per_profile": 128,
+  "historical_reads": 0,
+  "resumed_progress_rows": 0,
+  "new_rows": 19200,
+  "checkpoint_batch_size": 256,
+  "selection_eligible_profiles": 150,
+  "selection_excluded_nonfinite_rho_profiles": 0,
+  "nonfinite_rho_selection_policy": "excluded",
+  "selected_profile_ids": [
+    "curve_grid_c01_f02"
+  ],
+  "content_hashes": {
+    "rows.csv": "ccfc155b423f48b550479ff85767a18d4700be62c45c8f8d31e2b092b318cb1c",
+    "profiles.csv": "2aee23d0499be060e44e9cd4e57855f3c3cdfeb62773ffc3fad7656a36be476e"
+  }
+}

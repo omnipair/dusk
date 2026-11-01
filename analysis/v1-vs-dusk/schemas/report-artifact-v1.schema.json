@@ -1,0 +1,501 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:report-artifact:v1",
+  "title": "DataAnalyticsArtifactV1 benchmark subset",
+  "description": "The exact portable Data Analytics input subset authored by crate::report. The caller-supplied portable builder performs the final canonical validation and rendering.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::report::DataAnalyticsArtifactV1",
+  "x-validation-scope": "portable_builder_input_subset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "surface",
+    "manifest",
+    "snapshot",
+    "sources"
+  ],
+  "properties": {
+    "surface": {
+      "const": "report"
+    },
+    "manifest": {
+      "$ref": "#/$defs/manifest"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "surface",
+        "title",
+        "description",
+        "charts",
+        "tables",
+        "sources",
+        "blocks"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "surface": {
+          "const": "report"
+        },
+        "title": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "description": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "cards": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "charts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/chart"
+          }
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/table"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/source"
+          }
+        },
+        "blocks": {
+          "type": "array",
+          "minItems": 1,
+          "contains": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "chart"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/markdown_block"
+              },
+              {
+                "$ref": "#/$defs/chart_block"
+              },
+              {
+                "$ref": "#/$defs/table_block"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "status",
+        "datasets"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "status": {
+          "const": "ready"
+        },
+        "datasets": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 50,
+          "additionalProperties": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "accessIssues": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "path",
+        "query"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "label": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[^/][^\\r\\n]*\\.sql$"
+        },
+        "query": {
+          "$ref": "#/$defs/source_query"
+        }
+      }
+    },
+    "source_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "id",
+        "sql",
+        "description",
+        "language",
+        "tables_used",
+        "filters",
+        "metric_definitions"
+      ],
+      "properties": {
+        "engine": {
+          "const": "duckdb"
+        },
+        "id": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "sql": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "description": {
+          "$ref": "common-v1.schema.json#/$defs/nonempty_string"
+        },
+        "language": {
+          "const": "sql"
+        },
+        "tables_used": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "filters": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "metric_definitions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "encoding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "type",
+        "label"
+      ],
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "nominal",
+            "ordinal",
+            "quantitative",
+            "temporal",
+            "text"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "unit": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "chart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "subtitle",
+        "type",
+        "dataset",
+        "sourceId",
+        "encodings",
+        "xAxisTitle",
+        "yAxisTitle",
+        "valueFormat",
+        "unit",
+        "layout",
+        "maxRows"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "type": {
+          "const": "horizontalBar"
+        },
+        "dataset": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "encodings": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "tooltip"
+          ],
+          "properties": {
+            "x": {
+              "$ref": "#/$defs/encoding"
+            },
+            "y": {
+              "$ref": "#/$defs/encoding"
+            },
+            "tooltip": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/encoding"
+              }
+            }
+          }
+        },
+        "xAxisTitle": {
+          "type": "string"
+        },
+        "yAxisTitle": {
+          "type": "string"
+        },
+        "valueFormat": {
+          "const": "number"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "layout": {
+          "type": "string"
+        },
+        "maxRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        }
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "subtitle",
+        "dataset",
+        "density",
+        "sourceId",
+        "layout",
+        "defaultSort",
+        "columns"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "dataset": {
+          "type": "string"
+        },
+        "density": {
+          "enum": [
+            "compact",
+            "comfortable",
+            "spacious"
+          ]
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "layout": {
+          "type": "string"
+        },
+        "defaultSort": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "direction"
+          ],
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "direction": {
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          }
+        },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "field",
+              "label",
+              "type",
+              "align"
+            ],
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "align": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "markdown_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id",
+        "body"
+      ],
+      "properties": {
+        "type": {
+          "const": "markdown"
+        },
+        "id": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "sourceId": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "chart_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id",
+        "chartId"
+      ],
+      "properties": {
+        "type": {
+          "const": "chart"
+        },
+        "id": {
+          "type": "string"
+        },
+        "chartId": {
+          "type": "string"
+        }
+      }
+    },
+    "table_block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id",
+        "tableId"
+      ],
+      "properties": {
+        "type": {
+          "const": "table"
+        },
+        "id": {
+          "type": "string"
+        },
+        "tableId": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

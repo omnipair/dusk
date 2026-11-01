@@ -1,0 +1,30 @@
+{
+  "status": "invalidated_and_regenerated",
+  "reason": "The first sealed summary computed max(accounting_identity_error) instead of max(abs(accounting_identity_error)).",
+  "economic_rows_affected": false,
+  "profile_selection_affected": false,
+  "old_lock": {
+    "locked_at_utc": "2026-07-29T12:37:14.799863Z",
+    "profile_lock_fingerprint": "866bd5f993774b989acb4fa82de1d464488786825477c385f4742c3248618166",
+    "profile_lock_sha256": "7c42e8f034e82a1365d7bf6717965a62f088744b9f77817ab2604fefbc6c3f9b",
+    "profiles": {
+      "curve_native_v2_1": "curve_grid_c01_f02",
+      "dusk_native": "grid_c09_f10",
+      "dusk_cpmm": "grid_c08_f10"
+    }
+  },
+  "old_inputs": {
+    "history_csv_sha256": "e7e6078f81eab5151fbd39343d6b67ba7644dda185fbebc4f729c72ce717fa05",
+    "history_metadata_sha256": "1d7f0b67204e90133dae18c4aef762a7b77b428177c70a412dc9b95d185f6652",
+    "history_manifest_sha256": "e195a3576c50efe6731d63f07590373f14579ff83b6ce9dd5e9cba60c193c273"
+  },
+  "old_outputs": {
+    "sealed_native_results_sha256": "7017fccfb0c059eaa230dafa916f852fda528ff5ce8b22b01f8317b0b8900109",
+    "sealed_native_paired_sha256": "408b1078298b1a6a7c1c38a575556bf4009ccb2c6faffff5ffd4a19218171cb8",
+    "sealed_native_summary_sha256": "344292bef9431ff7f08e845e952948d12b7a16e4d5084fb788c4106245c7e071"
+  },
+  "old_reported_maximum_accounting_identity_error": 2.5165718398056924e-09,
+  "recomputed_maximum_absolute_accounting_identity_error": 2.0809096668017446e-07,
+  "accounting_error_limit": 1e-05,
+  "remediation": "The producer now takes the maximum absolute residual. A mixed-sign regression test covers the observed failure mode. The immutable lock, deterministic sealed inputs, and sealed replay are regenerated under the corrected producer hash with the same profile identities."
+}

@@ -1,0 +1,472 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "scope": "final_report_evidence",
+  "native_summary_sha256": "4789dda9e1bb9dc5cda7ff5190389397b1885d662ab27881b0bddf10f97815b7",
+  "evidence": {
+    "schema_version": 1,
+    "status": "passed",
+    "search_and_promotion": {
+      "status": "passed",
+      "symmetric_concentrated_search": true,
+      "independent_cpmm_search": true,
+      "profiles_per_family": 150,
+      "cells_per_profile": 128,
+      "rows_per_family": 19200,
+      "promotions": {
+        "curve_native_v2_1": {
+          "system": "curve_native_v2_1",
+          "search": "curve_controller_search",
+          "search_profiles": 150,
+          "search_cells_per_profile": 128,
+          "search_rows": 19200,
+          "search_summary_path": "results/curve_controller_search/full/summary.json",
+          "search_summary_sha256": "9da03e790c7e91ecabe97e05510831ea077f242a88234fd63321a25092b66c0d",
+          "search_fingerprint": "3ed08457a2866b2124e65de29d0ce915911f1b5dcda1ea9cffd85483c6e63aec",
+          "search_winner_profile_id": "curve_grid_c01_f02",
+          "promoted_profiles": 5,
+          "promotion_path": "data/curve_controller_profiles.json",
+          "promotion_sha256": "2869ce9d7025b82f10dcb9471a8a81ed78f70f47ba16226649751878832c6ad5",
+          "promotion_fingerprint": "262cfd3f7a23a92627738280ee80b4935930e13a030b8d3dcbc35754b9114541",
+          "source_files": {
+            "stage_manifest": {
+              "path": "results/curve_controller_search/full/grid/manifest.json",
+              "sha256": "9a9ac21b0ba25fe6a69c26e0a4e656a97f791fdbf5dcd919cdbefb5b8106eb6b"
+            },
+            "profiles": {
+              "path": "results/curve_controller_search/full/grid/profiles.csv",
+              "sha256": "2aee23d0499be060e44e9cd4e57855f3c3cdfeb62773ffc3fad7656a36be476e"
+            }
+          },
+          "canonical_locked_profile_id": "curve_grid_c01_f02",
+          "canonical_locked_description": "controller=pinned_v21; EMA=10.0167m; step=1.46bp; allowance=2ppm; fees=base_like_flat; mid=5bp; out=5bp; fee_gamma=0.01",
+          "canonical_locked_source_rank": 1,
+          "canonical_locked_model": {
+            "amplification": 1000.0,
+            "gamma": 0.00046123335046868,
+            "mid_fee": 0.0005,
+            "out_fee": 0.0005,
+            "fee_gamma": 0.01,
+            "name": "Curve CryptoSwap"
+          },
+          "canonical_locked_controller": {
+            "ema_half_life_minutes": 10.016666666666667,
+            "min_adjustment_step": 0.000146,
+            "allowed_extra_profit": 2e-06,
+            "arb_min_profit_quote": 0.1
+          },
+          "profile_ids": [
+            "curve_grid_c00_f02",
+            "curve_grid_c01_f02",
+            "curve_grid_c03_f02",
+            "curve_grid_c04_f02",
+            "curve_grid_c09_f02"
+          ]
+        },
+        "dusk_native": {
+          "system": "dusk_native",
+          "search": "dusk_controller_search",
+          "search_profiles": 150,
+          "search_cells_per_profile": 128,
+          "search_rows": 19200,
+          "search_summary_path": "results/controller_search/full/summary.json",
+          "search_summary_sha256": "b0a4790a67b36ed4fc1ef05846da2f14e6b4726cd165867d56a03e25c8a9e43d",
+          "search_fingerprint": "9690b9e37c1cb56bc1c3fd59054ee9d2e20ecdeaae0af7c215d99611eeac3f14",
+          "search_winner_profile_id": "grid_c09_f10",
+          "promoted_profiles": 5,
+          "promotion_path": "data/dusk_controller_profiles.json",
+          "promotion_sha256": "c4f88d5c9c55c1a0b9013d252cf017c22b1d89d97573d1927772f5fba6b4e863",
+          "promotion_fingerprint": "6d2d5ab51567049cc7bca110715d9743f686d7a9b446d76c3b71cecdb3827828",
+          "source_files": {
+            "stage_manifest": {
+              "path": "results/controller_search/full/grid/manifest.json",
+              "sha256": "b6f311777b885cd744634ea669c52eea47c9c9bd866f321d3ef9b25ddcebea15"
+            },
+            "profiles": {
+              "path": "results/controller_search/full/grid/profiles.csv",
+              "sha256": "ade9ee5e0f076fc17e2f18e866fd3db8a3bcfb2a890c1800cec8f878493330cc"
+            }
+          },
+          "canonical_locked_profile_id": "grid_c09_f10",
+          "canonical_locked_description": "EMA 60m; threshold 200bp; step 50bp; interval 5m; dynamic cap 0bp; div 0; vol 0; vol half-life 15m",
+          "canonical_locked_source_rank": 1,
+          "canonical_locked_model": {
+            "peak_depth": 2000.0,
+            "fade_scale": 2.1348253657956496e-05,
+            "base_fee": 0.0005,
+            "divergence_coefficient": 0.02,
+            "volatility_coefficient": 0.02,
+            "max_dynamic_fee": 0.02,
+            "name": "Current DH2"
+          },
+          "canonical_locked_controller": {
+            "fee": {
+              "base_fee_rate_nad": 500000,
+              "max_fee_rate_nad": 500000,
+              "divergence_coefficient_nad": 0,
+              "volatility_coefficient_nad": 0,
+              "volatility_half_life_ms": 900000,
+              "volatility_shock_cap_nad": 100000000,
+              "volatility_accumulator_cap_nad": 1000000000
+            },
+            "center_ema_half_life_minutes": 60.0,
+            "adjustment_threshold": 0.02,
+            "adjustment_step": 0.005,
+            "min_adjustment_interval_minutes": 5,
+            "arb_min_profit_quote": 0.1,
+            "solver_haircut_ppm": 10.0,
+            "recenter_enabled": true,
+            "manager_fee_bps": 500,
+            "protocol_fee_bps": 0
+          },
+          "profile_ids": [
+            "grid_c00_f10",
+            "grid_c01_f10",
+            "grid_c02_f10",
+            "grid_c08_f10",
+            "grid_c09_f10"
+          ]
+        },
+        "dusk_cpmm": {
+          "system": "dusk_cpmm",
+          "search": "cpmm_controller_search",
+          "search_profiles": 150,
+          "search_cells_per_profile": 128,
+          "search_rows": 19200,
+          "search_summary_path": "results/cpmm_controller_search/full/summary.json",
+          "search_summary_sha256": "e293eeb9ff93aa77da608cae31115e0c72c12319cb0f6d7cbf90a1f2a72b7628",
+          "search_fingerprint": "8ae83a055a21d0c6783474e7f1e9de5976756ee2e1ed719a3a6f2378d39aee83",
+          "search_winner_profile_id": "grid_c08_f10",
+          "promoted_profiles": 5,
+          "promotion_path": "data/cpmm_controller_profiles.json",
+          "promotion_sha256": "edf610f6eef39919fa9b0d4953d4ebfcaa960483840c94c47ac3183434399930",
+          "promotion_fingerprint": "09f3c9a7082607ccf64689efc0f9844c54d395dbbc0e56b63e8369f2e3e52d13",
+          "source_files": {
+            "stage_manifest": {
+              "path": "results/cpmm_controller_search/full/grid/manifest.json",
+              "sha256": "c9ccca49a1230367e404bef33ee07643bcb6afbae0b3c9232846a3656b21bda1"
+            },
+            "profiles": {
+              "path": "results/cpmm_controller_search/full/grid/profiles.csv",
+              "sha256": "fc1b1250c66859a1666aadae55f305a85212df98cb011bb844d60fb0a68307a1"
+            }
+          },
+          "canonical_locked_profile_id": "grid_c08_f10",
+          "canonical_locked_description": "independent CPMM candidate; EMA 30m; threshold 100bp; step 25bp; interval 5m; dynamic cap 0bp; div 0; vol 0; vol half-life 15m",
+          "canonical_locked_source_rank": 1,
+          "canonical_locked_model": {
+            "peak_depth": 0.0,
+            "fade_scale": 0.0,
+            "base_fee": 0.0005,
+            "divergence_coefficient": 0.02,
+            "volatility_coefficient": 0.02,
+            "max_dynamic_fee": 0.02,
+            "name": "Current DH2"
+          },
+          "canonical_locked_controller": {
+            "fee": {
+              "base_fee_rate_nad": 500000,
+              "max_fee_rate_nad": 500000,
+              "divergence_coefficient_nad": 0,
+              "volatility_coefficient_nad": 0,
+              "volatility_half_life_ms": 900000,
+              "volatility_shock_cap_nad": 100000000,
+              "volatility_accumulator_cap_nad": 1000000000
+            },
+            "center_ema_half_life_minutes": 30.0,
+            "adjustment_threshold": 0.01,
+            "adjustment_step": 0.0025,
+            "min_adjustment_interval_minutes": 5,
+            "arb_min_profit_quote": 0.1,
+            "solver_haircut_ppm": 10.0,
+            "recenter_enabled": true,
+            "manager_fee_bps": 500,
+            "protocol_fee_bps": 0
+          },
+          "profile_ids": [
+            "grid_c00_f10",
+            "grid_c01_f10",
+            "grid_c02_f10",
+            "grid_c05_f10",
+            "grid_c08_f10"
+          ]
+        }
+      }
+    },
+    "sealed_validation": {
+      "status": "passed",
+      "profile_lock_fingerprint": "da132fb9f1c1edd06ecea1bd30d3252170f37744b7764813cf5217e543cb9081",
+      "locked_at_utc": "2026-07-29T12:45:24.212949Z",
+      "input_hashes": {
+        "profile_lock_sha256": "a0ee3ef678a0831aeedd3f57b492f519d348f95206069678296e1e041fb3302d",
+        "history_csv_sha256": "e7e6078f81eab5151fbd39343d6b67ba7644dda185fbebc4f729c72ce717fa05",
+        "history_metadata_sha256": "b4742812a3d03027587da37a2d706910dcbf3618c4cfd0e26b3406911a5b35c1"
+      },
+      "output_hashes": {
+        "sealed_native_summary_sha256": "dfa3b0697dca520a87b01a4a6eba7edb1e476d212c1fd80d8df539b7920a2b52",
+        "sealed_native_results_sha256": "7017fccfb0c059eaa230dafa916f852fda528ff5ce8b22b01f8317b0b8900109",
+        "sealed_native_paired_sha256": "408b1078298b1a6a7c1c38a575556bf4009ccb2c6faffff5ffd4a19218171cb8"
+      },
+      "matrix": {
+        "months": [
+          "2025-05",
+          "2025-08",
+          "2025-11",
+          "2026-02",
+          "2026-05"
+        ],
+        "strata": [
+          "calm",
+          "typical",
+          "stress"
+        ],
+        "flows": [
+          "benign",
+          "mixed",
+          "toxic_delayed",
+          "low_volume_stuck"
+        ],
+        "seeds": [
+          7,
+          41
+        ],
+        "routes": [
+          "fixed",
+          "elastic"
+        ],
+        "windows": 15,
+        "base_cells": 240,
+        "result_rows": 720,
+        "paired_rows": 720
+      },
+      "route_outcomes": [
+        {
+          "routing_mode": "fixed",
+          "development_median_dusk_minus_curve_lp_return_bps": 0.05945767873956066,
+          "sealed_median_dusk_minus_curve_lp_return_bps": 0.08921068874974405,
+          "development_cell_win_fraction": 0.5833333333333334,
+          "sealed_cell_win_fraction": 0.6333333333333333,
+          "development_window_win_fraction": 0.6666666666666666,
+          "sealed_window_win_fraction": 0.6,
+          "sealed_bottom_decile_mean_return_bps": -8.177506511542813,
+          "sealed_p90_execution_regression_bps": 5.315957507633429,
+          "sealed_p90_marginal_tracking_stale_regression_fraction": 0.006944444444444444
+        },
+        {
+          "routing_mode": "elastic",
+          "development_median_dusk_minus_curve_lp_return_bps": 0.033799115401291484,
+          "sealed_median_dusk_minus_curve_lp_return_bps": 0.05078034344180874,
+          "development_cell_win_fraction": 0.5666666666666667,
+          "sealed_cell_win_fraction": 0.6083333333333333,
+          "development_window_win_fraction": 0.6,
+          "sealed_window_win_fraction": 0.6,
+          "sealed_bottom_decile_mean_return_bps": -9.147230859264162,
+          "sealed_p90_execution_regression_bps": 2.569903181938048,
+          "sealed_p90_marginal_tracking_stale_regression_fraction": 0.013888888888888895
+        }
+      ],
+      "confirmation": {
+        "status": "pass",
+        "confirmed": true,
+        "development_classification": null,
+        "sealed_core_classification": null,
+        "candidates": {
+          "curve_native_v2_1": {
+            "passes": false,
+            "predicates": {
+              "both_routes_median_advantage_at_least_1bp": false,
+              "both_routes_window_win_fraction_at_least_70pct": false,
+              "both_routes_bottom_decile_mean_not_below_minus_1bp": false,
+              "both_routes_tail_service_regressions_within_limits": false,
+              "every_flow_route_median_has_no_return_reversal": false,
+              "every_flow_route_bottom_decile_not_below_minus_1bp": false,
+              "every_flow_route_tail_service_within_limits": false,
+              "beats_cpmm_both_routes_median_advantage_at_least_1bp": false,
+              "beats_cpmm_both_routes_window_win_fraction_at_least_70pct": false,
+              "beats_cpmm_both_routes_bottom_decile_mean_not_below_minus_1bp": false,
+              "beats_cpmm_both_routes_tail_service_regressions_within_limits": false,
+              "beats_cpmm_every_flow_route_median_has_no_return_reversal": false,
+              "beats_cpmm_every_flow_route_bottom_decile_not_below_minus_1bp": false,
+              "beats_cpmm_every_flow_route_tail_service_within_limits": false
+            },
+            "vs_other_by_route": {
+              "fixed": {
+                "cells": 120.0,
+                "median_return_advantage_bps": -0.08921068874974405,
+                "bottom_decile_mean_return_advantage_bps": -5.5003432042182565,
+                "cell_win_fraction": 0.36666666666666664,
+                "window_median_win_fraction": 0.4,
+                "p90_execution_regression_bps": 14.225823645790332,
+                "p10_capture_advantage_fraction": -0.0,
+                "p90_marginal_tracking_stale_regression_fraction": 0.03472222222222221
+              },
+              "elastic": {
+                "cells": 120.0,
+                "median_return_advantage_bps": -0.05078034344180874,
+                "bottom_decile_mean_return_advantage_bps": -5.04495776355068,
+                "cell_win_fraction": 0.39166666666666666,
+                "window_median_win_fraction": 0.4,
+                "p90_execution_regression_bps": 17.228983064274367,
+                "p10_capture_advantage_fraction": -0.08673082080761899,
+                "p90_marginal_tracking_stale_regression_fraction": 0.013888888888888888
+              }
+            },
+            "vs_cpmm_by_route": {
+              "fixed": {
+                "cells": 120.0,
+                "median_return_advantage_bps": -0.05172878464455472,
+                "bottom_decile_mean_return_advantage_bps": -41.618887563738284,
+                "cell_win_fraction": 0.425,
+                "window_median_win_fraction": 0.26666666666666666,
+                "p90_execution_regression_bps": 4.6774954824285695,
+                "p10_capture_advantage_fraction": 0.0,
+                "p90_marginal_tracking_stale_regression_fraction": 0.020833333333333343
+              },
+              "elastic": {
+                "cells": 120.0,
+                "median_return_advantage_bps": 0.0715973434850509,
+                "bottom_decile_mean_return_advantage_bps": -40.87337083366776,
+                "cell_win_fraction": 0.6416666666666667,
+                "window_median_win_fraction": 0.6,
+                "p90_execution_regression_bps": 1.581642911134719,
+                "p10_capture_advantage_fraction": -0.060138534232304905,
+                "p90_marginal_tracking_stale_regression_fraction": 0.034722222222222224
+              }
+            }
+          },
+          "dusk_native": {
+            "passes": false,
+            "predicates": {
+              "both_routes_median_advantage_at_least_1bp": false,
+              "both_routes_window_win_fraction_at_least_70pct": false,
+              "both_routes_bottom_decile_mean_not_below_minus_1bp": false,
+              "both_routes_tail_service_regressions_within_limits": false,
+              "every_flow_route_median_has_no_return_reversal": true,
+              "every_flow_route_bottom_decile_not_below_minus_1bp": false,
+              "every_flow_route_tail_service_within_limits": false,
+              "beats_cpmm_both_routes_median_advantage_at_least_1bp": false,
+              "beats_cpmm_both_routes_window_win_fraction_at_least_70pct": false,
+              "beats_cpmm_both_routes_bottom_decile_mean_not_below_minus_1bp": false,
+              "beats_cpmm_both_routes_tail_service_regressions_within_limits": false,
+              "beats_cpmm_every_flow_route_median_has_no_return_reversal": false,
+              "beats_cpmm_every_flow_route_bottom_decile_not_below_minus_1bp": false,
+              "beats_cpmm_every_flow_route_tail_service_within_limits": false
+            },
+            "vs_other_by_route": {
+              "fixed": {
+                "cells": 120.0,
+                "median_return_advantage_bps": 0.08921068874974405,
+                "bottom_decile_mean_return_advantage_bps": -8.177506511542813,
+                "cell_win_fraction": 0.6333333333333333,
+                "window_median_win_fraction": 0.6,
+                "p90_execution_regression_bps": 5.315957507633429,
+                "p10_capture_advantage_fraction": 0.0,
+                "p90_marginal_tracking_stale_regression_fraction": 0.006944444444444444
+              },
+              "elastic": {
+                "cells": 120.0,
+                "median_return_advantage_bps": 0.05078034344180874,
+                "bottom_decile_mean_return_advantage_bps": -9.147230859264162,
+                "cell_win_fraction": 0.6083333333333333,
+                "window_median_win_fraction": 0.6,
+                "p90_execution_regression_bps": 2.569903181938048,
+                "p10_capture_advantage_fraction": -0.014163852245318364,
+                "p90_marginal_tracking_stale_regression_fraction": 0.013888888888888895
+              }
+            },
+            "vs_cpmm_by_route": {
+              "fixed": {
+                "cells": 120.0,
+                "median_return_advantage_bps": 0.004019879901774881,
+                "bottom_decile_mean_return_advantage_bps": -36.384565149964494,
+                "cell_win_fraction": 0.5083333333333333,
+                "window_median_win_fraction": 0.6,
+                "p90_execution_regression_bps": 2.0333482794099904,
+                "p10_capture_advantage_fraction": 0.0,
+                "p90_marginal_tracking_stale_regression_fraction": 0.007638888888888947
+              },
+              "elastic": {
+                "cells": 120.0,
+                "median_return_advantage_bps": 0.07875830211807319,
+                "bottom_decile_mean_return_advantage_bps": -36.271915892973226,
+                "cell_win_fraction": 0.5666666666666667,
+                "window_median_win_fraction": 0.5333333333333333,
+                "p90_execution_regression_bps": 0.2638940388396814,
+                "p10_capture_advantage_fraction": -0.013793092771852915,
+                "p90_marginal_tracking_stale_regression_fraction": 0.04166666666666666
+              }
+            }
+          }
+        },
+        "rule": "apply the pre-existing native route, flow-route, and CPMM return/service thresholds to the locked profiles; pass only when the sole sealed core winner, or neither, equals the development universal winner classification",
+        "scope_limit": "confirmatory locked-profile core only; the sealed matrix does not rerun neighborhood, scale, cadence, or matching-basis arms and cannot select, replace, or retune a profile"
+      },
+      "locked_system_diagnostics": {
+        "curve_native_v2_1": {
+          "rows": 240,
+          "median_net_lp_return_after_protocol_fee_bps": 0.12883059944557373,
+          "p10_net_lp_return_after_protocol_fee_bps": -12.554736828605199,
+          "median_selected_execution_cost_bps": 21.259596897226043,
+          "p90_selected_execution_cost_bps": 260.8412149457332,
+          "median_captured_volume_fraction": 0.9664210784275962,
+          "median_marginal_tracking_stale_fraction": 0.03819444444444445,
+          "p90_marginal_tracking_stale_fraction": 0.24374999999999997,
+          "median_depth_degradation_fraction": 0.9861111111111112
+        },
+        "dusk_native": {
+          "rows": 240,
+          "median_net_lp_return_after_protocol_fee_bps": 0.09968717411983141,
+          "p10_net_lp_return_after_protocol_fee_bps": -11.83683897768044,
+          "median_selected_execution_cost_bps": 19.627536024335416,
+          "p90_selected_execution_cost_bps": 222.59934861998323,
+          "median_captured_volume_fraction": 0.9532800772515575,
+          "median_marginal_tracking_stale_fraction": 0.034722222222222224,
+          "p90_marginal_tracking_stale_fraction": 0.25,
+          "median_depth_degradation_fraction": 0.9930555555555556
+        },
+        "dusk_cpmm": {
+          "rows": 240,
+          "median_net_lp_return_after_protocol_fee_bps": 0.019317472361441303,
+          "p10_net_lp_return_after_protocol_fee_bps": -3.0133729214880396,
+          "median_selected_execution_cost_bps": 31.42823277856602,
+          "p90_selected_execution_cost_bps": 286.6685467875255,
+          "median_captured_volume_fraction": 0.8567462896413824,
+          "median_marginal_tracking_stale_fraction": 0.06944444444444445,
+          "p90_marginal_tracking_stale_fraction": 0.3479166666666666,
+          "median_depth_degradation_fraction": 0.06944444444444445
+        }
+      },
+      "paired_diagnostics": {
+        "dusk_minus_curve": {
+          "rows": 240,
+          "orientation": "left minus right; diagnostics only",
+          "median_net_lp_return_delta_bps": 0.05805063876575969,
+          "p10_net_lp_return_delta_bps": -4.659644421073807,
+          "left_win_fraction": 0.6208333333333333,
+          "median_execution_cost_delta_bps": -1.8172749755289832,
+          "p90_marginal_tracking_stale_delta_fraction": 0.013888888888888888
+        },
+        "dusk_minus_cpmm": {
+          "rows": 240,
+          "orientation": "left minus right; diagnostics only",
+          "median_net_lp_return_delta_bps": 0.018351133091388305,
+          "p10_net_lp_return_delta_bps": -11.052865304011991,
+          "left_win_fraction": 0.5375,
+          "median_execution_cost_delta_bps": -13.590134339980281,
+          "p90_marginal_tracking_stale_delta_fraction": 0.020833333333333343
+        },
+        "curve_minus_cpmm": {
+          "rows": 240,
+          "orientation": "left minus right; diagnostics only",
+          "median_net_lp_return_delta_bps": 0.023016165009794417,
+          "p10_net_lp_return_delta_bps": -11.57262202784314,
+          "left_win_fraction": 0.5333333333333333,
+          "median_execution_cost_delta_bps": -10.546843102468863,
+          "p90_marginal_tracking_stale_delta_fraction": 0.027777777777777783
+        }
+      },
+      "interpretation_limit": "prices are sealed historical observations; flow, routing, and arbitrage remain modeled; these diagnostics do not re-select profiles"
+    }
+  },
+  "receipt_fingerprint": "b11fe35eafe46620a7c63bbaf7b63ce7f347ab921787e40636cd7d9a2e0ca1bd"
+}

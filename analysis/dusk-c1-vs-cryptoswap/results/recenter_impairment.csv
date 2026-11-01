@@ -1,0 +1,541 @@
+profile,model,model_label,peak_depth,curve_A,fade_scale_gamma,reserve_basis,external_price_multiple,center_movement_fraction_of_log_gap,candidate_center,protected_q_before,protected_q_after,protected_q_impairment_bps,same_exact_tail,starting_region,candidate_region
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.1,0.01,1.0009535561438965,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.1,0.05,1.004776882087206,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.1,0.1,1.009576582776887,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.1,0.25,1.0241136890844451,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.1,0.5,1.0488088481701516,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.1,1.0,1.1,1.0,0.9999999999999998,2.220446049250313e-12,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.1,1.0,1.1,1.0,0.9999999999999998,2.220446049250313e-12,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.25,0.01,1.002233927018233,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.25,0.05,1.0112196509975333,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.25,0.1,1.0225651825635729,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.25,0.25,1.057371263440564,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.25,0.5,1.118033988749895,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.25,1.0,1.25,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.25,1.0,1.25,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.5,0.01,1.0040628822999231,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.5,0.05,1.0204801536494528,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.5,0.1,1.0413797439924106,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.5,0.25,1.1066819197003215,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.5,0.5,1.224744871391589,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,1.5,1.0,1.5,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,1.5,1.0,1.5,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,2.0,0.01,1.0069555500567189,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,2.0,0.05,1.0352649238413776,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,2.0,0.1,1.0717734625362931,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,2.0,0.25,1.189207115002721,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,2.0,0.5,1.4142135623730951,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,2.0,1.0,2.0,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,2.0,1.0,2.0,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,1.0000000000000002,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,4.0,0.5,2.0,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,native_post_arbitrage,4.0,1.0,4.0,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.0,1.0000000000000002,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.5,2.0,1.0,1.0,0.0,False,global,global
+broad,cpmm,CPMM,20.0,10.0,0.05,common_cpmm_price_state,4.0,1.0,4.0,1.0,1.0,0.0,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.1,0.01,1.0009535561438965,1.0,0.9999234428990474,0.7655710095255674,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.1,0.05,1.004776882087206,1.0,0.9996182086891708,3.817913108291604,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.1,0.1,1.009576582776887,1.0,0.9992389358727428,7.6106412725718275,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.1,0.25,1.0241136890844451,1.0,0.9981167802537684,18.832197462316238,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.1,0.5,1.0488088481701516,1.0,0.9963020530767401,36.979469232598646,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.1,1.0,1.1,1.0,0.9929056375083661,70.94362491633865,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0010770398339097,1.0010556934909334,0.21323376850086176,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0010770398339097,1.0009724194524716,1.0450782235047642,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0010770398339097,1.000873085336547,2.037350665803859,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0010770398339097,1.0006069237671202,4.696102778138643,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0010770398339097,1.0002700862353135,8.060854124973787,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.1,1.0,1.1,1.0010770398339097,0.9999999999999998,10.758810671440795,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.25,0.01,1.002233927018233,1.0,0.9997973990492742,2.026009507257731,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.25,0.05,1.0112196509975333,1.0,0.9989887950732951,10.112049267049228,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.25,0.1,1.0225651825635729,1.0,0.9979823639278228,20.176360721771978,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.25,0.25,1.057371263440564,1.0,0.9949965367954547,50.034632045452554,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.25,0.5,1.118033988749895,1.0,0.9901637492286458,98.36250771354193,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.25,1.0,1.25,1.0,0.9813144725074842,186.8552749251584,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.005789166202374,1.0056767969269893,1.1172249529082257,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.005789166202374,1.0052374747849915,5.485159672831691,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.005789166202374,1.0047114444381484,10.715185651628351,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.005789166202374,1.0032915496621349,24.832406474107046,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.005789166202374,1.0014736488063654,42.90677948245298,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.25,1.0,1.25,1.005789166202374,1.0,57.55844660996353,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.5,0.01,1.0040628822999231,1.0,0.9996286304650467,3.7136953495331415,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.5,0.05,1.0204801536494528,1.0,0.9981427734551449,18.57226544855095,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.5,0.1,1.0413797439924106,1.0,0.9962852165802007,37.1478341979925,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.5,0.25,1.1066819197003215,1.0,0.9907226210680526,92.77378931947355,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.5,0.5,1.224744871391589,1.0,0.9815835148585274,184.16485141472648,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,1.5,1.0,1.5,1.0,0.9649765363900471,350.234636099529,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.0179574364805215,1.01763284709118,3.1886341973567993,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.0179574364805215,1.0163545677133852,15.745931113564833,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.0179574364805215,1.0148045029977524,30.97313669292555,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.0179574364805215,1.0105140463695015,73.12083830100738,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.0179574364805215,1.0047993479303758,129.2597124260749,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,1.5,1.0,1.5,1.0179574364805215,1.0,176.40655529377938,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,2.0,0.01,1.0069555500567189,1.0,0.9994004070123327,5.995929876673189,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,2.0,0.05,1.0352649238413776,1.0,0.9969949865061927,30.050134938073292,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,2.0,0.1,1.0717734625362931,1.0,0.9939725845195114,60.27415480488574,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,2.0,0.25,1.189207115002721,1.0,0.9848088739594419,151.91126040558055,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,2.0,0.5,1.4142135623730951,1.0,0.9693380372685508,306.61962731449165,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,2.0,1.0,2.0,1.0,0.9408365263618008,591.6347363819918,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.0440938010134355,1.0434275477580592,6.381162829715026,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.0440938010134355,1.0407683849972844,31.849782202742087,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.0440938010134355,1.0374632957707712,63.50488084718515,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.0440938010134355,1.0277876349048618,156.17529854833307,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.0440938010134355,1.0134509921930126,293.48712530119315,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,2.0,1.0,2.0,1.0440938010134355,1.0,422.3164716679332,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,0.9989605651747284,10.39434825271579,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,0.9947889105725417,52.11089427458293,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,0.98954038997486,104.59610025139953,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,0.9735245219395746,264.7547806042538,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,4.0,0.5,2.0,1.0,0.9456699933243601,543.3000667563992,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,native_post_arbitrage,4.0,1.0,4.0,1.0,0.890504704545824,1094.9529545417602,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.1085101658099945,1.1072879968381082,11.025329397798274,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.1085101658099945,1.1023744487951517,55.35102161520938,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.1085101658099945,1.096173503777714,111.29047267930095,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.1085101658099945,1.0771370071896802,283.0209373622638,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.5,2.0,1.1085101658099945,1.0440938010134337,581.1075692706108,False,global,global
+broad,cryptoswap,CryptoSwap,20.0,10.0,0.05,common_cpmm_price_state,4.0,1.0,4.0,1.1085101658099945,1.0,978.8829111071393,False,global,global
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.1,0.01,1.0009535561438965,1.0,0.9999377989266893,0.6220107331067481,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.1,0.05,1.004776882087206,1.0,0.9996869128465549,3.1308715344513516,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.1,0.1,1.009576582776887,1.0,0.9993686030996694,6.313969003306497,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.1,0.25,1.0241136890844451,1.0,0.9983838560859934,16.161439140065514,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.1,0.5,1.0488088481701516,1.0,0.9967724718294991,32.27528170500871,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.1,1.0,1.1,1.0,0.9938354900916512,61.645099083488255,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0010770398339097,1.0010556934909334,0.21323376850086176,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0010770398339097,1.0009724194524716,1.0450782235047642,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0010770398339097,1.000873085336547,2.037350665803859,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0010770398339097,1.0006069237671202,4.696102778138643,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0010770398339097,1.0002700862353135,8.060854124973787,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.1,1.0,1.1,1.0010770398339097,0.9999999999999998,10.758810671440795,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.25,0.01,1.002233927018233,0.9999999999999999,0.9998873860666262,1.1261393337369532,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.25,0.05,1.0112196509975333,0.9999999999999999,0.9994265426592024,5.734573407975009,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.25,0.1,1.0225651825635729,0.9999999999999999,0.9988268463926577,11.73153607342159,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.25,0.25,1.057371263440564,0.9999999999999999,0.996865961288771,31.340387112288596,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.25,0.5,1.118033988749895,0.9999999999999999,0.9931412875942294,68.58712405770518,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.25,1.0,1.25,0.9999999999999999,0.9868840156566198,131.15984343380129,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.005789166202374,1.0056767969269893,1.1172249529082257,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.005789166202374,1.0052374747849915,5.485159672831691,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.005789166202374,1.0047114444381484,10.715185651628351,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.005789166202374,1.0032915496621349,24.832406474107046,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.005789166202374,1.0014736488063654,42.90677948245298,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.25,1.0,1.25,1.005789166202374,1.0,57.55844660996353,False,inner,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.5,0.01,1.0040628822999231,0.9999999999999999,0.9998745279355368,1.254720644631169,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.5,0.05,1.0204801536494528,0.9999999999999999,0.9993443651107803,6.55634889219603,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.5,0.1,1.0413797439924106,0.9999999999999999,0.9986161127198305,13.838872801693604,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.5,0.25,1.1066819197003215,0.9999999999999999,0.9959647682400151,40.35231759984771,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.5,0.5,1.224744871391589,0.9999999999999999,0.9898471715365054,101.52828463494525,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,1.5,1.0,1.5,0.9999999999999999,0.9799016098931836,200.98390106816248,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.0170745608438168,1.0168486409208037,2.2212719864469284,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.0170745608438168,1.0159088200684576,11.46170418805853,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.0170745608438168,1.0146511761068506,23.827011610196646,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.0170745608438168,1.0105140463695015,64.5037711775264,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.0170745608438168,1.0047993479303758,120.69137687660552,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,1.5,1.0,1.5,1.0170745608438168,1.0,167.87914574965706,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,2.0,0.01,1.0069555500567189,1.0,0.9999542158985008,0.4578410149924661,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,2.0,0.05,1.0352649238413776,1.0,0.9997281877308724,2.71812269127647,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,2.0,0.1,1.0717734625362931,1.0,0.9993369020449157,6.630979550843463,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,2.0,0.25,1.189207115002721,1.0,0.9972520466520498,27.47953347950194,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,2.0,0.5,1.4142135623730951,1.0,0.9897033786742129,102.96621325787126,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,2.0,1.0,2.0,1.0,0.9750639384294467,249.3606157055328,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.0254596838407153,1.0253964907618083,0.6162414759235407,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.0254596838407153,1.0250936145513412,3.569806742699465,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.0254596838407153,1.0245900973564501,8.479967549852834,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.0254596838407153,1.0220619241134663,33.13401570818612,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.0254596838407153,1.0134318584317523,117.29203593762394,False,transition,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,2.0,1.0,2.0,1.0254596838407153,1.0,248.275814660598,False,transition,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,1.0,0.0,True,tail,tail
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,True,tail,tail
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,1.0,0.0,True,tail,tail
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,1.0,0.0,True,tail,tail
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,4.0,0.5,2.0,1.0,0.9994944647288262,5.05535271173807,False,tail,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,native_post_arbitrage,4.0,1.0,4.0,1.0,0.9746794344808963,253.20565519103667,False,tail,inner
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.025978352085154,1.0259783520851542,0.0,True,tail,tail
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.025978352085154,1.025978352085154,0.0,True,tail,tail
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.025978352085154,1.0259783520851542,0.0,True,tail,tail
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.025978352085154,1.0259783520851542,0.0,True,tail,tail
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,4.0,0.5,2.0,1.025978352085154,1.0254596838407144,5.055352711735688,False,tail,transition
+broad,dusk_c1,Dusk C1,20.0,10.0,0.05,common_cpmm_price_state,4.0,1.0,4.0,1.025978352085154,1.0,253.20565519103496,False,tail,inner
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.1,0.01,1.0009535561438965,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.1,0.05,1.004776882087206,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.1,0.1,1.009576582776887,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.1,0.25,1.0241136890844451,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.1,0.5,1.0488088481701516,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.1,1.0,1.1,1.0,0.9999999999999998,2.220446049250313e-12,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.1,1.0,1.1,1.0,0.9999999999999998,2.220446049250313e-12,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.25,0.01,1.002233927018233,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.25,0.05,1.0112196509975333,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.25,0.1,1.0225651825635729,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.25,0.25,1.057371263440564,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.25,0.5,1.118033988749895,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.25,1.0,1.25,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.25,1.0,1.25,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.5,0.01,1.0040628822999231,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.5,0.05,1.0204801536494528,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.5,0.1,1.0413797439924106,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.5,0.25,1.1066819197003215,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.5,0.5,1.224744871391589,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,1.5,1.0,1.5,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,1.5,1.0,1.5,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,2.0,0.01,1.0069555500567189,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,2.0,0.05,1.0352649238413776,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,2.0,0.1,1.0717734625362931,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,2.0,0.25,1.189207115002721,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,2.0,0.5,1.4142135623730951,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,2.0,1.0,2.0,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,2.0,1.0,2.0,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,1.0000000000000002,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,4.0,0.5,2.0,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,native_post_arbitrage,4.0,1.0,4.0,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.0,1.0000000000000002,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.5,2.0,1.0,1.0,0.0,False,global,global
+balanced,cpmm,CPMM,200.0,100.0,0.005,common_cpmm_price_state,4.0,1.0,4.0,1.0,1.0,0.0,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.1,0.01,1.0009535561438965,1.0,0.9999452581533541,0.5474184664588932,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.1,0.05,1.004776882087206,1.0,0.9997265964509406,2.7340354905935893,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.1,0.1,1.009576582776887,1.0,0.9994540137032295,5.459862967704954,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.1,0.25,1.0241136890844451,1.0,0.9986421733720086,13.57826627991443,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.1,0.5,1.0488088481701516,1.0,0.9973151671320779,26.848328679220934,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.1,1.0,1.1,1.0,0.9948118774662005,51.88122533799522,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0011239032557167,1.0011016735965632,0.22204703215202987,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0011239032557167,1.0010149294215498,1.0885149561654583,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0011239032557167,1.0009114083088115,2.122563912559382,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0011239032557167,1.0006338065017775,4.895465509767167,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0011239032557167,1.0002821416989691,8.408165602779764,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.1,1.0,1.1,1.0011239032557167,0.9999999999999998,11.22641515262867,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.25,0.01,1.002233927018233,1.0,0.9998738236861309,1.2617631386913075,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.25,0.05,1.0112196509975333,1.0,0.9993678466914862,6.321533085138498,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.25,0.1,1.0225651825635729,1.0,0.9987326876513882,12.67312348611771,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.25,0.25,1.057371263440564,1.0,0.9968127813896155,31.872186103845124,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.25,0.5,1.118033988749895,1.0,0.9935973390094723,64.02660990527664,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.25,1.0,1.25,1.0,0.9875462229238214,124.53777076178562,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.0058988766692964,1.0057893183118487,1.0891587612714526,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.0058988766692964,1.0053585608923776,5.371472117633719,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.0058988766692964,1.0048378664576174,10.547881464906524,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.0058988766692964,1.0034080254865791,24.762441240265993,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.0058988766692964,1.0015363997127404,43.36894152820723,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.25,1.0,1.25,1.0058988766692964,1.0,58.64283981336813,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.5,0.01,1.0040628822999231,1.0,0.9997929945426678,2.0700545733221,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.5,0.05,1.0204801536494528,1.0,0.9989597473475125,10.402526524875277,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.5,0.1,1.0413797439924106,1.0,0.9979062749125729,20.93725087427112,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.5,0.25,1.1066819197003215,1.0,0.9946651078945019,53.348921054980906,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.5,0.5,1.224744871391589,1.0,0.9890137525260331,109.86247473966925,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,1.5,1.0,1.5,1.0,0.9780366430396648,219.63356960335244,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.0161812989349146,1.0159438097356932,2.3370750816839005,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.0161812989349146,1.0149919116792552,11.704478884880594,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.0161812989349146,1.0137999216142815,23.43457140107903,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.0161812989349146,1.0102582660778316,58.28716650553435,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.0161812989349146,1.0049252404571976,110.76821123863238,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,1.5,1.0,1.5,1.0161812989349146,1.0,159.2363385537072,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,2.0,0.01,1.0069555500567189,0.9999999999999999,0.9996956777665422,3.0432223345766567,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,2.0,0.05,1.0352649238413776,0.9999999999999999,0.9984687310431828,15.312689568171002,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,2.0,0.1,1.0717734625362931,0.9999999999999999,0.9969123030486011,30.876969513987667,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,2.0,0.25,1.189207115002721,0.9999999999999999,0.9920738585632278,79.26141436772062,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,2.0,0.5,1.4142135623730951,0.9999999999999999,0.9833316231579088,166.68376842091106,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,2.0,1.0,2.0,0.9999999999999999,0.9649610510639188,350.38948936081067,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.0318261578655048,1.0314798434431225,3.35632528544068,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.0318261578655048,1.0300805565994995,16.91759074625871,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.0318261578655048,1.0282986656095423,34.18688534955994,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.0318261578655048,1.0227186071548326,88.2663289861982,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.0318261578655048,1.012722754232922,185.14168774419508,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,2.0,1.0,2.0,1.0318261578655048,1.0,308.44496064474885,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,0.9995074046247483,4.925953752517032,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,0.9975253855580751,24.746144419248715,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,0.9950194664047649,49.80533595235093,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,0.9872711146948637,127.28885305136272,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,4.0,0.5,2.0,1.0,0.973223489752237,267.7651024776295,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,native_post_arbitrage,4.0,1.0,4.0,1.0,0.9393292659376775,606.7073406232248,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.0617749108869883,1.0612352618294405,5.082518451080764,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.0617749108869883,1.0590607637600113,25.562358830927526,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.0617749108869883,1.0563038342349769,51.527650502129184,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.0617749108869883,1.047716749049765,132.40246772716978,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.5,2.0,1.0617749108869883,1.0318261578655,282.06310692037067,False,global,global
+balanced,cryptoswap,CryptoSwap,200.0,100.0,0.005,common_cpmm_price_state,4.0,1.0,4.0,1.0617749108869883,1.0,581.807973173736,False,global,global
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.1,0.01,1.0009535561438965,0.9999999999999999,0.9999880529592069,0.11947040792992249,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.1,0.05,1.004776882087206,0.9999999999999999,0.9999381427257434,0.6185727425644939,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.1,0.1,1.009576582776887,0.9999999999999999,0.9998708447538935,1.2915524610634945,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.1,0.25,1.0241136890844451,0.9999999999999999,0.9996340547443114,3.659452556884491,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.1,0.5,1.0488088481701516,0.9999999999999999,0.9991126810084431,8.873189915568071,False,transition,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.1,1.0,1.1,0.9999999999999999,0.9982488487506515,17.511512493484375,False,transition,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0011239032557167,1.0011016735965632,0.22204703215202987,False,inner,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0011239032557167,1.0010149294215498,1.0885149561654583,False,inner,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0011239032557167,1.0009114083088115,2.122563912559382,False,inner,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0011239032557167,1.0006338065017775,4.895465509767167,False,inner,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0011239032557167,1.0002821416989691,8.408165602779764,False,inner,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.1,1.0,1.1,1.0011239032557167,0.9999999999999998,11.22641515262867,False,inner,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.25,0.01,1.002233927018233,1.0,0.9999981689867325,0.018310132674503876,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.25,0.05,1.0112196509975333,1.0,0.9999875218519442,0.12478148055827809,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.25,0.1,1.0225651825635729,1.0,0.9999649455879039,0.35054412096058307,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.25,0.25,1.057371263440564,1.0,0.9998069212629599,1.930787370401088,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.25,0.5,1.118033988749895,1.0,0.9990661310224254,9.338689775746367,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.25,1.0,1.25,1.0,0.9975046292852805,24.953707147195026,False,transition,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.0025001933856754,1.0024979336096114,0.022541402774387747,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.0025001933856754,1.0024852388869339,0.14917202849662015,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.0025001933856754,1.0024593522464056,0.4073928318347908,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.0025001933856754,1.002286348752825,2.133113133157046,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.0025001933856754,1.0015035347829795,9.94172977992139,False,transition,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.25,1.0,1.25,1.0025001933856754,1.0,24.93958008358769,False,transition,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.5,0.01,1.0040628822999231,0.9999999999999999,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.5,0.05,1.0204801536494528,0.9999999999999999,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.5,0.1,1.0413797439924106,0.9999999999999999,0.9999999999999998,1.1102230246251567e-12,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.5,0.25,1.1066819197003215,0.9999999999999999,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.5,0.5,1.224744871391589,0.9999999999999999,0.9999553682807879,0.4463171921198495,False,tail,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,1.5,1.0,1.5,0.9999999999999999,0.9974968671630003,25.031328369995446,False,tail,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.002509414234171,1.0025094142341713,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.002509414234171,1.002509414234171,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.002509414234171,1.0025094142341708,2.214887977831648e-12,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.002509414234171,1.002509414234171,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.002509414234171,1.0024646705154876,0.44631719211973775,False,tail,transition
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,1.5,1.0,1.5,1.002509414234171,1.0,25.031328369998704,False,tail,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,2.0,0.01,1.0069555500567189,1.0,0.9999999999999998,2.220446049250313e-12,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,2.0,0.05,1.0352649238413776,1.0,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,2.0,0.1,1.0717734625362931,1.0,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,2.0,0.25,1.189207115002721,1.0,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,2.0,0.5,1.4142135623730951,1.0,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,2.0,1.0,2.0,1.0,0.9974968671630001,25.031328369998775,False,tail,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.002509414234171,1.002509414234171,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.002509414234171,1.0025094142341708,2.214887977831648e-12,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.002509414234171,1.002509414234171,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.002509414234171,1.0025094142341708,2.214887977831648e-12,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.002509414234171,1.002509414234171,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,2.0,1.0,2.0,1.002509414234171,1.0,25.031328369998704,False,tail,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,1.0000000000000002,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,4.0,0.5,2.0,1.0,1.0,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,native_post_arbitrage,4.0,1.0,4.0,1.0,0.9974968671630001,25.031328369998775,False,tail,inner
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.002509414234171,1.0025094142341713,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.002509414234171,1.002509414234171,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.002509414234171,1.002509414234171,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.002509414234171,1.002509414234171,0.0,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,4.0,0.5,2.0,1.002509414234171,1.0025094142341708,2.214887977831648e-12,True,tail,tail
+balanced,dusk_c1,Dusk C1,200.0,100.0,0.005,common_cpmm_price_state,4.0,1.0,4.0,1.002509414234171,1.0,25.031328369998704,False,tail,inner
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.01,1.0009535561438965,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.05,1.004776882087206,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.1,1.009576582776887,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.25,1.0241136890844451,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.5,1.0488088481701516,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,1.0,1.1,1.0,0.9999999999999998,2.220446049250313e-12,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,1.0,1.1,1.0,0.9999999999999998,2.220446049250313e-12,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.01,1.002233927018233,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.05,1.0112196509975333,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.1,1.0225651825635729,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.25,1.057371263440564,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.5,1.118033988749895,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,1.0,1.25,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,1.0,1.25,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.01,1.0040628822999231,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.05,1.0204801536494528,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.1,1.0413797439924106,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.25,1.1066819197003215,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.5,1.224744871391589,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,1.0,1.5,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,1.0,1.5,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.01,1.0069555500567189,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.05,1.0352649238413776,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.1,1.0717734625362931,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.25,1.189207115002721,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.5,1.4142135623730951,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,1.0,2.0,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,1.0,2.0,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,1.0000000000000002,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.5,2.0,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,1.0,4.0,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.0,1.0000000000000002,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.5,2.0,1.0,1.0,0.0,False,global,global
+aggressive,cpmm,CPMM,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,1.0,4.0,1.0,1.0,0.0,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.01,1.0009535561438965,1.0,0.9999680902043386,0.3190979566136676,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.05,1.004776882087206,1.0,0.999840248590703,1.5975140929702647,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.1,1.009576582776887,1.0,0.9996800387565766,3.199612434233723,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.25,1.0241136890844451,1.0,0.9991975766708125,8.024233291874516,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.5,1.0488088481701516,1.0,0.9983945902090146,16.05409790985446,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,1.0,1.1,1.0,0.9968728585439326,31.27141456067406,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0011189606141788,1.001097199311478,0.2173697987657582,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0011189606141788,1.0010120822489788,1.0675890618883122,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0011189606141788,1.0009101077286269,2.0861944860560535,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0011189606141788,1.0006348145726087,4.836049067266486,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0011189606141788,1.000283245070822,8.347814557864577,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,1.0,1.1,1.0011189606141788,0.9999999999999998,11.177099407772372,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.01,1.002233927018233,0.9999999999999999,0.9999346816220427,0.6531837795720198,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.05,1.0112196509975333,0.9999999999999999,0.999671493930957,3.2850606904288875,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.1,1.0225651825635729,0.9999999999999999,0.9993381320696517,6.618679303481701,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.25,1.057371263440564,0.9999999999999999,0.9983080953539184,16.919046460814883,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.5,1.118033988749895,0.9999999999999999,0.996495784970329,35.0421502967091,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,1.0,1.25,0.9999999999999999,0.9929244411250404,70.75558874959476,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.005082395373146,1.0050069706036082,0.7504336946406351,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.005082395373146,1.0047045031870754,3.7598130044885893,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.005082395373146,1.004325500648331,7.530673388564335,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.005082395373146,1.0031997302345959,18.731450746893444,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.005082395373146,1.0015185038897154,35.458699702997855,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,1.0,1.25,1.005082395373146,1.0,50.566952486110814,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.01,1.0040628822999231,1.0,0.9999012725668436,0.987274331564203,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.05,1.0204801536494528,1.0,0.9995026312581315,4.973687418684536,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.1,1.0413797439924106,1.0,0.9989955364631236,10.044635368764432,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.25,1.1066819197003215,1.0,0.9974085685773906,25.91431422609425,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.5,1.224744871391589,1.0,0.9944939837365329,55.06016263467139,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,1.0,1.5,1.0,0.9881563107148843,118.436892851157,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.010649989826847,1.0105394073717116,1.094171634578025,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.010649989826847,1.010091784422783,5.523231679442996,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.010649989826847,1.0095197935517763,11.182865348510523,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.010649989826847,1.0077122395480282,29.06792963330597,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.010649989826847,1.0043901707012448,61.93854636732084,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,1.0,1.5,1.010649989826847,1.0,105.37762760648428,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.01,1.0069555500567189,1.0,0.9998604013547879,1.39598645212069,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.05,1.0352649238413776,1.0,0.9992969598324449,7.03040167555069,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.1,1.0717734625362931,1.0,0.9985806295223235,14.193704776764848,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.25,1.189207115002721,1.0,0.9963387119013826,36.612880986174325,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.5,1.4142135623730951,1.0,0.9921775624742085,78.22437525791482,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,1.0,2.0,1.0,0.9819465043628902,180.53495637109785,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.0175179089222723,1.0173691854797413,1.4616297288423452,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.0175179089222723,1.0167679730346568,7.370247550825203,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.0175179089222723,1.0160013079646415,14.904906776895805,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.0175179089222723,1.0135823643262836,38.67789020202302,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.0175179089222723,1.0089895565683134,83.81525552697143,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,1.0,2.0,1.0175179089222723,1.0,172.16315082676866,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,0.999775409799003,2.245902009969658,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,0.9988714303946328,11.285696053672245,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,0.997727792403151,22.722075968489854,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,0.9941864684308286,58.135315691714155,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.5,2.0,1.0,0.9877368096769847,122.6319032301526,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,1.0,4.0,1.0,0.969940356269779,300.59643730220967,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.0304419994196568,1.0302075678930116,2.2750579535498625,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.0304419994196568,1.029263384239095,11.437957509743589,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.0304419994196568,1.0280674394294567,23.044091676556615,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.0304419994196568,1.0243521593454241,59.09929988939136,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.5,2.0,1.0304419994196568,1.0175179089222701,125.42278463674285,False,global,global
+aggressive,cryptoswap,CryptoSwap,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,1.0,4.0,1.0304419994196568,1.0,295.4266172846374,False,global,global
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.01,1.0009535561438965,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.05,1.004776882087206,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.1,1.009576582776887,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.25,1.0241136890844451,1.0,0.9999994758030666,0.005241969334157659,False,tail,transition
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,0.5,1.0488088481701516,1.0,0.999963564148222,0.3643585177803832,False,tail,transition
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.1,1.0,1.1,1.0,0.999749968742185,2.500312578149755,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.01,1.0009535561438965,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.05,1.004776882087206,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.1,1.009576582776887,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.25,1.0241136890844451,1.0002500937890795,1.0002495694610478,0.0052419693326187485,False,tail,transition
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,0.5,1.0488088481701516,1.0002500937890795,1.0002136488249214,0.3643585177788158,False,tail,transition
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.1,1.0,1.1,1.0002500937890795,0.9999999999999998,2.50031257815042,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.01,1.002233927018233,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.05,1.0112196509975333,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.1,1.0225651825635729,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.25,1.057371263440564,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,0.5,1.118033988749895,1.0,1.0000000000000002,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.25,1.0,1.25,1.0,0.9997499687421851,2.5003125781486446,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.01,1.002233927018233,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.05,1.0112196509975333,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.1,1.0225651825635729,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.25,1.057371263440564,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,0.5,1.118033988749895,1.0002500937890795,1.0002500937890797,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.25,1.0,1.25,1.0002500937890795,1.0,2.5003125781482,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.01,1.0040628822999231,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.05,1.0204801536494528,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.1,1.0413797439924106,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.25,1.1066819197003215,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,0.5,1.224744871391589,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,1.5,1.0,1.5,1.0,0.9997499687421852,2.5003125781475344,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.01,1.0040628822999231,1.0002500937890795,1.0002500937890797,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.05,1.0204801536494528,1.0002500937890795,1.0002500937890797,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.1,1.0413797439924106,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.25,1.1066819197003215,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,0.5,1.224744871391589,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,1.5,1.0,1.5,1.0002500937890795,1.0,2.5003125781482,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.01,1.0069555500567189,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.05,1.0352649238413776,1.0,1.0000000000000002,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.1,1.0717734625362931,1.0,1.0000000000000002,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.25,1.189207115002721,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,0.5,1.4142135623730951,1.0,1.0000000000000002,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,2.0,1.0,2.0,1.0,0.999749968742185,2.500312578149755,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.01,1.0069555500567189,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.05,1.0352649238413776,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.1,1.0717734625362931,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.25,1.189207115002721,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,0.5,1.4142135623730951,1.0002500937890795,1.0002500937890797,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,2.0,1.0,2.0,1.0002500937890795,1.0,2.5003125781482,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.01,1.013959479790029,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.05,1.0717734625362931,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.1,1.148698354997035,1.0,1.0000000000000002,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.25,1.4142135623730951,1.0,1.0000000000000002,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,0.5,2.0,1.0,1.0,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,native_post_arbitrage,4.0,1.0,4.0,1.0,0.9997499687421852,2.5003125781475344,False,tail,inner
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.01,1.013959479790029,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.05,1.0717734625362931,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.1,1.148698354997035,1.0002500937890795,1.0002500937890797,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.25,1.4142135623730951,1.0002500937890795,1.0002500937890797,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,0.5,2.0,1.0002500937890795,1.0002500937890795,0.0,True,tail,tail
+aggressive,dusk_c1,Dusk C1,2000.0,1000.0,0.0005,common_cpmm_price_state,4.0,1.0,4.0,1.0002500937890795,1.0,2.5003125781482,False,tail,inner

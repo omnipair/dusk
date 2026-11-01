@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "stage": "reconcile-v1",
+  "status": "complete",
+  "run_id": "slot-440459364-06c0e05aadb7e883",
+  "config_sha256": "801017892879f30b112106afc0e6247c1fdce800363b84c3d38b5d63640c20e7",
+  "source_identity_sha256": "d1143635f7f7eedd06de008cb53952b08e37da434a2c9560a5dcf9e517a6e0a3",
+  "cutoff_slot": 440459364,
+  "input_receipt_sha256": "9b6e59ae038a90feff871c98f214cf59a5c4396cc60956e18f7ea77326f07228",
+  "artifact_sha256": {
+    "chronological-splits.json": "60f751993fac7884793e86b42946658c65669ad900b81674c57a596162e17ed5",
+    "common-window.json": "4aee0c15ca845d5595eb6f61aeb803fcd1a1ea14bd78004cb6e7c9bdb4849d13",
+    "dataset-split-manifest.json": "321b7991d91dee4aed3f00bde3e64e24d147d041349e5189b5559480f07ce988",
+    "universe-window.json": "d3d652768e71957a4fe624477d8601470498d42ee6bb2c162ac3c00d52320829",
+    "v1-final-phase-gate.json": "2b0016d6dceed9e73b6e3319f921ead59e61ec07d133a1a9b4ef254cd2d1a2e8",
+    "v1-reconciliation.json": "594bc75439edef55dba4b16b567b8ecf0950dacc1ef58307d2ea95d25dbb16a8",
+    "v1-replay-ledger.jsonl": "20ea5c91a4ac83efef00f2eef22fe918d0b1c32e8278501151fed8e5d8ac0d32",
+    "v1-replay-ledger.manifest.json": "405ad284e11f66ba23ef7fadacd69823987f98d0b0592b584867d0a13ffadea8",
+    "v1-replay-ledger.parquet": "a02ecdfdb3a1da78b894adb99f35eb96d0c781119acb033732b7ee61ab10d9b0"
+  },
+  "blocker_codes": [],
+  "receipt_sha256": "097195e6235cfc82bf4485cee7d184f8df9cf50a4f2b90a44a869672d78dc156"
+}

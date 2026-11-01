@@ -1,0 +1,90 @@
+{
+  "schema_version": 5,
+  "run_id": "slot-440459364-06c0e05aadb7e883",
+  "cutoff_slot": 440459364,
+  "canonical_operation_count": 139812,
+  "replayed_transition_count": 139825,
+  "authority_seed_operation_count": 1,
+  "broadcast_global_config_applications": 21,
+  "market_count": 5,
+  "raw_unit_comparison_count": 5599341,
+  "nonzero_raw_unit_difference_count": 0,
+  "conservation_check_count": 838950,
+  "conservation_failure_count": 0,
+  "zero_raw_unit_difference": true,
+  "all_conservation_identities_hold": true,
+  "terminal_state_verified": false,
+  "markets": [
+    {
+      "market": "5aSf28bo5Nfkq3QCAKpVyzCPmtGL9kWdLn18ERZia7Kp",
+      "initialized_at": {
+        "slot": 412565937,
+        "transaction_index": 138,
+        "outer_instruction_index": 3,
+        "inner_execution_index": null,
+        "event_sequence": 0
+      },
+      "replayed_transitions": 7406,
+      "raw_unit_comparisons": 292520,
+      "conservation_checks": 44436,
+      "terminal_checkpoint_sha256": "8e9bdcb192847a269c5e603a544699f53db8eac586a92c312653e7adc16795ae"
+    },
+    {
+      "market": "6FkrhorTJcQbdvUnYLa5Ksv1ReoGTfc95Hu4U2jniYW5",
+      "initialized_at": {
+        "slot": 406392265,
+        "transaction_index": 754,
+        "outer_instruction_index": 3,
+        "inner_execution_index": null,
+        "event_sequence": 0
+      },
+      "replayed_transitions": 1717,
+      "raw_unit_comparisons": 70334,
+      "conservation_checks": 10302,
+      "terminal_checkpoint_sha256": "5688e9fa14bac4641906af77243c49b870f45319309883a0d549bd48d6674fe6"
+    },
+    {
+      "market": "8cWJ9U2jFZhugi5CSvjN38eJrKuQx1AKth8XsvR6857p",
+      "initialized_at": {
+        "slot": 413451412,
+        "transaction_index": 21,
+        "outer_instruction_index": 3,
+        "inner_execution_index": null,
+        "event_sequence": 0
+      },
+      "replayed_transitions": 62296,
+      "raw_unit_comparisons": 2559483,
+      "conservation_checks": 373776,
+      "terminal_checkpoint_sha256": "7893257520283d426979f76b6f21e6dccd1570fa2234f0fb7219e61084ee8be0"
+    },
+    {
+      "market": "BZi9iPbcpLWDkHs8nNQe5pb9MxLQe8fbgHtypj2pL4UB",
+      "initialized_at": {
+        "slot": 400690092,
+        "transaction_index": 170,
+        "outer_instruction_index": 3,
+        "inner_execution_index": null,
+        "event_sequence": 0
+      },
+      "replayed_transitions": 26057,
+      "raw_unit_comparisons": 1006485,
+      "conservation_checks": 156342,
+      "terminal_checkpoint_sha256": "85bcfb0f4c23390620e9cf4cc31da869a73151e1f6d8663a9031a55c7056f262"
+    },
+    {
+      "market": "Ep18GzZwRzt5EunVprg4aMxBFYimxZv13mr2J24MMtFo",
+      "initialized_at": {
+        "slot": 412337130,
+        "transaction_index": 151,
+        "outer_instruction_index": 3,
+        "inner_execution_index": null,
+        "event_sequence": 0
+      },
+      "replayed_transitions": 42349,
+      "raw_unit_comparisons": 1670519,
+      "conservation_checks": 254094,
+      "terminal_checkpoint_sha256": "3d49f37ebc86ac02ec5ba2891bba6866f0826558e79ec9bf1e6e735e678725f7"
+    }
+  ],
+  "ledger_sha256": "20ea5c91a4ac83efef00f2eef22fe918d0b1c32e8278501151fed8e5d8ac0d32"
+}

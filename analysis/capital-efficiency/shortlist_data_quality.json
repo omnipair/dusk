@@ -1,0 +1,99 @@
+{
+  "status": "usable as historical price and clip-size proxies, not observed Dusk demand",
+  "minute_rows": 44640,
+  "second_rows_checked": 345600,
+  "hourly_selection_population": 720,
+  "selected_hours": 5,
+  "checks": [
+    "All downloaded archive SHA256 values match publisher checksums",
+    "Correct field counts, non-null fields, finite positive prices, nonnegative volumes and counts",
+    "Unique continuous microsecond kline time keys; correct close timestamps and OHLC bounds",
+    "Each second-data day has 86400 rows; monthly minutes have 44640 rows",
+    "All 300 selected minute closes and quote volumes reconcile against second data",
+    "Training aggregate trade IDs consecutive, timestamps nondecreasing, dates before replay windows",
+    "Window selection uses external price statistics before any LP results are computed"
+  ],
+  "limitations": [
+    "Single CEX last-trade reference can contain spread bounce and is not a consolidated efficient mid",
+    "Observed CEX trade clips do not identify customer intent, DEX routing or non-toxic flow",
+    "Selected percentiles and largest move are stress coverage, not occurrence-weighted performance",
+    "January 2025 is an explicit historical sample, not recent trading performance"
+  ],
+  "calibration": {
+    "agg_trade_clips": 238579,
+    "first_utc": "2025-01-01T00:00:00.707766+00:00",
+    "last_utc": "2025-01-01T23:59:57.278264+00:00",
+    "mean_clip_quote": 1326.8495203139842,
+    "min_clip_quote": 0.18942,
+    "max_clip_quote": 283278.31983000005,
+    "p10_clip_quote": 12.576300000000002,
+    "p50_clip_quote": 208.97226,
+    "p90_clip_quote": 3104.32,
+    "p95_clip_quote": 5848.5632,
+    "p99_clip_quote": 18190.216,
+    "observed_aggressor_buy_fraction": 0.5457269918978619,
+    "sampling": "Full empirical notional distribution, no trimming; synthetic direction is independently 50/50, not inferred organic classification"
+  },
+  "windows": [
+    {
+      "index": 0,
+      "window": "quiet_p10",
+      "start_us": 1736924400000000,
+      "start_utc": "2025-01-15T07:00:00+00:00",
+      "minute_realized_variance": 1.955007235262492e-05,
+      "return_fraction": 0.003379805661174462,
+      "cex_volume_quote": 16776138.648660002,
+      "initial_sol_usdt": 189.36,
+      "second_realized_variance": 1.7851012859729868e-05,
+      "max_abs_one_second_move": 0.0007879806682073998
+    },
+    {
+      "index": 1,
+      "window": "median_p50",
+      "start_us": 1736424000000000,
+      "start_utc": "2025-01-09T12:00:00+00:00",
+      "minute_realized_variance": 6.196670830601351e-05,
+      "return_fraction": -0.004393994873672535,
+      "cex_volume_quote": 19806345.665599998,
+      "initial_sol_usdt": 191.17,
+      "second_realized_variance": 4.0119193671037025e-05,
+      "max_abs_one_second_move": 0.0007888509071786176
+    },
+    {
+      "index": 2,
+      "window": "volatile_p90",
+      "start_us": 1736355600000000,
+      "start_utc": "2025-01-08T17:00:00+00:00",
+      "minute_realized_variance": 0.00033795965016338405,
+      "return_fraction": -0.007602219026094148,
+      "cex_volume_quote": 106213511.24761999,
+      "initial_sol_usdt": 194.68,
+      "second_realized_variance": 0.00025931350989200693,
+      "max_abs_one_second_move": 0.002017589239524109
+    },
+    {
+      "index": 3,
+      "window": "extreme_p99",
+      "start_us": 1737277200000000,
+      "start_utc": "2025-01-19T09:00:00+00:00",
+      "minute_realized_variance": 0.0012605635979474892,
+      "return_fraction": -0.001857855815817211,
+      "cex_volume_quote": 523869737.8884001,
+      "initial_sol_usdt": 274.51,
+      "second_realized_variance": 0.0011986736752671704,
+      "max_abs_one_second_move": 0.0052501093772785445
+    },
+    {
+      "index": 4,
+      "window": "largest_hourly_move",
+      "start_us": 1737320400000000,
+      "start_utc": "2025-01-19T21:00:00+00:00",
+      "minute_realized_variance": 0.003572435985901875,
+      "return_fraction": -0.08082408874801905,
+      "cex_volume_quote": 563960525.6087898,
+      "initial_sol_usdt": 277.64,
+      "second_realized_variance": 0.002183438239208362,
+      "max_abs_one_second_move": 0.00499784265784553
+    }
+  ]
+}

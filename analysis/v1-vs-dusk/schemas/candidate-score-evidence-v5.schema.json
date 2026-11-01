@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:candidate-score-evidence:v5",
+  "title": "CandidateScoreEvidenceV1",
+  "description": "Strict structural snapshot of exact historical-price aggregation evidence, including spot probes, collateral-capacity decomposition, exhaustive revenue lanes, and component returns.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "crate::aggregate::CandidateScoreEvidenceV1",
+  "x-validation-scope": "full_structural",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "profile_id", "arm", "hlp_scenario",
+    "window_start_unix_seconds", "window_end_unix_seconds_exclusive",
+    "paired_metric_ledger_sha256", "spot_probes_enabled",
+    "spot_probe_sizing_source_sha256", "spot_probe_sets_sha256",
+    "included_markets_sha256", "included_market_count",
+    "historical_price_provider", "historical_price_rows", "missing_price_keys",
+    "blocking_reasons", "stakeholder_revenue_v1_usd_micro",
+    "stakeholder_revenue_dusk_user_usd_micro", "stakeholder_revenue_dusk_synthetic_arbitrage_usd_micro",
+    "stakeholder_revenue_dusk_synthetic_protocol_settlement_usd_micro",
+    "factual_capital_time_usd_micro_seconds",
+    "v1_actionable_headroom_matched_observation_sum_usd_micro",
+    "v1_gross_headroom_matched_observation_sum_usd_micro",
+    "dusk_actionable_headroom_matched_observation_sum_usd_micro",
+    "dusk_capacity_decomposition", "projected_total_debt_capacity",
+    "factual_swap_input_notional_usd_micro", "v1_debt_increase_notional_usd_micro",
+    "dusk_debt_increase_notional_usd_micro", "dusk_unmet_borrow_notional_usd_micro",
+    "v1_bad_debt_usd_micro", "dusk_bad_debt_usd_micro",
+    "volume_weighted_execution_cost_delta_ppb_exact", "p95_slippage_delta_ppb",
+    "capital_weighted_stakeholder_revenue_uplift_bps_exact",
+    "equal_market_stakeholder_revenue_uplift_bps", "borrow_capacity_uplift_bps_exact",
+    "bad_debt_delta_usd_micro_exact", "tail_liquidation_shortfall_delta_usd_micro",
+    "spot_probes", "revenue_yield", "markets", "candidate_score"
+  ],
+  "properties": {
+    "schema_version": { "const": 5 },
+    "profile_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "arm": { "$ref": "#/$defs/replay_arm" },
+    "hlp_scenario": { "$ref": "#/$defs/hlp_scenario" },
+    "window_start_unix_seconds": { "$ref": "common-v1.schema.json#/$defs/i64" },
+    "window_end_unix_seconds_exclusive": { "$ref": "common-v1.schema.json#/$defs/i64" },
+    "paired_metric_ledger_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "spot_probes_enabled": { "type": "boolean" },
+    "spot_probe_sizing_source_sha256": {
+      "oneOf": [
+        { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "spot_probe_sets_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "included_markets_sha256": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+    "included_market_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "historical_price_provider": { "$ref": "common-v1.schema.json#/$defs/nonempty_string" },
+    "historical_price_rows": { "$ref": "common-v1.schema.json#/$defs/u64" },
+    "missing_price_keys": { "$ref": "#/$defs/unique_strings" },
+    "blocking_reasons": { "$ref": "#/$defs/unique_strings" },
+    "stakeholder_revenue_v1_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+    "stakeholder_revenue_dusk_user_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+    "stakeholder_revenue_dusk_synthetic_arbitrage_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+    "stakeholder_revenue_dusk_synthetic_protocol_settlement_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+    "factual_capital_time_usd_micro_seconds": { "$ref": "#/$defs/exact_rational" },
+    "v1_actionable_headroom_matched_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "v1_gross_headroom_matched_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "dusk_actionable_headroom_matched_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "dusk_capacity_decomposition": { "$ref": "#/$defs/capacity_decomposition" },
+    "projected_total_debt_capacity": { "$ref": "#/$defs/projected_total_debt" },
+    "factual_swap_input_notional_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "v1_debt_increase_notional_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "dusk_debt_increase_notional_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "dusk_unmet_borrow_notional_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "v1_bad_debt_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "dusk_bad_debt_usd_micro": { "$ref": "#/$defs/exact_rational" },
+    "volume_weighted_execution_cost_delta_ppb_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+    "p95_slippage_delta_ppb": { "$ref": "#/$defs/nullable_signed" },
+    "capital_weighted_stakeholder_revenue_uplift_bps_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+    "equal_market_stakeholder_revenue_uplift_bps": { "$ref": "#/$defs/nullable_signed" },
+    "borrow_capacity_uplift_bps_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+    "bad_debt_delta_usd_micro_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+    "tail_liquidation_shortfall_delta_usd_micro": { "$ref": "#/$defs/nullable_signed" },
+    "spot_probes": { "type": "array", "items": { "$ref": "#/$defs/spot_probe_cell" } },
+    "revenue_yield": { "$ref": "#/$defs/revenue_yield" },
+    "markets": { "type": "array", "items": { "$ref": "#/$defs/market_evidence" } },
+    "candidate_score": { "$ref": "#/$defs/nullable_candidate_score" }
+  },
+  "$defs": {
+    "replay_arm": { "enum": ["fixed_flow", "intent"] },
+    "hlp_scenario": { "enum": ["no_hlp", "maximum_feasible"] },
+    "probe_direction": { "enum": ["token0_in", "token1_in"] },
+    "probe_size": { "enum": ["factual_nav10_bps", "factual_nav100_bps", "factual_nav500_bps", "factual_gross_input_p50", "factual_gross_input_p90"] },
+    "unique_strings": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "exact_rational": {
+      "type": "object", "additionalProperties": false,
+      "required": ["numerator", "denominator"],
+      "properties": {
+        "numerator": { "$ref": "common-v1.schema.json#/$defs/signed_token_amount" },
+        "denominator": { "type": "string", "pattern": "^[1-9][0-9]*$" }
+      }
+    },
+    "nullable_exact_rational": { "oneOf": [{ "$ref": "#/$defs/exact_rational" }, { "type": "null" }] },
+    "nullable_signed": { "oneOf": [{ "$ref": "common-v1.schema.json#/$defs/signed_token_amount" }, { "type": "null" }] },
+    "availability": { "enum": ["available", "not_applicable_no_lending_activity", "not_applicable_venue_mechanism", "missing_historical_usd_mark", "window_too_short_for_annualization", "missing_ownership_denominator", "missing_cash_realization_evidence", "outside_common_window", "failed_coverage_gate", "not_evaluated"] },
+    "available_exact_rational": {
+      "type": "object", "additionalProperties": false,
+      "required": ["availability", "value"],
+      "properties": {
+        "availability": { "$ref": "#/$defs/availability" },
+        "value": { "$ref": "#/$defs/nullable_exact_rational" }
+      }
+    },
+    "spot_probe_cell": {
+      "type": "object", "additionalProperties": false,
+      "required": ["size_kind", "direction", "observation_count", "v1_executable_count", "dusk_executable_count", "paired_executable_count", "mean_execution_cost_delta_ppb_exact", "mean_gross_quote_improvement_ppb_exact", "mean_net_quote_improvement_ppb_exact", "mean_slippage_delta_ppb_exact", "mean_cpmm_equivalent_depth_delta_exact"],
+      "properties": {
+        "size_kind": { "$ref": "#/$defs/probe_size" },
+        "direction": { "$ref": "#/$defs/probe_direction" },
+        "observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "v1_executable_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "dusk_executable_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "paired_executable_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "mean_execution_cost_delta_ppb_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "mean_gross_quote_improvement_ppb_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "mean_net_quote_improvement_ppb_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "mean_slippage_delta_ppb_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "mean_cpmm_equivalent_depth_delta_exact": { "$ref": "#/$defs/nullable_exact_rational" }
+      }
+    },
+    "capacity_constraint_row": {
+      "type": "object", "additionalProperties": false,
+      "required": ["constraint", "limiting_matched_observation_count", "tied_additional_headroom_loss_usd_micro"],
+      "properties": {
+        "constraint": { "enum": ["underwriting", "global_health_floor", "cash", "daily_borrow_bucket", "reduce_only"] },
+        "limiting_matched_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "tied_additional_headroom_loss_usd_micro": { "$ref": "#/$defs/exact_rational" }
+      }
+    },
+    "capacity_decomposition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["matched_borrow_prestate_observation_count", "underwriting_comparable_observation_count", "headroom_ratio_observation_count", "gross_additional_headroom_matched_observation_sum_usd_micro", "actionable_additional_headroom_matched_observation_sum_usd_micro", "gross_to_actionable_additional_headroom_loss_usd_micro", "actionable_to_gross_additional_headroom_bps_p50_exact", "actionable_to_gross_additional_headroom_bps_p95_exact", "zero_gross_headroom_observation_count", "current_underwriting_unsatisfied_observation_count", "current_global_health_floor_unsatisfied_observation_count", "constraints"],
+      "properties": {
+        "matched_borrow_prestate_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "underwriting_comparable_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "headroom_ratio_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "gross_additional_headroom_matched_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "actionable_additional_headroom_matched_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "gross_to_actionable_additional_headroom_loss_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "actionable_to_gross_additional_headroom_bps_p50_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "actionable_to_gross_additional_headroom_bps_p95_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "zero_gross_headroom_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "current_underwriting_unsatisfied_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "current_global_health_floor_unsatisfied_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "constraints": { "type": "array", "items": { "$ref": "#/$defs/capacity_constraint_row" } }
+      }
+    },
+    "projected_total_debt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["matched_observation_count", "v1_gross_max_debt_observation_sum_usd_micro", "v1_actionable_max_debt_observation_sum_usd_micro", "dusk_gross_max_debt_observation_sum_usd_micro", "dusk_actionable_max_debt_observation_sum_usd_micro"],
+      "properties": {
+        "matched_observation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "v1_gross_max_debt_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "v1_actionable_max_debt_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "dusk_gross_max_debt_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "dusk_actionable_max_debt_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" }
+      }
+    },
+    "revenue_lane": { "enum": ["lp_swap_earned", "protocol_fee_auction_swap_earned", "protocol_buyback_swap_earned", "retained_recenter_inventory", "compounded_lp_swap_principal", "lp_public_interest_accrued", "protocol_public_interest_accrued", "lp_public_interest_cash_realized", "protocol_fee_auction_public_interest_cash_realized", "protocol_buyback_public_interest_cash_realized", "hlp_funding_interest_earned", "protocol_fee_auction_hlp_funding_interest_earned", "protocol_buyback_hlp_funding_interest_earned", "flashloan_fee_v1_only", "protocol_claim_realized_v1_only"] },
+    "revenue_origin": { "enum": ["factual_user_flow", "synthetic_arbitrage", "synthetic_protocol_settlement"] },
+    "revenue_venue": { "enum": ["v1", "dusk"] },
+    "revenue_accounting_class": { "enum": ["economic_revenue", "cash_realization_memo", "inventory_memo", "principal_disposition_memo", "venue_only_supplement"] },
+    "revenue_lane_total": {
+      "type": "object", "additionalProperties": false,
+      "required": ["venue", "origin", "lane", "accounting_class", "usd_micro", "missing_price_keys"],
+      "properties": {
+        "venue": { "$ref": "#/$defs/revenue_venue" },
+        "origin": { "$ref": "#/$defs/revenue_origin" },
+        "lane": { "$ref": "#/$defs/revenue_lane" },
+        "accounting_class": { "$ref": "#/$defs/revenue_accounting_class" },
+        "usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+        "missing_price_keys": { "$ref": "#/$defs/unique_strings" }
+      }
+    },
+    "revenue_return": {
+      "type": "object", "additionalProperties": false,
+      "required": ["venue", "origin", "beneficiary", "component", "denominator_basis", "revenue_usd_micro", "absolute_return_bps_exact", "apr_bps_exact"],
+      "properties": {
+        "venue": { "$ref": "#/$defs/revenue_venue" },
+        "origin": { "$ref": "#/$defs/revenue_origin" },
+        "beneficiary": { "enum": ["all_stakeholders", "external_lp", "hlp", "protocol"] },
+        "component": { "enum": ["lp_swap", "lp_public_interest_accrued", "external_lp_combined_economic", "lp_public_interest_cash_memo", "protocol_public_interest_cash_memo", "net_hlp_common_capital_contribution", "protocol_economic", "all_stakeholder_economic"] },
+        "denominator_basis": { "enum": ["factual_v1_accounted_lp_capital_time", "exact_dusk_external_lp_owner_claim_capital_time", "exact_dusk_hlp_capital_time"] },
+        "revenue_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+        "absolute_return_bps_exact": { "$ref": "#/$defs/available_exact_rational" },
+        "apr_bps_exact": { "$ref": "#/$defs/available_exact_rational" }
+      }
+    },
+    "revenue_yield": {
+      "type": "object", "additionalProperties": false,
+      "required": ["window_seconds", "lane_totals", "common_factual_capital_time_usd_micro_seconds", "common_factual_capital_returns", "actual_dusk_external_lp_apy_bps_exact", "actual_dusk_hlp_apy_bps_exact", "inventory_pnl_exact", "inventory_pnl_unsupported_reason"],
+      "properties": {
+        "window_seconds": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "lane_totals": { "type": "array", "items": { "$ref": "#/$defs/revenue_lane_total" } },
+        "common_factual_capital_time_usd_micro_seconds": { "$ref": "#/$defs/available_exact_rational" },
+        "common_factual_capital_returns": { "type": "array", "items": { "$ref": "#/$defs/revenue_return" } },
+        "actual_dusk_external_lp_apy_bps_exact": { "$ref": "#/$defs/available_exact_rational" },
+        "actual_dusk_hlp_apy_bps_exact": { "$ref": "#/$defs/available_exact_rational" },
+        "inventory_pnl_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "inventory_pnl_unsupported_reason": { "const": "passive_lp_ownership_nav_not_captured" }
+      }
+    },
+    "market_evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["market", "missing_price_keys", "blocking_reasons", "stakeholder_revenue_v1_usd_micro", "stakeholder_revenue_dusk_user_usd_micro", "stakeholder_revenue_dusk_synthetic_arbitrage_usd_micro", "stakeholder_revenue_dusk_synthetic_protocol_settlement_usd_micro", "factual_capital_time_usd_micro_seconds", "volume_weighted_execution_cost_delta_ppb_exact", "p95_slippage_delta_ppb", "v1_actionable_headroom_matched_observation_sum_usd_micro", "v1_gross_headroom_matched_observation_sum_usd_micro", "dusk_actionable_headroom_matched_observation_sum_usd_micro", "dusk_capacity_decomposition", "projected_total_debt_capacity", "v1_debt_increase_notional_usd_micro", "dusk_debt_increase_notional_usd_micro", "dusk_unmet_borrow_notional_usd_micro", "v1_bad_debt_usd_micro", "dusk_bad_debt_usd_micro", "bad_debt_delta_usd_micro_exact", "tail_liquidation_shortfall_delta_usd_micro", "borrow_capacity_uplift_bps_exact", "revenue_uplift_on_factual_capital_bps", "swap_count", "borrow_count", "liquidation_count", "spot_probes", "revenue_yield", "candidate_score"],
+      "properties": {
+        "market": { "$ref": "common-v1.schema.json#/$defs/pubkey" },
+        "missing_price_keys": { "$ref": "#/$defs/unique_strings" },
+        "blocking_reasons": { "$ref": "#/$defs/unique_strings" },
+        "stakeholder_revenue_v1_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+        "stakeholder_revenue_dusk_user_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+        "stakeholder_revenue_dusk_synthetic_arbitrage_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+        "stakeholder_revenue_dusk_synthetic_protocol_settlement_usd_micro": { "$ref": "#/$defs/available_exact_rational" },
+        "factual_capital_time_usd_micro_seconds": { "$ref": "#/$defs/exact_rational" },
+        "volume_weighted_execution_cost_delta_ppb_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "p95_slippage_delta_ppb": { "$ref": "#/$defs/nullable_signed" },
+        "v1_actionable_headroom_matched_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "v1_gross_headroom_matched_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "dusk_actionable_headroom_matched_observation_sum_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "dusk_capacity_decomposition": { "$ref": "#/$defs/capacity_decomposition" },
+        "projected_total_debt_capacity": { "$ref": "#/$defs/projected_total_debt" },
+        "v1_debt_increase_notional_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "dusk_debt_increase_notional_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "dusk_unmet_borrow_notional_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "v1_bad_debt_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "dusk_bad_debt_usd_micro": { "$ref": "#/$defs/exact_rational" },
+        "bad_debt_delta_usd_micro_exact": { "$ref": "#/$defs/exact_rational" },
+        "tail_liquidation_shortfall_delta_usd_micro": { "$ref": "#/$defs/nullable_signed" },
+        "borrow_capacity_uplift_bps_exact": { "$ref": "#/$defs/nullable_exact_rational" },
+        "revenue_uplift_on_factual_capital_bps": { "$ref": "#/$defs/nullable_signed" },
+        "swap_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "borrow_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "liquidation_count": { "$ref": "common-v1.schema.json#/$defs/u64" },
+        "spot_probes": { "type": "array", "items": { "$ref": "#/$defs/spot_probe_cell" } },
+        "revenue_yield": { "$ref": "#/$defs/revenue_yield" },
+        "candidate_score": { "$ref": "#/$defs/nullable_candidate_score" }
+      }
+    },
+    "candidate_score": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profile_id", "hlp_scenario", "bad_debt_delta_usd_micro", "tail_liquidation_shortfall_delta_usd_micro", "volume_weighted_execution_cost_delta_ppb", "p95_slippage_delta_ppb", "capital_weighted_stakeholder_revenue_uplift_bps", "equal_market_stakeholder_revenue_uplift_bps", "quote_quality_uplift_ppb", "borrow_capacity_uplift_bps"],
+      "properties": {
+        "profile_id": { "$ref": "common-v1.schema.json#/$defs/sha256" },
+        "hlp_scenario": { "$ref": "#/$defs/hlp_scenario" },
+        "bad_debt_delta_usd_micro": { "type": "integer" },
+        "tail_liquidation_shortfall_delta_usd_micro": { "type": "integer" },
+        "volume_weighted_execution_cost_delta_ppb": { "type": "integer" },
+        "p95_slippage_delta_ppb": { "type": "integer" },
+        "capital_weighted_stakeholder_revenue_uplift_bps": { "type": "integer" },
+        "equal_market_stakeholder_revenue_uplift_bps": { "type": "integer" },
+        "quote_quality_uplift_ppb": { "type": "integer" },
+        "borrow_capacity_uplift_bps": { "type": "integer" }
+      }
+    },
+    "nullable_candidate_score": { "oneOf": [{ "$ref": "#/$defs/candidate_score" }, { "type": "null" }] }
+  }
+}

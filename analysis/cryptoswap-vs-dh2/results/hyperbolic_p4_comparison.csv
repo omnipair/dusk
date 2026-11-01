@@ -1,0 +1,5 @@
+basis,model,peak_depth,fade_scale,fixed_shape_exponent,fade_coordinate,execution_index_bps,jump_loss_index_bps,execution_delta_vs_legacy_bps,execution_delta_vs_legacy_fraction,jump_loss_delta_vs_legacy_bps,jump_loss_delta_vs_legacy_fraction,decision,arithmetic_scope
+equal_execution,current_dh2,2000.0,2.1348253657956496e-05,,((x-y)/D)^2,67.3752217232369,86.06635802240744,0.0,0.0,0.0,0.0,reference_baseline,rust_fixture_validated_continuous_reference
+equal_execution,hyperbolic_p4_dh2,2.0,0.39610330701611,4,abs(x-y)/(2*sqrt(x*y)),67.37522171563234,104.08209333827875,-7.604569418617757e-09,-1.1286893641937468e-10,18.01573531587131,0.2093237791144933,reject_economically,analytical_float64_not_rust_validated
+equal_jump_risk,current_dh2,2000.0,2.945500718152264e-05,,((x-y)/D)^2,63.772302778654876,93.42454023427757,0.0,0.0,0.0,0.0,reference_baseline,rust_fixture_validated_continuous_reference
+equal_jump_risk,hyperbolic_p4_dh2,2.0,0.2891835143752063,4,abs(x-y)/(2*sqrt(x*y)),76.7097998389998,93.42454023427757,12.937497060344924,0.2028701567395057,0.0,0.0,reject_economically,analytical_float64_not_rust_validated

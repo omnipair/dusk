@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:common:v1",
+  "title": "Dusk versus V1 common schema definitions, snapshot v1",
+  "description": "Shared structural definitions for committed benchmark schema snapshots. Rust serde types and runtime validators remain authoritative.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "shared canonical scalar contracts",
+  "x-validation-scope": "supporting_definitions",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "token_amount": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "signed_token_amount": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*|-[1-9][0-9]*)$"
+    },
+    "exact_unsigned_decimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+    },
+    "nonempty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pubkey": {
+      "type": "string",
+      "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+    },
+    "u8": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "u16": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "u32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "u64": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "i64": {
+      "type": "integer"
+    },
+    "chain_order": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot",
+        "transaction_index",
+        "outer_instruction_index",
+        "inner_execution_index",
+        "event_sequence"
+      ],
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/u64"
+        },
+        "transaction_index": {
+          "$ref": "#/$defs/u32"
+        },
+        "outer_instruction_index": {
+          "$ref": "#/$defs/u32"
+        },
+        "inner_execution_index": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/u32"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event_sequence": {
+          "$ref": "#/$defs/u32"
+        }
+      }
+    }
+  }
+}

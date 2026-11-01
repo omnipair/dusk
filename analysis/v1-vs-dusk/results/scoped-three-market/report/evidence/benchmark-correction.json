@@ -1,0 +1,96 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-08-23T02:47:00Z",
+  "status": "retracted_invalid_comparison",
+  "decision": "No V1-versus-Dusk winner is supportable from the current scoped artifacts.",
+  "valid_evidence": {
+    "run_id": "slot-440459364-06c0e05aadb7e883",
+    "v1_canonical_operations": 139812,
+    "v1_replayed_transitions": 139825,
+    "v1_markets": 5,
+    "v1_raw_unit_differences": 0,
+    "v1_conservation_failures": 0,
+    "scope_note": "These facts validate the reconstructed V1 history; they do not validate a Dusk comparison."
+  },
+  "invalid_dusk_candidate": {
+    "profile_id": "d36b6a5465308a79cb68c7fa815eca2ef41ad688d31cfe6610817cdf390e0d3b",
+    "selection_basis": "Only sampled profile among 32 diagnostic candidates that initialized the selected historical markets; not program defaults and not a calibrated/frozen winner.",
+    "complete_for_scoring": false,
+    "executed_count": 2418,
+    "partially_filled_count": 1187,
+    "rejected_count": 110061,
+    "deferred_external_state_count": 77,
+    "candidate_score": null,
+    "combined_score": null,
+    "blocking_reasons": [
+      "capital_state_missing_at_window_start",
+      "counterfactual_replay_deferred_external_state",
+      "missing_historical_usd_marks",
+      "no_capital_denominator",
+      "no_equal_market_revenue_observations",
+      "no_execution_cost_observations",
+      "no_slippage_observations"
+    ],
+    "grain_warning": "Replay status counts cover the five-market input history while the published projection filtered score rows to three markets."
+  },
+  "program_defaults_baseline": {
+    "status": "failed_before_comparable_metrics",
+    "error_name": "DebtShareDivisionOverflow",
+    "error_code": 6063,
+    "source": "programs/dusk/src/state/market.rs:1309",
+    "elapsed_seconds": 41.47,
+    "interpretation": "The checked-in defaults are a prospective code baseline, not a deployed configuration. They cannot currently replay this retained history to completion."
+  },
+  "questions": [
+    {
+      "question": "Collateral efficiency",
+      "verdict": "No valid verdict",
+      "why": "The published values were sums across repeated borrow observations, not debt-to-collateral efficiency ratios; the Dusk candidate was incomplete and unscored.",
+      "required_next_evidence": "A complete named or frozen profile plus paired debt/collateral, filled-demand, and unmet-demand metrics at the same checkpoints."
+    },
+    {
+      "question": "Spot capital efficiency",
+      "verdict": "No valid verdict",
+      "why": "The sampled Dusk candidate produced no comparable execution-cost or slippage observations, so its near-zero revenue is mostly rejected historical flow, not venue economics.",
+      "required_next_evidence": "Paired executed swaps and standardized probes with output, cost, slippage, equivalent depth, fee return, and capital utilization."
+    },
+    {
+      "question": "Leverage",
+      "verdict": "No valid verdict",
+      "why": "No frozen leverage campaign was executed; projected debt observation-sums are not leverage or maintenance-margin results.",
+      "required_next_evidence": "The exact leverage grid with opening/unwind costs, executable leverage, margin buffers, funding, adverse paths, and liquidation outcomes."
+    },
+    {
+      "question": "LP and protocol economics",
+      "verdict": "No valid verdict",
+      "why": "The Dusk replay deferred 77 external-state operations and was incomplete, so raw revenue totals are not comparable venue revenue or yield.",
+      "required_next_evidence": "A complete replay with capital-time denominators and all revenue lanes separated by origin and accounting class."
+    }
+  ],
+  "publication_gate": {
+    "requirements": [
+      "Use a named Dusk baseline or a training-calibrated profile frozen before holdout.",
+      "Replay exactly the three selected markets plus required global state without mixing five-market status counts.",
+      "Require complete_for_scoring=true, non-null candidate and combined scores, and zero blocking reasons.",
+      "Publish only the four preregistered metrics with their correct denominators; otherwise mark the metric unavailable."
+    ]
+  },
+  "sources": {
+    "fixed_flow_arm": {
+      "sha256": "7985264c151f90e7db64c92f7523d78ec5dae99192de674d9997b5a8c5d13616",
+      "bytes": 259747
+    },
+    "intent_arm": {
+      "sha256": "d08f3ec1a4cdf584d6350af88d98d6dcf2b06da87821e0a2261337acc4e65f03",
+      "bytes": 259743
+    },
+    "combined_profile": {
+      "sha256": "00b254eb33ee7457c629401c733783bd0d05b1ce8ed967d864743019805d2da2",
+      "bytes": 578398
+    },
+    "v1_reconciliation": {
+      "sha256": "594bc75439edef55dba4b16b567b8ecf0950dacc1ef58307d2ea95d25dbb16a8",
+      "bytes": 3124
+    }
+  }
+}

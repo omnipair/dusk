@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:omnipair:v1-vs-dusk:schema:catalog:v1",
+  "title": "Dusk versus V1 schema catalog contract v1",
+  "description": "Machine-readable contract for the committed, hand-maintained schema snapshot catalog.",
+  "x-snapshot-status": "hand_maintained",
+  "x-authoritative-rust-type": "schemas/catalog.v1.json",
+  "x-validation-scope": "catalog_contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "catalog_schema_version",
+    "snapshot_set",
+    "status",
+    "runtime_generation",
+    "authoritative_contract",
+    "catalog_validator",
+    "supporting_schemas",
+    "artifacts"
+  ],
+  "properties": {
+    "catalog_schema_version": {
+      "const": 1
+    },
+    "snapshot_set": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "status": {
+      "const": "committed_hand_maintained_snapshots"
+    },
+    "runtime_generation": {
+      "const": false
+    },
+    "authoritative_contract": {
+      "type": "string",
+      "minLength": 1
+    },
+    "catalog_validator": {
+      "const": "validate.py"
+    },
+    "supporting_schemas": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/supporting_schema"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "$defs": {
+    "snapshot_identity": {
+      "type": "object",
+      "required": [
+        "schema_file",
+        "schema_id",
+        "schema_sha256",
+        "validation_scope"
+      ],
+      "properties": {
+        "schema_file": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*\\.schema\\.json$"
+        },
+        "schema_id": {
+          "type": "string",
+          "pattern": "^urn:omnipair:v1-vs-dusk:schema:"
+        },
+        "schema_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "validation_scope": {
+          "enum": [
+            "catalog_contract",
+            "supporting_definitions",
+            "full_structural",
+            "envelope_and_variant_tag",
+            "top_level_and_metric_structures",
+            "portable_builder_input_subset"
+          ]
+        }
+      }
+    },
+    "supporting_schema": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/snapshot_identity"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_file",
+            "schema_id",
+            "schema_sha256",
+            "validation_scope",
+            "purpose"
+          ],
+          "properties": {
+            "schema_file": true,
+            "schema_id": true,
+            "schema_sha256": true,
+            "validation_scope": true,
+            "purpose": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "artifact": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/snapshot_identity"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "logical_name",
+            "path_pattern",
+            "format",
+            "record_schema_version",
+            "rust_type",
+            "rust_source",
+            "rust_symbol",
+            "semantic_validator",
+            "privacy_class",
+            "retention_default",
+            "schema_file",
+            "schema_id",
+            "schema_sha256",
+            "validation_scope",
+            "notes"
+          ],
+          "properties": {
+            "logical_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "path_pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "format": {
+              "enum": [
+                "json",
+                "jsonl",
+                "json_sidecar"
+              ]
+            },
+            "record_schema_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "rust_type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "rust_source": {
+              "type": "string",
+              "pattern": "^src/[a-z0-9_]+\\.rs$"
+            },
+            "rust_symbol": {
+              "type": "string",
+              "minLength": 1
+            },
+            "semantic_validator": {
+              "type": "string",
+              "minLength": 1
+            },
+            "privacy_class": {
+              "enum": [
+                "wallet_level_private",
+                "market_level_private",
+                "sanitized_aggregate",
+                "public_report"
+              ]
+            },
+            "retention_default": {
+              "enum": [
+                "gitignored",
+                "retainable_after_review"
+              ]
+            },
+            "schema_file": true,
+            "schema_id": true,
+            "schema_sha256": true,
+            "validation_scope": true,
+            "root_fields_match_rust": {
+              "type": "boolean"
+            },
+            "nested_rust_contracts": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/nested_rust_contract"
+              }
+            },
+            "notes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nested_rust_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rust_source",
+        "rust_symbol",
+        "schema_pointer"
+      ],
+      "properties": {
+        "rust_source": {
+          "type": "string",
+          "pattern": "^src/[a-z0-9_]+\\.rs$"
+        },
+        "rust_symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema_pointer": {
+          "type": "string",
+          "pattern": "^#(/.*)?$"
+        }
+      }
+    }
+  }
+}

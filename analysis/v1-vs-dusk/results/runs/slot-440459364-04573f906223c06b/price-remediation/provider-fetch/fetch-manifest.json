@@ -1,0 +1,420 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-08-22T02:22:53.822Z",
+  "purpose": "proof_bound_read_only_historical_provider_sidecar",
+  "provider": "birdeye",
+  "chain": "solana",
+  "endpoint": "/defi/history_price",
+  "interval": "1H",
+  "allow_current_fallback": false,
+  "interpolation": false,
+  "forward_fill": false,
+  "source_inputs": {
+    "classification_summary": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/classification/classification-summary.json",
+      "sha256": "a15d93a6e599994686725d2091e522b5e665f5686e021c0c48bd4fc3611ee782"
+    },
+    "missing_price_keys": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/classification/missing-price-keys.jsonl",
+      "sha256": "cf0e3da6e81ab2b28b47c0f51785e51665caa7d2885661e94bf879cbe58f1d5a"
+    },
+    "sidecar_script": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/scripts/historical_price_sidecar.mjs",
+      "sha256": "435eb884d0d5cb1b7ebfaed5acdbb08af81952d8a4f08dc31e5ba40c2f6390a4"
+    }
+  },
+  "request_plan": {
+    "chunk_hours": 168,
+    "complete_request_count": 60,
+    "executed_request_count": 60,
+    "complete": true,
+    "timeout_ms": 15000,
+    "retries": 2,
+    "delay_ms": 50
+  },
+  "outcome": {
+    "processed_unique_keys": 2587,
+    "recovered_unique_keys": 2587,
+    "recovered_operation_references": 40776,
+    "unresolved_unique_keys": 0,
+    "unresolved_operation_references": 0,
+    "unresolved_by_reason": {}
+  },
+  "artifacts": {
+    "historical_price_marks": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/historical-price-marks.jsonl",
+      "sha256": "edbad4c9609be0ae0421c8a4eb42546f90f7ff331280516f195ff4dae4284a86"
+    },
+    "historical_price_mark_provenance": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/historical-price-mark-provenance.jsonl",
+      "sha256": "dc07200fa9ad0327f83afb21910c7949f284840b9a06ca4c73f15b3a824c7c37"
+    },
+    "unresolved_price_keys": {
+      "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/unresolved-price-keys.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "provider_responses": [
+      {
+        "request_index": 0,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0000-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1778364000.json",
+        "sha256": "db5e0e8181318748c11b6ec353b38e0929f4f348f1c6572cfbb20c46765510ca",
+        "ok": true
+      },
+      {
+        "request_index": 1,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0001-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1779022800.json",
+        "sha256": "3458136dd46c73c0d683ce2fb8cf95c25ea6a0b9695f68af8d44da9f571ba3fe",
+        "ok": true
+      },
+      {
+        "request_index": 2,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0002-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1779865200.json",
+        "sha256": "9753eb2adb8910eb77b13b294a6efa9ac0a84ed1f805425d9c2d4b77d146ef41",
+        "ok": true
+      },
+      {
+        "request_index": 3,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0003-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1780484400.json",
+        "sha256": "f4fe300ab815dcce555bd9304c024c89fd93e3b3b906c4333bca2b9d48a7e809",
+        "ok": true
+      },
+      {
+        "request_index": 4,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0004-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1781139600.json",
+        "sha256": "b38e09548cf8ff0fe9641ad2ef370d51dde19fba2d5c320c6ee1536c052c1819",
+        "ok": true
+      },
+      {
+        "request_index": 5,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0005-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1781748000.json",
+        "sha256": "1d37b0693837c280becab233e2839095da77e83aa0f78f1f012eac34e8567295",
+        "ok": true
+      },
+      {
+        "request_index": 6,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0006-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1782360000.json",
+        "sha256": "7501e8a64506b4e6cca119fb80f1602ee8cec9c5a64df7a97b16850e485c4f8f",
+        "ok": true
+      },
+      {
+        "request_index": 7,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0007-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1782986400.json",
+        "sha256": "135cdc42a6288508e53244a942913c5de61abb64e3eb285429e08c23cd5a013e",
+        "ok": true
+      },
+      {
+        "request_index": 8,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0008-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1785258000.json",
+        "sha256": "e53088211c6f76dcd078a11a364428444cfac383b76379168691b4d9594101e9",
+        "ok": true
+      },
+      {
+        "request_index": 9,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0009-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1786197600.json",
+        "sha256": "e39c72aeb3ddb1fb8b0c26aa3bf163a8dad3b8ebe23620846da0b24eed4ffbb8",
+        "ok": true
+      },
+      {
+        "request_index": 10,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0010-6r7rgqYrdEXrYrTT3bUdefJE7woHBNsWF7c8gkmFqdev-1787151600.json",
+        "sha256": "88b12dacf708657a52aaddd1334cecce2b05afbb1c0932334e982714d476e4b0",
+        "ok": true
+      },
+      {
+        "request_index": 11,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0011-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1778360400.json",
+        "sha256": "5a7722562b24285d3e04d75586b3d2ffaf1e8dd1f100899bb175141e172e6dc5",
+        "ok": true
+      },
+      {
+        "request_index": 12,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0012-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1778968800.json",
+        "sha256": "7b2a1c31c2e3d4f987da3f0da97ce71db55d401331502cb5573c0f2a3bafb690",
+        "ok": true
+      },
+      {
+        "request_index": 13,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0013-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1779573600.json",
+        "sha256": "84c656eb5551ea8520aa1d088a2595dff3e51699f8ef02ef151b60c65f91d384",
+        "ok": true
+      },
+      {
+        "request_index": 14,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0014-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1780185600.json",
+        "sha256": "376395109f235cf8ab2488fda1a27c63f22d50e57002139153c19106b1032748",
+        "ok": true
+      },
+      {
+        "request_index": 15,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0015-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1780862400.json",
+        "sha256": "9563412fbdc2d0496fabdcd2c1543608dac5f71e3e8796e8a0058039e57be2dc",
+        "ok": true
+      },
+      {
+        "request_index": 16,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0016-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1781467200.json",
+        "sha256": "6881c16d09c7fecdb886a8b64f914b81d9f773d9d8ee99fbd6e1214cf058f35e",
+        "ok": true
+      },
+      {
+        "request_index": 17,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0017-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1782111600.json",
+        "sha256": "1b7829684464c912ff4c8872dfe8dda8d958cda2d474c5a92c265152645c5a0c",
+        "ok": true
+      },
+      {
+        "request_index": 18,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0018-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1782813600.json",
+        "sha256": "b418e80badbc99e720311f192279082fc08bba86b026e876d01d60ab20cc4ba8",
+        "ok": true
+      },
+      {
+        "request_index": 19,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0019-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1783551600.json",
+        "sha256": "9976847c7f0cdaa8d5d87ad4315720c41a7b19fc450be969e51c300bbd1ca26b",
+        "ok": true
+      },
+      {
+        "request_index": 20,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0020-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1784167200.json",
+        "sha256": "7cd1f5e883d8c4802d1a2272fe0201ccfbc3f7c627ca8863c4c13050fb8ada06",
+        "ok": true
+      },
+      {
+        "request_index": 21,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0021-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1784786400.json",
+        "sha256": "c2d2cfb9932a607652c82c7f86f00bf7a91761aaa00190d194b535ac0af7e061",
+        "ok": true
+      },
+      {
+        "request_index": 22,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0022-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1785434400.json",
+        "sha256": "e1dd55d04365d4ea8e911cfdd4b1aeddf0350d7e78292ee099696fb317b69389",
+        "ok": true
+      },
+      {
+        "request_index": 23,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0023-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1786050000.json",
+        "sha256": "9eb5f8c454ff7e36f5d38349bb1c31f08c13ecbb7a66eee5d27de762ecee65a9",
+        "ok": true
+      },
+      {
+        "request_index": 24,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0024-9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump-1786654800.json",
+        "sha256": "4806564fe89095d23ae609e71689b5d1e1e058aeb3c3fa8b5e22619a10662116",
+        "ok": true
+      },
+      {
+        "request_index": 25,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0025-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1778360400.json",
+        "sha256": "57c892d3636c5ae79c024446c5ad802079048e649cfa0f67411b8f1cf30a5502",
+        "ok": true
+      },
+      {
+        "request_index": 26,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0026-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1778965200.json",
+        "sha256": "2f8dd2d88239488accecebf5e9157eb083fbdfdadb65d73a168355f9d89d33f2",
+        "ok": true
+      },
+      {
+        "request_index": 27,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0027-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1779570000.json",
+        "sha256": "2aca0836475a793a647472d18ae0e4f9e51b0417f30d5f3f6639fc0dac9fcd84",
+        "ok": true
+      },
+      {
+        "request_index": 28,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0028-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1781834400.json",
+        "sha256": "1a6ab4268584d8a8487209d22962e968b7714f3175209029fb7a8a5aa9b4d39a",
+        "ok": true
+      },
+      {
+        "request_index": 29,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0029-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1786521600.json",
+        "sha256": "f868fb3255dc1bf4a955710714745bd9750c928030ac836f3e5be64c0682c2bd",
+        "ok": true
+      },
+      {
+        "request_index": 30,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0030-EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v-1787144400.json",
+        "sha256": "e47c122011d96e6ca903e681a0fd0be6f3e99b0c37b1ef794b7a9d96410fe8fc",
+        "ok": true
+      },
+      {
+        "request_index": 31,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0031-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1778360400.json",
+        "sha256": "47cf5ac27e80dbd41e20df47f013ae3ce2f03e9081419ee5f6ac654ce405a3b8",
+        "ok": true
+      },
+      {
+        "request_index": 32,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0032-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1778965200.json",
+        "sha256": "b4a24f6d72ea4cbbaf3c9deef544c1beef1d0bec496d0c2a9a92c846c8947594",
+        "ok": true
+      },
+      {
+        "request_index": 33,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0033-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1779570000.json",
+        "sha256": "80310b275983ab1cfa198fdafb8265b4197ace5478b8b1fa5384a667a80a4549",
+        "ok": true
+      },
+      {
+        "request_index": 34,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0034-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1781834400.json",
+        "sha256": "03626d0e70946d2e264c350dce656d001d9741c0da42f16250084613a74c016f",
+        "ok": true
+      },
+      {
+        "request_index": 35,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0035-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1786518000.json",
+        "sha256": "254b64d6e7847c9f67b73514ba2e18046fb2dcfa16636a26e53cb0d154d889ec",
+        "ok": true
+      },
+      {
+        "request_index": 36,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0036-omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta-1787158800.json",
+        "sha256": "588a86ed73f382d2af03762fa78372afd3f5a642dae496f127619c8b19a33377",
+        "ok": true
+      },
+      {
+        "request_index": 37,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0037-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1778360400.json",
+        "sha256": "76f29fdc29a4f3927c8e78c1b35c6822ca2f2ef0bc0d65e01d3171bd715c6d7b",
+        "ok": true
+      },
+      {
+        "request_index": 38,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0038-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1778976000.json",
+        "sha256": "a03191bc730f96c536c19a4a4c61de1de4528c4154f0fa50a369d68bfc676664",
+        "ok": true
+      },
+      {
+        "request_index": 39,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0039-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1781845200.json",
+        "sha256": "bcd4dd2210a43f82b4c99aba653780c7ed83f8bc482cf9578c229e7233cd39ec",
+        "ok": true
+      },
+      {
+        "request_index": 40,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0040-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1782630000.json",
+        "sha256": "dc69e36b1531014a5864b7074942d66d6deb9ce1404d64fea5e1780bf088a848",
+        "ok": true
+      },
+      {
+        "request_index": 41,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0041-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1783447200.json",
+        "sha256": "b2a0e25167a9d51f2d65b2384886611096d5493dc7298900664ef1c84386b982",
+        "ok": true
+      },
+      {
+        "request_index": 42,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0042-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1784120400.json",
+        "sha256": "dfb40a7b437624e9f5d9cd9abfbff0622d602ab6a6d0cbe48f32b35d5d343ee1",
+        "ok": true
+      },
+      {
+        "request_index": 43,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0043-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1785020400.json",
+        "sha256": "41aa33320f4a09a347269e8bf56c69766443e4b1cb6437e3b99b88148154ba53",
+        "ok": true
+      },
+      {
+        "request_index": 44,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0044-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1786168800.json",
+        "sha256": "697ac6c7d8ae8d976e49813186d6129487a58e7fe206b24c2bd46e2fe33ba773",
+        "ok": true
+      },
+      {
+        "request_index": 45,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0045-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp-1786986000.json",
+        "sha256": "392a23b24a6f7a6e76b8ced96af3da343718a54e2b5157a71eca29e7e3394752",
+        "ok": true
+      },
+      {
+        "request_index": 46,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0046-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1778360400.json",
+        "sha256": "68e758361a67391b3eee2765314d234a652e7596f0a9cc967b0289fd8bc147ec",
+        "ok": true
+      },
+      {
+        "request_index": 47,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0047-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1778965200.json",
+        "sha256": "b32847b518e03ed1c809329f5ae4743a7bad018b664c2417c5f0d4316cdced8e",
+        "ok": true
+      },
+      {
+        "request_index": 48,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0048-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1779570000.json",
+        "sha256": "6216440fc570a87f3187bf615df312a70ccb410b47e553d9d7a62c9e45e57095",
+        "ok": true
+      },
+      {
+        "request_index": 49,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0049-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1780185600.json",
+        "sha256": "42aa4b1ac31374a760dd92403e1cf64b02806a280d9bb7439021954008927aec",
+        "ok": true
+      },
+      {
+        "request_index": 50,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0050-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1780801200.json",
+        "sha256": "38c59070d629093769350eebc8d9b3fa265b595ba2bc560e05fe73e82fffd3ec",
+        "ok": true
+      },
+      {
+        "request_index": 51,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0051-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1781834400.json",
+        "sha256": "5876c361b13fcd6476e86882eaea4e9d3c2e20323eed60c92505972007a03504",
+        "ok": true
+      },
+      {
+        "request_index": 52,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0052-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1782450000.json",
+        "sha256": "6e8da0e0e75a341ce84cfeff97d05ee8d415d63f1ab13c06a9a5a82fa765c5f8",
+        "ok": true
+      },
+      {
+        "request_index": 53,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0053-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1783058400.json",
+        "sha256": "2fd2bd9a5f2f4b5c57500eb289d845d2fe0780124890c03f93df5552c3e66681",
+        "ok": true
+      },
+      {
+        "request_index": 54,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0054-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1783670400.json",
+        "sha256": "fb49ed7eccdaf3e909ec96f45d2e39fe992dc7c85b4d2b8915875bb85b88bb21",
+        "ok": true
+      },
+      {
+        "request_index": 55,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0055-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1784307600.json",
+        "sha256": "462a3cb21c6c442e96023e0fd642a2a795d104728322eb890753c120252aa2c6",
+        "ok": true
+      },
+      {
+        "request_index": 56,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0056-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1784912400.json",
+        "sha256": "29c51747f5d346b284a2a7fc104e4744cc7b37ea38881b0b185d09bd66feee2a",
+        "ok": true
+      },
+      {
+        "request_index": 57,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0057-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1785549600.json",
+        "sha256": "c01a7951746611be855532e9c864855d20eb6fbd57b40d2645529af46ba70443",
+        "ok": true
+      },
+      {
+        "request_index": 58,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0058-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1786158000.json",
+        "sha256": "4a65bf6e903bd9ad10c53d63fba1a22a8233acad7005dd9f6116d67b60395d17",
+        "ok": true
+      },
+      {
+        "request_index": 59,
+        "path": "$DUSK_REPO_ROOT/analysis/v1-vs-dusk/results/runs/slot-440459364-04573f906223c06b/price-remediation/provider-fetch/provider-responses/0059-sTorERYB6xAZ1SSbwpK3zoK2EEwbBrc7TZAzg1uCGiH-1786827600.json",
+        "sha256": "cb5d5c09f54ead75eea9938d5047cae5af5ed23967d4e1203f3e53e3578b418d",
+        "ok": true
+      }
+    ],
+    "provider_responses_manifest_sha256": "1ccd0b9ee28dd70fbf2774a4eb2d00c015f7d1646db701b922f3ad76b58f00e3"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "stage": "audit",
+  "status": "complete",
+  "run_id": "slot-440459364-7f17298e51c76e4b",
+  "config_sha256": "66a387d067b96445c9c135cba887a4a3f4bf795cdc07d39659637fcdd04af821",
+  "source_identity_sha256": "7cbb746bdac6260323426a0784f944ace768397707d488d923424ef312167bbf",
+  "cutoff_slot": 440459364,
+  "input_receipt_sha256": "e10eeb11cd3ddfdcc9944e1a5e696fd1489bc3da93d6525f91f285995bfa848c",
+  "artifact_sha256": {
+    "configuration-coverage-summary.json": "8967bf978531360de6e70d39f9d1dd655aeefca975eba3b5549e09acc70eadb3",
+    "data-quality.json": "5eb055c99bc0d8039fbd24562279fe877b637e5fa227c408e1d8a818eaea01c7",
+    "db-rpc-reconciliation-summary.json": "ad4bbcc3e9b64b58b85a73f391f35c05f44b3bb6519b1e85c7f120b464ac1fb0",
+    "db-rpc-reconciliation.jsonl": "b7c73f8ea72a730aecfbc032ae6ec7d807b9c375936753c25633b4e157f1b4e3",
+    "historical-price-coverage-summary.json": "88799cb6d26887ce09062e659520d0ca9f61c8bf0976333eecdc6698dd9ddff3"
+  },
+  "blocker_codes": [],
+  "receipt_sha256": "6e240f50d116819c3a3500f31ddaa75bdd9a2506d91395d2f833d1ccd4d0c4b7"
+}
