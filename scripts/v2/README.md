@@ -7,10 +7,10 @@ Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by d
 ```bash
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export DUSK_PROGRAM_ID=JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X
+export DUSK_PROGRAM_ID=5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ
 export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/dusk-program-keypair.json
-export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=AXNfmZt5e1UM4daeTzW3H7zNo4boobBcnFm8RzJYxvAv
-export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/leverage-delegate-program-keypair.json
+export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi
+export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/leverage-delegate-tranches-program-keypair.json
 export DUSK_FAUCET_PROGRAM_ID=EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz
 export DUSK_FAUCET_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/faucet-program-keypair.json
 

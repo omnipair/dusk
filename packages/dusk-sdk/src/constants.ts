@@ -6,7 +6,7 @@ export const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS = Number(
   IDL.constants.find(({ name }) => name === "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS")!.value
 );
 
-const DEFAULT_PROGRAM_ID = "JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X";
+const DEFAULT_PROGRAM_ID = "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
 function getProgramIdFromEnv(fallback: string): string {
@@ -168,7 +168,8 @@ export function deriveProposalSupportAddress(
 export function deriveMarketAddress(
   baseMint: PublicKey,
   quoteMint: PublicKey,
-  paramsHash: Uint8Array | Buffer | number[]
+  paramsHash: Uint8Array | Buffer | number[],
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
@@ -177,7 +178,7 @@ export function deriveMarketAddress(
       quoteMint.toBuffer(),
       normalizeParamsHash(paramsHash),
     ],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 

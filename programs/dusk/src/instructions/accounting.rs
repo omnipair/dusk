@@ -7,6 +7,12 @@ use crate::{
     transitions::{lending::accrue_side, HlpRebalanceReceipt},
 };
 
+// The Dusk program id is build-identity protected, so its Anchor event
+// authority bump is fixed. Avoiding a repeated PDA search for every event is
+// material for composite instructions that already sit near Solana's compute
+// ceiling.
+const EVENT_AUTHORITY_BUMP: u8 = 255;
+
 /// Emit through the same self-CPI format as `emit_cpi!`, from shared account
 /// preparation where an Anchor `Context` is not available. Callers supply
 /// the seed-validated event authority from their `#[event_cpi]` accounts.
@@ -27,7 +33,6 @@ pub(crate) fn emit_cpi_event_with_instruction<'info, E: Event>(
     authority: AccountInfo<'info>,
     instruction: &mut Instruction,
 ) -> Result<()> {
-    let (_, bump) = Pubkey::find_program_address(&[b"__event_authority"], &crate::ID);
     instruction.program_id = crate::ID;
     instruction.accounts.clear();
     instruction
@@ -37,8 +42,17 @@ pub(crate) fn emit_cpi_event_with_instruction<'info, E: Event>(
     instruction.data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
     instruction.data.extend_from_slice(E::DISCRIMINATOR);
     event.serialize(&mut instruction.data)?;
-    invoke_signed_reusing_instruction(instruction, &[authority], &[&[b"__event_authority", &[bump]]])?;
+    invoke_signed_reusing_instruction(
+        instruction,
+        &[authority],
+        &[&[b"__event_authority", &[EVENT_AUTHORITY_BUMP]]],
+    )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    include!("../tests/instructions/accounting.rs");
 }
 
 pub(crate) fn emit_interest_paid<'info>(

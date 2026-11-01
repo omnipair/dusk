@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "dusk-devnet-deployment-evidence.v1",
+  "cluster": "devnet",
+  "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  "source": {
+    "pullRequest": "https://github.com/omnipair/dusk/pull/61",
+    "gitCommit": "c8ef8e32302ee88ce99c1244d5605892ca61aa80"
+  },
+  "upgradeAuthority": "FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ",
+  "programs": [
+    {
+      "name": "dusk",
+      "programId": "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ",
+      "programData": "5YiNghFPTQ9rzpBJxNEgEBxwoLmVUFTn1Cxc5VLAoEFr",
+      "deploySlot": 517399592,
+      "deploymentSignature": "4kUGw1tjQz6FbPLoG4E62V4o76ao5jXao2c2w5sCHqvutEHwQN5w4K6s3J3oN6NAm4hPWxhPmVyiDYkwRMLkHKsS",
+      "binaryBytes": 4939992,
+      "binarySha256": "7604f9d3c1c061e5563dd16750c64a545b45831cc32a586d20903400d62b4df5",
+      "idlAccount": "C65xDYTppRy8W2r2fwqxY8KR8Wkdw1njXbTitAShMR2u",
+      "idlSha256": "60d77927261bd65c837dd1c6ff6172874bf4b9bd28684e5b3df96e58ba7af896",
+      "idlCanonicalSha256": "efe3e2e4966172feaff7aa19795be103f02f133250efdcdd18e76364d4155966"
+    },
+    {
+      "name": "leverage_delegate",
+      "programId": "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi",
+      "programData": "9Cy5J4Y5igAPdMdTCL7DUbHE4omXgKFsnAugGfWnhTUZ",
+      "deploySlot": 517399748,
+      "deploymentSignature": "4fXHTa23hAfNvvec1VGkQVAWPT8bm3m1LKnermUPbozraTXHv2iwZgw9pqJXi1MCHf6s84HtyPFD7txdaQJToysZ",
+      "binaryBytes": 1395088,
+      "binarySha256": "27105f3a59c8451628fcdd4e1018f6f1a354a4aa7481c9a5df0b58d90c02fd8d",
+      "idlAccount": "4K41o1ZxwRKGKcz2GWL9fAcdXPCKtJ6ipH6hrvgHYaax",
+      "idlSha256": "d13b4f8b55f606a0c4e61328ea07b6d094f08cc4d8612ea5d0cfe2ec2d6f851d",
+      "idlCanonicalSha256": "ef4d84eac56f9d368abc2f7ba61e61189140c0a5b86d78d1a080f51dd30f81af"
+    }
+  ]
+}

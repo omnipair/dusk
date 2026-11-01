@@ -100,7 +100,8 @@ export function decodeDuskVirtualBookBatch(
   const [address, bump] = deriveMarketAddress(
     market.baseSide.assetMint,
     market.quoteSide.assetMint,
-    market.paramsHash
+    market.paramsHash,
+    program.programId
   );
   if (
     market.version !== MARKET_LAYOUT_VERSION ||
@@ -211,7 +212,7 @@ export async function previewVirtualBookBatch(
       market,
       account.baseSide.assetMint,
       account.quoteSide.assetMint,
-      deriveFutarchyAuthorityAddress()[0],
+      deriveFutarchyAuthorityAddress(program.programId)[0],
       SYSVAR_CLOCK_PUBKEY,
       ...oracleReadAccounts(account.oracle.policy).map(meta => meta.pubkey),
     ],
