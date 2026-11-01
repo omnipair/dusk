@@ -14,10 +14,10 @@ import {
   deriveFutarchyAuthorityAddress,
   deriveHlpYlpVaultAddress,
   deriveMarketAddresses,
-  deriveProgramDataAddress,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
   duskEnv,
+  ensureFutarchyAuthority,
   explorerTx,
   getOrCreateAta,
   mintDecimals,
@@ -68,11 +68,7 @@ async function main() {
   const market = addresses.market;
 
   const futarchyAuthority = deriveFutarchyAuthorityAddress(program.programId);
-  const futarchy = await ensureFutarchyAuthority({
-    program,
-    payer: payer.publicKey,
-    futarchyAuthority,
-  });
+  const futarchy = await ensureFutarchyAuthority({ program, payer: payer.publicKey });
   const teamTreasury = futarchy.recipients.teamTreasury as PublicKey;
   const teamTreasuryWsolAccount = await getOrCreateAta({
     connection: provider.connection,
@@ -264,47 +260,6 @@ async function main() {
   writeState(state);
   console.log("Dusk yLP/hLP market bootstrap complete");
   console.log(JSON.stringify(state.markets[marketLabel], null, 2));
-}
-
-async function ensureFutarchyAuthority(params: {
-  program: any;
-  payer: PublicKey;
-  futarchyAuthority: PublicKey;
-}) {
-  const existing = await params.program.account.futarchyAuthority.fetchNullable(
-    params.futarchyAuthority
-  );
-  if (existing) {
-    console.log(`Futarchy authority already exists: ${params.futarchyAuthority.toBase58()}`);
-    return existing;
-  }
-
-  console.log(`Initializing Dusk futarchy authority ${params.futarchyAuthority.toBase58()}`);
-  const signature = await params.program.methods
-    .initFutarchyAuthority({
-      authority: params.payer,
-      swapBps: duskEnv("PROTOCOL_SWAP_BPS") == null ? null : Number(duskEnv("PROTOCOL_SWAP_BPS")),
-      interestBps: duskEnv("PROTOCOL_INTEREST_BPS") == null ? null : Number(duskEnv("PROTOCOL_INTEREST_BPS")),
-      maxReferralInterestShareBps: Number(duskEnv("MAX_REFERRAL_INTEREST_SHARE_BPS") ?? "5000"),
-      futarchyTreasury: params.payer,
-      futarchyTreasuryBps: 0,
-      buybacksVault: params.payer,
-      buybacksVaultBps: 0,
-      teamTreasury: params.payer,
-      teamTreasuryBps: 10_000,
-      stakingVault: params.payer,
-      feeAuctionAcceptedMint: NATIVE_MINT,
-      buybackAuctionAcceptedMint: NATIVE_MINT,
-    })
-    .accounts({
-      deployer: params.payer,
-      futarchyAuthority: params.futarchyAuthority,
-      programData: deriveProgramDataAddress(params.program.programId),
-      systemProgram: SystemProgram.programId,
-    })
-    .rpc();
-  console.log(`Futarchy init tx: ${explorerTx(signature)}`);
-  return await params.program.account.futarchyAuthority.fetch(params.futarchyAuthority);
 }
 
 async function seedBalancedLiquidity(params: {

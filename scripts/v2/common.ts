@@ -583,6 +583,98 @@ export function deriveProgramDataAddress(programId: PublicKey): PublicKey {
   )[0];
 }
 
+/**
+ * Create the program's futarchy authority when it is missing, signed by the
+ * program's upgrade authority. An in-place upgrade keeps the account, so this
+ * returns it unchanged; a deploy to a new program ID starts with no accounts,
+ * and every market launch fails until the authority exists.
+ *
+ * `DUSK_PREVIOUS_PROGRAM_ID` copies the authority, recipients and shares of
+ * that program's futarchy authority; without it the payer receives every
+ * share, as on a disposable devnet. Settings the instruction does not take
+ * (auction parameters, the protocol auction split) start at program defaults,
+ * and any that differ from the previous program are reported.
+ */
+export async function ensureFutarchyAuthority(params: { program: any; payer: PublicKey }) {
+  const futarchyAuthority = deriveFutarchyAuthorityAddress(params.program.programId);
+  const existing = await params.program.account.futarchyAuthority.fetchNullable(futarchyAuthority);
+  if (existing) {
+    console.log(`Futarchy authority already exists: ${futarchyAuthority.toBase58()}`);
+    return existing;
+  }
+
+  const previousProgramId = duskEnv("PREVIOUS_PROGRAM_ID");
+  const previous = previousProgramId
+    ? await params.program.account.futarchyAuthority.fetchNullable(
+        deriveFutarchyAuthorityAddress(new PublicKey(previousProgramId))
+      )
+    : null;
+  if (previousProgramId && !previous) {
+    throw new Error(`Program ${previousProgramId} has no futarchy authority to copy`);
+  }
+  const envBps = (name: string) => (duskEnv(name) == null ? null : Number(duskEnv(name)));
+  const args = previous
+    ? {
+        authority: previous.authority,
+        swapBps: previous.revenueShare.swapBps,
+        interestBps: previous.revenueShare.interestBps,
+        maxReferralInterestShareBps: previous.maxReferralInterestShareBps,
+        futarchyTreasury: previous.recipients.futarchyTreasury,
+        futarchyTreasuryBps: previous.revenueDistribution.futarchyTreasuryBps,
+        buybacksVault: previous.recipients.buybacksVault,
+        buybacksVaultBps: previous.revenueDistribution.buybacksVaultBps,
+        teamTreasury: previous.recipients.teamTreasury,
+        teamTreasuryBps: previous.revenueDistribution.teamTreasuryBps,
+        stakingVault: previous.feeAuction.recipients.stakingVault,
+        feeAuctionAcceptedMint: previous.feeAuction.acceptedMint,
+        buybackAuctionAcceptedMint: previous.buybackAuction.acceptedMint,
+      }
+    : {
+        authority: params.payer,
+        swapBps: envBps("PROTOCOL_SWAP_BPS"),
+        interestBps: envBps("PROTOCOL_INTEREST_BPS"),
+        maxReferralInterestShareBps: Number(duskEnv("MAX_REFERRAL_INTEREST_SHARE_BPS") ?? "5000"),
+        futarchyTreasury: params.payer,
+        futarchyTreasuryBps: 0,
+        buybacksVault: params.payer,
+        buybacksVaultBps: 0,
+        teamTreasury: params.payer,
+        teamTreasuryBps: 10_000,
+        stakingVault: params.payer,
+        feeAuctionAcceptedMint: NATIVE_MINT,
+        buybackAuctionAcceptedMint: NATIVE_MINT,
+      };
+  console.log(
+    `Initializing Dusk futarchy authority ${futarchyAuthority.toBase58()} with ${
+      previous ? `the settings of program ${previousProgramId}` : "the payer as every recipient"
+    }`
+  );
+  const signature = await params.program.methods
+    .initFutarchyAuthority(args)
+    .accounts({
+      deployer: params.payer,
+      futarchyAuthority,
+      programData: deriveProgramDataAddress(params.program.programId),
+      systemProgram: SystemProgram.programId,
+    })
+    .rpc();
+  console.log(`Futarchy init tx: ${explorerTx(signature)}`);
+  const created = await params.program.account.futarchyAuthority.fetchNullable(futarchyAuthority);
+  if (!created) {
+    throw new Error(`Futarchy authority ${futarchyAuthority.toBase58()} is still missing after ${signature}`);
+  }
+  if (previous) {
+    // PublicKey and BN serialize through toJSON, so equal settings compare equal.
+    for (const field of Object.keys(previous)) {
+      const now = JSON.stringify(created[field]);
+      if (field !== "bump" && JSON.stringify(previous[field]) !== now) {
+        console.warn(`Futarchy authority ${field} differs from the previous program: ${now}`);
+      }
+    }
+  }
+  return created;
+}
+
 export function deriveYieldAccountAddress(
   programId: PublicKey,
   market: PublicKey,

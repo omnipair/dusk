@@ -45,6 +45,14 @@ point to the source-declared Dusk keypair when doing a first deployment;
 delegate. A public address is enough for an upgrade, but an unused address
 requires its matching keypair for the initial deployment.
 
+`yarn v2:deploy-devnet` ends with `yarn v2:ensure-futarchy-authority`. An
+in-place upgrade keeps the program's futarchy authority, so the step only
+reports it. A deploy to a new program ID starts with no accounts, and every
+market launch fails until the authority exists, so the step creates it, signed
+by `ANCHOR_WALLET` as upgrade authority. Set `DUSK_PREVIOUS_PROGRAM_ID` to the
+replaced program to copy its authority, recipients and shares; otherwise the
+payer receives every share.
+
 All three program keypairs stay outside git under
 `~/.config/omnipair/dusk-devnet`. The faucet PDA owns the mock mints, so the
 faucet and mock tokens can remain available across later Dusk program and market
@@ -54,6 +62,7 @@ mock mints, markets, and derived accounts for later inspection or cleanup.
 
 Useful knobs:
 
+- `DUSK_PREVIOUS_PROGRAM_ID` copies the replaced program's futarchy authority settings when a deploy moves to a new program ID.
 - `DUSK_ORACLE_POLICY_JSON` optionally selects an oracle policy in the creation instruction; omit it for native pricing. Use the [SDK policy format](../../packages/dusk-sdk/README.md#bounded-oracle-markets). Positive-weight seeding and smoke trades require current authenticated feed accounts. Changes to an existing market use governance, not this environment variable.
 - `DUSK_TOKEN_PROGRAM=token2022` creates Token-2022 mock mints.
 - `DUSK_FAUCET_PROGRAM_ID` overrides the source-declared devnet faucet address.
