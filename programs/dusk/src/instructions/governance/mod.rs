@@ -43,13 +43,34 @@ pub(crate) fn carry_forward_governance_yield(market: &mut Market, current_slot: 
 }
 
 pub(crate) fn checkpoint_supporter_yield(
+    market: &Market,
     base_yield_account: &mut YieldAccount,
     quote_yield_account: &mut YieldAccount,
     live_ylp_balance: u64,
     indexes: GovernanceYieldIndexes,
 ) -> Result<()> {
+    market.checkpoint_holder_income(base_yield_account, live_ylp_balance, None)?;
+    market.checkpoint_holder_income(quote_yield_account, live_ylp_balance, None)?;
     base_yield_account.accrue(live_ylp_balance, indexes.base_swap_fee_q64, indexes.base_interest_q64)?;
     quote_yield_account.accrue(live_ylp_balance, indexes.quote_swap_fee_q64, indexes.quote_interest_q64)
+}
+
+pub(crate) fn adjust_supporter_income_balance(
+    base: &mut YieldAccount,
+    quote: &mut YieldAccount,
+    amount: u64,
+    locking: bool,
+) -> Result<()> {
+    require_eq!(base.escrow_balance, quote.escrow_balance, ErrorCode::BrokenInvariant);
+    let next = if locking {
+        base.escrow_balance.checked_add(amount)
+    } else {
+        base.escrow_balance.checked_sub(amount)
+    }
+    .ok_or(ErrorCode::BrokenInvariant)?;
+    base.escrow_balance = next;
+    quote.escrow_balance = next;
+    Ok(())
 }
 
 pub(crate) fn validate_market_pda(market: &Market, market_key: Pubkey) -> Result<()> {

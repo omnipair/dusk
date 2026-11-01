@@ -46,7 +46,8 @@ fn hook_resolver_matches_spl_for_dynamic_seeds_duplicates_and_privileges() {
             let expected = spl_transfer_hook_interface::onchain::add_extra_accounts_for_execute_cpi(
                 &mut reference, &mut ref_infos, &program, source.clone(), mint.clone(), destination.clone(), authority.clone(), amount, &supplied);
             let actual = add_transfer_hook_accounts(&mut result, &mut result_infos, &program,
-                source.clone(), mint.clone(), destination.clone(), authority.clone(), amount, &supplied);
+                source.clone(), mint.clone(), destination.clone(), authority.clone(), amount, &supplied)
+                .map_err(ProgramError::from);
             assert_eq!(actual, expected);
             if actual.is_ok() {
                 assert_eq!(result, reference);

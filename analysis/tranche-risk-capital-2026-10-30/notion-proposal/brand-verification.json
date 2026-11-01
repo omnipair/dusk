@@ -1,0 +1,25 @@
+{
+  "updated_on": "2026-10-31",
+  "style": "Omnipair warm monochrome light",
+  "logo": "assets/brand/omnipair-lockup.svg",
+  "publication": "Published successfully to existing Notion proposal",
+  "notion_page_id": "4097d98a-444a-817d-a32a-ca2470956454",
+  "uploads": [
+    "4097d98a-444a-81e5-878b-00b2ff833365",
+    "4097d98a-444a-8183-b3b8-00b2d72e50f2",
+    "4097d98a-444a-8173-a661-00b29b9d96af"
+  ],
+  "checks": [
+    "Capital diagram and yield chart visually reviewed in browser",
+    "Demo reviewed at desktop and 390px widths",
+    "Official vector logo embedded with native proportions",
+    "30% allocation: $7000 senior + $3000 junior; 7.6% APR; $760 annual interest",
+    "50% allocation: $5000 senior + $5000 junior; 10.0% APR; $1000 annual interest",
+    "Notion media-only replacement asserted; executive summary, Soju mention and all other prose preserved"
+  ],
+  "sha256": {
+    "capital-and-losses.svg": "94578b72d9e595125a7bf79f51fd34ca6647de6cf257e365d0a9c8f3b0835442",
+    "allocation-yield.svg": "a415a4b6d20981f464f3a0f1bab1ebc10328a4c5926c5af094f57a08539c9745",
+    "allocator.html": "8fbd1de6ccc6452eced42ed7a600667d2c50d34af11fe17c65593c3fcc5c7168"
+  }
+}

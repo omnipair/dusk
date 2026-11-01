@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-31",
+  "scope": "Task-owned plotting and Python caches after reference validation",
+  "removed": [
+    {
+      "path": "/private/tmp/dusk-tranche-calibration-mpl",
+      "allocated_file_bytes_before": 303104
+    },
+    {
+      "path": "/private/tmp/dusk-tranche-matplotlib",
+      "allocated_file_bytes_before": 303104
+    }
+  ],
+  "allocated_file_bytes_removed": 606208,
+  "preserved": "Research source, outputs, citations, tests, current review, environments, native targets and other tasks",
+  "native_build_cleanup": "Scheduled after implementation PR validation and commit; no native PR created in this pass"
+}

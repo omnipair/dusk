@@ -54,6 +54,31 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 self.market.asset_for_hlp_mint(self.lp_mint.key())? == payment_asset,
                 LeverageDelegateError::InvalidOrder
             );
+            // Repayment uses this market-settlement prefix, but the single-
+            // sided exit binds its vaults as fixed accounts. Do not duplicate
+            // all nine AccountInfos through a second CPI on SBF's bump heap.
+            // Preserve any trailing asset-hook accounts unchanged.
+            let prefix = [
+                self.market.ylp_mint,
+                self.market.base_hlp_vault.ylp_vault,
+                self.market.quote_hlp_vault.ylp_vault,
+                self.market.base_side.interest_vault,
+                self.market.quote_side.interest_vault,
+                self.market.base_side.asset_mint,
+                self.market.quote_side.asset_mint,
+                self.market.base_side.reserve_vault,
+                self.market.quote_side.reserve_vault,
+            ];
+            let remaining = if remaining.len() >= prefix.len()
+                && remaining
+                    .iter()
+                    .zip(prefix)
+                    .all(|(info, key)| *info.key == key)
+            {
+                &remaining[prefix.len()..]
+            } else {
+                remaining
+            };
             dusk::cpi::withdraw_single_sided(
                 CpiContext::new_with_signer(
                     self.dusk_program.to_account_info(),

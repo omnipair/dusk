@@ -1,10 +1,7 @@
 use crate::transitions::amm::SwapRequest;
 use anchor_lang::{
     prelude::*,
-    solana_program::{
-        instruction::{AccountMeta, Instruction},
-        program::{get_return_data, invoke},
-    },
+    solana_program::instruction::{AccountMeta, Instruction},
 };
 use anchor_spl::{
     token::Token,
@@ -28,7 +25,10 @@ use crate::{
     instructions::liquidity::record_inline_hlp_interest_credit,
     instructions::referral::accounting::ReferralInterestAccrualReceipt,
     state::{FutarchyAuthority, Market, MarketAsset, ReferralAccrual, ReferralPartner},
-    token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
+    token::{
+        get_transfer_fee_for_epoch, invoke_signed_reusing_instruction, token_burn, token_mint_to,
+        transfer_checked_with_remaining_accounts, transfer_checked_with_remaining_accounts_and_instruction,
+    },
     transitions::{
         HlpRebalanceReceipt, HlpYieldEligibility, LeverageCollateralFee, LeverageSwapFeeCredit, LeverageSwapQuote,
         PreparedLeverageSwap,
@@ -348,6 +348,7 @@ pub fn split_delegated_accounts<'a, 'info>(
     Ok(accounts.split_at(before_accounts_len))
 }
 
+#[allow(dead_code)]
 fn delegated_callback_metas(
     accounts: &[AccountInfo<'_>],
     protected_accounts: &[Pubkey],
@@ -375,33 +376,42 @@ fn delegated_callback_metas(
     Ok(account_metas)
 }
 
-pub fn invoke_delegated_callback<'info>(
-    delegated_program: &UncheckedAccount<'info>,
-    data: Vec<u8>,
-    accounts: &[AccountInfo<'info>],
-    protected_accounts: &[Pubkey],
-    writable_protected_accounts: &[Pubkey],
-) -> Result<()> {
-    require!(!data.is_empty(), ErrorCode::InvalidLeverageDelegation);
-    require!(delegated_program.executable, ErrorCode::InvalidLeverageDelegation);
-    let account_metas = delegated_callback_metas(accounts, protected_accounts, writable_protected_accounts)?;
-    let mut account_infos = Vec::with_capacity(accounts.len() + 1);
-    account_infos.push(delegated_program.to_account_info());
-    account_infos.extend(accounts.iter().cloned());
+pub struct DelegatedCallbackBuffers<'info> {
+    instruction: Instruction,
+    account_infos: Vec<AccountInfo<'info>>,
+}
 
-    invoke(
-        &Instruction {
-            program_id: delegated_program.key(),
-            accounts: account_metas,
-            data,
-        },
-        &account_infos,
-    )
-    .map_err(Into::into)
+impl Default for DelegatedCallbackBuffers<'_> {
+    fn default() -> Self {
+        Self {
+            instruction: Instruction {
+                program_id: Pubkey::default(),
+                accounts: Vec::new(),
+                data: Vec::new(),
+            },
+            account_infos: Vec::new(),
+        }
+    }
+}
+
+impl DelegatedCallbackBuffers<'_> {
+    pub fn with_account_capacity(account_capacity: usize) -> Self {
+        Self {
+            instruction: Instruction {
+                program_id: Pubkey::default(),
+                accounts: Vec::with_capacity(account_capacity),
+                data: Vec::new(),
+            },
+            account_infos: Vec::with_capacity(account_capacity + 1),
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(unexpected_cfgs)]
+#[inline(never)]
 pub fn invoke_delegated_approval_callback<'info>(
+    buffers: &mut DelegatedCallbackBuffers<'info>,
     delegated_program: &UncheckedAccount<'info>,
     data: Vec<u8>,
     accounts: &[AccountInfo<'info>],
@@ -418,30 +428,88 @@ pub fn invoke_delegated_approval_callback<'info>(
     expected_collateral_amount: u64,
     expected_output_amount: u64,
 ) -> Result<()> {
-    invoke_delegated_callback(
-        delegated_program,
-        data,
-        accounts,
-        protected_accounts,
-        writable_protected_accounts,
-    )?;
+    require!(!data.is_empty(), ErrorCode::InvalidLeverageDelegation);
+    require!(delegated_program.executable, ErrorCode::InvalidLeverageDelegation);
+    buffers.instruction.program_id = delegated_program.key();
+    buffers.instruction.accounts.clear();
+    for (index, account) in accounts.iter().enumerate() {
+        for prior in accounts.iter().take(index) {
+            require_keys_neq!(account.key(), prior.key(), ErrorCode::InvalidLeverageDelegation);
+        }
+        let is_protected = protected_accounts.contains(account.key);
+        let is_writable_protected = writable_protected_accounts.contains(account.key);
+        let meta = if is_protected && !is_writable_protected {
+            AccountMeta::new_readonly(account.key(), false)
+        } else {
+            AccountMeta {
+                pubkey: account.key(),
+                is_signer: false,
+                is_writable: account.is_writable,
+            }
+        };
+        buffers.instruction.accounts.push(meta);
+    }
+    buffers.instruction.data = data;
+    buffers.account_infos.clear();
+    buffers.account_infos.push(delegated_program.to_account_info());
+    buffers.account_infos.extend(accounts.iter().cloned());
+    invoke_signed_reusing_instruction(&mut buffers.instruction, &buffers.account_infos, &[])?;
 
-    let (program_id, data) = get_return_data().ok_or(ErrorCode::InvalidLeverageDelegation)?;
-    validate_delegation_approval(
-        program_id,
-        &data,
-        delegated_program.key(),
-        expected_action,
-        expected_market,
-        expected_owner,
-        expected_position,
-        expected_delegation,
-        expected_debt_asset,
-        expected_recipient_token_account,
-        expected_output_mint,
-        expected_collateral_amount,
-        expected_output_amount,
-    )
+    #[cfg(target_os = "solana")]
+    {
+        // The approval has a fixed 222-byte wire shape. Read it directly into
+        // bounded stack storage so validating a callback does not retain a
+        // heap copy for the rest of a large composite instruction.
+        let mut data = [0u8; 256];
+        let mut program_id = Pubkey::default();
+        let size = unsafe {
+            anchor_lang::solana_program::syscalls::sol_get_return_data(
+                data.as_mut_ptr(),
+                data.len() as u64,
+                &mut program_id,
+            )
+        };
+        require!(
+            size > 0 && size as usize <= data.len(),
+            ErrorCode::InvalidLeverageDelegation
+        );
+        return validate_delegation_approval(
+            program_id,
+            &data[..size as usize],
+            delegated_program.key(),
+            expected_action,
+            expected_market,
+            expected_owner,
+            expected_position,
+            expected_delegation,
+            expected_debt_asset,
+            expected_recipient_token_account,
+            expected_output_mint,
+            expected_collateral_amount,
+            expected_output_amount,
+        );
+    }
+
+    #[cfg(not(target_os = "solana"))]
+    {
+        let (program_id, data) =
+            anchor_lang::solana_program::program::get_return_data().ok_or(ErrorCode::InvalidLeverageDelegation)?;
+        validate_delegation_approval(
+            program_id,
+            &data,
+            delegated_program.key(),
+            expected_action,
+            expected_market,
+            expected_owner,
+            expected_position,
+            expected_delegation,
+            expected_debt_asset,
+            expected_recipient_token_account,
+            expected_output_mint,
+            expected_collateral_amount,
+            expected_output_amount,
+        )
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -461,54 +529,23 @@ pub fn validate_delegation_approval(
     expected_output_amount: u64,
 ) -> Result<()> {
     require_keys_eq!(program_id, expected_program, ErrorCode::InvalidLeverageDelegation);
-    let mut data_ref = data;
-    let approval =
-        LeverageDelegationApproval::deserialize(&mut data_ref).map_err(|_| ErrorCode::InvalidLeverageDelegation)?;
-    require!(data_ref.is_empty(), ErrorCode::InvalidLeverageDelegation);
-    require!(
-        approval.magic == LEVERAGE_DELEGATION_APPROVAL_MAGIC,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require!(
-        approval.version == LEVERAGE_DELEGATION_APPROVAL_VERSION,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require!(approval.action == expected_action, ErrorCode::InvalidLeverageDelegation);
-    require_keys_eq!(approval.market, expected_market, ErrorCode::InvalidLeverageDelegation);
-    require_keys_eq!(approval.owner, expected_owner, ErrorCode::InvalidLeverageDelegation);
-    require_keys_eq!(
-        approval.position,
-        expected_position,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require_keys_eq!(
-        approval.delegation,
-        expected_delegation,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require!(
-        approval.debt_asset == expected_debt_asset.code(),
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require_keys_eq!(
-        approval.recipient_token_account,
-        expected_recipient_token_account,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require_keys_eq!(
-        approval.output_mint,
-        expected_output_mint,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require_eq!(
-        approval.collateral_amount,
-        expected_collateral_amount,
-        ErrorCode::InvalidLeverageDelegation
-    );
-    require!(
-        approval.output_amount == expected_output_amount,
-        ErrorCode::InvalidLeverageDelegation
-    );
+    // The approval has only fixed-size Borsh fields. Compare its canonical
+    // 222-byte wire image in one pass instead of deserializing and branching
+    // over every field at the end of an already compute-heavy close.
+    let mut expected = [0u8; 222];
+    expected[..8].copy_from_slice(&LEVERAGE_DELEGATION_APPROVAL_MAGIC);
+    expected[8] = LEVERAGE_DELEGATION_APPROVAL_VERSION;
+    expected[9..13].copy_from_slice(&expected_action.to_le_bytes());
+    expected[13..45].copy_from_slice(expected_market.as_ref());
+    expected[45..77].copy_from_slice(expected_owner.as_ref());
+    expected[77..109].copy_from_slice(expected_position.as_ref());
+    expected[109..141].copy_from_slice(expected_delegation.as_ref());
+    expected[141] = expected_debt_asset.code();
+    expected[142..174].copy_from_slice(expected_recipient_token_account.as_ref());
+    expected[174..206].copy_from_slice(expected_output_mint.as_ref());
+    expected[206..214].copy_from_slice(&expected_collateral_amount.to_le_bytes());
+    expected[214..222].copy_from_slice(&expected_output_amount.to_le_bytes());
+    require!(data == expected, ErrorCode::InvalidLeverageDelegation);
     Ok(())
 }
 
@@ -646,6 +683,7 @@ pub fn record_leverage_interest<'info>(
     interest_eligibility: HlpYieldEligibility,
     remaining_accounts: &[AccountInfo<'info>],
     event_authority: AccountInfo<'info>,
+    transfer_instruction: Option<&mut Instruction>,
 ) -> Result<ReferralInterestAccrualReceipt> {
     let (fresh_gross, frozen_protocol_gross) = market
         .side_mut(debt_asset)
@@ -658,17 +696,32 @@ pub fn record_leverage_interest<'info>(
     let interest_vault_balance_before = interest_vault.amount;
     if transfer_gross > 0 {
         let debt_token_program = token_program_for_mint(debt_mint, token_program, token_2022_program)?;
-        transfer_checked_with_remaining_accounts(
-            market.to_account_info(),
-            debt_reserve_vault.to_account_info(),
-            interest_vault.to_account_info(),
-            debt_mint.to_account_info(),
-            debt_token_program,
-            transfer_gross,
-            debt_mint.decimals,
-            &[&generate_market_seeds!(market)[..]],
-            remaining_accounts,
-        )?;
+        if let Some(instruction) = transfer_instruction {
+            transfer_checked_with_remaining_accounts_and_instruction(
+                instruction,
+                market.to_account_info(),
+                debt_reserve_vault.to_account_info(),
+                interest_vault.to_account_info(),
+                debt_mint.to_account_info(),
+                debt_token_program,
+                transfer_gross,
+                debt_mint.decimals,
+                &[&generate_market_seeds!(market)[..]],
+                remaining_accounts,
+            )?;
+        } else {
+            transfer_checked_with_remaining_accounts(
+                market.to_account_info(),
+                debt_reserve_vault.to_account_info(),
+                interest_vault.to_account_info(),
+                debt_mint.to_account_info(),
+                debt_token_program,
+                transfer_gross,
+                debt_mint.decimals,
+                &[&generate_market_seeds!(market)[..]],
+                remaining_accounts,
+            )?;
+        }
         interest_vault.reload()?;
     }
     let interest_vault_credit = token_account_credit(interest_vault_balance_before, interest_vault)?;
@@ -708,12 +761,13 @@ pub fn record_leverage_interest<'info>(
     // Historical public growth is protected before the new cash credit.
     market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
     market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
-    market.side_mut(debt_asset).record_interest_credit_allocation(
+    market.record_receivable_income_credit(
+        debt_asset,
+        false,
         interest_vault_credit,
         protocol_credit,
         futarchy_authority.protocol_auction_split,
         referral_receipt.quote.referral_amount,
-        interest_eligibility.ylp_supply,
     )?;
     if market.has_active_hlp() && interest_vault_credit > protocol_credit && !market.oracle_price_unavailable() {
         settle_new_public_hlp_income(

@@ -61,7 +61,7 @@ impl<'info> SetHarvestAuthority<'info> {
             YieldTokenKind::Ylp => {
                 require_keys_eq!(self.lp_mint.key(), self.market.ylp_mint, ErrorCode::InvalidMint)
             }
-            YieldTokenKind::Hlp => {}
+            YieldTokenKind::Hlp | YieldTokenKind::Junior => {}
         }
         self.yield_account.assert_account(
             self.owner.key(),

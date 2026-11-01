@@ -1,0 +1,14 @@
+{
+  "matched_state_rows": 16,
+  "accounting_and_direction_checks": "passed",
+  "initial_apr": 0.08,
+  "utilization_target": 0.7,
+  "curve_steepness": 4,
+  "utilization_adaptation_per_year": 20,
+  "coverage_target": 0.25,
+  "junior_share_target": 0.2,
+  "risk_half_life_days": 7,
+  "synthetic": true,
+  "performance_claim": false,
+  "source_sha256": "d6a505f7beb06e5435e4d844405f5bc86c64d71f56592930d9603023d07d4543"
+}

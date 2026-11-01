@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "tests": 11,
+  "defaults_match_reference": true,
+  "v1_zero_coefficient_reproduction_present": true,
+  "hashes": {
+    "README.md": "dff0528dd344a1a520ae38670e656cced487716abba7802efd871138d7026b72",
+    "controller.py": "e3ae53d88c5e09e6bbe5533b9b63fe9e51dba49ccef44fa59c48877bb8f990a5",
+    "defaults.json": "c3f7fb9f3dabce2e8e4aa15a02ec8f40d5e8187aea0f79bcb7f914947b4ad9ca",
+    "reproduce_v1.py": "7c59243daa188a2c98334c80152b342fe391eb472099a32c7e8848b1e1061e13",
+    "source-refs.json": "e0993d6276e1283954995462abd3be2b8dcf7586e62f7ba29bb6607ea4cb95ee",
+    "test_controller.py": "7b24781475926c9b63254fa3dcbc0b3435f309ae42f1f39f4beaaf5d1e2451fa",
+    "tests.log": "b65e1bf0d891129b0c7bfc07fc60e7cb405a7bc689903b078294fa1bd4fd3b72",
+    "v1-reproduction.json": "ede2f59cb99a65f170255aaab1583bb763d9c674a27e44b617258ea995d55787",
+    "verify.py": "c0adbf84903583537e55a5440da587b634d76a204a2d94c8a66500842cc9f25e"
+  },
+  "scope": "Mathematical reference only; native Dusk unchanged"
+}

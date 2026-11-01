@@ -226,6 +226,7 @@ impl<'info> AddLeverageMargin<'info> {
             interest_eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),
+            None,
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
         require_reserve_custody(

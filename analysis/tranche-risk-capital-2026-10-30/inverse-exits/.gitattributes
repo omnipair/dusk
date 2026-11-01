@@ -1,0 +1,2 @@
+# Keep externally verified Solidity source byte-for-byte, including whitespace.
+*.sol -whitespace

@@ -1,0 +1,221 @@
+{
+  "base_params": {
+    "target": 0.05,
+    "half_days": 7,
+    "cap": 1,
+    "borrow_limit": 0.8,
+    "floor": 0.01,
+    "initial_rate": 0.04,
+    "band": 0.1,
+    "dt": 1,
+    "days": 90,
+    "signal": "combined",
+    "queue_fee_bps": 0,
+    "fee_destination": "seed",
+    "capital": 1000000,
+    "seed_fraction": 0.001,
+    "insurance_fraction": 0.02,
+    "insurance_event_fraction": 0.2,
+    "lp_interest_fraction": 0.9
+  },
+  "scenarios": [
+    {
+      "name": "mature",
+      "junior_fraction": 0.2,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": true,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    },
+    {
+      "name": "bootstrap",
+      "junior_fraction": 0.001,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": true,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    },
+    {
+      "name": "bootstrap_slow",
+      "junior_fraction": 0.001,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 30,
+      "junior_hurdle": 0.3,
+      "junior_enabled": true,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    },
+    {
+      "name": "seed_only",
+      "junior_fraction": 0.001,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": false,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    },
+    {
+      "name": "senior_run",
+      "junior_fraction": 0.2,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": true,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0.25,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    },
+    {
+      "name": "junior_run",
+      "junior_fraction": 0.2,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": false,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0,
+      "junior_exit": 0.75,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    },
+    {
+      "name": "inelastic",
+      "junior_fraction": 0.2,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 0,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": true,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0.25,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    },
+    {
+      "name": "revenue_drought",
+      "junior_fraction": 0.2,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": true,
+      "turnover_daily": 0.005,
+      "swap_fee_apr": 0,
+      "senior_exit": 0,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    },
+    {
+      "name": "credit_stress",
+      "junior_fraction": 0.2,
+      "utilization": [
+        0.6,
+        0.6
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": true,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0.3,
+      "base_mark": 0.65
+    },
+    {
+      "name": "one_asset_scarce",
+      "junior_fraction": 0.2,
+      "utilization": [
+        0.85,
+        0.35
+      ],
+      "elasticity": 1,
+      "borrower_days": 7,
+      "junior_days": 7,
+      "junior_hurdle": 0.15,
+      "junior_enabled": true,
+      "turnover_daily": 0.03,
+      "swap_fee_apr": 0.02,
+      "senior_exit": 0,
+      "junior_exit": 0,
+      "shock_loss_fraction": 0,
+      "base_mark": 1
+    }
+  ],
+  "configurations": 81,
+  "simulation_runs": 810,
+  "model": "synthetic; not calibrated to live borrower/LP behavior",
+  "insurance": "2% external budget, 20% event draw cap; one loss event",
+  "revenue": "net swap/borrow LP revenue 50/50; former liquidation insurance fee 100% junior",
+  "liquidations": "exogenous loss shock, plus a separate solvent batch paying a 2% fee on 10% of principal",
+  "seed": "0.1% of initial creator liquidity; seed income compounds; user income stays separate",
+  "zero_junior": "borrowing allowed subject to cash admission"
+}

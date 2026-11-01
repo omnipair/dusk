@@ -99,13 +99,7 @@ impl Market {
             .and_then(|value| value.checked_add(hlp_funding_debt))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let utilization_bps = utilization_bps(total_debt, side.reserves.cash_reserve as u128)?;
-        let utilization_error_nad =
-            utilization_error_nad(utilization_bps, self.config.irm.target_utilization_bps as u64)?;
-        let borrow_apr_nad = instantaneous_rate_apr_nad(
-            rate_at_target_nad,
-            utilization_error_nad,
-            self.config.irm.curve_steepness_nad as u128,
-        )?;
+        let borrow_apr_nad = rate_at_target_nad;
         let daily_borrow_limit = self.daily_limit_for_side(asset, self.config.max_daily_borrow_bps)?;
         let daily_borrow_remaining = self
             .side(asset)
@@ -199,7 +193,7 @@ impl Market {
         let debt_side = self.side(debt_asset);
         let risk = self.current_risk()?;
         let collateral_value_nad = self.collateral_value_nad(collateral_asset, collateral_exit_credit, &risk)?;
-        let max_debt_by_cash = debt_side.reserves.cash_reserve;
+        let max_debt_by_cash = self.borrow_cash_headroom(debt_asset)?;
         let daily_limit = self.daily_limit_for_side(debt_asset, self.config.max_daily_borrow_bps)?;
         let max_debt_by_daily_limit = debt_side.daily_borrow_bucket.remaining(daily_limit, slot)?;
         if collateral_exit_credit == 0 {
@@ -705,7 +699,7 @@ impl Market {
             debt_reserve_nad,
         };
         let daily_limit = self.daily_limit_for_side(debt_asset, self.config.max_daily_borrow_bps)?;
-        let cash_limit = self.side(debt_asset).reserves.cash_reserve;
+        let cash_limit = self.borrow_cash_headroom(debt_asset)?;
         let daily_remaining = self.side(debt_asset).daily_borrow_bucket.remaining(daily_limit, slot)?;
         let collateral_value_nad = borrow_context.impact_value_nad;
         let max_debt_nad_by_collateral = collateral_value_nad

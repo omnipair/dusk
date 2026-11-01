@@ -232,6 +232,28 @@ impl MarketAsset {
 }
 
 impl MarketSide {
+    /// Collected coverage allocation formerly routed to insurance. Existing
+    /// protocol and executor allocations have already been deducted.
+    pub fn record_junior_liquidation_credit(&mut self, credit: u64) -> Result<()> {
+        require!(self.fees.junior.initialized, ErrorCode::BrokenInvariant);
+        let senior = self
+            .fees
+            .junior
+            .allocate(credit, crate::state::TrancheRevenueSource::LiquidationCoverage)?;
+        require_eq!(senior, 0, ErrorCode::BrokenInvariant);
+        self.fees.interest_vault_balance = self
+            .fees
+            .interest_vault_balance
+            .checked_add(credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.interest_liability = self
+            .fees
+            .interest_liability
+            .checked_add(credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.fees.assert_backed()
+    }
+
     /// Liquidation's protocol share is already selected before insurance is
     /// funded. Distribute the remaining LP amount once, over ordinary yLP
     /// ownership (including the yLP backing hLP), without another protocol cut.
@@ -465,23 +487,29 @@ impl MarketSide {
             return FeesReceipt::from_side(self);
         }
         let (protocol_fee, _) = split_revenue(interest_credit, protocol_fee_bps)?;
-        self.record_interest_credit_allocation(
+        let lp_interest = self.record_interest_custody(
             interest_credit,
             protocol_fee,
             protocol_auction_split,
             referral_interest_amount,
-            eligible_ylp_supply,
-        )
+        )?;
+        self.fees.unallocated_interest_liability = self
+            .fees
+            .unallocated_interest_liability
+            .checked_add(lp_interest)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.carry_forward_interest_with_supply(eligible_ylp_supply)?;
+        self.fees.assert_backed()?;
+        FeesReceipt::from_side(self)
     }
 
-    pub(crate) fn record_interest_credit_allocation(
+    pub(crate) fn record_interest_custody(
         &mut self,
         interest_credit: u64,
         protocol_fee: u64,
         protocol_auction_split: ProtocolAuctionSplit,
         referral_interest_amount: u64,
-        eligible_ylp_supply: u64,
-    ) -> Result<FeesReceipt> {
+    ) -> Result<u64> {
         let lp_interest = interest_credit
             .checked_sub(protocol_fee)
             .ok_or(ErrorCode::FeeMathOverflow)?;
@@ -511,14 +539,7 @@ impl MarketSide {
             .interest_buyback_fee_liability
             .checked_add(buyback_auction_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.unallocated_interest_liability = self
-            .fees
-            .unallocated_interest_liability
-            .checked_add(lp_interest)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.carry_forward_interest_with_supply(eligible_ylp_supply)?;
-        self.fees.assert_backed()?;
-        FeesReceipt::from_side(self)
+        Ok(lp_interest)
     }
 
     /// Record interest paid by an hLP funding position. Its LP share is
@@ -539,8 +560,13 @@ impl MarketSide {
         let (protocol_fee, lp_interest) = split_revenue(interest_credit, protocol_fee_bps)?;
         let (fee_auction_amount, buyback_auction_amount) =
             split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
+        let senior = self
+            .fees
+            .junior
+            .allocate(lp_interest, crate::state::TrancheRevenueSource::BorrowInterest)?;
+        let eligible_ylp_supply = self.fees.junior.senior_supply(eligible_ylp_supply)?;
         let (growth_delta, remainder_scaled) = distribute_growth_q64(
-            lp_interest,
+            senior,
             eligible_ylp_supply,
             self.fees.hlp_funding_interest_growth_remainder_scaled,
         )?;
@@ -604,8 +630,13 @@ impl MarketSide {
             return Ok(());
         }
         let allocated = self.fees.unallocated_swap_fee_liability;
+        let senior = self
+            .fees
+            .junior
+            .allocate(allocated, crate::state::TrancheRevenueSource::SwapFee)?;
+        let supply = self.fees.junior.senior_supply(supply)?;
         let (growth_delta, remainder_scaled) =
-            distribute_growth_q64(allocated, supply, self.fees.swap_fee_growth_remainder_scaled)?;
+            distribute_growth_q64(senior, supply, self.fees.swap_fee_growth_remainder_scaled)?;
         self.fees.swap_fee_growth_index_q64 = self
             .fees
             .swap_fee_growth_index_q64
@@ -636,8 +667,13 @@ impl MarketSide {
             return Ok(());
         }
         let allocated = self.fees.unallocated_interest_liability;
+        let senior = self
+            .fees
+            .junior
+            .allocate(allocated, crate::state::TrancheRevenueSource::BorrowInterest)?;
+        let supply = self.fees.junior.senior_supply(supply)?;
         let (growth_delta, remainder_scaled) =
-            distribute_growth_q64(allocated, supply, self.fees.interest_growth_remainder_scaled)?;
+            distribute_growth_q64(senior, supply, self.fees.interest_growth_remainder_scaled)?;
         self.fees.interest_growth_index_q64 = self
             .fees
             .interest_growth_index_q64
@@ -744,6 +780,26 @@ impl Market {
 
 impl Market {
     pub fn assert_market_invariants(&self) -> Result<()> {
+        require_eq!(
+            self.base_side.shares.ylp_supply,
+            self.quote_side.shares.ylp_supply,
+            ErrorCode::BrokenInvariant
+        );
+        self.tranches.validate(self.base_side.shares.ylp_supply)?;
+        for side in [&self.base_side, &self.quote_side] {
+            if side.fees.junior.initialized {
+                require_eq!(
+                    side.fees.junior.reserve_shares,
+                    self.tranches.junior_reserve_shares,
+                    ErrorCode::BrokenInvariant
+                );
+                require_eq!(
+                    side.fees.junior.receipt_supply,
+                    self.tranches.junior_receipt_supply,
+                    ErrorCode::BrokenInvariant
+                );
+            }
+        }
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
         self.base_side.fees.assert_backed()?;

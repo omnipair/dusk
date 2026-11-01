@@ -143,7 +143,10 @@ export async function simulatePreviewWithContext(
       deadline,
     ]);
     options.signal?.throwIfAborted();
-    if (simulation.value.err) throw new DuskSimulationError("Dusk simulation failed", simulation);
+    if (simulation.value.err) {
+      const tail = simulation.value.logs?.slice(-8).join("\n");
+      throw new DuskSimulationError(`Dusk simulation failed: ${JSON.stringify(simulation.value.err)}${tail ? `\n${tail}` : ""}`, simulation);
+    }
     if (options.requireReturnData !== false && !simulation.value.returnData)
       throw new DuskSimulationError("Dusk simulation did not return data", simulation);
     if (options.requireReturnData !== false && simulation.value.returnData && simulation.value.returnData.programId !== program.programId.toBase58())

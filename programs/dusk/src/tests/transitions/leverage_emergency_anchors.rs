@@ -16,7 +16,7 @@ fn margin_calibration_native_terminal_anchors() {
                 market.base_side.asset_decimals = base_decimals;
                 market.quote_side.asset_decimals = quote_decimals;
                 market.config.swap_fee_bps = 0;
-                market.amm = AmmState::default();
+                *market.amm = AmmState::default();
                 market.risk = Risk::default();
                 market.prepare_amm_for_swap(1).unwrap();
                 market.refresh_risk().unwrap();

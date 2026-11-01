@@ -26,3 +26,4 @@ pub use leverage::*;
 pub use liquidity::{AddLiquidityReceipt, HlpRebalanceReceipt, HlpYieldEligibility, RemoveLiquidityReceipt};
 
 pub(crate) mod oracle;
+pub mod tranches;

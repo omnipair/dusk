@@ -1,5 +1,5 @@
 use crate::transitions::amm::SwapRequest;
-use anchor_lang::prelude::*;
+use anchor_lang::{prelude::*, solana_program::instruction::Instruction};
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -9,8 +9,8 @@ use super::settlement::{
     invoke_delegated_approval_callback, leverage_collateral_credit, leverage_collateral_fee, leverage_swap_fee_credit,
     prepare_leverage_swap, record_leverage_interest, settle_inline_leverage_hlp, split_delegated_accounts,
     validate_leverage_futarchy_pda, validate_leverage_interest_account, validate_leverage_market_pda,
-    validate_leverage_mints, validate_leverage_reserve_accounts, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE,
-    LEVERAGE_DELEGATE_CLOSE_SETTLED,
+    validate_leverage_mints, validate_leverage_reserve_accounts, DelegatedCallbackBuffers, DelegatedCpiArgs,
+    LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
 use crate::{
     constants::*,
@@ -28,7 +28,10 @@ use crate::{
     state::{
         FutarchyAuthority, LeverageDelegation, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner,
     },
-    token::{get_transfer_fee_for_epoch, get_transfer_inverse_fee_for_epoch, transfer_checked_with_remaining_accounts},
+    token::{
+        get_transfer_fee_for_epoch, get_transfer_inverse_fee_for_epoch,
+        transfer_checked_with_remaining_accounts_and_instruction,
+    },
     transitions::liquidity::SwapCashPolicy,
 };
 
@@ -38,6 +41,11 @@ pub struct CloseLeverageArgs {
     pub min_amount_out: u64,
     /// Percentage of current collateral and debt to close, in basis points.
     pub close_bps: u16,
+}
+
+#[inline(never)]
+fn account_list_contains(accounts: &[AccountInfo<'_>], key: Pubkey) -> bool {
+    accounts.iter().any(|account| account.key() == key)
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -398,7 +406,7 @@ impl<'info> CloseLeverage<'info> {
             let market: &Market = &ctx.accounts.market;
             HlpSwapAccountLayout::try_from((market, remaining_accounts))?
         };
-        let delegated = match mode {
+        let mut delegated = match mode {
             CloseMode::Owner => DelegatedCpiArgs::default(),
             CloseMode::Delegate => delegated.ok_or(ErrorCode::InvalidLeverageDelegation)?,
         };
@@ -510,7 +518,18 @@ impl<'info> CloseLeverage<'info> {
             (0, None)
         };
 
-        let mut protected_accounts = Vec::new();
+        // Keep this collection on the heap: 24 public keys consume 768 bytes,
+        // which is large enough to push this already-wide SBF handler over its
+        // verifier-enforced stack frame limit.
+        let mut protected_accounts = Vec::with_capacity(24);
+        let hook_account_count = h_lp_accounts.hook_accounts(remaining_accounts).len();
+        let before_account_count = usize::from(delegated.before_accounts_len);
+        let callback_account_capacity = if matches!(mode, CloseMode::Delegate) {
+            before_account_count.max(hook_account_count.saturating_sub(before_account_count))
+        } else {
+            0
+        };
+        let mut callback_buffers = DelegatedCallbackBuffers::with_account_capacity(callback_account_capacity);
         if matches!(mode, CloseMode::Delegate) {
             // Bind the delegate approval to the owner's exact net payout.
             let delegation = ctx
@@ -527,7 +546,6 @@ impl<'info> CloseLeverage<'info> {
                 h_lp_accounts.hook_accounts(remaining_accounts),
                 delegated.before_accounts_len,
             )?;
-            protected_accounts.reserve_exact(24);
             protected_accounts.extend([
                 market_key,
                 ctx.accounts.leverage_position.key(),
@@ -566,8 +584,9 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.market.exit(&crate::ID)?;
             ctx.accounts.leverage_position.exit(&crate::ID)?;
             invoke_delegated_approval_callback(
+                &mut callback_buffers,
                 delegated_program,
-                delegated.before_ix_data.clone(),
+                core::mem::take(&mut delegated.before_ix_data),
                 before_accounts,
                 &protected_accounts,
                 &[],
@@ -595,6 +614,17 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.leverage_position.exit(&crate::ID)?;
         }
 
+        let event_data_capacity = 16
+            + core::mem::size_of::<LeveragePositionUpdated>()
+                .max(core::mem::size_of::<LeveragePositionClosed>())
+                .max(core::mem::size_of::<SwapExecuted>())
+            + 64;
+        let mut transfer_instruction = Instruction {
+            program_id: Pubkey::default(),
+            accounts: Vec::with_capacity(4),
+            data: Vec::with_capacity(event_data_capacity),
+        };
+
         // Return collateral to the reserve and measure the swap's actual input.
         let collateral_token_program = token_program_for_mint(
             &ctx.accounts.collateral_mint,
@@ -602,7 +632,8 @@ impl<'info> CloseLeverage<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let collateral_reserve_balance_before = ctx.accounts.collateral_reserve_vault.amount;
-        transfer_checked_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts_and_instruction(
+            &mut transfer_instruction,
             ctx.accounts.market.to_account_info(),
             ctx.accounts.leverage_collateral_vault.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
@@ -701,7 +732,8 @@ impl<'info> CloseLeverage<'info> {
                 .as_deref_mut()
                 .ok_or(ErrorCode::InvalidTokenAccount)?;
             let fee_before = fee_recipient.amount;
-            transfer_checked_with_remaining_accounts(
+            transfer_checked_with_remaining_accounts_and_instruction(
+                &mut transfer_instruction,
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.debt_reserve_vault.to_account_info(),
                 fee_recipient.to_account_info(),
@@ -724,7 +756,8 @@ impl<'info> CloseLeverage<'info> {
                 .as_deref_mut()
                 .ok_or(ErrorCode::InvalidTokenAccount)?;
             let executor_before = executor_account.amount;
-            transfer_checked_with_remaining_accounts(
+            transfer_checked_with_remaining_accounts_and_instruction(
+                &mut transfer_instruction,
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.debt_reserve_vault.to_account_info(),
                 executor_account.to_account_info(),
@@ -743,7 +776,8 @@ impl<'info> CloseLeverage<'info> {
             );
         }
         let owner_balance_before = ctx.accounts.owner_debt_account.amount;
-        transfer_checked_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts_and_instruction(
+            &mut transfer_instruction,
             ctx.accounts.market.to_account_info(),
             ctx.accounts.debt_reserve_vault.to_account_info(),
             ctx.accounts.owner_debt_account.to_account_info(),
@@ -778,6 +812,7 @@ impl<'info> CloseLeverage<'info> {
             interest_eligibility,
             remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),
+            Some(&mut transfer_instruction),
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;
@@ -791,7 +826,7 @@ impl<'info> CloseLeverage<'info> {
         )?;
 
         // Emit referral accrual before the final close event.
-        crate::instructions::accounting::emit_interest_paid(
+        crate::instructions::accounting::emit_interest_paid_with_instruction(
             &ctx.accounts.market,
             debt_asset,
             crate::events::DebtSource::Margin,
@@ -799,6 +834,7 @@ impl<'info> CloseLeverage<'info> {
             referral_receipt.quote,
             0,
             ctx.accounts.event_authority.to_account_info(),
+            &mut transfer_instruction,
         )?;
         if let Some(event) = referral_interest_accrued_event_at_slot(
             &referral_receipt,
@@ -809,7 +845,11 @@ impl<'info> CloseLeverage<'info> {
             debt_mint_key,
             current_slot,
         )? {
-            emit_cpi!(event);
+            crate::instructions::accounting::emit_cpi_event_with_instruction(
+                &event,
+                ctx.accounts.event_authority.to_account_info(),
+                &mut transfer_instruction,
+            )?;
         }
 
         let swap_event = LeverageSwapReceipt::new(
@@ -818,53 +858,65 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.market.base_side.reserves.live_reserve,
             ctx.accounts.market.quote_side.reserves.live_reserve,
         )?;
-        emit_cpi!(SwapExecuted::from_leverage(
-            market_key,
-            owner_key,
-            authority_key,
-            position_key,
-            SwapOrigin::LeverageClose,
-            current_slot,
-            swap_event,
-            receipt.swap.start_price_nad,
-            &ctx.accounts.market,
-        )?);
+        crate::instructions::accounting::emit_cpi_event_with_instruction(
+            &SwapExecuted::from_leverage(
+                market_key,
+                owner_key,
+                authority_key,
+                position_key,
+                SwapOrigin::LeverageClose,
+                current_slot,
+                swap_event,
+                receipt.swap.start_price_nad,
+                &ctx.accounts.market,
+            )?,
+            ctx.accounts.event_authority.to_account_info(),
+            &mut transfer_instruction,
+        )?;
         if is_full_close {
-            emit_cpi!(LeveragePositionClosed {
-                market: market_key,
-                position: position_key,
-                owner: owner_key,
-                debt_asset_mint: debt_mint_key,
-                collateral_asset_mint: collateral_mint_key,
-                debt_repaid: receipt.debt_repaid,
-                interest_paid: receipt.interest_paid,
-                collateral_sold: receipt.collateral_sold,
-                closeout_value: receipt.closeout_value,
-                residual: residual_credit,
-                swap: swap_event,
-                metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
-            });
+            crate::instructions::accounting::emit_cpi_event_with_instruction(
+                &LeveragePositionClosed {
+                    market: market_key,
+                    position: position_key,
+                    owner: owner_key,
+                    debt_asset_mint: debt_mint_key,
+                    collateral_asset_mint: collateral_mint_key,
+                    debt_repaid: receipt.debt_repaid,
+                    interest_paid: receipt.interest_paid,
+                    collateral_sold: receipt.collateral_sold,
+                    closeout_value: receipt.closeout_value,
+                    residual: residual_credit,
+                    swap: swap_event,
+                    metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
+                },
+                ctx.accounts.event_authority.to_account_info(),
+                &mut transfer_instruction,
+            )?;
         } else {
-            emit_cpi!(LeveragePositionUpdated {
-                market: market_key,
-                position: position_key,
-                owner: owner_key,
-                debt_asset_mint: debt_mint_key,
-                collateral_asset_mint: collateral_mint_key,
-                borrowed_amount: 0,
-                owner_debit: 0,
-                debt_delta: -i64::try_from(receipt.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
-                collateral_delta: -i64::try_from(receipt.collateral_sold).map_err(|_| ErrorCode::Overflow)?,
-                debt_amount: receipt.remaining_debt_amount,
-                debt_shares: receipt.remaining_debt_shares,
-                collateral_amount: receipt.remaining_collateral_amount,
-                margin_terms: ctx.accounts.leverage_position.margin_terms,
-                closeout_value: receipt.remaining_closeout_value,
-                owner_credit: residual_credit,
-                interest_paid: receipt.interest_paid,
-                swap: Some(swap_event),
-                metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
-            });
+            crate::instructions::accounting::emit_cpi_event_with_instruction(
+                &LeveragePositionUpdated {
+                    market: market_key,
+                    position: position_key,
+                    owner: owner_key,
+                    debt_asset_mint: debt_mint_key,
+                    collateral_asset_mint: collateral_mint_key,
+                    borrowed_amount: 0,
+                    owner_debit: 0,
+                    debt_delta: -i64::try_from(receipt.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
+                    collateral_delta: -i64::try_from(receipt.collateral_sold).map_err(|_| ErrorCode::Overflow)?,
+                    debt_amount: receipt.remaining_debt_amount,
+                    debt_shares: receipt.remaining_debt_shares,
+                    collateral_amount: receipt.remaining_collateral_amount,
+                    margin_terms: ctx.accounts.leverage_position.margin_terms,
+                    closeout_value: receipt.remaining_closeout_value,
+                    owner_credit: residual_credit,
+                    interest_paid: receipt.interest_paid,
+                    swap: Some(swap_event),
+                    metadata: MarketEventMetadata::at_slot(authority_key, market_key, current_slot),
+                },
+                ctx.accounts.event_authority.to_account_info(),
+                &mut transfer_instruction,
+            )?;
         }
 
         if matches!(mode, CloseMode::Delegate) {
@@ -887,9 +939,18 @@ impl<'info> CloseLeverage<'info> {
             // explicit payout/owner exceptions gain writability below.
             let writable_protected_accounts =
                 [ctx.accounts.owner_debt_account.key(), ctx.accounts.position_owner.key()];
-            ctx.accounts.market.exit(&crate::ID)?;
-            ctx.accounts.leverage_position.exit(&crate::ID)?;
+            // Serialize only state the callback can actually observe. Anchor
+            // exits both accounts again after this handler returns; writing a
+            // large Market here when it is absent from `after_accounts` wastes
+            // the final compute budget without changing callback visibility.
+            if account_list_contains(after_accounts, market_key) {
+                ctx.accounts.market.exit(&crate::ID)?;
+            }
+            if account_list_contains(after_accounts, position_key) {
+                ctx.accounts.leverage_position.exit(&crate::ID)?;
+            }
             invoke_delegated_approval_callback(
+                &mut callback_buffers,
                 delegated_program,
                 delegated.after_ix_data,
                 after_accounts,

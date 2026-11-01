@@ -295,22 +295,7 @@ pub struct FeeProfile {
     pub launch_rate_limit_duration_seconds: u64,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
-pub struct IrmConfig {
-    pub target_utilization_bps: u16,
-    pub curve_steepness_nad: u64,
-    pub adjustment_speed_per_year: u64,
-}
-
-impl Default for IrmConfig {
-    fn default() -> Self {
-        Self {
-            target_utilization_bps: DEFAULT_IRM_TARGET_UTILIZATION_BPS,
-            curve_steepness_nad: DEFAULT_IRM_CURVE_STEEPNESS_NAD,
-            adjustment_speed_per_year: DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR,
-        }
-    }
-}
+pub use crate::transitions::tranches::RiskRateConfig as IrmConfig;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct MarketConfig {
@@ -342,6 +327,9 @@ pub struct Debt {
     pub quote_borrow_index_remainder: u128,
     pub base_rate_at_target_nad: u128,
     pub quote_rate_at_target_nad: u128,
+    /// Fractional NAD APR carried by the exponential controller (scale 1e9).
+    pub base_rate_fraction_e18: u64,
+    pub quote_rate_fraction_e18: u64,
     pub global_health_base_contribution_for_quote_debt: u64,
     pub global_health_quote_contribution_for_base_debt: u64,
     pub base_last_accrual_slot: u64,
@@ -386,6 +374,7 @@ pub struct PublicInterestAdvance {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Fees {
+    pub junior: crate::transitions::tranches::TrancheIncome,
     pub public_interest_advance: PublicInterestAdvance,
     pub swap_fee_growth_index_q64: u128,
     pub interest_growth_index_q64: u128,
@@ -561,11 +550,16 @@ pub struct Market {
     pub oracle: Box<super::OracleState>,
     pub version: u8,
     pub ylp_mint: Pubkey,
-    pub base_side: MarketSide,
-    pub quote_side: MarketSide,
+    pub base_side: Box<MarketSide>,
+    pub quote_side: Box<MarketSide>,
     pub config: MarketConfig,
-    pub amm: AmmState,
+    pub amm: Box<AmmState>,
     pub debt: Debt,
+    /// One shared junior capital budget across both reserve/debt books.
+    pub tranches: crate::transitions::tranches::TrancheCapital,
+    pub income: crate::state::LazyIncomeBooks,
+    pub junior_exit_config: crate::transitions::tranches::JuniorExitConfig,
+    pub junior_mint: Pubkey,
     pub base_hlp_vault: HlpVault,
     pub quote_hlp_vault: HlpVault,
     pub risk: Risk,
@@ -592,7 +586,51 @@ pub struct Market {
     pub bump: u8,
 }
 
+// Separate frames keep the largest fixed Borsh value off the caller's stack.
+#[inline(never)]
+fn reload_field<T: AnchorDeserialize>(target: &mut T, cursor: &mut &[u8]) -> Result<()> {
+    *target = T::deserialize(cursor)?;
+    Ok(())
+}
+
 impl Market {
+    /// Refresh a previously decoded market after CPI, reusing its large boxed
+    /// fields. A failed decode must abort the instruction: this copy may then
+    /// contain a partial refresh. The caller must bind the account owner/key.
+    #[inline(never)]
+    pub fn reload_from_account_bytes(&mut self, data: &[u8]) -> Result<()> {
+        use anchor_lang::Discriminator;
+        require!(data.starts_with(Self::DISCRIMINATOR), ErrorCode::BrokenInvariant);
+        let mut cursor = &data[Self::DISCRIMINATOR.len()..];
+        reload_field(&mut *self.oracle, &mut cursor)?;
+        reload_field(&mut self.version, &mut cursor)?;
+        reload_field(&mut self.ylp_mint, &mut cursor)?;
+        reload_field(&mut *self.base_side, &mut cursor)?;
+        reload_field(&mut *self.quote_side, &mut cursor)?;
+        reload_field(&mut self.config, &mut cursor)?;
+        reload_field(&mut *self.amm, &mut cursor)?;
+        reload_field(&mut self.debt, &mut cursor)?;
+        reload_field(&mut self.tranches, &mut cursor)?;
+        self.income.reload(&mut cursor)?;
+        reload_field(&mut self.junior_exit_config, &mut cursor)?;
+        reload_field(&mut self.junior_mint, &mut cursor)?;
+        reload_field(&mut self.base_hlp_vault, &mut cursor)?;
+        reload_field(&mut self.quote_hlp_vault, &mut cursor)?;
+        reload_field(&mut self.risk, &mut cursor)?;
+        reload_field(&mut self.insurance, &mut cursor)?;
+        reload_field(&mut self.params_hash, &mut cursor)?;
+        reload_field(&mut self.initial_liquidity_authority, &mut cursor)?;
+        reload_field(&mut self.governance_locked_ylp, &mut cursor)?;
+        reload_field(&mut self.parameter_revisions, &mut cursor)?;
+        reload_field(&mut self.last_marginal_observation_nad, &mut cursor)?;
+        reload_field(&mut self.curve_revision, &mut cursor)?;
+        reload_field(&mut self.risk_revision, &mut cursor)?;
+        reload_field(&mut self.last_update_slot, &mut cursor)?;
+        reload_field(&mut self.reduce_only, &mut cursor)?;
+        reload_field(&mut self.bump, &mut cursor)?;
+        Ok(())
+    }
+
     pub(crate) fn validate_mint_domain(
         base_asset_mint: Pubkey,
         quote_asset_mint: Pubkey,
@@ -751,4 +789,55 @@ pub struct MarketSide {
     pub shares: ReserveShares,
     pub fees: Fees,
     pub daily_borrow_bucket: DailyBorrowBucket,
+}
+
+// Boxing changes only in-memory placement; Borsh retains the same wire layout.
+impl anchor_lang::Space for Box<AmmState> {
+    const INIT_SPACE: usize = AmmState::INIT_SPACE;
+}
+impl anchor_lang::Space for Box<MarketSide> {
+    const INIT_SPACE: usize = MarketSide::INIT_SPACE;
+}
+
+#[cfg(test)]
+mod reload_tests {
+    use super::*;
+
+    #[test]
+    fn in_place_refresh_matches_canonical_decoder_and_reuses_boxes() {
+        let mut bytes = Vec::new();
+        Market::default().try_serialize(&mut bytes).unwrap();
+        let mut target = Market::default();
+        let pointers = (
+            &*target.base_side as *const MarketSide,
+            &*target.quote_side as *const MarketSide,
+            &*target.amm as *const AmmState,
+        );
+        // Perturb every wire byte. Valid canonical encodings must refresh the
+        // entire account, including fields not currently used by protection.
+        for index in 8..bytes.len() {
+            let original = bytes[index];
+            bytes[index] = original.wrapping_add(1);
+            if let Ok(expected) = Market::try_deserialize(&mut bytes.as_slice()) {
+                target.reload_from_account_bytes(&bytes).unwrap();
+                let mut actual_bytes = Vec::new();
+                let mut expected_bytes = Vec::new();
+                target.try_serialize(&mut actual_bytes).unwrap();
+                expected.try_serialize(&mut expected_bytes).unwrap();
+                assert_eq!(actual_bytes, expected_bytes, "wire byte {index}");
+            }
+            bytes[index] = original;
+        }
+        assert_eq!(
+            pointers,
+            (
+                &*target.base_side as *const MarketSide,
+                &*target.quote_side as *const MarketSide,
+                &*target.amm as *const AmmState,
+            )
+        );
+        assert!(target.reload_from_account_bytes(&bytes[..bytes.len() - 1]).is_err());
+        bytes[0] ^= 1;
+        assert!(target.reload_from_account_bytes(&bytes).is_err());
+    }
 }

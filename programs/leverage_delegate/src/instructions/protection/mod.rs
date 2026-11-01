@@ -61,48 +61,6 @@ pub struct ProtectionExecuted {
     pub health_after_bps: u64,
 }
 
-#[inline(never)]
-pub(super) fn protection_health(
-    market_info: &AccountInfo,
-    oracle_accounts: &[AccountInfo],
-    borrow: Option<&BorrowPosition>,
-    leverage: Option<&LeveragePosition>,
-    action: u8,
-    asset: MarketAsset,
-    clock: &Clock,
-    refresh: bool,
-    collateral_fee: LeverageCollateralFee,
-) -> Result<u64> {
-    // Fresh deserialization after CPIs avoids Anchor Account::reload's two
-    // large Market temporaries sharing one 4 KiB SBF stack frame.
-    let data = market_info.try_borrow_data()?;
-    let mut cursor: &[u8] = &data;
-    let mut decoded = unsafe {
-        // The allocation is initialized exactly once before assume_init, and
-        // Result retains any deserialization error without reading uninit data.
-        let mut destination = Box::<Result<Market>>::new_uninit();
-        destination
-            .as_mut_ptr()
-            .write(Market::try_deserialize(&mut cursor));
-        destination.assume_init()
-    };
-    let market = decoded
-        .as_mut()
-        .as_mut()
-        .map_err(|_| error!(LeverageDelegateError::InvalidOrder))?;
-    market.bind_oracle(oracle_accounts, clock)?;
-    protection_health_of(
-        market,
-        borrow,
-        leverage,
-        action,
-        asset,
-        clock,
-        refresh,
-        collateral_fee,
-    )
-}
-
 /// Health from an already decoded Market. Before any CPI, the copy Anchor
 /// decoded at entry is current, and decoding the large account a second time
 /// costs more compute than the whole protection check. The delegate never

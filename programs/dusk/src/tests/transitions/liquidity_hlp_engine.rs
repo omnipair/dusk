@@ -2,7 +2,7 @@ use super::*;
 use proptest::prelude::*;
 
 #[test]
-fn y_lp_entry_and_cash_exit_include_unpaid_interest_once() {
+fn senior_entry_and_cash_exit_exclude_separately_owned_unpaid_interest() {
     const UNIT: u64 = 1_000_000;
     let mut market = Market::default();
     market.base_side.asset_decimals = 6;
@@ -16,16 +16,17 @@ fn y_lp_entry_and_cash_exit_include_unpaid_interest_once() {
     market.quote_side.reserves.live_reserve += 25_000 * UNIT;
     let old_supply = market.base_side.shares.ylp_supply;
     let old_base_claim = market.base_side.reserves.live_reserve;
-    let old_quote_claim = market.quote_side.reserves.live_reserve;
+    let old_quote_claim = market.curve_reserve(MarketAsset::Quote).unwrap();
     let cash_before = market.quote_side.reserves.cash_reserve;
     let entry = market.add_liquidity(1_000 * UNIT, 1_025 * UNIT).unwrap();
     assert_eq!(entry.ylp_amount, old_supply / 1_000);
+    assert_eq!(entry.quote_reserve_credit, 1_000 * UNIT);
     assert_eq!(
         ylp_live_underlying_amount(&market, MarketAsset::Base, old_supply).unwrap(),
         old_base_claim
     );
     assert_eq!(
-        ylp_live_underlying_amount(&market, MarketAsset::Quote, old_supply).unwrap(),
+        market.quote_side.shares.reserve_for_burn(market.curve_reserve(MarketAsset::Quote).unwrap(), old_supply).unwrap(),
         old_quote_claim
     );
     let exit = market.remove_liquidity(entry.ylp_amount).unwrap();
@@ -57,7 +58,7 @@ fn h_lp_entry_mints_against_current_value_even_if_cached_values_are_stale() {
             center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
             ..AmmConfig::default()
         };
-        market.amm = AmmState::default();
+        *market.amm = AmmState::default();
         market.prepare_amm_for_swap(1).unwrap();
 
         let prices = current_hlp_curve_prices(&market).unwrap();
@@ -115,12 +116,13 @@ fn h_lp_share_value_includes_unpaid_public_interest_without_spending_it() {
         }
         market.side_mut(target).reserves.cash_reserve -= 400_000;
         market.side_mut(target).reserves.live_reserve += 25_000;
+        market.sync_income_receivable(target, false, 0).unwrap();
         let vault = match target {
             MarketAsset::Base => &market.base_hlp_vault,
             MarketAsset::Quote => &market.quote_hlp_vault,
         };
         let expected_interest_claim =
-            25_000_u128 * u128::from(vault.ylp_shares) / u128::from(market.side(target).shares.ylp_supply);
+            12_500_u128 * u128::from(vault.ylp_shares) / u128::from(market.tranches.senior_reserve_shares(market.side(target).shares.ylp_supply).unwrap());
         let expected_in_nad = market.normalize_amount(expected_interest_claim, market.side(target).asset_decimals).unwrap();
         let economic_after = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
         assert_eq!(economic_after - economic_before, expected_in_nad);
@@ -152,7 +154,7 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
             center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
             ..AmmConfig::default()
         };
-        initial.amm = AmmState::default();
+        *initial.amm = AmmState::default();
         initial.prepare_amm_for_swap(1).unwrap();
         initial.config.settlement_divergence_bps = 500;
 
@@ -394,9 +396,30 @@ fn captured_vob_market() -> Market {
     layout.debt.quote_borrow_index_remainder = u128::from_le_bytes([0x22; 16]);
     layout.debt.leverage_base_collateral = u64::from_le_bytes([0x33; 8]);
     layout.debt.leverage_quote_collateral = u64::from_le_bytes([0x33; 8]);
+    let tags = [0x3197_5bdf_2468_ace0_u64, 0x4286_ace0_1357_9bdf, 0x5397_ace0_1357_9bdf,
+        0x6486_ace0_1357_9bdf, 0x7597_ace0_1357_9bdf];
+    layout.base_side.fees.junior.reserve_shares = tags[0];
+    layout.quote_side.fees.junior.reserve_shares = tags[1];
+    layout.config.irm.lower_signal_nad = tags[2];
+    layout.debt.base_rate_fraction_e18 = tags[3];
+    layout.tranches.junior_reserve_shares = tags[4];
+    let old_additions = [0x651a_5bdf_2468_ace0_u64, 0x651b_5bdf_2468_ace0,
+        0x651c_5bdf_2468_ace0, 0x651d_5bdf_2468_ace0, 0x651e_5bdf_2468_ace0,
+        0x651f_5bdf_2468_ace0, 0x6520_5bdf_2468_ace0, 0x6521_5bdf_2468_ace0,
+        0x6522_5bdf_2468_ace0];
+    layout.base_side.fees.public_interest_advance.outstanding_gross = old_additions[0];
+    layout.quote_side.fees.public_interest_advance.outstanding_gross = old_additions[1];
+    layout.base_side.reserves.flash_receivable = old_additions[2];
+    layout.quote_side.reserves.flash_receivable = old_additions[3];
+    layout.base_hlp_vault.flash_collateral_debit = old_additions[4];
+    layout.quote_hlp_vault.flash_collateral_debit = old_additions[5];
+    layout.insurance.base_draw_window.start_slot = old_additions[6];
+    layout.insurance.quote_draw_window.start_slot = old_additions[7];
+    layout.amm.frozen_base_vault_base_offset_nad = old_additions[8] as i128;
     let mut encoded_layout = Vec::new();
     layout.try_serialize(&mut encoded_layout).unwrap();
     let mut captured = include_bytes!("../fixtures/vob-market-20260929.bin").to_vec();
+    let mut edits = Vec::new();
     for (marker, replacement) in [
         (vec![0x22; 32], vec![0; 32]),
         (vec![0x33; 16], vec![0; 16]),
@@ -407,10 +430,35 @@ fn captured_vob_market() -> Market {
             .filter_map(|(offset, window)| (window == marker).then_some(offset))
             .collect();
         assert_eq!(offsets.len(), 1, "fixture adapter sentinel must be unique");
-        captured.splice(offsets[0]..offsets[0], replacement);
+        edits.push((offsets[0], 0, replacement));
     }
+    for (index, tag) in tags.into_iter().enumerate() {
+        let offset = encoded_layout.windows(8).position(|w| w == tag.to_le_bytes()).unwrap();
+        let (offset, removed, replacement) = match index {
+            0 | 1 => (offset - 1, 0, vec![0; crate::state::TrancheIncome::INIT_SPACE]),
+            2 => (offset, 18, crate::state::IrmConfig::default().try_to_vec().unwrap()),
+            3 => (offset, 0, vec![0; 16]),
+            _ => (offset, 0, vec![0; crate::state::TrancheCapital::INIT_SPACE + crate::state::MarketIncomeBooks::INIT_SPACE + crate::state::JuniorExitConfig::INIT_SPACE + 32]),
+        };
+        edits.push((offset, removed, replacement));
+    }
+    for (index, tag) in old_additions.into_iter().enumerate() {
+        let offset = encoded_layout.windows(8).position(|w| w == tag.to_le_bytes()).unwrap();
+        let (offset, len) = match index {
+            0 | 1 => (offset, 32),
+            2..=5 => (offset, 8),
+            6 | 7 => (offset - 1, 1),
+            _ => (offset - 1, 65),
+        };
+        edits.push((offset, 0, vec![0; len]));
+    }
+    edits.sort_by_key(|(offset, _, _)| *offset);
+    for (offset, removed, replacement) in edits { captured.splice(offset..offset + removed, replacement); }
+    assert_eq!(captured.len(), encoded_layout.len(), "adapted size");
     let mut market = Market::try_deserialize(&mut captured.as_slice()).unwrap();
     assert_eq!(market.version, 1, "the fixture must retain its original version");
+    market.insurance.base_draw_window.initialized = market.insurance.base_draw_window.start_slot != 0;
+    market.insurance.quote_draw_window.initialized = market.insurance.quote_draw_window.start_slot != 0;
     market.version = MARKET_LAYOUT_VERSION;
     market
 }

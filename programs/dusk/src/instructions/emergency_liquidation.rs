@@ -228,7 +228,7 @@ impl<'info> EmergencyLiquidation<'info> {
             ),
             (a.owner_debt_account.to_account_info(), q.owner_debit, q.owner_credit),
             (
-                a.insurance_vault.to_account_info(),
+                a.interest_vault.to_account_info(),
                 q.insurance_fee_debit,
                 q.fee.insurance,
             ),
@@ -262,7 +262,9 @@ impl<'info> EmergencyLiquidation<'info> {
             );
         }
         if q.fee.insurance > 0 {
-            a.market.insurance.credit(asset, q.fee.insurance, clock.slot)?;
+            a.market
+                .side_mut(asset)
+                .record_junior_liquidation_credit(q.fee.insurance)?;
         }
         a.market.side_mut(asset).record_liquidation_fee_credit(
             q.fee.lp,
@@ -288,6 +290,7 @@ impl<'info> EmergencyLiquidation<'info> {
             eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),
+            None,
         )?;
         a.market
             .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, eligibility.base_hlp_ylp_shares)?;

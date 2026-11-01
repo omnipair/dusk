@@ -6,10 +6,14 @@ use proptest::prelude::*;
 fn empty_market() -> Market {
     Market {
         oracle: Default::default(),
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
-        base_side: MarketSide::default(),
-        quote_side: MarketSide::default(),
+        base_side: Box::default(),
+        quote_side: Box::default(),
         config: MarketConfig::default(),
         amm: Default::default(),
         debt: Debt::default(),
@@ -118,7 +122,9 @@ fn add_liquidity_mints_locked_minimum_liquidity() {
 
     let receipt = market.add_liquidity(1_000_000, 2_000_000).unwrap();
 
-    assert_eq!(receipt.ylp_amount, 1_413_213);
+    assert_eq!(receipt.ylp_amount, 1_411_799);
+    assert_eq!(market.tranches.junior_reserve_shares, 1_414);
+    assert_eq!(market.tranches.permanent_receipts, 1_414);
     assert_eq!(market.base_side.shares.ylp_supply, 1_414_213);
     assert_eq!(market.quote_side.shares.ylp_supply, 1_414_213);
     market.assert_market_invariants().unwrap();
@@ -256,8 +262,8 @@ fn remove_liquidity_burns_matched_proportions() {
 #[test]
 fn remove_liquidity_rejects_cash_shortfall_without_mutating_state() {
     let mut market = seeded_market_with_cash_backed_debt(1_000_000, 2_000_000, 1_000_000, 1_000, 1_000);
-    let base_before = market.base_side;
-    let quote_before = market.quote_side;
+    let base_before = *market.base_side;
+    let quote_before = *market.quote_side;
     let debt_before = market.debt;
 
     let err = match market.remove_liquidity(200_000) {

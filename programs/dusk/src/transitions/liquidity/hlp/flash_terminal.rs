@@ -152,6 +152,9 @@ impl Market {
             .interest_liability
             .checked_add(surplus_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.retire_hlp_receivables(target)?;
+        self.sync_income_receivable(borrowed, true, loss.interest_paid)?;
+        self.absorb_funded_credit_loss(borrowed, loss.principal_written_off)?;
         require!(self.hlp_frozen(target), ErrorCode::BrokenInvariant);
         self.clear_frozen_hlp(target);
         self.rebase_concentrated_curve_after_terminal_hlp_loss()?;

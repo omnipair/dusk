@@ -1,0 +1,59 @@
+{
+  "status": "passed",
+  "test_process_exit_code": 0,
+  "run_counts": {
+    "screen.csv": 810,
+    "behavior_sensitivity.csv": 168,
+    "calibration_sensitivity.csv": 270,
+    "time_step.csv": 80,
+    "signal_comparison.csv": 30,
+    "queue_fees.csv": 30,
+    "bootstrap_and_collection.csv": 126
+  },
+  "total_runs": 1514,
+  "count_note": "Includes repeated baseline configurations; not unique market observations",
+  "screening_rows_reproduced": [
+    0,
+    8,
+    408,
+    809
+  ],
+  "hashes": {
+    "PREANALYSIS.md": "e6015a17ee52a693725c6e2869b602810894067f17c4e0ddfe41eb2924624487",
+    "accounting.py": "030334e7931ad0efcb91de63dd1670b5d087bb258bb5a911b6c1f7f0a3ebe729",
+    "model.py": "3f0ea5842017e22301f47736afd562a941cea5991a9672ff88f2c2d246b5a9cd",
+    "refine.py": "18092ce7ded03584d8a8d04641d7714d5ff19b2c21307b9f6ba8fcc71ff46604",
+    "report.py": "8a3fd9739a5059f167a8c7616584e0304d7113ee13555baeebcf914821659a05",
+    "results/behavior_sensitivity.csv": "b9d8df96646881fe407ed45e1edb1ddc49ff2886d26fd68f734617620eada57b",
+    "results/bootstrap_and_collection.csv": "76d537c750a994ea46fc75018786692addaa5c8e15e89d72fab3676f53fa4ad9",
+    "results/calibration_sensitivity.csv": "719f9e41380c23a785b46a623d449ade5776e22b97e595e1dc59bf894fe2c512",
+    "results/findings.json": "a7049675ce2352719be7b75229f0ce8e9011580280457eb280135d2787ece837",
+    "results/queue_fees.csv": "a29115c02151ffadf1116588686cead3e80210df23df83940a847ca95968ea13",
+    "results/screen.csv": "3c0611020e4f4828df36d4c2ebcce2162c823a659ba61054e18586ed005fdf48",
+    "results/signal_comparison.csv": "a5a97712ec8a5d83752fbb16ea8b6107fdd69e9c01f29dddc030aa394997bd7a",
+    "results/summary.csv": "ee760f96e238376edc433fb4153297264a9661202655040712d612247730da40",
+    "results/tests.log": "b50b4974ec605d1f82c5ca02c5e87d34d54f56ea6832b24e687caa8385665bb6",
+    "results/time_step.csv": "a2dc25eaf55d7c919f4ba5b64e48d70f9a16fd259b2386e2a8270c7942b63222",
+    "results/trace_bootstrap.csv": "8c1cca69aedd02309bc70b6dacdd3470788001aa28a3aa8fd2aee757da86fc56",
+    "results/trace_bootstrap_slow.csv": "4124f5743a1999fa6f3a9d7802533991707646bff92842e31ade114654934085",
+    "results/trace_credit_stress.csv": "d55449848d01a8568829a4083bef1dbed0903426817aa9636ae93adbc526e011",
+    "results/trace_inelastic.csv": "1587456fd4d03a223dcdabc04e0415ef4503bd0fedd269aa346d6f80db8698a3",
+    "results/trace_junior_run.csv": "01d15191e0999820f394c86b81c09015dd40cef2ae5f5792d1e81e2ecc5397a8",
+    "results/trace_mature.csv": "099051dfbf9c001f672db0c4fa94f621997fd1d3799da6899b08c9e070fdce29",
+    "results/trace_one_asset_scarce.csv": "b21076f7ea6ea68b2a2e5dc5bd5d93f77b8d7f74d5951ee1284eb3667460ff8a",
+    "results/trace_revenue_drought.csv": "9e99278b00dbc67d1421a32f877a075234f2d800285ed52e33d2fd354f17b845",
+    "results/trace_seed_only.csv": "792c964ade5a65701165dde6b396ed9acdbf344dcfb5c27d0fc91c33e8d69aa3",
+    "results/trace_senior_run.csv": "1af8f04cf027599cb8781c0961ab1b7b63b1a6e176fa67fae924156643f5f41e",
+    "review.html": "e2f41bbb3d3dff74f7e24018b18da31c9ae425da1645013111c03778e0beb6f2",
+    "run.py": "e1d59a507e97a497188e324bdc3f525f05235d5ff6924b477470e3e9c157bd53",
+    "test_accounting.py": "d1ec3cd6ea761b371b76b7d02716e32ad7cb0e1aa7ea81a669401d6178370b0d",
+    "test_model.py": "840ff6541314413b3e707f4e440480791127469523f36d8faa6010683a7a327a",
+    "verify.py": "fd8ba4a0c41b405ff95667120ae2bbe32ccdd7fe06e51375f503242203c4853c"
+  },
+  "exclusions": [
+    "Native Dusk integration/CI",
+    "Integer rounding and compute costs",
+    "Insolvency detection and dust-griefing predicate",
+    "Empirical LP/borrower calibration"
+  ]
+}

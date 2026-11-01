@@ -287,11 +287,12 @@ export function deriveLeveragePositionAddress(
   );
 }
 
-export type YieldTokenKind = "ylp" | "hlp" | 0 | 1;
+export type YieldTokenKind = "ylp" | "hlp" | "junior" | 0 | 1 | 2;
 
 function yieldTokenKindCode(tokenKind: YieldTokenKind): number {
   if (tokenKind === "ylp" || tokenKind === 0) return 0;
   if (tokenKind === "hlp" || tokenKind === 1) return 1;
+  if (tokenKind === "junior" || tokenKind === 2) return 2;
   throw new Error(`Unsupported yield token kind: ${tokenKind}`);
 }
 
@@ -657,7 +658,9 @@ export function buildLpTransferHookAccountMetas({
     { pubkey: programId, isSigner: false, isWritable: false },
     ...(yieldTokenKindCode(tokenKind) === 1
       ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, programId)[0], isSigner: false, isWritable: false }]
-      : []),
+      : yieldTokenKindCode(tokenKind) === 2
+        ? [{ pubkey: deriveJuniorCohortAddress(market, lpMint, programId)[0], isSigner: false, isWritable: false }]
+        : []),
     { pubkey: validationAccount, isSigner: false, isWritable: false },
   ];
 }
@@ -702,4 +705,19 @@ export function deriveGovernanceBalanceAddress(market: PublicKey, owner: PublicK
 
 export function deriveGovernanceSupportAddress(proposal: PublicKey, balance: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("governance_support"), proposal.toBuffer(), balance.toBuffer()], programId);
+}
+
+export function deriveJuniorMintAddress(market: PublicKey, generation: U64SeedLike, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("junior_mint"), market.toBuffer(), u64Seed(generation, "generation")], programId);
+}
+export function deriveJuniorCohortAddress(market: PublicKey, mint: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("junior_cohort"), market.toBuffer(), mint.toBuffer()], programId);
+}
+export function deriveJuniorExitAddress(market: PublicKey, owner: PublicKey, mint: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("junior_exit"), market.toBuffer(), owner.toBuffer(), mint.toBuffer()], programId);
+}
+
+export function deriveIncomeEpochAddress(market: PublicKey, bookIndex: number, epoch: U64SeedLike, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  if (!Number.isInteger(bookIndex) || bookIndex < 0 || bookIndex > 3) throw new Error("bookIndex must be 0–3");
+  return PublicKey.findProgramAddressSync([Buffer.from("income_epoch"), market.toBuffer(), Buffer.from([bookIndex]), u64Seed(epoch, "epoch")], programId);
 }

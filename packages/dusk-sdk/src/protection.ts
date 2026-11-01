@@ -6,7 +6,7 @@ import type { LeverageDelegate } from "./types_delegate.js";
 import { type LeverageDelegateProgram, LEVERAGE_DELEGATE_PROGRAM_ID } from "./delegate.js";
 import { DUSK_PROGRAM_ID, deriveEventAuthorityAddress } from "./constants.js";
 import { governanceIntegerBN } from "./governance.js";
-import type { RawAmount } from "./write.js";
+import { DuskWrite, type RawAmount } from "./write.js";
 import { createDuskProgram } from "./program.js";
 import { oracleReadAccounts } from "./oracle.js";
 
@@ -93,7 +93,16 @@ export class DuskProtectionOrders {
    */
   async executeInstruction(params: { lpAmount: RawAmount; paymentAmount: RawAmount },
     accounts: ExecuteAccounts, remainingAccounts: AccountMeta[] = []) {
-    const remaining = await this.oracleAccounts(new PublicKey(accounts.market), remainingAccounts);
+    const write = new DuskWrite(createDuskProgram({ connection: this.program.provider.connection }));
+    const order = await this.program.account.protectionOrder.fetch(accounts.order);
+    const prefix = order.action === PROTECTION_ACTION.borrowCollateral
+      ? [] : await write.hlpRemainingAccounts(accounts.market);
+    // Keep the canonical prefix first even when callers supply transfer-hook
+    // accounts. Existing callers may already provide that same prefix.
+    const hasPrefix = prefix.length > 0 && prefix.every((meta, i) =>
+      remainingAccounts[i]?.pubkey.equals(meta.pubkey) && remainingAccounts[i]?.isWritable === meta.isWritable);
+    const completeRemaining = hasPrefix ? remainingAccounts : [...prefix, ...remainingAccounts];
+    const remaining = await this.oracleAccounts(new PublicKey(accounts.market), completeRemaining);
     return this.program.methods.executeProtectionOrder({ lpAmount: governanceIntegerBN(params.lpAmount, "lpAmount"),
       paymentAmount: governanceIntegerBN(params.paymentAmount, "paymentAmount") })
       .accountsStrict({ ...accounts, duskProgram: DUSK_PROGRAM_ID, duskEventAuthority: deriveEventAuthorityAddress()[0],

@@ -419,7 +419,7 @@ fn derive_leverage_lifecycle_plan(
         } => Some(market.curve_reserve(debt_asset)?),
         _ => None,
     };
-    derive_leverage_lifecycle_plan_from_state(
+    let plan = derive_leverage_lifecycle_plan_from_state(
         start,
         policy,
         asset_in,
@@ -427,7 +427,22 @@ fn derive_leverage_lifecycle_plan(
         amount_out,
         gross_amount_out,
         debt_curve_reserve_before_share_removal,
-    )
+    )?;
+    if let SwapCashPolicy::Borrow { asset, .. } = policy {
+        let before = market.covered_debt(asset)?;
+        let delta = plan
+            .post
+            .debt()
+            .isolated_debt(asset)?
+            .checked_sub(market.debt.isolated_debt(asset)?)
+            .ok_or(ErrorCode::DebtMathOverflow)?;
+        let cash = match asset {
+            MarketAsset::Base => plan.post.base_cash_reserve,
+            MarketAsset::Quote => plan.post.quote_cash_reserve,
+        };
+        crate::math::borrow_controller::check_new_borrow_liquidity(&market.config.irm, before, cash, delta, 0)?;
+    }
+    Ok(plan)
 }
 
 /// Pure reserve/debt lifecycle kernel. Canonical Market execution and the
@@ -1055,7 +1070,26 @@ impl Market {
             amount_out,
             gross_amount_out,
         )?;
-        apply_leverage_lifecycle_plan(self, plan)
+        let asset = asset_in.opposite();
+        let advanced_before = self.side(asset).fees.public_interest_advance.repayment_credit_pending;
+        let transition = apply_leverage_lifecycle_plan(self, plan)?;
+        let advanced = self
+            .side(asset)
+            .fees
+            .public_interest_advance
+            .repayment_credit_pending
+            .checked_sub(advanced_before)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        self.sync_income_receivable(
+            asset,
+            false,
+            transition
+                .clearance
+                .interest_paid
+                .checked_sub(advanced)
+                .ok_or(ErrorCode::BrokenInvariant)?,
+        )?;
+        Ok(transition)
     }
 
     fn rebase_concentrated_curve_at_current_ordinary_point(&mut self) -> Result<u128> {
@@ -1107,6 +1141,11 @@ impl Market {
             .checked_sub(loss)
             .ok_or(ErrorCode::ReserveUnderflow)?;
         self.side_mut(debt_asset).reserves.live_reserve = post_loss_live_reserve;
+        self.absorb_funded_credit_loss(
+            debt_asset,
+            loss.checked_add(transition.socialized_advance_loss)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        )?;
 
         // A socialized loss changes the reserve point, not the sticky center
         // or concentration policy. Reconstruct the unique positive concentrated

@@ -22,8 +22,12 @@ fn concentrated_config() -> AmmConfig {
 fn market_with_liquidity(config: AmmConfig) -> Market {
     let reserve = 1_000_000 * NAD;
     Market {
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
-        base_side: MarketSide {
+        base_side: Box::new(MarketSide {
             asset_decimals: 9,
             reserves: Reserves {
                 live_reserve: reserve,
@@ -34,8 +38,8 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
                 ylp_supply: reserve,
             },
             ..MarketSide::default()
-        },
-        quote_side: MarketSide {
+        }),
+        quote_side: Box::new(MarketSide {
             asset_decimals: 9,
             reserves: Reserves {
                 live_reserve: reserve,
@@ -46,7 +50,7 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
                 ylp_supply: reserve,
             },
             ..MarketSide::default()
-        },
+        }),
         config: MarketConfig {
             divergence_fee_share_cap_bps: 2_000,
             volatility_fee_share_cap_bps: 2_000,
@@ -521,17 +525,23 @@ fn bind_test_oracle(market: &mut Market, lambda: u16, reference: u64) {
 }
 fn oracle_test_trade(market: &mut Market, asset: MarketAsset, input: u64) -> Result<u64> {
     use crate::transitions::{liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
-    let before = market.ordinary_curve_point_nad()?;
     let curve = market.bounded_curve()?;
     let mut prepared = SwapRequest {current_slot:2,current_unix_timestamp:0,asset_in:asset,
         reserve_credit:input,protocol_fee_bps:0}.prepare(market)?;
+    // Quote preparation accrues interest before computing the executable
+    // curve. Compare the swap against that post-accrual boundary; the rate
+    // advance is a separate state transition from the swap itself.
+    let before = market.ordinary_curve_point_nad()?;
     let output=prepared.quote.amount_out;
     let credit=LeverageSwapFeeCredit::from_total_actual_credit(&prepared.leverage_quote(), prepared.quote.fee.claimable_fee_debit)?;
     prepared.apply(market,SwapCashPolicy::Spot,credit,2,0,ProtocolAuctionSplit::default(),None)?;
     market.assert_market_invariants()?;
     if let Some(curve) = curve {
         let after = market.ordinary_curve_point_nad()?;
-        assert!(curve.invariant_delta_bounds(before,after)?.1>=0,"materialized invariant decreased");
+        let delta = curve.invariant_delta_bounds(before,after)?;
+        assert!(delta.1>=0,"materialized invariant decreased: asset={asset:?} lambda={} compounding={} frozen={} before={before:?} after={after:?} delta={delta:?} after_state={:?}",
+            market.oracle.policy.lambda_bps, market.config.amm.compounding_fee_bps,
+            market.amm.frozen_hlp_mask, market.integrated_curve_state_nad()?);
     }
     Ok(output)
 }
@@ -579,7 +589,7 @@ fn bounded_oracle_carry_is_not_recharged_by_repeated_materialization() {
             let mut trade=|side:MarketAsset,input:u64|->Result<u64>{
                 let preliminary=market.preliminary_swap_inputs_for_state(side,input,2,DynamicFeePreState {center_price_nad:market.amm.center_price_nad,volatility_accumulator_nad:market.amm.volatility_accumulator_nad,volatility_last_update_slot:market.amm.last_observation_slot})?;
                 let (start,quote)=market.prepare_current_hlp_quote(side,input,preliminary,0,true)?;
-                let plan=prepare_concentrated_hlp_transition(&market,*start,quote,side)?;
+                let plan=prepare_concentrated_hlp_transition(&market,&start,&quote,side)?;
                 let previous_point=market.ordinary_curve_point_nad()?;
                 market.side_mut(side).credit_reserve(quote.fee.amount_in_for_quote,true)?;
                 market.side_mut(side.opposite()).debit_reserve(quote.gross_amount_out,true)?;

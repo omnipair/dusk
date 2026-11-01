@@ -1,4 +1,5 @@
 use super::*;
+use crate::instructions::JuniorCohortInitialized;
 
 #[test]
 fn hlp_rebalance_event_preserves_both_vault_changes() {
@@ -200,6 +201,23 @@ fn indexer_receipts_remain_compact() {
         BorrowPositionLiquidated::DISCRIMINATOR.len() + liquidated.try_to_vec().unwrap().len(),
         271
     );
+}
+
+#[test]
+fn junior_cohort_receipt_names_every_indexer_identity() {
+    let market = Pubkey::new_unique();
+    let mint = Pubkey::new_unique();
+    let previous_mint = Pubkey::new_unique();
+    let event = JuniorCohortInitialized {
+        market,
+        mint,
+        generation: 3,
+        previous_mint,
+    };
+    assert_eq!(event.market, market);
+    assert_eq!(event.mint, mint);
+    assert_eq!(event.generation, 3);
+    assert_eq!(event.previous_mint, previous_mint);
 }
 
 #[test]

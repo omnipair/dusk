@@ -6,6 +6,7 @@ use crate::{constants::YIELD_GROWTH_FRACTION_MASK_Q64, errors::ErrorCode, math::
 pub enum YieldTokenKind {
     Ylp,
     Hlp,
+    Junior,
 }
 
 impl YieldTokenKind {
@@ -13,12 +14,13 @@ impl YieldTokenKind {
         match self {
             Self::Ylp => 0,
             Self::Hlp => 1,
+            Self::Junior => 2,
         }
     }
 }
 
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace, Default)]
 pub struct YieldAccount {
     pub owner: Pubkey,
     pub market: Pubkey,
@@ -41,6 +43,12 @@ pub struct YieldAccount {
     /// Optional caller allowed to harvest to the recipient without controlling
     /// the LP or changing either yield permission. Only the owner may set it.
     pub harvest_authority: Option<Pubkey>,
+    pub income_initialized: bool,
+    pub income: [crate::state::IncomeReceivableClaim; 2],
+    /// Owner's virtual receipts: junior exit escrow, or senior governance locks.
+    /// Governance cash yield uses its existing virtual ledger; historical
+    /// unpaid-income ownership is checkpointed here for both token kinds.
+    pub escrow_balance: u64,
 }
 
 impl YieldAccount {
@@ -54,6 +62,9 @@ impl YieldAccount {
         recipient: Pubkey,
         bump: u8,
     ) {
+        self.income_initialized = false;
+        self.income = Default::default();
+        self.escrow_balance = 0;
         self.owner = owner;
         self.market = market;
         self.lp_mint = lp_mint;
@@ -88,6 +99,12 @@ impl YieldAccount {
         swap_fee_growth_index_q64: u128,
         interest_growth_index_q64: u128,
     ) -> Result<()> {
+        let escrow = if self.token_kind == YieldTokenKind::Junior.code() {
+            self.escrow_balance
+        } else {
+            0
+        };
+        let balance = balance.checked_add(escrow).ok_or(ErrorCode::MarketMathOverflow)?;
         let (swap_fee_amount, swap_fee_remainder_q64) = accrue_fee_liability_with_remainder(
             balance,
             swap_fee_growth_index_q64,
@@ -182,6 +199,9 @@ mod tests {
 
     fn empty_yield_account() -> YieldAccount {
         YieldAccount {
+            income_initialized: false,
+            income: Default::default(),
+            escrow_balance: 0,
             owner: Pubkey::default(),
             market: Pubkey::default(),
             lp_mint: Pubkey::default(),

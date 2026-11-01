@@ -112,6 +112,9 @@ pub(crate) fn record_hlp_interest_credit(
     eligibility: HlpYieldEligibility,
 ) -> Result<()> {
     if actual_interest_credit == 0 {
+        if market.side(borrowed_asset).fees.junior.initialized {
+            market.collect_income_receivable(borrowed_asset, true, 0)?;
+        }
         return Ok(());
     }
 
@@ -121,17 +124,20 @@ pub(crate) fn record_hlp_interest_credit(
         ErrorCode::BrokenInvariant
     );
     let frozen_non_hlp_supply = eligibility.non_hlp_ylp_supply()?;
-    let current_non_hlp_supply = HlpYieldEligibility {
-        ylp_supply: market.base_side.shares.ylp_supply,
-        base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-        quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+    let tranche_income = market.side(borrowed_asset).fees.junior.initialized;
+    if !tranche_income {
+        let current_non_hlp_supply = HlpYieldEligibility {
+            ylp_supply: market.base_side.shares.ylp_supply,
+            base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
+            quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+        }
+        .non_hlp_ylp_supply()?;
+        require_eq!(
+            current_non_hlp_supply,
+            frozen_non_hlp_supply,
+            ErrorCode::BrokenInvariant
+        );
     }
-    .non_hlp_ylp_supply()?;
-    require_eq!(
-        current_non_hlp_supply,
-        frozen_non_hlp_supply,
-        ErrorCode::BrokenInvariant
-    );
 
     // Every predictive mint/burn checkpoints the ownership interval that
     // precedes it. Flush any public-interest carry that materializes after
@@ -141,14 +147,26 @@ pub(crate) fn record_hlp_interest_credit(
     market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
     market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
 
-    market
-        .side_mut(borrowed_asset)
-        .record_hlp_funding_interest_credit_with_supply(
+    if tranche_income {
+        let (protocol, _) = crate::transitions::revenue::split_revenue(actual_interest_credit, protocol_fee_bps)?;
+        market.record_receivable_income_credit(
+            borrowed_asset,
+            true,
             actual_interest_credit,
-            protocol_fee_bps,
+            protocol,
             protocol_auction_split,
-            frozen_non_hlp_supply,
+            0,
         )?;
+    } else {
+        market
+            .side_mut(borrowed_asset)
+            .record_hlp_funding_interest_credit_with_supply(
+                actual_interest_credit,
+                protocol_fee_bps,
+                protocol_auction_split,
+                frozen_non_hlp_supply,
+            )?;
+    }
 
     // Advance both vaults across the hLP-funded index delta without crediting
     // either one. Zero eligible shares preserves their already-earned

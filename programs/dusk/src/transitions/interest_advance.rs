@@ -131,6 +131,7 @@ impl Market {
             protocol_bps,
             ErrorCode::InvalidInterestFeeBps
         );
+        self.sync_income_receivable(asset, false, 0)?;
         let unpaid = self.public_unpaid_interest(asset)?;
         let unfunded = unpaid
             .checked_sub(u128::from(
@@ -152,6 +153,7 @@ impl Market {
             .live_reserve
             .checked_sub(gross)
             .ok_or(ErrorCode::ReserveUnderflow)?;
+        self.sync_income_receivable(asset, false, gross)?;
         Ok((gross, gross - protocol))
     }
 
@@ -185,6 +187,17 @@ impl Market {
                 .ok_or(ErrorCode::ReserveUnderflow)?,
         )
         .map_err(|_| ErrorCode::ReserveOverflow)?;
+        let unpaid_removed = unpaid_before.saturating_sub(unpaid_after);
+        let funded_debit = (live_debit as u128)
+            .checked_add(cleared.canceled as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let unfunded_debit = unpaid_removed
+            .checked_add(cleared.protocol_returned as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let funded_loss =
+            u64::try_from(funded_debit.saturating_sub(unfunded_debit)).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        self.sync_income_receivable(asset, false, interest_paid - cleared.repaid)?;
+        self.absorb_funded_credit_loss(asset, funded_loss)?;
         Ok(cleared)
     }
 }

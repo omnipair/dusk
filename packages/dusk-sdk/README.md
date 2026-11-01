@@ -1205,3 +1205,69 @@ burn old receipts with `write.burnRetiredHlpReceiptInstruction`. If the asset
 has a Token-2022 transfer hook, pass its extra accounts as
 `transferHookAccounts` to the harvest builder. Burning never forfeits yield
 already checkpointed in the holder's yield accounts.
+
+
+## yLP, jrLP and hLP
+
+`yLP` is the default senior claim. `jrLP` owns productive first-loss capital;
+entering junior burns yLP and mints jrLP at their current values. `hLP` remains
+a hedged position backed by senior liquidity and cannot enter junior. Its own
+unpaid income remains in NAV, and collected income pays funding costs first.
+
+```ts
+const setup = await dusk.tranches.initialize({ market, payer });
+// Sign and submit setup.transaction once for this junior generation.
+const enter = await dusk.tranches.convert({
+  market, owner,
+  action: { kind: "enter", seniorAmount: 1_000_000n, minimumJunior: 990_000n },
+});
+// Sign and submit enter.transaction. Amounts are raw token atoms.
+const request = await dusk.tranches.convert({
+  market, owner, action: { kind: "requestExit", additionalJunior: 500_000n },
+});
+```
+
+Exit requests escrow receipts. They continue earning junior income and taking
+losses during notice and the exercise window. After notice, `convertExit` burns
+the escrowed jrLP and mints yLP at its current value. It does not withdraw cash.
+Read the returned `exit` account for its actual `readyAt` and `expiresAt` slots;
+the configured crowding rule determines the notice. An expired request must be
+renewed or canceled. Conversion can also be blocked by an unsettled insolvent
+liquidation. A failed transaction does not silently extend a window.
+
+Income earned before an ordinary LP transfers or converts remains with that
+holder. Each asset has separate public-loan and hLP-funding income histories.
+The SDK exposes bounded maintenance transactions; none are submitted implicitly:
+
+1. Before issuing income into a fully collected book, call
+   `prepareDrainedIncomeBooks({ market, payer })` and submit its transactions.
+   For `IncomeEpochNeedsRollover` on a partially paid book, use `rollIncome` for
+   the affected book. The payer funds its immutable archive account.
+2. For an existing yLP/jrLP holder, call
+   `prepareHolderIncome({ market, owner, kind: "senior" | "junior" })`.
+   Submit its transactions and repeat while `hasMore` is true. Each instruction
+   processes at most eight archived epochs for one source.
+3. Fetch again and build the transfer, conversion or harvest. A competing
+   maintenance transaction can require another catch-up; builders do not
+   guarantee that the market stays unchanged between fetch and submission.
+
+Archived history has no fixed lifetime limit. A caller that pays archival rent
+can roll after settlement, so repayment/roll churn can increase other holders'
+catch-up work. Eight epochs per instruction bounds transaction work, not total
+history. Integrators should maintain active holders, retry stale plans and expose
+maintenance transactions in their UX; this mechanism does not guarantee a
+single-transaction exit for an inactive holder.
+
+`checkpointIncome` also supports one asset/source batch and retired junior
+mints. Wiped receipts have no principal but may still own historical earnings.
+`burnRetired` removes those receipts without giving them new-generation capital.
+
+The permanent junior seed receives income even without external jrLP holders.
+`fundSeed` moves its collected interest to reserve custody. `compoundSeed`
+reinvests balanced asset amounts without issuing senior tokens; unmatched assets
+remain seed-owned custody until a matching amount is available. These custody
+balances do not count as productive junior coverage until reinvested.
+
+Rate defaults are exported as `RISK_RATE_DEFAULTS`; the market configuration and
+governance builders can override them. `riskCoverageSignalNad` uses one junior
+capital budget across both debt assets, with each asset's own utilization.

@@ -263,6 +263,7 @@ impl<'info> DecreaseLeverage<'info> {
             interest_eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),
+            None,
         )?;
 
         // Return output not needed to burn debt shares, including final 1x rounding.

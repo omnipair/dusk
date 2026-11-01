@@ -123,14 +123,14 @@ fn default_route_allows_only_the_sold_markets_direct_pair() {
     let direct_accepted_mint = Pubkey::new_unique();
     let unrelated_accepted_mint = Pubkey::new_unique();
     let market = Market {
-        base_side: crate::state::MarketSide {
+        base_side: Box::new(crate::state::MarketSide {
             asset_mint: sold_mint,
             ..crate::state::MarketSide::default()
-        },
-        quote_side: crate::state::MarketSide {
+        }),
+        quote_side: Box::new(crate::state::MarketSide {
             asset_mint: direct_accepted_mint,
             ..crate::state::MarketSide::default()
-        },
+        }),
         ..Market::default()
     };
 
@@ -176,11 +176,11 @@ fn approved_route_is_lane_specific_and_overrides_direct_pair() {
         .fees
         .set_protocol_auction_reference_market(ProtocolAuctionLane::Buyback, buyback_reference);
     let market = Market {
-        base_side,
-        quote_side: crate::state::MarketSide {
+        base_side: Box::new(base_side),
+        quote_side: Box::new(crate::state::MarketSide {
             asset_mint: accepted_mint,
             ..crate::state::MarketSide::default()
-        },
+        }),
         ..Market::default()
     };
 

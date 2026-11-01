@@ -37,3 +37,6 @@ pub(super) fn initialize_or_validate_yield_account(
     yield_account.assert_account(owner, market, lp_mint, asset_mint, token_kind)?;
     Ok(initialized)
 }
+
+mod tranches;
+pub use tranches::*;

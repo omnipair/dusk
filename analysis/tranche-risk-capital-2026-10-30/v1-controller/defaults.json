@@ -1,0 +1,33 @@
+{
+  "status": "User-selected controller direction; reference defaults, not applied to native Dusk",
+  "controller": "V1 exponential band controller with coverage direction",
+  "signal": "(funded junior / consolidated covered debt) * (1 - utilization_asset)",
+  "model": {
+    "target_start": 0.05,
+    "target_end": 0.0625,
+    "half_life_ms": 1209600000,
+    "initial_rate": 0.04,
+    "min_rate": 0.02,
+    "max_rate": 0.0
+  },
+  "governance": "Market-specific authorized replacement, accruing old interval before switching; preserve ongoing rates",
+  "junior_pool_share_reference_band": [
+    0.2,
+    0.25
+  ],
+  "reference_utilization": 0.8,
+  "reference_note": "Default translation only; never recalculate band from live utilization",
+  "new_borrow_utilization_limit": 0.8,
+  "native_implementation_status": "not implemented",
+  "half_life_default_note": "14 days; user-selected default, adjustable per market",
+  "no_economic_cap_note": "max_rate = 0; numerical range/overflow handling remains necessary",
+  "seed_fraction": 0.001,
+  "notice_days": [
+    7,
+    10
+  ],
+  "claim_window_days": 2,
+  "queue_fee_bps": 5,
+  "queue_fee_destination": "permanent junior seed",
+  "parameter_override_policy": "Omitted creation inputs use defaults. Supplied valid band, half-life, initial APR, minimum APR and maximum APR override them. Governance can replace the model prospectively; initial APR does not reset an existing market."
+}

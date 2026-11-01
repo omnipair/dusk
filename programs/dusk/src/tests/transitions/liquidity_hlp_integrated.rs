@@ -168,7 +168,8 @@ fn compounded_fee_reconstructs_perfect_hedges_for_cpmm_and_concentration() {
         let quote_equity_before = quote.executable.end.quote_hlp_equity;
 
         let mark = geometry.spot_price_nad_prevalidated(quote.executable.curve.end).unwrap();
-        apply_compounded_ylp_fee(state, &mut quote, true, 1_000, mark, 1_000, 200, 300).unwrap();
+        apply_compounded_ylp_fee_to_end(state, &mut quote.executable.end, true, 1_000, mark, 1_000, 200, 300, 1_000).unwrap();
+        quote.refresh_hlp_endpoint(&state).unwrap();
         assert_eq!(quote.executable.end.quote_hlp_equity - quote_equity_before, mul_div_u128(300, mark, crate::constants::NAD as u128).unwrap());
 
         assert_eq!(

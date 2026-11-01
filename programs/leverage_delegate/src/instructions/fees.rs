@@ -139,15 +139,15 @@ impl<'info> OrderFeePayment<'info> {
             .ok_or(LeverageDelegateError::MathOverflow)?;
         require_gte!(credited, fee, LeverageDelegateError::InvalidTokenAccount);
         fee = credited;
-        emit!(OrderProtocolFeePaid {
+        emit_bounded_event(&OrderProtocolFeePaid {
             order,
             owner,
             mint: mint.key(),
             value,
             fee,
             debit,
-            credited
-        });
+            credited,
+        })?;
         Ok(debit)
     }
 }
@@ -166,4 +166,18 @@ pub struct OrderProtocolFeePaid {
 #[cfg(test)]
 mod tests {
     include!("../tests/instructions/fees.rs");
+}
+
+/// Fixed-size delegate events fit this stack buffer. Avoid Anchor's temporary
+/// growing event Vec after a protection order's sequence of repayment CPIs.
+#[inline(never)]
+pub(crate) fn emit_bounded_event<E: anchor_lang::Event>(event: &E) -> Result<()> {
+    use std::io::Write;
+    let mut data = [0_u8; 512];
+    let mut cursor = data.as_mut_slice();
+    cursor.write_all(E::DISCRIMINATOR)?;
+    event.serialize(&mut cursor)?;
+    let written = 512 - cursor.len();
+    anchor_lang::solana_program::log::sol_log_data(&[&data[..written]]);
+    Ok(())
 }

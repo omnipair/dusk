@@ -36,7 +36,7 @@ impl HlpVault {
         Ok(whole)
     }
 
-    pub(super) fn publish_new_interest(&mut self, asset: MarketAsset, amount: u64) -> Result<()> {
+    pub(crate) fn publish_new_interest(&mut self, asset: MarketAsset, amount: u64) -> Result<()> {
         let (unallocated, index, carry) = match asset {
             MarketAsset::Base => (
                 &mut self.unallocated_base_interest_amount,
@@ -63,16 +63,36 @@ impl Market {
         fees: [LeverageCollateralFee; 2],
         slot: u64,
     ) -> Result<HlpNewInterestSettlement> {
-        let mut receipt = HlpNewInterestSettlement::default();
+        let mut receipt = HlpNewInterestSettlement {
+            quote_rebalance: HlpRebalanceReceipt {
+                target_asset: MarketAsset::Quote,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
         let mut fresh = [[0_u64; 2]; 2];
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
-            let index = self.side(asset).fees.interest_growth_index_q64;
-            fresh[0][asset.code() as usize] =
-                self.base_hlp_vault
-                    .take_new_interest(asset, index, eligibility.base_hlp_ylp_shares)?;
-            fresh[1][asset.code() as usize] =
-                self.quote_hlp_vault
-                    .take_new_interest(asset, index, eligibility.quote_hlp_ylp_shares)?;
+            if self.side(asset).fees.junior.initialized {
+                let income = self.income.get_mut()?;
+                let i = asset.code() as usize;
+                for (target, amounts) in fresh.iter_mut().enumerate() {
+                    let claim = &mut income.hlp[target][i];
+                    claim.checkpoint(1, &income.books[i], target + 2)?;
+                    amounts[i] = claim.claimable;
+                    claim.claimable = 0;
+                }
+            } else {
+                let index = self.side(asset).fees.interest_growth_index_q64;
+                fresh[0][asset.code() as usize] =
+                    self.base_hlp_vault
+                        .take_new_interest(asset, index, eligibility.base_hlp_ylp_shares)?;
+                fresh[1][asset.code() as usize] =
+                    self.quote_hlp_vault
+                        .take_new_interest(asset, index, eligibility.quote_hlp_ylp_shares)?;
+            }
+        }
+        if fresh == [[0; 2]; 2] {
+            return Ok(receipt);
         }
         // Freeze both vault valuations before any custody or ownership change.
         // Reinvesting an opposite token moves the ordinary inventory at this
@@ -88,7 +108,7 @@ impl Market {
             } else {
                 self.quote_hlp_vault
             };
-            let claim = engine::ylp_live_underlying_amount(self, borrowed, vault.ylp_shares)?;
+            let claim = engine::hlp_full_underlying_amount(self, target, borrowed)?;
             let debt = u64::try_from(Debt::shares_to_debt(
                 vault.debt_shares,
                 self.debt.borrow_index(borrowed),

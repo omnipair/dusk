@@ -1,0 +1,59 @@
+{
+  "base": {},
+  "demand_inelastic": {
+    "borrower_elasticity": 0.0
+  },
+  "demand_low_elasticity": {
+    "borrower_elasticity": 0.5
+  },
+  "demand_high_elasticity": {
+    "borrower_elasticity": 2.0
+  },
+  "allocation_frozen": {
+    "lp_response_days": 0.0
+  },
+  "allocation_fast": {
+    "lp_response_days": 2.0
+  },
+  "allocation_slow": {
+    "lp_response_days": 30.0
+  },
+  "junior_share_35pct": {
+    "junior_interest_share": 0.35
+  },
+  "junior_share_65pct": {
+    "junior_interest_share": 0.65
+  },
+  "exit_immediate": {
+    "exit_notice_days": 0.0
+  },
+  "exit_30days": {
+    "exit_notice_days": 30.0
+  },
+  "controller_fast": {
+    "controller_half_life_days": 2.0
+  },
+  "controller_slow": {
+    "controller_half_life_days": 30.0
+  },
+  "no_inventory_drawdown": {
+    "inventory_loss_multiplier": 0.0
+  },
+  "double_inventory_drawdown": {
+    "inventory_loss_multiplier": 2.0
+  },
+  "repayment_slow": {
+    "borrower_response_days": 30.0
+  },
+  "run_adverse_corner": {
+    "exit_notice_days": 0.0,
+    "borrower_elasticity": 0.0,
+    "lp_response_days": 30.0,
+    "inventory_loss_multiplier": 2.0
+  },
+  "slow_capital_elastic_borrowers": {
+    "lp_response_days": 30.0,
+    "borrower_elasticity": 2.0,
+    "controller_half_life_days": 2.0
+  }
+}

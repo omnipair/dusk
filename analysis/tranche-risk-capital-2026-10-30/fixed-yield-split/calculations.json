@@ -1,0 +1,84 @@
+{
+  "synthetic": true,
+  "capital": 100,
+  "debt": 80,
+  "borrow_apr": 0.08,
+  "net_annual_distributable_interest": 6.4,
+  "fees_assumed": 0,
+  "losses_assumed_for_yield_quote": 0,
+  "interest_split": [
+    {
+      "senior": 95.0,
+      "junior": 5.0,
+      "junior_interest": 3.2,
+      "senior_interest": 3.2,
+      "junior_interest_apr": 0.64,
+      "senior_interest_apr": 0.03368421052631579
+    },
+    {
+      "senior": 90.0,
+      "junior": 10.0,
+      "junior_interest": 3.2,
+      "senior_interest": 3.2,
+      "junior_interest_apr": 0.32,
+      "senior_interest_apr": 0.035555555555555556
+    },
+    {
+      "senior": 80.0,
+      "junior": 20.0,
+      "junior_interest": 3.2,
+      "senior_interest": 3.2,
+      "junior_interest_apr": 0.16,
+      "senior_interest_apr": 0.04
+    },
+    {
+      "senior": 70.0,
+      "junior": 30.0,
+      "junior_interest": 3.2,
+      "senior_interest": 3.2,
+      "junior_interest_apr": 0.10666666666666667,
+      "senior_interest_apr": 0.045714285714285714
+    },
+    {
+      "senior": 60.0,
+      "junior": 40.0,
+      "junior_interest": 3.2,
+      "senior_interest": 3.2,
+      "junior_interest_apr": 0.08,
+      "senior_interest_apr": 0.05333333333333334
+    },
+    {
+      "senior": 50.0,
+      "junior": 50.0,
+      "junior_interest": 3.2,
+      "senior_interest": 3.2,
+      "junior_interest_apr": 0.064,
+      "senior_interest_apr": 0.064
+    },
+    {
+      "senior": 40.0,
+      "junior": 60.0,
+      "junior_interest": 3.2,
+      "senior_interest": 3.2,
+      "junior_interest_apr": 0.05333333333333334,
+      "senior_interest_apr": 0.08
+    }
+  ],
+  "ratio_identity_examples": [
+    {
+      "state": "before",
+      "junior_share": 0.2,
+      "utilization": 0.8,
+      "share_over_utilization": 0.25,
+      "amount_over_utilization": 25.0
+    },
+    {
+      "state": "senior_withdraws_10",
+      "junior_share": 0.2222222222222222,
+      "utilization": 0.8888888888888888,
+      "share_over_utilization": 0.25,
+      "amount_over_utilization": 22.5
+    }
+  ],
+  "verification": "Exact rational revenue conservation and ratio identities passed."
+}

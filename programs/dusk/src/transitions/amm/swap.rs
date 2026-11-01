@@ -241,11 +241,6 @@ impl PreparedSwap {
                 quote.gross_amount_out,
             )?
         };
-        if quote.fee.compounded_fee_debit > 0 {
-            market
-                .side_mut(fee_asset)
-                .credit_reserve(quote.fee.compounded_fee_debit, true)?;
-        }
         // Ownership is frozen before the hLP share/debt reconstruction.
         let fees = market.side_mut(fee_asset).record_swap_fee_allocation(
             quote.fee.base_fee_debit,
@@ -287,9 +282,18 @@ impl PreparedSwap {
         }
         let fresh_transition;
         let transition = if socialized_loss || inventory.is_some() {
-            fresh_transition = prepare_concentrated_hlp_transition_at_current_state(market)?;
+            fresh_transition = if quote.fee.compounded_fee_debit > 0 {
+                market.prepare_post_settlement_compounding(fee_asset, quote.fee.compounded_fee_debit)?
+            } else {
+                prepare_concentrated_hlp_transition_at_current_state(market)?
+            };
             &fresh_transition
         } else {
+            if quote.fee.compounded_fee_debit > 0 {
+                market
+                    .side_mut(fee_asset)
+                    .credit_reserve(quote.fee.compounded_fee_debit, true)?;
+            }
             prepared_transition.as_ref()
         };
         let (base_rebalance, quote_rebalance) = transition.consume(market)?;
@@ -455,15 +459,15 @@ impl SwapRequest {
             crate::transitions::liquidity::apply_concentrated_hlp_recovery(
                 market,
                 self.asset_in,
-                *integrated_start,
+                integrated_start,
                 &mut concentrated,
             )?;
         }
         if concentrated.recovery.bonus_output > 0 {
-            market.finalize_concentrated_book_curve(*integrated_start, &mut concentrated, self.asset_in, true, None)?;
+            market.finalize_concentrated_book_curve(integrated_start, &mut concentrated, self.asset_in, true, None)?;
         }
         let mut transition =
-            prepare_concentrated_hlp_transition(market, *integrated_start, concentrated, self.asset_in)?;
+            prepare_concentrated_hlp_transition(market, &integrated_start, &concentrated, self.asset_in)?;
         // The funding payment belongs to hLP, not to this spot trader. If
         // paying it in full would consume the trader's output cash, quote the
         // same swap with the unpaid amount still on indexed hLP debt. Keep at
@@ -488,7 +492,7 @@ impl SwapRequest {
                 // A carried payment cannot fund a recovery bonus. The whole
                 // trader input still follows the ordinary curve.
                 transition =
-                    prepare_concentrated_hlp_transition(market, *integrated_start, concentrated, self.asset_in)?;
+                    prepare_concentrated_hlp_transition(market, &integrated_start, &concentrated, self.asset_in)?;
             }
         }
         let has_advance = market

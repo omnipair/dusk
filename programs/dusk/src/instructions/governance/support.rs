@@ -169,6 +169,7 @@ impl<'info> SupportParameterProposal<'info> {
             .assert_account(proposal_key, supporter_key, ctx.bumps.proposal_support)?;
 
         checkpoint_supporter_yield(
+            &ctx.accounts.market,
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,
             ctx.accounts.supporter_ylp_account.amount,
@@ -189,6 +190,12 @@ impl<'info> SupportParameterProposal<'info> {
             &[],
         )?;
 
+        super::adjust_supporter_income_balance(
+            &mut ctx.accounts.base_yield_account,
+            &mut ctx.accounts.quote_yield_account,
+            args.amount,
+            true,
+        )?;
         ctx.accounts.proposal_support.locked_amount = ctx
             .accounts
             .proposal_support
@@ -373,6 +380,7 @@ impl<'info> WithdrawParameterSupport<'info> {
         )?;
         let indexes = carry_forward_governance_yield(&mut ctx.accounts.market, clock.slot)?;
         checkpoint_supporter_yield(
+            &ctx.accounts.market,
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,
             ctx.accounts.supporter_ylp_account.amount,
@@ -393,6 +401,12 @@ impl<'info> WithdrawParameterSupport<'info> {
             .quote_yield
             .drain_into(&mut ctx.accounts.quote_yield_account)?;
 
+        super::adjust_supporter_income_balance(
+            &mut ctx.accounts.base_yield_account,
+            &mut ctx.accounts.quote_yield_account,
+            amount,
+            false,
+        )?;
         proposal.total_locked = proposal
             .total_locked
             .checked_sub(amount)

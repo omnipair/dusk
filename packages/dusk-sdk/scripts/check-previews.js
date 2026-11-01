@@ -120,7 +120,7 @@ test("simulation errors, absent return data and another program's data still fai
   for (const [value, message] of [
     [
       { err: { InstructionError: [0, { Custom: 6000 }] }, logs: ["Program error"] },
-      "Dusk simulation failed",
+      'Dusk simulation failed: {"InstructionError":[0,{"Custom":6000}]}\nProgram error',
     ],
     [{ err: null, logs: [] }, "Dusk simulation did not return data"],
     [

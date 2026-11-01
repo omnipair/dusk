@@ -1,0 +1,16 @@
+test_economic_defaults_and_inclusive_band (test_controller.ControllerContractTests) ... ok
+test_governance_update_settles_old_interval_without_reset (test_controller.ControllerContractTests) ... ok
+test_long_half_lives_do_not_quantize_to_zero (test_controller.ControllerContractTests) ... ok
+test_low_coverage_raises_and_high_coverage_lowers (test_controller.ControllerContractTests) ... ok
+test_models_are_market_specific (test_controller.ControllerContractTests) ... ok
+test_optional_apr_inputs_override_defaults_and_preserve_zero (test_controller.ControllerContractTests) ... ok
+test_partition_preserves_elapsed_interest (test_controller.ControllerContractTests) ... ok
+test_pool_allocation_maps_to_fixed_signal_band (test_controller.ControllerContractTests) ... ok
+test_state_change_does_not_reprice_previous_interval (test_controller.ControllerContractTests) ... ok
+test_unauthorized_update_does_not_accrue_or_mutate (test_controller.ControllerContractTests) ... ok
+test_uncapped_rate_crosses_old_50_percent_ceiling (test_controller.ControllerContractTests) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.000s
+
+OK

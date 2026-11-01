@@ -2,7 +2,7 @@ import type { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, Transaction, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { address, type AddressLike } from "./address.js";
-import { deriveFutarchyAuthorityAddress, deriveHlpCohortAddress, deriveYieldAccountAddress } from "./constants.js";
+import { deriveFutarchyAuthorityAddress, deriveHlpCohortAddress, deriveJuniorCohortAddress, deriveYieldAccountAddress } from "./constants.js";
 import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js";
 import { DuskGet } from "./get.js";
 import { previewReturnDataBytes } from "./preview.js";
@@ -21,12 +21,14 @@ export interface FundInterestParams {
 export type { FundInterestReceipt };
 export interface HarvestYieldParams extends FundInterestParams {
   owner: AddressLike;
-  kind: "ylp" | "baseHlp" | "quoteHlp";
+  kind: "ylp" | "junior" | "baseHlp" | "quoteHlp";
   asset: "base" | "quote";
   /** Set false to collect existing funded claims independently of new funding. */
   fundAccruedInterest?: boolean;
   /** Old hLP mint after terminal closure. Its yield indexes are frozen in its cohort PDA. */
   retiredHlpMint?: AddressLike;
+  /** Wiped junior generation; previously earned income remains claimable. */
+  retiredJuniorMint?: AddressLike;
   /** Extra accounts required by a Token-2022 asset transfer hook. */
   transferHookAccounts?: readonly AccountMeta[];
 }
@@ -73,16 +75,18 @@ export class DuskYield {
   }
 
   async buildHarvest(params: HarvestYieldParams) {
-    if (!["ylp", "baseHlp", "quoteHlp"].includes(params.kind)) throw new Error("Invalid yield token kind");
+    if (!["ylp", "junior", "baseHlp", "quoteHlp"].includes(params.kind)) throw new Error("Invalid yield token kind");
     if (params.asset !== "base" && params.asset !== "quote") throw new Error("Invalid yield asset");
     const market = address(params.market), owner = address(params.owner), caller = address(params.caller);
     const s = await this.get.market(market);
     const side = params.asset === "base" ? s.baseSide : s.quoteSide;
     if (params.kind === "ylp" && params.retiredHlpMint) throw new Error("yLP does not have receipt cohorts");
-    const lpMint = params.retiredHlpMint
+    if (params.retiredJuniorMint && params.kind !== "junior") throw new Error("A retired junior mint requires junior kind");
+    if (params.kind === "junior" && params.retiredHlpMint) throw new Error("Junior cannot use an hLP cohort");
+    const lpMint = params.retiredJuniorMint ? address(params.retiredJuniorMint) : params.retiredHlpMint
       ? address(params.retiredHlpMint)
-      : params.kind === "ylp" ? s.ylpMint : params.kind === "baseHlp" ? s.baseSide.hlpMint : s.quoteSide.hlpMint;
-    const kind = params.kind === "ylp" ? "ylp" : "hlp";
+      : params.kind === "ylp" ? s.ylpMint : params.kind === "junior" ? s.juniorMint : params.kind === "baseHlp" ? s.baseSide.hlpMint : s.quoteSide.hlpMint;
+    const kind = params.kind === "ylp" ? "ylp" : params.kind === "junior" ? "junior" : "hlp";
     const [yieldAccount] = deriveYieldAccountAddress(market, owner, lpMint, side.assetMint, kind, this.program.programId);
     const claim = await this.get.yieldAccount(yieldAccount);
     const tokenProgram = await tokenProgramForMint(this.program.provider.connection, side.assetMint);
@@ -101,6 +105,9 @@ export class DuskYield {
     }, remainingAccounts: [
       ...(params.retiredHlpMint
         ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false }]
+        : []),
+      ...(params.retiredJuniorMint
+        ? [{ pubkey: deriveJuniorCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false }]
         : []),
       ...(params.transferHookAccounts ?? []),
     ],

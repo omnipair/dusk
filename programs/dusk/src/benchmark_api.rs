@@ -2576,9 +2576,16 @@ impl BenchmarkMarket {
             prepared.request.min_residual_out,
             ErrorCode::SlippageExceeded
         );
+        let (interest_transfer, protocol_credit) = benchmark_public_interest_payment(
+            &mut next_market,
+            next_leverage.position.debt_asset()?,
+            native.interest_paid,
+            execution.interest_transfer.destination_credit,
+            prepared.request.policy.protocol_interest_fee_bps,
+        )?;
         require_eq!(
             execution.interest_transfer.source_debit,
-            native.interest_paid,
+            interest_transfer,
             ErrorCode::BrokenInvariant
         );
         require_gte!(
@@ -2643,10 +2650,10 @@ impl BenchmarkMarket {
             );
             Some(frozen_share_bps)
         };
-        let referral_interest = ReferralInterestQuote::new(
+        let referral_interest = ReferralInterestQuote::with_protocol_revenue(
             execution.interest_transfer.source_debit,
             execution.interest_transfer.destination_credit,
-            prepared.request.policy.protocol_interest_fee_bps,
+            protocol_credit,
             referral_share,
         )?;
         if referral_interest.referral_amount > 0 {
@@ -2656,12 +2663,13 @@ impl BenchmarkMarket {
                 .accrue(referral_interest.referral_amount)?;
         }
         if execution.interest_transfer.source_debit > 0 {
-            next_market.side_mut(debt_asset).record_interest_credit_with_supply(
+            next_market.record_receivable_income_credit(
+                debt_asset,
+                false,
                 execution.interest_transfer.destination_credit,
-                prepared.request.policy.protocol_interest_fee_bps,
+                protocol_credit,
                 prepared.request.policy.protocol_auction_split,
                 referral_interest.referral_amount,
-                interest_eligibility.ylp_supply,
             )?;
             next_market
                 .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
@@ -3322,6 +3330,13 @@ impl BenchmarkMarket {
             request.interest_vault_credit,
             ErrorCode::FeeMathOverflow
         );
+        let (interest_transfer, protocol_credit) = benchmark_public_interest_payment(
+            &mut next_market,
+            request.debt_asset,
+            receipt.interest_paid,
+            request.interest_vault_credit,
+            request.protocol_interest_fee_bps,
+        )?;
         let expected_referral = accrue_benchmark_referral_interest(
             referral_binding,
             next_referral.as_mut(),
@@ -3329,7 +3344,7 @@ impl BenchmarkMarket {
             next_market.side(request.debt_asset).asset_mint,
             receipt.interest_paid,
             request.interest_vault_credit,
-            request.protocol_interest_fee_bps,
+            protocol_credit,
         )?;
         require_eq!(
             expected_referral,
@@ -3339,9 +3354,11 @@ impl BenchmarkMarket {
         if receipt.interest_paid == 0 {
             require_eq!(request.interest_vault_credit, 0, ErrorCode::BrokenInvariant);
         } else {
-            next_market.side_mut(request.debt_asset).record_interest_credit(
+            next_market.record_receivable_income_credit(
+                request.debt_asset,
+                false,
                 request.interest_vault_credit,
-                request.protocol_interest_fee_bps,
+                protocol_credit,
                 request.protocol_auction_split,
                 request.referral_interest_amount,
             )?;
@@ -3352,7 +3369,7 @@ impl BenchmarkMarket {
         let mut cash = BenchmarkCashFlow::default();
         let side = cash.side_mut(request.debt_asset);
         side.reserve_vault_credit = receipt.cash_repaid;
-        side.reserve_vault_debit = receipt.interest_paid;
+        side.reserve_vault_debit = interest_transfer;
         side.interest_vault_credit = request.interest_vault_credit;
         let result = self.commit_position_execution(
             position,
@@ -3615,9 +3632,16 @@ impl BenchmarkMarket {
             request.insurance_draw_transfer.destination_credit,
             ErrorCode::BrokenInvariant
         );
+        let (interest_transfer, protocol_credit) = benchmark_public_interest_payment(
+            &mut next_market,
+            preview.plan.debt_asset,
+            preview.native.interest_paid,
+            request.interest_transfer.destination_credit,
+            request.protocol_interest_fee_bps,
+        )?;
         require_eq!(
             request.interest_transfer.source_debit,
-            preview.native.interest_paid,
+            interest_transfer,
             ErrorCode::BrokenInvariant
         );
         require_gte!(
@@ -3695,7 +3719,7 @@ impl BenchmarkMarket {
             next_market.side(preview.plan.debt_asset).asset_mint,
             preview.native.interest_paid,
             request.interest_transfer.destination_credit,
-            request.protocol_interest_fee_bps,
+            protocol_credit,
         )?;
         require_eq!(
             expected_referral,
@@ -3703,9 +3727,11 @@ impl BenchmarkMarket {
             ErrorCode::BrokenInvariant
         );
         if preview.native.interest_paid > 0 {
-            next_market.side_mut(preview.plan.debt_asset).record_interest_credit(
+            next_market.record_receivable_income_credit(
+                preview.plan.debt_asset,
+                false,
                 request.interest_transfer.destination_credit,
-                request.protocol_interest_fee_bps,
+                protocol_credit,
                 request.protocol_auction_split,
                 request.referral_interest_amount,
             )?;
@@ -4831,6 +4857,9 @@ fn empty_yield_account() -> YieldAccount {
         swap_fee_remainder_q64: 0,
         interest_remainder_q64: 0,
         bump: 0,
+        escrow_balance: 0,
+        income_initialized: false,
+        income: Default::default(),
     }
 }
 
@@ -4889,6 +4918,34 @@ fn referral_binding(position: &BorrowPosition, debt_asset: MarketAsset) -> (Pubk
     )
 }
 
+/// Clear previously purchased coupons before counting a repayment as fresh LP income.
+fn benchmark_public_interest_payment(
+    market: &mut Market,
+    asset: MarketAsset,
+    paid: u64,
+    credit: u64,
+    protocol_bps: u16,
+) -> Result<(u64, u64)> {
+    let (fresh, frozen) = market.side_mut(asset).fees.public_interest_advance.take_payment(paid)?;
+    let transfer = fresh.checked_add(frozen).ok_or(ErrorCode::FeeMathOverflow)?;
+    require_gte!(transfer, credit, ErrorCode::FeeMathOverflow);
+    let frozen_credit = if transfer == 0 {
+        0
+    } else {
+        u64::try_from(crate::math::mul_div_u128(
+            credit as u128,
+            frozen as u128,
+            transfer as u128,
+        )?)
+        .map_err(|_| ErrorCode::FeeMathOverflow)?
+    };
+    let protocol = ReferralInterestQuote::new(fresh, credit - frozen_credit, protocol_bps, None)?
+        .protocol_interest_revenue
+        .checked_add(frozen_credit)
+        .ok_or(ErrorCode::FeeMathOverflow)?;
+    Ok((transfer, protocol))
+}
+
 fn accrue_benchmark_referral_interest(
     binding: (Pubkey, u16),
     referral: Option<&mut BenchmarkReferralOwnedState>,
@@ -4896,7 +4953,7 @@ fn accrue_benchmark_referral_interest(
     asset_mint: Pubkey,
     interest_paid: u64,
     interest_vault_credit: u64,
-    protocol_interest_fee_bps: u16,
+    protocol_credit: u64,
 ) -> Result<u64> {
     let interest_share_bps = if binding.0 == Pubkey::default() {
         require_eq!(binding.1, 0, ErrorCode::BrokenInvariant);
@@ -4908,10 +4965,10 @@ fn accrue_benchmark_referral_interest(
         require_keys_eq!(referral.partner_key, binding.0, ErrorCode::InvalidReferralPartner);
         Some(binding.1)
     };
-    let quote = ReferralInterestQuote::new(
+    let quote = ReferralInterestQuote::with_protocol_revenue(
         interest_paid,
         interest_vault_credit,
-        protocol_interest_fee_bps,
+        protocol_credit,
         interest_share_bps,
     )?;
     if quote.referral_amount > 0 {
@@ -5522,7 +5579,7 @@ impl NewPositionCapacityContext<'_> {
 mod tests {
     use super::*;
     use crate::{
-        constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
+        constants::{MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
         state::{AmmConfig, BorrowPosition, IrmConfig, DEFAULT_DAILY_BORROW_BPS},
     };
 
@@ -5752,9 +5809,10 @@ mod tests {
         assert_eq!(benchmark.clock(), clock);
         assert_eq!(market_bytes(benchmark.market()), market_bytes(&native));
         assert_eq!(benchmark.market().version, MARKET_LAYOUT_VERSION);
-        assert_ne!(
+        // With no debt, the coverage controller holds its configured rate.
+        assert_eq!(
             benchmark.market().debt.base_rate_at_target_nad,
-            INTEREST_INITIAL_RATE_AT_TARGET_NAD
+            benchmark.market().config.irm.initial_apr_nad as u128
         );
     }
 
@@ -6463,10 +6521,11 @@ mod tests {
         assert!(expected_referral > 0);
         if native_repay.interest_paid > 0 {
             native_market
-                .base_side
-                .record_interest_credit(
+                .record_receivable_income_credit(
+                    MarketAsset::Base,
+                    false,
                     native_repay.interest_paid,
-                    2_000,
+                    native_repay.interest_paid / 5,
                     ProtocolAuctionSplit::default(),
                     expected_referral,
                 )
@@ -7220,8 +7279,14 @@ mod tests {
             .unwrap();
         if native_receipt.interest_paid > 0 {
             native_market
-                .base_side
-                .record_interest_credit(native_receipt.interest_paid, 0, ProtocolAuctionSplit::default(), 0)
+                .record_receivable_income_credit(
+                    MarketAsset::Base,
+                    false,
+                    native_receipt.interest_paid,
+                    0,
+                    ProtocolAuctionSplit::default(),
+                    0,
+                )
                 .unwrap();
         }
         native_market.finalize_amm_transition(clock.slot).unwrap();

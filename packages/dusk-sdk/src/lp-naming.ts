@@ -27,7 +27,7 @@ export interface LpTokenNaming {
 }
 
 export interface LpTokenNamingParams {
-  kind: MarketLpMintKind;
+  kind: MarketLpMintKind | "junior";
   baseSymbol: string;
   quoteSymbol: string;
 }
@@ -61,6 +61,16 @@ export function lpTokenNaming(params: LpTokenNamingParams): LpTokenNaming {
   const quote = cleanSymbol(params.quoteSymbol);
   const market = `${base}/${quote}`;
 
+  if (params.kind === "junior") {
+    // The generation PDA is initialized by Dusk, independently of the three
+    // user-created market mints. These strings match initializeJunior.
+    return {
+      name: "Omnipair Junior LP",
+      symbol: "jrLP",
+      description: `Dusk jrLP for the ${market} market: productive first-loss liquidity with junior income and a notice period before conversion to yLP.`,
+    };
+  }
+
   if (params.kind === "ylp") {
     // `y` + A + `.` + B
     const [a, b] = fitPair(base, quote, MAX_LP_SYMBOL_LENGTH - 2);
@@ -69,7 +79,7 @@ export function lpTokenNaming(params: LpTokenNamingParams): LpTokenNaming {
     return {
       name: `y${na}/${nb} LP`,
       symbol: `y${a}.${b}`,
-      description: `Dusk yLP for the ${market} market: a share of the pooled ${base} and ${quote} liquidity that earns swap fees and lending interest.`,
+      description: `Dusk yLP for the ${market} market: a senior share of pooled ${base} and ${quote} liquidity, protected by available insurance and junior capital against covered credit losses.`,
     };
   }
 

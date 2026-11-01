@@ -286,8 +286,10 @@ impl<'info> ExecuteProtectionOrder<'info> {
             &a.token_2022_program.to_account_info(),
             ctx.remaining_accounts,
         )?;
+
         a.custody_base_account.reload()?;
         a.custody_quote_account.reload()?;
+
         // All unused proceeds, including the other yLP asset, belong to the sponsor.
         for (mint, custody, recipient) in [
             (&a.base_mint, &a.custody_base_account, &a.owner_base_account),
@@ -313,6 +315,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 ctx.remaining_accounts,
             )?;
         }
+
         if let Some(p) = &mut a.borrow_position {
             p.reload()?;
         }
@@ -335,12 +338,17 @@ impl<'info> ExecuteProtectionOrder<'info> {
             (2, None, Some(position)) => position.debt_shares == 0,
             _ => return err!(LeverageDelegateError::InvalidOrder),
         };
+
         let after = if debt_cleared {
             u64::MAX
         } else {
-            protection_health(
-                &a.market.to_account_info(),
-                ctx.remaining_accounts,
+            let market_info = a.market.to_account_info();
+            a.market
+                .reload_from_account_bytes(&market_info.try_borrow_data()?)?;
+            a.market.bind_oracle(ctx.remaining_accounts, &clock)?;
+
+            protection_health_of(
+                &mut a.market,
                 a.borrow_position.as_deref().map(|p| &**p),
                 a.leverage_position.as_deref().map(|p| &**p),
                 a.order.action,
@@ -362,12 +370,13 @@ impl<'info> ExecuteProtectionOrder<'info> {
             after >= a.order.target_health_bps && after > before,
             LeverageDelegateError::InvalidOrder
         );
+
         a.order.remaining_lp = a
             .order
             .remaining_lp
             .checked_sub(args.lp_amount)
             .ok_or(LeverageDelegateError::MathOverflow)?;
-        emit!(ProtectionExecuted {
+        emit_bounded_event(&ProtectionExecuted {
             order: a.order.key(),
             position: a.order.position,
             keeper: a.keeper.key(),
@@ -375,8 +384,8 @@ impl<'info> ExecuteProtectionOrder<'info> {
             payment: paid,
             reward,
             health_before_bps: before,
-            health_after_bps: after
-        });
+            health_after_bps: after,
+        })?;
         Ok(())
     }
 }

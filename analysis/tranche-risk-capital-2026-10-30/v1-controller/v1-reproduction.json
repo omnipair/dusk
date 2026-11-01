@@ -1,0 +1,18 @@
+{
+  "local_revision": "84a8ef7a2a3a81e750435b86d7191bf43413d6a4",
+  "files": {
+    "programs/omnipair/src/state/rate_model.rs": "6212952f706389e6b8040d51efcec5002b17d619deeb1b49add5c93959465d02",
+    "programs/omnipair/src/constants.rs": "589fe9a87bd9e4151905059330d21fdbcd51e76f1ae694b441107cdeb4b1dd24",
+    "programs/omnipair/src/utils/math.rs": "9911f4302ce66acf75c72e4e1970edb3c0aa97dba14337c50f67d452b58e3dee"
+  },
+  "harness_sha256": "cb50fe234436354938c9a001f709431afc368de8655b4cf9268c9b68945f5bd5",
+  "result_columns": [
+    "half_life_days",
+    "validation_accepts",
+    "integer_exp_rate",
+    "APR_NAD_after_one_half_life"
+  ],
+  "output": "1,true,8,79844375\n3,true,2,67173540\n7,true,1,73235437\n14,true,0,panic\n30,true,0,panic\n",
+  "expected_mathematical_APR_NAD": 80000000,
+  "scope": "Inspected source behavior only; no deployed-account or bytecode verification"
+}

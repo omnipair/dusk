@@ -10,6 +10,8 @@ fn diagnose_unfilled(
     external: bool,
     position_index: usize,
 ) {
+    let start_slot = market.last_update_slot;
+    let start_time = ((start_slot - 2) / 75 * 30) as i64;
     let fee = audit_fee(fee_bps);
     let side = case.debt_asset;
     let mark = match case.path {
@@ -46,8 +48,8 @@ fn diagnose_unfilled(
             }
             let input = fee.unwind_credit(position.collateral_amount * bps / 10_000).unwrap();
             let swap = SwapRequest {
-                current_slot: 1352,
-                current_unix_timestamp: 540,
+                current_slot: start_slot,
+                current_unix_timestamp: start_time,
                 asset_in: side.opposite(),
                 reserve_credit: input,
                 protocol_fee_bps: 0,
@@ -80,8 +82,8 @@ fn diagnose_unfilled(
                 fee,
                 fee,
                 fee,
-                540,
-                1352,
+                start_time,
+                start_slot,
             )
             .map(|_| ()),
     );
@@ -96,8 +98,8 @@ fn diagnose_unfilled(
                 fee,
                 fee,
                 fee,
-                540,
-                1352,
+                start_time,
+                start_slot,
                 0,
             )
             .map(|_| ()),
@@ -115,8 +117,8 @@ fn diagnose_unfilled(
                 fee,
                 fee,
                 fee,
-                540,
-                1352,
+                start_time,
+                start_slot,
             )
             .is_ok()
         {
@@ -130,8 +132,8 @@ fn diagnose_unfilled(
             fee,
             fee,
             fee,
-            540,
-            1352,
+            start_time,
+            start_slot,
             0,
         ) {
             amm_partials += 1;
@@ -152,8 +154,8 @@ fn diagnose_unfilled(
         let mut totals = AuditTotals::default();
         let mut first_fill_at = None;
         for step in 0..=steps {
-            let now = 540 + step * 30;
-            let slot = 1352 + step as u64 * 75;
+            let now = start_time + step * 30;
+            let slot = start_slot + step as u64 * 75;
             market.accrue_interest_to_slot(slot).unwrap();
             if step > 0 {
                 stress_to(&mut market, side.opposite(), mark, slot).unwrap();

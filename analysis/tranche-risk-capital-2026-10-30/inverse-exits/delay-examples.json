@@ -1,0 +1,46 @@
+{
+  "scope": "Arithmetic reproduction of published linear delay formula, not an EVM execution or live parameter read",
+  "assumptions": "1-day minimum, 10-day maximum, 100% queue threshold from relaunch proposal; stable total share supply; fees omitted for the illustration",
+  "single_request_examples": [
+    {
+      "queued_fraction_including_request": 0.1,
+      "delay_days": 1.9
+    },
+    {
+      "queued_fraction_including_request": 0.5,
+      "delay_days": 5.5
+    },
+    {
+      "queued_fraction_including_request": 1.0,
+      "delay_days": 10.0
+    }
+  ],
+  "five_simultaneous_10_percent_requests_in_separate_accounts": [
+    {
+      "part": 1,
+      "cumulative_queued_fraction": 0.1,
+      "delay_days": 1.9
+    },
+    {
+      "part": 2,
+      "cumulative_queued_fraction": 0.2,
+      "delay_days": 2.8
+    },
+    {
+      "part": 3,
+      "cumulative_queued_fraction": 0.3,
+      "delay_days": 3.7
+    },
+    {
+      "part": 4,
+      "cumulative_queued_fraction": 0.4,
+      "delay_days": 4.6
+    },
+    {
+      "part": 5,
+      "cumulative_queued_fraction": 0.5,
+      "delay_days": 5.5
+    }
+  ],
+  "large_request": "One 50% request becomes eligible for its full remaining share balance after 5.5 days. No throughput limit is imposed by the delay formula."
+}

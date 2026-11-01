@@ -89,7 +89,7 @@ impl<'info> Harvest<'info> {
             YieldTokenKind::Ylp => {
                 require_keys_eq!(self.market.ylp_mint, self.lp_mint.key(), ErrorCode::InvalidMint)
             }
-            YieldTokenKind::Hlp => {
+            YieldTokenKind::Hlp | YieldTokenKind::Junior => {
                 // A retired mint supplies its cohort PDA in remaining accounts;
                 // the handler validates it before touching yield or custody.
             }
@@ -178,11 +178,28 @@ impl<'info> Harvest<'info> {
         } else {
             None
         };
-        let transfer_remaining = if retired_cohort.is_some() {
+        let retired_junior = if args.token_kind == YieldTokenKind::Junior
+            && ctx.accounts.lp_mint.key() != ctx.accounts.market.junior_mint
+        {
+            Some(crate::state::JuniorCohort::from_remaining(
+                ctx.remaining_accounts.first().ok_or(ErrorCode::InvalidLpMintKey)?,
+                market_key,
+                ctx.accounts.lp_mint.key(),
+            )?)
+        } else {
+            None
+        };
+        let transfer_remaining = if retired_cohort.is_some() || retired_junior.is_some() {
             &ctx.remaining_accounts[1..]
         } else {
             ctx.remaining_accounts
         };
+
+        ctx.accounts.market.checkpoint_holder_income(
+            &mut ctx.accounts.yield_account,
+            ctx.accounts.owner_lp_account.amount,
+            retired_junior.as_ref().map(|c| c.income_end),
+        )?;
 
         // Materialize claimable yield from the appropriate LP growth indexes.
         let receipt = match args.token_kind {
@@ -195,9 +212,16 @@ impl<'info> Harvest<'info> {
                     ctx.accounts.owner_lp_account.amount,
                 )?
             }
-            YieldTokenKind::Hlp => {
+            YieldTokenKind::Hlp | YieldTokenKind::Junior => {
                 let (swap_fee_growth_index_q64, interest_growth_index_q64) =
-                    if let Ok(hlp_asset) = ctx.accounts.market.asset_for_hlp_mint(ctx.accounts.lp_mint.key()) {
+                    if args.token_kind == YieldTokenKind::Junior {
+                        if let Some(cohort) = &retired_junior {
+                            cohort.yield_indexes(market_asset)
+                        } else {
+                            let income = &ctx.accounts.market.side(market_asset).fees.junior;
+                            (income.swap_growth_q64, income.interest_growth_q64)
+                        }
+                    } else if let Ok(hlp_asset) = ctx.accounts.market.asset_for_hlp_mint(ctx.accounts.lp_mint.key()) {
                         ctx.accounts.market.checkpoint_hlp_yield_from_ylp(hlp_asset)?;
                         ctx.accounts.market.hlp_yield_growth_indexes(hlp_asset, market_asset)
                     } else {

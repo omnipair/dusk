@@ -96,41 +96,60 @@ pub fn handle_transfer_hook<'info>(
     require!(accounts[5].is_writable, ErrorCode::InvalidMarket);
 
     // Snapshot the current yield indexes while the market account is borrowed.
-    let (base_context, quote_context) =
+    let (base_context, _quote_context) =
         mutate_program_owned_account::<Market, _, _>(&accounts[5], ErrorCode::InvalidMarket, |market| {
             require_keys_eq!(*accounts[6].key, market.base_side.asset_mint, ErrorCode::InvalidMint);
             require_keys_eq!(*accounts[7].key, market.quote_side.asset_mint, ErrorCode::InvalidMint);
+            if let Some(event_authority) = accounts.get(12) {
+                crate::instructions::accounting::accrue_market_interest_data(
+                    market,
+                    market_key,
+                    Clock::get()?.slot,
+                    event_authority.clone(),
+                )?;
+            } else {
+                market.accrue_interest_to_slot(Clock::get()?.slot)?;
+            }
             let contexts = match current_yield_contexts(market, lp_mint)? {
                 Some(contexts) => contexts,
                 None => retired_hlp_yield_contexts(market_key, market, lp_mint, accounts)?,
             };
-            Ok((
-                contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?,
-                contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?,
-            ))
+            let base = contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
+            let quote = contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
+            let ends = if base.token_kind == YieldTokenKind::Junior && lp_mint != market.junior_mint {
+                crate::state::JuniorCohort::from_remaining(
+                    accounts.get(14).ok_or(ErrorCode::InvalidLpMintKey)?,
+                    market_key,
+                    lp_mint,
+                )?
+                .income_end
+            } else {
+                market.income.get()?.junior_end
+            };
+            checkpoint_transfer_party(
+                &accounts[8],
+                &accounts[10],
+                program_id,
+                source_owner,
+                market_key,
+                base,
+                quote,
+                balances.source_pre_balance,
+                Some((market, ends)),
+            )?;
+            checkpoint_transfer_party(
+                &accounts[9],
+                &accounts[11],
+                program_id,
+                destination_owner,
+                market_key,
+                base,
+                quote,
+                balances.destination_pre_balance,
+                Some((market, ends)),
+            )?;
+            Ok((base, quote))
         })?;
-
-    // Accrue sender and recipient yield at their respective pre-transfer balances.
-    checkpoint_transfer_party(
-        &accounts[8],
-        &accounts[10],
-        program_id,
-        source_owner,
-        market_key,
-        base_context,
-        quote_context,
-        balances.source_pre_balance,
-    )?;
-    checkpoint_transfer_party(
-        &accounts[9],
-        &accounts[11],
-        program_id,
-        destination_owner,
-        market_key,
-        base_context,
-        quote_context,
-        balances.destination_pre_balance,
-    )?;
 
     // Mints initialized with the event accounts publish a receipt; legacy
     // mints transfer exactly as before, without one.
@@ -159,6 +178,23 @@ fn retired_hlp_yield_contexts(
     accounts: &[AccountInfo],
 ) -> Result<YieldContexts> {
     let cohort_info = accounts.get(14).ok_or(ErrorCode::InvalidArgument)?;
+    let junior_key =
+        Pubkey::find_program_address(&[b"junior_cohort", market_key.as_ref(), lp_mint.as_ref()], &crate::ID).0;
+    if *cohort_info.key == junior_key {
+        let cohort = crate::state::JuniorCohort::from_remaining(cohort_info, market_key, lp_mint)?;
+        return Ok(YieldContexts {
+            items: [crate::state::MarketAsset::Base, crate::state::MarketAsset::Quote].map(|asset| {
+                let (swap, interest) = cohort.yield_indexes(asset);
+                Some(YieldContext {
+                    lp_mint,
+                    asset_mint: market.side(asset).asset_mint,
+                    token_kind: YieldTokenKind::Junior,
+                    swap_fee_growth_index_q64: swap,
+                    interest_growth_index_q64: interest,
+                })
+            }),
+        });
+    }
     let (expected, bump) = Pubkey::find_program_address(
         &[HLP_COHORT_SEED_PREFIX, market_key.as_ref(), lp_mint.as_ref()],
         &crate::ID,
@@ -247,6 +283,20 @@ fn parse_transferring_token_account(info: &AccountInfo) -> Result<TokenAccountSn
 }
 
 pub(crate) fn current_yield_contexts(market: &mut Market, lp_mint: Pubkey) -> Result<Option<YieldContexts>> {
+    if market.junior_mint == lp_mint && lp_mint != Pubkey::default() {
+        return Ok(Some(YieldContexts {
+            items: [crate::state::MarketAsset::Base, crate::state::MarketAsset::Quote].map(|asset| {
+                let side = market.side(asset);
+                Some(YieldContext {
+                    lp_mint,
+                    asset_mint: side.asset_mint,
+                    token_kind: YieldTokenKind::Junior,
+                    swap_fee_growth_index_q64: side.fees.junior.swap_growth_q64,
+                    interest_growth_index_q64: side.fees.junior.interest_growth_q64,
+                })
+            }),
+        }));
+    }
     if market.ylp_mint == lp_mint {
         market.base_side.carry_forward_swap_fees()?;
         market.base_side.carry_forward_interest()?;
@@ -325,6 +375,7 @@ fn checkpoint_transfer_party<'info>(
     base_context: YieldContext,
     quote_context: YieldContext,
     pre_transfer_balance: u64,
+    income: Option<(&Market, [crate::state::IncomeExposureEnd; 4])>,
 ) -> Result<()> {
     for (account_info, yield_context) in [(base_account_info, base_context), (quote_account_info, quote_context)] {
         require!(account_info.is_writable, ErrorCode::InvalidYieldAccount);
@@ -353,6 +404,9 @@ fn checkpoint_transfer_party<'info>(
                 );
                 require_keys_eq!(*account_info.key, expected_key, ErrorCode::InvalidYieldAccount);
                 require_eq!(yield_account.bump, expected_bump, ErrorCode::InvalidYieldAccount);
+                if let Some((market_state, ends)) = income {
+                    market_state.checkpoint_holder_income(yield_account, pre_transfer_balance, Some(ends))?;
+                }
                 yield_account.accrue(
                     pre_transfer_balance,
                     yield_context.swap_fee_growth_index_q64,

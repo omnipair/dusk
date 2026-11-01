@@ -1,0 +1,23 @@
+test_accrual_never_funds_junior_capital (test_model.AccountingTests) ... ok
+test_admission_rejects_new_uncovered_debt (test_model.AccountingTests) ... ok
+test_all_base_scenarios_conserve (test_model.AccountingTests) ... ok
+test_cash_interest_is_fully_distributed (test_model.AccountingTests) ... ok
+test_coverage_queue_cannot_promise_fixed_date (test_model.AccountingTests) ... ok
+test_directional_insurance_requires_matching_currency (test_model.AccountingTests) ... ok
+test_fixed_date_requires_actual_quote_cash (test_model.AccountingTests) ... ok
+test_forward_capacity_excludes_requested_exits (test_model.AccountingTests) ... ok
+test_junior_first_then_senior (test_model.AccountingTests) ... ok
+test_junior_wipeout_clears_old_exit_entitlements (test_model.AccountingTests) ... ok
+test_marked_inventory_does_not_hit_segregated_quote (test_model.AccountingTests) ... ok
+test_pending_remains_liable_and_paid_at_current_nav (test_model.AccountingTests) ... ok
+test_randomized_loss_conservation_and_seniority (test_model.AccountingTests) ... ok
+test_rate_growth_can_cross_same_liquidation_threshold (test_model.AccountingTests) ... ok
+test_reserve_draw_does_not_double_pay_loss (test_model.AccountingTests) ... ok
+test_reserve_is_part_of_junior (test_model.AccountingTests) ... ok
+test_scalar_claim_burn_does_not_preserve_token_composition (test_model.AccountingTests) ... ok
+test_two_asset_cash_is_not_fungible_without_conversion (test_model.AccountingTests) ... ok
+
+----------------------------------------------------------------------
+Ran 18 tests in 0.314s
+
+OK

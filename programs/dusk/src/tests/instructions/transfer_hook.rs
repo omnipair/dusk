@@ -70,6 +70,9 @@ fn checkpoints_yield_account_with_pre_transfer_balance() {
     let lp_mint = Pubkey::new_unique();
     let asset_mint = Pubkey::new_unique();
     let mut yield_account = YieldAccount {
+        income_initialized: false,
+        income: Default::default(),
+        escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
@@ -118,18 +121,22 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     let market_key = Pubkey::new_unique();
     let mut market = Market {
         oracle: Default::default(),
+        income: Default::default(),
+        tranches: Default::default(),
+        junior_exit_config: Default::default(),
+        junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint,
-        base_side: crate::state::MarketSide {
+        base_side: Box::new(crate::state::MarketSide {
             asset_mint: base_mint,
             hlp_mint: base_hlp_mint,
             ..Default::default()
-        },
-        quote_side: crate::state::MarketSide {
+        }),
+        quote_side: Box::new(crate::state::MarketSide {
             asset_mint: quote_mint,
             hlp_mint: quote_hlp_mint,
             ..Default::default()
-        },
+        }),
         config: Default::default(),
         amm: Default::default(),
         debt: Default::default(),
@@ -210,6 +217,9 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     let owner = Pubkey::new_unique();
     let recipient = Pubkey::new_unique();
     let mut source_yield = YieldAccount {
+        income_initialized: false,
+        income: Default::default(),
+        escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
@@ -226,6 +236,9 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         bump: 0,
     };
     let mut destination_yield = YieldAccount {
+        income_initialized: false,
+        income: Default::default(),
+        escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
         market: Pubkey::default(),
@@ -316,14 +329,14 @@ fn canonical_extra_meta_schema_contains_both_asset_streams() {
     let state = Market {
         oracle: Default::default(),
         ylp_mint: lp_mint,
-        base_side: crate::state::MarketSide {
+        base_side: Box::new(crate::state::MarketSide {
             asset_mint: base_mint,
             ..Default::default()
-        },
-        quote_side: crate::state::MarketSide {
+        }),
+        quote_side: Box::new(crate::state::MarketSide {
             asset_mint: quote_mint,
             ..Default::default()
-        },
+        }),
         ..Market::default()
     };
     let metas = canonical_lp_transfer_hook_metas(market, &state, lp_mint).unwrap();
@@ -355,16 +368,16 @@ fn hlp_hook_always_resolves_its_mint_specific_cohort() {
     let state = Market {
         oracle: Default::default(),
         ylp_mint: Pubkey::new_unique(),
-        base_side: crate::state::MarketSide {
+        base_side: Box::new(crate::state::MarketSide {
             asset_mint: Pubkey::new_unique(),
             hlp_mint,
             ..Default::default()
-        },
-        quote_side: crate::state::MarketSide {
+        }),
+        quote_side: Box::new(crate::state::MarketSide {
             asset_mint: Pubkey::new_unique(),
             hlp_mint: Pubkey::new_unique(),
             ..Default::default()
-        },
+        }),
         ..Market::default()
     };
     let metas = canonical_lp_transfer_hook_metas(market, &state, hlp_mint).unwrap();
@@ -421,7 +434,8 @@ fn transfer_checkpoint_rejects_readonly_yield_accounts_before_deserializing() {
             context,
             context,
             0,
-        )
+        None,
+    )
         .unwrap_err(),
         error!(ErrorCode::InvalidYieldAccount)
     );

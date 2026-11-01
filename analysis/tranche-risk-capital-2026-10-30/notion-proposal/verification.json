@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "junior_percent": 0,
+      "combined_apr": "4.0"
+    },
+    {
+      "junior_percent": 10,
+      "combined_apr": "5.2"
+    },
+    {
+      "junior_percent": 30,
+      "combined_apr": "7.6"
+    },
+    {
+      "junior_percent": 47,
+      "combined_apr": "9.6"
+    },
+    {
+      "junior_percent": 50,
+      "combined_apr": "10.0"
+    },
+    {
+      "junior_percent": 100,
+      "combined_apr": "16.0"
+    }
+  ],
+  "mobile_horizontal_overflow": false,
+  "browser_errors": [],
+  "word_count": 1827
+}

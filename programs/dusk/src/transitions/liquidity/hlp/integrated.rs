@@ -53,6 +53,17 @@ pub(crate) struct IntegratedCurveState {
     pub ordinary_quote_book_offset: i128,
     pub base_unpaid_interest: u128,
     pub quote_unpaid_interest: u128,
+    /// With tranche receivables, equities above are funded target claims.
+    /// These independently owned coupons restore each vault's full NAV.
+    pub receivable_hedge: bool,
+    pub hlp_unpaid: [[u128; 2]; 2],
+    /// [whole units, owned whole units, gross value] of target coupons bought
+    /// by the reserve to settle a funding gap exceeding funded target equity.
+    pub hlp_capitalized: [[u64; 3]; 2],
+    /// Compounded revenue changes junior common units, never senior wallet units.
+    pub junior_compound: Option<(u64, u64, u8, bool)>,
+    /// Rebuild income remains seed-only custody until the wiped cohort is archived.
+    pub junior_seed_compound: u64,
     pub base_atom_nad: u128,
     pub quote_atom_nad: u128,
     /// Frozen vaults retain their actual LP shares and indexed debt. Their
@@ -115,6 +126,7 @@ impl IntegratedCurveState {
 
     pub(crate) fn uses_book_hedge(self) -> bool {
         self.frozen_hlp_mask != 0
+            || self.hlp_unpaid.iter().flatten().any(|amount| *amount != 0)
             || ((self.base_hlp_equity > 0 || self.quote_hlp_equity > 0)
                 && (self.ordinary_base_book_offset != 0 || self.ordinary_quote_book_offset != 0))
     }
@@ -137,10 +149,21 @@ impl IntegratedCurveState {
             return Ok(None);
         }
         let (base_backing, quote_backing) = self.backing_equities()?;
-        let base_claim = mul_div_u128(base_backing, endpoint.total_base, base_live)?;
-        let base_opposite = mul_div_u128(base_backing, endpoint.total_quote, base_live)?;
-        let quote_claim = mul_div_u128(quote_backing, endpoint.total_quote, quote_live)?;
-        let quote_opposite = mul_div_u128(quote_backing, endpoint.total_base, quote_live)?;
+        let (base_claim, base_opposite, quote_claim, quote_opposite) = if self.receivable_hedge {
+            (
+                base_backing,
+                mul_div_u128(base_backing, endpoint.total_quote, endpoint.total_base)?,
+                quote_backing,
+                mul_div_u128(quote_backing, endpoint.total_base, endpoint.total_quote)?,
+            )
+        } else {
+            (
+                mul_div_u128(base_backing, endpoint.total_base, base_live)?,
+                mul_div_u128(base_backing, endpoint.total_quote, base_live)?,
+                mul_div_u128(quote_backing, endpoint.total_quote, quote_live)?,
+                mul_div_u128(quote_backing, endpoint.total_base, quote_live)?,
+            )
+        };
         let signed = |v: u128| i128::try_from(v).map_err(|_| ErrorCode::MarketMathOverflow);
         let value = |claim: u128, debt: u128, numerator: u128, denominator: u128| -> Result<i128> {
             let v = signed(mul_div_u128(claim.abs_diff(debt), numerator, denominator)?)?;
@@ -365,6 +388,16 @@ pub(crate) struct IntegratedFrozenFeeQuote {
     pub executable: IntegratedExactInQuote,
 }
 
+impl IntegratedFrozenFeeQuote {
+    pub(crate) fn refresh_hlp_endpoint(&mut self, start: &IntegratedCurveState) -> Result<()> {
+        let end = &self.executable.end;
+        self.executable.hlp = materialized_hlp_endpoint(*end)?;
+        self.executable.base_hlp_quote_debt_delta = signed_delta(end.base_hlp_quote_debt, start.base_hlp_quote_debt)?;
+        self.executable.quote_hlp_base_debt_delta = signed_delta(end.quote_hlp_base_debt, start.quote_hlp_base_debt)?;
+        Ok(())
+    }
+}
+
 fn signed_delta(end: u128, start: u128) -> Result<i128> {
     if end >= start {
         i128::try_from(end - start).map_err(|_| ErrorCode::MarketMathOverflow.into())
@@ -380,7 +413,9 @@ pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Resul
     let (base_backing, quote_backing) = state.backing_equities()?;
     require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
     if state.frozen_hlp_mask & 2 == 0 {
-        state.quote_hlp_base_debt = mul_div_u128(quote_backing, base, quote)?;
+        state.quote_hlp_base_debt = mul_div_u128(quote_backing, base, quote)?
+            .checked_add(state.hlp_unpaid[1][0])
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         if state.quote_hlp_base_carry > 0 {
             state.quote_hlp_base_debt = state
                 .quote_hlp_base_debt
@@ -393,7 +428,9 @@ pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Resul
         }
     }
     if state.frozen_hlp_mask & 1 == 0 {
-        state.base_hlp_quote_debt = mul_div_u128(base_backing, quote, base)?;
+        state.base_hlp_quote_debt = mul_div_u128(base_backing, quote, base)?
+            .checked_add(state.hlp_unpaid[0][1])
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         if state.base_hlp_quote_carry > 0 {
             state.base_hlp_quote_debt = state
                 .base_hlp_quote_debt
@@ -452,15 +489,16 @@ pub(crate) fn apply_hlp_recovery_bonus(
 /// fixed; each hLP's pro-rata fee gain is converted into its target-asset
 /// equity at the frozen concentrated curve endpoint price, then the one-sided
 /// claims and debts are reconstructed algebraically.
-pub(crate) fn apply_compounded_ylp_fee(
+pub(crate) fn apply_compounded_ylp_fee_to_end(
     start: IntegratedCurveState,
-    quote: &mut IntegratedFrozenFeeQuote,
+    end: &mut IntegratedCurveState,
     fee_is_base: bool,
     compounded_fee_nad: u128,
     endpoint_price_nad: u128,
     eligible_ylp_supply: u64,
     base_hlp_ylp_shares: u64,
     quote_hlp_ylp_shares: u64,
+    senior_fee_nad: u128,
 ) -> Result<()> {
     if compounded_fee_nad == 0 {
         return Ok(());
@@ -475,17 +513,12 @@ pub(crate) fn apply_compounded_ylp_fee(
         ErrorCode::SupplyUnderflow
     );
 
-    let base_hlp_fee = mul_div_u128(
-        compounded_fee_nad,
-        base_hlp_ylp_shares as u128,
-        eligible_ylp_supply as u128,
-    )?;
+    let base_hlp_fee = mul_div_u128(senior_fee_nad, base_hlp_ylp_shares as u128, eligible_ylp_supply as u128)?;
     let quote_hlp_fee = mul_div_u128(
-        compounded_fee_nad,
+        senior_fee_nad,
         quote_hlp_ylp_shares as u128,
         eligible_ylp_supply as u128,
     )?;
-    let end = &mut quote.executable.end;
     // Compounding is an internal, endpoint-priced ownership transition. A
     // fee already denominated in an hLP's target asset grows that equity
     // directly. The opposite-target hLP exchanges its pro-rata fee against
@@ -555,9 +588,6 @@ pub(crate) fn apply_compounded_ylp_fee(
     let hlp = reconstruct_hlp_endpoint(*end)?;
     end.base_hlp_quote_debt = hlp.base_hlp_quote_debt;
     end.quote_hlp_base_debt = hlp.quote_hlp_base_debt;
-    quote.executable.hlp = hlp;
-    quote.executable.base_hlp_quote_debt_delta = signed_delta(hlp.base_hlp_quote_debt, start.base_hlp_quote_debt)?;
-    quote.executable.quote_hlp_base_debt_delta = signed_delta(hlp.quote_hlp_base_debt, start.quote_hlp_base_debt)?;
     Ok(())
 }
 

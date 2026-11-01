@@ -1,0 +1,74 @@
+{
+  "comparisons": {
+    "calm": {
+      "lower_senior_loss": 0,
+      "equal_senior_loss": 18,
+      "higher_senior_loss": 0,
+      "lower_average_debt": 1,
+      "settings": 18
+    },
+    "demand_growth": {
+      "lower_senior_loss": 0,
+      "equal_senior_loss": 18,
+      "higher_senior_loss": 0,
+      "lower_average_debt": 15,
+      "settings": 18
+    },
+    "moderate_crash": {
+      "lower_senior_loss": 0,
+      "equal_senior_loss": 18,
+      "higher_senior_loss": 0,
+      "lower_average_debt": 1,
+      "settings": 18
+    },
+    "joint_severe": {
+      "lower_senior_loss": 1,
+      "equal_senior_loss": 16,
+      "higher_senior_loss": 1,
+      "lower_average_debt": 8,
+      "settings": 18
+    },
+    "run_then_crash": {
+      "lower_senior_loss": 0,
+      "equal_senior_loss": 18,
+      "higher_senior_loss": 0,
+      "lower_average_debt": 0,
+      "settings": 18
+    },
+    "repeated_crash": {
+      "lower_senior_loss": 1,
+      "equal_senior_loss": 2,
+      "higher_senior_loss": 15,
+      "lower_average_debt": 5,
+      "settings": 18
+    },
+    "growth_then_crash": {
+      "lower_senior_loss": 18,
+      "equal_senior_loss": 0,
+      "higher_senior_loss": 0,
+      "lower_average_debt": 13,
+      "settings": 18
+    }
+  },
+  "step_size_check": {
+    "senior_credit_loss": {
+      "max_absolute_difference": 6521.286742838332,
+      "scenario": "repeated_crash",
+      "policy": "reserve_uncapped",
+      "step_days": 0.041666666666666664
+    },
+    "debt_per_initial_capital": {
+      "max_absolute_difference": 0.004105495114556712,
+      "scenario": "joint_severe",
+      "policy": "junior_share",
+      "step_days": 0.041666666666666664
+    },
+    "borrower_paid_apr": {
+      "max_absolute_difference": 0.0009280774085611149,
+      "scenario": "joint_severe",
+      "policy": "junior_share",
+      "step_days": 0.041666666666666664
+    }
+  },
+  "interpretation": "Counts describe this assumption grid; they are not probabilities or statistical confidence."
+}

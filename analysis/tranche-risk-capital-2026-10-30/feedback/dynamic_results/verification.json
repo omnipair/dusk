@@ -1,0 +1,6 @@
+{
+  "identities_checked": 75810,
+  "max_residual": 5.21540641784668e-08,
+  "passed": true,
+  "method": "Independent exported-trace identities; does not import simulator."
+}
