@@ -1,14 +1,17 @@
 # Devnet tranche deployment
 
-Dusk PR #60 merged as `91e0303c3b0ac499058e762289d6d34d70ce84ff`.
-The reviewed Dusk executable was upgraded at finalized slot `517364372`.
-The previous leverage delegate was retired during the authorized fresh-start
-rollout; its replacement was deployed at finalized slot `517366195` under
-program id `3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi`.
+Dusk PR #61 source commit `c8ef8e32302ee88ce99c1244d5605892ca61aa80`
+was built after the complete local CI gate. The previous Dusk deployment was
+closed during the authorized fresh-start rollout, returning `25.11083116` SOL
+of devnet rent. Its replacement was deployed at finalized slot `517399592`
+under program id `5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ`.
+The leverage delegate kept its program id and was upgraded at finalized slot
+`517399748` to bind the replacement Dusk program.
 
-Both executable dumps match their local artifacts byte for byte. Both published
-IDLs match their generated local files after canonical JSON ordering. The
-upgrade authority remains
+Both ProgramData binaries match their local artifacts byte for byte. Both
+published IDLs match their generated local files after canonical JSON ordering.
+The explicit deployment buffers were closed automatically, leaving no buffer
+rent behind. The upgrade authority remains
 `FJWRK3XJeVD8njSvTFXyHwP2jkatvBqeVwcNAFe5zVfJ`.
 
 See `deployment.json` for the exact hashes, slots and transaction signatures.

@@ -152,7 +152,7 @@ deployment it was not built for. The webapp additionally validates a deployment
 envelope on every read, so a served payload cannot come from a program the
 client was not built against.
 
-Current pin: revision `devnet-1`, dusk `JA8Zxxm4t4zopBL8e3dQQXWfQ3a5pBUPY9Sp9RnybV2X`,
+Current pin: revision `devnet-2026-11-01-tranches`, dusk `5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ`,
 delegate `3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi`.
 
 ## 5. Devnet deployment and market bootstrap
