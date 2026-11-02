@@ -61,7 +61,7 @@ pub(crate) struct IntegratedCurveState {
     /// by the reserve to settle a funding gap exceeding funded target equity.
     pub hlp_capitalized: [[u64; 3]; 2],
     /// Compounded revenue changes junior common units, never senior wallet units.
-    pub junior_compound: Option<(u64, u64, u8, bool)>,
+    pub junior_compound: Option<(u64, u64, u8, u16)>,
     /// Rebuild income remains seed-only custody until the wiped cohort is archived.
     pub junior_seed_compound: u64,
     pub base_atom_nad: u128,

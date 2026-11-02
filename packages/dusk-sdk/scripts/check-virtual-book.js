@@ -70,6 +70,7 @@ for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.t
     "frozenQuoteVaultBaseOffsetNad", "frozenQuoteVaultQuoteOffsetNad",
     "baseRateFractionE18", "quoteRateFractionE18",
     "tranches", "income", "juniorExitConfig", "juniorMint", "junior",
+    "tranchePolicy", "governanceLockedJunior",
   ].includes(f.name) && !(type.name === "insuranceDrawWindow" && f.name === "initialized"));
 oldIdl.types.find(type => type.name === "riskRateConfig").type.fields = [
   { name: "targetUtilizationBps", type: "u16" },
@@ -92,16 +93,17 @@ const zero = type => {
   if (type.defined) return Object.fromEntries(fixtureProgram.idl.types.find(t => t.name === type.defined.name).type.fields.map(f => [f.name, zero(f.type)]));
   throw new Error("Unsupported fixture field type");
 };
-for (const [field, type] of [["tranches", "trancheCapital"], ["income", "marketIncomeBooks"], ["juniorExitConfig", "juniorExitConfig"]]) {
+for (const [field, type] of [["tranches", "trancheCapital"], ["income", "marketIncomeBooks"], ["juniorExitConfig", "juniorExitConfig"], ["tranchePolicy", "tranchePolicy"]]) {
   oldAccount[field] = zero({ defined: { name: type } });
 }
 oldAccount.juniorMint = PublicKey.default;
+oldAccount.governanceLockedJunior = new BN(0);
 oldAccount.baseSide.fees.junior = zero({ defined: { name: "trancheIncome" } });
 oldAccount.quoteSide.fees.junior = zero({ defined: { name: "trancheIncome" } });
 oldAccount.debt.baseRateFractionE18 = new BN(0);
 oldAccount.debt.quoteRateFractionE18 = new BN(0);
 oldAccount.config.irm = Object.fromEntries(Object.entries(RISK_RATE_DEFAULTS).map(([key, value]) => [key, key === "borrowUtilizationLimitBps" ? value : new BN(value)]));
-oldAccount.parameterRevisions.push(new BN(0));
+oldAccount.parameterRevisions.push(new BN(0), new BN(0));
 oldAccount.baseSide.reserves.flashReceivable = new BN(0);
 oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
 oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);

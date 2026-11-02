@@ -19,6 +19,22 @@ fn eligible_supply_rejects_vault_balances_outside_the_mint_supply_partition() {
 }
 
 #[test]
+fn eligible_supply_counts_only_active_user_owned_junior_backing() {
+    let mut market = Market::default();
+    market.tranches = crate::state::TrancheCapital {
+        junior_reserve_shares: 500,
+        junior_receipt_supply: 1_000,
+        permanent_receipts: 100,
+        queued_receipts: 200,
+        ..Default::default()
+    };
+    market.governance_locked_junior = 300;
+    // 700 active user receipts represent 350 current reserve shares. Locked
+    // junior stays eligible; permanent and exit-queued receipts do not.
+    assert_eq!(direct_ylp_eligible_supply(&market, 1_000, 100, 100).unwrap(), 1_150);
+}
+
+#[test]
 fn governance_locks_keep_unpaid_income_without_duplicating_virtual_cash_yield() {
     let mut market = Market::default();
     market.base_side.asset_mint = Pubkey::new_unique();

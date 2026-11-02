@@ -74,12 +74,33 @@ pub const PARAMETER_PROPOSAL_SPONSOR_BPS: u16 = 100; // 1%
 pub const PARAMETER_PROPOSAL_SUPPORT_BPS: u16 = 5_000; // strict >50%
 #[constant]
 pub const PARAMETER_PROPOSAL_TIMELOCK_SECONDS: i64 = 7 * 24 * 60 * 60;
+/// Tranche holders can need the full maximum exit notice before changing the
+/// economics they underwrite.
+#[constant]
+pub const TRANCHE_PARAMETER_TIMELOCK_SECONDS: i64 = 10 * 24 * 60 * 60;
 #[constant]
 pub const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
 /// A proposal changes one to this many families, at most one update each.
-pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 8;
+pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 9;
 #[constant]
 pub const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS: u64 = 8_000;
+
+#[constant]
+pub const DEFAULT_JUNIOR_INCOME_SHARE_BPS: u16 = 5_000;
+#[constant]
+pub const MIN_JUNIOR_INCOME_SHARE_BPS: u16 = 1_000;
+#[constant]
+pub const MAX_JUNIOR_INCOME_SHARE_BPS: u16 = 9_000;
+#[constant]
+pub const MIN_JUNIOR_EXIT_FEE_BPS: u16 = 1;
+#[constant]
+pub const MAX_JUNIOR_EXIT_FEE_BPS: u16 = 50;
+#[constant]
+pub const DEFAULT_LIQUIDATION_FEE_BPS: u16 = 100;
+#[constant]
+pub const MIN_LIQUIDATION_FEE_BPS: u16 = 25;
+#[constant]
+pub const MAX_LIQUIDATION_FEE_BPS: u16 = 300;
 
 pub const PROPOSAL_METADATA_VERSION: u8 = 1;
 pub const MAX_PROPOSAL_TITLE_BYTES: usize = 96;
@@ -164,7 +185,7 @@ pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// economic checkpoints use slots. Earlier development layouts must not
 /// decode as this structure.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 9;
+pub const MARKET_LAYOUT_VERSION: u8 = 10;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

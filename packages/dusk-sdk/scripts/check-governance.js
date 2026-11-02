@@ -23,6 +23,7 @@ import {
   PARAMETER_PROPOSAL_DIGEST_DOMAIN,
   updatedFamilyRevisions,
   standardLaunchFeeParameterUpdate,
+  trancheParameterUpdate,
   resolveProposalDescriptionUri,
   tryFetchProposalDescription,
 } from "../dist/governance.js";
@@ -34,7 +35,7 @@ import { parameterProposalV0Transaction } from "../dist/market-launch.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 1_345;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_352;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -52,6 +53,7 @@ const provider = {
 const program = new Program(IDL, provider);
 program.account.market.fetch = async () => ({
   ylpMint: keys[2],
+  juniorMint: keys[9],
   baseSide: { assetMint: keys[3] },
   quoteSide: { assetMint: keys[4] },
   baseHlpVault: { ylpVault: keys[5] },
@@ -221,12 +223,17 @@ const everyFamily = [
     coreHalfWidthBps: 100,
     fadeWidthBps: 400,
   }),
+  trancheParameterUpdate({
+    juniorIncomeShareBps: 5_000,
+    requestFeeBps: 5,
+    liquidationFeeBps: 100,
+  }),
   update,
 ];
 const canonical = canonicalParameterUpdates(everyFamily);
 assert.deepEqual(
   canonical.map(({ kind }) => kind),
-  ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insuranceDrawCaps", "oracle"],
+  ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insuranceDrawCaps", "oracle", "tranche"],
   "updates must be sent in ascending family order"
 );
 assert.throws(() => canonicalParameterUpdates([]), /at least one/);
@@ -236,10 +243,10 @@ assert.throws(
 );
 assert.throws(() => insuranceDrawCapsParameterUpdate({ principalCoverageBps: 7_501, perDayBps: 5_000 }));
 
-const marketRevisions = [11, 12, 13, 14, 15, 16, 17, 18];
+const marketRevisions = [11, 12, 13, 14, 15, 16, 17, 18, 19];
 assert.deepEqual(
   updatedFamilyRevisions([dailyBorrowLimitParameterUpdate(1_000)], marketRevisions),
-  [0n, 0n, 0n, 0n, 15n, 0n, 0n, 0n],
+  [0n, 0n, 0n, 0n, 15n, 0n, 0n, 0n, 0n],
   "families a proposal leaves alone bind revision zero"
 );
 const familyRevisions = updatedFamilyRevisions(everyFamily, marketRevisions);
@@ -345,7 +352,7 @@ console.log(
 
 // Reusable governance builders preserve amounts alongside canonical sorting.
 const governance = new DuskGovernance(program);
-const balanceAddress = deriveGovernanceBalanceAddress(keys[1], keys[0], program.programId)[0];
+const balanceAddress = deriveGovernanceBalanceAddress(keys[1], keys[0], keys[2], program.programId)[0];
 const deposited = await governance.deposit({ market: keys[1], owner: keys[0], amount: 500n });
 assert.equal(deposited.governanceBalance.toString(), balanceAddress.toString());
 const depositDecoded = program.coder.instruction.decode(deposited.instruction.data);
@@ -368,7 +375,7 @@ for (const [index, support] of batch.supports.entries()) {
 await assert.rejects(governance.createProposal({ market: keys[1], proposer: keys[7], nonce: 90,
   updates: [dailyBorrowLimitParameterUpdate(1900)], metadata: verifiedMetadata,
   contributions: [{ owner: keys[0], amount: 600 }, { owner: keys[0], amount: 700 }],
-}), /Duplicate governance owner/);
+}), /Duplicate governance balance/);
 assert.throws(() => governance.deposit({ market: keys[1], owner: keys[0], amount: 0 }), /positive/);
 const released = await governance.withdrawSupport({ market: keys[1], proposal: batch.proposal,
   owner: keys[0], authority: keys[7], amount: 50, proposer: keys[7], rentRefund: keys[7],

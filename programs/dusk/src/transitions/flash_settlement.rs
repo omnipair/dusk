@@ -69,6 +69,7 @@ impl Market {
             (budget - repayment).min(quote.fee.total),
             insurance_balance,
             insurance_target,
+            self.tranche_policy.liquidation_fee_bps,
         );
         let owner_surplus = budget
             .checked_sub(repayment)

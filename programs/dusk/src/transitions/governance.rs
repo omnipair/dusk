@@ -496,6 +496,7 @@ impl Market {
         self.tranches = TrancheCapital::default();
         self.income = Default::default();
         self.junior_exit_config = JuniorExitConfig::default();
+        self.tranche_policy = crate::state::TranchePolicy::default();
         self.junior_mint = Pubkey::default();
         self.base_hlp_vault = {
             let mut vault = HlpVault::default();
@@ -521,7 +522,8 @@ impl Market {
         self.params_hash = params_hash;
         self.initial_liquidity_authority = initial_liquidity_authority;
         self.governance_locked_ylp = 0;
-        self.parameter_revisions = [0; 8];
+        self.governance_locked_junior = 0;
+        self.parameter_revisions = [0; 9];
         self.last_marginal_observation_nad = 0;
         self.curve_revision = 0;
         self.risk_revision = 0;
@@ -577,7 +579,7 @@ impl Market {
     }
 
     /// Validate a proposal's updates without permitting unrelated
-    /// configuration fields to move with them: one to eight, at most one per
+    /// configuration fields to move with them: one to nine, at most one per
     /// family in ascending family order, each a real change within its own
     /// family's bounds, and the configuration they produce together valid as
     /// a whole. Returns that configuration.
@@ -687,6 +689,24 @@ impl Market {
                         ErrorCode::ParameterUpdateNotMeaningful
                     );
                 }
+                MarketParameterUpdate::Tranche {
+                    junior_income_share_bps,
+                    request_fee_bps,
+                    liquidation_fee_bps,
+                } => {
+                    let policy = crate::state::TranchePolicy {
+                        junior_income_share_bps: *junior_income_share_bps,
+                        liquidation_fee_bps: *liquidation_fee_bps,
+                    };
+                    policy.validate()?;
+                    let mut exit = self.junior_exit_config;
+                    exit.request_fee_bps = *request_fee_bps;
+                    exit.validate()?;
+                    require!(
+                        self.tranche_policy != policy || self.junior_exit_config.request_fee_bps != *request_fee_bps,
+                        ErrorCode::ParameterUpdateNotMeaningful
+                    );
+                }
             }
         }
         next.validate()?;
@@ -760,6 +780,8 @@ impl Market {
         let previous_debt = self.debt;
         let previous_risk = self.risk;
         let previous_insurance = self.insurance;
+        let previous_tranche_policy = self.tranche_policy;
+        let previous_junior_exit_config = self.junior_exit_config;
         let previous_revisions = self.parameter_revisions;
         let previous_last_marginal_observation_nad = self.last_marginal_observation_nad;
         let previous_curve_revision = self.curve_revision;
@@ -816,6 +838,19 @@ impl Market {
                             .checkpoint_draw_window(MarketAsset::Quote, current_slot)?;
                         self.insurance.principal_coverage_bps = *principal_coverage_bps;
                         self.insurance.per_day_draw_bps = *per_day_bps;
+                    }
+                    MarketParameterUpdate::Tranche {
+                        junior_income_share_bps,
+                        request_fee_bps,
+                        liquidation_fee_bps,
+                    } => {
+                        self.tranche_policy = crate::state::TranchePolicy {
+                            junior_income_share_bps: *junior_income_share_bps,
+                            liquidation_fee_bps: *liquidation_fee_bps,
+                        };
+                        self.base_side.fees.junior.income_share_bps = *junior_income_share_bps;
+                        self.quote_side.fees.junior.income_share_bps = *junior_income_share_bps;
+                        self.junior_exit_config.request_fee_bps = *request_fee_bps;
                     }
                     _ => {}
                 }
@@ -904,6 +939,8 @@ impl Market {
             self.debt = previous_debt;
             self.risk = previous_risk;
             self.insurance = previous_insurance;
+            self.tranche_policy = previous_tranche_policy;
+            self.junior_exit_config = previous_junior_exit_config;
             self.parameter_revisions = previous_revisions;
             self.last_marginal_observation_nad = previous_last_marginal_observation_nad;
             self.curve_revision = previous_curve_revision;

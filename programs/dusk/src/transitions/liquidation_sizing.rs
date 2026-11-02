@@ -6,7 +6,7 @@ use crate::{
     transitions::{
         amm::{cpmm_amount_out_nad, ConcentratedCurveDirection, ConcentratedCurvePoint},
         flash_liquidation::LiquidationPositionRef,
-        liquidation_policy::{LIQUIDATION_FEE_BPS, LIQUIDATION_MINIMUM_DISCOUNT_BPS, LIQUIDATION_RECOVERY_BUFFER_BPS},
+        liquidation_policy::{LIQUIDATION_MINIMUM_DISCOUNT_BPS, LIQUIDATION_RECOVERY_BUFFER_BPS},
         LeverageCollateralFee,
     },
 };
@@ -168,7 +168,11 @@ impl Market {
                 if debt_fee.haircut_bps() == 0 {
                     repayment_rate = ceil(repayment_rate, 10_000 - u128::from(rates.emergency_reward_bps), 10_000)?;
                 }
-                repayment_rate = ceil(repayment_rate, 10_000, 10_000 + u128::from(LIQUIDATION_FEE_BPS))?;
+                repayment_rate = ceil(
+                    repayment_rate,
+                    10_000,
+                    10_000 + u128::from(self.tranche_policy.liquidation_fee_bps),
+                )?;
                 let rounding = ceil(raw_price, 1, u128::from(NAD))?
                     .checked_add(4)
                     .ok_or(ErrorCode::MarketMathOverflow)?;

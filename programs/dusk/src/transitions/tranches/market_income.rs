@@ -25,7 +25,7 @@ pub struct MarketIncomeBooks {
     /// [hLP target][income asset], owned by the vault rather than its holders.
     pub hlp: [[IncomeReceivableClaim; 2]; 2],
     pub junior_end: [IncomeExposureEnd; 4],
-    pub split_carry: [bool; 4],
+    pub split_carry_bps: [u16; 4],
 }
 impl anchor_lang::Space for Box<MarketIncomeBooks> {
     const INIT_SPACE: usize = MarketIncomeBooks::INIT_SPACE;
@@ -193,9 +193,14 @@ impl Market {
         };
         let senior_supply = senior_supply.checked_sub(excluded).ok_or(ErrorCode::BrokenInvariant)?;
         require!(senior_supply > 0, ErrorCode::SupplyUnderflow);
-        let numerator = amount as u128 + u128::from(self.income.get()?.split_carry[i]);
-        let junior = (numerator / 2) as u64;
-        self.income.get_mut()?.split_carry[i] = !numerator.is_multiple_of(2);
+        let split_carry = self.income.get()?.split_carry_bps[i];
+        let numerator = (amount as u128)
+            .checked_mul(u128::from(self.tranche_policy.junior_income_share_bps))
+            .and_then(|value| value.checked_add(u128::from(split_carry)))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let junior = u64::try_from(numerator / 10_000).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        self.income.get_mut()?.split_carry_bps[i] =
+            u16::try_from(numerator % 10_000).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let senior = amount - junior;
         let bh = mul_div_u128(senior as u128, base_hlp as u128, senior_supply as u128)? as u64;
         let qh = mul_div_u128(senior as u128, quote_hlp as u128, senior_supply as u128)? as u64;

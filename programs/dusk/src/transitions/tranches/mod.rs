@@ -2,12 +2,14 @@
 //! must authenticate ownership and settle custody around these checked updates.
 
 mod junior_exit;
+mod policy;
 mod risk_rate_book;
 mod risk_rate_model;
 mod tranche_capital;
 mod tranche_revenue;
 
 pub use junior_exit::*;
+pub use policy::*;
 pub use risk_rate_book::*;
 pub use risk_rate_model::*;
 pub use tranche_capital::*;

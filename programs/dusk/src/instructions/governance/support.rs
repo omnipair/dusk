@@ -214,10 +214,11 @@ impl<'info> SupportParameterProposal<'info> {
             .governance_locked_ylp
             .checked_add(args.amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let queued = ctx
-            .accounts
-            .proposal
-            .queue_if_supported(eligible_supply, clock.unix_timestamp)?;
+        let queued = ctx.accounts.proposal.queue_if_supported(
+            eligible_supply,
+            &ctx.accounts.market.tranches,
+            clock.unix_timestamp,
+        )?;
         emit_cpi!(ParameterProposalSupported {
             proposal: proposal_key,
             supporter: supporter_key,
@@ -417,7 +418,7 @@ impl<'info> WithdrawParameterSupport<'info> {
             .governance_locked_ylp
             .checked_sub(amount)
             .ok_or(ErrorCode::InvalidProposalSupport)?;
-        proposal.cancel_if_below_sponsorship_floor();
+        proposal.cancel_if_below_sponsorship_floor(&ctx.accounts.market.tranches)?;
 
         let market_seeds = generate_market_seeds!(ctx.accounts.market);
         token_mint_to(
@@ -434,7 +435,7 @@ impl<'info> WithdrawParameterSupport<'info> {
         // last supporter leaves, so it becomes a tombstone: the discriminator
         // alone, kept rent-exempt so the address can never hold another
         // proposal, with the rest of its rent returned to the proposer.
-        let proposal_tombstoned = proposal.total_locked == 0;
+        let proposal_tombstoned = proposal.support_is_empty();
         emit_cpi!(ParameterProposalSupportWithdrawn {
             proposal: ctx.accounts.proposal.key(),
             supporter: ctx.accounts.supporter.key(),

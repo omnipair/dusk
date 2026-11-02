@@ -6477,16 +6477,20 @@
               {
                 "kind": "account",
                 "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "lp_mint"
               }
             ]
           }
         },
         {
-          "name": "ylp_mint",
+          "name": "lp_mint",
           "writable": true
         },
         {
-          "name": "owner_ylp_account",
+          "name": "owner_lp_account",
           "writable": true
         },
         {
@@ -8931,6 +8935,11 @@
               {
                 "kind": "account",
                 "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "governance_balance.lp_mint",
+                "account": "GovernanceBalance"
               }
             ]
           }
@@ -15313,7 +15322,7 @@
           {
             "name": "updates",
             "docs": [
-              "One to eight updates, at most one per family, in ascending family",
+              "One to nine updates, at most one per family, in ascending family",
               "order. One sponsorship and one vote cover all of them."
             ],
             "type": {
@@ -16586,6 +16595,14 @@
             "type": "pubkey"
           },
           {
+            "name": "lp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_kind",
+            "type": "u8"
+          },
+          {
             "name": "delegate",
             "docs": [
               "The default key revokes delegation. The owner always retains control."
@@ -16668,6 +16685,17 @@
           {
             "name": "governance_balance",
             "type": "pubkey"
+          },
+          {
+            "name": "lp_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_kind",
+            "docs": [
+              "0 senior yLP, 1 current-generation junior LP."
+            ],
+            "type": "u8"
           },
           {
             "name": "delegate",
@@ -18006,6 +18034,14 @@
           {
             "name": "generation",
             "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "InitializeLpMetadataArgs"
+              }
+            }
           }
         ]
       }
@@ -19749,6 +19785,14 @@
             }
           },
           {
+            "name": "tranche_policy",
+            "type": {
+              "defined": {
+                "name": "TranchePolicy"
+              }
+            }
+          },
+          {
             "name": "junior_mint",
             "type": "pubkey"
           },
@@ -19811,6 +19855,14 @@
             "type": "u64"
           },
           {
+            "name": "governance_locked_junior",
+            "docs": [
+              "Active-generation jrLP receipts burned into governance locks. They",
+              "remain part of junior receipt supply and keep full first-loss exposure."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "parameter_revisions",
             "docs": [
               "Independent monotone revisions for fee, concentration, IRM, EMA,",
@@ -19819,7 +19871,7 @@
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -20496,10 +20548,10 @@
             }
           },
           {
-            "name": "split_carry",
+            "name": "split_carry_bps",
             "type": {
               "array": [
-                "bool",
+                "u16",
                 4
               ]
             }
@@ -20616,6 +20668,23 @@
                 "defined": {
                   "name": "OraclePolicy"
                 }
+              }
+            ]
+          },
+          {
+            "name": "Tranche",
+            "fields": [
+              {
+                "name": "junior_income_share_bps",
+                "type": "u16"
+              },
+              {
+                "name": "request_fee_bps",
+                "type": "u16"
+              },
+              {
+                "name": "liquidation_fee_bps",
+                "type": "u16"
               }
             ]
           }
@@ -21101,7 +21170,7 @@
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -21140,6 +21209,17 @@
           },
           {
             "name": "total_locked",
+            "docs": [
+              "Senior voting units are one-for-one yLP reserve shares."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_locked_junior_receipts",
+            "docs": [
+              "Current-generation junior receipts. Their voting value is calculated",
+              "from the live junior exchange rate whenever support is evaluated."
+            ],
             "type": "u64"
           },
           {
@@ -21206,7 +21286,7 @@
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -21283,7 +21363,7 @@
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -23850,6 +23930,10 @@
             "type": "bool"
           },
           {
+            "name": "income_share_bps",
+            "type": "u16"
+          },
+          {
             "name": "reserve_shares",
             "type": "u64"
           },
@@ -23909,21 +23993,41 @@
       }
     },
     {
-      "name": "TrancheRevenueCarry",
+      "name": "TranchePolicy",
       "docs": [
-        "Carry the indivisible half atom across credits so splitting a payment into",
-        "many small transfers cannot eliminate one tranche's entire allocation."
+        "Governed tranche economics. Exit timing remains protocol-defined; only its",
+        "request/renewal fee is changed through the tranche parameter family."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "interest_half_atom",
-            "type": "bool"
+            "name": "junior_income_share_bps",
+            "type": "u16"
           },
           {
-            "name": "swap_half_atom",
-            "type": "bool"
+            "name": "liquidation_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TrancheRevenueCarry",
+      "docs": [
+        "Carry sub-basis-point atoms across credits so splitting a payment into many",
+        "small transfers cannot change either tranche's governed allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "interest_remainder_bps",
+            "type": "u16"
+          },
+          {
+            "name": "swap_remainder_bps",
+            "type": "u16"
           }
         ]
       }
@@ -24480,6 +24584,16 @@
       "value": "10000"
     },
     {
+      "name": "DEFAULT_JUNIOR_INCOME_SHARE_BPS",
+      "type": "u16",
+      "value": "5000"
+    },
+    {
+      "name": "DEFAULT_LIQUIDATION_FEE_BPS",
+      "type": "u16",
+      "value": "100"
+    },
+    {
       "name": "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS",
       "docs": [
         "Initial DAO share of base swap fees and paid interest, and the protocol",
@@ -24606,7 +24720,7 @@
         "decode as this structure."
       ],
       "type": "u8",
-      "value": "9"
+      "value": "10"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",
@@ -24639,6 +24753,21 @@
       "value": "7500"
     },
     {
+      "name": "MAX_JUNIOR_EXIT_FEE_BPS",
+      "type": "u16",
+      "value": "50"
+    },
+    {
+      "name": "MAX_JUNIOR_INCOME_SHARE_BPS",
+      "type": "u16",
+      "value": "9000"
+    },
+    {
+      "name": "MAX_LIQUIDATION_FEE_BPS",
+      "type": "u16",
+      "value": "300"
+    },
+    {
       "name": "MAX_PARAMETER_FEE_BPS",
       "docs": [
         "Absolute cap shared by the three configurable swap-fee components.",
@@ -24656,6 +24785,21 @@
       "name": "METADATA_SEED_PREFIX",
       "type": "bytes",
       "value": "[109, 101, 116, 97, 100, 97, 116, 97]"
+    },
+    {
+      "name": "MIN_JUNIOR_EXIT_FEE_BPS",
+      "type": "u16",
+      "value": "1"
+    },
+    {
+      "name": "MIN_JUNIOR_INCOME_SHARE_BPS",
+      "type": "u16",
+      "value": "1000"
+    },
+    {
+      "name": "MIN_LIQUIDATION_FEE_BPS",
+      "type": "u16",
+      "value": "25"
     },
     {
       "name": "NAD",
@@ -24728,6 +24872,15 @@
       ],
       "type": "u64",
       "value": "200"
+    },
+    {
+      "name": "TRANCHE_PARAMETER_TIMELOCK_SECONDS",
+      "docs": [
+        "Tranche holders can need the full maximum exit notice before changing the",
+        "economics they underwrite."
+      ],
+      "type": "i64",
+      "value": "864000"
     },
     {
       "name": "YIELD_ACCOUNT_SEED_PREFIX",

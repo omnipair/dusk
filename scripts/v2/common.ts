@@ -784,28 +784,35 @@ export function defaultAmmConfig() {
   };
 }
 
-export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp") {
+export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp" | "junior") {
   const suffix =
     kind === "ylp"
       ? "YLP"
       : kind === "baseHlp"
         ? "BASE_HLP"
-        : "QUOTE_HLP";
+        : kind === "quoteHlp"
+          ? "QUOTE_HLP"
+          : "JUNIOR_LP";
   const defaults = {
     ylp: {
-      name: "Omnipair Senior LP",
+      name: "Omnipair Dusk yLP",
       symbol: "yLP",
       uri: "https://omnipair.fi/metadata/dusk/ylp.json",
     },
     baseHlp: {
-      name: "Omnipair V2 (Dusk) Base hLP",
+      name: "Omnipair Dusk Base hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/base-hlp.json",
     },
     quoteHlp: {
-      name: "Omnipair V2 (Dusk) Quote hLP",
+      name: "Omnipair Dusk Quote hLP",
       symbol: "hLP",
       uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json",
+    },
+    junior: {
+      name: "Omnipair Dusk jrLP",
+      symbol: "jrLP",
+      uri: "https://omnipair.fi/metadata/dusk/jrlp.json",
     },
   }[kind];
   return {

@@ -170,7 +170,13 @@ impl Market {
                 .map_err(|_| ErrorCode::MarketMathOverflow)?;
                 let repayment = purchase.min(full_debt.cash_repaid);
                 let surplus = purchase.saturating_sub(repayment);
-                let fee = LiquidationFeeAllocation::quote(repayment, surplus, balance, target);
+                let fee = LiquidationFeeAllocation::quote(
+                    repayment,
+                    surplus,
+                    balance,
+                    target,
+                    self.tranche_policy.liquidation_fee_bps,
+                );
                 (
                     available,
                     credit,
@@ -191,7 +197,13 @@ impl Market {
                     .ok_or(ErrorCode::InsufficientDebt)?;
                 let repay =
                     position.bounded_share_repayment(self, asset, requested.shares_to_burn.min(maximum_burn))?;
-                let fee = LiquidationFeeAllocation::quote(repay.cash_repaid, u64::MAX, balance, target);
+                let fee = LiquidationFeeAllocation::quote(
+                    repay.cash_repaid,
+                    u64::MAX,
+                    balance,
+                    target,
+                    self.tranche_policy.liquidation_fee_bps,
+                );
                 // Search the finite discount domain from high to low. Each
                 // interval combines its best remaining value and lowest MM;
                 // if even that state cannot improve, every discount in it fails.

@@ -4637,6 +4637,14 @@
             }
           },
           {
+            "name": "tranche_policy",
+            "type": {
+              "defined": {
+                "name": "TranchePolicy"
+              }
+            }
+          },
+          {
             "name": "junior_mint",
             "type": "pubkey"
           },
@@ -4699,6 +4707,14 @@
             "type": "u64"
           },
           {
+            "name": "governance_locked_junior",
+            "docs": [
+              "Active-generation jrLP receipts burned into governance locks. They",
+              "remain part of junior receipt supply and keep full first-loss exposure."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "parameter_revisions",
             "docs": [
               "Independent monotone revisions for fee, concentration, IRM, EMA,",
@@ -4707,7 +4723,7 @@
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -4904,10 +4920,10 @@
             }
           },
           {
-            "name": "split_carry",
+            "name": "split_carry_bps",
             "type": {
               "array": [
-                "bool",
+                "u16",
                 4
               ]
             }
@@ -5868,6 +5884,10 @@
             "type": "bool"
           },
           {
+            "name": "income_share_bps",
+            "type": "u16"
+          },
+          {
             "name": "reserve_shares",
             "type": "u64"
           },
@@ -5927,21 +5947,41 @@
       }
     },
     {
-      "name": "TrancheRevenueCarry",
+      "name": "TranchePolicy",
       "docs": [
-        "Carry the indivisible half atom across credits so splitting a payment into",
-        "many small transfers cannot eliminate one tranche's entire allocation."
+        "Governed tranche economics. Exit timing remains protocol-defined; only its",
+        "request/renewal fee is changed through the tranche parameter family."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "interest_half_atom",
-            "type": "bool"
+            "name": "junior_income_share_bps",
+            "type": "u16"
           },
           {
-            "name": "swap_half_atom",
-            "type": "bool"
+            "name": "liquidation_fee_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TrancheRevenueCarry",
+      "docs": [
+        "Carry sub-basis-point atoms across credits so splitting a payment into many",
+        "small transfers cannot change either tranche's governed allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "interest_remainder_bps",
+            "type": "u16"
+          },
+          {
+            "name": "swap_remainder_bps",
+            "type": "u16"
           }
         ]
       }

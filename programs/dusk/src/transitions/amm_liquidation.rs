@@ -183,7 +183,13 @@ impl Market {
             let (mut low, mut high) = (0, (repayment / 100).min(surplus));
             while low < high {
                 let cap = low + (high - low).div_ceil(2);
-                let fee = LiquidationFeeAllocation::quote(repayment, cap, balance, target);
+                let fee = LiquidationFeeAllocation::quote(
+                    repayment,
+                    cap,
+                    balance,
+                    target,
+                    self.tranche_policy.liquidation_fee_bps,
+                );
                 let (insurance, revenue) = fee_debits(fee, debt_fee)?;
                 if u128::from(insurance) + u128::from(revenue) <= u128::from(surplus) {
                     low = cap;
@@ -194,7 +200,13 @@ impl Market {
             (
                 allocation,
                 repayment,
-                LiquidationFeeAllocation::quote(repayment, low, balance, target),
+                LiquidationFeeAllocation::quote(
+                    repayment,
+                    low,
+                    balance,
+                    target,
+                    self.tranche_policy.liquidation_fee_bps,
+                ),
             )
         } else {
             let (allocation, fee) = self.quote_emergency_partial_repayment(position, asset, budget, debt_fee)?;
@@ -302,7 +314,13 @@ impl Market {
         while low < high {
             let shares = low + (high - low).div_ceil(2);
             let allocation = self.liquidation_debt_allocation(position, asset, shares)?;
-            let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX, balance, target);
+            let fee = LiquidationFeeAllocation::quote(
+                allocation.debt,
+                u64::MAX,
+                balance,
+                target,
+                self.tranche_policy.liquidation_fee_bps,
+            );
             let (insurance, revenue) = fee_debits(fee, debt_fee)?;
             if u128::from(allocation.debt) + u128::from(insurance) + u128::from(revenue) <= u128::from(budget) {
                 low = shares;
@@ -312,7 +330,13 @@ impl Market {
         }
         require_gt!(low, 0, ErrorCode::InsufficientAmount);
         let allocation = self.liquidation_debt_allocation(position, asset, low)?;
-        let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX, balance, target);
+        let fee = LiquidationFeeAllocation::quote(
+            allocation.debt,
+            u64::MAX,
+            balance,
+            target,
+            self.tranche_policy.liquidation_fee_bps,
+        );
         Ok((allocation, fee))
     }
 

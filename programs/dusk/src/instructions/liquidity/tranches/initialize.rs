@@ -1,6 +1,7 @@
 use crate::{
     account::get_size_with_discriminator,
     errors::ErrorCode,
+    instructions::market::{validate_lp_metadata_args, InitializeLpMetadataArgs},
     state::{JuniorCohort, Market, TrancheIncome},
 };
 use anchor_lang::prelude::*;
@@ -18,6 +19,7 @@ pub struct JuniorCohortInitialized {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeJuniorArgs {
     pub generation: u64,
+    pub metadata: InitializeLpMetadataArgs,
 }
 
 #[event_cpi]
@@ -50,6 +52,7 @@ pub struct InitializeJunior<'info> {
 
 impl InitializeJunior<'_> {
     pub fn handle_initialize(ctx: Context<Self>, args: InitializeJuniorArgs) -> Result<()> {
+        validate_lp_metadata_args(&args.metadata)?;
         let market = &mut ctx.accounts.market;
         market.assert_current_version()?;
         let previous_mint = market.junior_mint;
@@ -76,11 +79,13 @@ impl InitializeJunior<'_> {
             old.income_end = market.income.get()?.junior_end;
             market.income.get_mut()?.junior_end = Default::default();
             market.tranches.retire_wiped_generation()?;
+            let income_share_bps = market.tranche_policy.junior_income_share_bps;
             for asset in [crate::state::MarketAsset::Base, crate::state::MarketAsset::Quote] {
                 let side = market.side_mut(asset);
                 let previous = side.fees.junior;
                 side.fees.junior = TrancheIncome {
                     initialized: true,
+                    income_share_bps,
                     seed_swap_amount: previous.seed_swap_amount,
                     seed_interest_amount: previous.seed_interest_amount,
                     carry: previous.carry,
@@ -90,6 +95,9 @@ impl InitializeJunior<'_> {
             market.synchronize_tranche_income();
         } else {
             require!(ctx.accounts.previous_cohort.is_none(), ErrorCode::InvalidArgument);
+            let income_share_bps = market.tranche_policy.junior_income_share_bps;
+            market.base_side.fees.junior.income_share_bps = income_share_bps;
+            market.quote_side.fees.junior.income_share_bps = income_share_bps;
         }
         require_eq!(args.generation, market.tranches.generation, ErrorCode::InvalidArgument);
         market.junior_mint = ctx.accounts.junior_mint.key();
@@ -107,11 +115,7 @@ impl InitializeJunior<'_> {
             &ctx.accounts.sysvar_instructions,
             &ctx.accounts.token_2022_program,
             &ctx.accounts.token_metadata_program,
-            crate::instructions::market::InitializeLpMetadataArgs {
-                name: "Omnipair Junior LP".into(),
-                symbol: "jrLP".into(),
-                uri: String::new(),
-            },
+            args.metadata,
         )?;
         emit_cpi!(JuniorCohortInitialized {
             market: market.key(),

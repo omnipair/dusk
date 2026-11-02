@@ -20,12 +20,12 @@ pub struct TrancheRevenueAllocation {
     pub rebuild_seed: u64,
 }
 
-/// Carry the indivisible half atom across credits so splitting a payment into
-/// many small transfers cannot eliminate one tranche's entire allocation.
+/// Carry sub-basis-point atoms across credits so splitting a payment into many
+/// small transfers cannot change either tranche's governed allocation.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct TrancheRevenueCarry {
-    pub interest_half_atom: bool,
-    pub swap_half_atom: bool,
+    pub interest_remainder_bps: u16,
+    pub swap_remainder_bps: u16,
 }
 
 impl TrancheRevenueCarry {
@@ -34,6 +34,7 @@ impl TrancheRevenueCarry {
         net_lp_credit: u64,
         source: TrancheRevenueSource,
         capital: &TrancheCapital,
+        junior_income_share_bps: u16,
     ) -> Result<TrancheRevenueAllocation> {
         require!(
             capital.junior_reserve_shares == 0 || capital.junior_receipt_supply > 0,
@@ -43,12 +44,16 @@ impl TrancheRevenueCarry {
             TrancheRevenueSource::LiquidationCoverage => net_lp_credit,
             TrancheRevenueSource::BorrowInterest | TrancheRevenueSource::SwapFee => {
                 let carry = match source {
-                    TrancheRevenueSource::BorrowInterest => &mut self.interest_half_atom,
-                    _ => &mut self.swap_half_atom,
+                    TrancheRevenueSource::BorrowInterest => &mut self.interest_remainder_bps,
+                    _ => &mut self.swap_remainder_bps,
                 };
-                let numerator = net_lp_credit as u128 + u128::from(*carry);
-                *carry = numerator % 2 == 1;
-                (numerator / 2) as u64
+                require!(junior_income_share_bps <= 10_000, ErrorCode::InvalidParameterUpdate);
+                let numerator = (net_lp_credit as u128)
+                    .checked_mul(u128::from(junior_income_share_bps))
+                    .and_then(|value| value.checked_add(u128::from(*carry)))
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                *carry = u16::try_from(numerator % 10_000).map_err(|_| ErrorCode::MarketMathOverflow)?;
+                u64::try_from(numerator / 10_000).map_err(|_| ErrorCode::MarketMathOverflow)?
             }
         };
         let mut allocation = TrancheRevenueAllocation {

@@ -699,9 +699,12 @@ export function deriveInsuranceAddress(
   );
 }
 
-/** Owner-specific reusable governance balance; program ID overrides are supported. */
-export function deriveGovernanceBalanceAddress(market: PublicKey, owner: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("governance_balance"), market.toBuffer(), owner.toBuffer()], programId);
+/** Owner- and LP-mint-specific reusable governance balance. */
+export function deriveGovernanceBalanceAddress(market: PublicKey, owner: PublicKey, lpMint: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("governance_balance"), market.toBuffer(), owner.toBuffer(), lpMint.toBuffer()],
+    programId
+  );
 }
 
 export function deriveGovernanceSupportAddress(proposal: PublicKey, balance: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {

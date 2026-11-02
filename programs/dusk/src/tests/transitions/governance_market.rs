@@ -151,6 +151,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
+        tranche_policy: Default::default(),
         junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
         ylp_mint: Pubkey::new_unique(),
@@ -172,7 +173,8 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_ylp: 0,
-        parameter_revisions: [0; 8],
+        governance_locked_junior: 0,
+        parameter_revisions: [0; 9],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -1308,7 +1310,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         .unwrap();
     assert_eq!(market.config.fee_profile(), fee);
     assert_eq!(market.config.max_daily_borrow_bps, before_fee.max_daily_borrow_bps);
-    assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     let irm = IrmConfig {
         lower_signal_nad: 60_000_000,
@@ -1321,7 +1323,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         .unwrap();
     assert_eq!(market.config.irm, irm);
     assert_eq!(market.config.fee_profile(), fee);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0, 0, 0, 0, 0]);
 
     market
         .execute_parameter_updates(
@@ -1338,7 +1340,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.config.directional_ema_half_life_ms, 180_000);
     assert_eq!(market.config.curve_depth_ema_half_life_ms, 240_000);
     assert_eq!(market.config.amm.center_ema_half_life_ms, 300_000);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0, 0, 0, 0]);
 
     market
         .execute_parameter_updates(
@@ -1349,7 +1351,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         )
         .unwrap();
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 0, 0, 0, 0]);
 
     market
         .execute_parameter_updates(
@@ -1364,7 +1366,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.config.amm.adjustment_threshold_nad, NAD / 100);
     assert_eq!(market.config.amm.adjustment_step_nad, NAD / 1_000);
     assert_eq!(market.config.amm.min_adjustment_interval_slots, 100);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 1, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 1, 0, 0, 0]);
 }
 
 #[test]
@@ -1406,7 +1408,7 @@ fn concentration_execution_reconstructs_the_selected_shape() {
     assert_eq!(market.config.amm.core_half_width_bps, 100);
     assert_eq!(market.config.amm.fade_width_bps, 400);
     assert_eq!(market.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
-    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0, 0, 0, 0]);
 }
 
 #[test]
@@ -1566,7 +1568,7 @@ fn one_proposal_applies_every_family_and_advances_each_revision() {
     assert_eq!(market.insurance.per_day_draw_bps, 3_000);
     assert_eq!(market.config.fee_profile(), before.fee_profile());
     assert_eq!(market.config.amm, before.amm);
-    assert_eq!(market.parameter_revisions, [0, 0, 1, 0, 1, 0, 1, 0]);
+    assert_eq!(market.parameter_revisions, [0, 0, 1, 0, 1, 0, 1, 0, 0]);
     market.assert_market_invariants().unwrap();
 }
 
@@ -1685,7 +1687,7 @@ fn every_family_closes_its_windows_before_any_family_moves() {
         assert!(together.borrowed_bucket > 0 && together.last_decay_slot == half_day_slot);
     }
     assert_eq!(together.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
-    assert_eq!(together.parameter_revisions, [0, 1, 0, 0, 1, 0, 0, 0]);
+    assert_eq!(together.parameter_revisions, [0, 1, 0, 0, 1, 0, 0, 0, 0]);
 }
 
 #[test]
@@ -1713,7 +1715,7 @@ fn curve_and_center_controller_settle_on_their_final_values_together() {
         .unwrap();
     assert_eq!(market.config.amm.peak_amplification_nad, 2 * NAD);
     assert_eq!(market.config.amm.adjustment_step_nad, NAD / 1_000);
-    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 1, 0, 0]);
+    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 1, 0, 0, 0]);
     market.assert_market_invariants().unwrap();
 
     // Reshaping the curve while switching the controller off releases the
@@ -1746,7 +1748,7 @@ fn curve_and_center_controller_settle_on_their_final_values_together() {
     assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
     assert_eq!(market.config.amm.peak_amplification_nad, 3 * NAD);
     assert_eq!(market.config.amm.adjustment_step_nad, 0);
-    assert_eq!(market.parameter_revisions, [0, 2, 0, 0, 0, 2, 0, 0]);
+    assert_eq!(market.parameter_revisions, [0, 2, 0, 0, 0, 2, 0, 0, 0]);
     market.assert_market_invariants().unwrap();
 }
 
@@ -1813,7 +1815,50 @@ fn insurance_governance_can_only_tighten_below_protocol_ceilings() {
         .unwrap();
     assert_eq!(market.insurance.principal_coverage_bps, 1_000);
     assert_eq!(market.insurance.per_day_draw_bps, 3_000);
-    assert_eq!(market.parameter_revisions, [0, 0, 0, 0, 0, 0, 1, 0]);
+    assert_eq!(market.parameter_revisions, [0, 0, 0, 0, 0, 0, 1, 0, 0]);
+}
+
+#[test]
+fn tranche_governance_updates_all_three_bounded_economic_controls() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    market
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::Tranche {
+                junior_income_share_bps: 6_000,
+                request_fee_bps: 10,
+                liquidation_fee_bps: 150,
+            }],
+            1,
+        )
+        .unwrap();
+    assert_eq!(market.tranche_policy.junior_income_share_bps, 6_000);
+    assert_eq!(market.base_side.fees.junior.income_share_bps, 6_000);
+    assert_eq!(market.quote_side.fees.junior.income_share_bps, 6_000);
+    assert_eq!(market.junior_exit_config.request_fee_bps, 10);
+    assert_eq!(market.tranche_policy.liquidation_fee_bps, 150);
+    assert_eq!(market.parameter_revisions, [0, 0, 0, 0, 0, 0, 0, 0, 1]);
+
+    for update in [
+        MarketParameterUpdate::Tranche {
+            junior_income_share_bps: 999,
+            request_fee_bps: 10,
+            liquidation_fee_bps: 150,
+        },
+        MarketParameterUpdate::Tranche {
+            junior_income_share_bps: 6_000,
+            request_fee_bps: 0,
+            liquidation_fee_bps: 150,
+        },
+        MarketParameterUpdate::Tranche {
+            junior_income_share_bps: 6_000,
+            request_fee_bps: 10,
+            liquidation_fee_bps: 301,
+        },
+    ] {
+        assert!(market.validate_parameter_updates(&[update]).is_err());
+    }
 }
 
 #[test]

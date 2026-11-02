@@ -2,13 +2,13 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, DEFAULT_PROTOCOL_REVENUE_SHARE_BPS},
+    constants::{BPS_DENOMINATOR, DEFAULT_LIQUIDATION_FEE_BPS, DEFAULT_PROTOCOL_REVENUE_SHARE_BPS},
     errors::ErrorCode,
 };
 
 pub const LIQUIDATION_MINIMUM_DISCOUNT_BPS: u16 = 50;
 pub const LIQUIDATION_RECOVERY_BUFFER_BPS: u16 = 200;
-pub const LIQUIDATION_FEE_BPS: u16 = 100;
+pub const LIQUIDATION_FEE_BPS: u16 = DEFAULT_LIQUIDATION_FEE_BPS;
 pub const LIQUIDATION_PROTOCOL_SHARE_BPS: u16 = DEFAULT_PROTOCOL_REVENUE_SHARE_BPS;
 pub const PRINCIPAL_LOSS_COVERAGE_BPS: u16 = 7_500;
 
@@ -131,8 +131,15 @@ pub struct LiquidationFeeAllocation {
 }
 
 impl LiquidationFeeAllocation {
-    pub fn quote(net_repayment: u64, surplus_cap: u64, insurance_balance: u64, target: u64) -> Self {
-        let total = (net_repayment / 100).min(surplus_cap);
+    pub fn quote(
+        net_repayment: u64,
+        surplus_cap: u64,
+        insurance_balance: u64,
+        target: u64,
+        liquidation_fee_bps: u16,
+    ) -> Self {
+        let total = (u128::from(net_repayment) * u128::from(liquidation_fee_bps) / u128::from(BPS_DENOMINATOR))
+            .min(u128::from(surplus_cap)) as u64;
         let protocol =
             (u128::from(total) * u128::from(LIQUIDATION_PROTOCOL_SHARE_BPS) / u128::from(BPS_DENOMINATOR)) as u64;
         let designated = total - protocol;
@@ -349,7 +356,7 @@ mod tests {
     #[test]
     fn fee_taper_conserves_every_atom_and_never_distributes_existing_insurance() {
         for repayment in [0, 99, 100, 499, 500, u64::MAX] {
-            let fee = LiquidationFeeAllocation::quote(repayment, u64::MAX, 0, 0);
+            let fee = LiquidationFeeAllocation::quote(repayment, u64::MAX, 0, 0, LIQUIDATION_FEE_BPS);
             assert_eq!(fee.protocol, fee.total / 5);
             assert_eq!(fee.protocol + fee.insurance + fee.lp, fee.total);
         }
@@ -361,7 +368,7 @@ mod tests {
             (20_000, 0, 800),
         ] {
             assert_eq!(
-                LiquidationFeeAllocation::quote(100_000, u64::MAX, balance, 10_000),
+                LiquidationFeeAllocation::quote(100_000, u64::MAX, balance, 10_000, LIQUIDATION_FEE_BPS),
                 LiquidationFeeAllocation {
                     total: 1_000,
                     protocol: 200,
@@ -370,18 +377,29 @@ mod tests {
                 }
             );
         }
-        let capped = LiquidationFeeAllocation::quote(100_000, 55, 0, 1_000);
+        let capped = LiquidationFeeAllocation::quote(100_000, 55, 0, 1_000, LIQUIDATION_FEE_BPS);
         assert_eq!(
             (capped.total, capped.protocol, capped.insurance, capped.lp),
             (55, 11, 44, 0)
         );
         for target in [0, 1, 7, u64::MAX] {
-            let f = LiquidationFeeAllocation::quote(u64::MAX, u64::MAX, target / 2, target);
+            let f = LiquidationFeeAllocation::quote(u64::MAX, u64::MAX, target / 2, target, LIQUIDATION_FEE_BPS);
             assert_eq!(f.protocol + f.insurance + f.lp, f.total);
             assert!(f.insurance <= target - target / 2);
         }
         assert_eq!(liquidation_insurance_target(100_000, 30_000).unwrap(), 7_000);
         assert_eq!(liquidation_insurance_target(1, 1).unwrap(), 2);
+    }
+
+    #[test]
+    fn governed_liquidation_fee_scales_the_existing_protocol_and_coverage_split() {
+        for (bps, total) in [(25, 250), (100, 1_000), (300, 3_000)] {
+            let fee = LiquidationFeeAllocation::quote(100_000, u64::MAX, 0, 10_000, bps);
+            assert_eq!(fee.total, total);
+            assert_eq!(fee.protocol, total / 5);
+            assert_eq!(fee.insurance, total - fee.protocol);
+            assert_eq!(fee.lp, 0);
+        }
     }
 
     #[test]
