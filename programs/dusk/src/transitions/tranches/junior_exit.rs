@@ -1,5 +1,5 @@
 use crate::{
-    constants::{MS_PER_DAY, TARGET_MS_PER_SLOT},
+    constants::{MAX_JUNIOR_EXIT_FEE_BPS, MIN_JUNIOR_EXIT_FEE_BPS, MS_PER_DAY, TARGET_MS_PER_SLOT},
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
     state::TrancheCapital,
@@ -31,7 +31,7 @@ impl JuniorExitConfig {
             self.minimum_notice_slots > 0
                 && self.maximum_notice_slots >= self.minimum_notice_slots
                 && self.exercise_window_slots > 0
-                && self.request_fee_bps < 10_000,
+                && (MIN_JUNIOR_EXIT_FEE_BPS..=MAX_JUNIOR_EXIT_FEE_BPS).contains(&self.request_fee_bps),
             ErrorCode::InvalidMarketConfig
         );
         Ok(())

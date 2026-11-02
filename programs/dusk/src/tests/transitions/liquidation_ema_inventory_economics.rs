@@ -478,6 +478,7 @@ fn cmp_current_candidate(
                     (budget - repaid).min(q.fee.total),
                     trial.insurance.available(side),
                     trial.liquidation_insurance_target(side)?,
+                    trial.tranche_policy.liquidation_fee_bps,
                 );
                 let cap = if full {
                     f.unwind_credit(trial.insurance.draw_capacity(side, slot)?)?

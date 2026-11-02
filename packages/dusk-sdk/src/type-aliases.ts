@@ -41,6 +41,7 @@ type DuskAccountTypes = [
   TypeNamed<"riskRateConfig">,
   TypeNamed<"trancheCapital">,
   TypeNamed<"trancheIncome">,
+  TypeNamed<"tranchePolicy">,
   TypeNamed<"trancheRevenueCarry">,
   TypeNamed<"juniorExitConfig">,
   TypeNamed<"marketIncomeBooks">,

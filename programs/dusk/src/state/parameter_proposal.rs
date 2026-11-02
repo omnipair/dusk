@@ -10,14 +10,14 @@ use crate::{
     errors::ErrorCode,
 };
 
-use super::{FeeProfile, IrmConfig, OraclePolicy};
+use super::{FeeProfile, IrmConfig, OraclePolicy, TrancheCapital};
 
 /// Domain separator for the immutable, client-verifiable proposal digest. V2
 /// binds a list of family updates and each updated family's revision.
 pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V2";
 
 /// Number of governed parameter families, and of `Market::parameter_revisions`.
-pub const PARAMETER_FAMILY_COUNT: usize = 8;
+pub const PARAMETER_FAMILY_COUNT: usize = 9;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub enum ParameterFamily {
@@ -29,6 +29,7 @@ pub enum ParameterFamily {
     CenterController,
     Insurance,
     Oracle,
+    Tranche,
 }
 
 impl ParameterFamily {
@@ -42,6 +43,7 @@ impl ParameterFamily {
             Self::CenterController => 5,
             Self::Insurance => 6,
             Self::Oracle => 7,
+            Self::Tranche => 8,
         }
     }
 }
@@ -80,9 +82,16 @@ pub enum MarketParameterUpdate {
     },
     /// Prospective reference and blend policy, bounded by the birth config.
     Oracle(OraclePolicy),
+    /// Junior underwriting economics. Exit timing remains protocol-defined;
+    /// this family changes the income share and fee policy.
+    Tranche {
+        junior_income_share_bps: u16,
+        request_fee_bps: u16,
+        liquidation_fee_bps: u16,
+    },
 }
 
-/// One to eight updates, at most one per family, in ascending family order,
+/// One to nine updates, at most one per family, in ascending family order,
 /// so a proposal's updates have exactly one encoding and one digest.
 pub fn validate_parameter_update_set(updates: &[MarketParameterUpdate]) -> Result<()> {
     require!(
@@ -130,7 +139,12 @@ impl MarketParameterUpdate {
             Self::CenterController { .. } => ParameterFamily::CenterController,
             Self::InsuranceDrawCaps { .. } => ParameterFamily::Insurance,
             Self::Oracle(_) => ParameterFamily::Oracle,
+            Self::Tranche { .. } => ParameterFamily::Tranche,
         }
+    }
+
+    pub fn tranche_notice_required(updates: &[Self]) -> bool {
+        updates.iter().any(|update| matches!(update, Self::Tranche { .. }))
     }
 }
 
@@ -217,7 +231,7 @@ pub struct ParameterProposal {
     pub nonce: u64,
     /// The families this proposal changes, one update each, in ascending
     /// family order. They execute together or not at all.
-    #[max_len(8)]
+    #[max_len(9)]
     pub updates: Vec<MarketParameterUpdate>,
     /// The revision of each updated family when the proposal was created; an
     /// executed change to any of them makes this proposal stale. Families the
@@ -229,7 +243,11 @@ pub struct ParameterProposal {
     /// Frozen minimum support needed to keep this proposal alive after its
     /// initial 1% sponsorship burn-lock.
     pub sponsorship_floor: u64,
+    /// Senior voting units are one-for-one yLP reserve shares.
     pub total_locked: u64,
+    /// Current-generation junior receipts. Their voting value is calculated
+    /// from the live junior exchange rate whenever support is evaluated.
+    pub total_locked_junior_receipts: u64,
     /// Immutable queue-time numerator and direct-yLP denominator.
     pub queued_support: u64,
     pub queued_eligible_ylp: u64,
@@ -277,6 +295,7 @@ impl ParameterProposal {
         self.status = ParameterProposalStatus::Collecting;
         self.sponsorship_floor = sponsorship_floor(eligible_supply)?;
         self.total_locked = 0;
+        self.total_locked_junior_receipts = 0;
         self.queued_support = 0;
         self.queued_eligible_ylp = 0;
         self.created_at = created_at;
@@ -321,21 +340,36 @@ impl ParameterProposal {
         Ok(())
     }
 
-    pub fn queue_if_supported(&mut self, eligible_supply: u64, now: i64) -> Result<bool> {
+    pub fn current_support(&self, tranches: &TrancheCapital) -> Result<u64> {
+        let junior = junior_receipt_value(self.total_locked_junior_receipts, tranches)?;
+        self.total_locked
+            .checked_add(junior)
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+    }
+
+    pub fn support_is_empty(&self) -> bool {
+        self.total_locked == 0 && self.total_locked_junior_receipts == 0
+    }
+
+    pub fn queue_if_supported(&mut self, eligible_supply: u64, tranches: &TrancheCapital, now: i64) -> Result<bool> {
         require!(
             self.status == ParameterProposalStatus::Collecting,
             ErrorCode::ProposalNotCollecting
         );
-        if !has_strict_support_majority(self.total_locked, eligible_supply)? {
+        let current_support = self.current_support(tranches)?;
+        if !has_strict_support_majority(current_support, eligible_supply)? {
             return Ok(false);
         }
-        self.queued_support = self.total_locked;
+        self.queued_support = current_support;
         self.queued_eligible_ylp = eligible_supply;
         self.status = ParameterProposalStatus::Queued;
         self.queued_at = now;
-        self.execute_after = now
-            .checked_add(PARAMETER_PROPOSAL_TIMELOCK_SECONDS)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let timelock = if MarketParameterUpdate::tranche_notice_required(&self.updates) {
+            crate::constants::TRANCHE_PARAMETER_TIMELOCK_SECONDS
+        } else {
+            PARAMETER_PROPOSAL_TIMELOCK_SECONDS
+        };
+        self.execute_after = now.checked_add(timelock).ok_or(ErrorCode::MarketMathOverflow)?;
         self.execution_deadline = self
             .execute_after
             .checked_add(PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS)
@@ -377,13 +411,29 @@ impl ParameterProposal {
         false
     }
 
-    pub fn cancel_if_below_sponsorship_floor(&mut self) -> bool {
-        if self.status == ParameterProposalStatus::Collecting && self.total_locked < self.sponsorship_floor {
+    pub fn cancel_if_below_sponsorship_floor(&mut self, tranches: &TrancheCapital) -> Result<bool> {
+        if self.status == ParameterProposalStatus::Collecting
+            && self.current_support(tranches)? < self.sponsorship_floor
+        {
             self.status = ParameterProposalStatus::Cancelled;
-            return true;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
+}
+
+pub fn junior_receipt_value(receipts: u64, tranches: &TrancheCapital) -> Result<u64> {
+    if receipts == 0 || tranches.junior_reserve_shares == 0 {
+        return Ok(0);
+    }
+    require!(tranches.junior_receipt_supply > 0, ErrorCode::BrokenInvariant);
+    u64::try_from(
+        (receipts as u128)
+            .checked_mul(tranches.junior_reserve_shares as u128)
+            .and_then(|value| value.checked_div(tranches.junior_receipt_supply as u128))
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+    )
+    .map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 pub fn sponsorship_floor(eligible_supply: u64) -> Result<u64> {

@@ -4643,6 +4643,14 @@ export type LeverageDelegate = {
             }
           },
           {
+            "name": "tranchePolicy",
+            "type": {
+              "defined": {
+                "name": "tranchePolicy"
+              }
+            }
+          },
+          {
             "name": "juniorMint",
             "type": "pubkey"
           },
@@ -4705,6 +4713,14 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
+            "name": "governanceLockedJunior",
+            "docs": [
+              "Active-generation jrLP receipts burned into governance locks. They",
+              "remain part of junior receipt supply and keep full first-loss exposure."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "parameterRevisions",
             "docs": [
               "Independent monotone revisions for fee, concentration, IRM, EMA,",
@@ -4713,7 +4729,7 @@ export type LeverageDelegate = {
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -4910,10 +4926,10 @@ export type LeverageDelegate = {
             }
           },
           {
-            "name": "splitCarry",
+            "name": "splitCarryBps",
             "type": {
               "array": [
-                "bool",
+                "u16",
                 4
               ]
             }
@@ -5874,6 +5890,10 @@ export type LeverageDelegate = {
             "type": "bool"
           },
           {
+            "name": "incomeShareBps",
+            "type": "u16"
+          },
+          {
             "name": "reserveShares",
             "type": "u64"
           },
@@ -5933,21 +5953,41 @@ export type LeverageDelegate = {
       }
     },
     {
-      "name": "trancheRevenueCarry",
+      "name": "tranchePolicy",
       "docs": [
-        "Carry the indivisible half atom across credits so splitting a payment into",
-        "many small transfers cannot eliminate one tranche's entire allocation."
+        "Governed tranche economics. Exit timing remains protocol-defined; only its",
+        "request/renewal fee is changed through the tranche parameter family."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "interestHalfAtom",
-            "type": "bool"
+            "name": "juniorIncomeShareBps",
+            "type": "u16"
           },
           {
-            "name": "swapHalfAtom",
-            "type": "bool"
+            "name": "liquidationFeeBps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheRevenueCarry",
+      "docs": [
+        "Carry sub-basis-point atoms across credits so splitting a payment into many",
+        "small transfers cannot change either tranche's governed allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "interestRemainderBps",
+            "type": "u16"
+          },
+          {
+            "name": "swapRemainderBps",
+            "type": "u16"
           }
         ]
       }

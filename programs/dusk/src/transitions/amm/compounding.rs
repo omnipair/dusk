@@ -45,11 +45,13 @@ impl Market {
                 claimable_lp_fee,
                 crate::state::TrancheRevenueSource::SwapFee,
                 &self.tranches,
+                self.tranche_policy.junior_income_share_bps,
             )?;
             let allocation = carry.allocate(
                 compounded_fee_debit,
                 crate::state::TrancheRevenueSource::SwapFee,
                 &self.tranches,
+                self.tranche_policy.junior_income_share_bps,
             )?;
             let capitalized_fee = compounded_fee_debit - allocation.rebuild_seed;
             let total = self.base_side.shares.ylp_supply;
@@ -112,7 +114,7 @@ impl Market {
                 self.tranches.junior_reserve_shares,
                 new_junior,
                 fee_asset.code(),
-                carry.swap_half_atom,
+                carry.swap_remainder_bps,
             ));
             end.junior_seed_compound = allocation.rebuild_seed;
         }

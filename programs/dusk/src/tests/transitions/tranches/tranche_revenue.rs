@@ -8,7 +8,7 @@ fn all_lp_fee_sources_use_the_agreed_split() {
     let mut carry = TrancheRevenueCarry::default();
     for source in [TrancheRevenueSource::BorrowInterest, TrancheRevenueSource::SwapFee] {
         assert_eq!(
-            carry.allocate(100, source, &capital).unwrap(),
+            carry.allocate(100, source, &capital, 5_000).unwrap(),
             TrancheRevenueAllocation {
                 senior: 50,
                 junior: 50,
@@ -18,7 +18,7 @@ fn all_lp_fee_sources_use_the_agreed_split() {
     }
     assert_eq!(
         carry
-            .allocate(100, TrancheRevenueSource::LiquidationCoverage, &capital)
+            .allocate(100, TrancheRevenueSource::LiquidationCoverage, &capital, 5_000)
             .unwrap(),
         TrancheRevenueAllocation {
             senior: 0,
@@ -33,7 +33,7 @@ fn empty_and_wiped_junior_rebuild_seed_without_gifting_the_next_depositor() {
     let mut capital = TrancheCapital::default();
     let mut carry = TrancheRevenueCarry::default();
     let empty = carry
-        .allocate(100, TrancheRevenueSource::BorrowInterest, &capital)
+        .allocate(100, TrancheRevenueSource::BorrowInterest, &capital, 5_000)
         .unwrap();
     assert_eq!(
         empty,
@@ -46,12 +46,12 @@ fn empty_and_wiped_junior_rebuild_seed_without_gifting_the_next_depositor() {
     capital.enter(20, 100).unwrap();
     capital.absorb_loss(100, 20, &mut 100).unwrap();
     assert_eq!(
-        carry.allocate(100, TrancheRevenueSource::SwapFee, &capital).unwrap(),
+        carry.allocate(100, TrancheRevenueSource::SwapFee, &capital, 5_000).unwrap(),
         empty
     );
     assert_eq!(
         carry
-            .allocate(100, TrancheRevenueSource::LiquidationCoverage, &capital)
+            .allocate(100, TrancheRevenueSource::LiquidationCoverage, &capital, 5_000)
             .unwrap(),
         TrancheRevenueAllocation {
             senior: 0,
@@ -66,25 +66,25 @@ fn one_atom_payments_cannot_starve_junior_and_lanes_do_not_share_carry() {
     let mut capital = TrancheCapital::default();
     capital.enter(20, 100).unwrap();
     let mut carry = TrancheRevenueCarry::default();
-    let a = carry.allocate(1, TrancheRevenueSource::SwapFee, &capital).unwrap();
+    let a = carry.allocate(1, TrancheRevenueSource::SwapFee, &capital, 5_000).unwrap();
     assert_eq!(a.senior, 1);
     assert_eq!(
         carry
-            .allocate(1, TrancheRevenueSource::BorrowInterest, &capital)
+            .allocate(1, TrancheRevenueSource::BorrowInterest, &capital, 5_000)
             .unwrap()
             .senior,
         1
     );
     assert_eq!(
         carry
-            .allocate(1, TrancheRevenueSource::SwapFee, &capital)
+            .allocate(1, TrancheRevenueSource::SwapFee, &capital, 5_000)
             .unwrap()
             .junior,
         1
     );
     assert_eq!(
         carry
-            .allocate(1, TrancheRevenueSource::BorrowInterest, &capital)
+            .allocate(1, TrancheRevenueSource::BorrowInterest, &capital, 5_000)
             .unwrap()
             .junior,
         1
@@ -93,12 +93,15 @@ fn one_atom_payments_cannot_starve_junior_and_lanes_do_not_share_carry() {
 
 proptest! {
     #[test]
-    fn allocations_conserve_collected_atoms(amount in any::<u64>(), initial_carry in any::<bool>(), wiped in any::<bool>()) {
+    fn allocations_conserve_collected_atoms(amount in any::<u64>(), initial_carry in 0u16..10_000, wiped in any::<bool>()) {
         let mut capital = TrancheCapital::default();
         if !wiped { capital.enter(20, 100).unwrap(); }
-        let mut carry = TrancheRevenueCarry { swap_half_atom: initial_carry, ..Default::default() };
-        let result = carry.allocate(amount, TrancheRevenueSource::SwapFee, &capital).unwrap();
+        let mut carry = TrancheRevenueCarry { swap_remainder_bps: initial_carry, ..Default::default() };
+        let result = carry.allocate(amount, TrancheRevenueSource::SwapFee, &capital, 5_000).unwrap();
         assert_eq!(result.senior as u128 + result.junior as u128 + result.rebuild_seed as u128, amount as u128);
-        assert_eq!(2 * (result.junior as u128 + result.rebuild_seed as u128) + u128::from(carry.swap_half_atom), amount as u128 + u128::from(initial_carry));
+        assert_eq!(
+            10_000 * (result.junior as u128 + result.rebuild_seed as u128) + u128::from(carry.swap_remainder_bps),
+            5_000 * amount as u128 + u128::from(initial_carry)
+        );
     }
 }

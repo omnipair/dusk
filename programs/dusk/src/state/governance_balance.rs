@@ -3,12 +3,37 @@ use anchor_lang::prelude::*;
 use super::VirtualYieldLedger;
 use crate::{constants::GOVERNANCE_BALANCE_SEED_PREFIX, errors::ErrorCode};
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub enum GovernanceTokenKind {
+    Senior,
+    Junior,
+}
+
+impl GovernanceTokenKind {
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Senior => 0,
+            Self::Junior => 1,
+        }
+    }
+
+    pub fn from_code(code: u8) -> Result<Self> {
+        match code {
+            0 => Ok(Self::Senior),
+            1 => Ok(Self::Junior),
+            _ => err!(ErrorCode::InvalidProposalSupport),
+        }
+    }
+}
+
 /// Owner-held virtual yLP. Both idle and committed shares accrue yield here.
 #[account]
 #[derive(InitSpace)]
 pub struct GovernanceBalance {
     pub market: Pubkey,
     pub owner: Pubkey,
+    pub lp_mint: Pubkey,
+    pub token_kind: u8,
     /// The default key revokes delegation. The owner always retains control.
     pub delegate: Pubkey,
     pub total_amount: u64,
@@ -26,6 +51,7 @@ impl GovernanceBalance {
                 GOVERNANCE_BALANCE_SEED_PREFIX,
                 market.as_ref(),
                 self.owner.as_ref(),
+                self.lp_mint.as_ref(),
                 &[self.bump],
             ],
             &crate::ID,

@@ -128,7 +128,7 @@ mod tests {
             expected.try_to_vec().unwrap()
         );
         expected.pending = [1, 2, 3, 4];
-        expected.split_carry[1] = true;
+        expected.split_carry_bps[1] = 7_500;
         let bytes = expected.try_to_vec().unwrap();
         assert_eq!(bytes.len(), LazyIncomeBooks::INIT_SPACE);
         let mut lazy = LazyIncomeBooks::try_from_slice(&bytes).unwrap();

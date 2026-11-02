@@ -22,7 +22,7 @@ use super::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct CreateParameterProposalArgs {
     pub nonce: u64,
-    /// One to eight updates, at most one per family, in ascending family
+    /// One to nine updates, at most one per family, in ascending family
     /// order. One sponsorship and one vote cover all of them.
     pub updates: Vec<MarketParameterUpdate>,
     pub metadata: ProposalMetadataV1,
@@ -297,10 +297,11 @@ impl<'info> CreateParameterProposal<'info> {
             .governance_locked_ylp
             .checked_add(args.initial_support)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let queued = ctx
-            .accounts
-            .proposal
-            .queue_if_supported(eligible_supply, clock.unix_timestamp)?;
+        let queued = ctx.accounts.proposal.queue_if_supported(
+            eligible_supply,
+            &ctx.accounts.market.tranches,
+            clock.unix_timestamp,
+        )?;
         emit_cpi!(ParameterProposalCreated {
             proposal: proposal_key,
             market: market_key,
@@ -403,9 +404,11 @@ impl<'info> QueueParameterProposal<'info> {
             return Ok(());
         }
         require!(
-            ctx.accounts
-                .proposal
-                .queue_if_supported(eligible_supply, Clock::get()?.unix_timestamp)?,
+            ctx.accounts.proposal.queue_if_supported(
+                eligible_supply,
+                &ctx.accounts.market.tranches,
+                Clock::get()?.unix_timestamp,
+            )?,
             ErrorCode::ProposalSupportInsufficient
         );
         emit_cpi!(ParameterProposalQueued {

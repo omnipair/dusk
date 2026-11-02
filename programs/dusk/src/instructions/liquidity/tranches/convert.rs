@@ -131,7 +131,7 @@ impl<'info> ConvertTranche<'info> {
             } else {
                 (&mut a.senior_quote_yield, &mut a.junior_quote_yield)
             };
-            require_eq!(
+            require_gte!(
                 junior.escrow_balance,
                 a.exit.ticket.receipts,
                 ErrorCode::BrokenInvariant
@@ -150,6 +150,7 @@ impl<'info> ConvertTranche<'info> {
                 fees.junior.interest_growth_q64,
             )?;
         }
+        let previous_exit_receipts = a.exit.ticket.receipts;
         let mut receipt = TrancheConverted {
             market: market_key,
             owner,
@@ -242,8 +243,19 @@ impl<'info> ConvertTranche<'info> {
                 receipt.junior_amount = junior_amount;
             }
         }
-        a.junior_base_yield.escrow_balance = a.exit.ticket.receipts;
-        a.junior_quote_yield.escrow_balance = a.exit.ticket.receipts;
+        let next_exit_receipts = a.exit.ticket.receipts;
+        a.junior_base_yield.escrow_balance = a
+            .junior_base_yield
+            .escrow_balance
+            .checked_sub(previous_exit_receipts)
+            .and_then(|value| value.checked_add(next_exit_receipts))
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        a.junior_quote_yield.escrow_balance = a
+            .junior_quote_yield
+            .escrow_balance
+            .checked_sub(previous_exit_receipts)
+            .and_then(|value| value.checked_add(next_exit_receipts))
+            .ok_or(ErrorCode::BrokenInvariant)?;
         a.market.synchronize_tranche_income();
         a.market.assert_market_invariants()?;
         receipt.ready_at = a.exit.ticket.ready_at;

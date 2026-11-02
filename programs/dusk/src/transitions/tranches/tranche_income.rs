@@ -4,10 +4,11 @@ use anchor_lang::prelude::*;
 
 /// Custody-backed junior income. Cached ownership is synchronized by every
 /// capital transition; the market invariant checks it against the shared book.
-#[derive(Clone, Copy, Debug, Default, InitSpace)]
+#[derive(Clone, Copy, Debug, InitSpace)]
 #[cfg_attr(feature = "idl-build", derive(AnchorSerialize, AnchorDeserialize))]
 pub struct TrancheIncome {
     pub initialized: bool,
+    pub income_share_bps: u16,
     pub reserve_shares: u64,
     pub receipt_supply: u64,
     pub swap_growth_q64: u128,
@@ -21,6 +22,28 @@ pub struct TrancheIncome {
     pub seed_swap_remainder: u64,
     pub seed_interest_remainder: u64,
     pub carry: TrancheRevenueCarry,
+}
+
+impl Default for TrancheIncome {
+    fn default() -> Self {
+        Self {
+            initialized: false,
+            income_share_bps: crate::constants::DEFAULT_JUNIOR_INCOME_SHARE_BPS,
+            reserve_shares: 0,
+            receipt_supply: 0,
+            swap_growth_q64: 0,
+            interest_growth_q64: 0,
+            swap_remainder: 0,
+            interest_remainder: 0,
+            seed_swap_amount: 0,
+            seed_interest_amount: 0,
+            seed_swap_checkpoint: 0,
+            seed_interest_checkpoint: 0,
+            seed_swap_remainder: 0,
+            seed_interest_remainder: 0,
+            carry: TrancheRevenueCarry::default(),
+        }
+    }
 }
 
 impl TrancheIncome {
@@ -70,7 +93,7 @@ impl TrancheIncome {
             junior_receipt_supply: self.receipt_supply,
             ..Default::default()
         };
-        let allocation = self.carry.allocate(credit, source, &capital)?;
+        let allocation = self.carry.allocate(credit, source, &capital, self.income_share_bps)?;
         let swap = source == TrancheRevenueSource::SwapFee;
         let (index, remainder, seed) = if swap {
             (
@@ -111,20 +134,21 @@ impl AnchorSerialize for TrancheIncome {
     fn serialize<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let mut bytes = [0_u8; Self::INIT_SPACE];
         bytes[0] = u8::from(self.initialized);
-        bytes[1..9].copy_from_slice(&self.reserve_shares.to_le_bytes());
-        bytes[9..17].copy_from_slice(&self.receipt_supply.to_le_bytes());
-        bytes[17..33].copy_from_slice(&self.swap_growth_q64.to_le_bytes());
-        bytes[33..49].copy_from_slice(&self.interest_growth_q64.to_le_bytes());
-        bytes[49..57].copy_from_slice(&self.swap_remainder.to_le_bytes());
-        bytes[57..65].copy_from_slice(&self.interest_remainder.to_le_bytes());
-        bytes[65..73].copy_from_slice(&self.seed_swap_amount.to_le_bytes());
-        bytes[73..81].copy_from_slice(&self.seed_interest_amount.to_le_bytes());
-        bytes[81..97].copy_from_slice(&self.seed_swap_checkpoint.to_le_bytes());
-        bytes[97..113].copy_from_slice(&self.seed_interest_checkpoint.to_le_bytes());
-        bytes[113..121].copy_from_slice(&self.seed_swap_remainder.to_le_bytes());
-        bytes[121..129].copy_from_slice(&self.seed_interest_remainder.to_le_bytes());
-        bytes[129] = u8::from(self.carry.interest_half_atom);
-        bytes[130] = u8::from(self.carry.swap_half_atom);
+        bytes[1..3].copy_from_slice(&self.income_share_bps.to_le_bytes());
+        bytes[3..11].copy_from_slice(&self.reserve_shares.to_le_bytes());
+        bytes[11..19].copy_from_slice(&self.receipt_supply.to_le_bytes());
+        bytes[19..35].copy_from_slice(&self.swap_growth_q64.to_le_bytes());
+        bytes[35..51].copy_from_slice(&self.interest_growth_q64.to_le_bytes());
+        bytes[51..59].copy_from_slice(&self.swap_remainder.to_le_bytes());
+        bytes[59..67].copy_from_slice(&self.interest_remainder.to_le_bytes());
+        bytes[67..75].copy_from_slice(&self.seed_swap_amount.to_le_bytes());
+        bytes[75..83].copy_from_slice(&self.seed_interest_amount.to_le_bytes());
+        bytes[83..99].copy_from_slice(&self.seed_swap_checkpoint.to_le_bytes());
+        bytes[99..115].copy_from_slice(&self.seed_interest_checkpoint.to_le_bytes());
+        bytes[115..123].copy_from_slice(&self.seed_swap_remainder.to_le_bytes());
+        bytes[123..131].copy_from_slice(&self.seed_interest_remainder.to_le_bytes());
+        bytes[131..133].copy_from_slice(&self.carry.interest_remainder_bps.to_le_bytes());
+        bytes[133..135].copy_from_slice(&self.carry.swap_remainder_bps.to_le_bytes());
         writer.write_all(&bytes)
     }
 }
@@ -134,26 +158,27 @@ impl AnchorDeserialize for TrancheIncome {
     fn deserialize_reader<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let mut bytes = [0_u8; Self::INIT_SPACE];
         reader.read_exact(&mut bytes)?;
-        if bytes[0] > 1 || bytes[129] > 1 || bytes[130] > 1 {
+        if bytes[0] > 1 {
             return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
         }
         Ok(Self {
             initialized: bytes[0] != 0,
-            reserve_shares: u64::from_le_bytes(*arrayref::array_ref![bytes, 1, 8]),
-            receipt_supply: u64::from_le_bytes(*arrayref::array_ref![bytes, 9, 8]),
-            swap_growth_q64: u128::from_le_bytes(*arrayref::array_ref![bytes, 17, 16]),
-            interest_growth_q64: u128::from_le_bytes(*arrayref::array_ref![bytes, 33, 16]),
-            swap_remainder: u64::from_le_bytes(*arrayref::array_ref![bytes, 49, 8]),
-            interest_remainder: u64::from_le_bytes(*arrayref::array_ref![bytes, 57, 8]),
-            seed_swap_amount: u64::from_le_bytes(*arrayref::array_ref![bytes, 65, 8]),
-            seed_interest_amount: u64::from_le_bytes(*arrayref::array_ref![bytes, 73, 8]),
-            seed_swap_checkpoint: u128::from_le_bytes(*arrayref::array_ref![bytes, 81, 16]),
-            seed_interest_checkpoint: u128::from_le_bytes(*arrayref::array_ref![bytes, 97, 16]),
-            seed_swap_remainder: u64::from_le_bytes(*arrayref::array_ref![bytes, 113, 8]),
-            seed_interest_remainder: u64::from_le_bytes(*arrayref::array_ref![bytes, 121, 8]),
+            income_share_bps: u16::from_le_bytes(*arrayref::array_ref![bytes, 1, 2]),
+            reserve_shares: u64::from_le_bytes(*arrayref::array_ref![bytes, 3, 8]),
+            receipt_supply: u64::from_le_bytes(*arrayref::array_ref![bytes, 11, 8]),
+            swap_growth_q64: u128::from_le_bytes(*arrayref::array_ref![bytes, 19, 16]),
+            interest_growth_q64: u128::from_le_bytes(*arrayref::array_ref![bytes, 35, 16]),
+            swap_remainder: u64::from_le_bytes(*arrayref::array_ref![bytes, 51, 8]),
+            interest_remainder: u64::from_le_bytes(*arrayref::array_ref![bytes, 59, 8]),
+            seed_swap_amount: u64::from_le_bytes(*arrayref::array_ref![bytes, 67, 8]),
+            seed_interest_amount: u64::from_le_bytes(*arrayref::array_ref![bytes, 75, 8]),
+            seed_swap_checkpoint: u128::from_le_bytes(*arrayref::array_ref![bytes, 83, 16]),
+            seed_interest_checkpoint: u128::from_le_bytes(*arrayref::array_ref![bytes, 99, 16]),
+            seed_swap_remainder: u64::from_le_bytes(*arrayref::array_ref![bytes, 115, 8]),
+            seed_interest_remainder: u64::from_le_bytes(*arrayref::array_ref![bytes, 123, 8]),
             carry: TrancheRevenueCarry {
-                interest_half_atom: bytes[129] != 0,
-                swap_half_atom: bytes[130] != 0,
+                interest_remainder_bps: u16::from_le_bytes(*arrayref::array_ref![bytes, 131, 2]),
+                swap_remainder_bps: u16::from_le_bytes(*arrayref::array_ref![bytes, 133, 2]),
             },
         })
     }
@@ -167,19 +192,22 @@ mod encoding_tests {
     fn tranche_income_encoding_matches_borsh_field_order() {
         let mut bytes = vec![0_u8; TrancheIncome::INIT_SPACE];
         bytes[0] = 1;
-        for (index, byte) in bytes[1..129].iter_mut().enumerate() {
+        for (index, byte) in bytes[1..131].iter_mut().enumerate() {
             *byte = index as u8;
         }
-        bytes[129] = 1;
+        bytes[131..133].copy_from_slice(&9_999_u16.to_le_bytes());
+        bytes[133..135].copy_from_slice(&5_000_u16.to_le_bytes());
         let parsed = TrancheIncome::try_from_slice(&bytes).unwrap();
-        assert!(parsed.initialized && parsed.carry.interest_half_atom && !parsed.carry.swap_half_atom);
-        assert_eq!(parsed.reserve_shares, u64::from_le_bytes([0, 1, 2, 3, 4, 5, 6, 7]));
+        assert!(parsed.initialized);
+        assert_eq!(parsed.carry.interest_remainder_bps, 9_999);
+        assert_eq!(parsed.carry.swap_remainder_bps, 5_000);
+        assert_eq!(parsed.reserve_shares, u64::from_le_bytes([2, 3, 4, 5, 6, 7, 8, 9]));
         assert_eq!(
             parsed.seed_interest_remainder,
-            u64::from_le_bytes([120, 121, 122, 123, 124, 125, 126, 127])
+            u64::from_le_bytes([122, 123, 124, 125, 126, 127, 128, 129])
         );
         assert_eq!(parsed.try_to_vec().unwrap(), bytes);
-        for i in [0, 129, 130] {
+        for i in [0] {
             let mut invalid = bytes.clone();
             invalid[i] = 2;
             assert!(TrancheIncome::try_from_slice(&invalid).is_err());

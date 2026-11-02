@@ -81,7 +81,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
             let allocation = trial.liquidation_debt_allocation(&Ref::Leverage(&next), side, q.debt_shares_to_burn)?;
             let budget = q.repayment + q.fee.total + q.owner_surplus;
             let repaid = if full { budget.min(allocation.debt) } else { allocation.debt };
-            let fee = LiquidationFeeAllocation::quote(repaid, (budget-repaid).min(q.fee.total), trial.insurance.available(side), trial.liquidation_insurance_target(side)?);
+            let fee = LiquidationFeeAllocation::quote(repaid, (budget-repaid).min(q.fee.total), trial.insurance.available(side), trial.liquidation_insurance_target(side)?, trial.tranche_policy.liquidation_fee_bps);
             let cap = if full { f.unwind_credit(trial.insurance.draw_capacity(side,slot)?)? } else { 0 };
             let loss = LiquidationLossAllocation::quote_with_coverage(allocation.principal.min(allocation.debt), allocation.debt,
                 repaid, cap, trial.insurance.principal_coverage_bps)?;

@@ -8,7 +8,7 @@ use crate::{
     events::{GovernanceSupportChanged, ParameterProposalCreated, ParameterProposalQueued},
     instructions::accounts::validate_lp_mint,
     state::{
-        GovernanceBalance, GovernanceSupport, Market, MarketParameterUpdate, ParameterProposal,
+        GovernanceBalance, GovernanceSupport, GovernanceTokenKind, Market, MarketParameterUpdate, ParameterProposal,
         ParameterProposalStatus, ProposalMetadataV1,
     },
     token::create_token_account,
@@ -169,6 +169,7 @@ impl<'info> CreateGovernanceProposal<'info> {
         )?;
 
         let changes = commit_contributions(
+            &ctx.accounts.market,
             &mut ctx.accounts.proposal,
             proposal_key,
             ctx.accounts.proposer.to_account_info(),
@@ -177,14 +178,15 @@ impl<'info> CreateGovernanceProposal<'info> {
             &args.contributions,
         )?;
         require_gte!(
-            ctx.accounts.proposal.total_locked,
+            ctx.accounts.proposal.current_support(&ctx.accounts.market.tranches)?,
             ctx.accounts.proposal.sponsorship_floor,
             ErrorCode::ProposalSponsorshipTooLow
         );
-        let queued = ctx
-            .accounts
-            .proposal
-            .queue_if_supported(eligible_supply, clock.unix_timestamp)?;
+        let queued = ctx.accounts.proposal.queue_if_supported(
+            eligible_supply,
+            &ctx.accounts.market.tranches,
+            clock.unix_timestamp,
+        )?;
         emit_cpi!(ParameterProposalCreated {
             proposal: proposal_key,
             market: market_key,
@@ -193,14 +195,14 @@ impl<'info> CreateGovernanceProposal<'info> {
             family_revisions: ctx.accounts.proposal.family_revisions,
             digest: ctx.accounts.proposal.digest,
             sponsorship_floor: ctx.accounts.proposal.sponsorship_floor,
-            initial_support: ctx.accounts.proposal.total_locked,
+            initial_support: ctx.accounts.proposal.current_support(&ctx.accounts.market.tranches)?,
             status: ctx.accounts.proposal.status.code(),
             updates: ctx.accounts.proposal.updates.clone(),
             metadata: ctx.accounts.proposal.metadata.clone(),
         });
         for mut change in changes {
             change.status = ctx.accounts.proposal.status.code();
-            change.total_locked = ctx.accounts.proposal.total_locked;
+            change.total_locked = ctx.accounts.proposal.current_support(&ctx.accounts.market.tranches)?;
             emit_cpi!(change);
         }
         if queued {
@@ -264,6 +266,7 @@ impl<'info> SupportGovernanceProposal<'info> {
             ctx.accounts.quote_hlp_ylp_vault.amount,
         )?;
         let changes = commit_contributions(
+            &ctx.accounts.market,
             &mut ctx.accounts.proposal,
             proposal_key,
             ctx.accounts.authority.to_account_info(),
@@ -271,13 +274,14 @@ impl<'info> SupportGovernanceProposal<'info> {
             ctx.remaining_accounts,
             &args.contributions,
         )?;
-        let queued = ctx
-            .accounts
-            .proposal
-            .queue_if_supported(eligible_supply, Clock::get()?.unix_timestamp)?;
+        let queued = ctx.accounts.proposal.queue_if_supported(
+            eligible_supply,
+            &ctx.accounts.market.tranches,
+            Clock::get()?.unix_timestamp,
+        )?;
         for mut change in changes {
             change.status = ctx.accounts.proposal.status.code();
-            change.total_locked = ctx.accounts.proposal.total_locked;
+            change.total_locked = ctx.accounts.proposal.current_support(&ctx.accounts.market.tranches)?;
             emit_cpi!(change);
         }
         if queued {
@@ -290,6 +294,7 @@ impl<'info> SupportGovernanceProposal<'info> {
 /// Allocations never mutate token supply or virtual yield: the owner's balance
 /// already holds those shares. Strict ordering rejects duplicate account aliases.
 fn commit_contributions<'info>(
+    market: &Market,
     proposal: &mut ParameterProposal,
     proposal_key: Pubkey,
     authority: AccountInfo<'info>,
@@ -318,6 +323,19 @@ fn commit_contributions<'info>(
         let mut balance = GovernanceBalance::try_deserialize(&mut &balance_info.try_borrow_data()?[..])?;
         balance.assert_account(proposal.market, *balance_info.key)?;
         balance.authorize(*authority.key)?;
+        let token_kind = GovernanceTokenKind::from_code(balance.token_kind)?;
+        match token_kind {
+            GovernanceTokenKind::Senior => {
+                require_keys_eq!(balance.lp_mint, market.ylp_mint, ErrorCode::InvalidLpMintKey);
+            }
+            GovernanceTokenKind::Junior => {
+                require_keys_eq!(balance.lp_mint, market.junior_mint, ErrorCode::InvalidLpMintKey);
+                require!(
+                    market.tranches.junior_reserve_shares > 0,
+                    ErrorCode::InvalidProposalSupport
+                );
+            }
+        }
         balance.commit(amount)?;
         let (expected, bump) = Pubkey::find_program_address(
             &[
@@ -362,10 +380,20 @@ fn commit_contributions<'info>(
             .amount
             .checked_add(amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        proposal.total_locked = proposal
-            .total_locked
-            .checked_add(amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        match token_kind {
+            GovernanceTokenKind::Senior => {
+                proposal.total_locked = proposal
+                    .total_locked
+                    .checked_add(amount)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+            }
+            GovernanceTokenKind::Junior => {
+                proposal.total_locked_junior_receipts = proposal
+                    .total_locked_junior_receipts
+                    .checked_add(amount)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+            }
+        }
         balance.try_serialize(&mut &mut balance_info.try_borrow_mut_data()?[..])?;
         support.try_serialize(&mut &mut support_info.try_borrow_mut_data()?[..])?;
         changes.push(GovernanceSupportChanged {
@@ -376,7 +404,7 @@ fn commit_contributions<'info>(
             withdrawn: false,
             amount,
             owner_support: support.amount,
-            total_locked: proposal.total_locked,
+            total_locked: proposal.current_support(&market.tranches)?,
             status: proposal.status.code(),
             proposal_tombstoned: false,
         });
@@ -458,11 +486,21 @@ impl<'info> WithdrawGovernanceSupport<'info> {
             .committed_amount
             .checked_sub(amount)
             .ok_or(ErrorCode::InvalidProposalSupport)?;
-        proposal.total_locked = proposal
-            .total_locked
-            .checked_sub(amount)
-            .ok_or(ErrorCode::InvalidProposalSupport)?;
-        proposal.cancel_if_below_sponsorship_floor();
+        match GovernanceTokenKind::from_code(balance.token_kind)? {
+            GovernanceTokenKind::Senior => {
+                proposal.total_locked = proposal
+                    .total_locked
+                    .checked_sub(amount)
+                    .ok_or(ErrorCode::InvalidProposalSupport)?;
+            }
+            GovernanceTokenKind::Junior => {
+                proposal.total_locked_junior_receipts = proposal
+                    .total_locked_junior_receipts
+                    .checked_sub(amount)
+                    .ok_or(ErrorCode::InvalidProposalSupport)?;
+            }
+        }
+        proposal.cancel_if_below_sponsorship_floor(&ctx.accounts.market.tranches)?;
         emit_cpi!(GovernanceSupportChanged {
             proposal: ctx.accounts.proposal.key(),
             governance_balance: balance.key(),
@@ -471,9 +509,9 @@ impl<'info> WithdrawGovernanceSupport<'info> {
             withdrawn: true,
             amount,
             owner_support: support.amount,
-            total_locked: proposal.total_locked,
+            total_locked: proposal.current_support(&ctx.accounts.market.tranches)?,
             status: proposal.status.code(),
-            proposal_tombstoned: proposal.total_locked == 0
+            proposal_tombstoned: proposal.support_is_empty()
         });
         if support.amount == 0 {
             support.close(ctx.accounts.rent_refund.to_account_info())?;

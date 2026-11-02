@@ -138,10 +138,20 @@ pub(crate) fn direct_ylp_eligible_supply(
     let total_ownership = live_ylp_supply
         .checked_add(market.governance_locked_ylp)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    total_ownership
+    let senior = total_ownership
         .checked_sub(base_hlp_ylp_amount)
         .and_then(|amount| amount.checked_sub(quote_hlp_ylp_amount))
-        .ok_or_else(|| ErrorCode::InvalidHlpVault.into())
+        .ok_or(ErrorCode::InvalidHlpVault)?;
+    let active_junior_receipts = market
+        .tranches
+        .junior_receipt_supply
+        .checked_sub(market.tranches.permanent_receipts)
+        .and_then(|amount| amount.checked_sub(market.tranches.queued_receipts))
+        .ok_or(ErrorCode::BrokenInvariant)?;
+    let junior = crate::state::junior_receipt_value(active_junior_receipts, &market.tranches)?;
+    senior
+        .checked_add(junior)
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 pub(crate) fn validate_supporter_accounts(
@@ -180,7 +190,7 @@ pub(super) fn save_released_proposal(
     info: &AccountInfo,
     proposer: &AccountInfo,
 ) -> Result<()> {
-    if proposal.total_locked == 0 {
+    if proposal.support_is_empty() {
         use crate::{account::get_size_with_discriminator, state::ParameterProposalTombstone};
         let space = get_size_with_discriminator::<ParameterProposalTombstone>();
         let refund = info

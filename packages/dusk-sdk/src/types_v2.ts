@@ -6483,16 +6483,20 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "lpMint"
               }
             ]
           }
         },
         {
-          "name": "ylpMint",
+          "name": "lpMint",
           "writable": true
         },
         {
-          "name": "ownerYlpAccount",
+          "name": "ownerLpAccount",
           "writable": true
         },
         {
@@ -8937,6 +8941,11 @@ export type Dusk = {
               {
                 "kind": "account",
                 "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "governance_balance.lp_mint",
+                "account": "governanceBalance"
               }
             ]
           }
@@ -15319,7 +15328,7 @@ export type Dusk = {
           {
             "name": "updates",
             "docs": [
-              "One to eight updates, at most one per family, in ascending family",
+              "One to nine updates, at most one per family, in ascending family",
               "order. One sponsorship and one vote cover all of them."
             ],
             "type": {
@@ -16592,6 +16601,14 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
+            "name": "lpMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenKind",
+            "type": "u8"
+          },
+          {
             "name": "delegate",
             "docs": [
               "The default key revokes delegation. The owner always retains control."
@@ -16674,6 +16691,17 @@ export type Dusk = {
           {
             "name": "governanceBalance",
             "type": "pubkey"
+          },
+          {
+            "name": "lpMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tokenKind",
+            "docs": [
+              "0 senior yLP, 1 current-generation junior LP."
+            ],
+            "type": "u8"
           },
           {
             "name": "delegate",
@@ -18012,6 +18040,14 @@ export type Dusk = {
           {
             "name": "generation",
             "type": "u64"
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "initializeLpMetadataArgs"
+              }
+            }
           }
         ]
       }
@@ -19755,6 +19791,14 @@ export type Dusk = {
             }
           },
           {
+            "name": "tranchePolicy",
+            "type": {
+              "defined": {
+                "name": "tranchePolicy"
+              }
+            }
+          },
+          {
             "name": "juniorMint",
             "type": "pubkey"
           },
@@ -19817,6 +19861,14 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "governanceLockedJunior",
+            "docs": [
+              "Active-generation jrLP receipts burned into governance locks. They",
+              "remain part of junior receipt supply and keep full first-loss exposure."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "parameterRevisions",
             "docs": [
               "Independent monotone revisions for fee, concentration, IRM, EMA,",
@@ -19825,7 +19877,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -20502,10 +20554,10 @@ export type Dusk = {
             }
           },
           {
-            "name": "splitCarry",
+            "name": "splitCarryBps",
             "type": {
               "array": [
-                "bool",
+                "u16",
                 4
               ]
             }
@@ -20622,6 +20674,23 @@ export type Dusk = {
                 "defined": {
                   "name": "oraclePolicy"
                 }
+              }
+            ]
+          },
+          {
+            "name": "tranche",
+            "fields": [
+              {
+                "name": "juniorIncomeShareBps",
+                "type": "u16"
+              },
+              {
+                "name": "requestFeeBps",
+                "type": "u16"
+              },
+              {
+                "name": "liquidationFeeBps",
+                "type": "u16"
               }
             ]
           }
@@ -21107,7 +21176,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -21146,6 +21215,17 @@ export type Dusk = {
           },
           {
             "name": "totalLocked",
+            "docs": [
+              "Senior voting units are one-for-one yLP reserve shares."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "totalLockedJuniorReceipts",
+            "docs": [
+              "Current-generation junior receipts. Their voting value is calculated",
+              "from the live junior exchange rate whenever support is evaluated."
+            ],
             "type": "u64"
           },
           {
@@ -21212,7 +21292,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -21289,7 +21369,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                8
+                9
               ]
             }
           },
@@ -23856,6 +23936,10 @@ export type Dusk = {
             "type": "bool"
           },
           {
+            "name": "incomeShareBps",
+            "type": "u16"
+          },
+          {
             "name": "reserveShares",
             "type": "u64"
           },
@@ -23915,21 +23999,41 @@ export type Dusk = {
       }
     },
     {
-      "name": "trancheRevenueCarry",
+      "name": "tranchePolicy",
       "docs": [
-        "Carry the indivisible half atom across credits so splitting a payment into",
-        "many small transfers cannot eliminate one tranche's entire allocation."
+        "Governed tranche economics. Exit timing remains protocol-defined; only its",
+        "request/renewal fee is changed through the tranche parameter family."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "interestHalfAtom",
-            "type": "bool"
+            "name": "juniorIncomeShareBps",
+            "type": "u16"
           },
           {
-            "name": "swapHalfAtom",
-            "type": "bool"
+            "name": "liquidationFeeBps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "trancheRevenueCarry",
+      "docs": [
+        "Carry sub-basis-point atoms across credits so splitting a payment into many",
+        "small transfers cannot change either tranche's governed allocation."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "interestRemainderBps",
+            "type": "u16"
+          },
+          {
+            "name": "swapRemainderBps",
+            "type": "u16"
           }
         ]
       }
@@ -24486,6 +24590,16 @@ export type Dusk = {
       "value": "10000"
     },
     {
+      "name": "defaultJuniorIncomeShareBps",
+      "type": "u16",
+      "value": "5000"
+    },
+    {
+      "name": "defaultLiquidationFeeBps",
+      "type": "u16",
+      "value": "100"
+    },
+    {
       "name": "defaultProtocolRevenueShareBps",
       "docs": [
         "Initial DAO share of base swap fees and paid interest, and the protocol",
@@ -24612,7 +24726,7 @@ export type Dusk = {
         "decode as this structure."
       ],
       "type": "u8",
-      "value": "9"
+      "value": "10"
     },
     {
       "name": "marketReserveVaultSeedPrefix",
@@ -24645,6 +24759,21 @@ export type Dusk = {
       "value": "7500"
     },
     {
+      "name": "maxJuniorExitFeeBps",
+      "type": "u16",
+      "value": "50"
+    },
+    {
+      "name": "maxJuniorIncomeShareBps",
+      "type": "u16",
+      "value": "9000"
+    },
+    {
+      "name": "maxLiquidationFeeBps",
+      "type": "u16",
+      "value": "300"
+    },
+    {
       "name": "maxParameterFeeBps",
       "docs": [
         "Absolute cap shared by the three configurable swap-fee components.",
@@ -24662,6 +24791,21 @@ export type Dusk = {
       "name": "metadataSeedPrefix",
       "type": "bytes",
       "value": "[109, 101, 116, 97, 100, 97, 116, 97]"
+    },
+    {
+      "name": "minJuniorExitFeeBps",
+      "type": "u16",
+      "value": "1"
+    },
+    {
+      "name": "minJuniorIncomeShareBps",
+      "type": "u16",
+      "value": "1000"
+    },
+    {
+      "name": "minLiquidationFeeBps",
+      "type": "u16",
+      "value": "25"
     },
     {
       "name": "nad",
@@ -24734,6 +24878,15 @@ export type Dusk = {
       ],
       "type": "u64",
       "value": "200"
+    },
+    {
+      "name": "trancheParameterTimelockSeconds",
+      "docs": [
+        "Tranche holders can need the full maximum exit notice before changing the",
+        "economics they underwrite."
+      ],
+      "type": "i64",
+      "value": "864000"
     },
     {
       "name": "yieldAccountSeedPrefix",

@@ -35,6 +35,12 @@ fn snapshot() -> (Market, Clock) {
     layout.quote_side.fees.junior.reserve_shares = junior_fee_tags[1];
     let oracle_revision_tag = 0xeb97_5bdf_2468_ace0_u64;
     layout.parameter_revisions[7] = oracle_revision_tag;
+    let junior_mint_tag = Pubkey::new_from_array([0xa7; 32]);
+    layout.junior_mint = junior_mint_tag;
+    let governance_junior_tag = 0xac97_5bdf_2468_ace0_u64;
+    layout.governance_locked_junior = governance_junior_tag;
+    let tranche_revision_tag = 0xad97_5bdf_2468_ace0_u64;
+    layout.parameter_revisions[8] = tranche_revision_tag;
     let mut current = Vec::new();
     layout.try_serialize(&mut current).unwrap();
     let mut insertions: Vec<_> = tags.into_iter().zip([8, 32, 8, 32, 8, 8, 32, 16]).map(|(tag, size)| {
@@ -51,7 +57,7 @@ fn snapshot() -> (Market, Clock) {
         insertions.push((offset, size));
     }
     for tag in junior_fee_tags {
-        let offset = current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap() - 1;
+        let offset = current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap() - 3;
         insertions.push((offset, crate::state::TrancheIncome::INIT_SPACE));
     }
     insertions.push((8, crate::state::OracleState::INIT_SPACE));
@@ -62,6 +68,15 @@ fn snapshot() -> (Market, Clock) {
             .unwrap(),
         8,
     ));
+    let junior_mint_offset = current
+        .windows(32)
+        .position(|window| window == junior_mint_tag.to_bytes())
+        .unwrap();
+    insertions.push((junior_mint_offset, crate::transitions::tranches::TranchePolicy::INIT_SPACE));
+    for tag in [governance_junior_tag, tranche_revision_tag] {
+        let offset = current.windows(8).position(|window| window == tag.to_le_bytes()).unwrap();
+        insertions.push((offset, 8));
+    }
     let irm_offset = current.windows(8).position(|window| window == irm_tag.to_le_bytes()).unwrap();
     // Replace the old 18-byte Morpho config with the 50-byte band config.
     let irm = crate::state::IrmConfig::default().try_to_vec().unwrap();

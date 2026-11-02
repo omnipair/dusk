@@ -91,7 +91,7 @@ impl Default for HlpRebalanceReceipt {
 pub(crate) struct ConcentratedHlpTransition {
     frozen_hlp_mask: u8,
     hlp_capitalized: [[u64; 3]; 2],
-    junior_compound: Option<(u64, u64, u8, bool)>,
+    junior_compound: Option<(u64, u64, u8, u16)>,
     junior_seed_compound: u64,
     expected_curve_revision: u64,
     expected_ylp_supply: u64,
@@ -1219,7 +1219,7 @@ impl ConcentratedHlpTransition {
             require_eq!(market.tranches.junior_reserve_shares, old, ErrorCode::BrokenInvariant);
             market.tranches.junior_reserve_shares = new;
             let side = market.side_mut(MarketAsset::try_from_code(asset)?);
-            side.fees.junior.carry.swap_half_atom = carry;
+            side.fees.junior.carry.swap_remainder_bps = carry;
             let seed = self.junior_seed_compound;
             if seed > 0 {
                 side.debit_reserve(seed, true)?;

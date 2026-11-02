@@ -4,6 +4,7 @@ import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAd
 import { address, type AddressLike } from "./address.js";
 import { deriveJuniorMintAddress, deriveJuniorCohortAddress, deriveJuniorExitAddress, deriveYieldAccountAddress, deriveIncomeEpochAddress, deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID } from "./constants.js";
 import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js";
+import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
 import { DuskWrite } from "./write.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 
@@ -132,15 +133,19 @@ export class DuskTranches {
     return { instruction, transaction: new Transaction().add(instruction) };
   }
 
-  async initialize(params: { market: AddressLike; payer: AddressLike }) {
+  async initialize(params: { market: AddressLike; payer: AddressLike; metadata: LpTokenMetadataInput }) {
     const market = address(params.market), payer = address(params.payer);
+    assertLpTokenMetadata(params.metadata);
     const state = await this.program.account.market.fetch(market);
     const first = state.juniorMint.equals(PublicKey.default);
     if (!first && !state.tranches.juniorReserveShares.isZero()) throw new Error("Current junior capital is not wiped out");
     const generation = BigInt(state.tranches.generation.toString()) + (first ? 0n : 1n);
     const juniorMint = deriveJuniorMintAddress(market, generation, this.program.programId)[0];
     const cohort = deriveJuniorCohortAddress(market, juniorMint, this.program.programId)[0];
-    const initialize = await this.write.instruction("initializeJunior", { generation: governanceIntegerBN(generation, "generation") }, { accounts: {
+    const initialize = await this.write.instruction("initializeJunior", {
+      generation: governanceIntegerBN(generation, "generation"),
+      metadata: params.metadata,
+    }, { accounts: {
       payer, market, juniorMint, cohort,
       tokenMetadata: deriveTokenMetadataAddress(juniorMint)[0], sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY, tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
       previousCohort: first ? null : deriveJuniorCohortAddress(market, state.juniorMint, this.program.programId)[0],

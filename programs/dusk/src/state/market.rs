@@ -559,6 +559,7 @@ pub struct Market {
     pub tranches: crate::transitions::tranches::TrancheCapital,
     pub income: crate::state::LazyIncomeBooks,
     pub junior_exit_config: crate::transitions::tranches::JuniorExitConfig,
+    pub tranche_policy: crate::transitions::tranches::TranchePolicy,
     pub junior_mint: Pubkey,
     pub base_hlp_vault: HlpVault,
     pub quote_hlp_vault: HlpVault,
@@ -572,9 +573,12 @@ pub struct Market {
     /// when computing direct-yLP eligibility; internal reserve-share supply is
     /// intentionally unchanged by governance locking.
     pub governance_locked_ylp: u64,
+    /// Active-generation jrLP receipts burned into governance locks. They
+    /// remain part of junior receipt supply and keep full first-loss exposure.
+    pub governance_locked_junior: u64,
     /// Independent monotone revisions for fee, concentration, IRM, EMA,
     /// daily-borrow-limit, and center-controller parameter families.
-    pub parameter_revisions: [u64; 8],
+    pub parameter_revisions: [u64; 9],
     /// Latest trader-visible marginal price committed by a curve mutation.
     pub last_marginal_observation_nad: u64,
     /// Monotone revision for executable-curve mutations.
@@ -613,6 +617,7 @@ impl Market {
         reload_field(&mut self.tranches, &mut cursor)?;
         self.income.reload(&mut cursor)?;
         reload_field(&mut self.junior_exit_config, &mut cursor)?;
+        reload_field(&mut self.tranche_policy, &mut cursor)?;
         reload_field(&mut self.junior_mint, &mut cursor)?;
         reload_field(&mut self.base_hlp_vault, &mut cursor)?;
         reload_field(&mut self.quote_hlp_vault, &mut cursor)?;
@@ -621,6 +626,7 @@ impl Market {
         reload_field(&mut self.params_hash, &mut cursor)?;
         reload_field(&mut self.initial_liquidity_authority, &mut cursor)?;
         reload_field(&mut self.governance_locked_ylp, &mut cursor)?;
+        reload_field(&mut self.governance_locked_junior, &mut cursor)?;
         reload_field(&mut self.parameter_revisions, &mut cursor)?;
         reload_field(&mut self.last_marginal_observation_nad, &mut cursor)?;
         reload_field(&mut self.curve_revision, &mut cursor)?;

@@ -15,6 +15,7 @@ impl Market {
             .junior_receipt_supply
             .checked_sub(self.tranches.permanent_receipts)
             .and_then(|v| v.checked_sub(self.tranches.queued_receipts))
+            .and_then(|v| v.checked_sub(self.governance_locked_junior))
             .ok_or(ErrorCode::BrokenInvariant)?;
         require_gte!(expected, live_mint_supply, ErrorCode::InvalidArgument);
         if expected != live_mint_supply {

@@ -574,14 +574,26 @@ pub struct InitializeLpMetadataArgs {
 
 pub(crate) fn validate_lp_metadata_args(args: &InitializeLpMetadataArgs) -> Result<()> {
     require!(!args.name.is_empty() && args.name.len() <= 32, ErrorCode::InvalidLpName);
-    require!(args.name.is_ascii(), ErrorCode::InvalidLpName);
+    require!(
+        args.name.bytes().all(|byte| (0x20..=0x7e).contains(&byte)),
+        ErrorCode::InvalidLpName
+    );
     require!(
         !args.symbol.is_empty() && args.symbol.len() <= 10,
         ErrorCode::InvalidLpSymbol
     );
-    require!(args.symbol.is_ascii(), ErrorCode::InvalidLpSymbol);
     require!(
-        args.uri.len() <= 200 && args.uri.starts_with("http"),
+        args.symbol.bytes().all(|byte| (0x21..=0x7e).contains(&byte)),
+        ErrorCode::InvalidLpSymbol
+    );
+    require!(
+        args.uri.len() <= 200
+            && args.uri.starts_with("http")
+            && args.uri.is_ascii()
+            && !args
+                .uri
+                .bytes()
+                .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control()),
         ErrorCode::InvalidLpUri
     );
     Ok(())

@@ -987,7 +987,7 @@ pub struct ParameterProposalCreated {
     pub nonce: u64,
     /// Each updated family's revision at creation; untouched families read
     /// zero. The family of every update is its variant.
-    pub family_revisions: [u64; 8],
+    pub family_revisions: [u64; 9],
     pub digest: [u8; 32],
     pub sponsorship_floor: u64,
     pub initial_support: u64,
@@ -1024,7 +1024,7 @@ pub struct ParameterProposalExecuted {
     /// Family codes of every update applied, ascending.
     pub families: Vec<u8>,
     /// The market's revision of every family after execution.
-    pub new_family_revisions: [u64; 8],
+    pub new_family_revisions: [u64; 9],
     pub executed_at: i64,
 }
 
@@ -1062,6 +1062,9 @@ pub struct GovernanceBalanceUpdated {
     pub market: Pubkey,
     pub owner: Pubkey,
     pub governance_balance: Pubkey,
+    pub lp_mint: Pubkey,
+    /// 0 senior yLP, 1 current-generation junior LP.
+    pub token_kind: u8,
     pub delegate: Pubkey,
     /// 0 deposit, 1 withdraw, 2 delegate change, 3 yield checkpoint/claim.
     pub action: u8,
