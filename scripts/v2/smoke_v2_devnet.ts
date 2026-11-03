@@ -6,7 +6,7 @@ import {
   SystemProgram,
   bnFromUnits,
   deriveFutarchyAuthorityAddress,
-  deriveHlpYlpVaultAddress,
+  deriveHlpSrlpVaultAddress,
   derivePda,
   deriveYieldAccountAddress,
   duskEnv,
@@ -39,10 +39,10 @@ async function main() {
   const marketAccount = await program.account.market.fetchNullable(marketAddress);
   if (!marketAccount) throw new Error(`Market account not found: ${market.market}`);
 
-  console.log(`Fetched Dusk yLP/hLP market ${market.market}`);
+  console.log(`Fetched Dusk srLP/hLP market ${market.market}`);
   console.log(`Base mint: ${market.baseMint}`);
   console.log(`Quote mint: ${market.quoteMint}`);
-  console.log(`yLP mint: ${market.ylpMint}`);
+  console.log(`srLP mint: ${market.srlpMint}`);
   console.log(`Base hLP mint: ${market.baseHlpMint}`);
   console.log(`Quote hLP mint: ${market.quoteHlpMint}`);
   console.log(
@@ -54,7 +54,7 @@ async function main() {
 
   const baseMint = new PublicKey(market.baseMint);
   const quoteMint = new PublicKey(market.quoteMint);
-  const ylpMint = new PublicKey(market.ylpMint);
+  const srlpMint = new PublicKey(market.srlpMint);
   const baseHlpMint = new PublicKey(market.baseHlpMint);
   const quoteHlpMint = new PublicKey(market.quoteHlpMint);
   const baseProgram = await tokenProgramForMint(provider.connection, baseMint);
@@ -148,13 +148,13 @@ async function main() {
         owner: payer.publicKey,
         baseMint,
         quoteMint,
-        ylpMint,
+        srlpMint,
         targetHlpMint: baseHlpMint,
         baseReserveVault: new PublicKey(market.baseReserveVault),
         quoteReserveVault: new PublicKey(market.quoteReserveVault),
         ownerTargetAccount: traderBaseAccount.address,
         ownerHlpAccount: ownerBaseHlpAccount.address,
-        hlpYlpAccount: new PublicKey(market.baseHlpYlpVault),
+        hlpSrlpAccount: new PublicKey(market.baseHlpSrlpVault),
         baseYieldAccount: baseHlpBaseYieldAccount,
         quoteYieldAccount: baseHlpQuoteYieldAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -205,18 +205,18 @@ async function main() {
     !refreshedMarket.quoteHlpVault.residualExposure.isZero();
   if (hlpActive) {
     remainingAccounts.push(
-      { pubkey: ylpMint, isWritable: true, isSigner: false },
+      { pubkey: srlpMint, isWritable: true, isSigner: false },
       {
         pubkey:
-          refreshedMarket.baseHlpVault.ylpVault ??
-          deriveHlpYlpVaultAddress(program.programId, marketAddress, baseHlpMint, ylpMint),
+          refreshedMarket.baseHlpVault.srlpVault ??
+          deriveHlpSrlpVaultAddress(program.programId, marketAddress, baseHlpMint, srlpMint),
         isWritable: true,
         isSigner: false,
       },
       {
         pubkey:
-          refreshedMarket.quoteHlpVault.ylpVault ??
-          deriveHlpYlpVaultAddress(program.programId, marketAddress, quoteHlpMint, ylpMint),
+          refreshedMarket.quoteHlpVault.srlpVault ??
+          deriveHlpSrlpVaultAddress(program.programId, marketAddress, quoteHlpMint, srlpMint),
         isWritable: true,
         isSigner: false,
       },

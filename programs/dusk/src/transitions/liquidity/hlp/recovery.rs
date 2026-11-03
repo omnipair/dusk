@@ -2,7 +2,7 @@
 //!
 //! Recovery is priced from the vault's economic imbalance, not from a keeper
 //! clock. A healthy hLP has indexed funding debt equal to its opposite-asset
-//! yLP claim. When debt grows above that claim, a swap supplying the borrowed
+//! srLP claim. When debt grows above that claim, a swap supplying the borrowed
 //! asset may receive a target-asset bonus funded solely by that hLP's equity.
 
 use anchor_lang::prelude::*;

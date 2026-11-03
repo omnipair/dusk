@@ -447,12 +447,12 @@ impl Market {
     #[allow(clippy::too_many_arguments)]
     pub fn initialize(
         &mut self,
-        ylp_mint: Pubkey,
+        srlp_mint: Pubkey,
         base_side: MarketSide,
         quote_side: MarketSide,
         config: MarketConfig,
-        base_hlp_ylp_vault: Pubkey,
-        quote_hlp_ylp_vault: Pubkey,
+        base_hlp_srlp_vault: Pubkey,
+        quote_hlp_srlp_vault: Pubkey,
         base_insurance_vault: Pubkey,
         quote_insurance_vault: Pubkey,
         params_hash: [u8; 32],
@@ -470,12 +470,12 @@ impl Market {
         Self::validate_mint_domain(
             base_side.asset_mint,
             quote_side.asset_mint,
-            ylp_mint,
+            srlp_mint,
             base_side.hlp_mint,
             quote_side.hlp_mint,
         )?;
         self.version = MARKET_LAYOUT_VERSION;
-        self.ylp_mint = ylp_mint;
+        self.srlp_mint = srlp_mint;
         *self.base_side = base_side;
         *self.quote_side = quote_side;
         self.config = config;
@@ -500,12 +500,12 @@ impl Market {
         self.junior_mint = Pubkey::default();
         self.base_hlp_vault = {
             let mut vault = HlpVault::default();
-            vault.initialize(base_hlp_ylp_vault);
+            vault.initialize(base_hlp_srlp_vault);
             vault
         };
         self.quote_hlp_vault = {
             let mut vault = HlpVault::default();
-            vault.initialize(quote_hlp_ylp_vault);
+            vault.initialize(quote_hlp_srlp_vault);
             vault
         };
         self.risk = Risk {
@@ -521,7 +521,7 @@ impl Market {
         };
         self.params_hash = params_hash;
         self.initial_liquidity_authority = initial_liquidity_authority;
-        self.governance_locked_ylp = 0;
+        self.governance_locked_srlp = 0;
         self.governance_locked_junior = 0;
         self.parameter_revisions = [0; 9];
         self.last_marginal_observation_nad = 0;
@@ -534,7 +534,7 @@ impl Market {
     }
 
     pub(crate) fn require_initial_liquidity_authority(&self, signer: Pubkey) -> Result<()> {
-        if self.base_side.shares.ylp_supply == 0 {
+        if self.base_side.shares.srlp_supply == 0 {
             require_keys_eq!(
                 signer,
                 self.initial_liquidity_authority,
@@ -548,7 +548,7 @@ impl Market {
         self.assert_live_with_futarchy_at(futarchy_authority, Clock::get()?.unix_timestamp)
     }
 
-    /// Allows ordinary yLP capital to be seeded before the configured trading
+    /// Allows ordinary srLP capital to be seeded before the configured trading
     /// start while preserving the same version and reduce-only guards used by
     /// live risk-increasing operations. Borrowing, opening or increasing
     /// leverage, and hLP funding remain gated by `assert_live_with_futarchy_at`.

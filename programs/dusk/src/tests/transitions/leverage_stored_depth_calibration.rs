@@ -100,9 +100,9 @@ fn stored_depth_candidate_rejects_instant_depth_inflation_and_does_not_rebase_on
             transient.abs_diff(initial) <= 1,
             "immediate added depth inflated capacity: {initial} -> {transient}"
         );
-        market.remove_liquidity(added.ylp_amount).unwrap();
+        market.remove_liquidity(added.srlp_amount).unwrap();
         market.finalize_amm_transition_and_observe_risk(1).unwrap();
-        let more_shares = market.base_side.shares.ylp_supply / 4;
+        let more_shares = market.base_side.shares.srlp_supply / 4;
         market.remove_liquidity(more_shares).unwrap();
         market.finalize_amm_transition_and_observe_risk(1).unwrap();
         let current = stored_cash_depth(&market, MarketAsset::Base);

@@ -23,7 +23,7 @@ fn recognized_hlp_residual_exposure(actual_residual_nad: i128, nav_nad: u128, am
 pub struct SingleSidedLiquidityReceipt {
     pub deposit_amount: u64,
     pub borrowed_amount: u64,
-    pub ylp_amount: u64,
+    pub srlp_amount: u64,
     pub hlp_amount: u64,
     pub hlp_supply: u64,
     pub target_amount_out: u64,
@@ -37,9 +37,9 @@ pub struct HlpRebalanceReceipt {
     pub ideal_delta: i128,
     pub executed_delta: i128,
     pub residual_exposure: i128,
-    pub current_swap_fee_eligible_ylp_shares: u64,
-    pub ylp_mint_amount: u64,
-    pub ylp_burn_amount: u64,
+    pub current_swap_fee_eligible_srlp_shares: u64,
+    pub srlp_mint_amount: u64,
+    pub srlp_burn_amount: u64,
     pub debt_delta: i128,
     pub interest_paid: u64,
     pub nav_nad: u128,
@@ -49,8 +49,8 @@ pub struct HlpRebalanceReceipt {
     pub(crate) tracking_base_unrealized_interest: u64,
     /// Frozen public-borrow interest only; hLP funding interest is ineligible.
     pub(crate) tracking_quote_unrealized_interest: u64,
-    pub(crate) tracking_start_ylp_shares: u64,
-    pub(crate) tracking_start_ylp_supply: u64,
+    pub(crate) tracking_start_srlp_shares: u64,
+    pub(crate) tracking_start_srlp_supply: u64,
     pub(crate) tracking_retained_contribution_nad: i128,
     /// Internal controller signal: an explicit cash/collateral/debt/share cap
     /// clipped the requested preposition. Such a point is authoritative when
@@ -65,9 +65,9 @@ impl Default for HlpRebalanceReceipt {
             ideal_delta: 0,
             executed_delta: 0,
             residual_exposure: 0,
-            current_swap_fee_eligible_ylp_shares: 0,
-            ylp_mint_amount: 0,
-            ylp_burn_amount: 0,
+            current_swap_fee_eligible_srlp_shares: 0,
+            srlp_mint_amount: 0,
+            srlp_burn_amount: 0,
             debt_delta: 0,
             interest_paid: 0,
             nav_nad: 0,
@@ -75,8 +75,8 @@ impl Default for HlpRebalanceReceipt {
             tracking_loss_budget_nad: 0,
             tracking_base_unrealized_interest: 0,
             tracking_quote_unrealized_interest: 0,
-            tracking_start_ylp_shares: 0,
-            tracking_start_ylp_supply: 0,
+            tracking_start_srlp_shares: 0,
+            tracking_start_srlp_supply: 0,
             tracking_retained_contribution_nad: 0,
             preposition_capacity_bound: false,
         }
@@ -94,16 +94,16 @@ pub(crate) struct ConcentratedHlpTransition {
     junior_compound: Option<(u64, u64, u8, u16)>,
     junior_seed_compound: u64,
     expected_curve_revision: u64,
-    expected_ylp_supply: u64,
-    expected_base_ylp_shares: u64,
-    expected_quote_ylp_shares: u64,
+    expected_srlp_supply: u64,
+    expected_base_srlp_shares: u64,
+    expected_quote_srlp_shares: u64,
     expected_base_debt_shares: u128,
     expected_quote_debt_shares: u128,
     expected_base_debt_principal: u64,
     expected_quote_debt_principal: u64,
-    final_ylp_supply: u64,
-    final_base_ylp_shares: u64,
-    final_quote_ylp_shares: u64,
+    final_srlp_supply: u64,
+    final_base_srlp_shares: u64,
+    final_quote_srlp_shares: u64,
     final_base_debt_shares: u128,
     final_quote_debt_shares: u128,
     final_base_debt: u64,
@@ -130,8 +130,8 @@ fn signed_u64_delta(end: u64, start: u64) -> Result<i128> {
 
 fn concentrated_hlp_receipt(
     target_asset: MarketAsset,
-    start_ylp_shares: u64,
-    end_ylp_shares: u64,
+    start_srlp_shares: u64,
+    end_srlp_shares: u64,
     start_debt: u64,
     end_debt: u64,
     interest_paid: u64,
@@ -143,9 +143,9 @@ fn concentrated_hlp_receipt(
         ideal_delta: signed_u64_delta(end_debt, start_debt)?,
         executed_delta: signed_u64_delta(end_debt, start_debt)?,
         residual_exposure: 0,
-        current_swap_fee_eligible_ylp_shares: start_ylp_shares,
-        ylp_mint_amount: end_ylp_shares.saturating_sub(start_ylp_shares),
-        ylp_burn_amount: start_ylp_shares.saturating_sub(end_ylp_shares),
+        current_swap_fee_eligible_srlp_shares: start_srlp_shares,
+        srlp_mint_amount: end_srlp_shares.saturating_sub(start_srlp_shares),
+        srlp_burn_amount: start_srlp_shares.saturating_sub(end_srlp_shares),
         debt_delta: signed_u64_delta(end_debt, start_debt)?,
         interest_paid,
         nav_nad,
@@ -153,27 +153,27 @@ fn concentrated_hlp_receipt(
         tracking_loss_budget_nad: 0,
         tracking_base_unrealized_interest: 0,
         tracking_quote_unrealized_interest: 0,
-        tracking_start_ylp_shares: start_ylp_shares,
-        tracking_start_ylp_supply: start_supply,
+        tracking_start_srlp_shares: start_srlp_shares,
+        tracking_start_srlp_supply: start_supply,
         tracking_retained_contribution_nad: 0,
         preposition_capacity_bound: false,
     })
 }
 
 /// Chooses indexed debt within one raw atom of the vault's proportional
-/// opposite-asset yLP claim at the final reserve point.
+/// opposite-asset srLP claim at the final reserve point.
 #[cfg(test)]
 fn canonical_debt_for_proportional_claim(
     non_debt_reserve: u64,
-    hlp_ylp_shares: u64,
-    total_ylp_supply: u64,
+    hlp_srlp_shares: u64,
+    total_srlp_supply: u64,
     borrow_index_nad: u128,
     quoted_debt: Option<u64>,
 ) -> Result<(u128, u64)> {
     canonical_debt_for_proportional_claim_with_carry(
         non_debt_reserve,
-        hlp_ylp_shares,
-        total_ylp_supply,
+        hlp_srlp_shares,
+        total_srlp_supply,
         borrow_index_nad,
         0,
         0,
@@ -183,25 +183,25 @@ fn canonical_debt_for_proportional_claim(
 
 fn canonical_debt_for_proportional_claim_with_carry(
     non_debt_reserve: u64,
-    hlp_ylp_shares: u64,
-    total_ylp_supply: u64,
+    hlp_srlp_shares: u64,
+    total_srlp_supply: u64,
     borrow_index_nad: u128,
     interest_carried: u64,
     opposite_receivable: u64,
     quoted_debt: Option<u64>,
 ) -> Result<(u128, u64)> {
-    if hlp_ylp_shares == 0 && opposite_receivable == 0 {
+    if hlp_srlp_shares == 0 && opposite_receivable == 0 {
         return Ok((0, 0));
     }
-    let ordinary_and_other_shares = total_ylp_supply
-        .checked_sub(hlp_ylp_shares)
+    let ordinary_and_other_shares = total_srlp_supply
+        .checked_sub(hlp_srlp_shares)
         .ok_or(ErrorCode::SupplyUnderflow)?;
     require!(ordinary_and_other_shares > 0, ErrorCode::SupplyUnderflow);
     require!(borrow_index_nad >= NAD as u128, ErrorCode::DebtShareDivisionOverflow);
 
     let max_live = u128::from(u64::MAX - non_debt_reserve);
-    let numerator = (non_debt_reserve as u128 * hlp_ylp_shares as u128)
-        .checked_add(opposite_receivable as u128 * total_ylp_supply as u128)
+    let numerator = (non_debt_reserve as u128 * hlp_srlp_shares as u128)
+        .checked_add(opposite_receivable as u128 * total_srlp_supply as u128)
         .ok_or(ErrorCode::DebtMathOverflow)?;
     let continuous_live = (numerator / ordinary_and_other_shares as u128).min(max_live);
     let continuous = continuous_live
@@ -231,8 +231,8 @@ fn canonical_debt_for_proportional_claim_with_carry(
         }
         let claim = mul_div_u128(
             non_debt_reserve as u128 + live,
-            hlp_ylp_shares as u128,
-            total_ylp_supply as u128,
+            hlp_srlp_shares as u128,
+            total_srlp_supply as u128,
         )?;
         let claim = claim
             .checked_add(opposite_receivable as u128)
@@ -322,17 +322,17 @@ pub(crate) fn apply_concentrated_hlp_recovery(
         MarketAsset::Base => &market.base_hlp_vault,
         MarketAsset::Quote => &market.quote_hlp_vault,
     };
-    if vault.hlp_supply == 0 || vault.ylp_shares == 0 || vault.debt_shares == 0 || vault.flash_collateral_debit > 0 {
+    if vault.hlp_supply == 0 || vault.srlp_shares == 0 || vault.debt_shares == 0 || vault.flash_collateral_debit > 0 {
         return Ok(());
     }
-    let supply = market.base_side.shares.ylp_supply;
-    require_eq!(supply, market.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
+    let supply = market.base_side.shares.srlp_supply;
+    require_eq!(supply, market.quote_side.shares.srlp_supply, ErrorCode::BrokenInvariant);
     require!(supply > 0, ErrorCode::SupplyUnderflow);
 
     let opposite_reserve = market.side(asset_in).reserves.live_reserve;
     let canonical_opposite_claim = u64::try_from(
         (opposite_reserve as u128)
-            .checked_mul(vault.ylp_shares as u128)
+            .checked_mul(vault.srlp_shares as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?
             / supply as u128,
     )
@@ -400,15 +400,15 @@ pub(crate) fn apply_concentrated_hlp_recovery(
 }
 
 /// Identity-bound terminal settlement for an hLP whose indexed funding debt
-/// has consumed all of its marked collateral. The vault's yLP ownership is
+/// has consumed all of its marked collateral. The vault's srLP ownership is
 /// retired first; insurance covers only principal loss and unpaid funding
 /// interest is canceled. Available cash limits realized funding interest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HlpTerminalWaterfallPlan {
     target_asset: MarketAsset,
     expected_curve_revision: u64,
-    expected_ylp_supply: u64,
-    expected_ylp_shares: u64,
+    expected_srlp_supply: u64,
+    expected_srlp_shares: u64,
     expected_debt_shares: u128,
     expected_debt_principal: u64,
     expected_target_hlp_live: u64,
@@ -423,7 +423,7 @@ pub(crate) struct HlpTerminalWaterfallPlan {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HlpTerminalWaterfallReceipt {
     pub target_asset: MarketAsset,
-    pub ylp_burn_amount: u64,
+    pub srlp_burn_amount: u64,
     pub debt_closed: u64,
     pub interest_paid: u64,
     pub insurance_drawn: u64,
@@ -459,20 +459,20 @@ impl HlpTerminalWaterfallPlan {
             ErrorCode::BrokenInvariant
         );
         require_eq!(
-            market.base_side.shares.ylp_supply,
-            self.expected_ylp_supply,
+            market.base_side.shares.srlp_supply,
+            self.expected_srlp_supply,
             ErrorCode::BrokenInvariant
         );
         require_eq!(
-            market.quote_side.shares.ylp_supply,
-            self.expected_ylp_supply,
+            market.quote_side.shares.srlp_supply,
+            self.expected_srlp_supply,
             ErrorCode::BrokenInvariant
         );
         let vault = match self.target_asset {
             MarketAsset::Base => &market.base_hlp_vault,
             MarketAsset::Quote => &market.quote_hlp_vault,
         };
-        require_eq!(vault.ylp_shares, self.expected_ylp_shares, ErrorCode::BrokenInvariant);
+        require_eq!(vault.srlp_shares, self.expected_srlp_shares, ErrorCode::BrokenInvariant);
         require_eq!(vault.debt_shares, self.expected_debt_shares, ErrorCode::BrokenInvariant);
         require_eq!(
             vault.debt_principal,
@@ -532,8 +532,8 @@ impl HlpTerminalWaterfallPlan {
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             market.capitalize_hlp_receivable(self.target_asset, asset, 1, 1)?;
         }
-        market.base_side.shares.burn(self.expected_ylp_shares)?;
-        market.quote_side.shares.burn(self.expected_ylp_shares)?;
+        market.base_side.shares.burn(self.expected_srlp_shares)?;
+        market.quote_side.shares.burn(self.expected_srlp_shares)?;
         if self.expected_target_hlp_live > 0 {
             market.side_mut(self.target_asset).reserves.live_reserve = market
                 .side(self.target_asset)
@@ -556,7 +556,7 @@ impl HlpTerminalWaterfallPlan {
             MarketAsset::Base => &mut market.base_hlp_vault,
             MarketAsset::Quote => &mut market.quote_hlp_vault,
         };
-        vault.ylp_shares = 0;
+        vault.srlp_shares = 0;
         vault.base_hlp_live_reserve = 0;
         vault.quote_hlp_live_reserve = 0;
         vault.debt_shares = 0;
@@ -576,7 +576,7 @@ impl HlpTerminalWaterfallPlan {
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
         Ok(HlpTerminalWaterfallReceipt {
             target_asset: self.target_asset,
-            ylp_burn_amount: self.expected_ylp_shares,
+            srlp_burn_amount: self.expected_srlp_shares,
             debt_closed: self.debt,
             interest_paid,
             insurance_drawn: insurance_credit,
@@ -624,7 +624,7 @@ impl Market {
             MarketAsset::Base => self.base_hlp_vault,
             MarketAsset::Quote => self.quote_hlp_vault,
         };
-        vault.ylp_shares == 0
+        vault.srlp_shares == 0
             && vault.last_nav_nad == 0
             && vault.debt_shares == 0
             && vault.debt_principal == 0
@@ -642,17 +642,17 @@ impl Market {
         protocol_fee_bps: u16,
     ) -> Result<HlpTerminalWaterfallPlan> {
         self.require_hlp_flash_idle(target_asset)?;
-        checkpoint_hlp_yield_from_ylp(self, target_asset)?;
+        checkpoint_hlp_yield_from_srlp(self, target_asset)?;
         let vault = match target_asset {
             MarketAsset::Base => self.base_hlp_vault,
             MarketAsset::Quote => self.quote_hlp_vault,
         };
         require!(
-            vault.hlp_supply > 0 && vault.ylp_shares > 0 && vault.debt_shares > 0,
+            vault.hlp_supply > 0 && vault.srlp_shares > 0 && vault.debt_shares > 0,
             ErrorCode::HlpNotLiquidatable
         );
-        let supply = self.base_side.shares.ylp_supply;
-        require_eq!(supply, self.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
+        let supply = self.base_side.shares.srlp_supply;
+        require_eq!(supply, self.quote_side.shares.srlp_supply, ErrorCode::BrokenInvariant);
         require!(supply > 0, ErrorCode::SupplyUnderflow);
         let target_claim = hlp_exit_underlying_amount(self, target_asset, target_asset, vault.hlp_supply)?;
         let borrowed_asset = target_asset.opposite();
@@ -698,8 +698,8 @@ impl Market {
         Ok(HlpTerminalWaterfallPlan {
             target_asset,
             expected_curve_revision: self.curve_revision,
-            expected_ylp_supply: supply,
-            expected_ylp_shares: vault.ylp_shares,
+            expected_srlp_supply: supply,
+            expected_srlp_shares: vault.srlp_shares,
             expected_debt_shares: vault.debt_shares,
             expected_debt_principal: vault.debt_principal,
             expected_target_hlp_live: vault.hlp_live_reserve(target_asset),
@@ -731,8 +731,8 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
     quote_output_rounding_carry: u64,
 ) -> Result<ConcentratedHlpTransition> {
     require_eq!(
-        market.base_side.shares.ylp_supply,
-        market.quote_side.shares.ylp_supply,
+        market.base_side.shares.srlp_supply,
+        market.quote_side.shares.srlp_supply,
         ErrorCode::BrokenInvariant
     );
     require_eq!(
@@ -745,7 +745,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         0,
         ErrorCode::BrokenInvariant
     );
-    let start_supply = market.base_side.shares.ylp_supply;
+    let start_supply = market.base_side.shares.srlp_supply;
     let unrealized = [
         market
             .unrealized_interest(MarketAsset::Base)?
@@ -761,8 +761,8 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
     // ratios and zero debts for both hLP vaults.
     if !market.has_active_hlp()
         && end.junior_compound.is_none()
-        && market.base_hlp_vault.ylp_shares == 0
-        && market.quote_hlp_vault.ylp_shares == 0
+        && market.base_hlp_vault.srlp_shares == 0
+        && market.quote_hlp_vault.srlp_shares == 0
         && market.base_hlp_vault.debt_shares == 0
         && market.quote_hlp_vault.debt_shares == 0
         && market.base_hlp_vault.debt_principal == 0
@@ -798,16 +798,16 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
             junior_compound: None,
             junior_seed_compound: 0,
             expected_curve_revision: market.curve_revision,
-            expected_ylp_supply: start_supply,
-            expected_base_ylp_shares: 0,
-            expected_quote_ylp_shares: 0,
+            expected_srlp_supply: start_supply,
+            expected_base_srlp_shares: 0,
+            expected_quote_srlp_shares: 0,
             expected_base_debt_shares: 0,
             expected_quote_debt_shares: 0,
             expected_base_debt_principal: 0,
             expected_quote_debt_principal: 0,
-            final_ylp_supply: start_supply,
-            final_base_ylp_shares: 0,
-            final_quote_ylp_shares: 0,
+            final_srlp_supply: start_supply,
+            final_base_srlp_shares: 0,
+            final_quote_srlp_shares: 0,
             final_base_debt_shares: 0,
             final_quote_debt_shares: 0,
             final_base_debt: 0,
@@ -825,20 +825,20 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         });
     }
     let ordinary_supply = start_supply
-        .checked_sub(market.base_hlp_vault.ylp_shares)
-        .and_then(|value| value.checked_sub(market.quote_hlp_vault.ylp_shares))
+        .checked_sub(market.base_hlp_vault.srlp_shares)
+        .and_then(|value| value.checked_sub(market.quote_hlp_vault.srlp_shares))
         .ok_or(ErrorCode::BrokenInvariant)?;
     let frozen_mask = end.frozen_hlp_mask;
     require_eq!(frozen_mask, market.amm.frozen_hlp_mask, ErrorCode::BrokenInvariant);
     let static_supply = ordinary_supply
         .checked_add(if frozen_mask & 1 != 0 {
-            market.base_hlp_vault.ylp_shares
+            market.base_hlp_vault.srlp_shares
         } else {
             0
         })
         .and_then(|value| {
             value.checked_add(if frozen_mask & 2 != 0 {
-                market.quote_hlp_vault.ylp_shares
+                market.quote_hlp_vault.srlp_shares
             } else {
                 0
             })
@@ -868,10 +868,10 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         quote_backing,
     )?;
     if frozen_mask & 1 != 0 {
-        ownership.base_hlp_ylp_shares = market.base_hlp_vault.ylp_shares;
+        ownership.base_hlp_srlp_shares = market.base_hlp_vault.srlp_shares;
     }
     if frozen_mask & 2 != 0 {
-        ownership.quote_hlp_ylp_shares = market.quote_hlp_vault.ylp_shares;
+        ownership.quote_hlp_srlp_shares = market.quote_hlp_vault.srlp_shares;
     }
 
     let current_base_debt = u64::try_from(Debt::shares_to_debt(
@@ -969,7 +969,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         }
         (base, quote)
     };
-    // Integer yLP ownership can move the opposite-asset claim by more than
+    // Integer srLP ownership can move the opposite-asset claim by more than
     // one token atom, especially when the mints have different decimals.
     // Keep the quoted debt only when it still matches the materialized claim;
     // otherwise certify the debt against the actual rounded ownership.
@@ -984,8 +984,8 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
             } else {
                 quote_non_debt_reserve
             },
-            ownership.base_hlp_ylp_shares,
-            ownership.total_ylp_supply,
+            ownership.base_hlp_srlp_shares,
+            ownership.total_srlp_supply,
             market.debt.quote_borrow_index_nad,
             base_interest_carried,
             market.denormalize_amount_floor(end.hlp_unpaid[0][1], market.quote_side.asset_decimals)?,
@@ -1007,8 +1007,8 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
             } else {
                 base_non_debt_reserve
             },
-            ownership.quote_hlp_ylp_shares,
-            ownership.total_ylp_supply,
+            ownership.quote_hlp_srlp_shares,
+            ownership.total_srlp_supply,
             market.debt.base_borrow_index_nad,
             quote_interest_carried,
             market.denormalize_amount_floor(end.hlp_unpaid[1][0], market.base_side.asset_decimals)?,
@@ -1062,8 +1062,8 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
 
     let base_receipt = concentrated_hlp_receipt(
         MarketAsset::Base,
-        market.base_hlp_vault.ylp_shares,
-        ownership.base_hlp_ylp_shares,
+        market.base_hlp_vault.srlp_shares,
+        ownership.base_hlp_srlp_shares,
         current_base_debt,
         final_base_debt,
         base_interest_paid,
@@ -1074,8 +1074,8 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
     )?;
     let quote_receipt = concentrated_hlp_receipt(
         MarketAsset::Quote,
-        market.quote_hlp_vault.ylp_shares,
-        ownership.quote_hlp_ylp_shares,
+        market.quote_hlp_vault.srlp_shares,
+        ownership.quote_hlp_srlp_shares,
         current_quote_debt,
         final_quote_debt,
         quote_interest_paid,
@@ -1091,16 +1091,16 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         junior_compound: end.junior_compound,
         junior_seed_compound: end.junior_seed_compound,
         expected_curve_revision: market.curve_revision,
-        expected_ylp_supply: start_supply,
-        expected_base_ylp_shares: market.base_hlp_vault.ylp_shares,
-        expected_quote_ylp_shares: market.quote_hlp_vault.ylp_shares,
+        expected_srlp_supply: start_supply,
+        expected_base_srlp_shares: market.base_hlp_vault.srlp_shares,
+        expected_quote_srlp_shares: market.quote_hlp_vault.srlp_shares,
         expected_base_debt_shares: market.base_hlp_vault.debt_shares,
         expected_quote_debt_shares: market.quote_hlp_vault.debt_shares,
         expected_base_debt_principal: market.base_hlp_vault.debt_principal,
         expected_quote_debt_principal: market.quote_hlp_vault.debt_principal,
-        final_ylp_supply: ownership.total_ylp_supply,
-        final_base_ylp_shares: ownership.base_hlp_ylp_shares,
-        final_quote_ylp_shares: ownership.quote_hlp_ylp_shares,
+        final_srlp_supply: ownership.total_srlp_supply,
+        final_base_srlp_shares: ownership.base_hlp_srlp_shares,
+        final_quote_srlp_shares: ownership.quote_hlp_srlp_shares,
         final_base_debt_shares,
         final_quote_debt_shares,
         final_base_debt,
@@ -1135,9 +1135,9 @@ impl ConcentratedHlpTransition {
                     market.quote_side.asset_decimals,
                 )?,
             },
-            self.final_ylp_supply,
-            self.final_base_ylp_shares,
-            self.final_quote_ylp_shares,
+            self.final_srlp_supply,
+            self.final_base_srlp_shares,
+            self.final_quote_srlp_shares,
             market.normalize_amount(u128::from(self.final_base_debt), market.quote_side.asset_decimals)?,
             market.normalize_amount(u128::from(self.final_quote_debt), market.base_side.asset_decimals)?,
         )?;
@@ -1175,23 +1175,23 @@ impl ConcentratedHlpTransition {
             ErrorCode::BrokenInvariant
         );
         require_eq!(
-            market.base_side.shares.ylp_supply,
-            self.expected_ylp_supply,
+            market.base_side.shares.srlp_supply,
+            self.expected_srlp_supply,
             ErrorCode::BrokenInvariant
         );
         require_eq!(
-            market.quote_side.shares.ylp_supply,
-            self.expected_ylp_supply,
+            market.quote_side.shares.srlp_supply,
+            self.expected_srlp_supply,
             ErrorCode::BrokenInvariant
         );
         require_eq!(
-            market.base_hlp_vault.ylp_shares,
-            self.expected_base_ylp_shares,
+            market.base_hlp_vault.srlp_shares,
+            self.expected_base_srlp_shares,
             ErrorCode::BrokenInvariant
         );
         require_eq!(
-            market.quote_hlp_vault.ylp_shares,
-            self.expected_quote_ylp_shares,
+            market.quote_hlp_vault.srlp_shares,
+            self.expected_quote_srlp_shares,
             ErrorCode::BrokenInvariant
         );
         require_eq!(
@@ -1325,10 +1325,10 @@ impl ConcentratedHlpTransition {
                     <= MAX_CONCENTRATED_HLP_LIVE_DUST_ATOMS,
             ErrorCode::BrokenInvariant
         );
-        market.base_side.shares.ylp_supply = self.final_ylp_supply;
-        market.quote_side.shares.ylp_supply = self.final_ylp_supply;
-        market.base_hlp_vault.ylp_shares = self.final_base_ylp_shares;
-        market.quote_hlp_vault.ylp_shares = self.final_quote_ylp_shares;
+        market.base_side.shares.srlp_supply = self.final_srlp_supply;
+        market.quote_side.shares.srlp_supply = self.final_srlp_supply;
+        market.base_hlp_vault.srlp_shares = self.final_base_srlp_shares;
+        market.quote_hlp_vault.srlp_shares = self.final_quote_srlp_shares;
         market.base_hlp_vault.debt_shares = self.final_base_debt_shares;
         market.quote_hlp_vault.debt_shares = self.final_quote_debt_shares;
         if self.frozen_hlp_mask & 1 == 0 {
@@ -1368,8 +1368,8 @@ pub(crate) struct HlpTrackingReference {
     pub(crate) base_unrealized_interest: u64,
     /// Frozen public-borrow interest only; never an hLP-funding claim.
     pub(crate) quote_unrealized_interest: u64,
-    pub(crate) start_ylp_shares: u64,
-    pub(crate) start_ylp_supply: u64,
+    pub(crate) start_srlp_shares: u64,
+    pub(crate) start_srlp_supply: u64,
 }
 
 impl Market {
@@ -1399,7 +1399,7 @@ impl Market {
             hlp_supply_before == 0 || pre_entry.disposition.admits_entry(),
             ErrorCode::HlpSettlementUnavailable
         );
-        // The purchase and its funding use the same full-value yLP ratio.
+        // The purchase and its funding use the same full-value srLP ratio.
         // Accrued public interest belongs to the existing shares. A curve-only
         // funding leg would buy a different claim and leave a hedge residual.
         let target_reserve = market.curve_reserve(target_asset)?;
@@ -1417,32 +1417,32 @@ impl Market {
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
         require!(borrowed_amount > 0, ErrorCode::InsufficientLiquidity);
         let debt_shares = require_hlp_borrow_headroom(market, target_asset.opposite(), borrowed_amount)?;
-        checkpoint_hlp_yield_from_ylp(market, target_asset)?;
+        checkpoint_hlp_yield_from_srlp(market, target_asset)?;
 
-        let (ylp_amount, hlp_amount, hlp_supply, post_prices) = match target_asset {
+        let (srlp_amount, hlp_amount, hlp_supply, post_prices) = match target_asset {
             MarketAsset::Base => {
                 let hlp_supply_before = market.base_hlp_vault.hlp_supply;
                 // Price the existing shares at this transaction's mark. A
                 // cached controller NAV can predate an arbitrary swap, and
-                // yLP's accrued public-interest claim belongs to the old
+                // srLP's accrued public-interest claim belongs to the old
                 // holders even before that interest is paid into cash.
                 let nav_before_nad = if hlp_supply_before == 0 {
                     0
                 } else {
                     hlp_share_nav_nad_with_prices(market, MarketAsset::Base, pre_prices)?
                 };
-                let ylp_amount = ylp_for_live_reserve_deposit(market, deposit_amount, borrowed_amount)?;
-                require!(ylp_amount > 0, ErrorCode::SlippageExceeded);
+                let srlp_amount = srlp_for_live_reserve_deposit(market, deposit_amount, borrowed_amount)?;
+                require!(srlp_amount > 0, ErrorCode::SlippageExceeded);
                 market.base_side.credit_reserve(deposit_amount, true)?;
                 market.quote_side.credit_reserve(borrowed_amount, false)?;
                 market
                     .base_hlp_vault
                     .credit_hlp_live_reserve(MarketAsset::Quote, borrowed_amount)?;
-                market.base_side.shares.mint(ylp_amount)?;
-                market.quote_side.shares.mint(ylp_amount)?;
+                market.base_side.shares.mint(srlp_amount)?;
+                market.quote_side.shares.mint(srlp_amount)?;
                 market.base_hlp_vault.add_debt_shares(debt_shares)?;
                 market.base_hlp_vault.add_debt_principal(borrowed_amount)?;
-                market.base_hlp_vault.credit_ylp(ylp_amount)?;
+                market.base_hlp_vault.credit_srlp(srlp_amount)?;
                 let current_prices = current_hlp_curve_prices(market)?;
                 let current_nav_nad = hlp_share_nav_nad_with_prices(market, MarketAsset::Base, pre_prices)?;
                 let hlp_amount = if hlp_supply_before == 0 {
@@ -1454,7 +1454,12 @@ impl Market {
                     hlp_shares_for_delta_nav(delta_nav_nad, nav_before_nad, hlp_supply_before)?
                 };
                 market.base_hlp_vault.mint_hlp(hlp_amount)?;
-                (ylp_amount, hlp_amount, market.base_hlp_vault.hlp_supply, current_prices)
+                (
+                    srlp_amount,
+                    hlp_amount,
+                    market.base_hlp_vault.hlp_supply,
+                    current_prices,
+                )
             }
             MarketAsset::Quote => {
                 let hlp_supply_before = market.quote_hlp_vault.hlp_supply;
@@ -1463,18 +1468,18 @@ impl Market {
                 } else {
                     hlp_share_nav_nad_with_prices(market, MarketAsset::Quote, pre_prices)?
                 };
-                let ylp_amount = ylp_for_live_reserve_deposit(market, borrowed_amount, deposit_amount)?;
-                require!(ylp_amount > 0, ErrorCode::SlippageExceeded);
+                let srlp_amount = srlp_for_live_reserve_deposit(market, borrowed_amount, deposit_amount)?;
+                require!(srlp_amount > 0, ErrorCode::SlippageExceeded);
                 market.base_side.credit_reserve(borrowed_amount, false)?;
                 market.quote_side.credit_reserve(deposit_amount, true)?;
                 market
                     .quote_hlp_vault
                     .credit_hlp_live_reserve(MarketAsset::Base, borrowed_amount)?;
-                market.base_side.shares.mint(ylp_amount)?;
-                market.quote_side.shares.mint(ylp_amount)?;
+                market.base_side.shares.mint(srlp_amount)?;
+                market.quote_side.shares.mint(srlp_amount)?;
                 market.quote_hlp_vault.add_debt_shares(debt_shares)?;
                 market.quote_hlp_vault.add_debt_principal(borrowed_amount)?;
-                market.quote_hlp_vault.credit_ylp(ylp_amount)?;
+                market.quote_hlp_vault.credit_srlp(srlp_amount)?;
                 let current_prices = current_hlp_curve_prices(market)?;
                 let current_nav_nad = hlp_share_nav_nad_with_prices(market, MarketAsset::Quote, pre_prices)?;
                 let hlp_amount = if hlp_supply_before == 0 {
@@ -1487,7 +1492,7 @@ impl Market {
                 };
                 market.quote_hlp_vault.mint_hlp(hlp_amount)?;
                 (
-                    ylp_amount,
+                    srlp_amount,
                     hlp_amount,
                     market.quote_hlp_vault.hlp_supply,
                     current_prices,
@@ -1557,7 +1562,7 @@ impl Market {
         Ok(SingleSidedLiquidityReceipt {
             deposit_amount,
             borrowed_amount,
-            ylp_amount,
+            srlp_amount,
             hlp_amount,
             hlp_supply,
             target_amount_out: 0,
@@ -1637,17 +1642,17 @@ impl Market {
             MarketAsset::Base => market.base_hlp_vault.cached_settlement_price_nad,
             MarketAsset::Quote => market.quote_hlp_vault.cached_settlement_price_nad,
         };
-        // An exit burns the proportional hLP/yLP ownership and debt at the
+        // An exit burns the proportional hLP/srLP ownership and debt at the
         // current curve quote. A cached price from the last settlement must
         // not trap the owner after an ordinary trade moves the market; the
         // owner's token minimum and post-state cash/health checks still bind.
-        checkpoint_hlp_yield_from_ylp(market, target_asset)?;
+        checkpoint_hlp_yield_from_srlp(market, target_asset)?;
         let mut final_price_nad = None;
         let receipt = match target_asset {
             MarketAsset::Base => {
                 let supply = market.base_hlp_vault.hlp_supply;
                 require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
-                let ylp_amount = proportional(market.base_hlp_vault.ylp_shares, hlp_amount, supply)?;
+                let srlp_amount = proportional(market.base_hlp_vault.srlp_shares, hlp_amount, supply)?;
                 let quote_debt_shares = proportional_u128(market.base_hlp_vault.debt_shares, hlp_amount, supply)?;
                 let base_out = hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Base, hlp_amount)?;
                 let quote_redeemed =
@@ -1674,11 +1679,11 @@ impl Market {
                 market.base_side.debit_reserve(base_out, true)?;
                 debit_hlp_live_reserve(market, MarketAsset::Base, MarketAsset::Base, base_hlp_live_debit)?;
                 debit_hlp_live_reserve(market, MarketAsset::Base, MarketAsset::Quote, quote_hlp_live_debit)?;
-                market.base_side.shares.burn(ylp_amount)?;
-                market.quote_side.shares.burn(ylp_amount)?;
+                market.base_side.shares.burn(srlp_amount)?;
+                market.quote_side.shares.burn(srlp_amount)?;
                 market.base_side.assert_share_backing()?;
                 market.quote_side.assert_share_backing()?;
-                market.base_hlp_vault.debit_ylp(ylp_amount)?;
+                market.base_hlp_vault.debit_srlp(srlp_amount)?;
                 debit_cash_for_hlp_interest(market, MarketAsset::Quote, interest_paid)?;
                 market.base_hlp_vault.burn_hlp(hlp_amount)?;
                 if market.base_hlp_vault.hlp_supply == 0 {
@@ -1707,7 +1712,7 @@ impl Market {
                 }
                 SingleSidedLiquidityReceipt {
                     hlp_amount,
-                    ylp_amount,
+                    srlp_amount,
                     hlp_supply: market.base_hlp_vault.hlp_supply,
                     target_amount_out: base_out,
                     debt_repaid: debt_clearance.debt_reduced,
@@ -1718,7 +1723,7 @@ impl Market {
             MarketAsset::Quote => {
                 let supply = market.quote_hlp_vault.hlp_supply;
                 require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
-                let ylp_amount = proportional(market.quote_hlp_vault.ylp_shares, hlp_amount, supply)?;
+                let srlp_amount = proportional(market.quote_hlp_vault.srlp_shares, hlp_amount, supply)?;
                 let base_debt_shares = proportional_u128(market.quote_hlp_vault.debt_shares, hlp_amount, supply)?;
                 let quote_out = hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Quote, hlp_amount)?;
                 let base_redeemed =
@@ -1745,11 +1750,11 @@ impl Market {
                 market.quote_side.debit_reserve(quote_out, true)?;
                 debit_hlp_live_reserve(market, MarketAsset::Quote, MarketAsset::Quote, quote_hlp_live_debit)?;
                 debit_hlp_live_reserve(market, MarketAsset::Quote, MarketAsset::Base, base_hlp_live_debit)?;
-                market.base_side.shares.burn(ylp_amount)?;
-                market.quote_side.shares.burn(ylp_amount)?;
+                market.base_side.shares.burn(srlp_amount)?;
+                market.quote_side.shares.burn(srlp_amount)?;
                 market.base_side.assert_share_backing()?;
                 market.quote_side.assert_share_backing()?;
-                market.quote_hlp_vault.debit_ylp(ylp_amount)?;
+                market.quote_hlp_vault.debit_srlp(srlp_amount)?;
                 debit_cash_for_hlp_interest(market, MarketAsset::Base, interest_paid)?;
                 market.quote_hlp_vault.burn_hlp(hlp_amount)?;
                 if market.quote_hlp_vault.hlp_supply == 0 {
@@ -1778,7 +1783,7 @@ impl Market {
                 }
                 SingleSidedLiquidityReceipt {
                     hlp_amount,
-                    ylp_amount,
+                    srlp_amount,
                     hlp_supply: market.quote_hlp_vault.hlp_supply,
                     target_amount_out: quote_out,
                     debt_repaid: debt_clearance.debt_reduced,
@@ -2047,7 +2052,7 @@ pub(crate) fn current_hlp_entry_state_with_prices(
                 MarketAsset::Base => (amounts.target_leg_amount, amounts.borrowed_leg_amount),
                 MarketAsset::Quote => (amounts.borrowed_leg_amount, amounts.target_leg_amount),
             };
-            if ylp_for_live_reserve_deposit(market, base_leg, quote_leg)? == 0 {
+            if srlp_for_live_reserve_deposit(market, base_leg, quote_leg)? == 0 {
                 break 'entry HlpEntryDisposition::ControllerGranularityLimited;
             }
             if market.hlp_funding_headroom(target_asset.opposite())? < amounts.debt_amount {
@@ -2057,21 +2062,21 @@ pub(crate) fn current_hlp_entry_state_with_prices(
         }
     } else {
         'entry: {
-            let (borrow_index, debt_shares, debt_principal, vault_ylp) = match target_asset {
+            let (borrow_index, debt_shares, debt_principal, vault_srlp) = match target_asset {
                 MarketAsset::Base => (
                     market.debt.quote_borrow_index_nad,
                     market.base_hlp_vault.debt_shares,
                     market.base_hlp_vault.debt_principal,
-                    market.base_hlp_vault.ylp_shares,
+                    market.base_hlp_vault.srlp_shares,
                 ),
                 MarketAsset::Quote => (
                     market.debt.base_borrow_index_nad,
                     market.quote_hlp_vault.debt_shares,
                     market.quote_hlp_vault.debt_principal,
-                    market.quote_hlp_vault.ylp_shares,
+                    market.quote_hlp_vault.srlp_shares,
                 ),
             };
-            if debt_shares == 0 || vault_ylp == 0 || valuation.values.debt_value_nad == 0 {
+            if debt_shares == 0 || vault_srlp == 0 || valuation.values.debt_value_nad == 0 {
                 break 'entry HlpEntryDisposition::Unhedgeable;
             }
             let collateral_value_nad = valuation
@@ -2094,14 +2099,14 @@ pub(crate) fn current_hlp_entry_state_with_prices(
                 MarketAsset::Base => (amounts.target_leg_amount, amounts.borrowed_leg_amount),
                 MarketAsset::Quote => (amounts.borrowed_leg_amount, amounts.target_leg_amount),
             };
-            let base_burn = ylp_shares_for_live_reserve_amount(market, MarketAsset::Base, base_leg)?;
-            let quote_burn = ylp_shares_for_live_reserve_amount(market, MarketAsset::Quote, quote_leg)?;
-            let ylp_burn = base_burn.min(quote_burn).min(vault_ylp);
-            if ylp_burn == 0 {
+            let base_burn = srlp_shares_for_live_reserve_amount(market, MarketAsset::Base, base_leg)?;
+            let quote_burn = srlp_shares_for_live_reserve_amount(market, MarketAsset::Quote, quote_leg)?;
+            let srlp_burn = base_burn.min(quote_burn).min(vault_srlp);
+            if srlp_burn == 0 {
                 break 'entry HlpEntryDisposition::ControllerGranularityLimited;
             }
-            let base_out = ylp_live_underlying_amount(market, MarketAsset::Base, ylp_burn)?;
-            let quote_out = ylp_live_underlying_amount(market, MarketAsset::Quote, ylp_burn)?;
+            let base_out = srlp_live_underlying_amount(market, MarketAsset::Base, srlp_burn)?;
+            let quote_out = srlp_live_underlying_amount(market, MarketAsset::Quote, srlp_burn)?;
             if base_out == 0 || quote_out == 0 {
                 break 'entry HlpEntryDisposition::ControllerGranularityLimited;
             }
@@ -2168,8 +2173,8 @@ pub(crate) fn hlp_end_to_end_tracking_delta(
         loss_budget_nad: receipt.tracking_loss_budget_nad,
         base_unrealized_interest: receipt.tracking_base_unrealized_interest,
         quote_unrealized_interest: receipt.tracking_quote_unrealized_interest,
-        start_ylp_shares: receipt.tracking_start_ylp_shares,
-        start_ylp_supply: receipt.tracking_start_ylp_supply,
+        start_srlp_shares: receipt.tracking_start_srlp_shares,
+        start_srlp_supply: receipt.tracking_start_srlp_supply,
     };
     let values = current_hlp_inventory_values_nad_with_prices(market, receipt.target_asset, final_prices)?;
     let collateral = values
@@ -2254,18 +2259,18 @@ pub(crate) fn checkpoint_one_hlp_with_prices(
     Ok(ideal_delta)
 }
 
-pub(crate) fn checkpoint_hlp_yield_from_ylp(market: &mut Market, target_asset: MarketAsset) -> Result<()> {
-    let ylp_shares = match target_asset {
-        MarketAsset::Base => market.base_hlp_vault.ylp_shares,
-        MarketAsset::Quote => market.quote_hlp_vault.ylp_shares,
+pub(crate) fn checkpoint_hlp_yield_from_srlp(market: &mut Market, target_asset: MarketAsset) -> Result<()> {
+    let srlp_shares = match target_asset {
+        MarketAsset::Base => market.base_hlp_vault.srlp_shares,
+        MarketAsset::Quote => market.quote_hlp_vault.srlp_shares,
     };
-    checkpoint_hlp_yield_from_ylp_shares(market, target_asset, ylp_shares)
+    checkpoint_hlp_yield_from_srlp_shares(market, target_asset, srlp_shares)
 }
 
-pub(crate) fn checkpoint_hlp_yield_from_ylp_shares(
+pub(crate) fn checkpoint_hlp_yield_from_srlp_shares(
     market: &mut Market,
     target_asset: MarketAsset,
-    eligible_ylp_shares: u64,
+    eligible_srlp_shares: u64,
 ) -> Result<()> {
     market.base_side.carry_forward_swap_fees()?;
     market.base_side.carry_forward_interest()?;
@@ -2277,12 +2282,12 @@ pub(crate) fn checkpoint_hlp_yield_from_ylp_shares(
         MarketAsset::Base => {
             market
                 .base_hlp_vault
-                .checkpoint_yield_from_ylp_shares(&base_side, &quote_side, eligible_ylp_shares)
+                .checkpoint_yield_from_srlp_shares(&base_side, &quote_side, eligible_srlp_shares)
         }
         MarketAsset::Quote => {
             market
                 .quote_hlp_vault
-                .checkpoint_yield_from_ylp_shares(&base_side, &quote_side, eligible_ylp_shares)
+                .checkpoint_yield_from_srlp_shares(&base_side, &quote_side, eligible_srlp_shares)
         }
     }
 }
@@ -2303,7 +2308,7 @@ pub(crate) fn hlp_curve_prices_from_base_price_nad(base_in_quote_nad: u128) -> R
     Ok(HlpCurvePrices { base_in_quote_nad })
 }
 
-/// Economic value of an hLP share, including the yLP claim on public interest
+/// Economic value of an hLP share, including the srLP claim on public interest
 /// already accrued into live reserves. The controller uses these same claims;
 /// swap quotes independently exclude unpaid interest from trading reserves.
 pub(super) fn hlp_share_nav_nad_with_prices(
@@ -2343,9 +2348,9 @@ fn hlp_nav_nad_with_prices(market: &Market, target_asset: MarketAsset, prices: H
         .ok_or_else(|| ErrorCode::Undercollateralized.into())
 }
 
-pub(super) fn ylp_live_underlying_amount(market: &Market, asset: MarketAsset, ylp_amount: u64) -> Result<u64> {
+pub(super) fn srlp_live_underlying_amount(market: &Market, asset: MarketAsset, srlp_amount: u64) -> Result<u64> {
     let side = market.side(asset);
-    ylp_live_underlying_amount_from_values(side.reserves.live_reserve, side.shares.ylp_supply, ylp_amount)
+    srlp_live_underlying_amount_from_values(side.reserves.live_reserve, side.shares.srlp_supply, srlp_amount)
 }
 
 fn hlp_exit_underlying_amount(
@@ -2359,14 +2364,14 @@ fn hlp_exit_underlying_amount(
     } else {
         &market.quote_hlp_vault
     };
-    let ylp_amount = proportional(vault.ylp_shares, hlp_amount, vault.hlp_supply)?;
+    let srlp_amount = proportional(vault.srlp_shares, hlp_amount, vault.hlp_supply)?;
     if !market.side(asset).fees.junior.initialized {
-        return ylp_live_underlying_amount(market, asset, ylp_amount);
+        return srlp_live_underlying_amount(market, asset, srlp_amount);
     }
-    let funded = ylp_live_underlying_amount_from_values(
+    let funded = srlp_live_underlying_amount_from_values(
         market.curve_reserve(asset)?,
-        market.base_side.shares.ylp_supply,
-        ylp_amount,
+        market.base_side.shares.srlp_supply,
+        srlp_amount,
     )?;
     funded
         .checked_add(market.quote_hlp_receivable_conversion(target, asset, hlp_amount, vault.hlp_supply)?)
@@ -2381,21 +2386,24 @@ pub(super) fn hlp_full_underlying_amount(market: &Market, target: MarketAsset, a
     };
     let side = market.side(asset);
     if !side.fees.junior.initialized {
-        return ylp_live_underlying_amount(market, asset, vault.ylp_shares);
+        return srlp_live_underlying_amount(market, asset, vault.srlp_shares);
     }
-    let funded =
-        ylp_live_underlying_amount_from_values(market.curve_reserve(asset)?, side.shares.ylp_supply, vault.ylp_shares)?;
+    let funded = srlp_live_underlying_amount_from_values(
+        market.curve_reserve(asset)?,
+        side.shares.srlp_supply,
+        vault.srlp_shares,
+    )?;
     funded
         .checked_add(market.hlp_unpaid_income(target, asset)?)
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
-fn ylp_live_underlying_amount_from_values(live_reserve: u64, supply: u64, ylp_amount: u64) -> Result<u64> {
-    if ylp_amount == 0 {
+fn srlp_live_underlying_amount_from_values(live_reserve: u64, supply: u64, srlp_amount: u64) -> Result<u64> {
+    if srlp_amount == 0 {
         return Ok(0);
     }
-    require_gte!(supply, ylp_amount, ErrorCode::InsufficientBalance);
-    let amount = mul_div_u128(ylp_amount as u128, live_reserve as u128, supply as u128)?;
+    require_gte!(supply, srlp_amount, ErrorCode::InsufficientBalance);
+    let amount = mul_div_u128(srlp_amount as u128, live_reserve as u128, supply as u128)?;
     u64::try_from(amount).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
@@ -2465,26 +2473,26 @@ fn current_hlp_inventory_values_nad_with_prices(
 fn hlp_interest_claims_for_shares(
     base_unrealized_interest: u64,
     quote_unrealized_interest: u64,
-    ylp_shares: u64,
-    ylp_supply: u64,
+    srlp_shares: u64,
+    srlp_supply: u64,
 ) -> Result<(u64, u64)> {
-    if ylp_shares == 0 {
+    if srlp_shares == 0 {
         return Ok((0, 0));
     }
-    require!(ylp_supply > 0, ErrorCode::BrokenInvariant);
+    require!(srlp_supply > 0, ErrorCode::BrokenInvariant);
     if base_unrealized_interest == 0 && quote_unrealized_interest == 0 {
         return Ok((0, 0));
     }
     let base_claim = u64::try_from(mul_div_u128(
         base_unrealized_interest as u128,
-        ylp_shares as u128,
-        ylp_supply as u128,
+        srlp_shares as u128,
+        srlp_supply as u128,
     )?)
     .map_err(|_| ErrorCode::MarketMathOverflow)?;
     let quote_claim = u64::try_from(mul_div_u128(
         quote_unrealized_interest as u128,
-        ylp_shares as u128,
-        ylp_supply as u128,
+        srlp_shares as u128,
+        srlp_supply as u128,
     )?)
     .map_err(|_| ErrorCode::MarketMathOverflow)?;
     Ok((base_claim, quote_claim))
@@ -2525,23 +2533,23 @@ fn hlp_frozen_interest_claim_delta_value_nad(
         MarketAsset::Base => &market.base_hlp_vault,
         MarketAsset::Quote => &market.quote_hlp_vault,
     };
-    let final_ylp_supply = market.base_side.shares.ylp_supply;
+    let final_srlp_supply = market.base_side.shares.srlp_supply;
     require_eq!(
-        final_ylp_supply,
-        market.quote_side.shares.ylp_supply,
+        final_srlp_supply,
+        market.quote_side.shares.srlp_supply,
         ErrorCode::BrokenInvariant
     );
     let (base_public_claim, quote_public_claim) = hlp_interest_claims_for_shares(
         tracking.base_unrealized_interest,
         tracking.quote_unrealized_interest,
-        vault.ylp_shares,
-        final_ylp_supply,
+        vault.srlp_shares,
+        final_srlp_supply,
     )?;
     let (start_base_public_claim, start_quote_public_claim) = hlp_interest_claims_for_shares(
         tracking.base_unrealized_interest,
         tracking.quote_unrealized_interest,
-        tracking.start_ylp_shares,
-        tracking.start_ylp_supply,
+        tracking.start_srlp_shares,
+        tracking.start_srlp_supply,
     )?;
     let base_delta = i128::from(base_public_claim)
         .checked_sub(i128::from(start_base_public_claim))
@@ -2616,12 +2624,12 @@ fn raw_amount_from_target_value_nad_with_prices(
     market.denormalize_amount_floor(amount_nad, market.side(asset).asset_decimals)
 }
 
-fn ylp_for_live_reserve_deposit(market: &Market, base_amount: u64, quote_amount: u64) -> Result<u64> {
-    require!(market.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
+fn srlp_for_live_reserve_deposit(market: &Market, base_amount: u64, quote_amount: u64) -> Result<u64> {
+    require!(market.base_side.shares.srlp_supply > 0, ErrorCode::SupplyUnderflow);
     let base_reserve = market.curve_reserve(MarketAsset::Base)?;
     let quote_reserve = market.curve_reserve(MarketAsset::Quote)?;
     require!(base_reserve > 0 && quote_reserve > 0, ErrorCode::InsufficientLiquidity);
-    market.ylp_for_deposit(base_reserve, quote_reserve, base_amount, quote_amount)
+    market.srlp_for_deposit(base_reserve, quote_reserve, base_amount, quote_amount)
 }
 
 fn proportional_rebalance_amounts(
@@ -2677,13 +2685,13 @@ fn proportional_rebalance_amounts(
     })
 }
 
-fn ylp_shares_for_live_reserve_amount(market: &Market, asset: MarketAsset, reserve_amount: u64) -> Result<u64> {
+fn srlp_shares_for_live_reserve_amount(market: &Market, asset: MarketAsset, reserve_amount: u64) -> Result<u64> {
     if reserve_amount == 0 {
         return Ok(0);
     }
     let side = market.side(asset);
     require!(
-        side.reserves.live_reserve > 0 && side.shares.ylp_supply > 0,
+        side.reserves.live_reserve > 0 && side.shares.srlp_supply > 0,
         ErrorCode::InsufficientLiquidity
     );
     side.shares

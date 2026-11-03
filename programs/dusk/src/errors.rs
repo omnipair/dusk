@@ -50,7 +50,7 @@ pub enum ErrorCode {
     #[msg("Proposal support is below the sponsorship floor")]
     ProposalSponsorshipTooLow,
 
-    #[msg("Proposal does not have a strict majority of eligible yLP")]
+    #[msg("Proposal does not have a strict majority of eligible srLP")]
     ProposalSupportInsufficient,
 
     #[msg("Parameter proposal timelock is not ready")]

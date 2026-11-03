@@ -4,10 +4,10 @@
 
 ## What is actually exercised
 
-- 576 scenarios: peak amplification 1/4/10, controller off/on, hLP off/on, both debt directions, 1/10 requested positions, slow/fast/gap paths, solvent window off/2%, and no/25% yLP withdrawal.
+- 576 scenarios: peak amplification 1/4/10, controller off/on, hLP off/on, both debt directions, 1/10 requested positions, slow/fast/gap paths, solvent window off/2%, and no/25% srLP withdrawal.
 - Concentration uses the native core, shoulders and nonzero tails. Amplified fixtures use `core_half_width_bps=100`, `fade_width_bps=400`. Available cash is never multiplied by amplification.
 - Enabled controller: 60-second center EMA, 1% adjustment threshold, 0.1% step, one-slot minimum interval, divergence-fee coefficient `10 * NAD`. Disabled fixtures have no center adjustment or divergence surcharge. These are explicit comparison configurations, not proposed launch defaults. Actual funded center moves and deferred targets are counted; no manual reserve injection funds them.
-- Native single-sided entry activates both hLP vaults at 2x target leverage. Total initial wallet deposits remain 100,000 tokens at the initial 1:1 mark: either 100,000 yLP deposits, or 80,000 yLP + 10,000 per hLP asset. Insurance has a separate 1,000 debt-token balance and native event/day caps.
+- Native single-sided entry activates both hLP vaults at 2x target leverage. Total initial wallet deposits remain 100,000 tokens at the initial 1:1 mark: either 100,000 srLP deposits, or 80,000 srLP + 10,000 per hLP asset. Insurance has a separate 1,000 debt-token balance and native event/day caps.
 - Successful settlements check native market invariants, zero hLP residual exposure, and debt conservation: original principal = proceeds repayment + insurance + write-off + remaining principal. Solvent-mode settlement forbids insurance and write-off. Four seeded settlement anchors separately cover solvent and loss-taking exits with active hLP in both debt directions.
 
 ## Matched examples

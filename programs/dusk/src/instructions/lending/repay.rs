@@ -200,9 +200,9 @@ impl<'info> Repay<'info> {
             require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
 
             let eligibility = crate::transitions::HlpYieldEligibility {
-                ylp_supply: accounts.market.base_side.shares.ylp_supply,
-                base_hlp_ylp_shares: accounts.market.base_hlp_vault.ylp_shares,
-                quote_hlp_ylp_shares: accounts.market.quote_hlp_vault.ylp_shares,
+                srlp_supply: accounts.market.base_side.shares.srlp_supply,
+                base_hlp_srlp_shares: accounts.market.base_hlp_vault.srlp_shares,
+                quote_hlp_srlp_shares: accounts.market.quote_hlp_vault.srlp_shares,
             };
             let referral_receipt = crate::instructions::leverage::settlement::record_leverage_interest(
                 &mut accounts.market,

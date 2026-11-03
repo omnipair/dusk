@@ -70,7 +70,7 @@ fn no_accrual(market: &mut Market, slot: u64) {
 
 fn initialize(case: Case) -> Market {
     // Fixed total wallet deposits across hLP variants: $100k. With hLP, $80k
-    // starts as yLP and $10k per asset enters through native single-sided entry.
+    // starts as srLP and $10k per asset enters through native single-sided entry.
     let mut market = calibration_market(if case.hlp { 80_000 } else { 100_000 }, case.amp);
     market.config.ema_half_life_ms = 60_000;
     market.config.directional_ema_half_life_ms = 60_000;
@@ -251,7 +251,7 @@ fn one_case_with_policy(case: Case, policy: Policy) -> Totals {
         no_accrual(&mut market, slot);
         if case.withdrawal > 0 && step == 2 {
             let mut trial = market.clone();
-            let shares = trial.base_side.shares.ylp_supply * case.withdrawal / 10_000;
+            let shares = trial.base_side.shares.srlp_supply * case.withdrawal / 10_000;
             if let Err(e) = trial
                 .remove_liquidity(shares)
                 .and_then(|_| trial.finalize_amm_transition_and_observe_risk(slot))

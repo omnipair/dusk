@@ -47,9 +47,9 @@ pub struct CloseInsolventHlp<'info> {
     #[account(mut)]
     pub caller_bounty_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
-    pub target_hlp_ylp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub target_hlp_srlp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -91,10 +91,10 @@ impl<'info> CloseInsolventHlp<'info> {
             MarketAsset::Quote => self.market.insurance.quote_vault,
         };
         require_keys_eq!(insurance_key, self.insurance_vault.key(), ErrorCode::InvalidVault);
-        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
+        require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
         require_keys_eq!(
-            target_vault.ylp_vault,
-            self.target_hlp_ylp_vault.key(),
+            target_vault.srlp_vault,
+            self.target_hlp_srlp_vault.key(),
             ErrorCode::InvalidVault
         );
         for account in [
@@ -107,17 +107,17 @@ impl<'info> CloseInsolventHlp<'info> {
         }
         validate_owner_asset_account(self.caller.key(), &self.borrowed_mint, &self.caller_bounty_account)?;
         require_keys_eq!(
-            self.target_hlp_ylp_vault.mint,
-            self.ylp_mint.key(),
+            self.target_hlp_srlp_vault.mint,
+            self.srlp_mint.key(),
             ErrorCode::InvalidVault
         );
         require_keys_eq!(
-            self.target_hlp_ylp_vault.owner,
+            self.target_hlp_srlp_vault.owner,
             self.market.key(),
             ErrorCode::InvalidVault
         );
         require_supported_asset_mint(&self.borrowed_mint)?;
-        validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)
+        validate_lp_mint(&self.srlp_mint, self.market.key(), self.market.base_side.asset_decimals)
     }
 
     pub fn update_and_validate(&mut self, args: &CloseInsolventHlpArgs) -> Result<u64> {
@@ -140,9 +140,9 @@ impl<'info> CloseInsolventHlp<'info> {
         let target_asset = MarketAsset::try_from_code(args.target_asset)?;
         let borrowed_asset = target_asset.opposite();
         let eligibility = HlpYieldEligibility {
-            ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: ctx.accounts.market.quote_hlp_vault.ylp_shares,
+            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: ctx.accounts.market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: ctx.accounts.market.quote_hlp_vault.srlp_shares,
         };
         let plan = ctx.accounts.market.prepare_terminal_hlp_waterfall(
             target_asset,
@@ -183,13 +183,13 @@ impl<'info> CloseInsolventHlp<'info> {
             args.max_socialized_loss,
         )?;
 
-        if receipt.ylp_burn_amount > 0 {
+        if receipt.srlp_burn_amount > 0 {
             token_burn(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.token_2022_program.to_account_info(),
-                ctx.accounts.ylp_mint.to_account_info(),
-                ctx.accounts.target_hlp_ylp_vault.to_account_info(),
-                receipt.ylp_burn_amount,
+                ctx.accounts.srlp_mint.to_account_info(),
+                ctx.accounts.target_hlp_srlp_vault.to_account_info(),
+                receipt.srlp_burn_amount,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
             )?;
         }
@@ -287,7 +287,7 @@ impl<'info> CloseInsolventHlp<'info> {
             caller: ctx.accounts.caller.key(),
             target_asset: target_asset.code(),
             debt_closed: receipt.debt_closed,
-            ylp_burned: receipt.ylp_burn_amount,
+            srlp_burned: receipt.srlp_burn_amount,
             interest_paid: actual_interest_credit,
             caller_bounty: caller_bounty_credit,
             insurance_drawn: receipt.insurance_drawn,

@@ -133,9 +133,9 @@ impl<'info> EmergencyLiquidation<'info> {
             .as_ref()
             .map(|s| s.interest_eligibility)
             .unwrap_or(HlpYieldEligibility {
-                ylp_supply: a.market.base_side.shares.ylp_supply,
-                base_hlp_ylp_shares: a.market.base_hlp_vault.ylp_shares,
-                quote_hlp_ylp_shares: a.market.quote_hlp_vault.ylp_shares,
+                srlp_supply: a.market.base_side.shares.srlp_supply,
+                base_hlp_srlp_shares: a.market.base_hlp_vault.srlp_shares,
+                quote_hlp_srlp_shares: a.market.quote_hlp_vault.srlp_shares,
             });
         let swap_quote = prepared.swap.as_ref().map(|s| s.leverage_quote());
         let (partner, share) = a.referral(asset)?;
@@ -270,7 +270,7 @@ impl<'info> EmergencyLiquidation<'info> {
             q.fee.lp,
             q.fee.protocol,
             a.futarchy_authority.protocol_auction_split,
-            eligibility.ylp_supply,
+            eligibility.srlp_supply,
         )?;
         a.interest_vault.reload()?;
         let referral_receipt = record_leverage_interest(
@@ -293,9 +293,9 @@ impl<'info> EmergencyLiquidation<'info> {
             None,
         )?;
         a.market
-            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, eligibility.base_hlp_ylp_shares)?;
+            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, eligibility.base_hlp_srlp_shares)?;
         a.market
-            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, eligibility.quote_hlp_ylp_shares)?;
+            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, eligibility.quote_hlp_srlp_shares)?;
         super::flash_liquidation::emit_liquidation_interest(
             a,
             asset,

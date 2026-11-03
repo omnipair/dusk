@@ -175,7 +175,7 @@ are appended after each event's earlier fields.
 ## Market state after swaps
 
 Every `SwapExecuted` records the market immediately after that execution.
-`ylp_supply` is the internal yLP share supply. `base` and `quote` each report
+`srlp_supply` is the internal srLP share supply. `base` and `quote` each report
 the side's spot price and symmetric price EMA, quoting that side's asset in the
 opposite asset exactly as `preview_market` reports them for the same state and
 slot, plus its swap-fee and interest growth indexes. `start_price_nad` is the
@@ -194,10 +194,10 @@ change it. Use the later trade's `start_price_nad` for historical execution
 pricing. For a live executable quote at a specified input and slot, call
 `preview_swap`; the most recent event alone cannot quote a future trade.
 
-The growth indexes are per-yLP-share accumulators scaled by 2^64: the index
+The growth indexes are per-srLP-share accumulators scaled by 2^64: the index
 difference between two swaps, divided by 2^64, is the swap-fee or interest
-yield that became claimable per yLP share over that interval. They move when
-swap fees or paid interest become claimable by yLP holders. Interest paid
+yield that became claimable per srLP share over that interval. They move when
+swap fees or paid interest become claimable by srLP holders. Interest paid
 between swaps moves the interest index before the next swap reports it; that
 payment's amount is in `BorrowInterestPaid`. Interest that has accrued but is
 still owed appears instead in the borrow index, reported by
@@ -211,9 +211,9 @@ converges toward the last recorded spot price over the market's EMA half-life.
 
 ## LP transfers
 
-`LpTransferred` is emitted by the Dusk Token-2022 transfer hook for every yLP
+`LpTransferred` is emitted by the Dusk Token-2022 transfer hook for every srLP
 and hLP transfer that reaches it, after both holders' yield accounts are
-checkpointed. It carries the market, LP mint, token kind (`0` yLP, `1` hLP),
+checkpointed. It carries the market, LP mint, token kind (`0` srLP, `1` hLP),
 source and destination owners, and amount. Holders are identified by owner
 because the hook accepts only each owner's canonical LP token account.
 

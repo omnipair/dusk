@@ -39,7 +39,7 @@ export interface PublishedLpMetadata {
   json: Record<string, unknown>;
 }
 
-const KIND_LABEL: Record<MarketLpMintKind, string> = { ylp: "yLP", baseHlp: "hLP", quoteHlp: "hLP" };
+const KIND_LABEL: Record<MarketLpMintKind, string> = { srlp: "srLP", baseHlp: "hLP", quoteHlp: "hLP" };
 
 export async function resolveLogos(params: PublishLpMetadataParams): Promise<LpImageSources> {
   const [baseLogo, quoteLogo] = await Promise.all([

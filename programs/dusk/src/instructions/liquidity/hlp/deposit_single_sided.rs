@@ -15,7 +15,7 @@ use crate::{
 };
 
 use crate::instructions::accounts::{
-    derive_hlp_ylp_vault_address, require_reserve_custody, require_supported_asset_mint, token_program_for_mint,
+    derive_hlp_srlp_vault_address, require_reserve_custody, require_supported_asset_mint, token_program_for_mint,
     validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
 
@@ -42,7 +42,7 @@ pub struct DepositSingleSided<'info> {
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
 
@@ -60,7 +60,7 @@ pub struct DepositSingleSided<'info> {
     /// authority are all validated before any market mutation. A System-owned
     /// empty PDA is initialized inline by the deposit handler.
     #[account(mut)]
-    pub hlp_ylp_account: UncheckedAccount<'info>,
+    pub hlp_srlp_account: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub base_yield_account: Box<Account<'info, YieldAccount>>,
@@ -95,7 +95,7 @@ impl<'info> DepositSingleSided<'info> {
             &self.quote_mint,
             &self.quote_reserve_vault,
         )?;
-        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
+        require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
         let target_mint = match target_asset {
             MarketAsset::Base => &self.base_mint,
@@ -106,7 +106,7 @@ impl<'info> DepositSingleSided<'info> {
         validate_owner_asset_account(self.owner.key(), target_mint, &self.owner_target_account)?;
         validate_owner_lp_account(self.owner.key(), &self.target_hlp_mint, &self.owner_hlp_account)?;
         validate_lp_mint(&self.target_hlp_mint, self.market.key(), target_mint.decimals)?;
-        validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
+        validate_lp_mint(&self.srlp_mint, self.market.key(), self.base_mint.decimals)?;
         validate_hlp_yield_account_pda(
             self.base_yield_account.key(),
             self.base_yield_account.bump,
@@ -137,26 +137,26 @@ impl<'info> DepositSingleSided<'info> {
             self.quote_mint.key(),
             YieldTokenKind::Hlp,
         )?;
-        let (expected_hlp_ylp_account, _) =
-            derive_hlp_ylp_vault_address(self.market.key(), self.target_hlp_mint.key(), self.ylp_mint.key());
+        let (expected_hlp_srlp_account, _) =
+            derive_hlp_srlp_vault_address(self.market.key(), self.target_hlp_mint.key(), self.srlp_mint.key());
         require_keys_eq!(
-            self.hlp_ylp_account.key(),
-            expected_hlp_ylp_account,
+            self.hlp_srlp_account.key(),
+            expected_hlp_srlp_account,
             ErrorCode::InvalidVault
         );
-        let hlp_ylp_info = self.hlp_ylp_account.to_account_info();
-        if *hlp_ylp_info.owner == System::id() {
-            require!(hlp_ylp_info.data_is_empty(), ErrorCode::InvalidVault);
+        let hlp_srlp_info = self.hlp_srlp_account.to_account_info();
+        if *hlp_srlp_info.owner == System::id() {
+            require!(hlp_srlp_info.data_is_empty(), ErrorCode::InvalidVault);
         } else {
             require_keys_eq!(
-                *hlp_ylp_info.owner,
+                *hlp_srlp_info.owner,
                 self.token_2022_program.key(),
                 ErrorCode::InvalidTokenProgram
             );
-            let data = hlp_ylp_info.try_borrow_data()?;
+            let data = hlp_srlp_info.try_borrow_data()?;
             let mut data_slice: &[u8] = &data;
             let account = TokenAccount::try_deserialize_unchecked(&mut data_slice)?;
-            require_keys_eq!(account.mint, self.ylp_mint.key(), ErrorCode::InvalidTokenAccount);
+            require_keys_eq!(account.mint, self.srlp_mint.key(), ErrorCode::InvalidTokenAccount);
             require_keys_eq!(account.owner, self.market.key(), ErrorCode::InvalidVault);
         }
         require_supported_asset_mint(&self.base_mint)?;
@@ -188,23 +188,23 @@ impl<'info> DepositSingleSided<'info> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
         let target_hlp_mint_key = ctx.accounts.target_hlp_mint.key();
-        let ylp_mint_key = ctx.accounts.ylp_mint.key();
+        let srlp_mint_key = ctx.accounts.srlp_mint.key();
 
-        // Create the canonical yLP custody account on its first deposit.
-        let (_, hlp_ylp_bump) = derive_hlp_ylp_vault_address(market_key, target_hlp_mint_key, ylp_mint_key);
+        // Create the canonical srLP custody account on its first deposit.
+        let (_, hlp_srlp_bump) = derive_hlp_srlp_vault_address(market_key, target_hlp_mint_key, srlp_mint_key);
         create_token_account(
             &ctx.accounts.market.to_account_info(),
             &ctx.accounts.owner.to_account_info(),
-            &ctx.accounts.hlp_ylp_account.to_account_info(),
-            &ctx.accounts.ylp_mint.to_account_info(),
+            &ctx.accounts.hlp_srlp_account.to_account_info(),
+            &ctx.accounts.srlp_mint.to_account_info(),
             &ctx.accounts.system_program.to_account_info(),
             &ctx.accounts.token_2022_program.to_account_info(),
             &[
-                HLP_YLP_VAULT_SEED_PREFIX,
+                HLP_SRLP_VAULT_SEED_PREFIX,
                 market_key.as_ref(),
                 target_hlp_mint_key.as_ref(),
-                ylp_mint_key.as_ref(),
-                &[hlp_ylp_bump],
+                srlp_mint_key.as_ref(),
+                &[hlp_srlp_bump],
             ],
         )?;
         let target_asset = ctx
@@ -300,9 +300,9 @@ impl<'info> DepositSingleSided<'info> {
             quote_interest_growth,
         )?;
 
-        // Mint backing yLP into custody and hLP to the depositor.
-        let ylp_program = token_program_for_mint(
-            &ctx.accounts.ylp_mint,
+        // Mint backing srLP into custody and hLP to the depositor.
+        let srlp_program = token_program_for_mint(
+            &ctx.accounts.srlp_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
@@ -314,17 +314,17 @@ impl<'info> DepositSingleSided<'info> {
         let market_seeds = generate_market_seeds!(ctx.accounts.market);
         let signer_seeds = [&market_seeds[..]];
         let mut mint_instruction = Instruction {
-            program_id: *ylp_program.key,
+            program_id: *srlp_program.key,
             accounts: Vec::with_capacity(3),
             data: Vec::with_capacity(9),
         };
         token_mint_to_with_instruction(
             &mut mint_instruction,
             ctx.accounts.market.to_account_info(),
-            ylp_program.clone(),
-            ctx.accounts.ylp_mint.to_account_info(),
-            ctx.accounts.hlp_ylp_account.to_account_info(),
-            receipt.ylp_amount,
+            srlp_program.clone(),
+            ctx.accounts.srlp_mint.to_account_info(),
+            ctx.accounts.hlp_srlp_account.to_account_info(),
+            receipt.srlp_amount,
             &signer_seeds,
         )?;
         token_mint_to_with_instruction(
@@ -343,9 +343,9 @@ impl<'info> DepositSingleSided<'info> {
             asset_side: target_asset.code(),
             deposit_amount: receipt.deposit_amount,
             borrowed_amount: receipt.borrowed_amount,
-            ylp_amount: receipt.ylp_amount,
+            srlp_amount: receipt.srlp_amount,
             hlp_amount: receipt.hlp_amount,
-            ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
+            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
             hlp_supply: receipt.hlp_supply,
             base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
             quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,

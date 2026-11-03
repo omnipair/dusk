@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::HlpCohortRotated,
     instructions::{
-        accounts::{derive_hlp_ylp_vault_address, validate_lp_mint},
+        accounts::{derive_hlp_srlp_vault_address, validate_lp_mint},
         market::{create_lp_metadata, require_vanity_suffix, validate_lp_metadata_args, InitializeLpMetadataArgs},
     },
     state::{HlpCohort, HlpVault, Market, MarketAsset},
@@ -85,14 +85,14 @@ impl<'info> RotateHlpCohort<'info> {
             MarketAsset::Base => Market::validate_mint_domain(
                 market.base_side.asset_mint,
                 market.quote_side.asset_mint,
-                market.ylp_mint,
+                market.srlp_mint,
                 new_mint,
                 market.quote_side.hlp_mint,
             )?,
             MarketAsset::Quote => Market::validate_mint_domain(
                 market.base_side.asset_mint,
                 market.quote_side.asset_mint,
-                market.ylp_mint,
+                market.srlp_mint,
                 market.base_side.hlp_mint,
                 new_mint,
             )?,
@@ -110,12 +110,12 @@ impl<'info> RotateHlpCohort<'info> {
             retired_vault.flash_collateral_debit == 0,
             ErrorCode::LiquidationSessionActive
         );
-        let new_ylp_vault = derive_hlp_ylp_vault_address(market_key, new_mint, market.ylp_mint).0;
+        let new_srlp_vault = derive_hlp_srlp_vault_address(market_key, new_mint, market.srlp_mint).0;
 
         ctx.accounts.old_cohort.final_vault = retired_vault;
         ctx.accounts.old_cohort.retired = true;
         let fresh_vault = HlpVault {
-            ylp_vault: new_ylp_vault,
+            srlp_vault: new_srlp_vault,
             ..HlpVault::default()
         };
         match target_asset {

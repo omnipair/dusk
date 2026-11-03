@@ -19,8 +19,8 @@ use crate::{
     instructions::accounts::{
         require_reserve_custody, require_supported_asset_mint, token_account_credit, token_account_info_amount,
         token_account_info_credit, token_program_for_mint, validate_interest_accounts, validate_owner_asset_account,
-        validate_side_vault_accounts, HlpSwapAccountLayout, BASE_HLP_YLP_VAULT_INDEX, BASE_INTEREST_VAULT_INDEX,
-        HLP_SWAP_ACCOUNT_PREFIX_LEN, HLP_YLP_MINT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX, QUOTE_INTEREST_VAULT_INDEX,
+        validate_side_vault_accounts, HlpSwapAccountLayout, BASE_HLP_SRLP_VAULT_INDEX, BASE_INTEREST_VAULT_INDEX,
+        HLP_SRLP_MINT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN, QUOTE_HLP_SRLP_VAULT_INDEX, QUOTE_INTEREST_VAULT_INDEX,
     },
     instructions::liquidity::record_inline_hlp_interest_credit,
     instructions::referral::accounting::ReferralInterestAccrualReceipt,
@@ -185,7 +185,7 @@ pub(crate) fn settle_inline_hlp_accounts<'info>(
     event_authority: AccountInfo<'info>,
 ) -> Result<()> {
     for receipt in [base_receipt, quote_receipt] {
-        if receipt.ylp_mint_amount == 0 && receipt.ylp_burn_amount == 0 && receipt.interest_paid == 0 {
+        if receipt.srlp_mint_amount == 0 && receipt.srlp_burn_amount == 0 && receipt.interest_paid == 0 {
             continue;
         }
         require_gte!(
@@ -194,33 +194,33 @@ pub(crate) fn settle_inline_hlp_accounts<'info>(
             ErrorCode::NotEnoughAccounts
         );
         require!(
-            receipt.ylp_mint_amount == 0 || receipt.ylp_burn_amount == 0,
+            receipt.srlp_mint_amount == 0 || receipt.srlp_burn_amount == 0,
             ErrorCode::BrokenInvariant
         );
-        let ylp_vault_index = if receipt.target_asset == MarketAsset::Base {
-            BASE_HLP_YLP_VAULT_INDEX
+        let srlp_vault_index = if receipt.target_asset == MarketAsset::Base {
+            BASE_HLP_SRLP_VAULT_INDEX
         } else {
-            QUOTE_HLP_YLP_VAULT_INDEX
+            QUOTE_HLP_SRLP_VAULT_INDEX
         };
         let market_seeds = generate_market_seeds!(market);
         let signer_seeds = [&market_seeds[..]];
-        if receipt.ylp_mint_amount > 0 {
+        if receipt.srlp_mint_amount > 0 {
             token_mint_to(
                 market.to_account_info(),
                 token_2022_program.to_account_info(),
-                remaining_accounts[HLP_YLP_MINT_INDEX].clone(),
-                remaining_accounts[ylp_vault_index].clone(),
-                receipt.ylp_mint_amount,
+                remaining_accounts[HLP_SRLP_MINT_INDEX].clone(),
+                remaining_accounts[srlp_vault_index].clone(),
+                receipt.srlp_mint_amount,
                 &signer_seeds,
             )?;
         }
-        if receipt.ylp_burn_amount > 0 {
+        if receipt.srlp_burn_amount > 0 {
             token_burn(
                 market.to_account_info(),
                 token_2022_program.to_account_info(),
-                remaining_accounts[HLP_YLP_MINT_INDEX].clone(),
-                remaining_accounts[ylp_vault_index].clone(),
-                receipt.ylp_burn_amount,
+                remaining_accounts[HLP_SRLP_MINT_INDEX].clone(),
+                remaining_accounts[srlp_vault_index].clone(),
+                receipt.srlp_burn_amount,
                 &signer_seeds,
             )?;
         }
@@ -759,8 +759,8 @@ pub fn record_leverage_interest<'info>(
         protocol_credit,
     )?;
     // Historical public growth is protected before the new cash credit.
-    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
-    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
+    market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, interest_eligibility.base_hlp_srlp_shares)?;
+    market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_srlp_shares)?;
     market.record_receivable_income_credit(
         debt_asset,
         false,
@@ -782,8 +782,8 @@ pub fn record_leverage_interest<'info>(
         debt_reserve_vault.reload()?;
         interest_vault.reload()?;
     } else {
-        market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
-        market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
+        market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, interest_eligibility.base_hlp_srlp_shares)?;
+        market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_srlp_shares)?;
     }
     Ok(referral_receipt)
 }

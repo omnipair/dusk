@@ -13,7 +13,7 @@ use crate::{
     token::{token_burn, transfer_checked_with_remaining_accounts},
 };
 
-use super::{validate_ylp_market_pda, ylp_yield_account_pda};
+use super::{srlp_yield_account_pda, validate_srlp_market_pda};
 
 use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_account_debit,
@@ -23,7 +23,7 @@ use crate::instructions::accounts::{
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct RemoveLiquidityArgs {
-    pub ylp_amount: u64,
+    pub srlp_amount: u64,
     pub min_base_amount_out: u64,
     pub min_quote_amount_out: u64,
 }
@@ -40,7 +40,7 @@ pub struct RemoveLiquidity<'info> {
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
     pub base_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -52,7 +52,7 @@ pub struct RemoveLiquidity<'info> {
     #[account(mut)]
     pub owner_quote_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub owner_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub owner_srlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut)]
     pub base_yield_account: Box<Account<'info, YieldAccount>>,
@@ -66,12 +66,12 @@ pub struct RemoveLiquidity<'info> {
 
 impl<'info> RemoveLiquidity<'info> {
     pub fn validate(&self, args: &RemoveLiquidityArgs) -> Result<()> {
-        validate_ylp_market_pda(&self.market, self.market.key())?;
+        validate_srlp_market_pda(&self.market, self.market.key())?;
         self.market.assert_started()?;
-        require!(args.ylp_amount > 0, ErrorCode::AmountZero);
+        require!(args.srlp_amount > 0, ErrorCode::AmountZero);
         require_gte!(
-            self.owner_ylp_account.amount,
-            args.ylp_amount,
+            self.owner_srlp_account.amount,
+            args.srlp_amount,
             ErrorCode::InsufficientBalance
         );
         validate_side_vault_accounts(
@@ -86,17 +86,17 @@ impl<'info> RemoveLiquidity<'info> {
             &self.quote_mint,
             &self.quote_reserve_vault,
         )?;
-        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
+        require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
         validate_owner_asset_account(self.owner.key(), &self.base_mint, &self.owner_base_account)?;
         validate_owner_asset_account(self.owner.key(), &self.quote_mint, &self.owner_quote_account)?;
-        validate_owner_lp_account(self.owner.key(), &self.ylp_mint, &self.owner_ylp_account)?;
+        validate_owner_lp_account(self.owner.key(), &self.srlp_mint, &self.owner_srlp_account)?;
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
-        validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
-        let (expected_base_yield_account, expected_base_yield_bump) = ylp_yield_account_pda(
+        validate_lp_mint(&self.srlp_mint, self.market.key(), self.base_mint.decimals)?;
+        let (expected_base_yield_account, expected_base_yield_bump) = srlp_yield_account_pda(
             self.market.key(),
             self.owner.key(),
-            self.ylp_mint.key(),
+            self.srlp_mint.key(),
             self.base_mint.key(),
         )?;
         require_keys_eq!(
@@ -112,14 +112,14 @@ impl<'info> RemoveLiquidity<'info> {
         self.base_yield_account.assert_account(
             self.owner.key(),
             self.market.key(),
-            self.ylp_mint.key(),
+            self.srlp_mint.key(),
             self.base_mint.key(),
-            YieldTokenKind::Ylp,
+            YieldTokenKind::Srlp,
         )?;
-        let (expected_quote_yield_account, expected_quote_yield_bump) = ylp_yield_account_pda(
+        let (expected_quote_yield_account, expected_quote_yield_bump) = srlp_yield_account_pda(
             self.market.key(),
             self.owner.key(),
-            self.ylp_mint.key(),
+            self.srlp_mint.key(),
             self.quote_mint.key(),
         )?;
         require_keys_eq!(
@@ -135,9 +135,9 @@ impl<'info> RemoveLiquidity<'info> {
         self.quote_yield_account.assert_account(
             self.owner.key(),
             self.market.key(),
-            self.ylp_mint.key(),
+            self.srlp_mint.key(),
             self.quote_mint.key(),
-            YieldTokenKind::Ylp,
+            YieldTokenKind::Srlp,
         )?;
         Ok(())
     }
@@ -148,7 +148,7 @@ impl<'info> RemoveLiquidity<'info> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
 
-        // Checkpoint the owner's yield before reducing live yLP supply.
+        // Checkpoint the owner's yield before reducing live srLP supply.
         {
             let market = &mut ctx.accounts.market;
             market.base_side.carry_forward_swap_fees()?;
@@ -157,43 +157,43 @@ impl<'info> RemoveLiquidity<'info> {
             market.quote_side.carry_forward_interest()?;
             market.checkpoint_holder_income(
                 &mut ctx.accounts.base_yield_account,
-                ctx.accounts.owner_ylp_account.amount,
+                ctx.accounts.owner_srlp_account.amount,
                 None,
             )?;
             market.checkpoint_holder_income(
                 &mut ctx.accounts.quote_yield_account,
-                ctx.accounts.owner_ylp_account.amount,
+                ctx.accounts.owner_srlp_account.amount,
                 None,
             )?;
             ctx.accounts.base_yield_account.accrue(
-                ctx.accounts.owner_ylp_account.amount,
+                ctx.accounts.owner_srlp_account.amount,
                 market.base_side.fees.swap_fee_growth_index_q64,
                 market.base_side.fees.interest_growth_index_q64,
             )?;
             ctx.accounts.quote_yield_account.accrue(
-                ctx.accounts.owner_ylp_account.amount,
+                ctx.accounts.owner_srlp_account.amount,
                 market.quote_side.fees.swap_fee_growth_index_q64,
                 market.quote_side.fees.interest_growth_index_q64,
             )?;
         }
 
-        // Burn yLP before applying the matching reserve withdrawal.
-        let ylp_program = token_program_for_mint(
-            &ctx.accounts.ylp_mint,
+        // Burn srLP before applying the matching reserve withdrawal.
+        let srlp_program = token_program_for_mint(
+            &ctx.accounts.srlp_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
         token_burn(
             ctx.accounts.owner.to_account_info(),
-            ylp_program,
-            ctx.accounts.ylp_mint.to_account_info(),
-            ctx.accounts.owner_ylp_account.to_account_info(),
-            args.ylp_amount,
+            srlp_program,
+            ctx.accounts.srlp_mint.to_account_info(),
+            ctx.accounts.owner_srlp_account.to_account_info(),
+            args.srlp_amount,
             &[],
         )?;
 
         // Commit the reserve withdrawal and refresh solvency before payout.
-        let receipt = ctx.accounts.market.remove_liquidity(args.ylp_amount)?;
+        let receipt = ctx.accounts.market.remove_liquidity(args.srlp_amount)?;
         let current_slot = Clock::get()?.slot;
         ctx.accounts
             .market
@@ -268,12 +268,12 @@ impl<'info> RemoveLiquidity<'info> {
         emit_cpi!(LiquidityRemoved {
             market: market_key,
             owner: owner_key,
-            ylp_amount: receipt.ylp_amount,
+            srlp_amount: receipt.srlp_amount,
             base_reserve_debit,
             quote_reserve_debit,
             base_owner_credit: base_credit,
             quote_owner_credit: quote_credit,
-            ylp_supply: receipt.ylp_supply,
+            srlp_supply: receipt.srlp_supply,
             base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
             quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,

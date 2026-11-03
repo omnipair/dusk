@@ -98,7 +98,7 @@ def main():
         "a 45% gap followed by a flat external target, and a 0.6% decline for 60 observations "
         "followed by recovery. Price targets are reached through actual native trades in either "
         "direction, including arbitrage after liquidation. A step-2 stress fixture combines "
-        "25% yLP-share withdrawal with immutable 1% uncapped transfer fees on both tokens. "
+        "25% srLP-share withdrawal with immutable 1% uncapped transfer fees on both tokens. "
         "The separate baseline has neither. This combination does not isolate their individual effects.", "",
         "All ordinary modeled buyers route through Dusk. The model searches collateral slices "
         "on a 1% grid, accepts health-improving partials and targets remaining MM +2 points. "

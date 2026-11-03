@@ -14,7 +14,7 @@ use crate::{
     token::{get_transfer_fee, get_transfer_inverse_fee, token_mint_to, transfer_checked_with_remaining_accounts},
 };
 
-use super::{validate_ylp_market_pda, ylp_yield_account_pda};
+use super::{srlp_yield_account_pda, validate_srlp_market_pda};
 
 use super::super::initialize_or_validate_yield_account;
 use crate::instructions::accounts::{
@@ -26,7 +26,7 @@ use crate::instructions::accounts::{
 pub struct AddLiquidityArgs {
     pub base_deposit_amount: u64,
     pub quote_deposit_amount: u64,
-    pub min_ylp_amount: u64,
+    pub min_srlp_amount: u64,
 }
 
 #[event_cpi]
@@ -48,7 +48,7 @@ pub struct AddLiquidity<'info> {
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
     pub base_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -60,7 +60,7 @@ pub struct AddLiquidity<'info> {
     #[account(mut)]
     pub owner_quote_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub owner_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub owner_srlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     /// CHECK: Canonical PDA and typed state are initialized or validated before
     /// any liquidity mutation.
@@ -84,7 +84,7 @@ struct AddLiquidityTransfers {
 
 impl<'info> AddLiquidity<'info> {
     pub fn validate(&self, args: &AddLiquidityArgs) -> Result<()> {
-        validate_ylp_market_pda(&self.market, self.market.key())?;
+        validate_srlp_market_pda(&self.market, self.market.key())?;
         self.market
             .assert_liquidity_seeding_available_with_futarchy(&self.futarchy_authority)?;
         self.market.require_initial_liquidity_authority(self.owner.key())?;
@@ -104,17 +104,17 @@ impl<'info> AddLiquidity<'info> {
             &self.quote_mint,
             &self.quote_reserve_vault,
         )?;
-        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
+        require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
         validate_owner_asset_account(self.owner.key(), &self.base_mint, &self.owner_base_account)?;
         validate_owner_asset_account(self.owner.key(), &self.quote_mint, &self.owner_quote_account)?;
-        validate_owner_lp_account(self.owner.key(), &self.ylp_mint, &self.owner_ylp_account)?;
+        validate_owner_lp_account(self.owner.key(), &self.srlp_mint, &self.owner_srlp_account)?;
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
-        validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
-        let (expected_base_yield_account, _) = ylp_yield_account_pda(
+        validate_lp_mint(&self.srlp_mint, self.market.key(), self.base_mint.decimals)?;
+        let (expected_base_yield_account, _) = srlp_yield_account_pda(
             self.market.key(),
             self.owner.key(),
-            self.ylp_mint.key(),
+            self.srlp_mint.key(),
             self.base_mint.key(),
         )?;
         require_keys_eq!(
@@ -122,10 +122,10 @@ impl<'info> AddLiquidity<'info> {
             expected_base_yield_account,
             ErrorCode::InvalidYieldAccount
         );
-        let (expected_quote_yield_account, _) = ylp_yield_account_pda(
+        let (expected_quote_yield_account, _) = srlp_yield_account_pda(
             self.market.key(),
             self.owner.key(),
-            self.ylp_mint.key(),
+            self.srlp_mint.key(),
             self.quote_mint.key(),
         )?;
         require_keys_eq!(
@@ -164,7 +164,7 @@ impl<'info> AddLiquidity<'info> {
         let receipt = self
             .market
             .preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
-        require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
+        require_gte!(receipt.srlp_amount, args.min_srlp_amount, ErrorCode::SlippageExceeded);
 
         // Gross up the exact reserve credits for transfer-fee mints.
         let base_transfer_amount = receipt
@@ -201,25 +201,25 @@ impl<'info> AddLiquidity<'info> {
     pub fn handle_add_liquidity(ctx: Context<'_, '_, '_, 'info, Self>, args: AddLiquidityArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();
         let owner_key = ctx.accounts.owner.key();
-        let ylp_mint_key = ctx.accounts.ylp_mint.key();
+        let srlp_mint_key = ctx.accounts.srlp_mint.key();
         let base_mint_key = ctx.accounts.base_mint.key();
         let quote_mint_key = ctx.accounts.quote_mint.key();
 
         // Initialize per-asset yield checkpoints before LP ownership changes.
         let (expected_base_yield_account, base_yield_bump) =
-            ylp_yield_account_pda(market_key, owner_key, ylp_mint_key, base_mint_key)?;
+            srlp_yield_account_pda(market_key, owner_key, srlp_mint_key, base_mint_key)?;
         require_keys_eq!(
             ctx.accounts.base_yield_account.key(),
             expected_base_yield_account,
             ErrorCode::InvalidYieldAccount
         );
         let base_yield_bump_seed = [base_yield_bump];
-        let base_yield_kind_seed = [YieldTokenKind::Ylp.code()];
+        let base_yield_kind_seed = [YieldTokenKind::Srlp.code()];
         let base_yield_seeds = [
             YIELD_ACCOUNT_SEED_PREFIX,
             market_key.as_ref(),
             owner_key.as_ref(),
-            ylp_mint_key.as_ref(),
+            srlp_mint_key.as_ref(),
             base_mint_key.as_ref(),
             &base_yield_kind_seed,
             &base_yield_bump_seed,
@@ -244,26 +244,26 @@ impl<'info> AddLiquidity<'info> {
             &mut base_yield_account,
             owner_key,
             market_key,
-            ylp_mint_key,
+            srlp_mint_key,
             base_mint_key,
-            YieldTokenKind::Ylp,
+            YieldTokenKind::Srlp,
             base_yield_bump,
         )?;
 
         let (expected_quote_yield_account, quote_yield_bump) =
-            ylp_yield_account_pda(market_key, owner_key, ylp_mint_key, quote_mint_key)?;
+            srlp_yield_account_pda(market_key, owner_key, srlp_mint_key, quote_mint_key)?;
         require_keys_eq!(
             ctx.accounts.quote_yield_account.key(),
             expected_quote_yield_account,
             ErrorCode::InvalidYieldAccount
         );
         let quote_yield_bump_seed = [quote_yield_bump];
-        let quote_yield_kind_seed = [YieldTokenKind::Ylp.code()];
+        let quote_yield_kind_seed = [YieldTokenKind::Srlp.code()];
         let quote_yield_seeds = [
             YIELD_ACCOUNT_SEED_PREFIX,
             market_key.as_ref(),
             owner_key.as_ref(),
-            ylp_mint_key.as_ref(),
+            srlp_mint_key.as_ref(),
             quote_mint_key.as_ref(),
             &quote_yield_kind_seed,
             &quote_yield_bump_seed,
@@ -288,28 +288,28 @@ impl<'info> AddLiquidity<'info> {
             &mut quote_yield_account,
             owner_key,
             market_key,
-            ylp_mint_key,
+            srlp_mint_key,
             quote_mint_key,
-            YieldTokenKind::Ylp,
+            YieldTokenKind::Srlp,
             quote_yield_bump,
         )?;
 
-        // Checkpoint existing yLP yield before minting new supply.
+        // Checkpoint existing srLP yield before minting new supply.
         {
             let market = &mut ctx.accounts.market;
             market.base_side.carry_forward_swap_fees()?;
             market.base_side.carry_forward_interest()?;
             market.quote_side.carry_forward_swap_fees()?;
             market.quote_side.carry_forward_interest()?;
-            market.checkpoint_holder_income(&mut base_yield_account, ctx.accounts.owner_ylp_account.amount, None)?;
-            market.checkpoint_holder_income(&mut quote_yield_account, ctx.accounts.owner_ylp_account.amount, None)?;
+            market.checkpoint_holder_income(&mut base_yield_account, ctx.accounts.owner_srlp_account.amount, None)?;
+            market.checkpoint_holder_income(&mut quote_yield_account, ctx.accounts.owner_srlp_account.amount, None)?;
             base_yield_account.accrue(
-                ctx.accounts.owner_ylp_account.amount,
+                ctx.accounts.owner_srlp_account.amount,
                 market.base_side.fees.swap_fee_growth_index_q64,
                 market.base_side.fees.interest_growth_index_q64,
             )?;
             quote_yield_account.accrue(
-                ctx.accounts.owner_ylp_account.amount,
+                ctx.accounts.owner_srlp_account.amount,
                 market.quote_side.fees.swap_fee_growth_index_q64,
                 market.quote_side.fees.interest_growth_index_q64,
             )?;
@@ -381,7 +381,7 @@ impl<'info> AddLiquidity<'info> {
             .accounts
             .market
             .add_liquidity(base_reserve_credit, quote_reserve_credit)?;
-        require_gte!(receipt.ylp_amount, args.min_ylp_amount, ErrorCode::SlippageExceeded);
+        require_gte!(receipt.srlp_amount, args.min_srlp_amount, ErrorCode::SlippageExceeded);
         let current_slot = Clock::get()?.slot;
         // Adding depth cannot consume an underwriting shape in this
         // instruction. One canonical curve evaluation finalizes curve depth and the
@@ -392,18 +392,18 @@ impl<'info> AddLiquidity<'info> {
         require_reserve_custody(ctx.accounts.base_reserve_vault.amount, &ctx.accounts.market.base_side)?;
         require_reserve_custody(ctx.accounts.quote_reserve_vault.amount, &ctx.accounts.market.quote_side)?;
 
-        // Mint yLP only after reserve and curve accounting succeeds.
-        let ylp_program = token_program_for_mint(
-            &ctx.accounts.ylp_mint,
+        // Mint srLP only after reserve and curve accounting succeeds.
+        let srlp_program = token_program_for_mint(
+            &ctx.accounts.srlp_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
         token_mint_to(
             ctx.accounts.market.to_account_info(),
-            ylp_program,
-            ctx.accounts.ylp_mint.to_account_info(),
-            ctx.accounts.owner_ylp_account.to_account_info(),
-            receipt.ylp_amount,
+            srlp_program,
+            ctx.accounts.srlp_mint.to_account_info(),
+            ctx.accounts.owner_srlp_account.to_account_info(),
+            receipt.srlp_amount,
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
         )?;
 
@@ -412,8 +412,8 @@ impl<'info> AddLiquidity<'info> {
             owner: owner_key,
             base_reserve_credit: receipt.base_reserve_credit,
             quote_reserve_credit: receipt.quote_reserve_credit,
-            ylp_amount: receipt.ylp_amount,
-            ylp_supply: receipt.ylp_supply,
+            srlp_amount: receipt.srlp_amount,
+            srlp_supply: receipt.srlp_supply,
             base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
             quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,
             metadata: MarketEventMetadata::new(owner_key, market_key)?,

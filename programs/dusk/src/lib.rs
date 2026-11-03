@@ -167,7 +167,7 @@ pub mod dusk {
         FortifyMarket::handle_fortify(ctx, args)
     }
 
-    // Direct-yLP parameter governance instructions
+    // Direct-srLP parameter governance instructions
     pub fn create_parameter_proposal<'info>(
         ctx: Context<'_, '_, '_, 'info, CreateParameterProposal<'info>>,
         args: CreateParameterProposalArgs,
@@ -243,7 +243,7 @@ pub mod dusk {
     }
 
     /// Permissionless launch adapters use the same fully-backed seeding path
-    /// as ordinary yLP deposits. The initializer is the one-shot authority;
+    /// as ordinary srLP deposits. The initializer is the one-shot authority;
     /// after this succeeds, subsequent liquidity is permissionless.
     pub fn open_liquidity_gates<'info>(
         ctx: Context<'_, '_, '_, 'info, AddLiquidity<'info>>,
@@ -252,7 +252,7 @@ pub mod dusk {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         ctx.accounts.update_and_validate(&args)?;
         require_eq!(
-            ctx.accounts.market.base_side.shares.ylp_supply,
+            ctx.accounts.market.base_side.shares.srlp_supply,
             0,
             ErrorCode::NonZeroSupply
         );

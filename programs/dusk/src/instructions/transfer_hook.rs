@@ -297,7 +297,7 @@ pub(crate) fn current_yield_contexts(market: &mut Market, lp_mint: Pubkey) -> Re
             }),
         }));
     }
-    if market.ylp_mint == lp_mint {
+    if market.srlp_mint == lp_mint {
         market.base_side.carry_forward_swap_fees()?;
         market.base_side.carry_forward_interest()?;
         market.quote_side.carry_forward_swap_fees()?;
@@ -307,14 +307,14 @@ pub(crate) fn current_yield_contexts(market: &mut Market, lp_mint: Pubkey) -> Re
                 Some(YieldContext {
                     lp_mint,
                     asset_mint: market.base_side.asset_mint,
-                    token_kind: YieldTokenKind::Ylp,
+                    token_kind: YieldTokenKind::Srlp,
                     swap_fee_growth_index_q64: market.base_side.fees.swap_fee_growth_index_q64,
                     interest_growth_index_q64: market.base_side.fees.interest_growth_index_q64,
                 }),
                 Some(YieldContext {
                     lp_mint,
                     asset_mint: market.quote_side.asset_mint,
-                    token_kind: YieldTokenKind::Ylp,
+                    token_kind: YieldTokenKind::Srlp,
                     swap_fee_growth_index_q64: market.quote_side.fees.swap_fee_growth_index_q64,
                     interest_growth_index_q64: market.quote_side.fees.interest_growth_index_q64,
                 }),
@@ -322,7 +322,7 @@ pub(crate) fn current_yield_contexts(market: &mut Market, lp_mint: Pubkey) -> Re
         }));
     }
     if market.base_side.hlp_mint == lp_mint {
-        market.checkpoint_hlp_yield_from_ylp(crate::state::MarketAsset::Base)?;
+        market.checkpoint_hlp_yield_from_srlp(crate::state::MarketAsset::Base)?;
         return Ok(Some(YieldContexts {
             items: [
                 Some(YieldContext {
@@ -343,7 +343,7 @@ pub(crate) fn current_yield_contexts(market: &mut Market, lp_mint: Pubkey) -> Re
         }));
     }
     if market.quote_side.hlp_mint == lp_mint {
-        market.checkpoint_hlp_yield_from_ylp(crate::state::MarketAsset::Quote)?;
+        market.checkpoint_hlp_yield_from_srlp(crate::state::MarketAsset::Quote)?;
         return Ok(Some(YieldContexts {
             items: [
                 Some(YieldContext {

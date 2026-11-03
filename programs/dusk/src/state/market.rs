@@ -188,7 +188,7 @@ pub struct AmmState {
     pub launch_fee_progress_offset: u16,
     pub volatility_accumulator_nad: u64,
     pub curve_depth_per_share_nad: u128,
-    /// yLP principal floor protected from funded recenter/ramp impairment.
+    /// srLP principal floor protected from funded recenter/ramp impairment.
     pub protected_floor_per_share_nad: u128,
     /// Fresh protected-profit target that arms retained surcharge routing.
     /// This is a principal-budget target, never a cap on trader fees.
@@ -200,7 +200,7 @@ pub struct AmmState {
     pub retention_hard_cap_nad: u128,
     /// When true, dynamic surcharge is locked in the non-quoteable protected
     /// recenter bucket; when false, the identical trader charge is routed to
-    /// claimable yLP fee accounting.
+    /// claimable srLP fee accounting.
     pub retain_dynamic_surcharge: bool,
     /// The requested protection target exceeded its principal-budget cap.
     pub retention_target_saturated: bool,
@@ -386,7 +386,7 @@ pub struct Fees {
     /// Interest counterpart of `swap_fee_growth_remainder_scaled`.
     pub interest_growth_remainder_scaled: u64,
     /// Source-scoped Q64 carry for interest paid by hLP funding debt. Funding
-    /// uses a non-hLP denominator, while public interest uses total yLP
+    /// uses a non-hLP denominator, while public interest uses total srLP
     /// supply; sharing one carry across those denominators would eventually
     /// leak rounding entitlement between the two populations.
     pub hlp_funding_interest_growth_remainder_scaled: u64,
@@ -430,8 +430,8 @@ pub struct HlpVault {
     /// Collateral committed to one atomic flash recovery. Receipt supply is
     /// fixed until settlement; retail operations on other positions may run.
     pub flash_collateral_debit: u64,
-    pub ylp_vault: Pubkey,
-    pub ylp_shares: u64,
+    pub srlp_vault: Pubkey,
+    pub srlp_shares: u64,
     /// hLP-owned live reserve depth that is not backed by reserve cash or
     /// normal cash-backed debt. This is the explicit synthetic live component
     /// in `r_virtual = r_cash + r_cash_backed_debt + r_hlp_live`.
@@ -452,14 +452,14 @@ pub struct HlpVault {
     pub base_interest_checkpoint_q64: u128,
     pub quote_swap_fee_checkpoint_q64: u128,
     pub quote_interest_checkpoint_q64: u128,
-    /// Aggregate sub-atom yLP entitlement carried across hLP checkpoints.
+    /// Aggregate sub-atom srLP entitlement carried across hLP checkpoints.
     /// These are distinct from each holder YieldAccount remainder: this layer
-    /// converts vault-owned yLP growth into hLP growth without double-flooring.
+    /// converts vault-owned srLP growth into hLP growth without double-flooring.
     pub base_swap_fee_remainder_q64: u64,
     pub base_interest_remainder_q64: u64,
     pub quote_swap_fee_remainder_q64: u64,
     pub quote_interest_remainder_q64: u64,
-    /// Sub-index distribution carry for the second, yLP-to-hLP allocation
+    /// Sub-index distribution carry for the second, srLP-to-hLP allocation
     /// layer. Whole-token backing represented here has already left the
     /// corresponding `unallocated_*` bucket.
     pub base_swap_fee_growth_remainder_scaled: u64,
@@ -549,7 +549,7 @@ impl Default for Insurance {
 pub struct Market {
     pub oracle: Box<super::OracleState>,
     pub version: u8,
-    pub ylp_mint: Pubkey,
+    pub srlp_mint: Pubkey,
     pub base_side: Box<MarketSide>,
     pub quote_side: Box<MarketSide>,
     pub config: MarketConfig,
@@ -567,12 +567,12 @@ pub struct Market {
     pub insurance: Insurance,
     pub params_hash: [u8; 32],
     /// One-shot signer allowed to provide the first fully-backed Base/Quote
-    /// seed. It is cleared permanently once yLP supply becomes nonzero.
+    /// seed. It is cleared permanently once srLP supply becomes nonzero.
     pub initial_liquidity_authority: Pubkey,
-    /// External yLP burned into direct support or reusable governance balances. This is added back
-    /// when computing direct-yLP eligibility; internal reserve-share supply is
+    /// External srLP burned into direct support or reusable governance balances. This is added back
+    /// when computing direct-srLP eligibility; internal reserve-share supply is
     /// intentionally unchanged by governance locking.
-    pub governance_locked_ylp: u64,
+    pub governance_locked_srlp: u64,
     /// Active-generation jrLP receipts burned into governance locks. They
     /// remain part of junior receipt supply and keep full first-loss exposure.
     pub governance_locked_junior: u64,
@@ -608,7 +608,7 @@ impl Market {
         let mut cursor = &data[Self::DISCRIMINATOR.len()..];
         reload_field(&mut *self.oracle, &mut cursor)?;
         reload_field(&mut self.version, &mut cursor)?;
-        reload_field(&mut self.ylp_mint, &mut cursor)?;
+        reload_field(&mut self.srlp_mint, &mut cursor)?;
         reload_field(&mut *self.base_side, &mut cursor)?;
         reload_field(&mut *self.quote_side, &mut cursor)?;
         reload_field(&mut self.config, &mut cursor)?;
@@ -625,7 +625,7 @@ impl Market {
         reload_field(&mut self.insurance, &mut cursor)?;
         reload_field(&mut self.params_hash, &mut cursor)?;
         reload_field(&mut self.initial_liquidity_authority, &mut cursor)?;
-        reload_field(&mut self.governance_locked_ylp, &mut cursor)?;
+        reload_field(&mut self.governance_locked_srlp, &mut cursor)?;
         reload_field(&mut self.governance_locked_junior, &mut cursor)?;
         reload_field(&mut self.parameter_revisions, &mut cursor)?;
         reload_field(&mut self.last_marginal_observation_nad, &mut cursor)?;
@@ -640,19 +640,19 @@ impl Market {
     pub(crate) fn validate_mint_domain(
         base_asset_mint: Pubkey,
         quote_asset_mint: Pubkey,
-        ylp_mint: Pubkey,
+        srlp_mint: Pubkey,
         base_hlp_mint: Pubkey,
         quote_hlp_mint: Pubkey,
     ) -> Result<()> {
         require_keys_neq!(base_asset_mint, quote_asset_mint, ErrorCode::InvalidMint);
-        require_keys_neq!(ylp_mint, base_asset_mint, ErrorCode::InvalidLpMintKey);
-        require_keys_neq!(ylp_mint, quote_asset_mint, ErrorCode::InvalidLpMintKey);
+        require_keys_neq!(srlp_mint, base_asset_mint, ErrorCode::InvalidLpMintKey);
+        require_keys_neq!(srlp_mint, quote_asset_mint, ErrorCode::InvalidLpMintKey);
         require_keys_neq!(base_hlp_mint, base_asset_mint, ErrorCode::InvalidLpMintKey);
         require_keys_neq!(base_hlp_mint, quote_asset_mint, ErrorCode::InvalidLpMintKey);
-        require_keys_neq!(base_hlp_mint, ylp_mint, ErrorCode::InvalidLpMintKey);
+        require_keys_neq!(base_hlp_mint, srlp_mint, ErrorCode::InvalidLpMintKey);
         require_keys_neq!(quote_hlp_mint, base_asset_mint, ErrorCode::InvalidLpMintKey);
         require_keys_neq!(quote_hlp_mint, quote_asset_mint, ErrorCode::InvalidLpMintKey);
-        require_keys_neq!(quote_hlp_mint, ylp_mint, ErrorCode::InvalidLpMintKey);
+        require_keys_neq!(quote_hlp_mint, srlp_mint, ErrorCode::InvalidLpMintKey);
         require_keys_neq!(quote_hlp_mint, base_hlp_mint, ErrorCode::InvalidLpMintKey);
         Ok(())
     }
@@ -751,7 +751,7 @@ pub struct Risk {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct ReserveShares {
-    pub ylp_supply: u64,
+    pub srlp_supply: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
@@ -773,7 +773,7 @@ pub struct Reserves {
     pub quote_hlp_backing_inventory: u64,
     /// Physical reserve-vault atoms retained from toxicity surcharge for a
     /// future protected recenter. They are custody-backed but excluded from
-    /// executable cash/live reserves, yLP NAV, and every withdrawal claim.
+    /// executable cash/live reserves, srLP NAV, and every withdrawal claim.
     pub protected_recenter_reserve: u64,
 }
 

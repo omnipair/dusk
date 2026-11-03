@@ -149,7 +149,7 @@ The backing coordinate does not increase, and the draw alone does not move the s
 
 ### Clean, fully hedged state
 
-Let N be ordinary yLP shares, EB the base-target hLP's base equity, and EQ the quote-target hLP's quote equity. Ignore fees, accrued funding, unpaid public interest and frozen cohorts for this subsection. With ordinary coordinates x,y:
+Let N be ordinary srLP shares, EB the base-target hLP's base equity, and EQ the quote-target hLP's quote equity. Ignore fees, accrued funding, unpaid public interest and frozen cohorts for this subsection. With ordinary coordinates x,y:
 
 ```text
 base_hLP_quote_debt = EB × y/x
@@ -158,9 +158,9 @@ quote_hLP_base_debt = EQ × x/y
 live_base  = x + EB + quote_hLP_base_debt
 live_quote = y + EQ + base_hLP_quote_debt
 
-base_hLP_yLP_shares  = N × EB/x
-quote_hLP_yLP_shares = N × EQ/y
-total_yLP_shares = N + both vault-owned balances
+base_hLP_srLP_shares  = N × EB/x
+quote_hLP_srLP_shares = N × EQ/y
+total_srLP_shares = N + both vault-owned balances
 ```
 
 These are ownership equations, so the reserve ratio in them is not a substitute for the OP marginal price. Direct substitution proves that each vault's pro-rata opposite-token claim equals its debt, and its target-token claim equals its target equity.
@@ -169,7 +169,7 @@ An OP swap selects the new ordinary endpoint x',y' from Uλ. Reconstruct both va
 
 An oracle-only update leaves x,y, all shares and both debt quantities unchanged. A matched hedge therefore stays matched. Funding accrual creates a mismatch; a new oracle price does not pay it.
 
-For deposits, a proportional yLP deposit of fraction μ of total backing mints μ times total yLP supply and adds the corresponding actual tokens. Existing claims are unchanged; a new oracle mark is not a minting credit. A clean base-hLP deposit e adds e to EB and physical base cash, adds e×y/x to its internal funding leg and mints N×e/x vault-owned yLP shares. Ordinary x,y and the swap price stay unchanged. Admission/cash limits still apply. Single-sided conversions, withdrawals and fees need their explicit native settlement paths.
+For deposits, a proportional srLP deposit of fraction μ of total backing mints μ times total srLP supply and adds the corresponding actual tokens. Existing claims are unchanged; a new oracle mark is not a minting credit. A clean base-hLP deposit e adds e to EB and physical base cash, adds e×y/x to its internal funding leg and mints N×e/x vault-owned srLP shares. Ordinary x,y and the swap price stay unchanged. Admission/cash limits still apply. Single-sided conversions, withdrawals and fees need their explicit native settlement paths.
 
 ### Worked hLP swap
 
@@ -183,7 +183,7 @@ Start with x = 1,000 base, y = 100,000 quote, EB = 100 base, EQ = 10,000 quote, 
 | Quote-hLP base debt | 100 | 81.428303 |
 | Target equities | 100 base / 10,000 quote | 100 base / 10,000 quote |
 
-Vault-owned yLP shares change from 100/100 to 111.111111/90.475892. Their opposite-token net exposures remain zero. The extra live-reserve movement is matched internal funding, not trader cash or free additional liquidity.
+Vault-owned srLP shares change from 100/100 to 111.111111/90.475892. Their opposite-token net exposures remain zero. The extra live-reserve movement is matched internal funding, not trader cash or free additional liquidity.
 
 ### Accrued funding and receivables
 

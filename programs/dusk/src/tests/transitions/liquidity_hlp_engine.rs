@@ -14,22 +14,22 @@ fn senior_entry_and_cash_exit_exclude_separately_owned_unpaid_interest() {
     market.debt.fixed_quote_principal = 400_000 * UNIT;
     market.quote_side.reserves.cash_reserve -= 400_000 * UNIT;
     market.quote_side.reserves.live_reserve += 25_000 * UNIT;
-    let old_supply = market.base_side.shares.ylp_supply;
+    let old_supply = market.base_side.shares.srlp_supply;
     let old_base_claim = market.base_side.reserves.live_reserve;
     let old_quote_claim = market.curve_reserve(MarketAsset::Quote).unwrap();
     let cash_before = market.quote_side.reserves.cash_reserve;
     let entry = market.add_liquidity(1_000 * UNIT, 1_025 * UNIT).unwrap();
-    assert_eq!(entry.ylp_amount, old_supply / 1_000);
+    assert_eq!(entry.srlp_amount, old_supply / 1_000);
     assert_eq!(entry.quote_reserve_credit, 1_000 * UNIT);
     assert_eq!(
-        ylp_live_underlying_amount(&market, MarketAsset::Base, old_supply).unwrap(),
+        srlp_live_underlying_amount(&market, MarketAsset::Base, old_supply).unwrap(),
         old_base_claim
     );
     assert_eq!(
         market.quote_side.shares.reserve_for_burn(market.curve_reserve(MarketAsset::Quote).unwrap(), old_supply).unwrap(),
         old_quote_claim
     );
-    let exit = market.remove_liquidity(entry.ylp_amount).unwrap();
+    let exit = market.remove_liquidity(entry.srlp_amount).unwrap();
     assert_eq!(exit.base_amount_out, entry.base_reserve_credit);
     assert_eq!(exit.quote_amount_out, entry.quote_reserve_credit);
     assert_eq!(market.quote_side.reserves.cash_reserve, cash_before);
@@ -101,7 +101,7 @@ fn h_lp_share_value_includes_unpaid_public_interest_without_spending_it() {
         assert_eq!(economic_before, executable_before);
 
         // A public borrower owes 25,000 of accrued target-asset interest.
-        // It belongs to the yLP share owners but is not executable AMM cash.
+        // It belongs to the srLP share owners but is not executable AMM cash.
         match target {
             MarketAsset::Base => {
                 market.debt.fixed_base_shares = 400_000;
@@ -122,7 +122,7 @@ fn h_lp_share_value_includes_unpaid_public_interest_without_spending_it() {
             MarketAsset::Quote => &market.quote_hlp_vault,
         };
         let expected_interest_claim =
-            12_500_u128 * u128::from(vault.ylp_shares) / u128::from(market.tranches.senior_reserve_shares(market.side(target).shares.ylp_supply).unwrap());
+            12_500_u128 * u128::from(vault.srlp_shares) / u128::from(market.tranches.senior_reserve_shares(market.side(target).shares.srlp_supply).unwrap());
         let expected_in_nad = market.normalize_amount(expected_interest_claim, market.side(target).asset_decimals).unwrap();
         let economic_after = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
         assert_eq!(economic_after - economic_before, expected_in_nad);

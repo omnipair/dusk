@@ -56,7 +56,7 @@ impl HlpVault {
 impl Market {
     /// The caller must checkpoint historical growth before recording the new
     /// public credit, then move exactly the returned custody debits/credits and
-    /// settle the returned yLP/funding receipts in the same instruction.
+    /// settle the returned srLP/funding receipts in the same instruction.
     pub(crate) fn settle_new_hlp_public_interest(
         &mut self,
         eligibility: HlpYieldEligibility,
@@ -85,10 +85,10 @@ impl Market {
                 let index = self.side(asset).fees.interest_growth_index_q64;
                 fresh[0][asset.code() as usize] =
                     self.base_hlp_vault
-                        .take_new_interest(asset, index, eligibility.base_hlp_ylp_shares)?;
+                        .take_new_interest(asset, index, eligibility.base_hlp_srlp_shares)?;
                 fresh[1][asset.code() as usize] =
                     self.quote_hlp_vault
-                        .take_new_interest(asset, index, eligibility.quote_hlp_ylp_shares)?;
+                        .take_new_interest(asset, index, eligibility.quote_hlp_srlp_shares)?;
             }
         }
         if fresh == [[0; 2]; 2] {
@@ -125,7 +125,7 @@ impl Market {
         for target in [MarketAsset::Base, MarketAsset::Quote] {
             let t = target.code() as usize;
             let borrowed = target.opposite();
-            // Frozen cohorts retain their fixed yLP ownership. Their funded
+            // Frozen cohorts retain their fixed srLP ownership. Their funded
             // income remains harvestable; reinvesting it as active equity
             // would create supply with no corresponding mint receipt.
             if self.hlp_frozen(target) {
@@ -212,7 +212,7 @@ impl Market {
         receipt.quote_rebalance = quote;
         self.finalize_amm_transition_and_observe_risk(slot)?;
         // The caller settles the controller's funding-interest receipts to
-        // the ordinary-yLP lane separately, before completing the instruction.
+        // the ordinary-srLP lane separately, before completing the instruction.
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             let i = asset.code() as usize;
             self.base_hlp_vault.publish_new_interest(asset, fresh[0][i])?;

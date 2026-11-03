@@ -37,7 +37,7 @@ pub struct ConvertTranche<'info> {
     pub owner: Signer<'info>,
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
-    #[account(mut, address = market.ylp_mint)]
+    #[account(mut, address = market.srlp_mint)]
     pub senior_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut, address = market.junior_mint)]
     pub junior_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -49,10 +49,10 @@ pub struct ConvertTranche<'info> {
         seeds = [b"junior_exit", market.key().as_ref(), owner.key().as_ref(), junior_mint.key().as_ref()], bump)]
     pub exit: Box<Account<'info, JuniorExitAccount>>,
     #[account(init_if_needed, payer = owner, space = get_size_with_discriminator::<YieldAccount>(),
-        seeds = [YIELD_ACCOUNT_SEED_PREFIX, market.key().as_ref(), owner.key().as_ref(), senior_mint.key().as_ref(), market.base_side.asset_mint.as_ref(), &[YieldTokenKind::Ylp.code()]], bump)]
+        seeds = [YIELD_ACCOUNT_SEED_PREFIX, market.key().as_ref(), owner.key().as_ref(), senior_mint.key().as_ref(), market.base_side.asset_mint.as_ref(), &[YieldTokenKind::Srlp.code()]], bump)]
     pub senior_base_yield: Box<Account<'info, YieldAccount>>,
     #[account(init_if_needed, payer = owner, space = get_size_with_discriminator::<YieldAccount>(),
-        seeds = [YIELD_ACCOUNT_SEED_PREFIX, market.key().as_ref(), owner.key().as_ref(), senior_mint.key().as_ref(), market.quote_side.asset_mint.as_ref(), &[YieldTokenKind::Ylp.code()]], bump)]
+        seeds = [YIELD_ACCOUNT_SEED_PREFIX, market.key().as_ref(), owner.key().as_ref(), senior_mint.key().as_ref(), market.quote_side.asset_mint.as_ref(), &[YieldTokenKind::Srlp.code()]], bump)]
     pub senior_quote_yield: Box<Account<'info, YieldAccount>>,
     #[account(init_if_needed, payer = owner, space = get_size_with_discriminator::<YieldAccount>(),
         seeds = [YIELD_ACCOUNT_SEED_PREFIX, market.key().as_ref(), owner.key().as_ref(), junior_mint.key().as_ref(), market.base_side.asset_mint.as_ref(), &[YieldTokenKind::Junior.code()]], bump)]
@@ -95,7 +95,7 @@ impl<'info> ConvertTranche<'info> {
             market_key,
             a.senior_mint.key(),
             a.market.base_side.asset_mint,
-            YieldTokenKind::Ylp,
+            YieldTokenKind::Srlp,
             ctx.bumps.senior_base_yield,
         )?;
         super::super::initialize_or_validate_yield_account(
@@ -104,7 +104,7 @@ impl<'info> ConvertTranche<'info> {
             market_key,
             a.senior_mint.key(),
             a.market.quote_side.asset_mint,
-            YieldTokenKind::Ylp,
+            YieldTokenKind::Srlp,
             ctx.bumps.senior_quote_yield,
         )?;
         super::super::initialize_or_validate_yield_account(
@@ -167,7 +167,7 @@ impl<'info> ConvertTranche<'info> {
                 minimum_junior,
             } => {
                 require_gte!(a.owner_senior.amount, senior_amount, ErrorCode::InsufficientBalance);
-                let supply = a.market.base_side.shares.ylp_supply;
+                let supply = a.market.base_side.shares.srlp_supply;
                 let junior_amount = a.market.tranches.enter(senior_amount, supply)?;
                 require_gte!(junior_amount, minimum_junior, ErrorCode::InsufficientOutputAmount);
                 token_burn(

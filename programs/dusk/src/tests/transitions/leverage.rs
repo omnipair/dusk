@@ -98,9 +98,9 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         },
         ..MarketSide::default()
     };
-    let ylp_supply = base_cash.min(quote_cash).max(1);
-    base_side.shares = ReserveShares { ylp_supply };
-    quote_side.shares = ReserveShares { ylp_supply };
+    let srlp_supply = base_cash.min(quote_cash).max(1);
+    base_side.shares = ReserveShares { srlp_supply };
+    quote_side.shares = ReserveShares { srlp_supply };
     let mut market = Market {
         oracle: Default::default(),
         income: Default::default(),
@@ -109,7 +109,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         tranche_policy: Default::default(),
         junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
-        ylp_mint: Pubkey::new_unique(),
+        srlp_mint: Pubkey::new_unique(),
         base_side: Box::new(base_side),
         quote_side: Box::new(quote_side),
         config: MarketConfig {
@@ -133,7 +133,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         insurance: Insurance::default(),
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_ylp: 0,
+        governance_locked_srlp: 0,
         governance_locked_junior: 0,
         parameter_revisions: [0; 9],
         last_marginal_observation_nad: 0,
@@ -315,14 +315,14 @@ fn prepared_leverage_swap(
             target_asset: MarketAsset::Quote,
             ..HlpRebalanceReceipt::default()
         },
-        fee_eligible_ylp_supply: market
+        fee_eligible_srlp_supply: market
             .side(MarketAsset::try_from_code(swap.asset_in).unwrap())
             .shares
-            .ylp_supply,
+            .srlp_supply,
         interest_eligibility: HlpYieldEligibility {
-            ylp_supply: market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+            srlp_supply: market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
         },
         cash_policy,
     })
@@ -2099,7 +2099,7 @@ fn compounded_fees_after_socialized_loss_preserve_junior_ownership() {
     let mut market = active_reconfigured_concentrated_hlp_market_with_decimals(6);
     // A native 20% junior tranche, then a swap that both collects fees and
     // crystallizes bad debt. The prepared pre-loss ownership must be discarded.
-    let total = market.base_side.shares.ylp_supply;
+    let total = market.base_side.shares.srlp_supply;
     market.tranches.enter(total / 5 - market.tranches.junior_reserve_shares, total).unwrap();
     market.synchronize_tranche_income();
     market.config.amm.compounding_fee_bps = 10_000;

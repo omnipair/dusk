@@ -76,7 +76,7 @@ impl Market {
             .funded_reserve_value()?
             .checked_add(value)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let mut supply = self.base_side.shares.ylp_supply;
+        let mut supply = self.base_side.shares.srlp_supply;
         let loss = self.tranches.absorb_loss(before, value, &mut supply)?;
         if loss.junior_wiped {
             for i in 0..4 {
@@ -87,8 +87,8 @@ impl Market {
                 };
             }
         }
-        self.base_side.shares.ylp_supply = supply;
-        self.quote_side.shares.ylp_supply = supply;
+        self.base_side.shares.srlp_supply = supply;
+        self.quote_side.shares.srlp_supply = supply;
         self.synchronize_tranche_income();
         Ok(())
     }
@@ -207,7 +207,7 @@ impl Market {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let junior_value = self
             .tranches
-            .junior_value(self.funded_reserve_value()?, self.base_side.shares.ylp_supply)?;
+            .junior_value(self.funded_reserve_value()?, self.base_side.shares.srlp_supply)?;
         let mut signals = [None, None];
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             let i = asset.code() as usize;

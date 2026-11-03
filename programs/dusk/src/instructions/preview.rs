@@ -205,8 +205,8 @@ pub struct PreviewSide {
     pub cash_reserve: u64,
     pub base_hlp_backing_inventory: u64,
     pub quote_hlp_backing_inventory: u64,
-    pub ylp_supply: u64,
-    pub ylp_exchange_rate_nad: u128,
+    pub srlp_supply: u64,
+    pub srlp_exchange_rate_nad: u128,
     pub spot_price_nad: u64,
     pub price_ema_nad: u64,
     pub directional_price_ema_nad: u64,
@@ -287,8 +287,8 @@ pub struct AddLiquidityPreview {
     pub quote_reserve_credit: u64,
     pub unused_base_amount: u64,
     pub unused_quote_amount: u64,
-    pub ylp_amount: u64,
-    pub ylp_supply: u64,
+    pub srlp_amount: u64,
+    pub srlp_supply: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -680,8 +680,8 @@ impl<'info> PreviewAddLiquidity<'info> {
             unused_quote_amount: requested_quote_amount
                 .checked_sub(quote_transfer_amount)
                 .ok_or(ErrorCode::MarketMathOverflow)?,
-            ylp_amount: receipt.ylp_amount,
-            ylp_supply: receipt.ylp_supply,
+            srlp_amount: receipt.srlp_amount,
+            srlp_supply: receipt.srlp_supply,
         })
     }
 }
@@ -919,17 +919,17 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         MarketAsset::Quote => market.risk.directional_quote_price_ema_nad,
     };
     if !market.amm.initialized
-        && market.base_side.shares.ylp_supply == market.quote_side.shares.ylp_supply
-        && market.base_side.shares.ylp_supply <= MIN_LIQUIDITY
+        && market.base_side.shares.srlp_supply == market.quote_side.shares.srlp_supply
+        && market.base_side.shares.srlp_supply <= MIN_LIQUIDITY
     {
         return Ok(PreviewSide {
             live_reserve: side.reserves.live_reserve,
             cash_reserve: side.reserves.cash_reserve,
-            ylp_supply: side.shares.ylp_supply,
-            ylp_exchange_rate_nad: if side.shares.ylp_supply == 0 {
+            srlp_supply: side.shares.srlp_supply,
+            srlp_exchange_rate_nad: if side.shares.srlp_supply == 0 {
                 0
             } else {
-                side.ylp_exchange_rate_nad()?
+                side.srlp_exchange_rate_nad()?
             },
             borrow_index_nad: market.debt.borrow_index(asset),
             rate_at_target_nad: match asset {
@@ -949,8 +949,8 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         cash_reserve: side.reserves.cash_reserve,
         base_hlp_backing_inventory: side.reserves.base_hlp_backing_inventory,
         quote_hlp_backing_inventory: side.reserves.quote_hlp_backing_inventory,
-        ylp_supply: side.shares.ylp_supply,
-        ylp_exchange_rate_nad: side.ylp_exchange_rate_nad()?,
+        srlp_supply: side.shares.srlp_supply,
+        srlp_exchange_rate_nad: side.srlp_exchange_rate_nad()?,
         spot_price_nad: prices.spot_price_nad,
         price_ema_nad: prices.price_ema_nad,
         directional_price_ema_nad,

@@ -1,6 +1,6 @@
 {
   "name": "@omnipair/dusk-sdk",
-  "version": "2.16.0-next.20261102",
+  "version": "2.17.0-next.20261104-srlp.1",
   "description": "Dusk SDK for Omnipair V2 program writes, RPC reads, parameter governance, previews, and indexer data",
   "license": "MIT",
   "author": "Omnipair <security@omnipair.fi>",

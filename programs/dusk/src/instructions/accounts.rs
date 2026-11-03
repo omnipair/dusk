@@ -10,19 +10,19 @@ use spl_token_2022::{
 };
 
 use crate::{
-    constants::HLP_YLP_VAULT_SEED_PREFIX,
+    constants::HLP_SRLP_VAULT_SEED_PREFIX,
     errors::ErrorCode,
     state::{Market, MarketAsset, MarketSide},
     token::SUPPORTED_ASSET_EXTENSIONS,
 };
 
-pub fn derive_hlp_ylp_vault_address(market: Pubkey, target_hlp_mint: Pubkey, ylp_mint: Pubkey) -> (Pubkey, u8) {
+pub fn derive_hlp_srlp_vault_address(market: Pubkey, target_hlp_mint: Pubkey, srlp_mint: Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[
-            HLP_YLP_VAULT_SEED_PREFIX,
+            HLP_SRLP_VAULT_SEED_PREFIX,
             market.as_ref(),
             target_hlp_mint.as_ref(),
-            ylp_mint.as_ref(),
+            srlp_mint.as_ref(),
         ],
         &crate::ID,
     )
@@ -66,9 +66,9 @@ macro_rules! market_update_and_validate {
 pub(crate) use market_update_and_validate;
 
 pub(crate) const HLP_SWAP_ACCOUNT_PREFIX_LEN: usize = 5;
-pub(crate) const HLP_YLP_MINT_INDEX: usize = 0;
-pub(crate) const BASE_HLP_YLP_VAULT_INDEX: usize = 1;
-pub(crate) const QUOTE_HLP_YLP_VAULT_INDEX: usize = 2;
+pub(crate) const HLP_SRLP_MINT_INDEX: usize = 0;
+pub(crate) const BASE_HLP_SRLP_VAULT_INDEX: usize = 1;
+pub(crate) const QUOTE_HLP_SRLP_VAULT_INDEX: usize = 2;
 pub(crate) const BASE_INTEREST_VAULT_INDEX: usize = 3;
 pub(crate) const QUOTE_INTEREST_VAULT_INDEX: usize = 4;
 
@@ -90,9 +90,9 @@ impl<'info> TryFrom<(&Market, &[AccountInfo<'info>])> for HlpSwapAccountLayout {
             ErrorCode::NotEnoughAccounts
         );
         let expected = [
-            (market.ylp_mint, ErrorCode::InvalidMint),
-            (market.base_hlp_vault.ylp_vault, ErrorCode::InvalidVault),
-            (market.quote_hlp_vault.ylp_vault, ErrorCode::InvalidVault),
+            (market.srlp_mint, ErrorCode::InvalidMint),
+            (market.base_hlp_vault.srlp_vault, ErrorCode::InvalidVault),
+            (market.quote_hlp_vault.srlp_vault, ErrorCode::InvalidVault),
             (market.base_side.interest_vault, ErrorCode::InvalidVault),
             (market.quote_side.interest_vault, ErrorCode::InvalidVault),
         ];
@@ -103,20 +103,20 @@ impl<'info> TryFrom<(&Market, &[AccountInfo<'info>])> for HlpSwapAccountLayout {
             }
         }
         require_keys_eq!(
-            *accounts[HLP_YLP_MINT_INDEX].owner,
+            *accounts[HLP_SRLP_MINT_INDEX].owner,
             Token2022::id(),
             ErrorCode::InvalidTokenProgram
         );
         if market.base_hlp_vault.hlp_supply > 0 || market.base_hlp_vault.residual_exposure != 0 {
             require_keys_eq!(
-                *accounts[BASE_HLP_YLP_VAULT_INDEX].owner,
+                *accounts[BASE_HLP_SRLP_VAULT_INDEX].owner,
                 Token2022::id(),
                 ErrorCode::InvalidTokenProgram
             );
         }
         if market.quote_hlp_vault.hlp_supply > 0 || market.quote_hlp_vault.residual_exposure != 0 {
             require_keys_eq!(
-                *accounts[QUOTE_HLP_YLP_VAULT_INDEX].owner,
+                *accounts[QUOTE_HLP_SRLP_VAULT_INDEX].owner,
                 Token2022::id(),
                 ErrorCode::InvalidTokenProgram
             );

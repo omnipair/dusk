@@ -30,7 +30,7 @@ their extra-account list, and the transfer hook publishes `LpTransferred` by
 self-CPI. Replaying each suite LP transfer from identical account state with
 the legacy seven-entry list and with the new list, a hooked transfer costs
 17,247 CU more: 12,487 CU for the event self-CPI and the rest for resolving
-and passing the two added accounts. The representative yLP transfer costs
+and passing the two added accounts. The representative srLP transfer costs
 104,239–110,567 CU in total. A transfer to the same account, which never
 reaches the hook, costs 264 CU more for the added account key. Legacy-layout
 mints keep their previous cost. `initialize_lp_transfer_hook` costs 6,508–7,053
@@ -121,7 +121,7 @@ from this fully successful run; every regression ceiling remains exactly
 ## Nested concentrated+hLP fee-compounding acceptance (2026-08-27)
 
 The representative nested core-and-shoulder swap uses two active hLP vaults,
-native single-sided yLP fee compounding, algebraic zero-opposite-exposure
+native single-sided srLP fee compounding, algebraic zero-opposite-exposure
 reconstruction, and the normal token/account commit path. On LiteSVM's default
 32 KiB heap it consumed **511,700 CU**, below the repository's **1,350,000 CU**
 guard and Solana's **1,400,000 CU** transaction maximum. The measured SBF

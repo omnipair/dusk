@@ -164,7 +164,7 @@ async function main() {
 
   // Every LP mint is owned by the market that does not exist yet. That is
   // fine: the address is a PDA and is known before anything is on chain.
-  const ylp = createHookedLpMintInstructions({
+  const srlp = createHookedLpMintInstructions({
     payer: owner,
     decimals: baseDecimals,
     mintAuthority: market,
@@ -195,13 +195,13 @@ async function main() {
         NATIVE_MINT,
         TOKEN_PROGRAM_ID,
       ),
-      ...ylp.instructions,
+      ...srlp.instructions,
       ...baseHlp.instructions,
       ...quoteHlp.instructions,
     ],
-    [ylp.keypair, baseHlp.keypair, quoteHlp.keypair],
+    [srlp.keypair, baseHlp.keypair, quoteHlp.keypair],
   );
-  console.log(`lp mints       ylp ${ylp.mint.toBase58()}`);
+  console.log(`lp mints       srlp ${srlp.mint.toBase58()}`);
   console.log(`               base-hlp ${baseHlp.mint.toBase58()}`);
   console.log(`               quote-hlp ${quoteHlp.mint.toBase58()}`);
 
@@ -210,16 +210,16 @@ async function main() {
     quoteSymbol: String(config.quoteSymbol ?? "QUOTE"),
   });
   const lpMetadata = Object.fromEntries(
-    (["ylp", "baseHlp", "quoteHlp"] as const).map((kind) => [
+    (["srlp", "baseHlp", "quoteHlp"] as const).map((kind) => [
       kind,
       { name: naming[kind].name, symbol: naming[kind].symbol, uri: "https://ipfs.omnipair.fi/dusk-lp.json" },
     ])
-  ) as Record<"ylp" | "baseHlp" | "quoteHlp", { name: string; symbol: string; uri: string }>;
+  ) as Record<"srlp" | "baseHlp" | "quoteHlp", { name: string; symbol: string; uri: string }>;
   const marketInstruction = await dusk.write.initializeMarketInstruction({
       payer: owner,
       baseMint,
       quoteMint,
-      ylpMint: ylp.mint,
+      srlpMint: srlp.mint,
       baseHlpMint: baseHlp.mint,
       quoteHlpMint: quoteHlp.mint,
       teamTreasury,
@@ -270,9 +270,9 @@ async function main() {
   await send([
     createAssociatedTokenAccountIdempotentInstruction(
       owner,
-      getAssociatedTokenAddressSync(ylp.mint, owner, false, TOKEN_2022_PROGRAM_ID),
+      getAssociatedTokenAddressSync(srlp.mint, owner, false, TOKEN_2022_PROGRAM_ID),
       owner,
-      ylp.mint,
+      srlp.mint,
       TOKEN_2022_PROGRAM_ID,
     ),
   ]);
@@ -283,12 +283,12 @@ async function main() {
       owner,
       ownerBaseAccount: ata(baseMint),
       ownerQuoteAccount: ata(quoteMint),
-      ownerYlpAccount: getAssociatedTokenAddressSync(ylp.mint, owner, false, TOKEN_2022_PROGRAM_ID),
+      ownerSrlpAccount: getAssociatedTokenAddressSync(srlp.mint, owner, false, TOKEN_2022_PROGRAM_ID),
       quoteMint,
-      ylpMint: ylp.mint,
+      srlpMint: srlp.mint,
       baseDepositAmount: (SEED * baseUnit).toString(),
       quoteDepositAmount: (SEED * quoteUnit).toString(),
-      minYlpAmount: "0",
+      minSrlpAmount: "0",
     }),
   ], [], (await dusk.get.market(market)).oracle.policy);
   console.log(`seeded         ${SEED} a side — ${seedSig}`);

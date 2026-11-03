@@ -6,8 +6,8 @@
  * here, for every market. No brand in the name: the token is identified by
  * what it is and which market it belongs to.
  *
- *   yLP        name `META/USDC yLP`   symbol `yME.US`
- *   jrLP       name `META/USDC jrLP`  symbol `jrME.US`
+ *   srLP        name `META/USDC srLP`   symbol `srME/US`
+ *   jrLP       name `META/USDC jrLP`  symbol `jrME/US`
  *   base hLP   name `META hLP`        symbol `hMETA`
  *   quote hLP  name `USDC hLP`        symbol `hUSDC`
  *
@@ -66,19 +66,19 @@ export function lpTokenNaming(params: LpTokenNamingParams): LpTokenNaming {
   const quote = cleanSymbol(params.quoteSymbol);
   const market = `${base}/${quote}`;
 
-  if (params.kind === "ylp" || params.kind === "junior") {
+  if (params.kind === "srlp" || params.kind === "junior") {
     const junior = params.kind === "junior";
-    const symbolPrefix = junior ? "jr" : "y";
-    const nameSuffix = junior ? " jrLP" : " yLP";
+    const symbolPrefix = junior ? "jr" : "sr";
+    const nameSuffix = junior ? " jrLP" : " srLP";
     const [na, nb] = fitPair(base, quote, MAX_LP_NAME_LENGTH - 1 - nameSuffix.length);
     const a = base.slice(0, 2).toUpperCase();
     const b = quote.slice(0, 2).toUpperCase();
     return {
       name: `${na}/${nb}${nameSuffix}`,
-      symbol: `${symbolPrefix}${a}.${b}`,
+      symbol: `${symbolPrefix}${a}/${b}`,
       description: junior
-        ? `Dusk jrLP for the ${market} market: productive first-loss liquidity with junior income and a notice period before conversion to yLP.`
-        : `Dusk yLP for the ${market} market: a senior share of pooled ${base} and ${quote} liquidity, protected by available insurance and junior capital against covered credit losses.`,
+        ? `Dusk jrLP for the ${market} market: productive first-loss liquidity with junior income and a notice period before conversion to srLP.`
+        : `Dusk srLP for the ${market} market: a senior share of pooled ${base} and ${quote} liquidity, protected by available insurance and junior capital against covered credit losses.`,
     };
   }
 
@@ -96,7 +96,7 @@ export function marketLpTokenNaming(
   params: Omit<LpTokenNamingParams, "kind">,
 ): Record<MarketLpMintKind | "junior", LpTokenNaming> {
   return {
-    ylp: lpTokenNaming({ ...params, kind: "ylp" }),
+    srlp: lpTokenNaming({ ...params, kind: "srlp" }),
     junior: lpTokenNaming({ ...params, kind: "junior" }),
     baseHlp: lpTokenNaming({ ...params, kind: "baseHlp" }),
     quoteHlp: lpTokenNaming({ ...params, kind: "quoteHlp" }),

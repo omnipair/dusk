@@ -37,7 +37,7 @@ pass zero. The SDK and program reject a nonzero value when λ is positive.
 `addLiquidityInstruction` takes two maximum gross spends. On the first guided
 deposit the validated execution-time report sets their usable ratio; base is
 rounded down and quote up to token atoms, and unused tokens stay in the owner's
-wallet. The existing `minYlpAmount` floor still applies. Native first deposits
+wallet. The existing `minSrlpAmount` floor still applies. Native first deposits
 keep their caller-selected ratio, and subsequent deposits remain proportional
 to existing reserves. The first-deposit change preserves all wire layouts.
 
@@ -329,7 +329,7 @@ const ix = await dusk.write.swapInstruction(
 `swapBuilder(...)`, `swapInstruction(...)`, `swapTransaction(...)`, and
 `swapRpc(...)` fetch the market before building the swap. Whenever either hLP
 side has nonzero supply or residual exposure, they prepend the canonical
-five-account prefix exactly once: `[yLP mint, base hLP yLP vault, quote hLP yLP
+five-account prefix exactly once: `[srLP mint, base hLP srLP vault, quote hLP srLP
 vault, base interest vault, quote interest vault]`. Caller-provided remaining
 accounts remain after that prefix.
 
@@ -395,7 +395,7 @@ the actual action's wallet flows come from its simulated settlement events.
 ### Swap and LP Transfer Events
 
 `SwapExecuted` records the market immediately after a completed trade: the
-internal yLP supply and, per side, a `MarketSideSnapshot` with the spot price
+internal srLP supply and, per side, a `MarketSideSnapshot` with the spot price
 and price EMA exactly as `preview_market` reports them for the same state and
 slot, plus the swap-fee and interest growth indexes. `start_price_nad` is the
 Base price actually used to quote that trade, after any pending controller
@@ -404,7 +404,7 @@ they are not a continuous live-price feed. For a prospective quote, use
 `preview_swap` with the intended input and current state rather than treating
 the last event's post-swap spot as the next trade's starting price.
 
-`LpTransferred` reports each yLP or hLP transfer through the Dusk transfer
+`LpTransferred` reports each srLP or hLP transfer through the Dusk transfer
 hook as an ordinary CPI event. `buildLpTransferHookAccountMetas` includes the
 event authority the hook needs; Token-2022 ignores it for mints initialized
 with the earlier seven-entry list, which transfer without a receipt.
@@ -436,12 +436,12 @@ are supported; insurance accounting records the net amount actually received
 after any transfer fee. `fortifyMarketTransaction(...)` wraps the same
 instruction in a transaction without signing or sending it.
 
-### Direct-yLP Parameter Governance
+### Direct-srLP Parameter Governance
 
 Market layout v2 has no market manager. The program exposes eight independent
 parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
-Limit, Center Controller, Insurance, and Oracle. A direct yLP holder burn-locks at least
-1% of eligible direct yLP to create a typed proposal. Strictly more than 50%
+Limit, Center Controller, Insurance, and Oracle. A direct srLP holder burn-locks at least
+1% of eligible direct srLP to create a typed proposal. Strictly more than 50%
 support queues it for a 7-day timelock and a 7-day execution window. Execution
 is permissionless. Proposals containing exactly one Oracle update can restore
 pricing despite distress or high utilization; positive weight still verifies a
@@ -485,7 +485,7 @@ const { proposal, transaction } = await dusk.write.createParameterProposal({
   updates: [update],
   metadata,
   initialSupport,
-  // holderYlpAccount is optional; the Token-2022 ATA is the default.
+  // holderSrlpAccount is optional; the Token-2022 ATA is the default.
 });
 ```
 
@@ -546,10 +546,10 @@ transaction }`. Fetch state with `dusk.get.parameterProposal(proposal)`,
 `dusk.get.proposalSupportFor(proposal, supporter)`, or the matching helpers in
 `dusk.get.pda`.
 
-Support is burned from the holder's external yLP account and represented by a
+Support is burned from the holder's external srLP account and represented by a
 proposal-specific virtual claim, so it cannot back multiple proposals. The
-claim continues earning yLP yield. Withdrawal releases the requested amount,
-credits accrued virtual yield to the owner, and remints only the released yLP.
+claim continues earning srLP yield. Withdrawal releases the requested amount,
+credits accrued virtual yield to the owner, and remints only the released srLP.
 A partial release retains the remaining claim. Collecting support can be withdrawn; queued support stays frozen until the proposal executes,
 expires, or becomes stale. When the last supporter withdraws, the proposal
 becomes a tombstone: the account keeps only its discriminator, which stops the
@@ -586,7 +586,7 @@ initializer is safe to compose unconditionally, including when a third party
 has transferred lamports to the PDA address before initialization.
 
 `harvest` accepts the LP owner, designated yield recipient, or independent
-harvest authority for yLP and both hLP mints. Its `owner` account identifies
+harvest authority for srLP and both hLP mints. Its `owner` account identifies
 the LP holder; `caller` signs and must match that owner,
 `YieldAccount.recipient`, or the optional `YieldAccount.harvestAuthority`.
 An unrelated caller is rejected with `InvalidSigner`.
@@ -603,7 +603,7 @@ asset and LP mint that the keeper should service.
 // The LP owner signs this configuration transaction.
 const transaction = await dusk.write.transaction(
   "setHarvestAuthority",
-  { tokenKind: { ylp: {} }, harvestAuthority: keeperPublicKey },
+  { tokenKind: { srlp: {} }, harvestAuthority: keeperPublicKey },
   { accounts: { market, owner, assetMint, lpMint, yieldAccount } }
 );
 await provider.sendAndConfirm(transaction);
@@ -836,7 +836,7 @@ the decoder upstream; the rewrite applies unchanged to Anchor 0.31 and 0.32.
 ## LP Mint Bootstrap
 
 `initialize_market` takes three existing Token-2022 LP mints. Production builds
-require their addresses to end in `yLP` (the yLP mint) and `hLP` (both hLP
+require their addresses to end in `srLP` (the srLP mint) and `hLP` (both hLP
 mints). The SDK produces them as `create_with_seed` accounts of the creator,
 so the creator is the only signer:
 
@@ -850,13 +850,13 @@ import {
 
 const seeds = await grindMarketLpMintSeeds({ base: creator }); // vanity.omnipair.fi
 const rent = await lpMintRent(connection);
-const ylp = await createHookedLpMintWithSeedInstructions({
-  payer: creator, base: creator, seed: seeds.ylp.seed, mint: seeds.ylp.mint,
+const srlp = await createHookedLpMintWithSeedInstructions({
+  payer: creator, base: creator, seed: seeds.srlp.seed, mint: seeds.srlp.mint,
   decimals, mintAuthority: market, transferHookProgramId: PROGRAM_ID, lamports: rent,
 });
 
 const naming = marketLpTokenNaming({ baseSymbol: "META", quoteSymbol: "USDC" });
-// naming.ylp      -> { name: "yMETA/USDC LP", symbol: "yMETA.USDC", description }
+// naming.srlp      -> { name: "META/USDC srLP", symbol: "srME/US", description }
 // naming.baseHlp  -> { name: "hMETA",         symbol: "hMETA.USDC", description }
 // naming.quoteHlp -> { name: "hUSDC",         symbol: "hUSDC.META", description }
 ```
@@ -973,7 +973,7 @@ necessarily cancel an RPC request already sent over the transport.
 ### Reusable governance balances and delegation
 
 `dusk.governance` builds instructions and transactions; it never signs or submits.
-Amounts are raw **yLP atoms**, not asset amounts or dollar values. Only direct yLP
+Amounts are raw **srLP atoms**, not asset amounts or dollar values. Only direct srLP
 is eligible; hLP vault holdings remain excluded. Deposited and committed shares
 continue accruing swap fees and interest to their original owner.
 
@@ -1061,7 +1061,7 @@ agreed fix.
 
 Use `dusk.get.previewHlpDepositCapacity({ market, baseMint, quoteMint, targetHlpMint })`
 to read the native entry status and gross/net funding ceilings. It accrues the
-market in a read-only simulation and prices the underlying yLP purchase and
+market in a read-only simulation and prices the underlying srLP purchase and
 hedge using full live-reserve value, including public unpaid interest. These
 receivables remain excluded from swap-pricing reserves.
 
@@ -1092,7 +1092,7 @@ const plan = await dusk.yield.buildHarvest({
 // Simulate the complete plan.transaction before signing and sending.
 ```
 
-`kind` accepts `ylp`, `baseHlp` and `quoteHlp`. The builder reads the owner's
+`kind` accepts `srlp`, `baseHlp` and `quoteHlp`. The builder reads the owner's
 YieldAccount, respects its configured recipient and creates that recipient's
 ATA if needed. Existing yield accounts are required. Builders never sign or send.
 Set `fundAccruedInterest: false` to harvest existing funded claims without a new
@@ -1194,7 +1194,7 @@ new mints, target side and Metaplex metadata. The old mint's transfer hook must
 be initialized first; `write.initializeLpTransferHookInstruction` accepts
 `tokenKind: "hlp"` when composing that setup without an RPC market fetch.
 Initialize the new mint's hook, then deposit using the new mint. The other hLP
-side and yLP mint do not rotate.
+side and srLP mint do not rotate.
 
 The old mint remains transferable but owns no new principal. Its holder yield
 indexes are frozen in `deriveHlpCohortAddress(market, oldMint)`. A holder can
@@ -1207,10 +1207,10 @@ has a Token-2022 transfer hook, pass its extra accounts as
 already checkpointed in the holder's yield accounts.
 
 
-## yLP, jrLP and hLP
+## srLP, jrLP and hLP
 
-`yLP` is the default senior claim. `jrLP` owns productive first-loss capital;
-entering junior burns yLP and mints jrLP at their current values. `hLP` remains
+`srLP` is the default senior claim. `jrLP` owns productive first-loss capital;
+entering junior burns srLP and mints jrLP at their current values. `hLP` remains
 a hedged position backed by senior liquidity and cannot enter junior. Its own
 unpaid income remains in NAV, and collected income pays funding costs first.
 
@@ -1229,7 +1229,7 @@ const request = await dusk.tranches.convert({
 
 Exit requests escrow receipts. They continue earning junior income and taking
 losses during notice and the exercise window. After notice, `convertExit` burns
-the escrowed jrLP and mints yLP at its current value. It does not withdraw cash.
+the escrowed jrLP and mints srLP at its current value. It does not withdraw cash.
 Read the returned `exit` account for its actual `readyAt` and `expiresAt` slots;
 the configured crowding rule determines the notice. An expired request must be
 renewed or canceled. Conversion can also be blocked by an unsettled insolvent
@@ -1243,7 +1243,7 @@ The SDK exposes bounded maintenance transactions; none are submitted implicitly:
    `prepareDrainedIncomeBooks({ market, payer })` and submit its transactions.
    For `IncomeEpochNeedsRollover` on a partially paid book, use `rollIncome` for
    the affected book. The payer funds its immutable archive account.
-2. For an existing yLP/jrLP holder, call
+2. For an existing srLP/jrLP holder, call
    `prepareHolderIncome({ market, owner, kind: "senior" | "junior" })`.
    Submit its transactions and repeat while `hasMore` is true. Each instruction
    processes at most eight archived epochs for one source.

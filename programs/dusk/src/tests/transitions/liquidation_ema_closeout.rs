@@ -91,7 +91,7 @@ fn native_stress(m: &mut Market, asset: MarketAsset, target: u64, slot: u64) {
 
 #[test]
 fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
-    println!("EMA_NATIVE,amp,hlp,side,tokenfee,front,method,reference_price,reference_depth,output,repayment,writeoff,insurance,reward,front_cost,front_out,reverse_profit,profit,ylp,base_hlp,quote_hlp,protocol,protected,insurance_remaining,backing,remaining_debt,marked_custody");
+    println!("EMA_NATIVE,amp,hlp,side,tokenfee,front,method,reference_price,reference_depth,output,repayment,writeoff,insurance,reward,front_cost,front_out,reverse_profit,profit,srlp,base_hlp,quote_hlp,protocol,protected,insurance_remaining,backing,remaining_debt,marked_custody");
     let mut cases = 0;
     for amp in [1, 4, 10] {
         for hlp in [false, true] {

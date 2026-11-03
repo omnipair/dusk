@@ -36,7 +36,7 @@ fn publish_audit_fee(m: &mut Market, side: MarketAsset, fee: LiquidationFeeAlloc
         if native { m.side_mut(side).record_junior_liquidation_credit(fee.insurance)?; }
         else { m.insurance.credit(side, fee.insurance, slot)?; }
     }
-    let supply = m.base_side.shares.ylp_supply;
+    let supply = m.base_side.shares.srlp_supply;
     m.side_mut(side).record_liquidation_fee_credit(fee.lp, fee.protocol, ProtocolAuctionSplit::default(), supply)?;
     let (fresh, frozen) = m.side_mut(side).fees.public_interest_advance.take_payment(interest)?;
     if native {
@@ -44,8 +44,8 @@ fn publish_audit_fee(m: &mut Market, side: MarketAsset, fee: LiquidationFeeAlloc
     } else {
         m.side_mut(side).record_interest_credit(fresh + frozen, 0, ProtocolAuctionSplit::default(), 0)?;
     }
-    m.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, m.base_hlp_vault.ylp_shares)?;
-    m.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, m.quote_hlp_vault.ylp_shares)?;
+    m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, m.base_hlp_vault.srlp_shares)?;
+    m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, m.quote_hlp_vault.srlp_shares)?;
     Ok(())
 }
 
@@ -162,7 +162,7 @@ fn final_economic_policy_paths() {
                 let now=(step*30) as i64;let slot=2+step*75;
                 if let Err(e)=m.accrue_interest_to_slot(slot) {t.path_error=error_name(e);break;}
                 if step==2 && withdrawal>0 {
-                    let mut trial=m.clone();let burn=trial.base_side.shares.ylp_supply*withdrawal/10_000;
+                    let mut trial=m.clone();let burn=trial.base_side.shares.srlp_supply*withdrawal/10_000;
                     match trial.remove_liquidity(burn).and_then(|_|trial.finalize_amm_transition_and_observe_risk(slot)) {
                         Ok(())=>m=trial,Err(e)=>{t.path_error=format!("lp:{}",error_name(e));break;}
                     }

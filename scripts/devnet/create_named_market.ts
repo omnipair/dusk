@@ -1,5 +1,5 @@
 /**
- * Create a market the way mainnet will: LP mints at vanity `yLP`/`hLP`
+ * Create a market the way mainnet will: LP mints at vanity `srLP`/`hLP`
  * addresses, transfer hooks made usable, names per `lp-naming`, and per-mint
  * images and metadata pinned to IPFS before market creation writes all three
  * URIs on chain.
@@ -159,7 +159,7 @@ async function main() {
   const seeds = await grindMarketLpMintSeeds({ base: owner, serverUrl: VANITY });
   console.log(`ground         3 seeds in ${((Date.now() - started) / 1000).toFixed(1)}s`);
   const mints = {
-    ylp: seeds.ylp.mint,
+    srlp: seeds.srlp.mint,
     baseHlp: seeds.baseHlp.mint,
     quoteHlp: seeds.quoteHlp.mint,
   };
@@ -242,7 +242,7 @@ async function main() {
       payer: owner,
       baseMint,
       quoteMint,
-      ylpMint: mints.ylp,
+      srlpMint: mints.srlp,
       baseHlpMint: mints.baseHlp,
       quoteHlpMint: mints.quoteHlp,
       teamTreasury,
@@ -266,7 +266,7 @@ async function main() {
           payer: owner,
           market,
           lpMint: mints[kind],
-          tokenKind: kind === "ylp" ? "ylp" : "hlp",
+          tokenKind: kind === "srlp" ? "srlp" : "hlp",
         })
       )
     )
@@ -329,21 +329,21 @@ async function main() {
         `${haveBase / baseUnit} base and ${haveQuote / quoteUnit} quote, needs ${SEED} of each.`
     );
   }
-  const ownerYlp = getAssociatedTokenAddressSync(mints.ylp, owner, false, TOKEN_2022_PROGRAM_ID);
+  const ownerSrlp = getAssociatedTokenAddressSync(mints.srlp, owner, false, TOKEN_2022_PROGRAM_ID);
   await send([
-    createAssociatedTokenAccountIdempotentInstruction(owner, ownerYlp, owner, mints.ylp, TOKEN_2022_PROGRAM_ID),
+    createAssociatedTokenAccountIdempotentInstruction(owner, ownerSrlp, owner, mints.srlp, TOKEN_2022_PROGRAM_ID),
   ]);
   const seedSig = await send([
     await dusk.write.addLiquidityInstruction({
       baseMint, market, owner,
       ownerBaseAccount: ata(baseMint),
       ownerQuoteAccount: ata(quoteMint),
-      ownerYlpAccount: ownerYlp,
+      ownerSrlpAccount: ownerSrlp,
       quoteMint,
-      ylpMint: mints.ylp,
+      srlpMint: mints.srlp,
       baseDepositAmount: (SEED * baseUnit).toString(),
       quoteDepositAmount: (SEED * quoteUnit).toString(),
-      minYlpAmount: "0",
+      minSrlpAmount: "0",
     }),
   ], [], (await dusk.get.market(market)).oracle.policy);
   console.log(`seeded         ${SEED} a side — ${seedSig}`);

@@ -15,7 +15,7 @@ approved; there is no mandatory minimum seed. The user selected an additional
 H/15 (approximately 6.67%) of current indexed hLP funding debt in the same
 token; the combined target is `ceil(P/20) + ceil(H/15)`, with P excluding H.
 The user selected existing market LP yield distribution for the post-insurance
-remainder, including hLP through its yLP holdings, with no second protocol cut.
+remainder, including hLP through its srLP holdings, with no second protocol cut.
 The user also confirmed preserving hLP's existing eligible-shortfall insurance
 coverage, up to 100% under the same shared fund budget. Borrower/leverage
 principal losses instead use the selected 75% coverage rate. The selected H/15

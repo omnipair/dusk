@@ -26,7 +26,7 @@ mainnet launch or upgrade.
   Dusk, explicit hedge premium pricing, user-selectable settlement side, and
   stale locked collateral-factor machinery remain outside the reviewed scope.
   Atomic flash settlement already permits caller-supplied external routes.
-- Confirm direct-yLP parameter execution cannot run at or above 80% utilization
+- Confirm direct-srLP parameter execution cannot run at or above 80% utilization
   and cannot retroactively apply new parameters to elapsed interest or EMA state.
 
 ## 2. Security Review
@@ -82,7 +82,7 @@ mainnet launch or upgrade.
   the aggregate 50% fee cap at odd/even raw-token boundaries.
 - Confirm market initialization accepts only asset decimals `0..=9`, and all
   fee/quote matrix tests use that same launch domain.
-- Confirm vanilla yLP withdrawal remains constrained by cash availability,
+- Confirm vanilla srLP withdrawal remains constrained by cash availability,
   user slippage bounds, pro-rata burn math, and reserve/share invariants.
 - Re-check liquidation accounting for collateral seizure, insurance draw, and
   LP socialization.
@@ -93,10 +93,10 @@ mainnet launch or upgrade.
   EMA/smoothed-depth internal settlement, principal-only insurance, unpaid
   interest cancellation and socialization. Include Token-2022 fee notice and
   both hLP flash and native terminal paths.
-- Re-check fee liabilities: yLP, hLP, protocol, and unallocated carry-forward
+- Re-check fee liabilities: srLP, hLP, protocol, and unallocated carry-forward
   buckets. Swap-fee liabilities must remain reserve-custodied
   outside executable cash; interest liabilities must remain interest-vault-custodied.
-- Re-check direct and delegated yLP governance across reusable locked balance,
+- Re-check direct and delegated srLP governance across reusable locked balance,
   proposal creation/support, partial withdrawal before queue, strict-majority
   support, hLP-vault exclusion, seven-day timelock/window, independent family
   revisions, utilization rejection, stale/expired/cancelled paths, virtual
@@ -149,7 +149,7 @@ typecheck gates.
   fixture path:
 
   ```bash
-  yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
+  yarn test-litesvm:no-build --grep "initializes a final srLP/hLP market"
   ```
 - Confirm `packages/dusk-sdk/src/idl_v2.json` and
   `packages/dusk-sdk/src/types_v2.ts` match the latest
@@ -157,7 +157,7 @@ typecheck gates.
   running `npm run check-idl-current --prefix packages/dusk-sdk`.
 - Confirm `packages/dusk-sdk/src/constants.ts` exports the intended Dusk
   program ID and PDA helpers.
-- Confirm yLP and hLP Token-2022 mint constraints remain represented in both
+- Confirm srLP and hLP Token-2022 mint constraints remain represented in both
   code and IDL-visible account flows, including live hLP entry and withdrawal.
 - Confirm the generated interface contains `initialize_yield_accounts`,
   `initialize_lp_transfer_hook`, and all five proposal-lifecycle instructions;
@@ -177,7 +177,7 @@ typecheck gates.
 - Market PDA derivation uses `deriveMarketAddress`.
 - Indexers consume Dusk events from the standalone Dusk IDL.
 - App routing points Dusk market flows at the Dusk program ID.
-- Analytics track yLP, hLP, debt, insurance, and fee state as Dusk market
+- Analytics track srLP, hLP, debt, insurance, and fee state as Dusk market
   metrics.
 
 ## 6. Mainnet Deployment
@@ -230,4 +230,4 @@ target/types/dusk.ts
 - Smoke-test market initialization, add/remove liquidity, swap, borrow/repay,
   liquidation rejection while healthy, borrowing/leverage flash and emergency
   settlement, cash-funded yield claims, protocol fee claims, hLP entry/exit and
-  recovery, and direct/delegated yLP governance on the target cluster.
+  recovery, and direct/delegated srLP governance on the target cluster.

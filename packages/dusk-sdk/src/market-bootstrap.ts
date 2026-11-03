@@ -12,7 +12,7 @@ import { RISK_RATE_DEFAULTS } from "./risk-pricing.js";
  * keypair, which must sign. `createHookedLpMintWithSeedInstructions` derives
  * the address from the creator's key and a seed, so only the creator signs;
  * that is how a browser wallet or a multisig can launch a market, and it is
- * how the `yLP`/`hLP` address suffixes production builds require are produced
+ * how the `srLP`/`hLP` address suffixes production builds require are produced
  * (see `lp-vanity.ts`). Both produce instructions rather than sending anything.
  */
 import {
@@ -34,7 +34,7 @@ import { address, type AddressLike } from "./address.js";
 import { sha256 } from "./hash.js";
 
 /** Every LP mint a market needs, in the order `initialize_market` takes them. */
-export const MARKET_LP_MINT_KINDS = ["ylp", "baseHlp", "quoteHlp"] as const;
+export const MARKET_LP_MINT_KINDS = ["srlp", "baseHlp", "quoteHlp"] as const;
 
 export type MarketLpMintKind = (typeof MARKET_LP_MINT_KINDS)[number];
 

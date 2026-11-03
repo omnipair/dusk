@@ -12,7 +12,7 @@ import {
   defaultLpMetadata,
   defaultMarketConfig,
   deriveFutarchyAuthorityAddress,
-  deriveHlpYlpVaultAddress,
+  deriveHlpSrlpVaultAddress,
   deriveMarketAddresses,
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
@@ -78,10 +78,10 @@ async function main() {
     tokenProgram: TOKEN_PROGRAM_ID,
   });
 
-  const ylpMint = await createHookedLpMintIfMissing({
+  const srlpMint = await createHookedLpMintIfMissing({
     connection: provider.connection,
     payer,
-    label: `${marketLabel}-ylp`,
+    label: `${marketLabel}-srlp`,
     decimals: baseDecimals,
     mintAuthority: market,
     transferHookProgramId: program.programId,
@@ -103,28 +103,28 @@ async function main() {
     transferHookProgramId: program.programId,
   });
 
-  const ylp = new PublicKey(ylpMint.mint);
+  const srlp = new PublicKey(srlpMint.mint);
   const baseHlp = new PublicKey(baseHlpMint.mint);
   const quoteHlp = new PublicKey(quoteHlpMint.mint);
-  const ylpTokenMetadata = deriveTokenMetadataAddress(ylp);
+  const srlpTokenMetadata = deriveTokenMetadataAddress(srlp);
   const baseHlpTokenMetadata = deriveTokenMetadataAddress(baseHlp);
   const quoteHlpTokenMetadata = deriveTokenMetadataAddress(quoteHlp);
-  const baseHlpYlpVault = deriveHlpYlpVaultAddress(
+  const baseHlpSrlpVault = deriveHlpSrlpVaultAddress(
     program.programId,
     market,
     baseHlp,
-    ylp
+    srlp
   );
-  const quoteHlpYlpVault = deriveHlpYlpVaultAddress(
+  const quoteHlpSrlpVault = deriveHlpSrlpVaultAddress(
     program.programId,
     market,
     quoteHlp,
-    ylp
+    srlp
   );
 
   const marketAccount = await provider.connection.getAccountInfo(market, "confirmed");
   if (!marketAccount) {
-    console.log(`Initializing Dusk yLP/hLP market ${market.toBase58()}`);
+    console.log(`Initializing Dusk srLP/hLP market ${market.toBase58()}`);
     const instruction = await program.methods
       .initializeMarket({
         config: defaultMarketConfig(),
@@ -132,7 +132,7 @@ async function main() {
         paramsHash: [...paramsHash],
         bootstrapPriceNad: new anchor.BN(duskEnv("BOOTSTRAP_PRICE_NAD", "0")),
         launchFeeProgressOffset: Number(duskEnv("LAUNCH_FEE_PROGRESS_OFFSET", "0")),
-        ylpMetadata: defaultLpMetadata("ylp"),
+        srlpMetadata: defaultLpMetadata("srlp"),
         baseHlpMetadata: defaultLpMetadata("baseHlp"),
         quoteHlpMetadata: defaultLpMetadata("quoteHlp"),
       })
@@ -142,10 +142,10 @@ async function main() {
         quoteMint,
         market,
         futarchyAuthority,
-        ylpMint: ylp,
+        srlpMint: srlp,
         baseHlpMint: baseHlp,
         quoteHlpMint: quoteHlp,
-        ylpTokenMetadata,
+        srlpTokenMetadata,
         baseHlpTokenMetadata,
         quoteHlpTokenMetadata,
         baseReserveVault: addresses.baseReserveVault,
@@ -184,10 +184,10 @@ async function main() {
     paramsHash: paramsHash.toString("hex"),
     baseMint: baseMint.toBase58(),
     quoteMint: quoteMint.toBase58(),
-    ylpMint: ylpMint.mint,
+    srlpMint: srlpMint.mint,
     baseHlpMint: baseHlpMint.mint,
     quoteHlpMint: quoteHlpMint.mint,
-    ylpTokenMetadata: ylpTokenMetadata.toBase58(),
+    srlpTokenMetadata: srlpTokenMetadata.toBase58(),
     baseHlpTokenMetadata: baseHlpTokenMetadata.toBase58(),
     quoteHlpTokenMetadata: quoteHlpTokenMetadata.toBase58(),
     baseReserveVault: addresses.baseReserveVault.toBase58(),
@@ -198,8 +198,8 @@ async function main() {
     quoteInsuranceVault: addresses.quoteInsuranceVault.toBase58(),
     baseInterestVault: addresses.baseInterestVault.toBase58(),
     quoteInterestVault: addresses.quoteInterestVault.toBase58(),
-    baseHlpYlpVault: baseHlpYlpVault.toBase58(),
-    quoteHlpYlpVault: quoteHlpYlpVault.toBase58(),
+    baseHlpSrlpVault: baseHlpSrlpVault.toBase58(),
+    quoteHlpSrlpVault: quoteHlpSrlpVault.toBase58(),
     eventAuthority: addresses.eventAuthority.toBase58(),
     seededLiquidity:
       state.markets[marketLabel]?.market === market.toBase58()
@@ -246,7 +246,7 @@ async function main() {
     eventAuthority: addresses.eventAuthority,
     baseMint,
     quoteMint,
-    ylpMint: ylp,
+    srlpMint: srlp,
     baseReserveVault: addresses.baseReserveVault,
     quoteReserveVault: addresses.quoteReserveVault,
     baseAmount,
@@ -258,7 +258,7 @@ async function main() {
     seededLiquidity: true,
   };
   writeState(state);
-  console.log("Dusk yLP/hLP market bootstrap complete");
+  console.log("Dusk srLP/hLP market bootstrap complete");
   console.log(JSON.stringify(state.markets[marketLabel], null, 2));
 }
 
@@ -271,7 +271,7 @@ async function seedBalancedLiquidity(params: {
   eventAuthority: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
-  ylpMint: PublicKey;
+  srlpMint: PublicKey;
   baseReserveVault: PublicKey;
   quoteReserveVault: PublicKey;
   baseAmount: bigint;
@@ -293,10 +293,10 @@ async function seedBalancedLiquidity(params: {
     owner: params.payer.publicKey,
     tokenProgram: quoteTokenProgram,
   });
-  const ownerYlpAccount = await getOrCreateAta({
+  const ownerSrlpAccount = await getOrCreateAta({
     connection: params.provider.connection,
     payer: params.payer,
-    mint: params.ylpMint,
+    mint: params.srlpMint,
     owner: params.payer.publicKey,
     tokenProgram: TOKEN_2022_PROGRAM_ID,
   });
@@ -324,7 +324,7 @@ async function seedBalancedLiquidity(params: {
     .addLiquidity({
       baseDepositAmount: bnFromUnits(params.baseAmount),
       quoteDepositAmount: bnFromUnits(params.quoteAmount),
-      minYlpAmount: new anchor.BN(0),
+      minSrlpAmount: new anchor.BN(0),
     })
     .accounts({
       market: params.market,
@@ -332,27 +332,27 @@ async function seedBalancedLiquidity(params: {
       owner: params.payer.publicKey,
       baseMint: params.baseMint,
       quoteMint: params.quoteMint,
-      ylpMint: params.ylpMint,
+      srlpMint: params.srlpMint,
       baseReserveVault: params.baseReserveVault,
       quoteReserveVault: params.quoteReserveVault,
       ownerBaseAccount: ownerBaseAccount.address,
       ownerQuoteAccount: ownerQuoteAccount.address,
-      ownerYlpAccount: ownerYlpAccount.address,
+      ownerSrlpAccount: ownerSrlpAccount.address,
       baseYieldAccount: deriveYieldAccountAddress(
         params.program.programId,
         params.market,
         params.payer.publicKey,
-        params.ylpMint,
+        params.srlpMint,
         params.baseMint,
-        "ylp"
+        "srlp"
       ),
       quoteYieldAccount: deriveYieldAccountAddress(
         params.program.programId,
         params.market,
         params.payer.publicKey,
-        params.ylpMint,
+        params.srlpMint,
         params.quoteMint,
-        "ylp"
+        "srlp"
       ),
       tokenProgram: TOKEN_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID,

@@ -160,15 +160,15 @@ async function main() {
   const market = new PublicKey(config.primaryMarket);
   const baseMint = new PublicKey(config.baseMint);
   const quoteMint = new PublicKey(config.quoteMint);
-  const ylpMint = new PublicKey(config.ylpMint);
+  const srlpMint = new PublicKey(config.srlpMint);
   const unit = 10n ** BigInt(config.baseDecimals);
-  // The yLP mint is Token-2022 — it carries the transfer hook the market
+  // The srLP mint is Token-2022 — it carries the transfer hook the market
   // validates — while the asset mints are legacy. Deriving every associated
   // account under one program silently produces the wrong address for the
   // other, and the failure surfaces as IncorrectProgramId from inside the
-  // associated-token program rather than as anything about yLP.
+  // associated-token program rather than as anything about srLP.
   const tokenProgramFor = (mint: PublicKey) =>
-    mint.equals(ylpMint) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+    mint.equals(srlpMint) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
   const ata = (mint: PublicKey, holder: PublicKey = owner) =>
     getAssociatedTokenAddressSync(mint, holder, false, tokenProgramFor(mint));
 
@@ -276,28 +276,28 @@ async function main() {
     owner,
     ownerBaseAccount: ata(baseMint),
     ownerQuoteAccount: ata(quoteMint),
-    ownerYlpAccount: ata(ylpMint),
+    ownerSrlpAccount: ata(srlpMint),
     quoteMint,
-    ylpMint,
+    srlpMint,
   };
 
   // Measure the stake before depositing, so the removal below can give back
   // exactly what this run added.
-  const ylpBeforeAdd = await balance(ylpMint);
+  const srlpBeforeAdd = await balance(srlpMint);
 
   await flow("add liquidity", async () =>
     send([
       createAssociatedTokenAccountIdempotentInstruction(
         owner,
-        ata(ylpMint),
+        ata(srlpMint),
         owner,
-        ylpMint,
+        srlpMint,
         TOKEN_2022_PROGRAM_ID,
       ),
       await dusk.write.addLiquidityInstruction({
         ...liquidityAccounts,
         baseDepositAmount: (50n * unit).toString(),
-        minYlpAmount: "0",
+        minSrlpAmount: "0",
         quoteDepositAmount: (50n * unit).toString(),
       }),
     ]),
@@ -307,14 +307,14 @@ async function main() {
   // balance instead withdraws liquidity seeded by earlier runs, which halved
   // market depth on every pass and eventually put `open leverage` past the
   // two-percent unwind-impact cap.
-  const ylpMinted = (await balance(ylpMint)) - ylpBeforeAdd;
+  const srlpMinted = (await balance(srlpMint)) - srlpBeforeAdd;
   await flow("remove liquidity", async () =>
     send([
       await dusk.write.removeLiquidityInstruction({
         ...liquidityAccounts,
         minBaseAmountOut: "0",
         minQuoteAmountOut: "0",
-        ylpAmount: ylpMinted.toString(),
+        srlpAmount: srlpMinted.toString(),
       }),
     ]),
   );

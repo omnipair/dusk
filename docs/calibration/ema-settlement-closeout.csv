@@ -1,4 +1,4 @@
-amp,hlp,side,tokenfee,front,method,reference_price,reference_depth,output,repayment,writeoff,insurance,reward,front_cost,front_out,reverse_profit,profit,ylp,base_hlp,quote_hlp,protocol,protected,insurance_remaining,backing,remaining_debt,marked_custody
+amp,hlp,side,tokenfee,front,method,reference_price,reference_depth,output,repayment,writeoff,insurance,reward,front_cost,front_out,reverse_profit,profit,srlp,base_hlp,quote_hlp,protocol,protected,insurance_remaining,backing,remaining_debt,marked_custody
 1,false,0,0,0,control,505015335,50000000000000,0,0,0,0,0,0,0,0.000000000,0.000000000,76805.117500000,0.000000000,0.000000000,0.000000000,0.000000000,1000.000000000,0.000000000,7500000,70305.117500000
 1,false,0,0,0,emergency,505015335,50000000000000,3700390,3663387,3336613,500000,37003,0,0,635.906000000,672.909000000,73759.860000000,0.000000000,0.000000000,4.994000000,0.000000000,500.000000000,0.000000000,0,74264.854000000
 1,false,0,0,1000,control,505015335,50000000000000,0,0,0,0,0,504025,394058,3.645000000,-106.322000000,76907.826000000,0.000000000,0.000000000,0.600000000,0.000000000,1000.000000000,0.000000000,7500000,70408.426000000

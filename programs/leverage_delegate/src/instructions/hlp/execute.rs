@@ -26,7 +26,7 @@ pub struct ExecuteHlpOrder<'info> {
     #[account(mut)]
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut, address = order.target_hlp_mint)]
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
@@ -48,7 +48,7 @@ pub struct ExecuteHlpOrder<'info> {
     )]
     pub custody_hlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub hlp_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub hlp_srlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub base_yield_account: Box<Account<'info, YieldAccount>>,
     #[account(mut)]

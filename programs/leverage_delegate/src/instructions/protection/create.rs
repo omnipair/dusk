@@ -73,8 +73,8 @@ impl<'info> CreateProtectionOrder<'info> {
         } else {
             asset
         };
-        let kind = if a.lp_mint.key() == a.market.ylp_mint {
-            YieldTokenKind::Ylp
+        let kind = if a.lp_mint.key() == a.market.srlp_mint {
+            YieldTokenKind::Srlp
         } else {
             require!(
                 a.market.asset_for_hlp_mint(a.lp_mint.key())? == payment_asset,

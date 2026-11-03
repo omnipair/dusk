@@ -1,5 +1,10 @@
 # Omnipair Dusk whitepapers
 
+**2026-11-04 terminology update:** the current sources and both rebuilt PDFs use
+**srLP** for the senior receipt. The underlying research snapshot, calculations
+and historical `previous/` bundle retain their original scope. See
+[the rename contract](../docs/SRLP_RENAME.md).
+
 **2026-10-30 runtime update:** the retained research PDFs describe the earlier
 time-incentive design. Current liquidation uses health alone, without registration;
 see [the superseding policy](../docs/HEALTH_ONLY_LIQUIDATION.md).
