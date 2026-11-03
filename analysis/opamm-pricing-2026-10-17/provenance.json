@@ -1,0 +1,205 @@
+{
+  "study": "Paper-rule OP-AMM pricing prototype",
+  "experiment_dates": [
+    "2026-10-16",
+    "2026-10-17"
+  ],
+  "publication_prepared": "2026-11-03",
+  "source_type": "Public Bybit spot SOLUSDT order-book archives; simulated feed delays and incorrect reports",
+  "upstream_entry_point": "https://www.bybit.com/derivatives/en/history-data",
+  "quote_asset": "USDT",
+  "windows": [
+    {
+      "episode": "2025-06-war",
+      "start": "2025-06-19",
+      "end": "2025-06-25"
+    },
+    {
+      "episode": "2025-10-tariff",
+      "start": "2025-10-07",
+      "end": "2025-10-13"
+    },
+    {
+      "episode": "2025-11-riskoff",
+      "start": "2025-11-18",
+      "end": "2025-11-24"
+    }
+  ],
+  "artifacts_not_included": [
+    {
+      "original_relative_path": "analysis/oracle-guided-amm-2026-10-16/data/reference_1m.csv",
+      "bytes": 14165553,
+      "sha256": "9d211e2cf36d3fea7d824990d0863ea4009ae887d0ae45d571a7a5addf9fcd09",
+      "included": false
+    },
+    {
+      "original_relative_path": "analysis/incremental-liquidation-loss-2026-10-12/data/snapshots_1m.jsonl.gz",
+      "bytes": 29926751,
+      "sha256": "b1b5bfcc70b17b3114371a5257f2ca57908d3b3271f20018978b860e9064bdaa",
+      "included": false
+    }
+  ],
+  "upstream_archives": [
+    {
+      "date": "2025-06-19",
+      "episode_id": "2025-06-war",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-06-19_SOLUSDT_ob200.data.zip",
+      "bytes": 32983578,
+      "sha256": "edc56d527287e5b64e27eb0ce37f9c389d2d0d7abca97f9c601bbf9d63e204c2"
+    },
+    {
+      "date": "2025-06-20",
+      "episode_id": "2025-06-war",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-06-20_SOLUSDT_ob200.data.zip",
+      "bytes": 39744318,
+      "sha256": "1b1fe605270daabab2e93cbe173ba084546c1cfc29161fb3d07693546f827df0"
+    },
+    {
+      "date": "2025-06-21",
+      "episode_id": "2025-06-war",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-06-21_SOLUSDT_ob200.data.zip",
+      "bytes": 36557314,
+      "sha256": "e549fee52af4cf5e586add31749e633e3ded88b705f71c87f3bcde7ccb340e95"
+    },
+    {
+      "date": "2025-06-22",
+      "episode_id": "2025-06-war",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-06-22_SOLUSDT_ob200.data.zip",
+      "bytes": 55676167,
+      "sha256": "6786e8e33b55a581f390dab60bcb3f6887ebc0f7007f66c623428a4696e56025"
+    },
+    {
+      "date": "2025-06-23",
+      "episode_id": "2025-06-war",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-06-23_SOLUSDT_ob200.data.zip",
+      "bytes": 50020394,
+      "sha256": "3ba67769f06f65e44bcc05a956ee991a087964ed57712bc1f5bcdbbd3b6713ff"
+    },
+    {
+      "date": "2025-06-24",
+      "episode_id": "2025-06-war",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-06-24_SOLUSDT_ob200.data.zip",
+      "bytes": 41639782,
+      "sha256": "c667147171d4f741d3b01b3ed36f9150144cba31cbbb332c7f5c26ba2cdc6609"
+    },
+    {
+      "date": "2025-06-25",
+      "episode_id": "2025-06-war",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-06-25_SOLUSDT_ob200.data.zip",
+      "bytes": 39213965,
+      "sha256": "684810ed93e2a90ece74095ef4102d27a81755d70b90639aa466841c16b6b41b"
+    },
+    {
+      "date": "2025-10-07",
+      "episode_id": "2025-10-tariff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-10-07_SOLUSDT_ob200.data.zip",
+      "bytes": 50329000,
+      "sha256": "c8cd374ea1046a5db1f70ef1a495d7053ce83e79f56f39c98c5669afe4e36148"
+    },
+    {
+      "date": "2025-10-08",
+      "episode_id": "2025-10-tariff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-10-08_SOLUSDT_ob200.data.zip",
+      "bytes": 50263437,
+      "sha256": "0feef859c3f2db52ffda7c159236d3ffb9662839f855552fd88ce234f2b34cde"
+    },
+    {
+      "date": "2025-10-09",
+      "episode_id": "2025-10-tariff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-10-09_SOLUSDT_ob200.data.zip",
+      "bytes": 58001430,
+      "sha256": "1517c3591f9549f26d8053bcdb1afecb7f1640b862861e2aa3aa3abd69bd1cd0"
+    },
+    {
+      "date": "2025-10-10",
+      "episode_id": "2025-10-tariff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-10-10_SOLUSDT_ob200.data.zip",
+      "bytes": 66331772,
+      "sha256": "9c7f7177ffa625ff57dfcbbe552e75490d1a618add620d3b74e0afbb242f6e6f"
+    },
+    {
+      "date": "2025-10-11",
+      "episode_id": "2025-10-tariff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-10-11_SOLUSDT_ob200.data.zip",
+      "bytes": 60031142,
+      "sha256": "c1436975543c552ff4a4f838bb4c2896094f0f09693bd575a7e7c4a16dcecdf8"
+    },
+    {
+      "date": "2025-10-12",
+      "episode_id": "2025-10-tariff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-10-12_SOLUSDT_ob200.data.zip",
+      "bytes": 56245469,
+      "sha256": "dc3658279d7852bcf56005a0f1bb07a5a3a495fb3f14012764e587a9f1d1dcd7"
+    },
+    {
+      "date": "2025-10-13",
+      "episode_id": "2025-10-tariff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-10-13_SOLUSDT_ob200.data.zip",
+      "bytes": 58483987,
+      "sha256": "3218516e194d454e393d7599dd328cae4a7e1a8ce8be496ad0087babca3d0468"
+    },
+    {
+      "date": "2025-11-18",
+      "episode_id": "2025-11-riskoff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-11-18_SOLUSDT_ob200.data.zip",
+      "bytes": 51452588,
+      "sha256": "38473f617de46b30908c2005a7bd9e2aad2f0d0fb0eb9e7dd2f34209b5e98b60"
+    },
+    {
+      "date": "2025-11-19",
+      "episode_id": "2025-11-riskoff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-11-19_SOLUSDT_ob200.data.zip",
+      "bytes": 47226240,
+      "sha256": "41fb2196e501977989f12160a053912f7d86933bc9e1d4e76ec8f5e82bb4de7e"
+    },
+    {
+      "date": "2025-11-20",
+      "episode_id": "2025-11-riskoff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-11-20_SOLUSDT_ob200.data.zip",
+      "bytes": 49870143,
+      "sha256": "297c30e64be5711ae79f0293f44fa0d8303b44bb423c26377f70c66f1857cd99"
+    },
+    {
+      "date": "2025-11-21",
+      "episode_id": "2025-11-riskoff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-11-21_SOLUSDT_ob200.data.zip",
+      "bytes": 62526340,
+      "sha256": "37b2a5ab19d5503eafe5d73b97129ffa3674681d937749cf10e9cd0f86c5eb2c"
+    },
+    {
+      "date": "2025-11-22",
+      "episode_id": "2025-11-riskoff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-11-22_SOLUSDT_ob200.data.zip",
+      "bytes": 36294897,
+      "sha256": "936c92dc7900616ac97ad1b98ef92033fb740402444486f940ade50c48982ecd"
+    },
+    {
+      "date": "2025-11-23",
+      "episode_id": "2025-11-riskoff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-11-23_SOLUSDT_ob200.data.zip",
+      "bytes": 32743563,
+      "sha256": "6235495f29bd65ec03803abee30cf148ba2f1ef03f174821203516fe2c571693"
+    },
+    {
+      "date": "2025-11-24",
+      "episode_id": "2025-11-riskoff",
+      "url": "https://quote-saver.bycsi.com/orderbook/spot/SOLUSDT/2025-11-24_SOLUSDT_ob200.data.zip",
+      "bytes": 42607110,
+      "sha256": "020ac7cfb55349c5f55c734e6ff2e96bbf4ef5a1b76dceb3df42334eb596c726"
+    }
+  ],
+  "hash_verification": "Every listed archive and input artifact was hashed from the recovered local bytes on 2026-11-03; archive hashes match the original acquisition manifest.",
+  "reproduction_limitations": [
+    "Raw exchange data, original reconstruction scripts and native Dusk harness are not packaged.",
+    "The aligned CSV contains additional venue columns; this benchmark consumes only the Bybit fields.",
+    "Exchange emission timestamps are observed; authenticated oracle reports and collector receipt timestamps are unavailable.",
+    "An assumed 60-second feed delay is a model overlay, not measured provider latency.",
+    "Public access does not establish an unrestricted redistribution license."
+  ],
+  "native_comparison": {
+    "included_result": "native_static.json",
+    "adapter_and_analysis_patched_sources_included": false,
+    "source_commit_claim": "22114ad3606e768ed08df41d71e41ece3313d2c9",
+    "warning": "The source commit claim alone does not reproduce the analysis patches."
+  }
+}
