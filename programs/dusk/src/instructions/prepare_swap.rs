@@ -78,7 +78,7 @@ pub(crate) fn enforce_launch_same_transaction_guard(
 }
 
 pub(crate) fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) -> bool {
-    receipt.ylp_mint_amount > 0 || receipt.ylp_burn_amount > 0 || receipt.interest_paid > 0
+    receipt.srlp_mint_amount > 0 || receipt.srlp_burn_amount > 0 || receipt.interest_paid > 0
 }
 
 #[cfg(test)]

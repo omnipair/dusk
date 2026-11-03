@@ -6,35 +6,35 @@ fn hlp_rebalance_event_preserves_both_vault_changes() {
     let mut market = Market::default();
     market.debt.base_borrow_index_nad = crate::constants::NAD as u128;
     market.debt.quote_borrow_index_nad = crate::constants::NAD as u128;
-    market.base_side.shares.ylp_supply = 1_202;
-    market.base_hlp_vault.ylp_shares = 95;
-    market.quote_hlp_vault.ylp_shares = 107;
+    market.base_side.shares.srlp_supply = 1_202;
+    market.base_hlp_vault.srlp_shares = 95;
+    market.quote_hlp_vault.srlp_shares = 107;
     market.base_hlp_vault.debt_shares = 2_223;
     market.quote_hlp_vault.debt_shares = 22;
     let base = HlpRebalanceReceipt {
         target_asset: MarketAsset::Base,
-        ylp_burn_amount: 5,
+        srlp_burn_amount: 5,
         debt_delta: -27,
         interest_paid: 10,
         ..HlpRebalanceReceipt::default()
     };
     let quote = HlpRebalanceReceipt {
         target_asset: MarketAsset::Quote,
-        ylp_mint_amount: 7,
+        srlp_mint_amount: 7,
         debt_delta: 2,
         ..HlpRebalanceReceipt::default()
     };
     let event = HlpRebalanced::from_receipts(Pubkey::new_unique(), &market, base, quote, 42)
         .unwrap()
         .unwrap();
-    assert_eq!((event.base_hlp_ylp_minted, event.base_hlp_ylp_burned), (0, 5));
-    assert_eq!((event.quote_hlp_ylp_minted, event.quote_hlp_ylp_burned), (7, 0));
-    assert_eq!((event.base_hlp_ylp_shares_after, event.quote_hlp_ylp_shares_after), (95, 107));
+    assert_eq!((event.base_hlp_srlp_minted, event.base_hlp_srlp_burned), (0, 5));
+    assert_eq!((event.quote_hlp_srlp_minted, event.quote_hlp_srlp_burned), (7, 0));
+    assert_eq!((event.base_hlp_srlp_shares_after, event.quote_hlp_srlp_shares_after), (95, 107));
     assert_eq!((event.base_hlp_debt_increase, event.base_hlp_debt_decrease), (0, 27));
     assert_eq!((event.quote_hlp_debt_increase, event.quote_hlp_debt_decrease), (2, 0));
     assert_eq!((event.base_hlp_debt_after, event.quote_hlp_debt_after), (2_223, 22));
     assert_eq!((event.base_hlp_funding_interest_paid, event.quote_hlp_funding_interest_paid), (10, 0));
-    assert_eq!(event.ylp_supply_after, 1_202);
+    assert_eq!(event.srlp_supply_after, 1_202);
     assert_eq!(event.slot, 42);
 
     assert!(HlpRebalanced::from_receipts(
@@ -85,7 +85,7 @@ fn indexer_receipts_remain_compact() {
         hlp_recovery_critical: false,
         base_live_reserve: 8,
         quote_live_reserve: 9,
-        ylp_supply: 10,
+        srlp_supply: 10,
         start_price_nad: 11,
         base: side,
         quote: side,
@@ -111,8 +111,8 @@ fn indexer_receipts_remain_compact() {
         owner: Pubkey::new_unique(),
         base_reserve_credit: 1,
         quote_reserve_credit: 2,
-        ylp_amount: 3,
-        ylp_supply: 4,
+        srlp_amount: 3,
+        srlp_supply: 4,
         base_live_reserve: 5,
         quote_live_reserve: 6,
         metadata: MarketEventMetadata::at_slot(Pubkey::new_unique(), Pubkey::new_unique(), 7),
@@ -120,12 +120,12 @@ fn indexer_receipts_remain_compact() {
     let liquidity_removed = LiquidityRemoved {
         market: Pubkey::new_unique(),
         owner: Pubkey::new_unique(),
-        ylp_amount: 1,
+        srlp_amount: 1,
         base_reserve_debit: 2,
         quote_reserve_debit: 3,
         base_owner_credit: 4,
         quote_owner_credit: 5,
-        ylp_supply: 6,
+        srlp_supply: 6,
         base_live_reserve: 7,
         quote_live_reserve: 8,
         metadata: MarketEventMetadata::at_slot(Pubkey::new_unique(), Pubkey::new_unique(), 9),
@@ -136,9 +136,9 @@ fn indexer_receipts_remain_compact() {
         asset_side: 0,
         deposit_amount: 1,
         borrowed_amount: 2,
-        ylp_amount: 3,
+        srlp_amount: 3,
         hlp_amount: 4,
-        ylp_supply: 5,
+        srlp_supply: 5,
         hlp_supply: 6,
         base_live_reserve: 7,
         quote_live_reserve: 8,
@@ -148,11 +148,11 @@ fn indexer_receipts_remain_compact() {
         owner: Pubkey::new_unique(),
         asset_side: 1,
         hlp_amount: 1,
-        ylp_amount: 2,
+        srlp_amount: 2,
         amount_out: 3,
         debt_repaid: 4,
         interest_paid: 5,
-        ylp_supply: 6,
+        srlp_supply: 6,
         hlp_supply: 7,
         base_live_reserve: 8,
         quote_live_reserve: 9,

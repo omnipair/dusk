@@ -17,8 +17,8 @@ use crate::{
 
 use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_info_amount, token_account_info_credit,
-    token_program_for_mint, validate_owner_asset_account, HlpSwapAccountLayout, BASE_HLP_YLP_VAULT_INDEX,
-    BASE_INTEREST_VAULT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN, HLP_YLP_MINT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX,
+    token_program_for_mint, validate_owner_asset_account, HlpSwapAccountLayout, BASE_HLP_SRLP_VAULT_INDEX,
+    BASE_INTEREST_VAULT_INDEX, HLP_SRLP_MINT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN, QUOTE_HLP_SRLP_VAULT_INDEX,
     QUOTE_INTEREST_VAULT_INDEX,
 };
 use crate::instructions::liquidity::record_inline_hlp_interest_credit;
@@ -263,11 +263,11 @@ impl<'info> Swap<'info> {
         )?;
 
         // One call per side and one net token settlement per receipt. A side
-        // can mint or burn yLP, never both, and can transfer interest once.
+        // can mint or burn srLP, never both, and can transfer interest once.
         apply_single_hlp_rebalance_token_changes(
             &mut ctx,
             &base_rebalance,
-            BASE_HLP_YLP_VAULT_INDEX,
+            BASE_HLP_SRLP_VAULT_INDEX,
             QUOTE_INTEREST_VAULT_INDEX,
             h_lp_accounts,
             interest_eligibility,
@@ -275,7 +275,7 @@ impl<'info> Swap<'info> {
         apply_single_hlp_rebalance_token_changes(
             &mut ctx,
             &quote_rebalance,
-            QUOTE_HLP_YLP_VAULT_INDEX,
+            QUOTE_HLP_SRLP_VAULT_INDEX,
             BASE_INTEREST_VAULT_INDEX,
             h_lp_accounts,
             interest_eligibility,
@@ -336,7 +336,7 @@ impl<'info> Swap<'info> {
 fn apply_single_hlp_rebalance_token_changes<'info>(
     ctx: &mut anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
     receipt: &HlpRebalanceReceipt,
-    ylp_vault_index: usize,
+    srlp_vault_index: usize,
     interest_vault_index: usize,
     accounts: HlpSwapAccountLayout,
     interest_eligibility: crate::transitions::HlpYieldEligibility,
@@ -350,31 +350,31 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
         ErrorCode::NotEnoughAccounts
     );
     require!(
-        receipt.ylp_mint_amount == 0 || receipt.ylp_burn_amount == 0,
+        receipt.srlp_mint_amount == 0 || receipt.srlp_burn_amount == 0,
         ErrorCode::BrokenInvariant
     );
-    let ylp_mint = &ctx.remaining_accounts[HLP_YLP_MINT_INDEX];
-    let ylp_vault = &ctx.remaining_accounts[ylp_vault_index];
+    let srlp_mint = &ctx.remaining_accounts[HLP_SRLP_MINT_INDEX];
+    let srlp_vault = &ctx.remaining_accounts[srlp_vault_index];
     let market_seeds = generate_market_seeds!(ctx.accounts.market);
     let signer_seeds = [&market_seeds[..]];
 
-    if receipt.ylp_mint_amount > 0 {
+    if receipt.srlp_mint_amount > 0 {
         token_mint_to(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.token_2022_program.to_account_info(),
-            ylp_mint.clone(),
-            ylp_vault.clone(),
-            receipt.ylp_mint_amount,
+            srlp_mint.clone(),
+            srlp_vault.clone(),
+            receipt.srlp_mint_amount,
             &signer_seeds,
         )?;
     }
-    if receipt.ylp_burn_amount > 0 {
+    if receipt.srlp_burn_amount > 0 {
         token_burn(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.token_2022_program.to_account_info(),
-            ylp_mint.clone(),
-            ylp_vault.clone(),
-            receipt.ylp_burn_amount,
+            srlp_mint.clone(),
+            srlp_vault.clone(),
+            receipt.srlp_burn_amount,
             &signer_seeds,
         )?;
     }

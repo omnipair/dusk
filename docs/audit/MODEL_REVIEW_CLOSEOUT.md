@@ -24,7 +24,7 @@ fixes and remaining work; it is not a new exhaustive audit or a security signoff
 
 ### Zero-value hLP receipt cleanup
 
-After a terminal waterfall, the vault has no yLP, principal or funding debt.
+After a terminal waterfall, the vault has no srLP, principal or funding debt.
 Its receipt tokens remain burnable, and already funded yield is checkpointed
 to their holders. The withdrawal handler nevertheless finalized the AMM and
 checked global health after burning, so a different distressed hLP vault could
@@ -32,7 +32,7 @@ revert this zero-payout cleanup.
 
 The fix skips market accrual, AMM finalization and global admission checks only
 when the vault is already terminally closed. It verifies that the receipt has
-zero yLP burn, payout, debt repayment and interest payment. Token ownership,
+zero srLP burn, payout, debt repayment and interest payment. Token ownership,
 mint/custody validation, funded-yield accounting, token burn, custody checks and
 the owner's minimum payout still apply. Ordinary withdrawals keep their checks.
 
@@ -76,7 +76,7 @@ ownership, cash-limited exits without a separate unpaid claim after exit, and
 public unpaid interest excluded from AMM pricing reserves.
 
 The accounting correction gives hLP entry and reconstruction the same
-full-value backing as yLP. It keeps separate book offsets outside swap-pricing
+full-value backing as srLP. It keeps separate book offsets outside swap-pricing
 coordinates, retains reserve/cash checks, and marks opposite-asset residuals
 at the concentrated curve price. Native regressions cover both hLPs, both
 interest assets, concentration, repayment and writeoffs, and positive-value
@@ -96,7 +96,7 @@ This is source implementation coverage, not final audit closeout. The follow-up 
 freezes the LP/protocol split when reserve cash funds interest, reconciles paid
 and canceled advances, and includes SDK accounting helpers. The follow-up now exposes cash funding and SDK harvest builders, and settles
 new hLP income before publishing holder yield. Real instruction tests cover
-yLP and both hLPs, concentration, transfer fees and repayment. External hLP flash execution and SDK transaction builders are now implemented,
+srLP and both hLPs, concentration, transfer fees and repayment. External hLP flash execution and SDK transaction builders are now implemented,
 with atomic payment, collateral-fee and rollback coverage. Native and flash
 terminal settlement use principal-only insurance and separately cancel unpaid
 interest. Full review of this expanded recovery surface remains required.

@@ -86,8 +86,8 @@ impl<'info> Harvest<'info> {
         let market_side = self.market.side(market_asset);
         require_keys_eq!(market_side.asset_mint, self.asset_mint.key(), ErrorCode::InvalidMint);
         match args.token_kind {
-            YieldTokenKind::Ylp => {
-                require_keys_eq!(self.market.ylp_mint, self.lp_mint.key(), ErrorCode::InvalidMint)
+            YieldTokenKind::Srlp => {
+                require_keys_eq!(self.market.srlp_mint, self.lp_mint.key(), ErrorCode::InvalidMint)
             }
             YieldTokenKind::Hlp | YieldTokenKind::Junior => {
                 // A retired mint supplies its cohort PDA in remaining accounts;
@@ -203,7 +203,7 @@ impl<'info> Harvest<'info> {
 
         // Materialize claimable yield from the appropriate LP growth indexes.
         let receipt = match args.token_kind {
-            YieldTokenKind::Ylp => {
+            YieldTokenKind::Srlp => {
                 let market_side = ctx.accounts.market.side_mut(market_asset);
                 market_side.prepare_yield_claim(
                     &mut ctx.accounts.yield_account,
@@ -222,7 +222,7 @@ impl<'info> Harvest<'info> {
                             (income.swap_growth_q64, income.interest_growth_q64)
                         }
                     } else if let Ok(hlp_asset) = ctx.accounts.market.asset_for_hlp_mint(ctx.accounts.lp_mint.key()) {
-                        ctx.accounts.market.checkpoint_hlp_yield_from_ylp(hlp_asset)?;
+                        ctx.accounts.market.checkpoint_hlp_yield_from_srlp(hlp_asset)?;
                         ctx.accounts.market.hlp_yield_growth_indexes(hlp_asset, market_asset)
                     } else {
                         retired_cohort

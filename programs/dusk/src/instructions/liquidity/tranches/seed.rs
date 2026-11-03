@@ -112,7 +112,7 @@ impl CompoundJuniorSeed<'_> {
             market: market.key(),
             base_amount: receipt.base_reserve_credit,
             quote_amount: receipt.quote_reserve_credit,
-            reserve_shares: receipt.ylp_amount
+            reserve_shares: receipt.srlp_amount
         });
         Ok(())
     }

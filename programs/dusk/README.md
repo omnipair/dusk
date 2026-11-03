@@ -1,6 +1,6 @@
 # Omnipair V2 (Dusk)
 
-Dusk is the standalone market program for Omnipair V2. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-yLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
+Dusk is the standalone market program for Omnipair V2. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-srLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
 See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md) for current named-path
 regression ceilings and explicitly dated, commit-bound full-instruction
@@ -25,7 +25,7 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 | Flow | Anchor adapter | Domain owner |
 | --- | --- | --- |
 | Swap and preview | `instructions/spot`, `instructions/prepare_swap`, `instructions/preview` | `transitions/amm`, `transitions/liquidity/hlp` |
-| yLP and hLP | `instructions/liquidity` | `transitions/liquidity`, `transitions/ledger.rs` |
+| srLP and hLP | `instructions/liquidity` | `transitions/liquidity`, `transitions/ledger.rs` |
 | Borrow and liquidation | `instructions/lending` | `transitions/lending`, `state/borrow_position.rs` |
 | Isolated leverage | `instructions/leverage` | `transitions/leverage.rs`, `state/leverage_position.rs` |
 | Parameter governance | `instructions/governance` | `transitions/governance.rs`, `state/parameter_proposal.rs` |
@@ -60,16 +60,16 @@ reference-age limit, and recipients. Changing the accepted mint can pause an
 affected market until governance installs a matching route; existing inventory
 is not repriced under a snapshotted historical configuration.
 
-## Direct-yLP Parameter Governance
+## Direct-srLP Parameter Governance
 
-Markets have no manager or operator. Any direct yLP holder can create a typed
-parameter proposal by burn-locking at least 1% of eligible direct yLP. Other
-direct holders support it by burn-locking more yLP. Support is one-sided:
+Markets have no manager or operator. Any direct srLP holder can create a typed
+parameter proposal by burn-locking at least 1% of eligible direct srLP. Other
+direct holders support it by burn-locking more srLP. Support is one-sided:
 holders who do not support remain silent or exit. Strictly more than 50% of
-eligible direct yLP queues the proposal for a seven-day wall-clock timelock,
+eligible direct srLP queues the proposal for a seven-day wall-clock timelock,
 followed by a seven-day execution window.
 
-Eligible supply excludes yLP held inside the two hLP vaults and adds back yLP
+Eligible supply excludes srLP held inside the two hLP vaults and adds back srLP
 already locked in governance. A lock continues earning both reserve-side yield
 streams through a proposal-local virtual ledger. Queued support cannot be
 withdrawn; after execution, expiry, staleness, or cancellation,
@@ -125,52 +125,52 @@ exits do not refund already consumed flow capacity.
 
 Each market records three Token-2022 LP mints:
 
-- `yLP`: the normal two-sided LP share for balanced base/quote liquidity.
+- `srLP`: the normal two-sided LP share for balanced base/quote liquidity.
 - `hLP_base`: one-sided hedged LP shares targeting base exposure.
 - `hLP_quote`: one-sided hedged LP shares targeting quote exposure.
 
-yLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_market` creates all three immutable Metaplex records atomically, with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `yLP` for yLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
+srLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_market` creates all three immutable Metaplex records atomically, with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `srLP` for srLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
 
 ### LP mint addresses, names and metadata
 
-The suffix rule is satisfied without a second keypair: each LP mint is a `create_with_seed` account of the market creator, `sha256(creator ‖ seed ‖ Token-2022)`, and the seed is ground until the base58 address ends in `yLP` or `hLP`. The vanity server (omnipair/vanity-server, `GET /grind?base=<creator>&suffix=yLP&owner=TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`) grinds a three-character suffix in well under a second; the SDK's `grindMarketLpMintSeeds` re-derives every answer before use, and `createHookedLpMintWithSeedInstructions` builds the mint so only the creator signs.
+The suffix rule is satisfied without a second keypair: each LP mint is a `create_with_seed` account of the market creator, `sha256(creator ‖ seed ‖ Token-2022)`, and the seed is ground until the base58 address ends in `srLP` or `hLP`. The vanity server (omnipair/vanity-server, `GET /grind?base=<creator>&suffix=srLP&owner=TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`) grinds a three-character suffix in well under a second; the SDK's `grindMarketLpMintSeeds` re-derives every answer before use, and `createHookedLpMintWithSeedInstructions` builds the mint so only the creator signs.
 
 Names and symbols are written once by `initialize_market` and cannot be changed, so they follow one scheme (`lpTokenNaming` in the SDK), with no brand in the name:
 
 | Mint | Name | Symbol |
 | --- | --- | --- |
-| yLP | `yMETA/USDC LP` | `yMETA.USDC` |
+| srLP | `yMETA/USDC LP` | `yMETA.USDC` |
 | base hLP | `hMETA` | `hMETA.USDC` |
 | quote hLP | `hUSDC` | `hUSDC.META` |
 
-The hLP symbol leads with the asset the token is exposed to. Asset symbols are trimmed, longest first, until a symbol fits Metaplex's 10 bytes (`cbBTC/USDC` gives `ycbBT.USDC`). Metadata JSON and images are pinned to IPFS through Pinata (gateway `ipfs.omnipair.fi`) before the on-chain call: the yLP image is the two asset logos split left/right in a circle, each hLP image is its asset's logo with an `h` badge. `scripts/lp-metadata/` renders and pins them; `scripts/devnet/create_named_market.ts` is the reference flow from seed grinding to a seeded, named market.
+The hLP symbol leads with the asset the token is exposed to. Asset symbols are trimmed, longest first, until a symbol fits Metaplex's 10 bytes (`cbBTC/USDC` gives `ycbBT.USDC`). Metadata JSON and images are pinned to IPFS through Pinata (gateway `ipfs.omnipair.fi`) before the on-chain call: the srLP image is the two asset logos split left/right in a circle, each hLP image is its asset's logo with an `h` badge. `scripts/lp-metadata/` renders and pins them; `scripts/devnet/create_named_market.ts` is the reference flow from seed grinding to a seeded, named market.
 
-## yLP Liquidity
+## srLP Liquidity
 
-`add_liquidity` is the normal LP entry. Users deposit both market assets at the current market ratio and receive one fungible `yLP` token.
+`add_liquidity` is the normal LP entry. Users deposit both market assets at the current market ratio and receive one fungible `srLP` token.
 
-yLP shares are floating two-sided principal shares:
+srLP shares are floating two-sided principal shares:
 
 ```text
-base_claim  = user_ylp_shares * base_live_reserve  / total_ylp_supply
-quote_claim = user_ylp_shares * quote_live_reserve / total_ylp_supply
+base_claim  = user_srlp_shares * base_live_reserve  / total_srlp_supply
+quote_claim = user_srlp_shares * quote_live_reserve / total_srlp_supply
 ```
 
-There is no fixed 1:1 protected-principal LP or separate public fee-eligibility step. `remove_liquidity` burns yLP and returns pro-rata base and quote executable principal reserves subject to cash availability and user slippage bounds; it cannot redeem the protocol-owned protected recenter buckets.
+There is no fixed 1:1 protected-principal LP or separate public fee-eligibility step. `remove_liquidity` burns srLP and returns pro-rata base and quote executable principal reserves subject to cash availability and user slippage bounds; it cannot redeem the protocol-owned protected recenter buckets.
 
-A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder becomes a non-compounding swap-fee liability held in reserve-vault custody outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP Q64 lane and public carry. hLP funding interest publishes into ordinary yLP's existing interest-growth index using the operation-frozen total-yLP-minus-both-hLP denominator and a dedicated source carry. Both hLP checkpoints advance across that delta with zero eligible shares, and the source carry is cleared when only `MIN_LIQUIDITY` remains outside the hLP vaults. While recenter protection is being funded, retained dynamic surcharge accumulates in side-specific, non-quoteable protected reserves. A funded recenter deploys those atoms once; ordinary yLP withdrawals cannot claim them. `YieldAccount` stores its LP mint, owner checkpoints, Q64 remainders, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
+A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder becomes a non-compounding swap-fee liability held in reserve-vault custody outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-srLP Q64 lane and public carry. hLP funding interest publishes into ordinary srLP's existing interest-growth index using the operation-frozen total-srLP-minus-both-hLP denominator and a dedicated source carry. Both hLP checkpoints advance across that delta with zero eligible shares, and the source carry is cleared when only `MIN_LIQUIDITY` remains outside the hLP vaults. While recenter protection is being funded, retained dynamic surcharge accumulates in side-specific, non-quoteable protected reserves. A funded recenter deploys those atoms once; ordinary srLP withdrawals cannot claim them. `YieldAccount` stores its LP mint, owner checkpoints, Q64 remainders, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
 
 Token-2022 does not invoke transfer hooks for arbitrary `Burn`. An untracked
-direct yLP burn is therefore an intentional, irreversible donation: Dusk's
-internal yLP denominator does not shrink, the burned share's future yield is
+direct srLP burn is therefore an intentional, irreversible donation: Dusk's
+internal srLP denominator does not shrink, the burned share's future yield is
 not redistributed, and the destroyed balance cannot authorize principal
 withdrawal. Parameter support is the explicit exception: Dusk checkpoints the
-holder, records the burn in `governance_locked_ylp`, maintains virtual yield,
+holder, records the burn in `governance_locked_srlp`, maintains virtual yield,
 and authorizes the matching terminal remint.
 
-A partial direct hLP burn is recognized lazily on the next deposit or withdrawal for that hLP side. Dusk first checkpoints nested yLP growth against the old stored supply, then replaces the stored hLP supply with the smaller nonzero live mint supply before pricing the operation. Burned hLP principal is donated to the remaining holders; historical nested yield attributable to the burned balance remains stranded, while future nested yield uses the reconciled live supply. If every hLP atom is burned directly, no holder remains to authorize the normal final exit: the side is a deliberately fail-closed zombie and later hLP deposits/withdrawals reject. There is no governance sweep or asynchronous recovery path. Normal exits must use Dusk's remove/withdraw instructions.
+A partial direct hLP burn is recognized lazily on the next deposit or withdrawal for that hLP side. Dusk first checkpoints nested srLP growth against the old stored supply, then replaces the stored hLP supply with the smaller nonzero live mint supply before pricing the operation. Burned hLP principal is donated to the remaining holders; historical nested yield attributable to the burned balance remains stranded, while future nested yield uses the reconciled live supply. If every hLP atom is burned directly, no holder remains to authorize the normal final exit: the side is a deliberately fail-closed zombie and later hLP deposits/withdrawals reject. There is no governance sweep or asynchronous recovery path. Normal exits must use Dusk's remove/withdraw instructions.
 
-`harvest` may be called for yLP or either hLP mint by the LP owner, the `YieldAccount.recipient`, or the optional `YieldAccount.harvest_authority`. The caller must sign; the owner's signature is unnecessary when the recipient or harvest authority calls. Any unrelated signer is rejected with `InvalidSigner`. Payment always goes to the recipient's canonical associated token account for the underlying mint and its token program.
+`harvest` may be called for srLP or either hLP mint by the LP owner, the `YieldAccount.recipient`, or the optional `YieldAccount.harvest_authority`. The caller must sign; the owner's signature is unnecessary when the recipient or harvest authority calls. Any unrelated signer is rejected with `InvalidSigner`. Payment always goes to the recipient's canonical associated token account for the underlying mint and its token program.
 
 Only the LP owner may change the recipient through `set_yield_recipient` or set, rotate, and revoke the independent caller through `set_harvest_authority`. The latter accepts `Some(pubkey)` to delegate and `None` to revoke; a zero public key is rejected. New yield accounts have no harvest authority. Both settings are scoped to the yield account's owner, market, LP mint, and underlying asset, and updating either leaves the other unchanged. This allows owner A to retain the LP, recipient B to receive yield, and keeper C to trigger harvests. The keeper cannot change either setting or acquire withdrawal permission through this role.
 
@@ -184,13 +184,13 @@ and use the same behavior in development and prospective release builds.
 Active hLP uses the exact applied CPMM or Dusk Concentrated AMM. On every
 active-hLP swap or swap-like leverage operation, Dusk freezes the ordinary
 trader-facing curve, computes the accepted quote and fee endpoint, then
-reconstructs both hLP numeraires' yLP ownership and indexed funding debt
+reconstructs both hLP numeraires' srLP ownership and indexed funding debt
 algebraically around that same endpoint.
 
 Each market has two aggregate hLP vault records embedded in the `Market` account:
 
-- `hLP_base`: user deposits base, the vault borrows quote, and the vault owns yLP.
-- `hLP_quote`: user deposits quote, the vault borrows base, and the vault owns yLP.
+- `hLP_base`: user deposits base, the vault borrows quote, and the vault owns srLP.
+- `hLP_quote`: user deposits quote, the vault borrows base, and the vault owns srLP.
 
 Opening hLP:
 
@@ -198,23 +198,23 @@ Opening hLP:
 user target asset
   -> hLP vault borrows opposite asset
   -> vault adds balanced liquidity
-  -> vault receives yLP
+  -> vault receives srLP
   -> user receives hLP_target
 ```
 
-Closing hLP burns hLP shares, burns the vault's proportional yLP, repays the borrowed-side vault debt, and returns remaining target-side inventory to the user. hLP debt is denominated in the borrowed underlying asset and tracked on the aggregate hLP vault, not as borrower margin debt. Deleveraging that removes executable cash without moving tokens reclassifies those atoms into source-scoped, non-executable `hLP_backing_inventory`; partial and final hLP exits release the corresponding pro-rata or exact remainder. This preserves `physical vault >= cash + fee custody + hLP backing` without treating backing as a second NAV claim.
+Closing hLP burns hLP shares, burns the vault's proportional srLP, repays the borrowed-side vault debt, and returns remaining target-side inventory to the user. hLP debt is denominated in the borrowed underlying asset and tracked on the aggregate hLP vault, not as borrower margin debt. Deleveraging that removes executable cash without moving tokens reclassifies those atoms into source-scoped, non-executable `hLP_backing_inventory`; partial and final hLP exits release the corresponding pro-rata or exact remainder. This preserves `physical vault >= cash + fee custody + hLP backing` without treating backing as a second NAV claim.
 
 hLP funding debt pays the full indexed rate. Its realized interest never
 rebates either the paying hLP or the opposite hLP: after measured Token-2022
-credit and the protocol split, only operation-start non-hLP yLP supply receives
+credit and the protocol split, only operation-start non-hLP srLP supply receives
 the LP portion. `MIN_LIQUIDITY` remains in that denominator as a permanently
-burned backstop. With no ordinary yLP holder, the funded LP liability stays
+burned backstop. With no ordinary srLP holder, the funded LP liability stays
 backed but locked and cannot be captured by a later deposit. Eligibility is
 payment-time rather than accrual-time; public-borrow interest and swap fees are
-unchanged and may still accrue to hLP-owned yLP under their normal rules.
+unchanged and may still accrue to hLP-owned srLP under their normal rules.
 
 Automatic deleverage pays funding interest inside the paying hLP's
-borrowed-asset yLP burn leg, never through an additional debit shared by the
+borrowed-asset srLP burn leg, never through an additional debit shared by the
 other hLP. If accrued interest exceeds that leg, Dusk uses the exact applied
 curve to retain only the target-side input required to buy the shortfall. The
 resulting curve movement is included in the authoritative quote and hLP loss
@@ -223,7 +223,7 @@ guard. Direct hLP withdrawal keeps its separate exact-close settlement.
 For either curve, the exact accepted endpoint must keep each active
 vault's deposited-asset principal plus frozen public-interest claim within the
 larger of one raw target atom and one part per million of its operation-start
-economic NAV. hLP funding interest is not a claim because hLP-owned yLP is
+economic NAV. hLP funding interest is not a claim because hLP-owned srLP is
 ineligible for that source. Direct retained principal is preserved separately
 and cannot hide trade loss. A joint exact post-trade correction removes the
 remaining delta without granting a second loss budget. If rounding,
@@ -285,7 +285,7 @@ bounds decide whether the resulting market quote is acceptable.
 
 One-times `peak_amplification` with zero widths is exact CPMM. Concentrated markets expose three product controls: peak amplification, core half-width, and fade width. Dusk derives a nonzero full-range CPMM tail plus a nested core and shoulder from those values. Quotes use at most five closed-form segments and four precomputed boundary crossings. Fees, EMA half-life, adjustment threshold, and recenter cadence remain separate controller settings. A trade is hedged and committed at its quoted endpoint before its observation can schedule a later, protected center move. Dusk never consults an external oracle.
 
-hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. A live-basis yLP burn still realizes accrued-but-unpaid interest, and positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal exhausted-hLP recovery is handled separately by `close_insolvent_hlp` with caller-supplied insurance and socialized-loss bounds.
+hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. A live-basis srLP burn still realizes accrued-but-unpaid interest, and positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal exhausted-hLP recovery is handled separately by `close_insolvent_hlp` with caller-supplied insurance and socialized-loss bounds.
 
 ## PDA Map
 
@@ -307,7 +307,7 @@ hLP checkpointing computes endpoint NAV and reconstructs yLP ownership and fundi
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
 | LP token metadata | Metaplex `metadata`, token metadata program, `lp_mint` | `deriveTokenMetadataAddress` |
 
-yLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. All three LP metadata records are created in that transaction; clients prepare an address lookup table first to fit the account list. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
+srLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. All three LP metadata records are created in that transaction; clients prepare an address lookup table first to fit the account list. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
 
 Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
 
@@ -341,8 +341,8 @@ and settlements let an indexer rebuild every `BorrowPosition` without reading
 accounts. Historical auction events describe the removed interface. See
 [`ACCOUNTING_EVENTS.md`](./ACCOUNTING_EVENTS.md#borrow-positions).
 
-`LpTransferred` records each yLP or hLP transfer that runs the Dusk transfer
-hook: market, LP mint, token kind (`0` yLP, `1` hLP), source and destination
+`LpTransferred` records each srLP or hLP transfer that runs the Dusk transfer
+hook: market, LP mint, token kind (`0` srLP, `1` hLP), source and destination
 owners, and amount. The hook publishes it by self-CPI after checkpointing both
 holders' yield accounts, for mints whose extra-account list includes the event
 authority and the Dusk program; mints initialized with the earlier seven-entry
@@ -357,7 +357,7 @@ hLP settlement changes tokens. It identifies the input by `asset_in_side`,
 reports the trader's exact debit and net output credit, separates the three
 fee components and retained surcharge, and records the final live reserves
 after every inline state change. It also records the market immediately
-after the swap: the internal yLP supply and, for each side, the spot price and
+after the swap: the internal srLP supply and, for each side, the spot price and
 price EMA exactly as `preview_market` reports them for the same state and slot,
 plus the swap-fee and interest growth indexes. `start_price_nad` records the
 Base price used to quote this execution after any pending controller step. The
@@ -384,9 +384,9 @@ different.
 
 ## Core Invariants
 
-- yLP supply is backed by paired base/quote principal accounting.
-- No operation mints yLP without corresponding reserve value.
-- yLP principal reserves exclude reserve-custodied swap-fee liabilities, protected recenter reserves, and interest-vault balances. Retained surcharge becomes yLP principal only in the center move it funds.
+- srLP supply is backed by paired base/quote principal accounting.
+- No operation mints srLP without corresponding reserve value.
+- srLP principal reserves exclude reserve-custodied swap-fee liabilities, protected recenter reserves, and interest-vault balances. Retained surcharge becomes srLP principal only in the center move it funds.
 - A physical reserve vault must contain at least executable `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory + protected_recenter_reserve`; protocol transitions conserve that accounted total exactly, while unsolicited token donations are tolerated but remain non-executable. Interest liabilities must be backed by the interest vault.
 - Base fees and lending interest never fund concentration recentering.
 - A normal trade checkpoints the current curve as economically neutral; retained dynamic surcharge is the only swap path that creates protected recentering budget.
@@ -396,7 +396,7 @@ different.
   CPMM shadow curve.
 - Every hLP funding increase leaves projected aggregate indexed funding debt no greater than current borrowed-asset cash; the cap never blocks debt-reducing paths. Solvent vaults can use external flash recovery; terminal closure uses native `close_insolvent_hlp` or full hLP flash settlement.
 - hLP debt shares stay matched to aggregate hLP vault debt.
-- hLP operations never use yLP-denominated debt.
+- hLP operations never use srLP-denominated debt.
 - Isolated leverage debt contributes to utilization without entering normal borrower health.
 - Leverage collateral vault balances are matched by open leverage position collateral accounting.
 - Delegated close must validate both the delegate's close approval and settlement approval return data.

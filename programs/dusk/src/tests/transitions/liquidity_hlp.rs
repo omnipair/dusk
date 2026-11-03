@@ -28,9 +28,9 @@ fn hlp_raw_principal_accepts_u64_max_and_rejects_the_next_atom() {
 }
 
 #[test]
-fn hlp_vault_checkpoints_owned_ylp_revenue_into_hlp_indexes() {
+fn hlp_vault_checkpoints_owned_srlp_revenue_into_hlp_indexes() {
     let mut vault = HlpVault {
-        ylp_shares: 50,
+        srlp_shares: 50,
         hlp_supply: 25,
         ..HlpVault::default()
     };
@@ -39,7 +39,7 @@ fn hlp_vault_checkpoints_owned_ylp_revenue_into_hlp_indexes() {
     base_side.fees.swap_fee_growth_index_q64 = 2 * YIELD_GROWTH_SCALE_Q64;
     base_side.fees.interest_growth_index_q64 = 3 * YIELD_GROWTH_SCALE_Q64;
 
-    vault.checkpoint_yield_from_ylp(&base_side, &quote_side).unwrap();
+    vault.checkpoint_yield_from_srlp(&base_side, &quote_side).unwrap();
 
     assert_eq!(vault.base_swap_fee_growth_index_q64, 4 * YIELD_GROWTH_SCALE_Q64);
     assert_eq!(vault.base_interest_growth_index_q64, 6 * YIELD_GROWTH_SCALE_Q64);
@@ -56,7 +56,7 @@ fn hlp_vault_checkpoints_owned_ylp_revenue_into_hlp_indexes() {
 #[test]
 fn split_hlp_checkpoints_preserve_all_four_aggregate_remainders() {
     let mut split = HlpVault {
-        ylp_shares: 1,
+        srlp_shares: 1,
         hlp_supply: 1,
         ..HlpVault::default()
     };
@@ -66,7 +66,7 @@ fn split_hlp_checkpoints_preserve_all_four_aggregate_remainders() {
     base_side.fees.interest_growth_index_q64 = YIELD_GROWTH_SCALE_Q64 / 2;
     quote_side.fees.swap_fee_growth_index_q64 = YIELD_GROWTH_SCALE_Q64 / 2;
     quote_side.fees.interest_growth_index_q64 = YIELD_GROWTH_SCALE_Q64 / 2;
-    split.checkpoint_yield_from_ylp(&base_side, &quote_side).unwrap();
+    split.checkpoint_yield_from_srlp(&base_side, &quote_side).unwrap();
     assert_eq!(split.base_swap_fee_remainder_q64, 1_u64 << 63);
     assert_eq!(split.base_interest_remainder_q64, 1_u64 << 63);
     assert_eq!(split.quote_swap_fee_remainder_q64, 1_u64 << 63);
@@ -76,14 +76,14 @@ fn split_hlp_checkpoints_preserve_all_four_aggregate_remainders() {
     base_side.fees.interest_growth_index_q64 = YIELD_GROWTH_SCALE_Q64;
     quote_side.fees.swap_fee_growth_index_q64 = YIELD_GROWTH_SCALE_Q64;
     quote_side.fees.interest_growth_index_q64 = YIELD_GROWTH_SCALE_Q64;
-    split.checkpoint_yield_from_ylp(&base_side, &quote_side).unwrap();
+    split.checkpoint_yield_from_srlp(&base_side, &quote_side).unwrap();
 
     let mut combined = HlpVault {
-        ylp_shares: 1,
+        srlp_shares: 1,
         hlp_supply: 1,
         ..HlpVault::default()
     };
-    combined.checkpoint_yield_from_ylp(&base_side, &quote_side).unwrap();
+    combined.checkpoint_yield_from_srlp(&base_side, &quote_side).unwrap();
     assert_eq!(
         split.base_swap_fee_growth_index_q64,
         combined.base_swap_fee_growth_index_q64
@@ -197,7 +197,7 @@ fn final_hlp_exit_drains_both_asset_remainders_to_final_holder() {
     market.base_hlp_vault.quote_swap_fee_remainder_q64 = 1_u64 << 63;
     market.base_hlp_vault.quote_interest_remainder_q64 = 1_u64 << 63;
     // A distributor carry is always <2^64, hence strictly below one raw
-    // atom. Together with the yLP and holder half-atoms it telescopes to
+    // atom. Together with the srLP and holder half-atoms it telescopes to
     // exactly one atom on final close.
     market.base_hlp_vault.base_swap_fee_growth_remainder_scaled = u64::MAX / 2;
     market.base_hlp_vault.base_interest_growth_remainder_scaled = u64::MAX / 2;

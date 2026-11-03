@@ -29,17 +29,17 @@ const program = new anchor.Program(IDL, provider);
 program.account.market.fetch = async () => ({
   baseSide: { assetMint: baseMint },
   quoteSide: { assetMint: quoteMint },
-  baseHlpVault: { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0), ylpShares: new anchor.BN(0), debtShares: new anchor.BN(0) },
-  quoteHlpVault: { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0), ylpShares: new anchor.BN(0), debtShares: new anchor.BN(0) },
+  baseHlpVault: { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0), srlpShares: new anchor.BN(0), debtShares: new anchor.BN(0) },
+  quoteHlpVault: { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0), srlpShares: new anchor.BN(0), debtShares: new anchor.BN(0) },
 });
 program.account.parameterProposal.fetch = async () => ({ updates: [] });
 const write = new DuskWrite(program);
 
 function creationParams(oracle) {
   const metadata={name:"Omnipair Base hLP",symbol:"hLP",uri:"https://omnipair.fi/metadata/dusk/base-hlp.json"};
-  return {payer:owner,baseMint,quoteMint,ylpMint:key(30),baseHlpMint:key(31),quoteHlpMint:key(32),
+  return {payer:owner,baseMint,quoteMint,srlpMint:key(30),baseHlpMint:key(31),quoteHlpMint:key(32),
     teamTreasury:key(33),teamTreasuryWsolAccount:key(34),paramsHash:Array(32).fill(1),
-    config:defaultMarketLaunchConfig(),oracle,lpMetadata:{ylp:metadata,baseHlp:metadata,quoteHlp:metadata}};
+    config:defaultMarketLaunchConfig(),oracle,lpMetadata:{srlp:metadata,baseHlp:metadata,quoteHlp:metadata}};
 }
 
 test("market initialization defaults to native and accepts an explicit null oracle", async () => {
@@ -73,15 +73,15 @@ test("guided creation cannot supply a second, independent opening price", async 
 
 test("Token-2022 write helpers keep the fixed legacy Token account", async () => {
   const common = { market, owner, positionId, assetMint: baseMint, ownerAssetAccount: key(6) };
-  const ylp = {
+  const srlp = {
     market,
     owner,
     baseMint,
     quoteMint,
-    ylpMint: key(7),
+    srlpMint: key(7),
     ownerBaseAccount: key(8),
     ownerQuoteAccount: key(9),
-    ownerYlpAccount: key(10),
+    ownerSrlpAccount: key(10),
   };
   const builds = [
     ["depositCollateral", () => write.depositCollateralInstruction({ ...common, depositAmount: 100n })],
@@ -93,10 +93,10 @@ test("Token-2022 write helpers keep the fixed legacy Token account", async () =>
       ownerDebtAccount: key(11), repayAmount: 10n,
     })],
     ["addLiquidity", () => write.addLiquidityInstruction({
-      ...ylp, baseDepositAmount: 100n, quoteDepositAmount: 100n, minYlpAmount: 0n,
+      ...srlp, baseDepositAmount: 100n, quoteDepositAmount: 100n, minSrlpAmount: 0n,
     })],
     ["removeLiquidity", () => write.removeLiquidityInstruction({
-      ...ylp, ylpAmount: 1n, minBaseAmountOut: 0n, minQuoteAmountOut: 0n,
+      ...srlp, srlpAmount: 1n, minBaseAmountOut: 0n, minQuoteAmountOut: 0n,
     })],
   ];
   for (const [name, build] of builds) {
@@ -220,6 +220,6 @@ test("oracle-selected creation fits a versioned transaction and rejects oversize
   // Large enough to exceed Solana's packet limit while remaining below
   // Anchor's fixed 1,000-byte instruction-coder scratch buffer.
   const large={name:"n".repeat(32),symbol:"s".repeat(10),uri:"https://"+"u".repeat(100)};
-  const oversized=await write.initializeMarketInstruction({...input,lpMetadata:{ylp:large,baseHlp:large,quoteHlp:large}});
+  const oversized=await write.initializeMarketInstruction({...input,lpMetadata:{srlp:large,baseHlp:large,quoteHlp:large}});
   assert.throws(()=>build(oversized),/market creation exceeds transaction size/);
 });

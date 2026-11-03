@@ -91,7 +91,7 @@ This is a local sensitivity and balance-sheet identity. Dusk's finite trade and 
 
 The retained [native replay](simulations/native-hlp-flow.json) executes the earlier #45 benchmark API at `5c0aca7f`, including owned hLP share settlement. Here is its fee-free concentrated case; it is an inventory example, not a quote from the integrated branch:
 
-- Ordinary yLP starts with 100 META + 100 USDC.
+- Ordinary srLP starts with 100 META + 100 USDC.
 - META hLP contributes 50 META; USDC hLP contributes 50 USDC.
 - Concentration amplitude is 4, core half-width 100 bps and fade width 400 bps; no geometry change during this trade.
 - Trader sells 22.222222222 META and receives 19.360948321 USDC.
@@ -99,13 +99,13 @@ The retained [native replay](simulations/native-hlp-flow.json) executes the earl
 
 | Holder after trade/reconstruction | META claim | USDC claim | Funding debt | Net USDC value |
 | --- | ---: | ---: | --- | ---: |
-| Ordinary yLP | 122.222222 | 80.639052 | None | $167.643309 |
+| Ordinary srLP | 122.222222 | 80.639052 | None | $167.643309 |
 | META hLP | 50 | 32.988703 | 32.988703 USDC | $35.592651 |
 | USDC hLP | 75.783519 | 50 | 75.783519 META | $50 |
 
 META hLP's gross leverage is about **1.92684×**; USDC hLP's is **2.07894×**. Each opposite-token claim matches its funding debt. The aggregate net holder values equal the actual reserve cash valued at this same price.
 
-Ordinary yLP's original `100 META + 100 USDC`, simply held, would be worth $171.185302 at the final price. Its actual claim is $167.643309: a **$3.541992 difference**. The trader received $19.360948321 for input worth $15.818955934 at that final mark, the same $3.541992. The matched run without hLP gives the same ordinary inventory and trade output. hLP did not create an extra unexplained debit in this comparison.
+Ordinary srLP's original `100 META + 100 USDC`, simply held, would be worth $171.185302 at the final price. Its actual claim is $167.643309: a **$3.541992 difference**. The trader received $19.360948321 for input worth $15.818955934 at that final mark, the same $3.541992. The matched run without hLP gives the same ordinary inventory and trade output. hLP did not create an extra unexplained debit in this comparison.
 
 The earlier **$2** example uses a simpler shifted-product curve, not this native configuration: `(x+100)(y+100)=40,000`, starting at `(100,100)`. Selling `22.222222` META gives 20 USDC and ends at price $0.81. Ordinary LP value becomes $179 versus $181 for holding; the trader's input is worth $18 and output $20. The $2 is the finite-move trading loss against that end-price benchmark. It is distinct from the $1 static-funded CPMM tracking gap in section 2.
 

@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    carry_forward_governance_yield, checkpoint_supporter_yield, direct_ylp_eligible_supply,
+    carry_forward_governance_yield, checkpoint_supporter_yield, direct_srlp_eligible_supply,
     validate_governance_token_accounts, validate_market_pda, validate_supporter_accounts,
 };
 
@@ -61,11 +61,11 @@ pub struct SupportParameterProposal<'info> {
     )]
     pub proposal_support: Box<Account<'info, ProposalSupport>>,
 
-    #[account(mut, address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(mut, address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
-    pub supporter_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub supporter_srlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -73,9 +73,9 @@ pub struct SupportParameterProposal<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             supporter.key().as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
             market.base_side.asset_mint.as_ref(),
-            &[YieldTokenKind::Ylp.code()],
+            &[YieldTokenKind::Srlp.code()],
         ],
         bump = base_yield_account.bump,
     )]
@@ -87,16 +87,16 @@ pub struct SupportParameterProposal<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             supporter.key().as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
             market.quote_side.asset_mint.as_ref(),
-            &[YieldTokenKind::Ylp.code()],
+            &[YieldTokenKind::Srlp.code()],
         ],
         bump = quote_yield_account.bump,
     )]
     pub quote_yield_account: Box<Account<'info, YieldAccount>>,
 
-    pub base_hlp_ylp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    pub quote_hlp_ylp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub base_hlp_srlp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub quote_hlp_srlp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
@@ -105,7 +105,7 @@ impl<'info> SupportParameterProposal<'info> {
     pub fn validate(&self, args: &SupportParameterProposalArgs) -> Result<u64> {
         require!(args.amount > 0, ErrorCode::AmountZero);
         require_gte!(
-            self.supporter_ylp_account.amount,
+            self.supporter_srlp_account.amount,
             args.amount,
             ErrorCode::InsufficientBalance
         );
@@ -121,23 +121,23 @@ impl<'info> SupportParameterProposal<'info> {
         );
         validate_governance_token_accounts(
             &self.market,
-            &self.ylp_mint,
-            &self.base_hlp_ylp_vault,
-            &self.quote_hlp_ylp_vault,
+            &self.srlp_mint,
+            &self.base_hlp_srlp_vault,
+            &self.quote_hlp_srlp_vault,
         )?;
         validate_supporter_accounts(
             &self.market,
             self.supporter.key(),
-            &self.ylp_mint,
-            &self.supporter_ylp_account,
+            &self.srlp_mint,
+            &self.supporter_srlp_account,
             &self.base_yield_account,
             &self.quote_yield_account,
         )?;
-        direct_ylp_eligible_supply(
+        direct_srlp_eligible_supply(
             &self.market,
-            self.ylp_mint.supply,
-            self.base_hlp_ylp_vault.amount,
-            self.quote_hlp_ylp_vault.amount,
+            self.srlp_mint.supply,
+            self.base_hlp_srlp_vault.amount,
+            self.quote_hlp_srlp_vault.amount,
         )
     }
 
@@ -172,7 +172,7 @@ impl<'info> SupportParameterProposal<'info> {
             &ctx.accounts.market,
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,
-            ctx.accounts.supporter_ylp_account.amount,
+            ctx.accounts.supporter_srlp_account.amount,
             indexes,
         )?;
         ctx.accounts.proposal_support.accrue_virtual_yield(
@@ -184,8 +184,8 @@ impl<'info> SupportParameterProposal<'info> {
         token_burn(
             ctx.accounts.supporter.to_account_info(),
             ctx.accounts.token_2022_program.to_account_info(),
-            ctx.accounts.ylp_mint.to_account_info(),
-            ctx.accounts.supporter_ylp_account.to_account_info(),
+            ctx.accounts.srlp_mint.to_account_info(),
+            ctx.accounts.supporter_srlp_account.to_account_info(),
             args.amount,
             &[],
         )?;
@@ -208,10 +208,10 @@ impl<'info> SupportParameterProposal<'info> {
             .total_locked
             .checked_add(args.amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        ctx.accounts.market.governance_locked_ylp = ctx
+        ctx.accounts.market.governance_locked_srlp = ctx
             .accounts
             .market
-            .governance_locked_ylp
+            .governance_locked_srlp
             .checked_add(args.amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let queued = ctx.accounts.proposal.queue_if_supported(
@@ -231,7 +231,7 @@ impl<'info> SupportParameterProposal<'info> {
             emit_cpi!(ParameterProposalQueued {
                 proposal: proposal_key,
                 total_locked: ctx.accounts.proposal.queued_support,
-                eligible_supply: ctx.accounts.proposal.queued_eligible_ylp,
+                eligible_supply: ctx.accounts.proposal.queued_eligible_srlp,
                 queued_at: ctx.accounts.proposal.queued_at,
                 execute_after: ctx.accounts.proposal.execute_after,
                 execution_deadline: ctx.accounts.proposal.execution_deadline,
@@ -290,11 +290,11 @@ pub struct WithdrawParameterSupport<'info> {
     )]
     pub proposal_support: Box<Account<'info, ProposalSupport>>,
 
-    #[account(mut, address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(mut, address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
-    pub supporter_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub supporter_srlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -302,9 +302,9 @@ pub struct WithdrawParameterSupport<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             supporter.key().as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
             market.base_side.asset_mint.as_ref(),
-            &[YieldTokenKind::Ylp.code()],
+            &[YieldTokenKind::Srlp.code()],
         ],
         bump = base_yield_account.bump,
     )]
@@ -316,9 +316,9 @@ pub struct WithdrawParameterSupport<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             supporter.key().as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
             market.quote_side.asset_mint.as_ref(),
-            &[YieldTokenKind::Ylp.code()],
+            &[YieldTokenKind::Srlp.code()],
         ],
         bump = quote_yield_account.bump,
     )]
@@ -330,8 +330,8 @@ pub struct WithdrawParameterSupport<'info> {
 impl<'info> WithdrawParameterSupport<'info> {
     pub fn validate(&self) -> Result<ParameterProposal> {
         validate_market_pda(&self.market, self.market.key())?;
-        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
-        validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)?;
+        require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
+        validate_lp_mint(&self.srlp_mint, self.market.key(), self.market.base_side.asset_decimals)?;
         require_keys_eq!(*self.proposal.owner, crate::ID, ErrorCode::InvalidParameterProposal);
         let proposal = ParameterProposal::try_deserialize(&mut &self.proposal.try_borrow_data()?[..])?;
         proposal.assert_account(self.market.key(), self.proposal.key())?;
@@ -349,8 +349,8 @@ impl<'info> WithdrawParameterSupport<'info> {
         validate_supporter_accounts(
             &self.market,
             self.supporter.key(),
-            &self.ylp_mint,
-            &self.supporter_ylp_account,
+            &self.srlp_mint,
+            &self.supporter_srlp_account,
             &self.base_yield_account,
             &self.quote_yield_account,
         )?;
@@ -384,7 +384,7 @@ impl<'info> WithdrawParameterSupport<'info> {
             &ctx.accounts.market,
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,
-            ctx.accounts.supporter_ylp_account.amount,
+            ctx.accounts.supporter_srlp_account.amount,
             indexes,
         )?;
         ctx.accounts.proposal_support.accrue_virtual_yield(
@@ -412,10 +412,10 @@ impl<'info> WithdrawParameterSupport<'info> {
             .total_locked
             .checked_sub(amount)
             .ok_or(ErrorCode::InvalidProposalSupport)?;
-        ctx.accounts.market.governance_locked_ylp = ctx
+        ctx.accounts.market.governance_locked_srlp = ctx
             .accounts
             .market
-            .governance_locked_ylp
+            .governance_locked_srlp
             .checked_sub(amount)
             .ok_or(ErrorCode::InvalidProposalSupport)?;
         proposal.cancel_if_below_sponsorship_floor(&ctx.accounts.market.tranches)?;
@@ -424,8 +424,8 @@ impl<'info> WithdrawParameterSupport<'info> {
         token_mint_to(
             ctx.accounts.market.to_account_info(),
             ctx.accounts.token_2022_program.to_account_info(),
-            ctx.accounts.ylp_mint.to_account_info(),
-            ctx.accounts.supporter_ylp_account.to_account_info(),
+            ctx.accounts.srlp_mint.to_account_info(),
+            ctx.accounts.supporter_srlp_account.to_account_info(),
             amount,
             &[&market_seeds[..]],
         )?;

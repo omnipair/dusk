@@ -120,7 +120,7 @@ The permanent benchmark test reruns the same **576 deterministic combinations**
 as the baseline audit. It varies concentration (1x/4x/10x), hLP presence, debt
 direction, transfer fees (0/50 bps), requested opening equity (20%/50%), one or
 three positions, three declining/gap paths, and Dusk-only versus hypothetical
-external execution. One path withdraws 25% of yLP supply. Native interest accrual
+external execution. One path withdraws 25% of srLP supply. Native interest accrual
 and actual native settlement/accounting transitions are included.
 
 The external venue is an explicit model: a debt-side depth of 100,000 units,

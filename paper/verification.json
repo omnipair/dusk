@@ -1,22 +1,22 @@
 {
   "reviewed_commit": "integration candidate: 04941f1934cb8dd1a73ac877c6d00cafcae82435 + 2f46e0e7db6bb5458af8f9602daea1f7344fa894",
   "historical_native_replay_commit": "5c0aca7fcb582418f1c5b99061d4ff7605b6f185",
-  "updated_at": "2026-10-23",
+  "updated_at": "2026-11-04",
   "revision": "Reconcile the #45 derivations with #52 hLP accounting, cash carry, harvest and flash recovery; label the retained native replay as historical.",
   "outputs": [
     {
       "path": "paper/dusk-v2-whitepaper.pdf",
       "pages": 21,
-      "sha256": "6d02d70f7c9afc82970705ff02e750184ed72652ed65cb175c3510ee855f36eb",
+      "sha256": "3e76867b07e92836b30a004dbb5f868fa2416be7625b135ca24796a18ca4875d",
       "rendered_pages": 21,
-      "visual_review": "passed; all pages inspected in contact sheets, derivation/native example pages inspected at full size, final table correction rendered and inspected"
+      "visual_review": "passed; all rendered pages inspected in contact sheets after the srLP rename"
     },
     {
       "path": "paper/dusk-v2-whitepaper-expanded.pdf",
       "pages": 39,
-      "sha256": "fa60ba7d1ef7fa1629aa0ad7dba9adfdb33232cc2d3b44b0aab528264fee2135",
+      "sha256": "7e0a59269d21d83f7b313520156dbf5194a42a42d845a61a18f740246f8fd09d",
       "rendered_pages": 39,
-      "visual_review": "passed; all pages inspected in contact sheets, derivation/native example pages inspected at full size, final table correction rendered and inspected"
+      "visual_review": "passed; all rendered pages inspected in contact sheets after the srLP rename"
     }
   ],
   "checks": {
@@ -55,9 +55,10 @@
     "overfull_boxes": 0,
     "unresolved_references": 0,
     "missing_glyph_warnings": 0,
-    "visual_review": "All 60 pages reviewed; only expanded page 31 changed in the final table-layout rebuild and was inspected separately.",
+    "visual_review": "All 60 pages rendered and reviewed after the srLP rename; existing underfull-paragraph warnings only.",
     "tex_notes": "Three non-fatal underfull paragraph warnings remain in expanded appendix A; no clipping, overlap or unresolved references.",
     "full_local_ci": "Passed on the combined candidate: 543 Dusk tests in default and production profiles; 16 delegate tests, 1 faucet test, 1 benchmark invariant, 76 SDK tests, and 140 strict LiteSVM tests with 74/74 instructions exercised. Formatting, hygiene, code shape, Clippy, production check, TypeScript, LiteSVM builds, and clean-build identity also passed. precommit-verification.json is the historical October 19 receipt"
   },
-  "scope": "Integrated #45/#52 candidate documentation. The hLP program and SDK changes require final combined-branch review; no deployment or main merge is declared."
+  "scope": "Integrated #45/#52 candidate documentation. The hLP program and SDK changes require final combined-branch review; no deployment or main merge is declared.",
+  "terminology_revision": "Replace current senior LP naming with srLP; rebuild both PDFs without changing the historical mechanism or numerical claims."
 }

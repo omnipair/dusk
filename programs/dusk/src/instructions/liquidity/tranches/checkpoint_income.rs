@@ -33,11 +33,11 @@ impl CheckpointIncome<'_> {
         validate_owner_lp_account(a.yield_account.owner, &a.lp_mint, &a.owner_lp)?;
         let junior = a.yield_account.token_kind == YieldTokenKind::Junior.code();
         require!(
-            junior || a.yield_account.token_kind == YieldTokenKind::Ylp.code(),
+            junior || a.yield_account.token_kind == YieldTokenKind::Srlp.code(),
             ErrorCode::InvalidArgument
         );
         if !junior {
-            require_keys_eq!(a.lp_mint.key(), a.market.ylp_mint, ErrorCode::InvalidLpMintKey);
+            require_keys_eq!(a.lp_mint.key(), a.market.srlp_mint, ErrorCode::InvalidLpMintKey);
         }
         let asset = a.market.asset_for_mint(a.yield_account.asset_mint)?;
         let index = asset.code() as usize + args.source as usize * 2;

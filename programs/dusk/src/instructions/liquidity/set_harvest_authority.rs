@@ -58,8 +58,8 @@ impl<'info> SetHarvestAuthority<'info> {
         }
         self.market.asset_for_mint(self.asset_mint.key())?;
         match args.token_kind {
-            YieldTokenKind::Ylp => {
-                require_keys_eq!(self.lp_mint.key(), self.market.ylp_mint, ErrorCode::InvalidMint)
+            YieldTokenKind::Srlp => {
+                require_keys_eq!(self.lp_mint.key(), self.market.srlp_mint, ErrorCode::InvalidMint)
             }
             YieldTokenKind::Hlp | YieldTokenKind::Junior => {}
         }

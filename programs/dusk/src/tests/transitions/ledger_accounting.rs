@@ -28,7 +28,7 @@ fn swap_protocol_fee_splits_between_auction_lanes_at_accrual() {
 }
 
 #[test]
-fn distributed_dynamic_surcharge_belongs_entirely_to_ylps() {
+fn distributed_dynamic_surcharge_belongs_entirely_to_srlps() {
     let mut side = MarketSide::default();
     let receipt = side
         .record_claimable_swap_fees(
@@ -89,7 +89,7 @@ fn distributed_surcharge_uses_the_current_swap_eligible_supply() {
         )
         .unwrap();
 
-    // Base LP fee is 800; all 500 surcharge units also go to yLPs.
+    // Base LP fee is 800; all 500 surcharge units also go to srLPs.
     assert_eq!(
         receipt.swap_fee_growth_index_q64,
         1_300u128 * YIELD_GROWTH_SCALE_Q64 / 1_000
@@ -127,7 +127,7 @@ fn interest_protocol_fee_splits_between_auction_lanes_at_accrual() {
 #[test]
 fn direct_lp_token_burn_is_an_irreversible_yield_donation() {
     let mut side = MarketSide::default();
-    side.shares.ylp_supply = 100;
+    side.shares.srlp_supply = 100;
     let split = ProtocolAuctionSplit::default();
 
     let first = side.record_swap_fee_credit(100, 0, split).unwrap();
@@ -135,7 +135,7 @@ fn direct_lp_token_burn_is_an_irreversible_yield_donation() {
     // token program does not invoke transfer hooks, so Dusk state cannot
     // and must not reduce its internal claim denominator.
     let externally_remaining_balance = 60;
-    assert_eq!(side.shares.ylp_supply, 100);
+    assert_eq!(side.shares.srlp_supply, 100);
     assert_eq!(
         accrue_fee_liability(externally_remaining_balance, first.swap_fee_growth_index_q64, 0,).unwrap(),
         60
@@ -150,7 +150,7 @@ fn direct_lp_token_burn_is_an_irreversible_yield_donation() {
     .unwrap();
 
     assert_eq!(second_period_claim, 60);
-    assert_eq!(side.shares.ylp_supply, 100);
+    assert_eq!(side.shares.srlp_supply, 100);
     assert_eq!(second.swap_fee_liability, 200);
     // The burned 40% neither increases the remaining holder's 60% rate
     // nor creates a token balance that could authorize withdrawal.

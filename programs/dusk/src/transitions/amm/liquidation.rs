@@ -41,8 +41,8 @@ impl Market {
         reference.amm.concentrated_curve_cache = cache;
         // These shares only affect the discarded virtual fee-compounding end.
         // The real prepared swap separately captures all fee/yield ownership.
-        reference.base_hlp_vault.ylp_shares = 0;
-        reference.quote_hlp_vault.ylp_shares = 0;
+        reference.base_hlp_vault.srlp_shares = 0;
+        reference.quote_hlp_vault.srlp_shares = 0;
         let state = IntegratedCurveState {
             ordinary_base: point.base_reserve,
             ordinary_quote: point.quote_reserve,
@@ -89,9 +89,9 @@ impl SwapRequest {
         market.prepare_amm_for_swap(self.current_slot)?;
         let quote = self.quote_ema_liquidation(market)?;
         let eligibility = HlpYieldEligibility {
-            ylp_supply: market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+            srlp_supply: market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
         };
         Ok(Box::new(PreparedSwap {
             quoted_slot: self.current_slot,
@@ -104,7 +104,7 @@ impl SwapRequest {
                 target_asset: MarketAsset::Quote,
                 ..Default::default()
             },
-            fee_eligible_ylp_supply: eligibility.ylp_supply,
+            fee_eligible_srlp_supply: eligibility.srlp_supply,
             interest_eligibility: eligibility,
             cash_policy: SwapCashPolicy::LiquidationQuote,
             post_fee_curve_cache: None,

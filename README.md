@@ -22,8 +22,8 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Path-aware bounded fees**: an outward divergence surcharge targets trending inventory stress while a separate volatility surcharge prices repeated chop. Each component has an explicit gross-input budget, and aggregate fees can never exceed 50% of the trader's input.
 - **Unified liquidity and lending**: LP inventory backs both swaps and borrow demand, letting capital serve multiple protocol flows.
 - **Standalone Dusk program**: Dusk has its own program ID, IDL, account model, event surface, and SDK helpers.
-- **Yield-bearing LP shares**: `yLP` represents a two-sided liquidity claim while reserve-side yield is checkpointed through base and quote growth indexes.
-- **Leveraged LP vaults**: base and quote `hLP` mints are aggregate hedged LP vault shares that target one-sided market exposure while their yLP ownership and funding debt are reconstructed at the trader's quoted endpoint.
+- **Yield-bearing LP shares**: `srLP` represents a two-sided liquidity claim while reserve-side yield is checkpointed through base and quote growth indexes.
+- **Leveraged LP vaults**: base and quote `hLP` mints are aggregate hedged LP vault shares that target one-sided market exposure while their srLP ownership and funding debt are reconstructed at the trader's quoted endpoint.
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Permissioned referral revenue sharing**: Futarchy-listed referrers can bind to new borrow or leverage debt and earn a configured share of the DAO's realized interest revenue without changing borrower debt or rates.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
@@ -36,7 +36,7 @@ Each Dusk market is defined by a base mint, quote mint, and market parameters. T
 ```text
 Liquidity providers
   deposit base + quote
-  receive yLP
+  receive srLP
   claim swap fees and borrow interest through yield indexes
 
 Traders
@@ -66,9 +66,9 @@ Referrers
   accrue a share of realized DAO interest revenue per market and mint
   claim accrued revenue to the partner's designated recipient
 
-Direct yLP holders
-  burn-lock at least 1% of eligible direct yLP to sponsor a typed parameter proposal
-  add support until the proposal holds strictly more than 50% of eligible direct yLP
+Direct srLP holders
+  burn-lock at least 1% of eligible direct srLP to sponsor a typed parameter proposal
+  add support until the proposal holds strictly more than 50% of eligible direct srLP
   wait through a seven-day timelock before permissionless execution
   withdraw any collecting support, fully or partially, before it queues
   release queued support after execution, expiry, or staleness
@@ -82,17 +82,17 @@ Dusk markets use Token-2022 mints for protocol LP surfaces:
 
 | Token | Meaning |
 | --- | --- |
-| `yLP` | Floating two-sided LP share for normal liquidity providers |
+| `srLP` | Floating two-sided LP share for normal liquidity providers |
 | base `hLP` | Aggregate leveraged LP vault share targeting base exposure |
 | quote `hLP` | Aggregate leveraged LP vault share targeting quote exposure |
 
 Normal LPs enter with `add_liquidity`, depositing both assets at the current market ratio:
 
 ```text
-asset_claim = user_ylp_shares * live_reserve / total_ylp_supply
+asset_claim = user_srlp_shares * live_reserve / total_srlp_supply
 ```
 
-A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder is claimable yield: swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`, while interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-yLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. The LP owner, designated yield recipient, or separately designated harvest authority may trigger `harvest`; payment goes only to the recipient's canonical associated token account. Only the LP owner may change the recipient or set, rotate, and revoke the harvest authority. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket; a later admitted recenter deploys that bucket, and ordinary yLP withdrawals cannot claim it.
+A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder is claimable yield: swap-fee liabilities stay physically in the reserve vault as `swap_fee_custody_balance`, outside executable `cash_reserve`, while interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-srLP growth lane, while hLP funding interest uses a separate non-hLP denominator and source-specific rounding carry. The LP owner, designated yield recipient, or separately designated harvest authority may trigger `harvest`; payment goes only to the recipient's canonical associated token account. Only the LP owner may change the recipient or set, rotate, and revoke the harvest authority. Dynamic surcharge retained while recenter protection is being funded enters a custody-backed, non-quoteable Base/Quote bucket; a later admitted recenter deploys that bucket, and ordinary srLP withdrawals cannot claim it.
 
 ## Isolated Leverage
 
@@ -140,34 +140,34 @@ Each market maintains two aggregate hLP vaults:
 - `hLP_base`: users deposit base and the vault funds the quote leg.
 - `hLP_quote`: users deposit quote and the vault funds the base leg.
 
-Opening an hLP position mints vault shares against current aggregate vault NAV, including the hLP-owned yLP claim on accrued public interest. A cached settlement price or NAV does not set the deposit share price. The target-side deposit is reserve cash; the funded side is tracked as hLP funding debt and an explicit hLP live-reserve component:
+Opening an hLP position mints vault shares against current aggregate vault NAV, including the hLP-owned srLP claim on accrued public interest. A cached settlement price or NAV does not set the deposit share price. The target-side deposit is reserve cash; the funded side is tracked as hLP funding debt and an explicit hLP live-reserve component:
 
 ```text
 user target asset
   -> hLP vault records opposite-side funding debt
   -> market credits balanced live reserves
-  -> vault receives yLP
+  -> vault receives srLP
   -> user receives hLP_target
 ```
 
-Closing burns hLP shares, removes the vault's proportional yLP liquidity, repays funding debt, realizes any interest from borrowed-side cash, and returns remaining target-side inventory to the user.
+Closing burns hLP shares, removes the vault's proportional srLP liquidity, repays funding debt, realizes any interest from borrowed-side cash, and returns remaining target-side inventory to the user.
 
 hLP funding debt bears the full indexed borrow rate without a self- or
 cross-hLP rebate. When that funding interest is paid, Dusk measures the net
 interest-vault token credit, applies the configured protocol split, and indexes
-the remaining LP amount only over non-hLP yLP supply frozen for the operation.
+the remaining LP amount only over non-hLP srLP supply frozen for the operation.
 Both hLP vaults are excluded. Permanently burned `MIN_LIQUIDITY` remains in the
-denominator; if no ordinary yLP holder exists, it is the complete backed sink,
+denominator; if no ordinary srLP holder exists, it is the complete backed sink,
 so a later deposit cannot capture previously paid interest. This is deliberate
-payment-time ownership: ordinary yLP present at the operation snapshot
-participates, while ordinary yLP that exits beforehand does not. Public-borrow
-interest and swap fees retain their ordinary all-yLP eligibility rules.
+payment-time ownership: ordinary srLP present at the operation snapshot
+participates, while ordinary srLP that exits beforehand does not. Public-borrow
+interest and swap fees retain their ordinary all-srLP eligibility rules.
 
 Active hLP uses the market's exact applied CPMM or concentrated curve. For an
 active-hLP swap or swap-like leverage operation, Dusk freezes the ordinary
 trader-facing reserves, quotes the trade and fees on that curve, then
-reconstructs both hLP vaults' yLP ownership and indexed funding debt
-algebraically at the accepted endpoint. A live-basis yLP burn also realizes the
+reconstructs both hLP vaults' srLP ownership and indexed funding debt
+algebraically at the accepted endpoint. A live-basis srLP burn also realizes the
 burned shares' accrued-but-unpaid interest entitlement inside that integrated
 endpoint calculation.
 The accepted path bounds each vault's deposited-asset principal plus frozen
@@ -176,10 +176,10 @@ million of its operation-start economic NAV. hLP funding interest is excluded
 because neither hLP is eligible for that source. A material unconverged or cap-bound
 worsening swap fails closed. Every positive funding transition also keeps
 aggregate indexed hLP debt within the borrowed asset's current cash. If passive
-funding growth exhausts the vault, `close_insolvent_hlp` retires its yLP,
+funding growth exhausts the vault, `close_insolvent_hlp` retires its srLP,
 applies caller-bounded insurance and socialization, and pays a bounded caller
 bounty from recovered funding interest before crediting the remaining interest
-to ordinary yLP.
+to ordinary srLP.
 
 When one hLP vault has negative executable value, Dusk freezes that vault's
 automatic hedge, retaining its shares, funded reserve and indexed debt as an
@@ -194,7 +194,7 @@ other internal emergency liquidations; it does not use the live reserve ratio
 to determine repayment or writeoff. The real inventory endpoint is still
 rebuilt after close, so the accepted post-settlement inventory/arbitrage risk
 remains. External flash terminal recovery instead uses the buyer's actual fixed
-payment and the borrowed-token yLP claim frozen at begin, so routing collateral
+payment and the borrowed-token srLP claim frozen at begin, so routing collateral
 through Dusk in the middle cannot move the session's recovery accounting. Once closed, holders can burn their hLP receipts for zero principal
 payout; the SDK can compose the close and burn in one transaction. A frozen
 vault whose value recovers can use funded flash rescue to restore its hedge and
@@ -338,7 +338,7 @@ Dusk is a standalone program and should be integrated through its own IDL, progr
 
 - Use the Dusk IDL and market PDAs for markets.
 - Do not sort Dusk market mints client-side. The creator's `base_mint` and `quote_mint` order defines the market and its price direction.
-- Treat yLP and hLP mints as distinct Token-2022 token concepts. yLP is the two-sided normal LP token; hLP tokens are aggregate leveraged LP vault shares.
+- Treat srLP and hLP mints as distinct Token-2022 token concepts. srLP is the two-sided normal LP token; hLP tokens are aggregate leveraged LP vault shares.
 - Use the referral builders for referred debt actions so the partner and accrual PDAs are included atomically.
 - Use the parameter-proposal builders so sponsorship/support burns, virtual-yield checkpoints, proposal/support PDAs, and terminal remints remain atomic.
 - Consume Dusk events from the standalone IDL, including market, liquidity, swap, debt, liquidation, yield, hLP, leverage, leverage-delegation, and referral events.
@@ -372,7 +372,7 @@ hLP adds a named synthetic live-reserve coordinate, not an unnamed exception. hL
 D_total[i] = D_cash_backed[i] + D_hLP_funding[i]
 ```
 
-Only `D_cash_backed` expands `R_live` through normal cash-backed interest accrual. hLP funding interest is carried as a full hLP debt/NAV cost and is paid only to non-hLP yLP after the configured protocol split. Automatic deleverage carves the payment from the paying hLP's borrowed-asset yLP burn leg rather than applying an additional shared-live debit. If that leg is short, the exact applied curve converts only the required part of the payer's target leg into the borrowed asset.
+Only `D_cash_backed` expands `R_live` through normal cash-backed interest accrual. hLP funding interest is carried as a full hLP debt/NAV cost and is paid only to non-hLP srLP after the configured protocol split. Automatic deleverage carves the payment from the paying hLP's borrowed-asset srLP burn leg rather than applying an additional shared-live debit. If that leg is short, the exact applied curve converts only the required part of the payer's target leg into the borrowed asset.
 
 When both assets carry the same proportional unpaid-interest load, hLP
 rebalancing moves both executable reserve sides proportionally:
@@ -386,24 +386,24 @@ P' = P
 ```
 
 That special case preserves spot, but not depth: finite swap quotes can change
-when hLP live depth changes. A live-basis yLP burn also realizes the burned
+when hLP live depth changes. A live-basis srLP burn also realizes the burned
 shares' unpaid-interest entitlement. If that entitlement is asymmetric across
 the assets, executable reserves move non-proportionally and the quote starts
-from the resulting price, exactly as for ordinary yLP redemption. Swap-triggered
+from the resulting price, exactly as for ordinary srLP redemption. Swap-triggered
 hLP updates are therefore quote-aware and O(1), and never iterate over user
 positions.
 
 Other invariants:
 
-- yLP supply is backed by reserve-side principal accounting.
-- No operation mints yLP without corresponding reserve value.
-- yLP principal reserves exclude reserve-custodied swap-fee liabilities and interest-vault balances.
+- srLP supply is backed by reserve-side principal accounting.
+- No operation mints srLP without corresponding reserve value.
+- srLP principal reserves exclude reserve-custodied swap-fee liabilities and interest-vault balances.
 - Physical reserve custody is at least `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory`. Protocol transitions conserve the accounted amount exactly; unsolicited donations remain non-executable. Interest liabilities are separately backed by the interest vault.
 - Synthetic hLP live reserve is not directly withdrawable cash; swaps, withdrawals, debt repayment, and interest realization are still constrained by cash reserves.
 - Every hLP funding increase must keep aggregate indexed funding debt within current borrowed-asset cash. Terminal exhausted-vault recovery is separate and permissionless through `close_insolvent_hlp`, with caller-supplied insurance and socialized-loss bounds.
 - Dusk does not enforce `R_hLP_live[i] <= D_hLP_funding[i]` per asset; hLP live depth is a balanced GAMM coordinate, not a standalone per-asset liability.
 - hLP debt shares stay matched to aggregate hLP vault funding debt.
-- hLP operations never use yLP-denominated debt.
+- hLP operations never use srLP-denominated debt.
 - Isolated leverage debt contributes to utilization without contaminating normal borrower health checks.
 - Referral binding never changes principal, debt, interest, health, or liquidation terms; referral claims are bounded liabilities carved from realized protocol interest revenue.
 - Referral claims can only debit the matching `ReferralAccrual` from its market interest vault and pay a token account owned by the partner's current designated recipient.
@@ -432,7 +432,7 @@ Dusk extends the invariant set where hLP needs curve-aware one-sided hedging:
 
 - V1 had no hLP component, so `R_hLP_live = 0`.
 - Dusk allows only hLP transitions to mutate `R_hLP_live`.
-- hLP leverage-up/deleverage uses the same live-basis share accounting as yLP redemption. It changes only depth when unpaid-interest loads are proportional, and otherwise also reprices the executable curve before the authoritative quote.
+- hLP leverage-up/deleverage uses the same live-basis share accounting as srLP redemption. It changes only depth when unpaid-interest loads are proportional, and otherwise also reprices the executable curve before the authoritative quote.
 - hLP funding debt affects utilization and funding cost, aggregate cash admission constrains new funding, and `close_insolvent_hlp` handles a terminal exhausted-vault waterfall without allowing loss to reach original principal.
 - Cash-constrained hLP leverage-up does not block swaps; unexecuted rebalance is carried as `residual_exposure`.
 

@@ -62,8 +62,8 @@ fn guided_first_liquidity_uses_the_report_not_the_callers_deposit_ratio() {
             assert!(quote*u128::from(NAD)>=base*u128::from(price_nad));
             assert!((quote-quote_atom)*u128::from(NAD)<base*u128::from(price_nad));
             let again=market.preview_add_liquidity(r.base_reserve_credit,r.quote_reserve_credit).unwrap();
-            assert_eq!((again.base_reserve_credit,again.quote_reserve_credit,again.ylp_amount),
-                (r.base_reserve_credit,r.quote_reserve_credit,r.ylp_amount));
+            assert_eq!((again.base_reserve_credit,again.quote_reserve_credit,again.srlp_amount),
+                (r.base_reserve_credit,r.quote_reserve_credit,r.srlp_amount));
         }
     }
     let (mut market,_,mut fixture)=normalized();

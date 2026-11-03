@@ -27,7 +27,7 @@ export const MARKET_LAYOUT_VERSION = Number(
 );
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
-/** Direct-yLP parameter-governance constants. These values are immutable for Dusk market layout v1. */
+/** Direct-srLP parameter-governance constants. These values are immutable for Dusk market layout v1. */
 export const GOVERNANCE_BPS_DENOMINATOR = 10_000;
 export const PARAMETER_PROPOSAL_SPONSOR_BPS = 100;
 export const PARAMETER_PROPOSAL_SUPPORT_BPS = 5_000;
@@ -57,7 +57,8 @@ export const SEEDS = {
   LEVERAGE_COLLATERAL_VAULT: Buffer.from("leverage_collateral"),
   LEVERAGE_DELEGATION: Buffer.from("leverage_delegation_v2"),
   YIELD_ACCOUNT: Buffer.from("yield"),
-  HLP_YLP_VAULT: Buffer.from("hlp_ylp_vault"),
+  // Stable PDA namespace, shared with the program.
+  HLP_SRLP_VAULT: Buffer.from("hlp_ylp_vault"),
   HLP_COHORT: Buffer.from("hlp_cohort"),
   INSURANCE: Buffer.from("insurance"),
   EVENT_AUTHORITY: Buffer.from("__event_authority"),
@@ -150,7 +151,7 @@ export function deriveParameterProposalAddress(
   );
 }
 
-/** Derive one support position. Locked yLP cannot be shared across proposals. */
+/** Derive one support position. Locked srLP cannot be shared across proposals. */
 export function deriveProposalSupportAddress(
   proposal: PublicKey,
   supporter: PublicKey,
@@ -288,17 +289,17 @@ export function deriveLeveragePositionAddress(
   );
 }
 
-export type YieldTokenKind = "ylp" | "hlp" | "junior" | 0 | 1 | 2;
+export type YieldTokenKind = "srlp" | "hlp" | "junior" | 0 | 1 | 2;
 
 function yieldTokenKindCode(tokenKind: YieldTokenKind): number {
-  if (tokenKind === "ylp" || tokenKind === 0) return 0;
+  if (tokenKind === "srlp" || tokenKind === 0) return 0;
   if (tokenKind === "hlp" || tokenKind === 1) return 1;
   if (tokenKind === "junior" || tokenKind === 2) return 2;
   throw new Error(`Unsupported yield token kind: ${tokenKind}`);
 }
 
 /**
- * Derive yield-account PDA address for yLP/hLP revenue checkpoints.
+ * Derive yield-account PDA address for srLP/hLP revenue checkpoints.
  */
 export function deriveYieldAccountAddress(
   market: PublicKey,
@@ -523,7 +524,7 @@ export function buildYieldTransferHookValidationAccountData(extraMetas: AccountM
 
 /**
  * Encode the production Token-2022 transfer-hook validation account for Dusk
- * yLP/hLP mints.
+ * srLP/hLP mints.
  *
  * The validation state resolves static market/asset-mint accounts and derives
  * source/destination YieldAccount PDAs from the source and destination token
@@ -592,7 +593,7 @@ export function buildLpTransferHookValidationAccountData({
 }
 
 /**
- * Build Dusk yLP/hLP transfer-hook extra account metas.
+ * Build Dusk srLP/hLP transfer-hook extra account metas.
  *
  * Token-2022 passes the source token account, LP mint, destination token
  * account, and transfer authority as the base hook accounts. Omnipair Dusk needs
@@ -667,19 +668,19 @@ export function buildLpTransferHookAccountMetas({
 }
 
 /**
- * Derive canonical aggregate hLP vault yLP token-account PDA.
+ * Derive canonical aggregate hLP vault srLP token-account PDA.
  */
-export function deriveHlpYlpVaultAddress(
+export function deriveHlpSrlpVaultAddress(
   market: PublicKey,
   targetHlpMint: PublicKey,
-  ylpMint: PublicKey
+  srlpMint: PublicKey
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
-      SEEDS.HLP_YLP_VAULT,
+      SEEDS.HLP_SRLP_VAULT,
       market.toBuffer(),
       targetHlpMint.toBuffer(),
-      ylpMint.toBuffer(),
+      srlpMint.toBuffer(),
     ],
     DUSK_PROGRAM_ID
   );

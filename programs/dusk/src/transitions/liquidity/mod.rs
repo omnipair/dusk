@@ -89,13 +89,17 @@ pub(crate) enum SwapCashPolicy {
     },
 }
 
-pub(crate) fn reserve_for_ylp_mint_ceil(reserve_before: u64, ylp_supply_before: u64, ylp_amount: u64) -> Result<u64> {
-    require!(ylp_supply_before > 0, ErrorCode::InsufficientLiquidity);
+pub(crate) fn reserve_for_srlp_mint_ceil(
+    reserve_before: u64,
+    srlp_supply_before: u64,
+    srlp_amount: u64,
+) -> Result<u64> {
+    require!(srlp_supply_before > 0, ErrorCode::InsufficientLiquidity);
     let reserve_amount = ceil_div(
-        (ylp_amount as u128)
+        (srlp_amount as u128)
             .checked_mul(reserve_before as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?,
-        ylp_supply_before as u128,
+        srlp_supply_before as u128,
     )
     .ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(reserve_amount).map_err(|_| ErrorCode::MarketMathOverflow.into())
@@ -108,9 +112,9 @@ impl Market {
         max_quote_reserve_credit: u64,
     ) -> Result<AddLiquidityReceipt> {
         let receipt = self.preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
-        let supply_before = self.base_side.shares.ylp_supply;
+        let supply_before = self.base_side.shares.srlp_supply;
         let internal_mint_amount = receipt
-            .ylp_supply
+            .srlp_supply
             .checked_sub(supply_before)
             .ok_or(ErrorCode::SupplyUnderflow)?;
         let seeded_price_nad = if supply_before == 0 {
@@ -145,12 +149,12 @@ impl Market {
 
         if supply_before == 0 {
             let creator_gross = receipt
-                .ylp_supply
+                .srlp_supply
                 .checked_sub(MIN_LIQUIDITY)
                 .ok_or(ErrorCode::SupplyUnderflow)?;
-            let seed = self.tranches.seed_from_creator(creator_gross, receipt.ylp_supply)?;
+            let seed = self.tranches.seed_from_creator(creator_gross, receipt.srlp_supply)?;
             self.synchronize_tranche_income();
-            require_eq!(creator_gross - seed, receipt.ylp_amount, ErrorCode::BrokenInvariant);
+            require_eq!(creator_gross - seed, receipt.srlp_amount, ErrorCode::BrokenInvariant);
         }
         if let Some(seeded_price_nad) = seeded_price_nad {
             if self.amm.launch_reference_price_nad == 0 {
@@ -185,7 +189,7 @@ impl Market {
         // Guided first liquidity has no caller-selected initial price. The
         // authenticated observation fixes the ratio; both arguments are caps.
         // Round the base down and the required quote up to whole token atoms.
-        if self.base_side.shares.ylp_supply == 0 && self.oracle.policy.lambda_bps > 0 {
+        if self.base_side.shares.srlp_supply == 0 && self.oracle.policy.lambda_bps > 0 {
             let price = u128::from(self.oracle.runtime.observation()?.price_nad);
             require!(price > 0, ErrorCode::InvalidSettlementPrice);
             let quote = self.normalize_amount(u128::from(max_quote_reserve_credit), self.quote_side.asset_decimals)?;
@@ -204,20 +208,20 @@ impl Market {
             );
         }
 
-        let ylp_amount = self.ylp_for_deposit(
+        let srlp_amount = self.srlp_for_deposit(
             base_reserve_before,
             quote_reserve_before,
             max_base_reserve_credit,
             max_quote_reserve_credit,
         )?;
-        require!(ylp_amount > 0, ErrorCode::SlippageExceeded);
+        require!(srlp_amount > 0, ErrorCode::SlippageExceeded);
 
-        let (base_reserve_credit, quote_reserve_credit) = if self.base_side.shares.ylp_supply == 0 {
+        let (base_reserve_credit, quote_reserve_credit) = if self.base_side.shares.srlp_supply == 0 {
             (max_base_reserve_credit, max_quote_reserve_credit)
         } else {
-            let supply_before = self.base_side.shares.ylp_supply;
-            let base_reserve_credit = reserve_for_ylp_mint_ceil(base_reserve_before, supply_before, ylp_amount)?;
-            let quote_reserve_credit = reserve_for_ylp_mint_ceil(quote_reserve_before, supply_before, ylp_amount)?;
+            let supply_before = self.base_side.shares.srlp_supply;
+            let base_reserve_credit = reserve_for_srlp_mint_ceil(base_reserve_before, supply_before, srlp_amount)?;
+            let quote_reserve_credit = reserve_for_srlp_mint_ceil(quote_reserve_before, supply_before, srlp_amount)?;
             require_gte!(
                 max_base_reserve_credit,
                 base_reserve_credit,
@@ -235,48 +239,50 @@ impl Market {
             ErrorCode::AmountZero
         );
 
-        let internal_mint_amount = if self.base_side.shares.ylp_supply == 0 {
-            ylp_amount.checked_add(MIN_LIQUIDITY).ok_or(ErrorCode::SupplyOverflow)?
+        let internal_mint_amount = if self.base_side.shares.srlp_supply == 0 {
+            srlp_amount
+                .checked_add(MIN_LIQUIDITY)
+                .ok_or(ErrorCode::SupplyOverflow)?
         } else {
-            ylp_amount
+            srlp_amount
         };
-        let ylp_supply = self
+        let srlp_supply = self
             .base_side
             .shares
-            .ylp_supply
+            .srlp_supply
             .checked_add(internal_mint_amount)
             .ok_or(ErrorCode::SupplyOverflow)?;
 
-        let ylp_amount = if self.base_side.shares.ylp_supply == 0 {
-            let seed = ylp_amount / 1_000 + u64::from(!ylp_amount.is_multiple_of(1_000));
-            ylp_amount.checked_sub(seed).ok_or(ErrorCode::SupplyUnderflow)?
+        let srlp_amount = if self.base_side.shares.srlp_supply == 0 {
+            let seed = srlp_amount / 1_000 + u64::from(!srlp_amount.is_multiple_of(1_000));
+            srlp_amount.checked_sub(seed).ok_or(ErrorCode::SupplyUnderflow)?
         } else {
-            ylp_amount
+            srlp_amount
         };
         Ok(AddLiquidityReceipt {
             base_reserve_credit,
             quote_reserve_credit,
-            ylp_amount,
-            ylp_supply,
+            srlp_amount,
+            srlp_supply,
         })
     }
 
-    pub fn remove_liquidity(&mut self, ylp_amount: u64) -> Result<RemoveLiquidityReceipt> {
-        require!(ylp_amount > 0, ErrorCode::AmountZero);
+    pub fn remove_liquidity(&mut self, srlp_amount: u64) -> Result<RemoveLiquidityReceipt> {
+        require!(srlp_amount > 0, ErrorCode::AmountZero);
         require_eq!(
-            self.base_side.shares.ylp_supply,
-            self.quote_side.shares.ylp_supply,
+            self.base_side.shares.srlp_supply,
+            self.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
 
         let base_amount_out = self
             .base_side
             .shares
-            .reserve_for_burn(self.curve_reserve(MarketAsset::Base)?, ylp_amount)?;
+            .reserve_for_burn(self.curve_reserve(MarketAsset::Base)?, srlp_amount)?;
         let quote_amount_out = self
             .quote_side
             .shares
-            .reserve_for_burn(self.curve_reserve(MarketAsset::Quote)?, ylp_amount)?;
+            .reserve_for_burn(self.curve_reserve(MarketAsset::Quote)?, srlp_amount)?;
         require_gte!(
             self.base_side.reserves.cash_reserve,
             base_amount_out,
@@ -290,40 +296,40 @@ impl Market {
 
         self.base_side.debit_reserve(base_amount_out, true)?;
         self.quote_side.debit_reserve(quote_amount_out, true)?;
-        self.base_side.shares.burn(ylp_amount)?;
-        self.quote_side.shares.burn(ylp_amount)?;
+        self.base_side.shares.burn(srlp_amount)?;
+        self.quote_side.shares.burn(srlp_amount)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 
         // The instruction checkpoints the departing holder before this burn.
         // Once only the permanently burned minimum remains outside the two
-        // hLP vaults, discard source-specific funding dust so a later yLP
+        // hLP vaults, discard source-specific funding dust so a later srLP
         // cohort cannot inherit a fraction left by the prior cohort.
-        let hlp_ylp_shares = self
+        let hlp_srlp_shares = self
             .base_hlp_vault
-            .ylp_shares
-            .checked_add(self.quote_hlp_vault.ylp_shares)
+            .srlp_shares
+            .checked_add(self.quote_hlp_vault.srlp_shares)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let non_hlp_ylp_supply = self
+        let non_hlp_srlp_supply = self
             .base_side
             .shares
-            .ylp_supply
-            .checked_sub(hlp_ylp_shares)
+            .srlp_supply
+            .checked_sub(hlp_srlp_shares)
             .ok_or(ErrorCode::BrokenInvariant)?;
-        if non_hlp_ylp_supply == MIN_LIQUIDITY {
+        if non_hlp_srlp_supply == MIN_LIQUIDITY {
             self.base_side.fees.hlp_funding_interest_growth_remainder_scaled = 0;
             self.quote_side.fees.hlp_funding_interest_growth_remainder_scaled = 0;
         }
 
         Ok(RemoveLiquidityReceipt {
-            ylp_amount,
+            srlp_amount,
             base_amount_out,
             quote_amount_out,
-            ylp_supply: self.base_side.shares.ylp_supply,
+            srlp_supply: self.base_side.shares.srlp_supply,
         })
     }
 
-    pub(crate) fn ylp_for_deposit(
+    pub(crate) fn srlp_for_deposit(
         &self,
         base_reserve_before: u64,
         quote_reserve_before: u64,
@@ -331,11 +337,11 @@ impl Market {
         quote_amount: u64,
     ) -> Result<u64> {
         require_eq!(
-            self.base_side.shares.ylp_supply,
-            self.quote_side.shares.ylp_supply,
+            self.base_side.shares.srlp_supply,
+            self.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
-        if self.base_side.shares.ylp_supply == 0 {
+        if self.base_side.shares.srlp_supply == 0 {
             // sqrt(amount0_in * amount1_in) - MINIMUM_LIQUIDITY
             // MINIMUM_LIQUIDITY = 1000
             // 9 decimals: 1000 / 10^9 = 1e-6 full LP tokens
@@ -352,28 +358,28 @@ impl Market {
                 .try_into()
                 .map_err(|_| ErrorCode::LiquidityConversionOverflow.into());
         }
-        let base_ylp = self
+        let base_srlp = self
             .base_side
             .shares
             .shares_for_deposit(base_reserve_before, base_amount)?;
-        let quote_ylp = self
+        let quote_srlp = self
             .quote_side
             .shares
             .shares_for_deposit(quote_reserve_before, quote_amount)?;
-        Ok(base_ylp.min(quote_ylp))
+        Ok(base_srlp.min(quote_srlp))
     }
 }
 
 pub struct AddLiquidityReceipt {
     pub base_reserve_credit: u64,
     pub quote_reserve_credit: u64,
-    pub ylp_amount: u64,
-    pub ylp_supply: u64,
+    pub srlp_amount: u64,
+    pub srlp_supply: u64,
 }
 
 pub struct RemoveLiquidityReceipt {
-    pub ylp_amount: u64,
+    pub srlp_amount: u64,
     pub base_amount_out: u64,
     pub quote_amount_out: u64,
-    pub ylp_supply: u64,
+    pub srlp_supply: u64,
 }

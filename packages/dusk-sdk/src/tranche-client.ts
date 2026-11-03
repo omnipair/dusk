@@ -14,7 +14,7 @@ export type TrancheAction =
   | { kind: "convertExit"; minimumSenior: GovernanceIntegerLike }
   | { kind: "cancelExit" };
 
-/** yLP/jrLP builders. Conversion changes ownership of existing pool capital;
+/** srLP/jrLP builders. Conversion changes ownership of existing pool capital;
  * redeeming cash is a separate ordinary-LP withdrawal. Builders never submit. */
 export class DuskTranches {
   readonly write: DuskWrite;
@@ -43,10 +43,10 @@ export class DuskTranches {
     const market = address(params.market), owner = address(params.owner);
     if (params.kind !== "junior" && params.retiredJuniorMint) throw new Error("Only junior has retired generations");
     const state = await this.program.account.market.fetch(market);
-    const lpMint = params.kind === "senior" ? state.ylpMint : params.retiredJuniorMint ? address(params.retiredJuniorMint) : state.juniorMint;
+    const lpMint = params.kind === "senior" ? state.srlpMint : params.retiredJuniorMint ? address(params.retiredJuniorMint) : state.juniorMint;
     const assetIndex = params.asset === "base" ? 0 : 1;
     const assetMint = assetIndex === 0 ? state.baseSide.assetMint : state.quoteSide.assetMint;
-    const yieldAccount = deriveYieldAccountAddress(market, owner, lpMint, assetMint, params.kind === "senior" ? "ylp" : "junior", this.program.programId)[0];
+    const yieldAccount = deriveYieldAccountAddress(market, owner, lpMint, assetMint, params.kind === "senior" ? "srlp" : "junior", this.program.programId)[0];
     const holder = await this.program.account.yieldAccount.fetch(yieldAccount);
     if (!holder.incomeInitialized) throw new Error("Initialize the holder's income ledger before catch-up");
     const ownerLp = getAssociatedTokenAddressSync(lpMint, owner, true, TOKEN_2022_PROGRAM_ID);
@@ -68,7 +68,7 @@ export class DuskTranches {
   }
 
   /** Prepare bounded, separate transactions to catch up both assets before a
-   * yLP/jrLP transfer, exit or claim. No transaction is sent by this method.
+   * srLP/jrLP transfer, exit or claim. No transaction is sent by this method.
    * If hasMore is true, submit these batches and call again. A concurrent epoch
    * roll can also require another fetch; never discard the holder's old claim. */
   async prepareHolderIncome(params: { market: AddressLike; owner: AddressLike; kind: "senior" | "junior"; retiredJuniorMint?: AddressLike }) {
@@ -159,7 +159,7 @@ export class DuskTranches {
     const market = address(params.market), owner = address(params.owner);
     const state = await this.program.account.market.fetch(market);
     if (state.juniorMint.equals(PublicKey.default)) throw new Error("Initialize the junior mint first");
-    const seniorMint = state.ylpMint, juniorMint = state.juniorMint;
+    const seniorMint = state.srlpMint, juniorMint = state.juniorMint;
     const ownerSenior = getAssociatedTokenAddressSync(seniorMint, owner, true, TOKEN_2022_PROGRAM_ID);
     const ownerJunior = getAssociatedTokenAddressSync(juniorMint, owner, true, TOKEN_2022_PROGRAM_ID);
     const exit = deriveJuniorExitAddress(market, owner, juniorMint, this.program.programId)[0];
@@ -172,8 +172,8 @@ export class DuskTranches {
           : { cancelExit: {} };
     const ix = await this.write.instruction("convertTranche", action, { accounts: {
       owner, market, seniorMint, juniorMint, ownerSenior, ownerJunior, exit,
-      seniorBaseYield: deriveYieldAccountAddress(market, owner, seniorMint, state.baseSide.assetMint, "ylp", this.program.programId)[0],
-      seniorQuoteYield: deriveYieldAccountAddress(market, owner, seniorMint, state.quoteSide.assetMint, "ylp", this.program.programId)[0],
+      seniorBaseYield: deriveYieldAccountAddress(market, owner, seniorMint, state.baseSide.assetMint, "srlp", this.program.programId)[0],
+      seniorQuoteYield: deriveYieldAccountAddress(market, owner, seniorMint, state.quoteSide.assetMint, "srlp", this.program.programId)[0],
       juniorBaseYield: deriveYieldAccountAddress(market, owner, juniorMint, state.baseSide.assetMint, "junior", this.program.programId)[0],
       juniorQuoteYield: deriveYieldAccountAddress(market, owner, juniorMint, state.quoteSide.assetMint, "junior", this.program.programId)[0],
       token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,

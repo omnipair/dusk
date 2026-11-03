@@ -41,9 +41,9 @@ impl Market {
         let ordinary = self
             .base_side
             .shares
-            .ylp_supply
-            .checked_sub(self.base_hlp_vault.ylp_shares)
-            .and_then(|s| s.checked_sub(self.quote_hlp_vault.ylp_shares))
+            .srlp_supply
+            .checked_sub(self.base_hlp_vault.srlp_shares)
+            .and_then(|s| s.checked_sub(self.quote_hlp_vault.srlp_shares))
             .ok_or(ErrorCode::SupplyUnderflow)?;
         require!(ordinary > 0, ErrorCode::SupplyUnderflow);
         let current = self.amm.concentrated_curve_cache.tail_liquidity;

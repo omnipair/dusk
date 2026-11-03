@@ -57,8 +57,8 @@ struct Sim {
     borrowers: Vec<Borrower>,
     debt_asset: MarketAsset,
     start: i64,
-    ylp_owned: u64,
-    initial_ylp: u64,
+    srlp_owned: u64,
+    initial_srlp: u64,
     withdrawn: [u64; 2],
     events: Vec<Value>,
     trace: Vec<Value>,
@@ -118,12 +118,12 @@ fn make(c: &Value) -> R<Sim> {
     let mut market = BenchmarkMarket::initialize_at(
         Pubkey::new_unique(),
         BenchmarkMarketInit {
-            ylp_mint: Pubkey::new_unique(),
+            srlp_mint: Pubkey::new_unique(),
             base_side: side(9),
             quote_side: side(6),
             config,
-            base_hlp_ylp_vault: Pubkey::new_unique(),
-            quote_hlp_ylp_vault: Pubkey::new_unique(),
+            base_hlp_srlp_vault: Pubkey::new_unique(),
+            quote_hlp_srlp_vault: Pubkey::new_unique(),
             base_insurance_vault: Pubkey::new_unique(),
             quote_insurance_vault: Pubkey::new_unique(),
             params_hash: [0; 32],
@@ -135,18 +135,18 @@ fn make(c: &Value) -> R<Sim> {
         clock(1000),
     )
     .map_err(err)?;
-    let ylp = market
-        .execute_add_ylp(BenchmarkAddYlpRequest {
+    let srlp = market
+        .execute_add_srlp(BenchmarkAddSrlpRequest {
             clock: clock(1000),
             owner,
             base_reserve_credit: atoms(ordinary / 2., MarketAsset::Base, P0),
             quote_reserve_credit: atoms(ordinary / 2., MarketAsset::Quote, P0),
-            min_ylp_amount: 1,
+            min_srlp_amount: 1,
             global_reduce_only: false,
         })
         .map_err(err)?
         .receipt
-        .ylp_amount;
+        .srlp_amount;
     let mut base_hlp =
         BenchmarkHlpOwnedState::initialize(&market, MarketAsset::Base, Pubkey::new_unique(), owner)
             .map_err(err)?;
@@ -346,8 +346,8 @@ fn make(c: &Value) -> R<Sim> {
         borrowers,
         debt_asset,
         start: now,
-        ylp_owned: ylp,
-        initial_ylp: ylp,
+        srlp_owned: srlp,
+        initial_srlp: srlp,
         withdrawn: [0; 2],
         events: vec![],
         trace: vec![],
@@ -364,7 +364,7 @@ fn make(c: &Value) -> R<Sim> {
 impl Sim {
     fn book(&self, p: f64) -> R<Value> {
         let m = self.market.market();
-        let supply = m.base_side.shares.ylp_supply as f64;
+        let supply = m.base_side.shares.srlp_supply as f64;
         let live = value(
             m.base_side.reserves.live_reserve as u128,
             MarketAsset::Base,
@@ -375,7 +375,7 @@ impl Sim {
             p,
         );
         let raw_hlp = |v: &HlpVault, debt: MarketAsset| -> R<f64> {
-            Ok(v.ylp_shares as f64 / supply * live
+            Ok(v.srlp_shares as f64 / supply * live
                 - value(
                     Debt::shares_to_debt(v.debt_shares, m.debt.borrow_index(debt)).map_err(err)?,
                     debt,
@@ -393,7 +393,7 @@ impl Sim {
             rev.quote.lp_swap_fee_liability + rev.quote.lp_interest_liability,
         ]);
         let ordinary_principal =
-            (supply - m.base_hlp_vault.ylp_shares as f64 - m.quote_hlp_vault.ylp_shares as f64)
+            (supply - m.base_hlp_vault.srlp_shares as f64 - m.quote_hlp_vault.srlp_shares as f64)
                 / supply
                 * live;
         let mut borrowers = 0.;
@@ -414,7 +414,7 @@ impl Sim {
                 - value(debt, self.debt_asset, p);
         }
         Ok(
-            json!({"ylp_supply":m.base_side.shares.ylp_supply,"base_hlp_ylp_shares":m.base_hlp_vault.ylp_shares,"quote_hlp_ylp_shares":m.quote_hlp_vault.ylp_shares,"ordinary_principal_usd":ordinary_principal,"ordinary_total_usd":ordinary_principal+total_lp_fee-fee_value(bfees)-fee_value(qfees)+fee_value(self.withdrawn),
+            json!({"srlp_supply":m.base_side.shares.srlp_supply,"base_hlp_srlp_shares":m.base_hlp_vault.srlp_shares,"quote_hlp_srlp_shares":m.quote_hlp_vault.srlp_shares,"ordinary_principal_usd":ordinary_principal,"ordinary_total_usd":ordinary_principal+total_lp_fee-fee_value(bfees)-fee_value(qfees)+fee_value(self.withdrawn),
             "base_hlp_principal_usd":raw_hlp(&m.base_hlp_vault,MarketAsset::Quote)?,"quote_hlp_principal_usd":raw_hlp(&m.quote_hlp_vault,MarketAsset::Base)?,
             "base_hlp_total_usd":raw_hlp(&m.base_hlp_vault,MarketAsset::Quote)?+fee_value(bfees),"quote_hlp_total_usd":raw_hlp(&m.quote_hlp_vault,MarketAsset::Base)?+fee_value(qfees),
             "lp_fees_usd":total_lp_fee,"borrower_wealth_usd":borrowers,"remaining_debt_usd":remaining,"remaining_collateral_usd":collateral,
@@ -559,17 +559,17 @@ impl Sim {
         if fraction <= 0. {
             return Ok(());
         }
-        let wanted = (self.initial_ylp as f64 * fraction).floor() as u64;
-        let try_amount = |a: u64| -> R<BenchmarkMarketExecution<BenchmarkYlpLiquidityReceipt>> {
+        let wanted = (self.initial_srlp as f64 * fraction).floor() as u64;
+        let try_amount = |a: u64| -> R<BenchmarkMarketExecution<BenchmarkSrlpLiquidityReceipt>> {
             let mut fork = self.market.try_fork().map_err(err)?;
             let m = fork.market();
-            let supply = m.base_side.shares.ylp_supply as u128;
+            let supply = m.base_side.shares.srlp_supply as u128;
             let base = (m.base_side.reserves.live_reserve as u128 * a as u128 / supply) as u64;
             let quote = (m.quote_side.reserves.live_reserve as u128 * a as u128 / supply) as u64;
-            fork.execute_remove_ylp(BenchmarkRemoveYlpRequest {
+            fork.execute_remove_srlp(BenchmarkRemoveSrlpRequest {
                 clock: clock(t),
-                ylp_amount: a,
-                owner_ylp_balance_before: self.ylp_owned,
+                srlp_amount: a,
+                owner_srlp_balance_before: self.srlp_owned,
                 base_recipient_credit: base,
                 quote_recipient_credit: quote,
                 min_base_recipient_credit: base,
@@ -597,21 +597,21 @@ impl Sim {
             let preview = try_amount(filled)?;
             let rec = self
                 .market
-                .execute_remove_ylp(BenchmarkRemoveYlpRequest {
+                .execute_remove_srlp(BenchmarkRemoveSrlpRequest {
                     clock: clock(t),
-                    ylp_amount: filled,
-                    owner_ylp_balance_before: self.ylp_owned,
+                    srlp_amount: filled,
+                    owner_srlp_balance_before: self.srlp_owned,
                     base_recipient_credit: preview.receipt.base_reserve_amount,
                     quote_recipient_credit: preview.receipt.quote_reserve_amount,
                     min_base_recipient_credit: 0,
                     min_quote_recipient_credit: 0,
                 })
                 .map_err(err)?;
-            self.ylp_owned -= filled;
+            self.srlp_owned -= filled;
             self.withdrawn[0] += rec.receipt.base_reserve_amount;
             self.withdrawn[1] += rec.receipt.quote_reserve_amount;
         }
-        self.events.push(json!({"kind":"withdrawal","t":t-self.start,"requested_fraction":fraction,"filled_fraction":filled as f64/self.initial_ylp as f64,"blocked_fraction":(wanted-filled) as f64/self.initial_ylp as f64,"full_error":full_error}));
+        self.events.push(json!({"kind":"withdrawal","t":t-self.start,"requested_fraction":fraction,"filled_fraction":filled as f64/self.initial_srlp as f64,"blocked_fraction":(wanted-filled) as f64/self.initial_srlp as f64,"full_error":full_error}));
         Ok(())
     }
     fn liquidations(&mut self, c: &Value, t: i64, p: f64) -> R<()> {

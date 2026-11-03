@@ -90,7 +90,7 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
                 match mutation {
                     0 => fund_recenter(&mut market),
                     1 => {
-                        market.remove_liquidity(market.base_side.shares.ylp_supply / 4).unwrap();
+                        market.remove_liquidity(market.base_side.shares.srlp_supply / 4).unwrap();
                         market.finalize_amm_transition_and_observe_risk(2).unwrap();
                     }
                     _ => {

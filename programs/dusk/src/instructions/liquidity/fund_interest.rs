@@ -103,12 +103,12 @@ impl<'info> FundInterest<'info> {
             a.event_authority.to_account_info(),
         )?;
         a.market.advance_amm_clock(clock.slot)?;
-        a.market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
-        a.market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
+        a.market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;
+        a.market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
         let eligibility = HlpYieldEligibility {
-            ylp_supply: a.market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: a.market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: a.market.quote_hlp_vault.ylp_shares,
+            srlp_supply: a.market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: a.market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: a.market.quote_hlp_vault.srlp_shares,
         };
         let mut result = FundInterestReceipt::default();
         for (asset, mint, reserve, interest, maximum) in [

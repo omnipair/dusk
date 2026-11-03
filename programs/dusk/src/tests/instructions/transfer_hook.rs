@@ -88,11 +88,11 @@ fn checkpoints_yield_account_with_pre_transfer_balance() {
         interest_remainder_q64: 0,
         bump: 0,
     };
-    yield_account.initialize(owner, market, lp_mint, asset_mint, YieldTokenKind::Ylp, owner, 255);
+    yield_account.initialize(owner, market, lp_mint, asset_mint, YieldTokenKind::Srlp, owner, 255);
     let yield_context = YieldContext {
         lp_mint,
         asset_mint,
-        token_kind: YieldTokenKind::Ylp,
+        token_kind: YieldTokenKind::Srlp,
         swap_fee_growth_index_q64: 3 * YIELD_GROWTH_SCALE_Q64,
         interest_growth_index_q64: 2 * YIELD_GROWTH_SCALE_Q64,
     };
@@ -115,7 +115,7 @@ fn checkpoints_yield_account_with_pre_transfer_balance() {
 fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     let base_mint = Pubkey::new_unique();
     let quote_mint = Pubkey::new_unique();
-    let ylp_mint = Pubkey::new_unique();
+    let srlp_mint = Pubkey::new_unique();
     let base_hlp_mint = Pubkey::new_unique();
     let quote_hlp_mint = Pubkey::new_unique();
     let market_key = Pubkey::new_unique();
@@ -127,7 +127,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         tranche_policy: Default::default(),
         junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
-        ylp_mint,
+        srlp_mint,
         base_side: Box::new(crate::state::MarketSide {
             asset_mint: base_mint,
             hlp_mint: base_hlp_mint,
@@ -159,7 +159,7 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         insurance: Default::default(),
         params_hash: [0; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_ylp: 0,
+        governance_locked_srlp: 0,
         governance_locked_junior: 0,
         parameter_revisions: [0; 9],
         last_marginal_observation_nad: 0,
@@ -169,9 +169,9 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         reduce_only: false,
         bump: 0,
     };
-    market.base_side.shares.ylp_supply = 100;
+    market.base_side.shares.srlp_supply = 100;
     market.base_side.fees.unallocated_interest_liability = 100;
-    market.base_hlp_vault.ylp_shares = 100;
+    market.base_hlp_vault.srlp_shares = 100;
     market.base_hlp_vault.hlp_supply = 100;
 
     let base_contexts = current_yield_contexts(&mut market, base_hlp_mint).unwrap().unwrap();
@@ -330,7 +330,7 @@ fn canonical_extra_meta_schema_contains_both_asset_streams() {
     let lp_mint = Pubkey::new_unique();
     let state = Market {
         oracle: Default::default(),
-        ylp_mint: lp_mint,
+        srlp_mint: lp_mint,
         base_side: Box::new(crate::state::MarketSide {
             asset_mint: base_mint,
             ..Default::default()
@@ -369,7 +369,7 @@ fn hlp_hook_always_resolves_its_mint_specific_cohort() {
     let hlp_mint = Pubkey::new_unique();
     let state = Market {
         oracle: Default::default(),
-        ylp_mint: Pubkey::new_unique(),
+        srlp_mint: Pubkey::new_unique(),
         base_side: Box::new(crate::state::MarketSide {
             asset_mint: Pubkey::new_unique(),
             hlp_mint,
@@ -421,7 +421,7 @@ fn transfer_checkpoint_rejects_readonly_yield_accounts_before_deserializing() {
     let context = YieldContext {
         lp_mint: Pubkey::new_unique(),
         asset_mint: Pubkey::new_unique(),
-        token_kind: YieldTokenKind::Ylp,
+        token_kind: YieldTokenKind::Srlp,
         swap_fee_growth_index_q64: 0,
         interest_growth_index_q64: 0,
     };

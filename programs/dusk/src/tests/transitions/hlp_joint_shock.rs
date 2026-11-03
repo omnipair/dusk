@@ -124,8 +124,8 @@ fn settle_and_check(market: &mut Market, asset: MarketAsset, slot: u64) {
         } else {
             &market.base_hlp_vault
         };
-        let claim = market.side(side).reserves.live_reserve as u128 * settled_vault.ylp_shares as u128
-            / market.side(side).shares.ylp_supply as u128;
+        let claim = market.side(side).reserves.live_reserve as u128 * settled_vault.srlp_shares as u128
+            / market.side(side).shares.srlp_supply as u128;
         let debt = Debt::shares_to_debt(settled_vault.debt_shares, market.debt.borrow_index(side)).unwrap();
         assert!(claim.abs_diff(debt) <= 3, "side={side:?}, claim={claim}, debt={debt}");
         assert_eq!(debt, settled_vault.debt_principal as u128);
@@ -141,7 +141,7 @@ fn joint_shock_sol_usdc_preserves_recorded_starting_debt() {
             let state = market.integrated_curve_state_nad().unwrap();
             let reserve = market.curve_reserves_nad().unwrap();
             // With no accrued interest the starting ledger must agree exactly,
-            // even when the two mints and the yLP shares round differently.
+            // even when the two mints and the srLP shares round differently.
             assert_eq!(
                 state.book_ordinary().unwrap().0 + state.base_hlp_equity - state.base_unpaid_interest,
                 reserve.base

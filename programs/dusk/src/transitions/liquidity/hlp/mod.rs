@@ -29,20 +29,20 @@ const HLP_REBALANCE_DUST_MAX_NAD: u128 = 10_000;
 const HLP_REBALANCE_DUST_NAV_DENOMINATOR: u128 = 1_000_000;
 
 impl HlpYieldEligibility {
-    /// yLP supply eligible for interest paid by an hLP funding position.
+    /// srLP supply eligible for interest paid by an hLP funding position.
     ///
     /// Both hLP vault balances are excluded. The permanently burned
     /// `MIN_LIQUIDITY` shares remain in this denominator, so funding interest
-    /// has a deterministic sink when no ordinary yLP holder exists and cannot
+    /// has a deterministic sink when no ordinary srLP holder exists and cannot
     /// be captured by a later deposit.
-    pub fn non_hlp_ylp_supply(self) -> Result<u64> {
-        let hlp_ylp_shares = self
-            .base_hlp_ylp_shares
-            .checked_add(self.quote_hlp_ylp_shares)
+    pub fn non_hlp_srlp_supply(self) -> Result<u64> {
+        let hlp_srlp_shares = self
+            .base_hlp_srlp_shares
+            .checked_add(self.quote_hlp_srlp_shares)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let supply = self
-            .ylp_supply
-            .checked_sub(hlp_ylp_shares)
+            .srlp_supply
+            .checked_sub(hlp_srlp_shares)
             .ok_or(ErrorCode::BrokenInvariant)?;
         require_gte!(supply, MIN_LIQUIDITY, ErrorCode::BrokenInvariant);
         Ok(supply)
@@ -50,8 +50,8 @@ impl HlpYieldEligibility {
 }
 
 impl HlpVault {
-    pub fn initialize(&mut self, ylp_vault: Pubkey) {
-        self.ylp_vault = ylp_vault;
+    pub fn initialize(&mut self, srlp_vault: Pubkey) {
+        self.srlp_vault = srlp_vault;
     }
 
     pub fn mint_hlp(&mut self, amount: u64) -> Result<()> {
@@ -64,7 +64,7 @@ impl HlpVault {
         require!(amount > 0, ErrorCode::AmountZero);
         self.hlp_supply = self.hlp_supply.checked_sub(amount).ok_or(ErrorCode::SupplyUnderflow)?;
         if self.hlp_supply == 0 {
-            require_eq!(self.ylp_shares, 0, ErrorCode::BrokenInvariant);
+            require_eq!(self.srlp_shares, 0, ErrorCode::BrokenInvariant);
             require_eq!(self.base_hlp_live_reserve, 0, ErrorCode::BrokenInvariant);
             require_eq!(self.quote_hlp_live_reserve, 0, ErrorCode::BrokenInvariant);
             require_eq!(self.debt_shares, 0, ErrorCode::BrokenInvariant);
@@ -79,13 +79,13 @@ impl HlpVault {
         Ok(())
     }
 
-    pub fn credit_ylp(&mut self, shares: u64) -> Result<()> {
-        self.ylp_shares = self.ylp_shares.checked_add(shares).ok_or(ErrorCode::SupplyOverflow)?;
+    pub fn credit_srlp(&mut self, shares: u64) -> Result<()> {
+        self.srlp_shares = self.srlp_shares.checked_add(shares).ok_or(ErrorCode::SupplyOverflow)?;
         Ok(())
     }
 
-    pub fn debit_ylp(&mut self, shares: u64) -> Result<()> {
-        self.ylp_shares = self.ylp_shares.checked_sub(shares).ok_or(ErrorCode::SupplyUnderflow)?;
+    pub fn debit_srlp(&mut self, shares: u64) -> Result<()> {
+        self.srlp_shares = self.srlp_shares.checked_sub(shares).ok_or(ErrorCode::SupplyUnderflow)?;
         Ok(())
     }
 
@@ -170,36 +170,36 @@ impl HlpVault {
         Debt::repayment_for_max(self.debt_shares, self.debt_shares, borrow_index_nad, max_repay_amount)
     }
 
-    pub fn checkpoint_yield_from_ylp(&mut self, base_side: &MarketSide, quote_side: &MarketSide) -> Result<()> {
-        self.checkpoint_yield_from_ylp_shares(base_side, quote_side, self.ylp_shares)
+    pub fn checkpoint_yield_from_srlp(&mut self, base_side: &MarketSide, quote_side: &MarketSide) -> Result<()> {
+        self.checkpoint_yield_from_srlp_shares(base_side, quote_side, self.srlp_shares)
     }
 
-    pub fn checkpoint_yield_from_ylp_shares(
+    pub fn checkpoint_yield_from_srlp_shares(
         &mut self,
         base_side: &MarketSide,
         quote_side: &MarketSide,
-        eligible_ylp_shares: u64,
+        eligible_srlp_shares: u64,
     ) -> Result<()> {
         let (base_swap_fee_amount, base_swap_fee_remainder_q64) = accrue_fee_liability_with_remainder(
-            eligible_ylp_shares,
+            eligible_srlp_shares,
             base_side.fees.swap_fee_growth_index_q64,
             self.base_swap_fee_checkpoint_q64,
             self.base_swap_fee_remainder_q64,
         )?;
         let (base_interest_amount, base_interest_remainder_q64) = accrue_fee_liability_with_remainder(
-            eligible_ylp_shares,
+            eligible_srlp_shares,
             base_side.fees.interest_growth_index_q64,
             self.base_interest_checkpoint_q64,
             self.base_interest_remainder_q64,
         )?;
         let (quote_swap_fee_amount, quote_swap_fee_remainder_q64) = accrue_fee_liability_with_remainder(
-            eligible_ylp_shares,
+            eligible_srlp_shares,
             quote_side.fees.swap_fee_growth_index_q64,
             self.quote_swap_fee_checkpoint_q64,
             self.quote_swap_fee_remainder_q64,
         )?;
         let (quote_interest_amount, quote_interest_remainder_q64) = accrue_fee_liability_with_remainder(
-            eligible_ylp_shares,
+            eligible_srlp_shares,
             quote_side.fees.interest_growth_index_q64,
             self.quote_interest_checkpoint_q64,
             self.quote_interest_remainder_q64,
@@ -256,8 +256,8 @@ impl HlpVault {
     }
 }
 
-/// Publishes one hLP vault's yLP-owned revenue through the same exact Q64
-/// distributor used by the outer yLP tier, retaining whole atoms only while
+/// Publishes one hLP vault's srLP-owned revenue through the same exact Q64
+/// distributor used by the outer srLP tier, retaining whole atoms only while
 /// the hLP supply is zero.
 fn credit_hlp_growth(
     hlp_supply: u64,
@@ -372,8 +372,8 @@ impl Market {
 
     pub(crate) fn checkpoint_hlp_vaults_with_price(&mut self) -> Result<(i128, i128, u64)> {
         let prices = current_hlp_curve_prices(self)?;
-        checkpoint_hlp_yield_from_ylp(self, MarketAsset::Base)?;
-        checkpoint_hlp_yield_from_ylp(self, MarketAsset::Quote)?;
+        checkpoint_hlp_yield_from_srlp(self, MarketAsset::Base)?;
+        checkpoint_hlp_yield_from_srlp(self, MarketAsset::Quote)?;
         let base_active = self.base_hlp_vault.hlp_supply > 0 || self.base_hlp_vault.residual_exposure != 0;
         let quote_active = self.quote_hlp_vault.hlp_supply > 0 || self.quote_hlp_vault.residual_exposure != 0;
         let base_delta = if base_active && !self.hlp_frozen(MarketAsset::Base) {
@@ -389,16 +389,16 @@ impl Market {
         Ok((base_delta, quote_delta, prices.base_in_quote_nad() as u64))
     }
 
-    pub fn checkpoint_hlp_yield_from_ylp(&mut self, target_asset: MarketAsset) -> Result<()> {
-        checkpoint_hlp_yield_from_ylp(self, target_asset)
+    pub fn checkpoint_hlp_yield_from_srlp(&mut self, target_asset: MarketAsset) -> Result<()> {
+        checkpoint_hlp_yield_from_srlp(self, target_asset)
     }
 
-    pub fn checkpoint_hlp_yield_from_ylp_shares(
+    pub fn checkpoint_hlp_yield_from_srlp_shares(
         &mut self,
         target_asset: MarketAsset,
-        eligible_ylp_shares: u64,
+        eligible_srlp_shares: u64,
     ) -> Result<()> {
-        checkpoint_hlp_yield_from_ylp_shares(self, target_asset, eligible_ylp_shares)
+        checkpoint_hlp_yield_from_srlp_shares(self, target_asset, eligible_srlp_shares)
     }
 }
 
@@ -469,8 +469,8 @@ impl Market {
     }
 }
 
-/// LP ownership frozen before an operation may mint or burn vault-owned yLP.
-/// Funding entitlement is deliberately payment-time: ordinary yLP present at
+/// LP ownership frozen before an operation may mint or burn vault-owned srLP.
+/// Funding entitlement is deliberately payment-time: ordinary srLP present at
 /// this snapshot participates even if the debt accrued earlier, while a holder
 /// that exited before the snapshot does not. Newly borrowed principal at the
 /// same debt index cannot create interest. Inline settlement uses this
@@ -478,9 +478,9 @@ impl Market {
 /// across hLP rebalancing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HlpYieldEligibility {
-    pub ylp_supply: u64,
-    pub base_hlp_ylp_shares: u64,
-    pub quote_hlp_ylp_shares: u64,
+    pub srlp_supply: u64,
+    pub base_hlp_srlp_shares: u64,
+    pub quote_hlp_srlp_shares: u64,
 }
 
 #[cfg(test)]

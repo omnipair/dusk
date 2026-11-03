@@ -12,7 +12,7 @@ use crate::{
 pub use add_liquidity::*;
 pub use remove_liquidity::*;
 
-pub(crate) fn validate_ylp_market_pda(market: &Market, market_key: Pubkey) -> Result<()> {
+pub(crate) fn validate_srlp_market_pda(market: &Market, market_key: Pubkey) -> Result<()> {
     let bump = [market.bump];
     let expected = Pubkey::create_program_address(
         &[
@@ -29,10 +29,10 @@ pub(crate) fn validate_ylp_market_pda(market: &Market, market_key: Pubkey) -> Re
     Ok(())
 }
 
-pub(crate) fn ylp_yield_account_pda(
+pub(crate) fn srlp_yield_account_pda(
     market_key: Pubkey,
     owner_key: Pubkey,
-    ylp_mint: Pubkey,
+    srlp_mint: Pubkey,
     asset_mint: Pubkey,
 ) -> Result<(Pubkey, u8)> {
     Pubkey::try_find_program_address(
@@ -40,9 +40,9 @@ pub(crate) fn ylp_yield_account_pda(
             YIELD_ACCOUNT_SEED_PREFIX,
             market_key.as_ref(),
             owner_key.as_ref(),
-            ylp_mint.as_ref(),
+            srlp_mint.as_ref(),
             asset_mint.as_ref(),
-            &[YieldTokenKind::Ylp.code()],
+            &[YieldTokenKind::Srlp.code()],
         ],
         &crate::ID,
     )

@@ -14,7 +14,7 @@ post-change results; the CSVs here remain the original comparison baseline.
 The original 576-case matrix is unchanged. Its 272 completed admitted paths end
 with 32 eligible Dusk-only positions and four eligible positions under the
 modeled external-liquidity assumption. All 36 are on the 20% price-drop plus 25%
-yLP-withdrawal path; terminal debt ranges from 2,487.500 to 7,500.003 tokens.
+srLP-withdrawal path; terminal debt ranges from 2,487.500 to 7,500.003 tokens.
 These are not economic dust balances.
 
 1. **Two external cases hit the end of the test, not a permanent execution

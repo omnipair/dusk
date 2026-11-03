@@ -114,7 +114,7 @@ pub(crate) fn emit_interest_paid_with_instruction<'info>(
     )
 }
 
-/// Publish both vault-owned yLP changes together, including debt-only hedge
+/// Publish both vault-owned srLP changes together, including debt-only hedge
 /// corrections that have no token mint or burn inner instruction.
 pub(crate) fn emit_hlp_rebalanced<'info>(
     market: &Account<'info, Market>,

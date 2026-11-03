@@ -9,16 +9,16 @@ import { DuskHlpLiquidations } from "../dist/hlp-liquidation-client.js";
 test("a holder can close a terminal hLP vault and burn receipts atomically", async () => {
   const keys = Array.from({ length: 13 }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(i + 1)).publicKey);
   const [programId, market, owner, baseMint, quoteMint, baseReserve, quoteReserve,
-    baseInterest, quoteInterest, baseHlpMint, quoteHlpMint, ylpMint, insurance] = keys;
+    baseInterest, quoteInterest, baseHlpMint, quoteHlpMint, srlpMint, insurance] = keys;
   const program = new anchor.Program({ ...IDL, address: programId.toBase58() }, {
     connection: { getAccountInfo: async () => ({ owner: TOKEN_PROGRAM_ID }) },
     wallet: { publicKey: owner }, publicKey: owner,
   });
   program.account.market.fetch = async () => ({
-    amm: { frozenHlpMask: 1 }, ylpMint,
+    amm: { frozenHlpMask: 1 }, srlpMint,
     baseSide: { assetMint: baseMint, reserveVault: baseReserve, interestVault: baseInterest, hlpMint: baseHlpMint },
     quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, interestVault: quoteInterest, hlpMint: quoteHlpMint },
-    baseHlpVault: { ylpVault: baseReserve }, quoteHlpVault: { ylpVault: quoteReserve },
+    baseHlpVault: { srlpVault: baseReserve }, quoteHlpVault: { srlpVault: quoteReserve },
     insurance: { baseVault: insurance, quoteVault: insurance },
   });
   const client = new DuskHlpLiquidations(program);

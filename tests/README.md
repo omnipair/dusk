@@ -22,23 +22,23 @@ It does not replace production Metaplex semantics.
 For a focused local check, run:
 
 ```bash
-yarn test-litesvm:no-build --grep "initializes a final yLP/hLP market"
+yarn test-litesvm:no-build --grep "initializes a final srLP/hLP market"
 ```
 
 ## Current Suite
 
 `v2-final-smoke.test.ts` covers:
 
-- Market initialization with Token-2022 yLP and hLP mints.
-- Balanced liquidity add/remove with floating yLP shares.
-- Governed yLP fee compounding, non-compounded fee accrual, yield-recipient
+- Market initialization with Token-2022 srLP and hLP mints.
+- Balanced liquidity add/remove with floating srLP shares.
+- Governed srLP fee compounding, non-compounded fee accrual, yield-recipient
   routing, and claiming.
 - Swaps, including the canonical active-hLP remaining-account prefix:
-  `[yLP mint, base hLP yLP vault, quote hLP yLP vault, base interest vault,
+  `[srLP mint, base hLP srLP vault, quote hLP srLP vault, base interest vault,
   quote interest vault]`, with transfer-hook extras appended afterward.
 - Collateral deposit/withdraw and fixed debt borrow/repay.
 - Owner and delegated leverage close flows, including callback settlement.
-- hLP single-sided deposit/withdraw with aggregate vault-owned yLP, funding debt
+- hLP single-sided deposit/withdraw with aggregate vault-owned srLP, funding debt
   settlement, reserve-backing conservation, and predictive CPMM/concentrated
   swap settlement.
 - The 58-instruction coverage registry includes liquidity-gate opening, hLP

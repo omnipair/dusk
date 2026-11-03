@@ -8,9 +8,9 @@ pub struct HlpFlashQuote {
     pub target_asset: u8,
     pub collateral_debit: u64,
     pub collateral_credit: u64,
-    /// Borrowed-token yLP claim frozen when the quote is created. A full
+    /// Borrowed-token srLP claim frozen when the quote is created. A full
     /// terminal session uses this value even if an interleaved Dusk swap moves
-    /// the live pro-rata yLP reserve ratio before settlement.
+    /// the live pro-rata srLP reserve ratio before settlement.
     pub borrowed_claim: u64,
     /// Spendable atoms required in the session's payment vault; includes the
     /// transfer fee from that vault to the market reserve.
@@ -42,7 +42,7 @@ impl Market {
             MarketAsset::Quote => self.quote_hlp_vault,
         };
         require!(
-            vault.hlp_supply > 0 && vault.ylp_shares > 0,
+            vault.hlp_supply > 0 && vault.srlp_shares > 0,
             ErrorCode::HlpNotLiquidatable
         );
         let borrowed = target.opposite();
@@ -109,7 +109,7 @@ impl Market {
         let nav = engine::hlp_share_nav_nad_with_prices(self, target, prices)?;
         let interest = debt.saturating_sub(vault.debt_principal);
         // A previously frozen vault can regain full backing as its opposite
-        // yLP claim grows. It still needs a positive atomic payment to resume
+        // srLP claim grows. It still needs a positive atomic payment to resume
         // its hedge; otherwise its receipts would remain frozen forever.
         let credit = gap
             .max(interest.saturating_sub(self.side(borrowed).reserves.cash_reserve))
@@ -182,7 +182,7 @@ impl Market {
                 MarketAsset::Quote => self.quote_hlp_vault,
             };
             require!(
-                vault.ylp_shares > 0 && vault.debt_shares > 0,
+                vault.srlp_shares > 0 && vault.debt_shares > 0,
                 ErrorCode::HlpNotLiquidatable
             );
             let basis = self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?;
@@ -222,8 +222,8 @@ impl Market {
             quote.collateral_debit,
             ErrorCode::InvalidLiquidationSession
         );
-        self.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
-        self.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
+        self.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;
+        self.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
         // A frozen vault may have recovered positive full value while its
         // hedge was paused. This funded settlement is the point where it
         // resumes: reconstruct its indexed debt and equity before applying
@@ -231,7 +231,7 @@ impl Market {
         if self.hlp_frozen(target) {
             self.clear_frozen_hlp(target);
         }
-        // Compose with the actual current state. Swaps, other loans, and yLP
+        // Compose with the actual current state. Swaps, other loans, and srLP
         // operations in the middle are never overwritten with a begin snapshot.
         let mut end = self.integrated_curve_state_nad()?;
         let prices = current_hlp_curve_prices(self)?;

@@ -44,7 +44,7 @@ pub struct InitializeLpTransferHook<'info> {
 impl<'info> InitializeLpTransferHook<'info> {
     pub fn validate(&self) -> Result<()> {
         let lp_mint = self.lp_mint.key();
-        let lp_decimals = if lp_mint == self.market.ylp_mint || lp_mint == self.market.junior_mint {
+        let lp_decimals = if lp_mint == self.market.srlp_mint || lp_mint == self.market.junior_mint {
             self.market.base_side.asset_decimals
         } else {
             match self.market.asset_for_hlp_mint(lp_mint)? {
@@ -72,7 +72,7 @@ impl<'info> InitializeLpTransferHook<'info> {
         } = ctx.accounts;
         let lp_mint = lp_mint.key();
         let validation_info = validation_account.to_account_info();
-        let cohort_asset = if lp_mint == market.ylp_mint || lp_mint == market.junior_mint {
+        let cohort_asset = if lp_mint == market.srlp_mint || lp_mint == market.junior_mint {
             None
         } else {
             Some(market.asset_for_hlp_mint(lp_mint)?)
@@ -218,8 +218,8 @@ pub(crate) fn canonical_lp_transfer_hook_metas(
     market: &Market,
     lp_mint: Pubkey,
 ) -> Result<Vec<ExtraAccountMeta>> {
-    let token_kind = if lp_mint == market.ylp_mint {
-        YieldTokenKind::Ylp
+    let token_kind = if lp_mint == market.srlp_mint {
+        YieldTokenKind::Srlp
     } else if lp_mint == market.junior_mint {
         YieldTokenKind::Junior
     } else {

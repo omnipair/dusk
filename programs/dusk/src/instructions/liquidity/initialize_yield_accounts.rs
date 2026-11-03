@@ -89,8 +89,8 @@ impl<'info> InitializeYieldAccounts<'info> {
             ErrorCode::InvalidMint
         );
         match args.token_kind {
-            YieldTokenKind::Ylp => {
-                require_keys_eq!(self.lp_mint.key(), self.market.ylp_mint, ErrorCode::InvalidLpMintKey)
+            YieldTokenKind::Srlp => {
+                require_keys_eq!(self.lp_mint.key(), self.market.srlp_mint, ErrorCode::InvalidLpMintKey)
             }
             YieldTokenKind::Hlp | YieldTokenKind::Junior => {
                 // A retired mint is checked against its cohort PDA in the

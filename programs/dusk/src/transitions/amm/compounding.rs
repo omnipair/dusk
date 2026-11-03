@@ -25,15 +25,15 @@ impl Market {
         } = input;
         if !self.side(fee_asset).fees.junior.initialized {
             let amount = self.normalize_amount(compounded_fee_debit as u128, self.side(fee_asset).asset_decimals)?;
-            apply_compounded_ylp_fee_to_end(
+            apply_compounded_srlp_fee_to_end(
                 *state,
                 end,
                 fee_asset == MarketAsset::Base,
                 amount,
                 end_price_nad as u128,
-                self.base_side.shares.ylp_supply,
-                self.base_hlp_vault.ylp_shares,
-                self.quote_hlp_vault.ylp_shares,
+                self.base_side.shares.srlp_supply,
+                self.base_hlp_vault.srlp_shares,
+                self.quote_hlp_vault.srlp_shares,
                 amount,
             )?;
         } else {
@@ -54,15 +54,15 @@ impl Market {
                 self.tranche_policy.junior_income_share_bps,
             )?;
             let capitalized_fee = compounded_fee_debit - allocation.rebuild_seed;
-            let total = self.base_side.shares.ylp_supply;
+            let total = self.base_side.shares.srlp_supply;
             let senior = self.tranches.senior_reserve_shares(total)?;
             let active_hlp = (if state.frozen_hlp_mask & 1 == 0 {
-                self.base_hlp_vault.ylp_shares
+                self.base_hlp_vault.srlp_shares
             } else {
                 0
             })
             .checked_add(if state.frozen_hlp_mask & 2 == 0 {
-                self.quote_hlp_vault.ylp_shares
+                self.quote_hlp_vault.srlp_shares
             } else {
                 0
             })
@@ -78,15 +78,15 @@ impl Market {
                     .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
             };
             let before = value(end)?;
-            apply_compounded_ylp_fee_to_end(
+            apply_compounded_srlp_fee_to_end(
                 *state,
                 end,
                 fee_asset == MarketAsset::Base,
                 self.normalize_amount(capitalized_fee as u128, self.side(fee_asset).asset_decimals)?,
                 end_price_nad as u128,
                 senior,
-                self.base_hlp_vault.ylp_shares,
-                self.quote_hlp_vault.ylp_shares,
+                self.base_hlp_vault.srlp_shares,
+                self.quote_hlp_vault.srlp_shares,
                 self.normalize_amount(allocation.senior as u128, self.side(fee_asset).asset_decimals)?,
             )?;
             let after = value(end)?;

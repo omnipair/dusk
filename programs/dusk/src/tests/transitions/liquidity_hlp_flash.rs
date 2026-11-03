@@ -108,9 +108,9 @@ fn terminal_hlp_native_recovery_uses_ema_price_smoothed_depth_and_fees() {
                 MarketAsset::Base => market.base_hlp_vault,
                 MarketAsset::Quote => market.quote_hlp_vault,
             };
-            let actual_target_claim = engine::ylp_live_underlying_amount(&market, target, vault.ylp_shares).unwrap();
+            let actual_target_claim = engine::srlp_live_underlying_amount(&market, target, vault.srlp_shares).unwrap();
             let actual_borrowed_claim =
-                engine::ylp_live_underlying_amount(&market, target.opposite(), vault.ylp_shares).unwrap();
+                engine::srlp_live_underlying_amount(&market, target.opposite(), vault.srlp_shares).unwrap();
             let expected = recovery(&market, target, actual_target_claim, actual_borrowed_claim);
             let plan = market
                 .clone()
@@ -140,8 +140,8 @@ fn terminal_hlp_eligibility_refreshes_ema_to_the_current_slot() {
     )
     .unwrap())
     .unwrap();
-    let target_claim = engine::ylp_live_underlying_amount(&market, target, vault.ylp_shares).unwrap();
-    let borrowed_claim = engine::ylp_live_underlying_amount(&market, borrowed, vault.ylp_shares).unwrap();
+    let target_claim = engine::srlp_live_underlying_amount(&market, target, vault.srlp_shares).unwrap();
+    let borrowed_claim = engine::srlp_live_underlying_amount(&market, borrowed, vault.srlp_shares).unwrap();
 
     // Model an old low-price snapshot whose cached observation has already
     // recovered. Advancing the market clock must refresh the EMA used by both
@@ -224,9 +224,9 @@ fn flash_recovery_preserves_other_holders_and_restores_hedge() {
                 let own_nav = engine::hlp_share_nav_nad_with_prices(&m, target, prices).unwrap();
                 let expected = own_nav + engine::asset_value_in_target_nad_with_prices(&m, prices, other, q.reserve_credit, target).unwrap()
                     - m.normalize_amount(u128::from(q.collateral_debit), m.side(target).asset_decimals).unwrap();
-                let ordinary = m.base_side.shares.ylp_supply - m.base_hlp_vault.ylp_shares - m.quote_hlp_vault.ylp_shares;
+                let ordinary = m.base_side.shares.srlp_supply - m.base_hlp_vault.srlp_shares - m.quote_hlp_vault.srlp_shares;
                 let ordinary_value = |m: &Market| [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|asset| {
-                    engine::asset_value_in_target_nad_with_prices(m, prices, asset, engine::ylp_live_underlying_amount(m, asset, ordinary).unwrap(), MarketAsset::Quote).unwrap()
+                    engine::asset_value_in_target_nad_with_prices(m, prices, asset, engine::srlp_live_underlying_amount(m, asset, ordinary).unwrap(), MarketAsset::Quote).unwrap()
                 }).sum::<u128>();
                 let ordinary_before = ordinary_value(&m);
                 m.settle_hlp_flash_recovery(q, 1).unwrap_or_else(|e| panic!("amp={amp} target={target:?} funding={funding_bps}: {e}"));
@@ -235,7 +235,7 @@ fn flash_recovery_preserves_other_holders_and_restores_hedge() {
                 assert!(ordinary_value(&m).abs_diff(ordinary_before) < 100_000);
                 for t in [MarketAsset::Base, MarketAsset::Quote] {
                     let v = if t == MarketAsset::Base { m.base_hlp_vault } else { m.quote_hlp_vault };
-                    let claim = engine::ylp_live_underlying_amount(&m, t.opposite(), v.ylp_shares).unwrap();
+                    let claim = engine::srlp_live_underlying_amount(&m, t.opposite(), v.srlp_shares).unwrap();
                     let debt = Debt::shares_to_debt(v.debt_shares, m.debt.borrow_index(t.opposite())).unwrap();
                     assert!(debt.abs_diff(u128::from(claim)) <= 1);
                     assert_eq!(m.side(t).reserves.flash_receivable, 0);
@@ -283,7 +283,7 @@ fn terminal_flash_closes_debt_and_uses_insurance_only_for_principal() {
                 if !principal_loss { assert_eq!(r.insurance_debit, 0); }
                 let closed = if target == MarketAsset::Base { m.base_hlp_vault } else { m.quote_hlp_vault };
                 assert_eq!(closed.hlp_supply, v.hlp_supply);
-                assert_eq!(closed.ylp_shares, 0);
+                assert_eq!(closed.srlp_shares, 0);
                 assert_eq!(closed.debt_shares, 0);
                 assert_eq!(closed.flash_collateral_debit, 0);
                 assert_eq!(m.side(target).reserves.flash_receivable, 0);
@@ -401,11 +401,11 @@ fn solvent_recovery_of_frozen_vault_must_repay_debt_and_unfreeze() {
         .unwrap_or_else(|e| panic!("amp={amp}: {e}"));
     assert!(!quote.full);
     let prices = current_hlp_curve_prices(&market).unwrap();
-    let ordinary_shares = market.base_side.shares.ylp_supply
-        - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
+    let ordinary_shares = market.base_side.shares.srlp_supply
+        - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
     let ordinary_value = |m: &Market| [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|asset| {
         engine::asset_value_in_target_nad_with_prices(m, prices, asset,
-            engine::ylp_live_underlying_amount(m, asset, ordinary_shares).unwrap(), MarketAsset::Quote).unwrap()
+            engine::srlp_live_underlying_amount(m, asset, ordinary_shares).unwrap(), MarketAsset::Quote).unwrap()
     }).sum::<u128>();
     let ordinary_before = ordinary_value(&market);
     let healthy_nav_before = engine::hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap();

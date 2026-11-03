@@ -56,7 +56,7 @@ mutation results are in `joint-shock-mutation-checks.json`.
 Two LiteSVM tests use real 9/6-decimal token accounts, both active hLP vaults and
 both directions, at entry and after one day of slot-based accrual. They compare
 preview and execution, reconcile physical owner/reserve/interest balances,
-verify the exact indexed funding payment, check yLP custody, and bound the
+verify the exact indexed funding payment, check srLP custody, and bound the
 opposite-asset claim. They do not edit debt indexes or token balances.
 
 ## SVM compute regression ceilings

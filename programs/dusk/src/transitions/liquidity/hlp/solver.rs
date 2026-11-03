@@ -21,7 +21,7 @@ use crate::errors::ErrorCode;
 #[cfg(test)]
 use crate::math::{isqrt, mul_div_u128, ratio_lte_full_width, sqrt_ratio_nad};
 
-/// The hLP's yLP inventory and opposite-asset debt, all valued in the target
+/// The hLP's srLP inventory and opposite-asset debt, all valued in the target
 /// asset's NAD numeraire at the AMM curve's actual marginal price.
 ///
 /// Keeping valuation outside this module makes the exposure math independent
@@ -37,7 +37,7 @@ pub struct HlpInventoryValuesNad {
 /// A self-financing synthetic liquidity change, valued in the target asset's
 /// NAD numeraire.
 ///
-/// Positive values add proportional yLP inventory and borrow the same total
+/// Positive values add proportional srLP inventory and borrow the same total
 /// value. Negative values remove proportional inventory and repay debt. The
 /// two inventory deltas always sum exactly to `total_liquidity_value_nad`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

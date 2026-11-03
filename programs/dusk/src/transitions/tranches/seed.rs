@@ -46,7 +46,7 @@ impl Market {
     /// Reinvest a balanced slice without granting any senior tokens. The
     /// unused asset stays a seed-only custody claim until its pair is available.
     pub fn compound_junior_seed(&mut self) -> Result<AddLiquidityReceipt> {
-        require!(self.base_side.shares.ylp_supply > 0, ErrorCode::InsufficientLiquidity);
+        require!(self.base_side.shares.srlp_supply > 0, ErrorCode::InsufficientLiquidity);
         require!(
             self.tranches.junior_reserve_shares > 0 || self.tranches.junior_receipt_supply == 0,
             ErrorCode::InvalidArgument
@@ -96,8 +96,8 @@ impl Market {
                 .ok_or(ErrorCode::UnbackedFeeLiability)?;
         }
         let funded = self.add_liquidity(receipt.base_reserve_credit, receipt.quote_reserve_credit)?;
-        require_eq!(funded.ylp_amount, receipt.ylp_amount, ErrorCode::BrokenInvariant);
-        let issued = self.tranches.enter(funded.ylp_amount, funded.ylp_supply)?;
+        require_eq!(funded.srlp_amount, receipt.srlp_amount, ErrorCode::BrokenInvariant);
+        let issued = self.tranches.enter(funded.srlp_amount, funded.srlp_supply)?;
         self.tranches.permanent_receipts = self
             .tranches
             .permanent_receipts

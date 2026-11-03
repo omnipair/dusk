@@ -12,7 +12,7 @@ fn market_creation_seed_prefix_precedes_optional_oracle_and_metadata() {
         max_confidence_bps:100,..Default::default()};
     for oracle in [None,Some(policy)] {
         let args=InitializeMarketArgs {params_hash:[9;32],config:valid_config(),oracle,
-            bootstrap_price_nad:0,launch_fee_progress_offset:0,ylp_metadata:valid_metadata(),
+            bootstrap_price_nad:0,launch_fee_progress_offset:0,srlp_metadata:valid_metadata(),
             base_hlp_metadata:valid_metadata(),quote_hlp_metadata:valid_metadata()};
         let bytes=args.try_to_vec().unwrap();
         assert_eq!(&bytes[..32],&args.params_hash);
@@ -22,9 +22,9 @@ fn market_creation_seed_prefix_precedes_optional_oracle_and_metadata() {
 
 fn valid_metadata() -> InitializeLpMetadataArgs {
     InitializeLpMetadataArgs {
-        name: "Omnipair V2 (Dusk) yLP".to_string(),
-        symbol: "yLP".to_string(),
-        uri: "https://omnipair.fi/metadata/dusk/ylp.json".to_string(),
+        name: "Omnipair V2 (Dusk) srLP".to_string(),
+        symbol: "srLP".to_string(),
+        uri: "https://omnipair.fi/metadata/dusk/srlp.json".to_string(),
     }
 }
 
@@ -55,7 +55,7 @@ struct MetadataMarketFixture {
 fn metadata_market() -> MetadataMarketFixture {
     let base_mint = Pubkey::new_unique();
     let quote_mint = Pubkey::new_unique();
-    let ylp_mint = Pubkey::new_unique();
+    let srlp_mint = Pubkey::new_unique();
     let base_hlp_mint = Pubkey::new_unique();
     let quote_hlp_mint = Pubkey::new_unique();
     let initial_liquidity_authority = Pubkey::new_unique();
@@ -74,7 +74,7 @@ fn metadata_market() -> MetadataMarketFixture {
     let mut market = Market::default();
     market
         .initialize(
-            ylp_mint,
+            srlp_mint,
             base_side,
             quote_side,
             valid_config(),
@@ -129,7 +129,7 @@ fn first_liquidity_seed_rejects_a_mismatched_graduation_price_without_mutation()
     assert_eq!(fixture.market.base_side.reserves.cash_reserve, 0);
     assert_eq!(fixture.market.quote_side.reserves.live_reserve, 0);
     assert_eq!(fixture.market.quote_side.reserves.cash_reserve, 0);
-    assert_eq!(fixture.market.base_side.shares.ylp_supply, 0);
+    assert_eq!(fixture.market.base_side.shares.srlp_supply, 0);
     assert_eq!(
         fixture.market.initial_liquidity_authority,
         fixture.initial_liquidity_authority
@@ -157,7 +157,7 @@ fn lp_metadata_validation_rejects_oversized_or_non_ascii_values() {
     assert!(validate_lp_metadata_args(&metadata).is_err());
 
     metadata = valid_metadata();
-    metadata.symbol = "yLPTOOLONG!".to_string();
+    metadata.symbol = "srLPTOOLONG!".to_string();
     assert!(validate_lp_metadata_args(&metadata).is_err());
 
     metadata = valid_metadata();
@@ -168,7 +168,7 @@ fn lp_metadata_validation_rejects_oversized_or_non_ascii_values() {
 #[test]
 fn lp_metadata_validation_rejects_bad_or_oversized_uri() {
     let mut metadata = valid_metadata();
-    metadata.uri = "ipfs://omnipair/dusk/ylp.json".to_string();
+    metadata.uri = "ipfs://omnipair/dusk/srlp.json".to_string();
     assert!(validate_lp_metadata_args(&metadata).is_err());
 
     metadata = valid_metadata();

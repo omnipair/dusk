@@ -52,12 +52,12 @@ const provider = {
 };
 const program = new Program(IDL, provider);
 program.account.market.fetch = async () => ({
-  ylpMint: keys[2],
+  srlpMint: keys[2],
   juniorMint: keys[9],
   baseSide: { assetMint: keys[3] },
   quoteSide: { assetMint: keys[4] },
-  baseHlpVault: { ylpVault: keys[5] },
-  quoteHlpVault: { ylpVault: keys[6] },
+  baseHlpVault: { srlpVault: keys[5] },
+  quoteHlpVault: { srlpVault: keys[6] },
 });
 
 const rationaleBytes = new TextEncoder().encode("# Rationale\nExact bytes matter.\n");
@@ -292,7 +292,7 @@ const build = await new DuskWrite(program).createParameterProposal({
   updates: everyFamily,
   metadata,
   initialSupport: "18446744073709551615",
-  holderYlpAccount: keys[7],
+  holderSrlpAccount: keys[7],
 });
 build.transaction.feePayer = keys[0];
 build.transaction.recentBlockhash = keys[9].toBase58();
@@ -321,14 +321,14 @@ const alternateBuild = await alternateWriter.createParameterProposal({
   updates: [update],
   metadata: verifiedMetadata,
   initialSupport: 1,
-  holderYlpAccount: keys[7],
+  holderSrlpAccount: keys[7],
 });
 const alternateBaseYield = deriveYieldAccountAddress(
   keys[1],
   keys[0],
   keys[2],
   keys[3],
-  "ylp",
+  "srlp",
   alternateProgramId
 )[0];
 const alternateQuoteYield = deriveYieldAccountAddress(
@@ -336,7 +336,7 @@ const alternateQuoteYield = deriveYieldAccountAddress(
   keys[0],
   keys[2],
   keys[4],
-  "ylp",
+  "srlp",
   alternateProgramId
 )[0];
 for (const expected of [alternateBaseYield, alternateQuoteYield]) {

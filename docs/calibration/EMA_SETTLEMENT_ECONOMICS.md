@@ -119,7 +119,7 @@ Both honest and front-traded searches select a permitted full AMM sale.
 | Principal repaid from sale | 8,975.221 | 7,121.139 |
 | Insurance used | 500 | 500 |
 | Principal written off | 4,924.779 | 6,778.861 |
-| Ordinary yLP value, including fees | 56,958.428 | 54,679.990 |
+| Ordinary srLP value, including fees | 56,958.428 | 54,679.990 |
 | Base hLP value, including fees | 8,603.382 | 8,002.411 |
 | Quote hLP value, including fees | 7,585.540 | 6,432.325 |
 | Protocol fee assets | 12.900 | 17.100 |
@@ -186,7 +186,7 @@ while the remaining outside-mark credit deficit is still 60.332.
 
 | Value in debt tokens | Before | After EMA settlement + arbitrage |
 | --- | ---: | ---: |
-| Ordinary yLP | 72,012.461 | 71,958.503 |
+| Ordinary srLP | 72,012.461 | 71,958.503 |
 | Base hLP | 8,114.570 | 8,100.840 |
 | Quote hLP | 10,114.569 | 10,098.302 |
 | Remaining loan's mark deficit | 140.000 | 60.332 |

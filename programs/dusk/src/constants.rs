@@ -67,7 +67,7 @@ pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 /// if the cluster's scheduled slot duration changes again.
 #[constant]
 pub const TARGET_MS_PER_SLOT: u64 = 200;
-/// Direct-yLP parameter governance thresholds and wall-clock lifecycle.
+/// Direct-srLP parameter governance thresholds and wall-clock lifecycle.
 #[constant]
 pub const PARAMETER_PROPOSAL_SPONSOR_BPS: u16 = 100; // 1%
 #[constant]
@@ -165,7 +165,8 @@ pub const PARAMETER_PROPOSAL_SEED_PREFIX: &[u8] = b"parameter_proposal";
 pub const PROPOSAL_SUPPORT_SEED_PREFIX: &[u8] = b"proposal_support";
 pub const TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX: &[u8] = b"extra-account-metas";
 #[constant]
-pub const HLP_YLP_VAULT_SEED_PREFIX: &[u8] = b"hlp_ylp_vault";
+// Stable PDA namespace; the srLP rename does not move existing vaults.
+pub const HLP_SRLP_VAULT_SEED_PREFIX: &[u8] = b"hlp_ylp_vault";
 pub const HLP_COHORT_SEED_PREFIX: &[u8] = b"hlp_cohort";
 #[constant]
 pub const METADATA_SEED_PREFIX: &[u8] = b"metadata";

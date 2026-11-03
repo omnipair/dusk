@@ -31,7 +31,7 @@ pub(crate) struct HlpCarryCover {
     pub quote: u128,
 }
 
-/// Ordinary-yLP cash curve plus fixed hLP target-asset equities.
+/// Ordinary-srLP cash curve plus fixed hLP target-asset equities.
 ///
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct IntegratedCurveState {
@@ -322,48 +322,48 @@ pub(crate) struct IntegratedHlpEndpoint {
     pub quote_hlp_base_debt: u128,
 }
 
-/// Canonical yLP ownership implied by an ordinary tranche and two one-sided
-/// hLP equities. Ordinary yLP shares never change during a swap; only the two
+/// Canonical srLP ownership implied by an ordinary tranche and two one-sided
+/// hLP equities. Ordinary srLP shares never change during a swap; only the two
 /// vault-owned balances are reconstructed around them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct IntegratedOwnershipEndpoint {
-    pub total_ylp_supply: u64,
-    pub base_hlp_ylp_shares: u64,
-    pub quote_hlp_ylp_shares: u64,
+    pub total_srlp_supply: u64,
+    pub base_hlp_srlp_shares: u64,
+    pub quote_hlp_srlp_shares: u64,
 }
 
 pub(crate) fn reconstruct_hlp_ownership(
-    ordinary_ylp_supply: u64,
+    ordinary_srlp_supply: u64,
     ordinary_base: u128,
     ordinary_quote: u128,
     base_hlp_equity: u128,
     quote_hlp_equity: u128,
 ) -> Result<IntegratedOwnershipEndpoint> {
-    require!(ordinary_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+    require!(ordinary_srlp_supply > 0, ErrorCode::SupplyUnderflow);
     require!(
         ordinary_base > 0 && ordinary_quote > 0,
         ErrorCode::InsufficientLiquidity
     );
-    let base_hlp_ylp_shares = u64::try_from(mul_div_u128(
-        ordinary_ylp_supply as u128,
+    let base_hlp_srlp_shares = u64::try_from(mul_div_u128(
+        ordinary_srlp_supply as u128,
         base_hlp_equity,
         ordinary_base,
     )?)
     .map_err(|_| ErrorCode::SupplyOverflow)?;
-    let quote_hlp_ylp_shares = u64::try_from(mul_div_u128(
-        ordinary_ylp_supply as u128,
+    let quote_hlp_srlp_shares = u64::try_from(mul_div_u128(
+        ordinary_srlp_supply as u128,
         quote_hlp_equity,
         ordinary_quote,
     )?)
     .map_err(|_| ErrorCode::SupplyOverflow)?;
-    let total_ylp_supply = ordinary_ylp_supply
-        .checked_add(base_hlp_ylp_shares)
-        .and_then(|value| value.checked_add(quote_hlp_ylp_shares))
+    let total_srlp_supply = ordinary_srlp_supply
+        .checked_add(base_hlp_srlp_shares)
+        .and_then(|value| value.checked_add(quote_hlp_srlp_shares))
         .ok_or(ErrorCode::SupplyOverflow)?;
     Ok(IntegratedOwnershipEndpoint {
-        total_ylp_supply,
-        base_hlp_ylp_shares,
-        quote_hlp_ylp_shares,
+        total_srlp_supply,
+        base_hlp_srlp_shares,
+        quote_hlp_srlp_shares,
     })
 }
 
@@ -485,39 +485,43 @@ pub(crate) fn apply_hlp_recovery_bonus(
 }
 
 /// Adds one already-priced LP fee to total reserves and attributes its value
-/// to the yLP owners which existed before the swap. Ordinary yLP supply stays
+/// to the srLP owners which existed before the swap. Ordinary srLP supply stays
 /// fixed; each hLP's pro-rata fee gain is converted into its target-asset
 /// equity at the frozen concentrated curve endpoint price, then the one-sided
 /// claims and debts are reconstructed algebraically.
-pub(crate) fn apply_compounded_ylp_fee_to_end(
+pub(crate) fn apply_compounded_srlp_fee_to_end(
     start: IntegratedCurveState,
     end: &mut IntegratedCurveState,
     fee_is_base: bool,
     compounded_fee_nad: u128,
     endpoint_price_nad: u128,
-    eligible_ylp_supply: u64,
-    base_hlp_ylp_shares: u64,
-    quote_hlp_ylp_shares: u64,
+    eligible_srlp_supply: u64,
+    base_hlp_srlp_shares: u64,
+    quote_hlp_srlp_shares: u64,
     senior_fee_nad: u128,
 ) -> Result<()> {
     if compounded_fee_nad == 0 {
         return Ok(());
     }
-    require!(eligible_ylp_supply > 0, ErrorCode::SupplyUnderflow);
+    require!(eligible_srlp_supply > 0, ErrorCode::SupplyUnderflow);
     require!(endpoint_price_nad > 0, ErrorCode::InvalidSettlementPrice);
     require_gte!(
-        eligible_ylp_supply,
-        base_hlp_ylp_shares
-            .checked_add(quote_hlp_ylp_shares)
+        eligible_srlp_supply,
+        base_hlp_srlp_shares
+            .checked_add(quote_hlp_srlp_shares)
             .ok_or(ErrorCode::SupplyOverflow)?,
         ErrorCode::SupplyUnderflow
     );
 
-    let base_hlp_fee = mul_div_u128(senior_fee_nad, base_hlp_ylp_shares as u128, eligible_ylp_supply as u128)?;
+    let base_hlp_fee = mul_div_u128(
+        senior_fee_nad,
+        base_hlp_srlp_shares as u128,
+        eligible_srlp_supply as u128,
+    )?;
     let quote_hlp_fee = mul_div_u128(
         senior_fee_nad,
-        quote_hlp_ylp_shares as u128,
-        eligible_ylp_supply as u128,
+        quote_hlp_srlp_shares as u128,
+        eligible_srlp_supply as u128,
     )?;
     // Compounding is an internal, endpoint-priced ownership transition. A
     // fee already denominated in an hLP's target asset grows that equity
@@ -527,7 +531,7 @@ pub(crate) fn apply_compounded_ylp_fee_to_end(
     // reserves into hLP equity. Thus the only external reserve addition is
     // exactly `compounded_fee_nad`; the matching hedge debt remains the sole
     // additional funded reserve movement.
-    // A frozen cohort still earns its proportional fee through fixed yLP
+    // A frozen cohort still earns its proportional fee through fixed srLP
     // ownership. Keep that fee in the static tranche instead of turning it
     // into a new positive hLP equity and silently unfreezing its hedge.
     let base_hlp_fee = if start.frozen_hlp_mask & 1 != 0 {
