@@ -21153,6 +21153,13 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "juniorGeneration",
+            "docs": [
+              "Cohort whose junior receipt units may contribute to this proposal."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "updates",
             "docs": [
               "The families this proposal changes, one update each, in ascending",
@@ -21281,6 +21288,10 @@ export type Dusk = {
           },
           {
             "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "juniorGeneration",
             "type": "u64"
           },
           {

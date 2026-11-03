@@ -12,9 +12,9 @@ use crate::{
 
 use super::{FeeProfile, IrmConfig, OraclePolicy, TrancheCapital};
 
-/// Domain separator for the immutable, client-verifiable proposal digest. V2
-/// binds a list of family updates and each updated family's revision.
-pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V2";
+/// Domain separator for the immutable, client-verifiable proposal digest. V3
+/// binds the junior cohort, updates, and each updated family's revision.
+pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V3";
 
 /// Number of governed parameter families, and of `Market::parameter_revisions`.
 pub const PARAMETER_FAMILY_COUNT: usize = 9;
@@ -229,6 +229,8 @@ pub struct ParameterProposal {
     pub market: Pubkey,
     pub proposer: Pubkey,
     pub nonce: u64,
+    /// Cohort whose junior receipt units may contribute to this proposal.
+    pub junior_generation: u64,
     /// The families this proposal changes, one update each, in ascending
     /// family order. They execute together or not at all.
     #[max_len(9)]
@@ -265,6 +267,7 @@ impl ParameterProposal {
         market: Pubkey,
         proposer: Pubkey,
         nonce: u64,
+        junior_generation: u64,
         market_revisions: &[u64; PARAMETER_FAMILY_COUNT],
         updates: Vec<MarketParameterUpdate>,
         metadata: ProposalMetadataV1,
@@ -281,6 +284,7 @@ impl ParameterProposal {
             market,
             proposer,
             nonce,
+            junior_generation,
             &family_revisions,
             &updates,
             &metadata,
@@ -288,6 +292,7 @@ impl ParameterProposal {
         self.market = market;
         self.proposer = proposer;
         self.nonce = nonce;
+        self.junior_generation = junior_generation;
         self.updates = updates;
         self.family_revisions = family_revisions;
         self.metadata = metadata;
@@ -332,6 +337,7 @@ impl ParameterProposal {
             self.market,
             self.proposer,
             self.nonce,
+            self.junior_generation,
             &self.family_revisions,
             &self.updates,
             &self.metadata,
@@ -341,7 +347,11 @@ impl ParameterProposal {
     }
 
     pub fn current_support(&self, tranches: &TrancheCapital) -> Result<u64> {
-        let junior = junior_receipt_value(self.total_locked_junior_receipts, tranches)?;
+        let junior = if self.junior_generation == tranches.generation {
+            junior_receipt_value(self.total_locked_junior_receipts, tranches)?
+        } else {
+            0
+        };
         self.total_locked
             .checked_add(junior)
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
@@ -464,6 +474,7 @@ pub fn parameter_proposal_digest(
     market: Pubkey,
     proposer: Pubkey,
     nonce: u64,
+    junior_generation: u64,
     family_revisions: &[u64; PARAMETER_FAMILY_COUNT],
     updates: &[MarketParameterUpdate],
     metadata: &ProposalMetadataV1,
@@ -476,6 +487,7 @@ pub fn parameter_proposal_digest(
         .try_to_vec()
         .map_err(|_| error!(ErrorCode::InvalidProposalDigest))?;
     let nonce = nonce.to_le_bytes();
+    let junior_generation = junior_generation.to_le_bytes();
     let revisions_bytes: Vec<u8> = family_revisions
         .iter()
         .flat_map(|revision| revision.to_le_bytes())
@@ -486,6 +498,7 @@ pub fn parameter_proposal_digest(
         market.as_ref(),
         proposer.as_ref(),
         &nonce,
+        &junior_generation,
         &revisions_bytes,
         &updates_bytes,
         &metadata_bytes,

@@ -79,6 +79,9 @@ impl InitializeJunior<'_> {
             old.income_end = market.income.get()?.junior_end;
             market.income.get_mut()?.junior_end = Default::default();
             market.tranches.retire_wiped_generation()?;
+            // Active reconciliation tracks only receipts of the replacement mint.
+            // Old governance balances retain their original mint and income claims.
+            market.governance_locked_junior = 0;
             let income_share_bps = market.tranche_policy.junior_income_share_bps;
             for asset in [crate::state::MarketAsset::Base, crate::state::MarketAsset::Quote] {
                 let side = market.side_mut(asset);

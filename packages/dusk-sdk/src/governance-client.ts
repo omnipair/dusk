@@ -2,7 +2,7 @@ import type { Program } from "@coral-xyz/anchor";
 import { getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { PublicKey, SystemProgram, Transaction, type AccountMeta } from "@solana/web3.js";
 import { address, type AddressLike } from "./address.js";
-import { deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress, deriveParameterProposalAddress, deriveYieldAccountAddress } from "./constants.js";
+import { deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress, deriveJuniorCohortAddress, deriveParameterProposalAddress, deriveYieldAccountAddress } from "./constants.js";
 import { anchorParameterUpdate, assertProposalMetadata, canonicalParameterUpdates, governanceIntegerBN, type GovernanceIntegerLike, type ParameterUpdate, type ProposalMetadataV1 } from "./governance.js";
 import type { Dusk } from "./types_v2.js";
 import type { GovernanceBalance, GovernanceSupport, Market, ParameterProposal } from "./type-aliases.js";
@@ -51,6 +51,8 @@ export interface WithdrawGovernanceSupportParams {
   rentRefund?: AddressLike;
   /** The governance balance that supplied this support. Defaults to senior. */
   kind?: GovernanceLpKind;
+  /** Original receipt mint when releasing support from a retired junior cohort. */
+  lpMint?: AddressLike;
 }
 
 /** Reusable senior yLP and current-generation junior LP voting balances. */
@@ -68,26 +70,26 @@ export class DuskGovernance {
     }>)[name];
   }
 
-  async getBalance(market: AddressLike, owner: AddressLike, kind: GovernanceLpKind = "senior") {
+  async getBalance(market: AddressLike, owner: AddressLike, kind: GovernanceLpKind = "senior", lpMint?: AddressLike) {
     const marketKey = address(market);
     const state = await this.accountClient<Market>("market").fetch(marketKey);
     const [publicKey] = deriveGovernanceBalanceAddress(
       marketKey,
       address(owner),
-      governanceMint(state, kind),
+      address(lpMint ?? governanceMint(state, kind)),
       this.program.programId
     );
     const account = await this.accountClient<GovernanceBalance>("governanceBalance").fetchNullable(publicKey);
     return account ? { publicKey, ...account, availableAmount: account.totalAmount.sub(account.committedAmount) } : null;
   }
 
-  async getSupport(proposal: AddressLike, market: AddressLike, owner: AddressLike, kind: GovernanceLpKind = "senior") {
+  async getSupport(proposal: AddressLike, market: AddressLike, owner: AddressLike, kind: GovernanceLpKind = "senior", lpMint?: AddressLike) {
     const marketKey = address(market);
     const state = await this.accountClient<Market>("market").fetch(marketKey);
     const [balance] = deriveGovernanceBalanceAddress(
       marketKey,
       address(owner),
-      governanceMint(state, kind),
+      address(lpMint ?? governanceMint(state, kind)),
       this.program.programId
     );
     const [publicKey] = deriveGovernanceSupportAddress(address(proposal), balance, this.program.programId);
@@ -96,13 +98,13 @@ export class DuskGovernance {
   }
 
   /** All allocations, including ended proposals awaiting release, for one owner. */
-  async listSupport(market: AddressLike, owner: AddressLike, kind: GovernanceLpKind = "senior") {
+  async listSupport(market: AddressLike, owner: AddressLike, kind: GovernanceLpKind = "senior", lpMint?: AddressLike) {
     const marketKey = address(market);
     const state = await this.accountClient<Market>("market").fetch(marketKey);
     const [balance] = deriveGovernanceBalanceAddress(
       marketKey,
       address(owner),
-      governanceMint(state, kind),
+      address(lpMint ?? governanceMint(state, kind)),
       this.program.programId
     );
     return this.accountClient<GovernanceSupport>("governanceSupport").all([{ memcmp: { offset: 40, bytes: balance.toBase58() } }]);
@@ -115,14 +117,14 @@ export class DuskGovernance {
     return this.manage(params, { withdraw: { amount: positiveAmount(params.amount) } });
   }
   /** Only the owner signs. null revokes immediately without changing any allocations. */
-  async setDelegate(params: { market: AddressLike; owner: AddressLike; delegate: AddressLike | null; kind?: GovernanceLpKind }) {
+  async setDelegate(params: { market: AddressLike; owner: AddressLike; delegate: AddressLike | null; kind?: GovernanceLpKind; lpMint?: AddressLike }) {
     const owner = address(params.owner);
     const market = address(params.market);
     const state = await this.accountClient<Market>("market").fetch(market);
     const [governanceBalance] = deriveGovernanceBalanceAddress(
       market,
       owner,
-      governanceMint(state, params.kind ?? "senior"),
+      address(params.lpMint ?? governanceMint(state, params.kind ?? "senior")),
       this.program.programId
     );
     const instruction = await this.writer.instruction("setGovernanceDelegate" as DuskInstructionName,
@@ -146,7 +148,9 @@ export class DuskGovernance {
       baseYieldAccount: address(params.baseYieldAccount ?? deriveYieldAccountAddress(market, owner, lpMint, state.baseSide.assetMint, kind === "senior" ? "ylp" : "junior", this.program.programId)[0]),
       quoteYieldAccount: address(params.quoteYieldAccount ?? deriveYieldAccountAddress(market, owner, lpMint, state.quoteSide.assetMint, kind === "senior" ? "ylp" : "junior", this.program.programId)[0]),
       token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
-    }});
+    }, remainingAccounts: kind === "junior" && !lpMint.equals(address(state.juniorMint))
+      ? [{ pubkey: deriveJuniorCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false }]
+      : [] });
     return { governanceBalance, instruction, transaction: new Transaction().add(instruction) };
   }
 
@@ -189,7 +193,7 @@ export class DuskGovernance {
     const [governanceBalance] = deriveGovernanceBalanceAddress(
       market,
       address(params.owner),
-      governanceMint(state, params.kind ?? "senior"),
+      address(params.lpMint ?? governanceMint(state, params.kind ?? "senior")),
       this.program.programId
     );
     const [governanceSupport] = deriveGovernanceSupportAddress(proposal, governanceBalance, this.program.programId);

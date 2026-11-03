@@ -6,7 +6,9 @@ use crate::{
     events::GovernanceBalanceUpdated,
     generate_market_seeds,
     instructions::accounts::{validate_lp_mint, validate_owner_lp_account},
-    state::{GovernanceBalance, GovernanceTokenKind, Market, VirtualYieldLedger, YieldAccount, YieldTokenKind},
+    state::{
+        GovernanceBalance, GovernanceTokenKind, JuniorCohort, Market, VirtualYieldLedger, YieldAccount, YieldTokenKind,
+    },
     token::{token_burn, token_mint_to},
 };
 use anchor_lang::prelude::*;
@@ -95,19 +97,29 @@ impl<'info> ManageGovernanceBalance<'info> {
             ctx.accounts.market.key(),
             ctx.accounts.market.base_side.asset_decimals,
         )?;
+        let depositing = matches!(action, GovernanceBalanceAction::Deposit { .. });
+        let retired = if ctx.accounts.lp_mint.key() != ctx.accounts.market.ylp_mint
+            && ctx.accounts.lp_mint.key() != ctx.accounts.market.junior_mint
+        {
+            require!(!depositing, ErrorCode::InvalidLpMintKey);
+            Some(JuniorCohort::from_remaining(
+                ctx.remaining_accounts.first().ok_or(ErrorCode::InvalidLpMintKey)?,
+                ctx.accounts.market.key(),
+                ctx.accounts.lp_mint.key(),
+            )?)
+        } else {
+            None
+        };
         let token_kind = if ctx.accounts.lp_mint.key() == ctx.accounts.market.ylp_mint {
             GovernanceTokenKind::Senior
         } else {
-            require_keys_eq!(
-                ctx.accounts.lp_mint.key(),
-                ctx.accounts.market.junior_mint,
-                ErrorCode::InvalidLpMintKey
-            );
-            require!(
-                ctx.accounts.market.tranches.junior_reserve_shares > 0
-                    && ctx.accounts.market.tranches.junior_receipt_supply > 0,
-                ErrorCode::InvalidProposalSupport
-            );
+            if depositing {
+                require!(
+                    ctx.accounts.market.tranches.junior_reserve_shares > 0
+                        && ctx.accounts.market.tranches.junior_receipt_supply > 0,
+                    ErrorCode::InvalidProposalSupport
+                );
+            }
             GovernanceTokenKind::Junior
         };
         validate_owner_lp_account(
@@ -139,7 +151,7 @@ impl<'info> ManageGovernanceBalance<'info> {
             slot,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        if token_kind == GovernanceTokenKind::Junior {
+        if token_kind == GovernanceTokenKind::Junior && retired.is_none() {
             ctx.accounts
                 .market
                 .reconcile_junior_receipts(ctx.accounts.lp_mint.supply)?;
@@ -158,15 +170,18 @@ impl<'info> ManageGovernanceBalance<'info> {
                     (crate::state::MarketAsset::Base, &mut ctx.accounts.base_yield_account),
                     (crate::state::MarketAsset::Quote, &mut ctx.accounts.quote_yield_account),
                 ] {
-                    ctx.accounts
-                        .market
-                        .checkpoint_holder_income(holder, ctx.accounts.owner_lp_account.amount, None)?;
-                    let fees = &ctx.accounts.market.side(asset).fees.junior;
-                    holder.accrue(
+                    ctx.accounts.market.checkpoint_holder_income(
+                        holder,
                         ctx.accounts.owner_lp_account.amount,
-                        fees.swap_growth_q64,
-                        fees.interest_growth_q64,
+                        retired.as_ref().map(|cohort| cohort.income_end),
                     )?;
+                    let (swap_growth, interest_growth) = if let Some(cohort) = &retired {
+                        cohort.yield_indexes(asset)
+                    } else {
+                        let fees = &ctx.accounts.market.side(asset).fees.junior;
+                        (fees.swap_growth_q64, fees.interest_growth_q64)
+                    };
+                    holder.accrue(ctx.accounts.owner_lp_account.amount, swap_growth, interest_growth)?;
                 }
             }
         }
@@ -258,12 +273,14 @@ impl<'info> ManageGovernanceBalance<'info> {
                             .ok_or(ErrorCode::InvalidProposalSupport)?;
                     }
                     GovernanceTokenKind::Junior => {
-                        ctx.accounts.market.governance_locked_junior = ctx
-                            .accounts
-                            .market
-                            .governance_locked_junior
-                            .checked_sub(amount)
-                            .ok_or(ErrorCode::InvalidProposalSupport)?;
+                        if retired.is_none() {
+                            ctx.accounts.market.governance_locked_junior = ctx
+                                .accounts
+                                .market
+                                .governance_locked_junior
+                                .checked_sub(amount)
+                                .ok_or(ErrorCode::InvalidProposalSupport)?;
+                        }
                     }
                 }
                 let seeds = generate_market_seeds!(ctx.accounts.market);

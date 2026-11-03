@@ -130,6 +130,7 @@ impl<'info> CreateGovernanceProposal<'info> {
             market_key,
             ctx.accounts.proposer.key(),
             args.nonce,
+            ctx.accounts.market.tranches.generation,
             &ctx.accounts.market.parameter_revisions,
             args.updates,
             args.metadata,
@@ -192,6 +193,7 @@ impl<'info> CreateGovernanceProposal<'info> {
             market: market_key,
             proposer: ctx.accounts.proposer.key(),
             nonce: args.nonce,
+            junior_generation: ctx.accounts.proposal.junior_generation,
             family_revisions: ctx.accounts.proposal.family_revisions,
             digest: ctx.accounts.proposal.digest,
             sponsorship_floor: ctx.accounts.proposal.sponsorship_floor,
@@ -329,6 +331,11 @@ fn commit_contributions<'info>(
                 require_keys_eq!(balance.lp_mint, market.ylp_mint, ErrorCode::InvalidLpMintKey);
             }
             GovernanceTokenKind::Junior => {
+                require_eq!(
+                    proposal.junior_generation,
+                    market.tranches.generation,
+                    ErrorCode::InvalidProposalSupport
+                );
                 require_keys_eq!(balance.lp_mint, market.junior_mint, ErrorCode::InvalidLpMintKey);
                 require!(
                     market.tranches.junior_reserve_shares > 0,

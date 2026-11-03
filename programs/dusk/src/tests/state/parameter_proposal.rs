@@ -129,9 +129,10 @@ fn digest_binds_nonce_revisions_updates_and_metadata() {
     let updates = vec![borrow_limit.clone(), caps.clone()];
     let base_revisions = revisions([0, 0, 0, 0, 9, 0, 3, 0, 0]);
     let digest = |nonce, family_revisions: &[u64; PARAMETER_FAMILY_COUNT], updates: &[MarketParameterUpdate], metadata: &ProposalMetadataV1| {
-        parameter_proposal_digest(program, market, proposer, nonce, family_revisions, updates, metadata).unwrap()
+        parameter_proposal_digest(program, market, proposer, nonce, 0, family_revisions, updates, metadata).unwrap()
     };
     let expected = digest(4, &base_revisions, &updates, &metadata());
+    assert_ne!(expected, parameter_proposal_digest(program, market, proposer, 4, 1, &base_revisions, &updates, &metadata()).unwrap());
 
     assert_ne!(expected, digest(5, &base_revisions, &updates, &metadata()));
     assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 10, 0, 3, 0, 0]), &updates, &metadata()));
@@ -235,6 +236,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
         market: Pubkey::default(),
         proposer: Pubkey::default(),
         nonce: 0,
+        junior_generation: 0,
         updates: Vec::new(),
         family_revisions: [0; PARAMETER_FAMILY_COUNT],
         metadata: metadata(),
@@ -256,6 +258,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
             market,
             proposer,
             nonce,
+            0,
             &revisions([0, 0, 0, 0, 3, 0, 0, 0, 0]),
             vec![MarketParameterUpdate::DailyBorrowLimit {
                 max_daily_borrow_bps: 1_000,
@@ -267,6 +270,9 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
         )
         .unwrap();
     proposal.assert_account(market, proposal_key).unwrap();
+    proposal.junior_generation = 1;
+    assert!(proposal.assert_account(market, proposal_key).is_err());
+    proposal.junior_generation = 0;
     assert_eq!(proposal.family_revisions, revisions([0, 0, 0, 0, 3, 0, 0, 0, 0]));
 
     let created = proposal.updates.clone();
@@ -309,6 +315,7 @@ fn any_updated_family_changing_makes_the_proposal_stale() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 1,
+        junior_generation: 0,
         updates: vec![
             MarketParameterUpdate::Concentration {
                 peak_amplification_nad: 1,
@@ -382,6 +389,7 @@ fn queue_snapshots_support_then_expiry_makes_support_unlockable() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 1,
+        junior_generation: 0,
         updates: vec![MarketParameterUpdate::DailyBorrowLimit {
             max_daily_borrow_bps: 1_000,
         }],
@@ -416,6 +424,7 @@ fn collecting_withdrawal_cancels_below_the_frozen_sponsorship_floor() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 2,
+        junior_generation: 0,
         updates: vec![MarketParameterUpdate::Fee(FeeProfile::default())],
         family_revisions: [0; PARAMETER_FAMILY_COUNT],
         metadata: metadata(),
@@ -459,6 +468,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: u64::MAX,
+        junior_generation: 0,
         updates: vec![max_update; MAX_PARAMETER_UPDATES_PER_PROPOSAL],
         family_revisions: [u64::MAX; PARAMETER_FAMILY_COUNT],
         metadata: max_metadata.clone(),
@@ -499,7 +509,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     };
 
     assert_eq!(proposal.try_to_vec().unwrap().len(), ParameterProposal::INIT_SPACE);
-    assert_eq!(ParameterProposal::INIT_SPACE, 2_305);
+    assert_eq!(ParameterProposal::INIT_SPACE, 2_313);
     // A finished proposal keeps only its tombstone discriminator.
     assert_eq!(
         crate::account::get_size_with_discriminator::<crate::state::ParameterProposalTombstone>(),
@@ -564,6 +574,7 @@ fn lifecycle_boundaries_keep_support_frozen_through_the_deadline() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 3,
+        junior_generation: 0,
         updates: vec![MarketParameterUpdate::Irm(IrmConfig::default())],
         family_revisions: revisions([0, 0, 5, 0, 0, 0, 0, 0, 0]),
         metadata: metadata(),
@@ -647,6 +658,7 @@ fn junior_governance_power_tracks_live_first_loss_backing() {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 4,
+        junior_generation: 0,
         updates: vec![MarketParameterUpdate::Fee(FeeProfile::default())],
         family_revisions: [0; PARAMETER_FAMILY_COUNT],
         metadata: metadata(),
@@ -675,4 +687,49 @@ fn junior_governance_power_tracks_live_first_loss_backing() {
     tranches.junior_reserve_shares = 100;
     assert!(proposal.queue_if_supported(100, &tranches, 3).unwrap());
     assert_eq!(proposal.queued_support, 60);
+}
+
+#[test]
+fn junior_support_remains_bound_to_its_original_cohort() {
+    let mut proposal = ParameterProposal {
+        market: Pubkey::new_unique(),
+        proposer: Pubkey::new_unique(),
+        nonce: 8,
+        junior_generation: 0,
+        updates: vec![MarketParameterUpdate::DailyBorrowLimit {
+            max_daily_borrow_bps: 1,
+        }],
+        family_revisions: [0; PARAMETER_FAMILY_COUNT],
+        metadata: metadata(),
+        digest: [0; 32],
+        status: ParameterProposalStatus::Collecting,
+        sponsorship_floor: 14,
+        total_locked: 0,
+        total_locked_junior_receipts: 600,
+        queued_support: 0,
+        queued_eligible_ylp: 0,
+        created_at: 0,
+        queued_at: 0,
+        execute_after: 0,
+        execution_deadline: 0,
+        bump: 1,
+    };
+    let mut tranches = TrancheCapital::default();
+    let mut total = 1400;
+    tranches.enter(1000, total).unwrap();
+    assert!(!proposal.queue_if_supported(total, &tranches, 1).unwrap());
+    tranches.absorb_loss(1400, 1000, &mut total).unwrap();
+    assert_eq!(proposal.current_support(&tranches).unwrap(), 0);
+    tranches.retire_wiped_generation().unwrap();
+    tranches.enter(100, total).unwrap();
+    assert_eq!(proposal.current_support(&tranches).unwrap(), 0);
+    assert!(!proposal.queue_if_supported(total, &tranches, 2).unwrap());
+    // Senior support is independent of the retired junior units.
+    proposal.total_locked = 300;
+    assert_eq!(proposal.current_support(&tranches).unwrap(), 300);
+    assert!(proposal.queue_if_supported(total, &tranches, 3).unwrap());
+    assert_eq!(proposal.queued_support, 300);
+    // A frozen queue-time authorization keeps its original numerator.
+    tranches.generation += 1;
+    assert_eq!(proposal.queued_support, 300);
 }

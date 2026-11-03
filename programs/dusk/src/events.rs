@@ -985,6 +985,7 @@ pub struct ParameterProposalCreated {
     pub market: Pubkey,
     pub proposer: Pubkey,
     pub nonce: u64,
+    pub junior_generation: u64,
     /// Each updated family's revision at creation; untouched families read
     /// zero. The family of every update is its variant.
     pub family_revisions: [u64; 9],

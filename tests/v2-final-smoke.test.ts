@@ -2342,6 +2342,18 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(first.transaction, [payer]);
     await connection.sendTransaction((await tranches.convert({ market: f.market, owner: payer.publicKey,
       action: { kind: "enter", seniorAmount: 20_000, minimumJunior: 20_000 } })).transaction, [payer]);
+    const governance = new DuskGovernance(sdkProgram);
+    const owner = payer.publicKey;
+    const oldParams = { market: f.market, owner, kind: "junior" as const, lpMint: first.juniorMint };
+    await connection.sendTransaction((await governance.deposit({ ...oldParams, amount: 6_000 })).transaction, [payer]);
+    const rationale = { version: 1, title: "Parameter change", descriptionUri: "https://example.invalid/p.md", descriptionSha256: Array(32).fill(1), descriptionLen: 1 };
+    const oldProposal = await governance.createProposal({ market: f.market, proposer: owner, nonce: 77,
+      updates: [{ kind: "dailyBorrowLimit", maxDailyBorrowBps: 1_900 }], metadata: rationale,
+      contributions: [{ owner, kind: "junior", amount: 6_000 }] });
+    await connection.sendTransaction(oldProposal.transaction, [payer]);
+    const proposalBefore = await new DuskGet(sdkProgram).parameterProposal(oldProposal.proposal);
+    expect(proposalBefore.juniorGeneration.toString()).to.equal("0");
+    await swapBaseForQuote(f, [], 10_000, 1);
     const request = await tranches.convert({ market: f.market, owner: payer.publicKey,
       action: { kind: "requestExit", additionalJunior: 8_000 } });
     await connection.sendTransaction(request.transaction, [payer]);
@@ -2376,15 +2388,50 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(second.transaction, [payer]);
     const after = await sdkProgram.account.market.fetch(f.market);
     expect(after.tranches.juniorReceiptSupply.isZero()).to.equal(true);
+    await connection.sendTransaction((await tranches.convert({ market: f.market, owner,
+      action: { kind: "enter", seniorAmount: 500, minimumJunior: 500 } })).transaction, [payer]);
+    const newParams = { market: f.market, owner, kind: "junior" as const };
+    await connection.sendTransaction((await governance.deposit({ ...newParams, amount: 100 })).transaction, [payer]);
+    let rejected: unknown;
+    try {
+      const contribution = await governance.supportProposal({ market: f.market, proposal: oldProposal.proposal,
+        authority: owner, digest: proposalBefore.digest, contributions: [{ owner, kind: "junior", amount: 100 }] });
+      await connection.sendTransaction(contribution.transaction, [payer]);
+    } catch (error) { rejected = error; }
+    expect(String(rejected)).to.include("InvalidProposalSupport");
+    const activeLockedBefore = (await sdkProgram.account.market.fetch(f.market)).governanceLockedJunior;
+    expect(activeLockedBefore.toString()).to.equal("100");
+    await connection.sendTransaction((await governance.withdrawSupport({ market: f.market, proposal: oldProposal.proposal,
+      owner, authority: owner, kind: "junior", lpMint: first.juniorMint })).transaction, [payer]);
+    await connection.sendTransaction((await governance.withdraw({ ...oldParams, amount: 6_000 })).transaction, [payer]);
+    expect((await governance.getBalance(f.market, owner, "junior", first.juniorMint))!.totalAmount.toString()).to.equal("0");
+    expect((await sdkProgram.account.market.fetch(f.market)).governanceLockedJunior.toString()).to.equal(activeLockedBefore.toString());
+    const oldYield = deriveYieldAccountAddress(f.market, owner, first.juniorMint, f.baseMint, "junior")[0];
+    const earnedBefore = await new DuskGet(sdkProgram).yieldAccount(oldYield);
+    expect(earnedBefore.accruedSwapFeeAmount.gtn(0)).to.equal(true);
+    await connection.sendTransaction((await governance.claimYield(oldParams)).transaction, [payer]);
+    const earnedAfter = await new DuskGet(sdkProgram).yieldAccount(oldYield);
+    expect(earnedAfter.accruedSwapFeeAmount.toString()).to.equal(earnedBefore.accruedSwapFeeAmount.toString());
+    await connection.sendTransaction((await governance.withdraw({ ...newParams, amount: 100 })).transaction, [payer]);
     const burn = await tranches.burnRetired({ market: f.market, owner: payer.publicKey, retiredMint: first.juniorMint, amount: 12_000 });
     await connection.sendTransaction(burn.transaction, [payer]);
     trackV2Instruction("burnRetiredJunior", this.test?.title);
     expect((await getMint(connection as any, first.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(0n);
     expect((await sdkProgram.account.juniorExitAccount.fetch(request.exit)).ticket.receipts.isZero()).to.equal(true);
-    expect((await sdkProgram.account.market.fetch(f.market)).tranches.juniorReceiptSupply.isZero()).to.equal(true);
-    await connection.sendTransaction((await tranches.convert({ market: f.market, owner: payer.publicKey,
-      action: { kind: "enter", seniorAmount: 500, minimumJunior: 500 } })).transaction, [payer]);
+    expect((await sdkProgram.account.market.fetch(f.market)).tranches.juniorReceiptSupply.toString()).to.equal("500");
     expect((await getMint(connection as any, second.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(500n);
+    const creditBefore = (await getAccount(connection as any, f.ownerBaseAccount)).amount;
+    const harvest = await program.methods.harvest({ tokenKind: { junior: {} } }).accounts({
+      market: f.market, owner, caller: owner, assetMint: f.baseMint, lpMint: first.juniorMint,
+      ownerLpAccount: getAssociatedTokenAddressSync(first.juniorMint, owner, true, TOKEN_2022_PROGRAM_ID),
+      yieldAccount: oldYield, reserveVault: f.baseReserveVault, interestVault: f.baseInterestVault,
+      recipientAssetAccount: f.ownerBaseAccount, tokenProgram: TOKEN_PROGRAM_ID,
+      token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).remainingAccounts([{ pubkey: first.cohort, isSigner: false, isWritable: false }]).transaction();
+    await connection.sendTransaction(harvest, [payer]);
+    const expectedCredit = BigInt(earnedAfter.accruedSwapFeeAmount.add(earnedAfter.accruedInterestAmount).toString());
+    expect((await getAccount(connection as any, f.ownerBaseAccount)).amount - creditBefore).to.equal(expectedCredit);
+    expect((await new DuskGet(sdkProgram).yieldAccount(oldYield)).accruedSwapFeeAmount.toString()).to.equal("0");
   });
 
   it("opens liquidity gates through the one-shot launch seeding path", async function () {

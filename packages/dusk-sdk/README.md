@@ -1029,6 +1029,20 @@ table. Use the returned `instruction` to compose such a transaction; initial
 sponsorship cannot be split across multiple transactions. Existing queue and
 execute helpers work for proposals with direct, reusable, or mixed support.
 
+### Retired junior governance balances
+
+A proposal's V3 digest includes `juniorGeneration` as well as its targets and family revisions. Pass the decoded proposal's generation to `computeParameterProposalDigest`; receipt units from a retired generation do not contribute to a later generation's voting value.
+
+For an ended allocation or obsolete deposit, select the original mint explicitly:
+
+```ts
+const oldJunior = { market, owner, kind: "junior" as const, lpMint: retiredJuniorMint };
+const release = await dusk.governance.withdrawSupport({ ...oldJunior, proposal, authority: owner });
+const cleanup = await dusk.governance.withdraw({ ...oldJunior, amount: oldReceiptAmount });
+```
+
+Release proposal locks before withdrawing. The withdrawal returns the original retired receipts, with no remaining principal value; it does not mint replacement receipts. The builder includes the authenticated retired cohort so funded historical yield keeps its original indexes. Empty governance balances remain available for historical lookup. `getBalance`, `getSupport`, `listSupport`, and `setDelegate` also accept an original-mint override. As with other LP claims, use `dusk.tranches.prepareHolderIncome` with `retiredJuniorMint` first when archived income epochs need catch-up, then harvest through the ordinary yield flow. No reward or withdrawal permission is granted to a delegate by this cleanup.
+
 ### Mutable transfer-fee notice monitoring
 
 ```ts

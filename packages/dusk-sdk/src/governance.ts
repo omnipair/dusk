@@ -57,7 +57,7 @@ export const MAX_LIQUIDATION_FEE_BPS = 300;
 export const PARAMETER_FAMILY_COUNT = 9;
 /** A proposal changes one to nine families, each at most once. */
 export const MAX_PARAMETER_UPDATES_PER_PROPOSAL = PARAMETER_FAMILY_COUNT;
-export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V2";
+export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V3";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const PROPOSAL_DIGEST_DOMAIN = new TextEncoder().encode(PARAMETER_PROPOSAL_DIGEST_DOMAIN);
@@ -241,6 +241,8 @@ export interface ParameterProposalDigestInput {
   market: AddressLike;
   proposer: AddressLike;
   nonce: GovernanceIntegerLike;
+  /** Junior cohort at proposal creation, included in the commitment. */
+  juniorGeneration: GovernanceIntegerLike;
   /**
    * One revision per family, as the proposal stores them: an updated family's
    * market revision at creation, zero for every family left alone. Build it
@@ -256,6 +258,7 @@ export interface DecodedParameterProposalForDigest {
   market: AddressLike;
   proposer: AddressLike;
   nonce: GovernanceIntegerLike;
+  juniorGeneration: GovernanceIntegerLike;
   familyRevisions: readonly GovernanceIntegerLike[];
   updates: readonly unknown[];
   metadata: ProposalMetadataV1;
@@ -1058,6 +1061,7 @@ export async function computeParameterProposalDigest(
       address(input.market).toBytes(),
       address(input.proposer).toBytes(),
       encodeU64(input.nonce, "nonce"),
+      encodeU64(input.juniorGeneration, "juniorGeneration"),
       ...input.familyRevisions.map((revision, family) =>
         encodeU64(revision, `familyRevisions[${family}]`)
       ),
@@ -1084,6 +1088,7 @@ export function computeDecodedParameterProposalDigest(
     market: proposal.market,
     proposer: proposal.proposer,
     nonce: proposal.nonce,
+    juniorGeneration: proposal.juniorGeneration,
     familyRevisions: proposal.familyRevisions,
     updates: proposal.updates.map(parameterUpdateFromAnchor),
     metadata: proposal.metadata,

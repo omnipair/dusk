@@ -259,7 +259,7 @@ const updatesBytes = Buffer.concat([
 ]);
 const metadataBytes = program.coder.types.encode("proposalMetadataV1", verifiedMetadata);
 const u64Le = (value) => new anchor.BN(value.toString()).toArrayLike(Buffer, "le", 8);
-assert.equal(PARAMETER_PROPOSAL_DIGEST_DOMAIN, "DUSK_PARAMETER_PROPOSAL_V2");
+assert.equal(PARAMETER_PROPOSAL_DIGEST_DOMAIN, "DUSK_PARAMETER_PROPOSAL_V3");
 const expectedDigest = createHash("sha256")
   .update(
     Buffer.concat([
@@ -268,6 +268,7 @@ const expectedDigest = createHash("sha256")
       keys[1].toBuffer(),
       keys[0].toBuffer(),
       u64Le(digestNonce),
+      u64Le(0),
       ...familyRevisions.map(u64Le),
       updatesBytes,
       metadataBytes,
@@ -279,6 +280,7 @@ const actualDigest = await computeParameterProposalDigest({
   market: keys[1],
   proposer: keys[0],
   nonce: digestNonce,
+  juniorGeneration: 0,
   familyRevisions,
   updates: everyFamily,
   metadata: verifiedMetadata,
@@ -389,3 +391,19 @@ program.account.governanceSupport.all = async (filters) => {
   return [];
 };
 assert.deepEqual(await governance.listSupport(keys[1], keys[0]), []);
+
+// Historical governance selection preserves the original mint and cohort.
+const retiredMint = keys[8];
+const retiredBalance = deriveGovernanceBalanceAddress(keys[1], keys[0], retiredMint, program.programId)[0];
+const cleanup = await governance.withdraw({ market: keys[1], owner: keys[0], kind: "junior", lpMint: retiredMint, amount: 5 });
+assert.equal(cleanup.governanceBalance.toString(), retiredBalance.toString());
+assert.equal(cleanup.instruction.keys[cleanup.instruction.keys.length - 1].pubkey.toString(),
+  PublicKey.findProgramAddressSync([Buffer.from("junior_cohort"), keys[1].toBuffer(), retiredMint.toBuffer()], program.programId)[0].toString());
+const oldRelease = await governance.withdrawSupport({ market: keys[1], proposal: batch.proposal, owner: keys[0],
+  authority: keys[7], kind: "junior", lpMint: retiredMint, proposer: keys[7], rentRefund: keys[7] });
+assert.equal(oldRelease.governanceBalance.toString(), retiredBalance.toString());
+const oldRevoke = await governance.setDelegate({ market: keys[1], owner: keys[0], kind: "junior", lpMint: retiredMint, delegate: null });
+assert.equal(oldRevoke.governanceBalance.toString(), retiredBalance.toString());
+const nextGenerationDigest = await computeParameterProposalDigest({ programId: program.programId, market: keys[1], proposer: keys[0],
+  nonce: digestNonce, juniorGeneration: 1, familyRevisions, updates: everyFamily, metadata: verifiedMetadata });
+assert.notDeepEqual(Buffer.from(nextGenerationDigest), expectedDigest);
