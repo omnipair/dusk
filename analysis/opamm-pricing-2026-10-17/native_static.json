@@ -1,0 +1,12 @@
+{
+  "binary_sha256": "d7039acee7c1aac418a21e0b5d56dd8bdf35e898740f86ddb43386b779b1482d",
+  "source_commit_claim": "22114ad3606e768ed08df41d71e41ece3313d2c9",
+  "configuration": "pure yLP, $1m balanced, 5x center, 3bp base fee, native dynamic fees",
+  "seeded_price": 100.0,
+  "buy_10k_base_out": 99.566649,
+  "buy_10k_average_price": 100.43523710434405,
+  "sell_100_base_quote_out": 9956.664968,
+  "sell_100_base_average_price": 99.56664968,
+  "buy_fee_rate_nad": 352240,
+  "sell_fee_rate_nad": 352240
+}
