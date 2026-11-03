@@ -6,8 +6,8 @@
  * here, for every market. No brand in the name: the token is identified by
  * what it is and which market it belongs to.
  *
- *   srLP        name `META/USDC srLP`   symbol `srME.US`
- *   jrLP       name `META/USDC jrLP`  symbol `jrME.US`
+ *   srLP        name `META/USDC srLP`   symbol `srME/US`
+ *   jrLP       name `META/USDC jrLP`  symbol `jrME/US`
  *   base hLP   name `META hLP`        symbol `hMETA`
  *   quote hLP  name `USDC hLP`        symbol `hUSDC`
  *
@@ -75,7 +75,7 @@ export function lpTokenNaming(params: LpTokenNamingParams): LpTokenNaming {
     const b = quote.slice(0, 2).toUpperCase();
     return {
       name: `${na}/${nb}${nameSuffix}`,
-      symbol: `${symbolPrefix}${a}.${b}`,
+      symbol: `${symbolPrefix}${a}/${b}`,
       description: junior
         ? `Dusk jrLP for the ${market} market: productive first-loss liquidity with junior income and a notice period before conversion to srLP.`
         : `Dusk srLP for the ${market} market: a senior share of pooled ${base} and ${quote} liquidity, protected by available insurance and junior capital against covered credit losses.`,

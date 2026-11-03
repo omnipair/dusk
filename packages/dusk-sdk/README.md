@@ -856,7 +856,7 @@ const srlp = await createHookedLpMintWithSeedInstructions({
 });
 
 const naming = marketLpTokenNaming({ baseSymbol: "META", quoteSymbol: "USDC" });
-// naming.srlp      -> { name: "META/USDC srLP", symbol: "srME.US", description }
+// naming.srlp      -> { name: "META/USDC srLP", symbol: "srME/US", description }
 // naming.baseHlp  -> { name: "hMETA",         symbol: "hMETA.USDC", description }
 // naming.quoteHlp -> { name: "hUSDC",         symbol: "hUSDC.META", description }
 ```

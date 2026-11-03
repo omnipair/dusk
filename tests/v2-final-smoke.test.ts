@@ -2209,7 +2209,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const seniorBefore = (await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
     expect(BigInt(initial.tranches.permanentReceipts.toString())).to.equal(141n);
     const init = await tranches.initialize({ market: f.market, payer: payer.publicKey,
-      metadata: { name: "Base/Quote jrLP", symbol: "jrBA.QU", uri: "https://example.invalid/junior.json" } });
+      metadata: { name: "Base/Quote jrLP", symbol: "jrBA/QU", uri: "https://example.invalid/junior.json" } });
     await connection.sendTransaction(init.transaction, [payer]);
     trackV2Instruction("initializeJunior", this.test?.title);
     const mint = await getMint(connection as any, init.juniorMint, undefined, TOKEN_2022_PROGRAM_ID);
@@ -2274,7 +2274,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const tranches = new DuskTranches(sdkProgram);
     const yields = new DuskYield(sdkProgram, payer.publicKey);
     await connection.sendTransaction((await tranches.initialize({ market: f.market, payer: payer.publicKey,
-      metadata: { name: "Base/Quote jrLP", symbol: "jrBA.QU", uri: "https://example.invalid/junior.json" } })).transaction, [payer]);
+      metadata: { name: "Base/Quote jrLP", symbol: "jrBA/QU", uri: "https://example.invalid/junior.json" } })).transaction, [payer]);
     for (const debtIsBase of [true, false]) {
       const positionId = Keypair.generate().publicKey;
       const borrowPosition = deriveBorrowPositionAddress(f.market, payer.publicKey, positionId)[0];
@@ -2338,7 +2338,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const sdkProgram = createDuskProgram({ provider: program.provider });
     const tranches = new DuskTranches(sdkProgram);
     const first = await tranches.initialize({ market: f.market, payer: payer.publicKey,
-      metadata: { name: "Base/Quote jrLP", symbol: "jrBA.QU", uri: "https://example.invalid/junior-0.json" } });
+      metadata: { name: "Base/Quote jrLP", symbol: "jrBA/QU", uri: "https://example.invalid/junior-0.json" } });
     await connection.sendTransaction(first.transaction, [payer]);
     await connection.sendTransaction((await tranches.convert({ market: f.market, owner: payer.publicKey,
       action: { kind: "enter", seniorAmount: 20_000, minimumJunior: 20_000 } })).transaction, [payer]);
@@ -2370,7 +2370,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     data.writeBigUInt64LE(data.readBigUInt64LE(64) - baseLoss, 64);
     svm.setAccount(f.baseReserveVault, { ...reserve, data: new Uint8Array(data) });
     const second = await tranches.initialize({ market: f.market, payer: payer.publicKey,
-      metadata: { name: "Base/Quote jrLP", symbol: "jrBA.QU", uri: "https://example.invalid/junior-1.json" } });
+      metadata: { name: "Base/Quote jrLP", symbol: "jrBA/QU", uri: "https://example.invalid/junior-1.json" } });
     expect(second.generation).to.equal(1n);
     expect(second.juniorMint.equals(first.juniorMint)).to.equal(false);
     await connection.sendTransaction(second.transaction, [payer]);

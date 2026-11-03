@@ -10,13 +10,13 @@ This is a terminology and interface rename; tranche economics are unchanged.
 | Rust account / event fields | `srlp_mint`, `srlp_supply`, `srlp_shares` |
 | SDK / frontend fields | `srlpMint`, `srlpSupply`, `srlpShares` |
 | Senior liquidity module | `instructions/liquidity/srlp` |
-| Token name / symbol example | `META/USDC srLP` / `srME.US` |
+| Token name / symbol example | `META/USDC srLP` / `srME/US` |
 | New senior mint vanity suffix | `srLP`, case-sensitive |
 
 The generated Dusk and leverage-delegate IDLs, TypeScript types, SDK read/write
 facades, governance, yield accounts, hLP custody, metadata generation, market
 launch scripts, tests, protocol docs and both current whitepaper PDFs use the
-new names. The shared SDK version is `2.17.0-next.20261104-srlp`.
+new names. The shared SDK version is `2.17.0-next.20261104-srlp.1`.
 
 ## Consumer coverage
 

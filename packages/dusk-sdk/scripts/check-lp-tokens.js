@@ -55,10 +55,10 @@ test("naming follows the sr/jr/h scheme within Metaplex limits", () => {
   const naming = marketLpTokenNaming({ baseSymbol: "META", quoteSymbol: "USDC" });
   assert.deepEqual(
     { ...naming.srlp, description: undefined },
-    { name: "META/USDC srLP", symbol: "srME.US", description: undefined }
+    { name: "META/USDC srLP", symbol: "srME/US", description: undefined }
   );
   assert.equal(naming.junior.name, "META/USDC jrLP");
-  assert.equal(naming.junior.symbol, "jrME.US");
+  assert.equal(naming.junior.symbol, "jrME/US");
   assert.equal(naming.baseHlp.name, "META hLP");
   assert.equal(naming.baseHlp.symbol, "hMETA");
   assert.equal(naming.quoteHlp.name, "USDC hLP");
@@ -71,16 +71,16 @@ test("naming follows the sr/jr/h scheme within Metaplex limits", () => {
 
 test("pair tickers always use two uppercase characters and names shorten deterministically", () => {
   const srlp = lpTokenNaming({ kind: "srlp", baseSymbol: "cbBTC", quoteSymbol: "USDC" });
-  assert.equal(srlp.symbol, "srCB.US");
+  assert.equal(srlp.symbol, "srCB/US");
   assert.equal(srlp.name, "cbBTC/USDC srLP");
   const junior = lpTokenNaming({ kind: "junior", baseSymbol: "JitoSOL", quoteSymbol: "USDC" });
-  assert.equal(junior.symbol, "jrJI.US");
+  assert.equal(junior.symbol, "jrJI/US");
   assert.equal(junior.name, "JitoSOL/USDC jrLP");
   const hlp = lpTokenNaming({ kind: "quoteHlp", baseSymbol: "JitoSOL", quoteSymbol: "USDC" });
   assert.equal(hlp.symbol, "hUSDC");
   assert.equal(hlp.name, "USDC hLP");
   const tight = lpTokenNaming({ kind: "srlp", baseSymbol: "  $WIFHAT  ", quoteSymbol: "BONK" });
-  assert.equal(tight.symbol, "srWI.BO");
+  assert.equal(tight.symbol, "srWI/BO");
   const long = lpTokenNaming({ kind: "junior", baseSymbol: "ABCDEFGHIJKLMNOPQRST", quoteSymbol: "ZYXWVUTSRQPONMLKJIHG" });
   assert.equal(long.name, "ABCDEFGHIJKLM/ZYXWVUTSRQPON jrLP");
   assert.ok(long.name.length <= 32);
@@ -89,10 +89,10 @@ test("pair tickers always use two uppercase characters and names shorten determi
 });
 
 test("metadata validation matches the on-chain byte limits", () => {
-  assert.doesNotThrow(() => assertLpTokenMetadata({ name: "META/USDC jrLP", symbol: "jrME.US", uri: "https://example.test/junior.json" }));
-  assert.throws(() => assertLpTokenMetadata({ name: "x".repeat(33), symbol: "jrME.US", uri: "https://example.test" }), /32 bytes/);
+  assert.doesNotThrow(() => assertLpTokenMetadata({ name: "META/USDC jrLP", symbol: "jrME/US", uri: "https://example.test/junior.json" }));
+  assert.throws(() => assertLpTokenMetadata({ name: "x".repeat(33), symbol: "jrME/US", uri: "https://example.test" }), /32 bytes/);
   assert.throws(() => assertLpTokenMetadata({ name: "META/USDC jrLP", symbol: "x".repeat(11), uri: "https://example.test" }), /10 bytes/);
-  assert.throws(() => assertLpTokenMetadata({ name: "META/USDC jrLP", symbol: "jrME.US", uri: "ipfs://cid" }), /start with http/);
+  assert.throws(() => assertLpTokenMetadata({ name: "META/USDC jrLP", symbol: "jrME/US", uri: "ipfs://cid" }), /start with http/);
 });
 
 test("seed derivation matches the server fixture and the suffix rule", async () => {
@@ -178,7 +178,7 @@ test("createHookedLpMintWithSeedInstructions needs only the base and payer to si
 test("junior naming matches the native generation mint without changing srLP or hLP names", () => {
   const naming = lpTokenNaming({ kind: "junior", baseSymbol: "SOL", quoteSymbol: "USDC" });
   assert.equal(naming.name, "SOL/USDC jrLP");
-  assert.equal(naming.symbol, "jrSO.US");
+  assert.equal(naming.symbol, "jrSO/US");
   assert.match(naming.description, /first-loss/);
-  assert.equal(marketLpTokenNaming({ baseSymbol: "SOL", quoteSymbol: "USDC" }).srlp.symbol, "srSO.US");
+  assert.equal(marketLpTokenNaming({ baseSymbol: "SOL", quoteSymbol: "USDC" }).srlp.symbol, "srSO/US");
 });
