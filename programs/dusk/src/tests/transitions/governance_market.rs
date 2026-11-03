@@ -1391,7 +1391,7 @@ fn fee_compounding_rate_is_governed_from_zero_through_one_hundred_percent() {
 
 #[test]
 fn concentration_execution_reconstructs_the_selected_shape() {
-    let mut market = invariant_market(1_000_000, 1_000_000);
+    let mut market = controller_market(1_000_000, 1_000_000);
     market.finalize_amm_transition_and_observe_risk(1).unwrap();
     market
         .execute_parameter_updates(
@@ -1441,22 +1441,25 @@ fn disabling_recenter_releases_retained_surcharge_to_lp_inventory() {
         let base_live_before = market.base_side.reserves.live_reserve;
         let quote_live_before = market.quote_side.reserves.live_reserve;
 
-        let update = if disable_by_shape {
-            MarketParameterUpdate::Concentration {
-                peak_amplification_nad: NAD,
-                core_half_width_bps: 0,
-                fade_width_bps: 0,
-            }
-        } else {
-            MarketParameterUpdate::CenterController {
-                adjustment_threshold_nad: 0,
-                adjustment_step_nad: 0,
-                min_adjustment_interval_slots: 0,
-            }
+        let cpmm = MarketParameterUpdate::Concentration {
+            peak_amplification_nad: NAD,
+            core_half_width_bps: 0,
+            fade_width_bps: 0,
         };
-        market
-            .execute_parameter_updates(core::slice::from_ref(&update), 3)
-            .unwrap_or_else(|error| panic!("disable_by_shape={disable_by_shape}: {error:?}"));
+        let off = MarketParameterUpdate::CenterController {
+            adjustment_threshold_nad: 0,
+            adjustment_step_nad: 0,
+            min_adjustment_interval_slots: 0,
+        };
+        let updates = if disable_by_shape {
+            vec![cpmm]
+        } else {
+            let before = market.try_to_vec().unwrap();
+            assert!(market.execute_parameter_updates(core::slice::from_ref(&off), 3).is_err());
+            assert_eq!(market.try_to_vec().unwrap(), before);
+            vec![cpmm, off]
+        };
+        market.execute_parameter_updates(&updates, 3).unwrap();
         assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
         assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
         assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
@@ -1475,13 +1478,13 @@ fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
 
     for mut market in [
         {
-            let mut active = invariant_market(1_000_000, 1_000_000);
+            let mut active = controller_market(1_000_000, 1_000_000);
             active.finalize_amm_transition_and_observe_risk(0).unwrap();
             active.base_hlp_vault.hlp_supply = 1;
             active
         },
         {
-            let mut residual = invariant_market(1_000_000, 1_000_000);
+            let mut residual = controller_market(1_000_000, 1_000_000);
             residual.finalize_amm_transition_and_observe_risk(0).unwrap();
             residual.quote_hlp_vault.residual_exposure = 1;
             residual
@@ -1650,7 +1653,7 @@ fn every_family_closes_its_windows_before_any_family_moves() {
         max_daily_borrow_bps: 3_000,
     };
     let reshaped = || {
-        let mut market = invariant_market(1_000_000, 1_000_000);
+        let mut market = controller_market(1_000_000, 1_000_000);
         market.finalize_amm_transition_and_observe_risk(0).unwrap();
         market.base_side.daily_borrow_bucket.borrowed_bucket = 200_000;
         market.quote_side.daily_borrow_bucket.borrowed_bucket = 150_000;
@@ -1718,7 +1721,7 @@ fn curve_and_center_controller_settle_on_their_final_values_together() {
     assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 1, 0, 0, 0]);
     market.assert_market_invariants().unwrap();
 
-    // Reshaping the curve while switching the controller off releases the
+    // Returning to CPMM while switching the controller off releases the
     // retained surcharge once, under the final values.
     let protected = 1_000_000;
     market.credit_protected_recenter_reserve(MarketAsset::Base, protected).unwrap();
@@ -1729,9 +1732,9 @@ fn curve_and_center_controller_settle_on_their_final_values_together() {
         .execute_parameter_updates(
             &[
                 MarketParameterUpdate::Concentration {
-                    peak_amplification_nad: 3 * NAD,
-                    core_half_width_bps: 100,
-                    fade_width_bps: 400,
+                    peak_amplification_nad: NAD,
+                    core_half_width_bps: 0,
+                    fade_width_bps: 0,
                 },
                 MarketParameterUpdate::CenterController {
                     adjustment_threshold_nad: 0,
@@ -1746,7 +1749,7 @@ fn curve_and_center_controller_settle_on_their_final_values_together() {
     assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
     assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
     assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
-    assert_eq!(market.config.amm.peak_amplification_nad, 3 * NAD);
+    assert_eq!(market.config.amm.peak_amplification_nad, NAD);
     assert_eq!(market.config.amm.adjustment_step_nad, 0);
     assert_eq!(market.parameter_revisions, [0, 2, 0, 0, 0, 2, 0, 0, 0]);
     market.assert_market_invariants().unwrap();
@@ -2191,4 +2194,435 @@ fn oracle_only_policy_can_execute_at_the_utilization_guard_boundary() {
     assert_eq!(market.debt.fixed_base_shares, 800_000);
     assert_eq!(market.debt.fixed_base_principal, 800_000);
     market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn launch_configuration_is_frozen_at_start_while_runtime_fees_remain_governable() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.start_time = 100;
+    let original = market.config.fee_profile();
+    let mut variants = vec![original; 11];
+    variants[0].launch_fee_start_bps = 50;
+    variants[1].launch_fee_duration_seconds = 86_400;
+    variants[2].launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    variants[3].launch_market_price_step_bps = 100;
+    variants[4].launch_market_number_of_periods = 2;
+    variants[5].launch_market_reduction_factor_bps = 100;
+    variants[6].launch_rate_limit_asset = LAUNCH_RATE_LIMIT_ASSET_BASE;
+    variants[7].launch_rate_limit_reference_nad = NAD;
+    variants[8].launch_rate_limit_increment_bps = 10;
+    variants[9].launch_rate_limit_max_fee_bps = 100;
+    variants[10].launch_rate_limit_duration_seconds = 86_400;
+    for variant in variants {
+        let updates = [MarketParameterUpdate::Fee(variant)];
+        assert!(market
+            .assert_launch_settings_unchanged_after_start(&updates, 99)
+            .is_ok());
+        assert!(market
+            .assert_launch_settings_unchanged_after_start(&updates, 100)
+            .is_err());
+        assert!(market
+            .assert_launch_settings_unchanged_after_start(&updates, 1_000_000)
+            .is_err());
+    }
+    let mut runtime = original;
+    runtime.base_fee_bps = 100;
+    runtime.compounding_fee_bps = 10_000;
+    runtime.swap_fee_collect_mode = SWAP_FEE_COLLECT_QUOTE_ONLY;
+    assert!(market
+        .assert_launch_settings_unchanged_after_start(&[MarketParameterUpdate::Fee(runtime)], 100)
+        .is_ok());
+}
+
+#[test]
+fn queued_launch_change_cannot_cross_launch_boundary_at_execution() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.start_time = 100;
+    let mut fee = market.config.fee_profile();
+    fee.launch_fee_start_bps = 50;
+    fee.launch_fee_duration_seconds = 86_400;
+    fee.launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    let updates = [MarketParameterUpdate::Fee(fee)];
+    market.validate_parameter_updates(&updates).unwrap();
+    market
+        .assert_launch_settings_unchanged_after_start(&updates, 99)
+        .unwrap();
+    let before_config = market.config;
+    let before_revisions = market.parameter_revisions;
+    let clock = Clock {
+        unix_timestamp: 100,
+        slot: 1,
+        ..Default::default()
+    };
+    let error = market
+        .execute_parameter_updates_authenticated(&updates, &clock, &[])
+        .unwrap_err();
+    assert_eq!(error, error!(ErrorCode::LaunchSettingsImmutable));
+    assert_eq!(market.config, before_config);
+    assert_eq!(market.parameter_revisions, before_revisions);
+}
+
+fn manager_control_for(market: &Market) -> GovernanceControl {
+    let mut control = GovernanceControl {
+        market: Pubkey::new_unique(),
+        manager: Pubkey::new_unique(),
+        manager_epoch: 1,
+        baseline_initialized: false,
+        baseline_config: MarketConfig::default(),
+        baseline_insurance_principal_coverage_bps: 0,
+        baseline_insurance_per_day_bps: 0,
+        baseline_tranche_policy: Default::default(),
+        baseline_junior_request_fee_bps: 0,
+        pending: None,
+        has_manager_announcement: false,
+        last_manager_announcement: 0,
+        bump: 1,
+    };
+    control.initialize_baseline(market);
+    control
+}
+
+#[test]
+fn manager_base_fee_and_compounding_use_the_whole_approved_range() {
+    let market = invariant_market(1_000_000, 1_000_000);
+    let control = manager_control_for(&market);
+    let mut profile = market.config.fee_profile();
+    profile.base_fee_bps = 100;
+    profile.compounding_fee_bps = 10_000;
+    profile.swap_fee_collect_mode = SWAP_FEE_COLLECT_QUOTE_ONLY;
+    let updates = [MarketParameterUpdate::Fee(profile)];
+    market.validate_parameter_updates(&updates).unwrap();
+    control.validate_manager_updates(&market, &updates).unwrap();
+    profile.base_fee_bps = 101;
+    assert!(control
+        .validate_manager_updates(&market, &[MarketParameterUpdate::Fee(profile)])
+        .is_err());
+}
+
+#[test]
+fn manager_curve_limits_follow_lp_baseline_and_do_not_drift_on_rotation() {
+    let mut market = controller_market(1_000_000, 1_000_000);
+    market.config.amm.peak_amplification_nad = 2 * NAD;
+    market.config.amm.core_half_width_bps = 1_000;
+    market.config.amm.fade_width_bps = 1_000;
+    let mut control = manager_control_for(&market);
+    let update = |amp, core, fade| MarketParameterUpdate::Concentration {
+        peak_amplification_nad: amp,
+        core_half_width_bps: core,
+        fade_width_bps: fade,
+    };
+    control
+        .validate_manager_updates(&market, &[update(5 * NAD / 2, 1_500, 500)])
+        .unwrap();
+    assert!(control
+        .validate_manager_updates(&market, &[update(5 * NAD / 2 + 1, 1_500, 500)])
+        .is_err());
+    assert!(control
+        .validate_manager_updates(&market, &[update(2 * NAD, 1_501, 1_000)])
+        .is_err());
+    control.validate_manager_updates(&market, &[update(NAD, 0, 0)]).unwrap();
+    market.config.amm.peak_amplification_nad = 5 * NAD / 2;
+    control.replace_manager(Pubkey::new_unique(), 1).unwrap();
+    control.initialize_baseline(&market);
+    assert!(control
+        .validate_manager_updates(&market, &[update(3 * NAD, 1_000, 1_000)])
+        .is_err());
+    control.reanchor(&market.current_parameter_update(ParameterFamily::Concentration));
+    control
+        .validate_manager_updates(&market, &[update(3 * NAD, 1_000, 1_000)])
+        .unwrap();
+}
+
+#[test]
+fn manager_irm_limits_are_anchored_and_preserve_protocol_validation() {
+    let market = invariant_market(1_000_000, 1_000_000);
+    let control = manager_control_for(&market);
+    let baseline = market.config.irm;
+    let check = |irm| control.validate_manager_updates(&market, &[MarketParameterUpdate::Irm(irm)]);
+
+    let mut next = baseline;
+    next.lower_signal_nad = baseline.lower_signal_nad * 3 / 4;
+    next.upper_signal_nad = baseline.upper_signal_nad * 5 / 4;
+    check(next).unwrap();
+    next.lower_signal_nad -= 1;
+    assert!(check(next).is_err());
+    next.lower_signal_nad += 1;
+    next.upper_signal_nad += 1;
+    assert!(check(next).is_err());
+    next = baseline;
+    next.lower_signal_nad = next.upper_signal_nad;
+    assert!(check(next).is_err());
+
+    for half_life_ms in [baseline.half_life_ms / 2, baseline.half_life_ms * 2] {
+        check(IrmConfig {
+            half_life_ms,
+            ..baseline
+        })
+        .unwrap();
+    }
+    for half_life_ms in [baseline.half_life_ms / 2 - 1, baseline.half_life_ms * 2 + 1] {
+        assert!(check(IrmConfig {
+            half_life_ms,
+            ..baseline
+        })
+        .is_err());
+    }
+    for initial_apr_nad in [baseline.initial_apr_nad - NAD / 50, baseline.initial_apr_nad + NAD / 50] {
+        check(IrmConfig {
+            initial_apr_nad,
+            ..baseline
+        })
+        .unwrap();
+    }
+    assert!(check(IrmConfig {
+        initial_apr_nad: baseline.initial_apr_nad + NAD / 50 + 1,
+        ..baseline
+    })
+    .is_err());
+    for minimum_apr_nad in [0, baseline.minimum_apr_nad + NAD / 50] {
+        check(IrmConfig {
+            minimum_apr_nad,
+            ..baseline
+        })
+        .unwrap();
+    }
+    assert!(check(IrmConfig {
+        initial_apr_nad: baseline.initial_apr_nad + 1,
+        minimum_apr_nad: baseline.minimum_apr_nad + NAD / 50 + 1,
+        ..baseline
+    })
+    .is_err());
+
+    check(IrmConfig {
+        maximum_apr_nad: baseline.initial_apr_nad + NAD / 10,
+        ..baseline
+    })
+    .unwrap();
+    assert!(check(IrmConfig {
+        maximum_apr_nad: baseline.initial_apr_nad + NAD / 10 + 1,
+        ..baseline
+    })
+    .is_err());
+    assert!(check(IrmConfig {
+        maximum_apr_nad: baseline.initial_apr_nad - 1,
+        ..baseline
+    })
+    .is_err());
+    check(IrmConfig {
+        borrow_utilization_limit_bps: 1,
+        ..baseline
+    })
+    .unwrap();
+    assert!(check(IrmConfig {
+        borrow_utilization_limit_bps: 8_001,
+        ..baseline
+    })
+    .is_err());
+    assert!(check(IrmConfig {
+        borrow_utilization_limit_bps: 0,
+        ..baseline
+    })
+    .is_err());
+}
+
+#[test]
+fn manager_capped_irm_can_switch_modes_without_reanchoring_the_lp_cap() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.irm.maximum_apr_nad = NAD / 5;
+    let mut control = manager_control_for(&market);
+    let baseline = market.config.irm;
+    for maximum_apr_nad in [NAD / 10, 3 * NAD / 10, 0] {
+        control
+            .validate_manager_updates(
+                &market,
+                &[MarketParameterUpdate::Irm(IrmConfig {
+                    maximum_apr_nad,
+                    ..baseline
+                })],
+            )
+            .unwrap();
+    }
+    for maximum_apr_nad in [NAD / 10 - 1, 3 * NAD / 10 + 1] {
+        assert!(control
+            .validate_manager_updates(
+                &market,
+                &[MarketParameterUpdate::Irm(IrmConfig {
+                    maximum_apr_nad,
+                    ..baseline
+                })]
+            )
+            .is_err());
+    }
+    market.config.irm.maximum_apr_nad = 0;
+    control.replace_manager(Pubkey::new_unique(), 1).unwrap();
+    control.initialize_baseline(&market);
+    assert_eq!(control.baseline_config.irm, baseline);
+    assert!(control
+        .validate_manager_updates(
+            &market,
+            &[MarketParameterUpdate::Irm(IrmConfig {
+                maximum_apr_nad: 3 * NAD / 10 + 1,
+                ..baseline
+            })]
+        )
+        .is_err());
+}
+
+#[test]
+fn lp_reanchors_only_the_approved_family_after_manager_changes() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    let mut control = manager_control_for(&market);
+    let before = control.baseline_config;
+    market.config.swap_fee_bps = 100;
+    market.config.irm.initial_apr_nad += NAD / 50;
+    market.config.ema_half_life_ms *= 2;
+    control.reanchor(&market.current_parameter_update(ParameterFamily::EmaHalfLives));
+    assert_eq!(control.baseline_config.fee_profile(), before.fee_profile());
+    assert_eq!(control.baseline_config.irm, before.irm);
+    assert_eq!(control.baseline_config.ema_half_life_ms, market.config.ema_half_life_ms);
+    control.reanchor(&market.current_parameter_update(ParameterFamily::Irm));
+    assert_eq!(control.baseline_config.irm, market.config.irm);
+    assert_eq!(control.baseline_config.fee_profile(), before.fee_profile());
+}
+
+fn controller_market(base_cash: u64, quote_cash: u64) -> Market {
+    let mut market = invariant_market(base_cash, quote_cash);
+    market.config.amm.adjustment_threshold_nad = NAD / 100;
+    market.config.amm.adjustment_step_nad = NAD / 1_000;
+    market.config.amm.min_adjustment_interval_slots = 18_000;
+    market
+}
+
+#[test]
+fn manager_price_depth_ema_ranges_do_not_apply_to_the_interest_model() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.ema_half_life_ms = 600_000;
+    market.config.directional_ema_half_life_ms = 600_000;
+    market.config.curve_depth_ema_half_life_ms = 600_000;
+    market.config.amm.center_ema_half_life_ms = 600_000;
+    let control = manager_control_for(&market);
+    let update = |values: [u64; 4]| MarketParameterUpdate::EmaHalfLives {
+        price_ms: values[0], directional_price_ms: values[1],
+        curve_depth_ms: values[2], center_price_ms: values[3],
+    };
+    for index in 0..4 {
+        for edge in [300_000, 1_200_000] {
+            let mut values = [600_000; 4]; values[index] = edge;
+            control.validate_manager_updates(&market, &[update(values)]).unwrap();
+        }
+        for outside in [299_999, 1_200_001] {
+            let mut values = [600_000; 4]; values[index] = outside;
+            assert!(control.validate_manager_updates(&market, &[update(values)]).is_err());
+        }
+    }
+    assert_eq!(market.config.irm.half_life_ms, 14 * MS_PER_DAY);
+    for days in [7, 28] {
+        control.validate_manager_updates(&market, &[MarketParameterUpdate::Irm(IrmConfig {
+            half_life_ms: days * MS_PER_DAY, ..market.config.irm
+        })]).unwrap();
+    }
+}
+
+#[test]
+fn manager_can_restore_borrow_allowance_but_cannot_raise_its_lp_ceiling() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    let control = manager_control_for(&market);
+    let update = |max_daily_borrow_bps| MarketParameterUpdate::DailyBorrowLimit {max_daily_borrow_bps};
+    control.validate_manager_updates(&market, &[update(0)]).unwrap();
+    assert!(control.validate_manager_updates(&market, &[update(2_001)]).is_err());
+    market.config.max_daily_borrow_bps = 0;
+    control.validate_manager_updates(&market, &[update(2_000)]).unwrap();
+    assert_eq!(control.baseline_config.max_daily_borrow_bps, 2_000);
+}
+
+#[test]
+fn manager_controller_limits_require_enabled_bounded_funded_movement() {
+    let market = invariant_market(1_000_000, 1_000_000);
+    let control = manager_control_for(&market);
+    let update = |threshold, step, interval| MarketParameterUpdate::CenterController {
+        adjustment_threshold_nad: threshold, adjustment_step_nad: step, min_adjustment_interval_slots: interval,
+    };
+    for interval in [18_000, MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS] {
+        control.validate_manager_updates(&market, &[update(NAD / 100, NAD / 1_000, interval)]).unwrap();
+    }
+    for invalid in [update(NAD / 100 + 1, NAD / 1_000, 18_000),
+        update(NAD / 100, NAD / 1_000 + 1, 18_000), update(NAD / 100, NAD / 1_000, 17_999),
+        update(NAD / 100, NAD / 1_000, MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS + 1),
+        update(NAD / 1_000 - 1, NAD / 1_000, 18_000)] {
+        assert!(control.validate_manager_updates(&market, &[invalid]).is_err());
+    }
+    let mut live = controller_market(1_000_000, 1_000_000);
+    live.config.amm.peak_amplification_nad = 2 * NAD;
+    live.config.amm.core_half_width_bps = 100; live.config.amm.fade_width_bps = 400;
+    assert!(control.validate_manager_updates(&live, &[update(0, 0, 0)]).is_err());
+    let mut invalid_config = live.config;
+    invalid_config.amm.adjustment_threshold_nad = 0;
+    invalid_config.amm.adjustment_step_nad = 0;
+    invalid_config.amm.min_adjustment_interval_slots = 0;
+    assert!(invalid_config.validate().is_err());
+}
+
+#[test]
+fn manager_insurance_and_tranche_bands_are_not_reset_by_prior_changes() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.insurance.principal_coverage_bps = 4_000; market.insurance.per_day_draw_bps = 3_000;
+    market.tranche_policy.junior_income_share_bps = 5_000;
+    market.junior_exit_config.request_fee_bps = 10;
+    market.tranche_policy.liquidation_fee_bps = 100;
+    let control = manager_control_for(&market);
+    let insurance = |coverage, daily| MarketParameterUpdate::InsuranceDrawCaps {principal_coverage_bps: coverage, per_day_bps: daily};
+    let tranche = |share, request, liquidation| MarketParameterUpdate::Tranche {
+        junior_income_share_bps: share, request_fee_bps: request, liquidation_fee_bps: liquidation,
+    };
+    for (coverage, daily) in [(3_500, 2_500), (4_500, 3_500)] {
+        control.validate_manager_updates(&market, &[insurance(coverage, daily)]).unwrap();
+    }
+    for (coverage, daily) in [(3_499, 3_000), (4_501, 3_000), (4_000, 2_499), (4_000, 3_501)] {
+        assert!(control.validate_manager_updates(&market, &[insurance(coverage, daily)]).is_err());
+    }
+    for target in [tranche(4_000, 5, 75), tranche(6_000, 15, 125)] {
+        control.validate_manager_updates(&market, &[target]).unwrap();
+    }
+    for target in [tranche(3_999, 10, 100), tranche(6_001, 10, 100), tranche(5_000, 4, 100),
+        tranche(5_000, 16, 100), tranche(5_000, 10, 74), tranche(5_000, 10, 126)] {
+        assert!(control.validate_manager_updates(&market, &[target]).is_err());
+    }
+    market.tranche_policy.junior_income_share_bps = 6_000;
+    assert!(control.validate_manager_updates(&market, &[tranche(6_001, 10, 100)]).is_err());
+}
+
+#[test]
+fn manager_optional_fee_activation_and_disable_preserve_anchored_tuning() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    let control = manager_control_for(&market);
+    let off = market.config.fee_profile();
+    let mut on = off;
+    on.divergence_fee_share_cap_bps = 250; on.volatility_fee_share_cap_bps = 250;
+    on.divergence_fee_coefficient_nad = NAD; on.volatility_fee_coefficient_nad = NAD;
+    on.volatility_shock_cap_nad = NAD / 100; on.volatility_accumulator_cap_nad = NAD / 10;
+    control.validate_manager_updates(&market, &[MarketParameterUpdate::Fee(on)]).unwrap();
+    market.config.apply_fee_profile(on).unwrap();
+    let anchored = manager_control_for(&market);
+    anchored.validate_manager_updates(&market, &[MarketParameterUpdate::Fee(off)]).unwrap();
+    market.config.apply_fee_profile(off).unwrap();
+    anchored.validate_manager_updates(&market, &[MarketParameterUpdate::Fee(on)]).unwrap();
+    let mut endpoint = on;
+    endpoint.divergence_fee_coefficient_nad = 12 * NAD / 10;
+    anchored.validate_manager_updates(&market, &[MarketParameterUpdate::Fee(endpoint)]).unwrap();
+    on.divergence_fee_coefficient_nad = 12 * NAD / 10 + 1;
+    assert!(anchored.validate_manager_updates(&market, &[MarketParameterUpdate::Fee(on)]).is_err());
+    let mut inherited = invariant_market(1_000_000, 1_000_000);
+    inherited.config.divergence_fee_share_cap_bps = 300;
+    let control = manager_control_for(&inherited);
+    let mut activating = inherited.config.fee_profile();
+    activating.divergence_fee_coefficient_nad = NAD;
+    assert!(control.validate_manager_updates(&inherited, &[MarketParameterUpdate::Fee(activating)]).is_err());
+    inherited.config.divergence_fee_share_cap_bps = 0;
+    inherited.config.volatility_fee_share_cap_bps = 300;
+    let control = manager_control_for(&inherited);
+    activating = inherited.config.fee_profile();
+    activating.volatility_fee_coefficient_nad = NAD;
+    activating.volatility_shock_cap_nad = NAD / 100;
+    activating.volatility_accumulator_cap_nad = NAD / 10;
+    assert!(control.validate_manager_updates(&inherited, &[MarketParameterUpdate::Fee(activating)]).is_err());
 }

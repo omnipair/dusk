@@ -2420,6 +2420,41 @@ export type Dusk = {
           }
         },
         {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "proposal",
           "writable": true,
           "pda": {
@@ -2795,6 +2830,241 @@ export type Dusk = {
       ]
     },
     {
+      "name": "createManagerProposal",
+      "discriminator": [
+        116,
+        38,
+        83,
+        184,
+        172,
+        103,
+        148,
+        246
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "A distinct funded signer permits a program-derived manager to compose",
+            "proposals without requiring its authority account to be a System payer."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "manager",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "relations": [
+            "governanceControl"
+          ]
+        },
+        {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  97,
+                  109,
+                  101,
+                  116,
+                  101,
+                  114,
+                  95,
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "manager"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "ylpMint"
+        },
+        {
+          "name": "baseHlpYlpVault"
+        },
+        {
+          "name": "quoteHlpYlpVault"
+        },
+        {
+          "name": "removalBallot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "createManagerProposalArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "createParameterProposal",
       "discriminator": [
         124,
@@ -2845,6 +3115,41 @@ export type Dusk = {
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
               }
             ]
           }
@@ -4237,6 +4542,41 @@ export type Dusk = {
           }
         },
         {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "baseMint"
         },
         {
@@ -4245,6 +4585,120 @@ export type Dusk = {
         {
           "name": "proposal",
           "writable": true
+        },
+        {
+          "name": "ylpMint"
+        },
+        {
+          "name": "baseHlpYlpVault"
+        },
+        {
+          "name": "quoteHlpYlpVault"
+        },
+        {
+          "name": "removalBallot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "cancellationBallot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "proposal"
+              }
+            ]
+          }
         },
         {
           "name": "eventAuthority",
@@ -4279,7 +4733,12 @@ export type Dusk = {
           "name": "program"
         }
       ],
-      "args": []
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "parameterProposalStatus"
+        }
+      }
     },
     {
       "name": "fortifyMarket",
@@ -5757,6 +6216,41 @@ export type Dusk = {
           }
         },
         {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "futarchyAuthority",
           "pda": {
             "seeds": [
@@ -6842,6 +7336,152 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "addLiquidityArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "openRecoveryBallot",
+      "discriminator": [
+        93,
+        4,
+        250,
+        230,
+        198,
+        208,
+        189,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "relations": [
+            "governanceControl"
+          ]
+        },
+        {
+          "name": "governanceControl",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ballot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "arg",
+                "path": "target"
+              }
+            ]
+          }
+        },
+        {
+          "name": "targetProposal",
+          "optional": true
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "target",
+          "type": {
+            "defined": {
+              "name": "recoveryTarget"
             }
           }
         }
@@ -7968,6 +8608,41 @@ export type Dusk = {
           }
         },
         {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "proposal",
           "writable": true
         },
@@ -8011,6 +8686,292 @@ export type Dusk = {
         },
         {
           "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "refreshRecoveryBallot",
+      "discriminator": [
+        149,
+        241,
+        74,
+        207,
+        87,
+        11,
+        207,
+        27
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "relations": [
+            "governanceControl",
+            "ballot"
+          ]
+        },
+        {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ballot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "ballot.target",
+                "account": "recoveryBallot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "targetProposal",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "ylpMint"
+        },
+        {
+          "name": "baseHlpYlpVault"
+        },
+        {
+          "name": "quoteHlpYlpVault"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [],
+      "returns": "bool"
+    },
+    {
+      "name": "releaseRecoveryVote",
+      "discriminator": [
+        30,
+        170,
+        106,
+        181,
+        83,
+        253,
+        189,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "relations": [
+            "governanceControl",
+            "ballot"
+          ]
+        },
+        {
+          "name": "governanceControl",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ballot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "ballot.target",
+                "account": "recoveryBallot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "targetProposal",
+          "optional": true
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ballot"
+              },
+              {
+                "kind": "account",
+                "path": "vote.round",
+                "account": "recoveryVote"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rentRefund",
+          "writable": true
         }
       ],
       "args": []
@@ -8564,6 +9525,118 @@ export type Dusk = {
           }
         }
       ]
+    },
+    {
+      "name": "resolveManagerProposal",
+      "discriminator": [
+        115,
+        170,
+        74,
+        88,
+        212,
+        252,
+        196,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "relations": [
+            "governanceControl"
+          ]
+        },
+        {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "rentRefund",
+          "writable": true
+        },
+        {
+          "name": "manager",
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "cancel",
+          "type": "bool"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "parameterProposalStatus"
+        }
+      }
     },
     {
       "name": "rollIncomeEpoch",
@@ -9983,6 +11056,41 @@ export type Dusk = {
           "name": "market"
         },
         {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "proposal",
           "writable": true
         },
@@ -10094,6 +11202,41 @@ export type Dusk = {
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
               }
             ]
           }
@@ -11097,6 +12240,215 @@ export type Dusk = {
       ]
     },
     {
+      "name": "voteRecoveryBallot",
+      "discriminator": [
+        117,
+        2,
+        233,
+        211,
+        23,
+        162,
+        243,
+        3
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "relations": [
+            "governanceControl",
+            "ballot"
+          ]
+        },
+        {
+          "name": "governanceControl",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ballot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "ballot.target",
+                "account": "recoveryBallot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "sourceProposal",
+          "optional": true
+        },
+        {
+          "name": "targetProposal",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ballot"
+              },
+              {
+                "kind": "arg",
+                "path": "args.round"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ylpMint"
+        },
+        {
+          "name": "baseHlpYlpVault"
+        },
+        {
+          "name": "quoteHlpYlpVault"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "voteRecoveryBallotArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "withdrawAllCollateral",
       "docs": [
         "Sweeps both collateral balances and closes a debt-free borrow position.",
@@ -11485,7 +12837,44 @@ export type Dusk = {
           "signer": true
         },
         {
-          "name": "market"
+          "name": "market",
+          "relations": [
+            "governanceControl"
+          ]
+        },
+        {
+          "name": "governanceControl",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
         },
         {
           "name": "proposal",
@@ -11637,6 +13026,43 @@ export type Dusk = {
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "market"
+              }
+            ]
+          },
+          "relations": [
+            "governanceControl"
+          ]
+        },
+        {
+          "name": "governanceControl",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
               }
             ]
           }
@@ -12168,6 +13594,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "governanceControl",
+      "discriminator": [
+        5,
+        22,
+        163,
+        223,
+        237,
+        149,
+        90,
+        168
+      ]
+    },
+    {
       "name": "governanceSupport",
       "discriminator": [
         84,
@@ -12321,6 +13760,32 @@ export type Dusk = {
         63,
         132,
         148
+      ]
+    },
+    {
+      "name": "recoveryBallot",
+      "discriminator": [
+        10,
+        107,
+        98,
+        80,
+        184,
+        177,
+        106,
+        122
+      ]
+    },
+    {
+      "name": "recoveryVote",
+      "discriminator": [
+        168,
+        34,
+        66,
+        127,
+        132,
+        224,
+        19,
+        106
       ]
     },
     {
@@ -12794,6 +14259,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "managerChanged",
+      "discriminator": [
+        142,
+        97,
+        175,
+        220,
+        73,
+        27,
+        252,
+        56
+      ]
+    },
+    {
       "name": "marketCollateralDeposited",
       "discriminator": [
         41,
@@ -12937,6 +14415,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "proposalResolved",
+      "discriminator": [
+        252,
+        55,
+        181,
+        169,
+        236,
+        238,
+        0,
+        149
+      ]
+    },
+    {
       "name": "protocolAuctionConfigUpdated",
       "discriminator": [
         178,
@@ -13012,6 +14503,19 @@ export type Dusk = {
         7,
         154,
         156
+      ]
+    },
+    {
+      "name": "recoveryBallotChanged",
+      "discriminator": [
+        63,
+        146,
+        26,
+        76,
+        74,
+        126,
+        26,
+        173
       ]
     },
     {
@@ -13908,6 +15412,51 @@ export type Dusk = {
       "code": 6149,
       "name": "oracleReplay",
       "msg": "Oracle sequence or source observation regressed"
+    },
+    {
+      "code": 6150,
+      "name": "managerEpochMismatch",
+      "msg": "The manager authority or epoch is no longer current"
+    },
+    {
+      "code": 6151,
+      "name": "invalidManager",
+      "msg": "The elected manager is required"
+    },
+    {
+      "code": 6152,
+      "name": "managerPolicyExceeded",
+      "msg": "The change exceeds the fixed manager policy"
+    },
+    {
+      "code": 6153,
+      "name": "pendingBundleExists",
+      "msg": "A bundle is already pending in this market"
+    },
+    {
+      "code": 6154,
+      "name": "governanceCapacityExceeded",
+      "msg": "The bounded governance pending capacity is full"
+    },
+    {
+      "code": 6155,
+      "name": "recoveryVoteLocked",
+      "msg": "Governance ownership is still encumbered by a recovery ballot"
+    },
+    {
+      "code": 6156,
+      "name": "recoveryBallotInactive",
+      "msg": "The recovery ballot or its target is no longer active"
+    },
+    {
+      "code": 6157,
+      "name": "managerAnnouncementCooldown",
+      "msg": "Wait three days between manager announcements for this market"
+    },
+    {
+      "code": 6158,
+      "name": "launchSettingsImmutable",
+      "msg": "Launch-only settings are immutable after the market starts"
     }
   ],
   "types": [
@@ -15276,6 +16825,24 @@ export type Dusk = {
             }
           },
           {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "governanceAction"
+              }
+            }
+          },
+          {
+            "name": "conditions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "familyRevisionCondition"
+                }
+              }
+            }
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -15317,6 +16884,44 @@ export type Dusk = {
       }
     },
     {
+      "name": "createManagerProposalArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "expectedEpoch",
+            "type": "u64"
+          },
+          {
+            "name": "policyVersion",
+            "type": "u64"
+          },
+          {
+            "name": "updates",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "marketParameterUpdate"
+                }
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "proposalMetadataV1"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "createParameterProposalArgs",
       "type": {
         "kind": "struct",
@@ -15335,6 +16940,24 @@ export type Dusk = {
               "vec": {
                 "defined": {
                   "name": "marketParameterUpdate"
+                }
+              }
+            }
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "governanceAction"
+              }
+            }
+          },
+          {
+            "name": "conditions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "familyRevisionCondition"
                 }
               }
             }
@@ -15924,6 +17547,26 @@ export type Dusk = {
                 "name": "liquidationPositionState"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "familyRevisionCondition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "family",
+            "type": {
+              "defined": {
+                "name": "parameterFamily"
+              }
+            }
+          },
+          {
+            "name": "revision",
+            "type": "u64"
           }
         ]
       }
@@ -16585,6 +18228,30 @@ export type Dusk = {
       }
     },
     {
+      "name": "governanceAction",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "parameters"
+          },
+          {
+            "name": "appointManager",
+            "fields": [
+              {
+                "name": "manager",
+                "type": "pubkey"
+              },
+              {
+                "name": "expectedEpoch",
+                "type": "u64"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "governanceBalance",
       "docs": [
         "Owner-held virtual yLP. Both idle and committed shares accrue yield here."
@@ -16622,6 +18289,19 @@ export type Dusk = {
           {
             "name": "committedAmount",
             "type": "u64"
+          },
+          {
+            "name": "recoveryLocks",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "recoveryLock"
+                  }
+                },
+                8
+              ]
+            }
           },
           {
             "name": "baseYield",
@@ -16725,6 +18405,83 @@ export type Dusk = {
           {
             "name": "committedAmount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "governanceControl",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "managerEpoch",
+            "type": "u64"
+          },
+          {
+            "name": "baselineInitialized",
+            "type": "bool"
+          },
+          {
+            "name": "baselineConfig",
+            "docs": [
+              "Per-family LP-approved references, never an executable market snapshot."
+            ],
+            "type": {
+              "defined": {
+                "name": "marketConfig"
+              }
+            }
+          },
+          {
+            "name": "baselineInsurancePrincipalCoverageBps",
+            "type": "u16"
+          },
+          {
+            "name": "baselineInsurancePerDayBps",
+            "type": "u16"
+          },
+          {
+            "name": "baselineTranchePolicy",
+            "type": {
+              "defined": {
+                "name": "tranchePolicy"
+              }
+            }
+          },
+          {
+            "name": "baselineJuniorRequestFeeBps",
+            "type": "u16"
+          },
+          {
+            "name": "pending",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "pendingBundle"
+                }
+              }
+            }
+          },
+          {
+            "name": "hasManagerAnnouncement",
+            "type": "bool"
+          },
+          {
+            "name": "lastManagerAnnouncement",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -19695,6 +21452,26 @@ export type Dusk = {
       }
     },
     {
+      "name": "managerChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "market",
       "docs": [
         "Token amounts stored in reserves, positions, and shares are raw atoms.",
@@ -21136,6 +22913,41 @@ export type Dusk = {
       }
     },
     {
+      "name": "parameterFamily",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "fee"
+          },
+          {
+            "name": "concentration"
+          },
+          {
+            "name": "irm"
+          },
+          {
+            "name": "emaHalfLives"
+          },
+          {
+            "name": "dailyBorrowLimit"
+          },
+          {
+            "name": "centerController"
+          },
+          {
+            "name": "insurance"
+          },
+          {
+            "name": "oracle"
+          },
+          {
+            "name": "tranche"
+          }
+        ]
+      }
+    },
+    {
       "name": "parameterProposal",
       "type": {
         "kind": "struct",
@@ -21160,6 +22972,36 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "origin",
+            "type": {
+              "defined": {
+                "name": "proposalOrigin"
+              }
+            }
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "governanceAction"
+              }
+            }
+          },
+          {
+            "name": "rentRefund",
+            "type": "pubkey"
+          },
+          {
+            "name": "conditions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "familyRevisionCondition"
+                }
+              }
+            }
+          },
+          {
             "name": "updates",
             "docs": [
               "The families this proposal changes, one update each, in ascending",
@@ -21176,9 +23018,8 @@ export type Dusk = {
           {
             "name": "familyRevisions",
             "docs": [
-              "The revision of each updated family when the proposal was created; an",
-              "executed change to any of them makes this proposal stale. Families the",
-              "proposal does not update read zero."
+              "Full configuration snapshot sealed when a bundle becomes pending.",
+              "Collecting endorsements bind only their explicit revision conditions."
             ],
             "type": {
               "array": [
@@ -21197,6 +23038,15 @@ export type Dusk = {
           },
           {
             "name": "digest",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "executionDigest",
             "type": {
               "array": [
                 "u8",
@@ -21252,6 +23102,9 @@ export type Dusk = {
           },
           {
             "name": "queuedAt",
+            "docs": [
+              "Unix seconds for LP proposals, scheduled slots for manager proposals."
+            ],
             "type": "i64"
           },
           {
@@ -21289,6 +23142,41 @@ export type Dusk = {
           {
             "name": "nonce",
             "type": "u64"
+          },
+          {
+            "name": "origin",
+            "type": {
+              "defined": {
+                "name": "proposalOrigin"
+              }
+            }
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "governanceAction"
+              }
+            }
+          },
+          {
+            "name": "conditions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "familyRevisionCondition"
+                }
+              }
+            }
+          },
+          {
+            "name": "executionDigest",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "juniorGeneration",
@@ -21399,6 +23287,32 @@ export type Dusk = {
           {
             "name": "proposal",
             "type": "pubkey"
+          },
+          {
+            "name": "clock",
+            "type": {
+              "defined": {
+                "name": "proposalClock"
+              }
+            }
+          },
+          {
+            "name": "executionDigest",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "familyRevisions",
+            "type": {
+              "array": [
+                "u64",
+                9
+              ]
+            }
           },
           {
             "name": "totalLocked",
@@ -21514,6 +23428,42 @@ export type Dusk = {
           {
             "name": "status",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pendingBundle",
+      "docs": [
+        "The only queued change that may execute in this market. Collecting LP",
+        "proposals reserve nothing. LP majority can replace a manager's pending entry."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "origin",
+            "type": {
+              "defined": {
+                "name": "proposalOrigin"
+              }
+            }
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "governanceAction"
+              }
+            }
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
           }
         ]
       }
@@ -21982,6 +23932,20 @@ export type Dusk = {
       }
     },
     {
+      "name": "proposalClock",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "unixSeconds"
+          },
+          {
+            "name": "slots"
+          }
+        ]
+      }
+    },
+    {
       "name": "proposalMetadataV1",
       "type": {
         "kind": "struct",
@@ -22015,6 +23979,58 @@ export type Dusk = {
       }
     },
     {
+      "name": "proposalOrigin",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "lp"
+          },
+          {
+            "name": "manager",
+            "fields": [
+              {
+                "name": "epoch",
+                "type": "u64"
+              },
+              {
+                "name": "policyVersion",
+                "type": "u64"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "proposalResolved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "parameterProposalStatus"
+              }
+            }
+          },
+          {
+            "name": "resolvedAt",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "proposalSupport",
       "type": {
         "kind": "struct",
@@ -22030,6 +24046,19 @@ export type Dusk = {
           {
             "name": "lockedAmount",
             "type": "u64"
+          },
+          {
+            "name": "recoveryLocks",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "recoveryLock"
+                  }
+                },
+                8
+              ]
+            }
           },
           {
             "name": "baseYield",
@@ -22501,6 +24530,197 @@ export type Dusk = {
                 4
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "recoveryBallot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "recoveryTarget"
+              }
+            }
+          },
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "juniorGeneration",
+            "type": "u64"
+          },
+          {
+            "name": "seniorVotes",
+            "type": "u64"
+          },
+          {
+            "name": "juniorReceiptVotes",
+            "type": "u64"
+          },
+          {
+            "name": "openedAt",
+            "type": "i64"
+          },
+          {
+            "name": "endsAt",
+            "type": "i64"
+          },
+          {
+            "name": "passed",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recoveryBallotChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ballot",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "recoveryTarget"
+              }
+            }
+          },
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "seniorVotes",
+            "type": "u64"
+          },
+          {
+            "name": "juniorReceiptVotes",
+            "type": "u64"
+          },
+          {
+            "name": "juniorGeneration",
+            "type": "u64"
+          },
+          {
+            "name": "endsAt",
+            "type": "i64"
+          },
+          {
+            "name": "passed",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recoveryLock",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ballot",
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "until",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "recoveryTarget",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "cancelProposal",
+            "fields": [
+              {
+                "name": "proposal",
+                "type": "pubkey"
+              },
+              {
+                "name": "digest",
+                "type": {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "removeManager",
+            "fields": [
+              {
+                "name": "epoch",
+                "type": "u64"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "recoveryVote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ballot",
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "rentRefund",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -24291,6 +26511,22 @@ export type Dusk = {
       }
     },
     {
+      "name": "voteRecoveryBallotArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "withdrawAllCollateralArgs",
       "type": {
         "kind": "struct",
@@ -24644,6 +26880,15 @@ export type Dusk = {
       "value": "[105, 110, 115, 117, 114, 97, 110, 99, 101]"
     },
     {
+      "name": "juniorMaxNoticeSlots",
+      "docs": [
+        "Junior and manager notice share scheduled slots. Every manager bundle waits",
+        "the maximum junior notice plus one additional protocol day."
+      ],
+      "type": "u64",
+      "value": "4320000"
+    },
+    {
       "name": "leverageCollateralVaultSeedPrefix",
       "type": "bytes",
       "value": "[108, 101, 118, 101, 114, 97, 103, 101, 95, 99, 111, 108, 108, 97, 116, 101, 114, 97, 108]"
@@ -24711,6 +26956,31 @@ export type Dusk = {
       "name": "ltvBufferBps",
       "type": "u16",
       "value": "500"
+    },
+    {
+      "name": "managerAnnouncementCooldown",
+      "type": "i64",
+      "value": "259200"
+    },
+    {
+      "name": "managerExecutionWindowSlots",
+      "type": "u64",
+      "value": "3024000"
+    },
+    {
+      "name": "managerNoticeSlots",
+      "type": "u64",
+      "value": "4752000"
+    },
+    {
+      "name": "managerPendingLimit",
+      "type": "u8",
+      "value": "1"
+    },
+    {
+      "name": "managerPolicyVersion",
+      "type": "u64",
+      "value": "1"
     },
     {
       "name": "marketCollateralVaultSeedPrefix",
@@ -24868,6 +27138,11 @@ export type Dusk = {
       "name": "proposalSupportSeedPrefix",
       "type": "bytes",
       "value": "[112, 114, 111, 112, 111, 115, 97, 108, 95, 115, 117, 112, 112, 111, 114, 116]"
+    },
+    {
+      "name": "recoveryBallotWindow",
+      "type": "i64",
+      "value": "604800"
     },
     {
       "name": "referralAccrualSeedPrefix",

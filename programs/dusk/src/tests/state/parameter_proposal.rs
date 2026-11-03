@@ -115,7 +115,7 @@ fn metadata_enforces_every_serialized_bound_in_bytes() {
 }
 
 #[test]
-fn digest_binds_nonce_revisions_updates_and_metadata() {
+fn intent_binds_nonce_updates_conditions_and_metadata_without_starting_revisions() {
     let program = Pubkey::new_unique();
     let market = Pubkey::new_unique();
     let proposer = Pubkey::new_unique();
@@ -135,8 +135,9 @@ fn digest_binds_nonce_revisions_updates_and_metadata() {
     assert_ne!(expected, parameter_proposal_digest(program, market, proposer, 4, 1, &base_revisions, &updates, &metadata()).unwrap());
 
     assert_ne!(expected, digest(5, &base_revisions, &updates, &metadata()));
-    assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 10, 0, 3, 0, 0]), &updates, &metadata()));
-    assert_ne!(expected, digest(4, &revisions([0, 0, 0, 0, 9, 0, 4, 0, 0]), &updates, &metadata()));
+    assert_eq!(expected, digest(4, &revisions([0, 0, 0, 0, 10, 0, 3, 0, 0]), &updates, &metadata()));
+    assert_ne!(expected, proposal_intent_digest(program, market, proposer, 4, 0, ProposalOrigin::Lp, GovernanceAction::Parameters, &[FamilyRevisionCondition {family: ParameterFamily::DailyBorrowLimit, revision: 9}], &updates, &metadata()).unwrap());
+    assert_eq!(expected, digest(4, &revisions([0, 0, 0, 0, 9, 0, 4, 0, 0]), &updates, &metadata()));
     assert_ne!(expected, digest(4, &base_revisions, &[borrow_limit], &metadata()));
     assert_ne!(expected, digest(4, &base_revisions, &[caps.clone()], &metadata()));
     assert_ne!(
@@ -237,6 +238,11 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
         proposer: Pubkey::default(),
         nonce: 0,
         junior_generation: 0,
+        origin: ProposalOrigin::Lp,
+        action: GovernanceAction::Parameters,
+        rent_refund: Pubkey::default(),
+        conditions: Vec::new(),
+        execution_digest: [0; 32],
         updates: Vec::new(),
         family_revisions: [0; PARAMETER_FAMILY_COUNT],
         metadata: metadata(),
@@ -263,6 +269,8 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
             vec![MarketParameterUpdate::DailyBorrowLimit {
                 max_daily_borrow_bps: 1_000,
             }],
+            GovernanceAction::Parameters,
+            Vec::new(),
             metadata(),
             10_000,
             1,
@@ -295,6 +303,13 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
     );
 
     proposal.updates = created;
+    // Starting settings are not part of an unconditional endorsement. Once
+    // majority is reached, the distinct execution commitment freezes them.
+    proposal.family_revisions[4] = 4;
+    proposal.assert_account(market, proposal_key).unwrap();
+    proposal.total_locked = 6_000;
+    assert!(proposal.queue_if_supported(10_000, &TrancheCapital::default(), 2).unwrap());
+    proposal.seal_execution(&revisions([0, 0, 0, 0, 3, 0, 0, 0, 0])).unwrap();
     proposal.family_revisions[4] = 4;
     assert_eq!(
         proposal.assert_account(market, proposal_key).unwrap_err(),
@@ -310,12 +325,17 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
 }
 
 #[test]
-fn any_updated_family_changing_makes_the_proposal_stale() {
+fn collection_keeps_targets_then_queue_freezes_all_configuration_revisions() {
     let mut proposal = ParameterProposal {
         market: Pubkey::new_unique(),
         proposer: Pubkey::new_unique(),
         nonce: 1,
         junior_generation: 0,
+        origin: ProposalOrigin::Lp,
+        action: GovernanceAction::Parameters,
+        rent_refund: Pubkey::default(),
+        conditions: Vec::new(),
+        execution_digest: [0; 32],
         updates: vec![
             MarketParameterUpdate::Concentration {
                 peak_amplification_nad: 1,
@@ -350,6 +370,13 @@ fn any_updated_family_changing_makes_the_proposal_stale() {
     assert!(!proposal.mark_stale_if_revision_changed(&untouched_moved));
     assert_eq!(proposal.status, ParameterProposalStatus::Collecting);
 
+    let starting = proposal.family_revisions;
+    let moved_while_collecting = revisions([0, 2, 0, 0, 0, 7, 0, 0, 0]);
+    assert!(proposal.revisions_current(&moved_while_collecting));
+    proposal.total_locked = 1_001;
+    assert!(proposal.queue_if_supported(2_000, &TrancheCapital::default(), 2).unwrap());
+    proposal.seal_execution(&starting).unwrap();
+    assert!(!proposal.revisions_current(&revisions([0, 2, 9, 9, 9, 6, 9, 0, 0])));
     let center_moved = revisions([0, 2, 0, 0, 0, 7, 0, 0, 0]);
     assert!(!proposal.revisions_current(&center_moved));
     assert!(proposal.mark_stale_if_revision_changed(&center_moved));
@@ -390,6 +417,11 @@ fn queue_snapshots_support_then_expiry_makes_support_unlockable() {
         proposer: Pubkey::new_unique(),
         nonce: 1,
         junior_generation: 0,
+        origin: ProposalOrigin::Lp,
+        action: GovernanceAction::Parameters,
+        rent_refund: Pubkey::default(),
+        conditions: Vec::new(),
+        execution_digest: [0; 32],
         updates: vec![MarketParameterUpdate::DailyBorrowLimit {
             max_daily_borrow_bps: 1_000,
         }],
@@ -425,6 +457,11 @@ fn collecting_withdrawal_cancels_below_the_frozen_sponsorship_floor() {
         proposer: Pubkey::new_unique(),
         nonce: 2,
         junior_generation: 0,
+        origin: ProposalOrigin::Lp,
+        action: GovernanceAction::Parameters,
+        rent_refund: Pubkey::default(),
+        conditions: Vec::new(),
+        execution_digest: [0; 32],
         updates: vec![MarketParameterUpdate::Fee(FeeProfile::default())],
         family_revisions: [0; PARAMETER_FAMILY_COUNT],
         metadata: metadata(),
@@ -469,6 +506,11 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         proposer: Pubkey::new_unique(),
         nonce: u64::MAX,
         junior_generation: 0,
+        origin: ProposalOrigin::Manager { epoch: u64::MAX, policy_version: u64::MAX },
+        action: GovernanceAction::AppointManager { manager: Pubkey::new_unique(), expected_epoch: u64::MAX },
+        rent_refund: Pubkey::default(),
+        conditions: ParameterFamily::ALL.into_iter().map(|family| FamilyRevisionCondition { family, revision: u64::MAX }).collect(),
+        execution_digest: [0; 32],
         updates: vec![max_update; MAX_PARAMETER_UPDATES_PER_PROPOSAL],
         family_revisions: [u64::MAX; PARAMETER_FAMILY_COUNT],
         metadata: max_metadata.clone(),
@@ -489,6 +531,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         proposal: Pubkey::new_unique(),
         supporter: Pubkey::new_unique(),
         locked_amount: u64::MAX,
+        recovery_locks: [crate::state::RecoveryLock::default(); crate::state::MAX_RECOVERY_LOCKS],
         base_yield: VirtualYieldLedger {
             swap_fee_checkpoint_q64: u128::MAX,
             interest_checkpoint_q64: u128::MAX,
@@ -509,28 +552,31 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     };
 
     assert_eq!(proposal.try_to_vec().unwrap().len(), ParameterProposal::INIT_SPACE);
-    assert_eq!(ParameterProposal::INIT_SPACE, 2_313);
+    assert_eq!(ParameterProposal::INIT_SPACE, 2_520);
     // A finished proposal keeps only its tombstone discriminator.
     assert_eq!(
         crate::account::get_size_with_discriminator::<crate::state::ParameterProposalTombstone>(),
-        8
+        114
     );
     assert_eq!(support.try_to_vec().unwrap().len(), ProposalSupport::INIT_SPACE);
-    assert_eq!(ProposalSupport::INIT_SPACE, 201);
+    assert_eq!(ProposalSupport::INIT_SPACE, 649);
 
     let proposer = proposal.proposer;
     let args = CreateParameterProposalArgs {
         nonce: proposal.nonce,
         updates: every_family_update(),
+        action: GovernanceAction::Parameters,
+        conditions: Vec::new(),
         metadata: max_metadata,
         initial_support: u64::MAX,
     };
     let instruction_data = crate::instruction::CreateParameterProposal { args }.data();
-    assert_eq!(instruction_data.len(), 777);
+    assert_eq!(instruction_data.len(), 782);
 
     let account_metas = crate::accounts::CreateParameterProposal {
         proposer,
         market: proposal.market,
+        governance_control: Pubkey::new_unique(),
         proposal: Pubkey::new_unique(),
         proposal_support: support.proposal,
         ylp_mint: Pubkey::new_unique(),
@@ -545,16 +591,16 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         program: crate::ID,
     }
     .to_account_metas(None);
-    assert_eq!(account_metas.len(), 14);
+    assert_eq!(account_metas.len(), 15);
 
     let instruction = anchor_lang::solana_program::instruction::Instruction {
         program_id: crate::ID, accounts: account_metas, data: instruction_data,
     };
     let message = anchor_lang::solana_program::message::Message::new(&[instruction.clone()], Some(&proposer));
     assert_eq!(message.header.num_required_signatures, 1);
-    assert_eq!(message.account_keys.len(), 14);
+    assert_eq!(message.account_keys.len(), 15);
     let message_size = bincode::serialize(&message).unwrap().len();
-    assert_eq!(message_size, 1_280);
+    assert_eq!(message_size, 1_318);
     // The maximal eight-family payload uses the standard v0 lookup-table
     // path. Ordinary smaller proposals remain usable as legacy transactions.
     assert!(1 + 64 + message_size > 1_232);
@@ -575,6 +621,11 @@ fn lifecycle_boundaries_keep_support_frozen_through_the_deadline() {
         proposer: Pubkey::new_unique(),
         nonce: 3,
         junior_generation: 0,
+        origin: ProposalOrigin::Lp,
+        action: GovernanceAction::Parameters,
+        rent_refund: Pubkey::default(),
+        conditions: Vec::new(),
+        execution_digest: [0; 32],
         updates: vec![MarketParameterUpdate::Irm(IrmConfig::default())],
         family_revisions: revisions([0, 0, 5, 0, 0, 0, 0, 0, 0]),
         metadata: metadata(),
@@ -635,6 +686,7 @@ fn governance_balance_authority_and_available_shares_are_owner_scoped() {
     let lp_mint = Pubkey::new_unique();
     let (key, bump) = Pubkey::find_program_address(&[GOVERNANCE_BALANCE_SEED_PREFIX, market.as_ref(), owner.as_ref(), lp_mint.as_ref()], &crate::ID);
     let mut balance = GovernanceBalance { market, owner, lp_mint, token_kind: crate::state::GovernanceTokenKind::Senior.code(), delegate, total_amount: 100, committed_amount: 0,
+        recovery_locks: [crate::state::RecoveryLock::default(); crate::state::MAX_RECOVERY_LOCKS],
         base_yield: VirtualYieldLedger::default(), quote_yield: VirtualYieldLedger::default(), bump };
     balance.assert_account(market, key).unwrap();
     assert!(balance.assert_account(Pubkey::new_unique(), key).is_err());
@@ -659,6 +711,11 @@ fn junior_governance_power_tracks_live_first_loss_backing() {
         proposer: Pubkey::new_unique(),
         nonce: 4,
         junior_generation: 0,
+        origin: ProposalOrigin::Lp,
+        action: GovernanceAction::Parameters,
+        rent_refund: Pubkey::default(),
+        conditions: Vec::new(),
+        execution_digest: [0; 32],
         updates: vec![MarketParameterUpdate::Fee(FeeProfile::default())],
         family_revisions: [0; PARAMETER_FAMILY_COUNT],
         metadata: metadata(),
@@ -696,6 +753,11 @@ fn junior_support_remains_bound_to_its_original_cohort() {
         proposer: Pubkey::new_unique(),
         nonce: 8,
         junior_generation: 0,
+        origin: ProposalOrigin::Lp,
+        action: GovernanceAction::Parameters,
+        rent_refund: Pubkey::default(),
+        conditions: Vec::new(),
+        execution_digest: [0; 32],
         updates: vec![MarketParameterUpdate::DailyBorrowLimit {
             max_daily_borrow_bps: 1,
         }],

@@ -7,6 +7,8 @@ mod support;
 
 pub use proposal::*;
 pub use support::*;
+mod manager;
+pub use manager::*;
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount};
@@ -154,6 +156,34 @@ pub(crate) fn direct_ylp_eligible_supply(
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
+/// New markets may not yet have hLP custody accounts. Their exact canonical
+/// addresses can prove zero custody; initialized accounts retain full checks.
+pub(crate) fn governance_eligible_from_accounts(
+    market: &Account<Market>,
+    ylp_mint: &InterfaceAccount<Mint>,
+    base_hlp_ylp_vault: &UncheckedAccount,
+    quote_hlp_ylp_vault: &UncheckedAccount,
+) -> Result<u64> {
+    validate_market_pda(market, market.key())?;
+    require_keys_eq!(market.ylp_mint, ylp_mint.key(), ErrorCode::InvalidLpMintKey);
+    validate_lp_mint(ylp_mint, market.key(), market.base_side.asset_decimals)?;
+    let base = proposal::governance_vault_amount(
+        market,
+        ylp_mint,
+        base_hlp_ylp_vault,
+        market.base_hlp_vault.ylp_vault,
+        market.base_hlp_vault.ylp_shares,
+    )?;
+    let quote = proposal::governance_vault_amount(
+        market,
+        ylp_mint,
+        quote_hlp_ylp_vault,
+        market.quote_hlp_vault.ylp_vault,
+        market.quote_hlp_vault.ylp_shares,
+    )?;
+    direct_ylp_eligible_supply(market, ylp_mint.supply, base, quote)
+}
+
 pub(crate) fn validate_supporter_accounts(
     market: &Account<Market>,
     supporter: Pubkey,
@@ -190,7 +220,7 @@ pub(super) fn save_released_proposal(
     info: &AccountInfo,
     proposer: &AccountInfo,
 ) -> Result<()> {
-    if proposal.support_is_empty() {
+    if proposal.support_is_empty() && proposal.terminal() {
         use crate::{account::get_size_with_discriminator, state::ParameterProposalTombstone};
         let space = get_size_with_discriminator::<ParameterProposalTombstone>();
         let refund = info
@@ -198,8 +228,15 @@ pub(super) fn save_released_proposal(
             .checked_sub(Rent::get()?.minimum_balance(space))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         info.realloc(space, false)?;
-        info.try_borrow_mut_data()?
-            .copy_from_slice(ParameterProposalTombstone::DISCRIMINATOR);
+        ParameterProposalTombstone {
+            market: proposal.market,
+            proposer: proposal.proposer,
+            nonce: proposal.nonce,
+            digest: proposal.digest,
+            status: proposal.status,
+            bump: proposal.bump,
+        }
+        .try_serialize(&mut &mut info.try_borrow_mut_data()?[..])?;
         info.sub_lamports(refund)?;
         proposer.add_lamports(refund)?;
     } else {
@@ -207,3 +244,118 @@ pub(super) fn save_released_proposal(
     }
     Ok(())
 }
+
+pub(super) fn validate_governance_action(
+    market: &Market,
+    control: &crate::state::GovernanceControl,
+    action: crate::state::GovernanceAction,
+    updates: &[crate::state::MarketParameterUpdate],
+) -> Result<()> {
+    match action {
+        crate::state::GovernanceAction::Parameters => {
+            market.assert_launch_settings_unchanged_after_start(updates, Clock::get()?.unix_timestamp)?;
+            market.validate_parameter_updates(updates)?;
+        }
+        crate::state::GovernanceAction::AppointManager {
+            manager,
+            expected_epoch,
+        } => {
+            require!(
+                updates.is_empty() && manager != Pubkey::default(),
+                ErrorCode::InvalidParameterProposal
+            );
+            require_eq!(expected_epoch, control.manager_epoch, ErrorCode::ManagerEpochMismatch);
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn effective_parameter_updates(
+    market: &Market,
+    updates: &[crate::state::MarketParameterUpdate],
+) -> Vec<crate::state::MarketParameterUpdate> {
+    updates
+        .iter()
+        .filter(|update| market.current_parameter_update(update.family()) != **update)
+        .cloned()
+        .collect()
+}
+
+pub(super) fn queue_supported_proposal(
+    proposal: &mut crate::state::ParameterProposal,
+    key: Pubkey,
+    control: &mut crate::state::GovernanceControl,
+    market: &Market,
+    eligible_supply: u64,
+    now: i64,
+) -> Result<bool> {
+    require!(
+        proposal.revisions_current(&market.parameter_revisions),
+        ErrorCode::ProposalStale
+    );
+    if !crate::state::has_strict_support_majority(proposal.current_support(&market.tranches)?, eligible_supply)? {
+        return Ok(false);
+    }
+    match proposal.action {
+        crate::state::GovernanceAction::Parameters => {
+            market.assert_launch_settings_unchanged_after_start(&proposal.updates, now)?;
+            let effective = effective_parameter_updates(market, &proposal.updates);
+            if !effective.is_empty() {
+                market.validate_parameter_updates(&effective)?;
+            }
+        }
+        action => validate_governance_action(market, control, action, &proposal.updates)?,
+    }
+    let queued = proposal.queue_if_supported(eligible_supply, &market.tranches, now)?;
+    proposal.seal_execution(&market.parameter_revisions)?;
+    control.queue_lp(proposal.pending_bundle(key), &Clock::get()?)?;
+    Ok(queued)
+}
+
+mod recovery;
+pub use recovery::*;
+
+pub(super) fn created_event(
+    proposal: &crate::state::ParameterProposal,
+    key: Pubkey,
+    support: u64,
+) -> crate::events::ParameterProposalCreated {
+    crate::events::ParameterProposalCreated {
+        proposal: key,
+        market: proposal.market,
+        proposer: proposal.proposer,
+        nonce: proposal.nonce,
+        origin: proposal.origin,
+        action: proposal.action,
+        conditions: proposal.conditions.clone(),
+        execution_digest: proposal.execution_digest,
+        junior_generation: proposal.junior_generation,
+        family_revisions: proposal.family_revisions,
+        digest: proposal.digest,
+        sponsorship_floor: proposal.sponsorship_floor,
+        initial_support: support,
+        status: proposal.status.code(),
+        updates: proposal.updates.clone(),
+        metadata: proposal.metadata.clone(),
+    }
+}
+
+pub(super) fn queued_event(
+    proposal: &crate::state::ParameterProposal,
+    key: Pubkey,
+) -> crate::events::ParameterProposalQueued {
+    crate::events::ParameterProposalQueued {
+        proposal: key,
+        clock: proposal.origin.clock_kind(),
+        execution_digest: proposal.execution_digest,
+        family_revisions: proposal.family_revisions,
+        total_locked: proposal.queued_support,
+        eligible_supply: proposal.queued_eligible_ylp,
+        queued_at: proposal.queued_at,
+        execute_after: proposal.execute_after,
+        execution_deadline: proposal.execution_deadline,
+    }
+}
+
+mod manager_submit;
+pub use manager_submit::*;

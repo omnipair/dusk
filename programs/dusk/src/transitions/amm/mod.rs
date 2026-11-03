@@ -1788,7 +1788,7 @@ impl Market {
         } else {
             0
         };
-        let mut integrated = Box::new(if let Some(curve) = self.bounded_curve()? {
+        let integrated = Box::new(if let Some(curve) = self.bounded_curve()? {
             self.quote_oracle_integrated(
                 &curve,
                 *state,
@@ -1856,7 +1856,7 @@ impl Market {
         self.finish_concentrated_swap(
             state,
             &geometry,
-            &mut integrated,
+            integrated,
             asset_in,
             reserve_credit,
             preliminary,
@@ -1874,7 +1874,7 @@ impl Market {
         &self,
         state: &IntegratedCurveState,
         geometry: &ConcentratedCurveGeometry,
-        integrated: &mut IntegratedFrozenFeeQuote,
+        mut integrated: Box<IntegratedFrozenFeeQuote>,
         asset_in: MarketAsset,
         reserve_credit: u64,
         preliminary: PreliminarySwapInputs,
@@ -2015,7 +2015,7 @@ impl Market {
             self.config.amm.volatility_cap_nad,
         )?;
         let mut quote = Box::new(ConcentratedIntegratedAmmQuote {
-            integrated: *integrated,
+            integrated,
             amount_out,
             gross_amount_out,
             start_price_nad,
@@ -2366,9 +2366,11 @@ pub struct AmmSwapQuote {
     pub recovery: HlpRecoveryBreakdown,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ConcentratedIntegratedAmmQuote {
-    pub integrated: IntegratedFrozenFeeQuote,
+    // Retain the already allocated result rather than allocating and copying
+    // its 704-byte body a second time on the SBF bump heap.
+    pub integrated: Box<IntegratedFrozenFeeQuote>,
     pub amount_out: u64,
     pub gross_amount_out: u64,
     pub start_price_nad: u64,
@@ -2384,7 +2386,7 @@ pub(crate) struct ConcentratedIntegratedAmmQuote {
 }
 
 impl ConcentratedIntegratedAmmQuote {
-    pub(crate) fn as_swap_quote(self, asset_in: MarketAsset) -> AmmSwapQuote {
+    pub(crate) fn as_swap_quote(&self, asset_in: MarketAsset) -> AmmSwapQuote {
         AmmSwapQuote {
             asset_in,
             amount_out: self.amount_out,

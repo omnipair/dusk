@@ -21,7 +21,9 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCreated, MarketEventMetadata},
     generate_market_seeds,
-    state::{FutarchyAuthority, Market, MarketConfig, MarketSide, OraclePolicy},
+    state::{
+        FutarchyAuthority, GovernanceControl, Market, MarketConfig, MarketSide, OraclePolicy, GOVERNANCE_CONTROL_SEED,
+    },
     token::create_token_account,
 };
 
@@ -130,6 +132,9 @@ pub struct InitializeMarket<'info> {
         bump
     )]
     pub market: Box<Account<'info, Market>>,
+
+    #[account(init, payer = payer, space = get_size_with_discriminator::<GovernanceControl>(), seeds = [GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump)]
+    pub governance_control: Box<Account<'info, GovernanceControl>>,
 
     #[account(
         seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX],
@@ -458,6 +463,18 @@ impl<'info> InitializeMarket<'info> {
             ctx.bumps.market,
         )?;
         ctx.accounts.market.oracle.policy = args.oracle.unwrap_or_default();
+        ctx.accounts
+            .governance_control
+            .initialize_if_needed(market_key, ctx.bumps.governance_control)?;
+        ctx.accounts
+            .governance_control
+            .initialize_baseline(&ctx.accounts.market);
+        ctx.accounts.governance_control.replace_manager(payer_key, 0)?;
+        emit_cpi!(crate::instructions::ManagerChanged {
+            market: market_key,
+            manager: payer_key,
+            epoch: ctx.accounts.governance_control.manager_epoch,
+        });
 
         // Either all three LP metadata accounts exist with the market or none
         // of them do. No caller can assign branding after the first LP mint.

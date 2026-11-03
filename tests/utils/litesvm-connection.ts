@@ -2,9 +2,9 @@ import { PublicKey, Connection, Commitment, TransactionConfirmationStrategy, Rpc
 import { LiteSVM } from "litesvm";
 import { recordTransactionComputeUnits } from "./instruction-coverage.js";
 
-export type MeasuredTransaction = {
+export type MeasuredTransaction<T extends Transaction | VersionedTransaction = Transaction> = {
   signature: string;
-  transaction: Transaction;
+  transaction: T;
   computeUnits: bigint;
 };
 
@@ -115,13 +115,16 @@ export class LiteSVMConnection extends Connection {
     return "signature";
   }
 
-  async sendTransactionMeasured(
-    transaction: Transaction,
+  async sendTransactionMeasured<T extends Transaction | VersionedTransaction>(
+    transaction: T,
     signers: Signer[],
     options?: SendOptions
-  ): Promise<MeasuredTransaction> {
+  ): Promise<MeasuredTransaction<T>> {
     const sampleCountBefore = this.computeUnitSamples.length;
-    const signature = await this.sendTransaction(transaction, signers, options);
+    if (transaction instanceof VersionedTransaction && signers.length > 0) transaction.sign(signers);
+    const signature = transaction instanceof Transaction
+      ? await this.sendTransaction(transaction, signers, options)
+      : await this.sendTransaction(transaction, options);
     if (this.computeUnitSamples.length !== sampleCountBefore + 1) {
       throw new Error("LiteSVM did not record exactly one compute sample for the submitted transaction");
     }

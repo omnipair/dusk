@@ -583,6 +583,10 @@ acceptedOneUseHelpers.set("programs/dusk/src/transitions/oracle.rs", new Set(["r
 // SPL hook resolution owns dynamic seed indexing and privilege de-escalation;
 // it is differential-tested against SPL and isolated from token CPI plumbing.
 acceptedOneUseHelpers.set("programs/dusk/src/token.rs", new Set(["add_transfer_hook_accounts"]));
+// Recovery votes authenticate and encumber either a reusable balance or a
+// direct support account in one deserialization frame. Keep this separate
+// from ballot mutation; both source kinds are exercised through real accounts.
+acceptedOneUseHelpers.set("programs/dusk/src/instructions/governance/recovery.rs", new Set(["encumber_source"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
 );

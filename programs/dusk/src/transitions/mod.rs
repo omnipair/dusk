@@ -27,3 +27,5 @@ pub use liquidity::{AddLiquidityReceipt, HlpRebalanceReceipt, HlpYieldEligibilit
 
 pub(crate) mod oracle;
 pub mod tranches;
+
+pub(crate) mod manager_policy;

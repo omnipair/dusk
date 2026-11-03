@@ -86,7 +86,7 @@ export function parameterProposalLookupTablePlan(params: {
     initializeMarketInstruction: params.proposalInstruction});
 }
 
-/** All eight parameter families plus maximum metadata need address lookup
+/** Maximum parameter bundles plus metadata may need address lookup
  * tables. The wire-size check includes signatures and compute instructions. */
 export function parameterProposalV0Transaction(params: {
   payer: PublicKey;

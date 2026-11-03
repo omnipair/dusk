@@ -1002,6 +1002,8 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
                 core_half_width_bps: if amp > 1 { 1_000 } else { 0 },
                 fade_width_bps: if amp > 1 { 4_000 } else { 0 },
                 center_ema_half_life_ms: 60_000, volatility_half_life_ms: 60_000,
+                adjustment_threshold_nad: NAD / 100, adjustment_step_nad: NAD / 1_000,
+                min_adjustment_interval_slots: crate::state::MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS,
                 ..AmmConfig::default() },
             irm: IrmConfig::default(), ..MarketConfig::default()
          };

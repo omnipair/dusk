@@ -11,6 +11,10 @@ import {
   canonicalParameterUpdates,
   centerControllerParameterUpdate,
   computeParameterProposalDigest,
+  computeDecodedExecutionDigest,
+  verifyDecodedExecutionDigest,
+  anchorGovernanceAction,
+  anchorRevisionConditions,
   concentrationParameterUpdate,
   createProposalMetadata,
   dailyBorrowLimitParameterUpdate,
@@ -30,12 +34,13 @@ import {
 import { deriveYieldAccountAddress } from "../dist/constants.js";
 import IDL from "../dist/idl_v2.js";
 import { DuskGovernance } from "../dist/governance-client.js";
-import { deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress } from "../dist/constants.js";
+import { deriveGovernanceBalanceAddress, deriveGovernanceSupportAddress, deriveGovernanceControlAddress, deriveCancellationBallotAddress, deriveRemovalBallotAddress } from "../dist/constants.js";
+import { deriveRecoveryBallotAddress, deriveRecoveryVoteAddress, decodeProposalOutcome, MANAGER_POLICY_VERSION, MANAGER_PENDING_LIMIT, MANAGER_ANNOUNCEMENT_COOLDOWN_SECONDS, RECOVERY_BALLOT_WINDOW_SECONDS, JUNIOR_MAX_NOTICE_SLOTS, MANAGER_NOTICE_SLOTS, MANAGER_EXECUTION_WINDOW_SLOTS, proposalClockUnit } from "../dist/management.js";
 import { parameterProposalV0Transaction } from "../dist/market-launch.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 1_352;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_390;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -259,7 +264,7 @@ const updatesBytes = Buffer.concat([
 ]);
 const metadataBytes = program.coder.types.encode("proposalMetadataV1", verifiedMetadata);
 const u64Le = (value) => new anchor.BN(value.toString()).toArrayLike(Buffer, "le", 8);
-assert.equal(PARAMETER_PROPOSAL_DIGEST_DOMAIN, "DUSK_PARAMETER_PROPOSAL_V3");
+assert.equal(PARAMETER_PROPOSAL_DIGEST_DOMAIN, "DUSK_PARAMETER_PROPOSAL_V4");
 const expectedDigest = createHash("sha256")
   .update(
     Buffer.concat([
@@ -269,7 +274,9 @@ const expectedDigest = createHash("sha256")
       keys[0].toBuffer(),
       u64Le(digestNonce),
       u64Le(0),
-      ...familyRevisions.map(u64Le),
+      Buffer.from([0]), // LP origin
+      Buffer.from([0]), // parameter action
+      Buffer.alloc(4), // no explicitly endorsed revision conditions
       updatesBytes,
       metadataBytes,
     ])
@@ -407,3 +414,100 @@ assert.equal(oldRevoke.governanceBalance.toString(), retiredBalance.toString());
 const nextGenerationDigest = await computeParameterProposalDigest({ programId: program.programId, market: keys[1], proposer: keys[0],
   nonce: digestNonce, juniorGeneration: 1, familyRevisions, updates: everyFamily, metadata: verifiedMetadata });
 assert.notDeepEqual(Buffer.from(nextGenerationDigest), expectedDigest);
+
+// Starting settings do not alter an endorsement; explicit conditions do.
+const intentInput = {programId: program.programId, market: keys[1], proposer: keys[0], nonce: 7,
+  juniorGeneration: 0, updates: [dailyBorrowLimitParameterUpdate(1_900)], metadata: verifiedMetadata};
+const stableIntent = await computeParameterProposalDigest({...intentInput, familyRevisions: marketRevisions});
+assert.deepEqual(await computeParameterProposalDigest({...intentInput, familyRevisions: marketRevisions.map(value => value + 1)}), stableIntent);
+assert.notDeepEqual(await computeParameterProposalDigest({...intentInput, conditions: [{family: 4, revision: 15}]}), stableIntent);
+await assert.rejects(computeParameterProposalDigest({...intentInput, conditions: [{family: 4, revision: 15}, {family: 4, revision: 16}]}), /duplicate/);
+
+const origin = {kind: "manager", epoch: 7, policyVersion: 1};
+const conditions = [{family: 4, revision: 15}];
+const managedIntent = await computeParameterProposalDigest({...intentInput, origin, conditions});
+const encodedConditions = anchorRevisionConditions(conditions);
+const encodedUpdates = intentInput.updates.map(anchorParameterUpdate);
+const expectedManagedIntent = createHash("sha256").update(Buffer.concat([
+  Buffer.from(PARAMETER_PROPOSAL_DIGEST_DOMAIN), program.programId.toBuffer(), keys[1].toBuffer(), keys[0].toBuffer(),
+  u64Le(7), u64Le(0), program.coder.types.encode("proposalOrigin", {manager: {epoch: new anchor.BN(7), policyVersion: new anchor.BN(1)}}),
+  program.coder.types.encode("governanceAction", anchorGovernanceAction()),
+  Buffer.from([1, 0, 0, 0]), program.coder.types.encode("familyRevisionCondition", encodedConditions[0]),
+  Buffer.from([1, 0, 0, 0]), program.coder.types.encode("marketParameterUpdate", encodedUpdates[0]), metadataBytes,
+])).digest();
+assert.deepEqual(Buffer.from(managedIntent), expectedManagedIntent);
+const decoded = {market: keys[1], proposer: keys[0], nonce: new anchor.BN(7), juniorGeneration: new anchor.BN(0),
+  origin: {manager: {epoch: new anchor.BN(7), policyVersion: new anchor.BN(1)}}, action: {parameters: {}},
+  conditions: encodedConditions, updates: encodedUpdates, metadata: verifiedMetadata, digest: managedIntent,
+  familyRevisions: [0, 0, 0, 0, 15, 0, 0, 0, 0].map(value => new anchor.BN(value)),
+  queuedSupport: new anchor.BN(0), queuedEligibleYlp: new anchor.BN(0), queuedAt: new anchor.BN(100),
+  executeAfter: new anchor.BN(604_900), executionDeadline: new anchor.BN(1_209_700)};
+const expectedExecution = createHash("sha256").update(Buffer.concat([
+  Buffer.from("DUSK_PARAMETER_EXECUTION_V2"), expectedManagedIntent,
+  ...decoded.familyRevisions.map(u64Le), u64Le(0), u64Le(0), u64Le(100), u64Le(604_900), u64Le(1_209_700),
+])).digest();
+assert.deepEqual(Buffer.from(await computeDecodedExecutionDigest(program.programId, decoded)), expectedExecution);
+assert.equal(await verifyDecodedExecutionDigest(program.programId, {...decoded, executionDigest: expectedExecution}), true);
+assert.equal(await verifyDecodedExecutionDigest(program.programId, {...decoded, executionDigest: expectedExecution, executeAfter: new anchor.BN(604_901)}), false);
+
+program.account.governanceControl.fetchNullable = async () => ({manager: keys[7], managerEpoch: new anchor.BN(7)});
+const election = await governance.electManager({market: keys[1], proposer: keys[0], manager: keys[7], nonce: 91,
+  metadata: verifiedMetadata, contributions: [{owner: keys[0], amount: 1_000}]});
+const electionArgs = program.coder.instruction.decode(election.instruction.data).data.args;
+assert.deepEqual(electionArgs.updates, []);
+assert.equal(electionArgs.action.appointManager.expectedEpoch.toString(), "7");
+assert.equal(electionArgs.action.appointManager.manager.toString(), keys[7].toString());
+const managerProposal = await governance.proposeAsManager({market: keys[1], manager: keys[7], payer: keys[0], nonce: 92,
+  updates: everyFamily.filter(value => value.kind !== "oracle"), metadata});
+const managerArgs = program.coder.instruction.decode(managerProposal.instruction.data).data.args;
+assert.equal(managerArgs.expectedEpoch.toString(), "7");
+assert.equal(managerArgs.policyVersion.toString(), String(MANAGER_POLICY_VERSION));
+assert.equal(managerArgs.updates.length, 8);
+assert.equal(managerProposal.instruction.keys.filter(key => key.isSigner).length, 2);
+assert(managerProposal.instruction.keys.some(key => key.pubkey.equals(deriveGovernanceControlAddress(keys[1], program.programId)[0])));
+const managerLookup = new AddressLookupTableAccount({key: keys[8], state: {deactivationSlot: 0xffff_ffff_ffff_ffffn,
+  lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, authority: keys[0],
+  addresses: managerProposal.instruction.keys.filter(key => !key.isSigner).map(key => key.pubkey)}});
+const managerV0 = parameterProposalV0Transaction({payer: keys[0], recentBlockhash: keys[9].toBase58(),
+  proposalInstruction: managerProposal.instruction, lookupTables: [managerLookup]});
+assert(managerV0.serialize().length <= SOLANA_TRANSACTION_LIMIT);
+await assert.rejects(governance.proposeAsManager({market: keys[1], manager: keys[7], payer: keys[0], nonce: 93,
+  updates: [everyFamily.find(value => value.kind === "oracle")], metadata: verifiedMetadata}), /oracle/);
+
+const cancellationTarget = {kind: "cancelProposal", proposal: managerProposal.proposal, digest: managedIntent};
+const cancellationPda = (await deriveRecoveryBallotAddress(keys[1], cancellationTarget, program.programId))[0];
+assert(cancellationPda.equals(deriveCancellationBallotAddress(keys[1], managerProposal.proposal, program.programId)[0]));
+const removalPda = (await deriveRecoveryBallotAddress(keys[1], {kind: "removeManager", epoch: 7}, program.programId))[0];
+assert(removalPda.equals(deriveRemovalBallotAddress(keys[1], program.programId)[0]));
+assert(removalPda.equals((await deriveRecoveryBallotAddress(keys[1], {kind: "removeManager", epoch: 9}, program.programId))[0]));
+assert(!deriveRecoveryVoteAddress(removalPda, 0, balanceAddress, program.programId)[0].equals(deriveRecoveryVoteAddress(removalPda, 1, balanceAddress, program.programId)[0]));
+const opened = await governance.openRecoveryBallot({market: keys[1], payer: keys[0], target: cancellationTarget});
+assert(opened.ballot.equals(cancellationPda));
+program.account.recoveryBallot.fetch = async () => ({target: {cancelProposal: {proposal: managerProposal.proposal, digest: Array.from(managedIntent)}}, round: new anchor.BN(3)});
+const recoveryVote = await governance.voteRecovery({market: keys[1], ballot: cancellationPda, source: balanceAddress,
+  authority: keys[0], payer: keys[0], amount: 100});
+assert(recoveryVote.vote.equals(deriveRecoveryVoteAddress(cancellationPda, 3, balanceAddress, program.programId)[0]));
+assert.equal(program.coder.instruction.decode(recoveryVote.instruction.data).data.args.round.toString(), "3");
+const releasedVote = await governance.releaseRecoveryVote({market: keys[1], ballot: cancellationPda, source: balanceAddress, round: 2, rentRefund: keys[0]});
+assert(releasedVote.instruction.keys.some(key => key.pubkey.equals(deriveRecoveryVoteAddress(cancellationPda, 2, balanceAddress, program.programId)[0])));
+for (const [index, status] of ["collecting", "queued", "executed", "cancelled", "expired", "stale"].entries()) assert.equal(decodeProposalOutcome(Uint8Array.of(index)), status);
+assert.throws(() => decodeProposalOutcome(Uint8Array.of(6)));
+assert.throws(() => decodeProposalOutcome(Uint8Array.of(1, 0)));
+for (const [name, value] of [["MANAGER_POLICY_VERSION", MANAGER_POLICY_VERSION], ["MANAGER_PENDING_LIMIT", MANAGER_PENDING_LIMIT],
+  ["JUNIOR_MAX_NOTICE_SLOTS", JUNIOR_MAX_NOTICE_SLOTS], ["MANAGER_NOTICE_SLOTS", MANAGER_NOTICE_SLOTS],
+  ["MANAGER_EXECUTION_WINDOW_SLOTS", MANAGER_EXECUTION_WINDOW_SLOTS], ["MANAGER_ANNOUNCEMENT_COOLDOWN", MANAGER_ANNOUNCEMENT_COOLDOWN_SECONDS], ["RECOVERY_BALLOT_WINDOW", RECOVERY_BALLOT_WINDOW_SECONDS]]) {
+  assert.equal(BigInt(IDL.constants.find(constant => constant.name === name).value), BigInt(value), `SDK ${name} must match the program`);
+}
+console.log(`Manager and recovery builders: passed; maximum manager v0 ${managerV0.serialize().length}/${SOLANA_TRANSACTION_LIMIT} bytes`);
+
+assert((await governance.getManager(keys[1])).equals(keys[7]));
+program.account.governanceControl.fetchNullable = async () => ({manager: PublicKey.default, managerEpoch: new anchor.BN(8)});
+assert.equal(await governance.getManager(keys[1]), null);
+await assert.rejects(governance.openRemovalBallot({market: keys[1], payer: keys[0]}), /no manager/);
+program.account.governanceControl.fetchNullable = async () => null;
+assert.equal(await governance.getManager(keys[1]), null);
+
+assert.equal(MANAGER_NOTICE_SLOTS, JUNIOR_MAX_NOTICE_SLOTS + 432_000);
+assert.equal(proposalClockUnit({lp: {}}), "unixSeconds");
+assert.equal(proposalClockUnit({manager: {}}), "slots");
+assert.throws(() => proposalClockUnit({}), /unknown/);

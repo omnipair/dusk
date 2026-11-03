@@ -9,6 +9,16 @@ type TypeNamed<N extends Dusk["types"][number]["name"]> = Extract<
   { name: N }
 >;
 type DuskAccountTypes = [
+  TypeNamed<"governanceControl">,
+  TypeNamed<"pendingBundle">,
+  TypeNamed<"recoveryBallot">,
+  TypeNamed<"recoveryTarget">,
+  TypeNamed<"recoveryVote">,
+  TypeNamed<"recoveryLock">,
+  TypeNamed<"proposalOrigin">,
+  TypeNamed<"governanceAction">,
+  TypeNamed<"familyRevisionCondition">,
+  TypeNamed<"parameterFamily">,
   TypeNamed<"oraclePolicy">,
   TypeNamed<"oracleObservation">,
   TypeNamed<"oracleState">,
@@ -81,6 +91,16 @@ type DuskAccountTypes = [
   TypeNamed<"yieldAccount">,
 ];
 type DuskEventTypes = [
+  TypeNamed<"proposalClock">,
+  TypeNamed<"recoveryBallotChanged">,
+  TypeNamed<"recoveryTarget">,
+  TypeNamed<"proposalResolved">,
+  TypeNamed<"managerChanged">,
+  TypeNamed<"proposalOrigin">,
+  TypeNamed<"governanceAction">,
+  TypeNamed<"familyRevisionCondition">,
+  TypeNamed<"parameterFamily">,
+  TypeNamed<"parameterProposalStatus">,
   TypeNamed<"juniorCohortInitialized">,
   TypeNamed<"juniorSeedCompounded">,
   TypeNamed<"juniorSeedFunded">,
@@ -281,3 +301,10 @@ export type JuniorCohortInitialized = IdlTypes<DuskEventIdl>["juniorCohortInitia
 export type JuniorSeedFunded = IdlTypes<DuskEventIdl>["juniorSeedFunded"];
 export type RetiredJuniorBurned = IdlTypes<DuskEventIdl>["retiredJuniorBurned"];
 export type TrancheConverted = IdlTypes<DuskEventIdl>["trancheConverted"];
+
+export type GovernanceControl = IdlTypes<DuskAccountIdl>["governanceControl"];
+export type RecoveryBallot = IdlTypes<DuskAccountIdl>["recoveryBallot"];
+export type RecoveryVote = IdlTypes<DuskAccountIdl>["recoveryVote"];
+export type RecoveryBallotChanged = IdlTypes<DuskEventIdl>["recoveryBallotChanged"];
+export type ProposalResolved = IdlTypes<DuskEventIdl>["proposalResolved"];
+export type ManagerChanged = IdlTypes<DuskEventIdl>["managerChanged"];

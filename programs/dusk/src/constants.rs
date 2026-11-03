@@ -193,3 +193,12 @@ pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE
 /// Reusable owner governance balance and per-proposal allocation.
 pub const GOVERNANCE_BALANCE_SEED_PREFIX: &[u8] = b"governance_balance";
 pub const GOVERNANCE_SUPPORT_SEED_PREFIX: &[u8] = b"governance_support";
+
+/// Junior and manager notice share scheduled slots. Every manager bundle waits
+/// the maximum junior notice plus one additional protocol day.
+#[constant]
+pub const JUNIOR_MAX_NOTICE_SLOTS: u64 = 10 * MS_PER_DAY / TARGET_MS_PER_SLOT;
+#[constant]
+pub const MANAGER_NOTICE_SLOTS: u64 = JUNIOR_MAX_NOTICE_SLOTS + MS_PER_DAY / TARGET_MS_PER_SLOT;
+#[constant]
+pub const MANAGER_EXECUTION_WINDOW_SLOTS: u64 = 7 * MS_PER_DAY / TARGET_MS_PER_SLOT;

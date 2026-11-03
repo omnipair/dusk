@@ -47,3 +47,5 @@ export * from "./risk-pricing.js";
 export * from "./tranche-client.js";
 
 export * from "./oracle.js";
+
+export * from "./management.js";

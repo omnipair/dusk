@@ -35,10 +35,16 @@ pub(crate) fn emit_cpi_event_with_instruction<'info, E: Event>(
 ) -> Result<()> {
     instruction.program_id = crate::ID;
     instruction.accounts.clear();
+    instruction.accounts.reserve_exact(1);
     instruction
         .accounts
         .push(AccountMeta::new_readonly(authority.key(), true));
     instruction.data.clear();
+    // Fixed accounting events fit in their in-memory size plus tags. This
+    // hint avoids abandoned growth buffers on SBF; variable data can still grow.
+    instruction
+        .data
+        .reserve_exact(std::mem::size_of::<E>() + 8 + E::DISCRIMINATOR.len());
     instruction.data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
     instruction.data.extend_from_slice(E::DISCRIMINATOR);
     event.serialize(&mut instruction.data)?;

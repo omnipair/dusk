@@ -57,7 +57,7 @@ export const MAX_LIQUIDATION_FEE_BPS = 300;
 export const PARAMETER_FAMILY_COUNT = 9;
 /** A proposal changes one to nine families, each at most once. */
 export const MAX_PARAMETER_UPDATES_PER_PROPOSAL = PARAMETER_FAMILY_COUNT;
-export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V3";
+export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V4";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const PROPOSAL_DIGEST_DOMAIN = new TextEncoder().encode(PARAMETER_PROPOSAL_DIGEST_DOMAIN);
@@ -236,6 +236,33 @@ export interface UploadProposalMetadataInput extends ProposalDescriptionFetchOpt
   upload: ProposalDescriptionUploader;
 }
 
+export type GovernanceActionInput = { kind: "parameters" } | { kind: "appointManager"; manager: AddressLike; expectedEpoch: GovernanceIntegerLike };
+export type ProposalOriginInput = { kind: "lp" } | { kind: "manager"; epoch: GovernanceIntegerLike; policyVersion: GovernanceIntegerLike };
+export interface RevisionCondition { family: ParameterFamilyCode; revision: GovernanceIntegerLike }
+const FAMILY_NAMES = ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insurance", "oracle", "tranche"] as const;
+
+export function canonicalGovernanceUpdates(updates: readonly ParameterUpdate[], action: GovernanceActionInput = {kind: "parameters"}): ParameterUpdate[] {
+  if (action.kind === "parameters") return canonicalParameterUpdates(updates);
+  if (updates.length !== 0) throw new Error("manager appointments cannot contain parameter updates");
+  if (address(action.manager).equals(address("11111111111111111111111111111111"))) throw new Error("manager cannot be the default public key");
+  return [];
+}
+export function anchorGovernanceAction(action: GovernanceActionInput = {kind: "parameters"}): Record<string, unknown> {
+  return action.kind === "parameters" ? {parameters: {}} : {appointManager: {manager: address(action.manager), expectedEpoch: governanceIntegerBN(action.expectedEpoch, "expectedEpoch")}};
+}
+export function canonicalRevisionConditions(conditions: readonly RevisionCondition[] = []): RevisionCondition[] {
+  if (conditions.length > PARAMETER_FAMILY_COUNT) throw new Error("too many revision conditions");
+  const sorted = [...conditions].sort((a,b) => a.family-b.family);
+  sorted.forEach((condition,index) => {
+    if (!Number.isInteger(condition.family) || condition.family < 0 || condition.family >= PARAMETER_FAMILY_COUNT || (index > 0 && sorted[index-1]!.family === condition.family)) throw new Error("invalid or duplicate condition family");
+    toU64BigInt(condition.revision, "condition revision");
+  });
+  return sorted;
+}
+export function anchorRevisionConditions(conditions: readonly RevisionCondition[] = []) {
+  return canonicalRevisionConditions(conditions).map(condition => ({family: {[FAMILY_NAMES[condition.family]]: {}}, revision: governanceIntegerBN(condition.revision, "condition revision")}));
+}
+
 export interface ParameterProposalDigestInput {
   programId: AddressLike;
   market: AddressLike;
@@ -243,13 +270,14 @@ export interface ParameterProposalDigestInput {
   nonce: GovernanceIntegerLike;
   /** Junior cohort at proposal creation, included in the commitment. */
   juniorGeneration: GovernanceIntegerLike;
-  /**
-   * One revision per family, as the proposal stores them: an updated family's
-   * market revision at creation, zero for every family left alone. Build it
-   * with `updatedFamilyRevisions`.
-   */
-  familyRevisions: readonly GovernanceIntegerLike[];
-  /** One to seven updates, at most one per family, in any order. */
+  /** @deprecated V4 intent excludes starting revisions. Use explicit conditions
+   * to endorse a required revision; verify the queue snapshot separately with
+   * `verifyDecodedExecutionDigest`. This input is ignored. */
+  familyRevisions?: readonly GovernanceIntegerLike[];
+  origin?: ProposalOriginInput;
+  action?: GovernanceActionInput;
+  conditions?: readonly RevisionCondition[];
+  /** One to nine updates, or an empty array for a manager appointment. */
   updates: readonly ParameterUpdate[];
   metadata: ProposalMetadataV1;
 }
@@ -260,6 +288,9 @@ export interface DecodedParameterProposalForDigest {
   nonce: GovernanceIntegerLike;
   juniorGeneration: GovernanceIntegerLike;
   familyRevisions: readonly GovernanceIntegerLike[];
+  origin: unknown;
+  action: unknown;
+  conditions: readonly {family: unknown; revision: GovernanceIntegerLike}[];
   updates: readonly unknown[];
   metadata: ProposalMetadataV1;
   digest?: Uint8Array | number[];
@@ -1052,8 +1083,10 @@ export async function computeParameterProposalDigest(
   input: ParameterProposalDigestInput
 ): Promise<Uint8Array> {
   assertProposalMetadata(input.metadata);
-  assertFamilyRevisionCount(input.familyRevisions);
-  const updates = canonicalParameterUpdates(input.updates);
+  const updates = canonicalGovernanceUpdates(input.updates, input.action);
+  const origin = input.origin ?? {kind: "lp"};
+  const action = input.action ?? {kind: "parameters"};
+  const conditions = canonicalRevisionConditions(input.conditions);
   return sha256(
     concatBytes(
       PROPOSAL_DIGEST_DOMAIN,
@@ -1062,9 +1095,10 @@ export async function computeParameterProposalDigest(
       address(input.proposer).toBytes(),
       encodeU64(input.nonce, "nonce"),
       encodeU64(input.juniorGeneration, "juniorGeneration"),
-      ...input.familyRevisions.map((revision, family) =>
-        encodeU64(revision, `familyRevisions[${family}]`)
-      ),
+      origin.kind === "lp" ? Uint8Array.of(0) : concatBytes(Uint8Array.of(1), encodeU64(origin.epoch, "epoch"), encodeU64(origin.policyVersion, "policyVersion")),
+      action.kind === "parameters" ? Uint8Array.of(0) : concatBytes(Uint8Array.of(1), address(action.manager).toBytes(), encodeU64(action.expectedEpoch, "expectedEpoch")),
+      encodeU32(conditions.length),
+      ...conditions.map(condition => concatBytes(Uint8Array.of(condition.family), encodeU64(condition.revision, "condition revision"))),
       encodeU32(updates.length),
       ...updates.map(encodeParameterUpdate),
       encodeProposalMetadata(input.metadata)
@@ -1090,9 +1124,53 @@ export function computeDecodedParameterProposalDigest(
     nonce: proposal.nonce,
     juniorGeneration: proposal.juniorGeneration,
     familyRevisions: proposal.familyRevisions,
+    origin: proposalOriginFromAnchor(proposal.origin),
+    action: governanceActionFromAnchor(proposal.action),
+    conditions: proposal.conditions.map(condition => ({family: familyFromAnchor(condition.family), revision: condition.revision})),
     updates: proposal.updates.map(parameterUpdateFromAnchor),
     metadata: proposal.metadata,
   });
+}
+
+function familyFromAnchor(value: unknown): ParameterFamilyCode {
+  const name = Object.keys(value as Record<string, unknown>)[0];
+  const index = FAMILY_NAMES.indexOf(name as typeof FAMILY_NAMES[number]);
+  if (index < 0) throw new Error("unknown parameter family");
+  return index as ParameterFamilyCode;
+}
+function proposalOriginFromAnchor(value: unknown): ProposalOriginInput {
+  const origin = value as {lp?: unknown; manager?: {epoch: GovernanceIntegerLike; policyVersion: GovernanceIntegerLike}};
+  if (origin.lp !== undefined) return {kind: "lp"};
+  if (origin.manager) return {kind: "manager", ...origin.manager};
+  throw new Error("unknown proposal origin");
+}
+function governanceActionFromAnchor(value: unknown): GovernanceActionInput {
+  const action = value as {parameters?: unknown; appointManager?: {manager: AddressLike; expectedEpoch: GovernanceIntegerLike}};
+  if (action.parameters !== undefined) return {kind: "parameters"};
+  if (action.appointManager) return {kind: "appointManager", ...action.appointManager};
+  throw new Error("unknown governance action");
+}
+
+export interface DecodedExecutionCommitment extends DecodedParameterProposalForDigest {
+  executionDigest: Uint8Array | number[];
+  queuedSupport: GovernanceIntegerLike;
+  queuedEligibleYlp: GovernanceIntegerLike;
+  queuedAt: GovernanceIntegerLike;
+  executeAfter: GovernanceIntegerLike;
+  executionDeadline: GovernanceIntegerLike;
+}
+
+export async function computeDecodedExecutionDigest(programId: AddressLike, proposal: DecodedExecutionCommitment): Promise<Uint8Array> {
+  assertFamilyRevisionCount(proposal.familyRevisions);
+  const intent = await computeDecodedParameterProposalDigest(programId, proposal);
+  return sha256(concatBytes(new TextEncoder().encode("DUSK_PARAMETER_EXECUTION_V2"), intent,
+    ...proposal.familyRevisions.map((revision,index) => encodeU64(revision, `familyRevisions[${index}]`)),
+    encodeU64(proposal.queuedSupport, "queuedSupport"), encodeU64(proposal.queuedEligibleYlp, "queuedEligibleYlp"),
+    encodeI64(proposal.queuedAt), encodeI64(proposal.executeAfter), encodeI64(proposal.executionDeadline)));
+}
+
+export async function verifyDecodedExecutionDigest(programId: AddressLike, proposal: DecodedExecutionCommitment): Promise<boolean> {
+  return equalBytes(await computeDecodedExecutionDigest(programId, proposal), proposal.executionDigest);
 }
 
 export async function verifyDecodedParameterProposalDigest(
@@ -1357,6 +1435,12 @@ function encodeU64(value: GovernanceIntegerLike, label: string): Uint8Array {
   const bytes = new Uint8Array(8);
   new DataView(bytes.buffer).setBigUint64(0, normalized, true);
   return bytes;
+}
+
+function encodeI64(value: GovernanceIntegerLike): Uint8Array {
+  const number = BigInt(value.toString());
+  if (number < -(1n << 63n) || number >= (1n << 63n)) throw new Error("timestamp is outside i64");
+  const bytes = new Uint8Array(8); new DataView(bytes.buffer).setBigInt64(0, number, true); return bytes;
 }
 
 function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {

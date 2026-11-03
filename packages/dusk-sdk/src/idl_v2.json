@@ -2414,6 +2414,41 @@
           }
         },
         {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "proposal",
           "writable": true,
           "pda": {
@@ -2789,6 +2824,241 @@
       ]
     },
     {
+      "name": "create_manager_proposal",
+      "discriminator": [
+        116,
+        38,
+        83,
+        184,
+        172,
+        103,
+        148,
+        246
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "A distinct funded signer permits a program-derived manager to compose",
+            "proposals without requiring its authority account to be a System payer."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "manager",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "relations": [
+            "governance_control"
+          ]
+        },
+        {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  97,
+                  114,
+                  97,
+                  109,
+                  101,
+                  116,
+                  101,
+                  114,
+                  95,
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "manager"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "ylp_mint"
+        },
+        {
+          "name": "base_hlp_ylp_vault"
+        },
+        {
+          "name": "quote_hlp_ylp_vault"
+        },
+        {
+          "name": "removal_ballot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "CreateManagerProposalArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "create_parameter_proposal",
       "discriminator": [
         124,
@@ -2839,6 +3109,41 @@
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
               }
             ]
           }
@@ -4231,6 +4536,41 @@
           }
         },
         {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "base_mint"
         },
         {
@@ -4239,6 +4579,120 @@
         {
           "name": "proposal",
           "writable": true
+        },
+        {
+          "name": "ylp_mint"
+        },
+        {
+          "name": "base_hlp_ylp_vault"
+        },
+        {
+          "name": "quote_hlp_ylp_vault"
+        },
+        {
+          "name": "removal_ballot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "cancellation_ballot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "proposal"
+              }
+            ]
+          }
         },
         {
           "name": "event_authority",
@@ -4273,7 +4727,12 @@
           "name": "program"
         }
       ],
-      "args": []
+      "args": [],
+      "returns": {
+        "defined": {
+          "name": "ParameterProposalStatus"
+        }
+      }
     },
     {
       "name": "fortify_market",
@@ -5751,6 +6210,41 @@
           }
         },
         {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "futarchy_authority",
           "pda": {
             "seeds": [
@@ -6836,6 +7330,152 @@
           "type": {
             "defined": {
               "name": "AddLiquidityArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "open_recovery_ballot",
+      "discriminator": [
+        93,
+        4,
+        250,
+        230,
+        198,
+        208,
+        189,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "relations": [
+            "governance_control"
+          ]
+        },
+        {
+          "name": "governance_control",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ballot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "arg",
+                "path": "target"
+              }
+            ]
+          }
+        },
+        {
+          "name": "target_proposal",
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "target",
+          "type": {
+            "defined": {
+              "name": "RecoveryTarget"
             }
           }
         }
@@ -7962,6 +8602,41 @@
           }
         },
         {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "proposal",
           "writable": true
         },
@@ -8005,6 +8680,292 @@
         },
         {
           "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "refresh_recovery_ballot",
+      "discriminator": [
+        149,
+        241,
+        74,
+        207,
+        87,
+        11,
+        207,
+        27
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "relations": [
+            "governance_control",
+            "ballot"
+          ]
+        },
+        {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ballot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "ballot.target",
+                "account": "RecoveryBallot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "target_proposal",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "ylp_mint"
+        },
+        {
+          "name": "base_hlp_ylp_vault"
+        },
+        {
+          "name": "quote_hlp_ylp_vault"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [],
+      "returns": "bool"
+    },
+    {
+      "name": "release_recovery_vote",
+      "discriminator": [
+        30,
+        170,
+        106,
+        181,
+        83,
+        253,
+        189,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "relations": [
+            "governance_control",
+            "ballot"
+          ]
+        },
+        {
+          "name": "governance_control",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ballot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "ballot.target",
+                "account": "RecoveryBallot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "target_proposal",
+          "optional": true
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ballot"
+              },
+              {
+                "kind": "account",
+                "path": "vote.round",
+                "account": "RecoveryVote"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rent_refund",
+          "writable": true
         }
       ],
       "args": []
@@ -8558,6 +9519,118 @@
           }
         }
       ]
+    },
+    {
+      "name": "resolve_manager_proposal",
+      "discriminator": [
+        115,
+        170,
+        74,
+        88,
+        212,
+        252,
+        196,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "market",
+          "relations": [
+            "governance_control"
+          ]
+        },
+        {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposal",
+          "writable": true
+        },
+        {
+          "name": "rent_refund",
+          "writable": true
+        },
+        {
+          "name": "manager",
+          "signer": true,
+          "optional": true
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "cancel",
+          "type": "bool"
+        }
+      ],
+      "returns": {
+        "defined": {
+          "name": "ParameterProposalStatus"
+        }
+      }
     },
     {
       "name": "roll_income_epoch",
@@ -9977,6 +11050,41 @@
           "name": "market"
         },
         {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
           "name": "proposal",
           "writable": true
         },
@@ -10088,6 +11196,41 @@
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
               }
             ]
           }
@@ -11091,6 +12234,215 @@
       ]
     },
     {
+      "name": "vote_recovery_ballot",
+      "discriminator": [
+        117,
+        2,
+        233,
+        211,
+        23,
+        162,
+        243,
+        3
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "relations": [
+            "governance_control",
+            "ballot"
+          ]
+        },
+        {
+          "name": "governance_control",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ballot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  98,
+                  97,
+                  108,
+                  108,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "ballot.target",
+                "account": "RecoveryBallot"
+              }
+            ]
+          }
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "source_proposal",
+          "optional": true
+        },
+        {
+          "name": "target_proposal",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  99,
+                  111,
+                  118,
+                  101,
+                  114,
+                  121,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "ballot"
+              },
+              {
+                "kind": "arg",
+                "path": "args.round"
+              },
+              {
+                "kind": "account",
+                "path": "source"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ylp_mint"
+        },
+        {
+          "name": "base_hlp_ylp_vault"
+        },
+        {
+          "name": "quote_hlp_ylp_vault"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "VoteRecoveryBallotArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "withdraw_all_collateral",
       "docs": [
         "Sweeps both collateral balances and closes a debt-free borrow position.",
@@ -11479,7 +12831,44 @@
           "signer": true
         },
         {
-          "name": "market"
+          "name": "market",
+          "relations": [
+            "governance_control"
+          ]
+        },
+        {
+          "name": "governance_control",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
         },
         {
           "name": "proposal",
@@ -11631,6 +13020,43 @@
                 "kind": "account",
                 "path": "market.params_hash",
                 "account": "Market"
+              }
+            ]
+          },
+          "relations": [
+            "governance_control"
+          ]
+        },
+        {
+          "name": "governance_control",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  110,
+                  116,
+                  114,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
               }
             ]
           }
@@ -12162,6 +13588,19 @@
       ]
     },
     {
+      "name": "GovernanceControl",
+      "discriminator": [
+        5,
+        22,
+        163,
+        223,
+        237,
+        149,
+        90,
+        168
+      ]
+    },
+    {
       "name": "GovernanceSupport",
       "discriminator": [
         84,
@@ -12315,6 +13754,32 @@
         63,
         132,
         148
+      ]
+    },
+    {
+      "name": "RecoveryBallot",
+      "discriminator": [
+        10,
+        107,
+        98,
+        80,
+        184,
+        177,
+        106,
+        122
+      ]
+    },
+    {
+      "name": "RecoveryVote",
+      "discriminator": [
+        168,
+        34,
+        66,
+        127,
+        132,
+        224,
+        19,
+        106
       ]
     },
     {
@@ -12788,6 +14253,19 @@
       ]
     },
     {
+      "name": "ManagerChanged",
+      "discriminator": [
+        142,
+        97,
+        175,
+        220,
+        73,
+        27,
+        252,
+        56
+      ]
+    },
+    {
       "name": "MarketCollateralDeposited",
       "discriminator": [
         41,
@@ -12931,6 +14409,19 @@
       ]
     },
     {
+      "name": "ProposalResolved",
+      "discriminator": [
+        252,
+        55,
+        181,
+        169,
+        236,
+        238,
+        0,
+        149
+      ]
+    },
+    {
       "name": "ProtocolAuctionConfigUpdated",
       "discriminator": [
         178,
@@ -13006,6 +14497,19 @@
         7,
         154,
         156
+      ]
+    },
+    {
+      "name": "RecoveryBallotChanged",
+      "discriminator": [
+        63,
+        146,
+        26,
+        76,
+        74,
+        126,
+        26,
+        173
       ]
     },
     {
@@ -13902,6 +15406,51 @@
       "code": 6149,
       "name": "OracleReplay",
       "msg": "Oracle sequence or source observation regressed"
+    },
+    {
+      "code": 6150,
+      "name": "ManagerEpochMismatch",
+      "msg": "The manager authority or epoch is no longer current"
+    },
+    {
+      "code": 6151,
+      "name": "InvalidManager",
+      "msg": "The elected manager is required"
+    },
+    {
+      "code": 6152,
+      "name": "ManagerPolicyExceeded",
+      "msg": "The change exceeds the fixed manager policy"
+    },
+    {
+      "code": 6153,
+      "name": "PendingBundleExists",
+      "msg": "A bundle is already pending in this market"
+    },
+    {
+      "code": 6154,
+      "name": "GovernanceCapacityExceeded",
+      "msg": "The bounded governance pending capacity is full"
+    },
+    {
+      "code": 6155,
+      "name": "RecoveryVoteLocked",
+      "msg": "Governance ownership is still encumbered by a recovery ballot"
+    },
+    {
+      "code": 6156,
+      "name": "RecoveryBallotInactive",
+      "msg": "The recovery ballot or its target is no longer active"
+    },
+    {
+      "code": 6157,
+      "name": "ManagerAnnouncementCooldown",
+      "msg": "Wait three days between manager announcements for this market"
+    },
+    {
+      "code": 6158,
+      "name": "LaunchSettingsImmutable",
+      "msg": "Launch-only settings are immutable after the market starts"
     }
   ],
   "types": [
@@ -15270,6 +16819,24 @@
             }
           },
           {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "GovernanceAction"
+              }
+            }
+          },
+          {
+            "name": "conditions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "FamilyRevisionCondition"
+                }
+              }
+            }
+          },
+          {
             "name": "metadata",
             "type": {
               "defined": {
@@ -15311,6 +16878,44 @@
       }
     },
     {
+      "name": "CreateManagerProposalArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "expected_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "policy_version",
+            "type": "u64"
+          },
+          {
+            "name": "updates",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "MarketParameterUpdate"
+                }
+              }
+            }
+          },
+          {
+            "name": "metadata",
+            "type": {
+              "defined": {
+                "name": "ProposalMetadataV1"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "CreateParameterProposalArgs",
       "type": {
         "kind": "struct",
@@ -15329,6 +16934,24 @@
               "vec": {
                 "defined": {
                   "name": "MarketParameterUpdate"
+                }
+              }
+            }
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "GovernanceAction"
+              }
+            }
+          },
+          {
+            "name": "conditions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "FamilyRevisionCondition"
                 }
               }
             }
@@ -15918,6 +17541,26 @@
                 "name": "LiquidationPositionState"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "FamilyRevisionCondition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "family",
+            "type": {
+              "defined": {
+                "name": "ParameterFamily"
+              }
+            }
+          },
+          {
+            "name": "revision",
+            "type": "u64"
           }
         ]
       }
@@ -16579,6 +18222,30 @@
       }
     },
     {
+      "name": "GovernanceAction",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Parameters"
+          },
+          {
+            "name": "AppointManager",
+            "fields": [
+              {
+                "name": "manager",
+                "type": "pubkey"
+              },
+              {
+                "name": "expected_epoch",
+                "type": "u64"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "GovernanceBalance",
       "docs": [
         "Owner-held virtual yLP. Both idle and committed shares accrue yield here."
@@ -16616,6 +18283,19 @@
           {
             "name": "committed_amount",
             "type": "u64"
+          },
+          {
+            "name": "recovery_locks",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RecoveryLock"
+                  }
+                },
+                8
+              ]
+            }
           },
           {
             "name": "base_yield",
@@ -16719,6 +18399,83 @@
           {
             "name": "committed_amount",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceControl",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "manager_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "baseline_initialized",
+            "type": "bool"
+          },
+          {
+            "name": "baseline_config",
+            "docs": [
+              "Per-family LP-approved references, never an executable market snapshot."
+            ],
+            "type": {
+              "defined": {
+                "name": "MarketConfig"
+              }
+            }
+          },
+          {
+            "name": "baseline_insurance_principal_coverage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "baseline_insurance_per_day_bps",
+            "type": "u16"
+          },
+          {
+            "name": "baseline_tranche_policy",
+            "type": {
+              "defined": {
+                "name": "TranchePolicy"
+              }
+            }
+          },
+          {
+            "name": "baseline_junior_request_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "pending",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "PendingBundle"
+                }
+              }
+            }
+          },
+          {
+            "name": "has_manager_announcement",
+            "type": "bool"
+          },
+          {
+            "name": "last_manager_announcement",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -19689,6 +21446,26 @@
       }
     },
     {
+      "name": "ManagerChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "Market",
       "docs": [
         "Token amounts stored in reserves, positions, and shares are raw atoms.",
@@ -21130,6 +22907,41 @@
       }
     },
     {
+      "name": "ParameterFamily",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Fee"
+          },
+          {
+            "name": "Concentration"
+          },
+          {
+            "name": "Irm"
+          },
+          {
+            "name": "EmaHalfLives"
+          },
+          {
+            "name": "DailyBorrowLimit"
+          },
+          {
+            "name": "CenterController"
+          },
+          {
+            "name": "Insurance"
+          },
+          {
+            "name": "Oracle"
+          },
+          {
+            "name": "Tranche"
+          }
+        ]
+      }
+    },
+    {
       "name": "ParameterProposal",
       "type": {
         "kind": "struct",
@@ -21154,6 +22966,36 @@
             "type": "u64"
           },
           {
+            "name": "origin",
+            "type": {
+              "defined": {
+                "name": "ProposalOrigin"
+              }
+            }
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "GovernanceAction"
+              }
+            }
+          },
+          {
+            "name": "rent_refund",
+            "type": "pubkey"
+          },
+          {
+            "name": "conditions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "FamilyRevisionCondition"
+                }
+              }
+            }
+          },
+          {
             "name": "updates",
             "docs": [
               "The families this proposal changes, one update each, in ascending",
@@ -21170,9 +23012,8 @@
           {
             "name": "family_revisions",
             "docs": [
-              "The revision of each updated family when the proposal was created; an",
-              "executed change to any of them makes this proposal stale. Families the",
-              "proposal does not update read zero."
+              "Full configuration snapshot sealed when a bundle becomes pending.",
+              "Collecting endorsements bind only their explicit revision conditions."
             ],
             "type": {
               "array": [
@@ -21191,6 +23032,15 @@
           },
           {
             "name": "digest",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "execution_digest",
             "type": {
               "array": [
                 "u8",
@@ -21246,6 +23096,9 @@
           },
           {
             "name": "queued_at",
+            "docs": [
+              "Unix seconds for LP proposals, scheduled slots for manager proposals."
+            ],
             "type": "i64"
           },
           {
@@ -21283,6 +23136,41 @@
           {
             "name": "nonce",
             "type": "u64"
+          },
+          {
+            "name": "origin",
+            "type": {
+              "defined": {
+                "name": "ProposalOrigin"
+              }
+            }
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "GovernanceAction"
+              }
+            }
+          },
+          {
+            "name": "conditions",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "FamilyRevisionCondition"
+                }
+              }
+            }
+          },
+          {
+            "name": "execution_digest",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
             "name": "junior_generation",
@@ -21393,6 +23281,32 @@
           {
             "name": "proposal",
             "type": "pubkey"
+          },
+          {
+            "name": "clock",
+            "type": {
+              "defined": {
+                "name": "ProposalClock"
+              }
+            }
+          },
+          {
+            "name": "execution_digest",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "family_revisions",
+            "type": {
+              "array": [
+                "u64",
+                9
+              ]
+            }
           },
           {
             "name": "total_locked",
@@ -21508,6 +23422,42 @@
           {
             "name": "status",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PendingBundle",
+      "docs": [
+        "The only queued change that may execute in this market. Collecting LP",
+        "proposals reserve nothing. LP majority can replace a manager's pending entry."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "origin",
+            "type": {
+              "defined": {
+                "name": "ProposalOrigin"
+              }
+            }
+          },
+          {
+            "name": "action",
+            "type": {
+              "defined": {
+                "name": "GovernanceAction"
+              }
+            }
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
           }
         ]
       }
@@ -21976,6 +23926,20 @@
       }
     },
     {
+      "name": "ProposalClock",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "UnixSeconds"
+          },
+          {
+            "name": "Slots"
+          }
+        ]
+      }
+    },
+    {
       "name": "ProposalMetadataV1",
       "type": {
         "kind": "struct",
@@ -22009,6 +23973,58 @@
       }
     },
     {
+      "name": "ProposalOrigin",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Lp"
+          },
+          {
+            "name": "Manager",
+            "fields": [
+              {
+                "name": "epoch",
+                "type": "u64"
+              },
+              {
+                "name": "policy_version",
+                "type": "u64"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalResolved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "ParameterProposalStatus"
+              }
+            }
+          },
+          {
+            "name": "resolved_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "ProposalSupport",
       "type": {
         "kind": "struct",
@@ -22024,6 +24040,19 @@
           {
             "name": "locked_amount",
             "type": "u64"
+          },
+          {
+            "name": "recovery_locks",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RecoveryLock"
+                  }
+                },
+                8
+              ]
+            }
           },
           {
             "name": "base_yield",
@@ -22495,6 +24524,197 @@
                 4
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecoveryBallot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "RecoveryTarget"
+              }
+            }
+          },
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "junior_generation",
+            "type": "u64"
+          },
+          {
+            "name": "senior_votes",
+            "type": "u64"
+          },
+          {
+            "name": "junior_receipt_votes",
+            "type": "u64"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
+            "name": "ends_at",
+            "type": "i64"
+          },
+          {
+            "name": "passed",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecoveryBallotChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ballot",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "RecoveryTarget"
+              }
+            }
+          },
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "senior_votes",
+            "type": "u64"
+          },
+          {
+            "name": "junior_receipt_votes",
+            "type": "u64"
+          },
+          {
+            "name": "junior_generation",
+            "type": "u64"
+          },
+          {
+            "name": "ends_at",
+            "type": "i64"
+          },
+          {
+            "name": "passed",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecoveryLock",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ballot",
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "until",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecoveryTarget",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "CancelProposal",
+            "fields": [
+              {
+                "name": "proposal",
+                "type": "pubkey"
+              },
+              {
+                "name": "digest",
+                "type": {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "RemoveManager",
+            "fields": [
+              {
+                "name": "epoch",
+                "type": "u64"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "RecoveryVote",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ballot",
+            "type": "pubkey"
+          },
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "source",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "rent_refund",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -24285,6 +26505,22 @@
       }
     },
     {
+      "name": "VoteRecoveryBallotArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "round",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "WithdrawAllCollateralArgs",
       "type": {
         "kind": "struct",
@@ -24638,6 +26874,15 @@
       "value": "[105, 110, 115, 117, 114, 97, 110, 99, 101]"
     },
     {
+      "name": "JUNIOR_MAX_NOTICE_SLOTS",
+      "docs": [
+        "Junior and manager notice share scheduled slots. Every manager bundle waits",
+        "the maximum junior notice plus one additional protocol day."
+      ],
+      "type": "u64",
+      "value": "4320000"
+    },
+    {
       "name": "LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX",
       "type": "bytes",
       "value": "[108, 101, 118, 101, 114, 97, 103, 101, 95, 99, 111, 108, 108, 97, 116, 101, 114, 97, 108]"
@@ -24705,6 +26950,31 @@
       "name": "LTV_BUFFER_BPS",
       "type": "u16",
       "value": "500"
+    },
+    {
+      "name": "MANAGER_ANNOUNCEMENT_COOLDOWN",
+      "type": "i64",
+      "value": "259200"
+    },
+    {
+      "name": "MANAGER_EXECUTION_WINDOW_SLOTS",
+      "type": "u64",
+      "value": "3024000"
+    },
+    {
+      "name": "MANAGER_NOTICE_SLOTS",
+      "type": "u64",
+      "value": "4752000"
+    },
+    {
+      "name": "MANAGER_PENDING_LIMIT",
+      "type": "u8",
+      "value": "1"
+    },
+    {
+      "name": "MANAGER_POLICY_VERSION",
+      "type": "u64",
+      "value": "1"
     },
     {
       "name": "MARKET_COLLATERAL_VAULT_SEED_PREFIX",
@@ -24862,6 +27132,11 @@
       "name": "PROPOSAL_SUPPORT_SEED_PREFIX",
       "type": "bytes",
       "value": "[112, 114, 111, 112, 111, 115, 97, 108, 95, 115, 117, 112, 112, 111, 114, 116]"
+    },
+    {
+      "name": "RECOVERY_BALLOT_WINDOW",
+      "type": "i64",
+      "value": "604800"
     },
     {
       "name": "REFERRAL_ACCRUAL_SEED_PREFIX",

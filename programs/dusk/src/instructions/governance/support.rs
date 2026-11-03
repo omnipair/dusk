@@ -5,7 +5,7 @@ use crate::{
     account::get_size_with_discriminator,
     constants::*,
     errors::ErrorCode,
-    events::{ParameterProposalQueued, ParameterProposalSupportWithdrawn, ParameterProposalSupported},
+    events::{ParameterProposalSupportWithdrawn, ParameterProposalSupported},
     generate_market_seeds,
     instructions::accounts::validate_lp_mint,
     state::{Market, ParameterProposal, ParameterProposalStatus, ProposalSupport, YieldAccount, YieldTokenKind},
@@ -44,6 +44,9 @@ pub struct SupportParameterProposal<'info> {
         bump = market.bump,
     )]
     pub market: Box<Account<'info, Market>>,
+
+    #[account(mut, seeds = [crate::state::GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump)]
+    pub governance_control: Box<Account<'info, crate::state::GovernanceControl>>,
 
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
@@ -214,9 +217,12 @@ impl<'info> SupportParameterProposal<'info> {
             .governance_locked_ylp
             .checked_add(args.amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let queued = ctx.accounts.proposal.queue_if_supported(
+        let queued = super::queue_supported_proposal(
+            &mut ctx.accounts.proposal,
+            proposal_key,
+            &mut ctx.accounts.governance_control,
+            &ctx.accounts.market,
             eligible_supply,
-            &ctx.accounts.market.tranches,
             clock.unix_timestamp,
         )?;
         emit_cpi!(ParameterProposalSupported {
@@ -228,14 +234,7 @@ impl<'info> SupportParameterProposal<'info> {
             status: ctx.accounts.proposal.status.code(),
         });
         if queued {
-            emit_cpi!(ParameterProposalQueued {
-                proposal: proposal_key,
-                total_locked: ctx.accounts.proposal.queued_support,
-                eligible_supply: ctx.accounts.proposal.queued_eligible_ylp,
-                queued_at: ctx.accounts.proposal.queued_at,
-                execute_after: ctx.accounts.proposal.execute_after,
-                execution_deadline: ctx.accounts.proposal.execution_deadline,
-            });
+            emit_cpi!(super::queued_event(&ctx.accounts.proposal, ctx.accounts.proposal.key()));
         }
         Ok(())
     }
@@ -264,6 +263,8 @@ pub struct WithdrawParameterSupport<'info> {
         bump = market.bump,
     )]
     pub market: Box<Account<'info, Market>>,
+    #[account(seeds = [crate::state::GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump = governance_control.bump, has_one = market)]
+    pub governance_control: Box<Account<'info, crate::state::GovernanceControl>>,
 
     /// CHECK: The parameter proposal, opened and saved by the handler rather
     /// than by Anchor: when its last supporter withdraws it shrinks to a
@@ -360,8 +361,12 @@ impl<'info> WithdrawParameterSupport<'info> {
     pub fn handle_withdraw(ctx: Context<'_, '_, '_, 'info, Self>, args: WithdrawParameterSupportArgs) -> Result<()> {
         let mut proposal = ctx.accounts.validate()?;
         let clock = Clock::get()?;
-        proposal.mark_stale_if_revision_changed(&ctx.accounts.market.parameter_revisions);
-        proposal.mark_expired_if_past_deadline(clock.unix_timestamp);
+        proposal.status = proposal.effective_status(
+            &ctx.accounts.governance_control,
+            &ctx.accounts.market.parameter_revisions,
+            ctx.accounts.proposal.key(),
+            &clock,
+        );
         require!(
             proposal.status != ParameterProposalStatus::Queued,
             ErrorCode::ProposalSupportFrozen
@@ -373,6 +378,11 @@ impl<'info> WithdrawParameterSupport<'info> {
             ctx.accounts.proposal_support.locked_amount,
             amount,
             ErrorCode::InvalidProposalSupport
+        );
+        require_gte!(
+            ctx.accounts.proposal_support.locked_amount - amount,
+            crate::state::recovery_locked(&ctx.accounts.proposal_support.recovery_locks, clock.unix_timestamp),
+            ErrorCode::RecoveryVoteLocked
         );
         crate::instructions::accounting::accrue_market_interest(
             &mut ctx.accounts.market,
@@ -429,12 +439,8 @@ impl<'info> WithdrawParameterSupport<'info> {
             amount,
             &[&market_seeds[..]],
         )?;
-        // Support only reaches zero once the proposal has ended: a collecting
-        // proposal below its sponsorship floor was cancelled above, and queued
-        // support cannot be withdrawn. Nothing reads the proposal after its
-        // last supporter leaves, so it becomes a tombstone: the discriminator
-        // alone, kept rent-exempt so the address can never hold another
-        // proposal, with the rest of its rent returned to the proposer.
+        // The final release preserves a rent-exempt identity tombstone for
+        // recovery references and prevents reuse of this proposal address.
         let proposal_tombstoned = proposal.support_is_empty();
         emit_cpi!(ParameterProposalSupportWithdrawn {
             proposal: ctx.accounts.proposal.key(),

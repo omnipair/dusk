@@ -194,6 +194,7 @@ impl<'info> ManageGovernanceBalance<'info> {
             balance.delegate = Pubkey::default();
             balance.total_amount = 0;
             balance.committed_amount = 0;
+            balance.recovery_locks = [crate::state::RecoveryLock::default(); crate::state::MAX_RECOVERY_LOCKS];
             balance.base_yield = VirtualYieldLedger::default();
             balance.quote_yield = VirtualYieldLedger::default();
             balance
@@ -262,6 +263,11 @@ impl<'info> ManageGovernanceBalance<'info> {
             GovernanceBalanceAction::Withdraw { amount } => {
                 require!(amount > 0, ErrorCode::AmountZero);
                 require_gte!(balance.available()?, amount, ErrorCode::InsufficientBalance);
+                require_gte!(
+                    balance.total_amount - amount,
+                    crate::state::recovery_locked(&balance.recovery_locks, Clock::get()?.unix_timestamp),
+                    ErrorCode::RecoveryVoteLocked
+                );
                 balance.total_amount -= amount;
                 match token_kind {
                     GovernanceTokenKind::Senior => {

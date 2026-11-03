@@ -35,6 +35,9 @@ import {
   TOKEN_METADATA_PROGRAM_ID,
   deriveReferralAccrualAddress,
   deriveParameterProposalAddress,
+  deriveGovernanceControlAddress,
+  deriveCancellationBallotAddress,
+  deriveRemovalBallotAddress,
   deriveProposalSupportAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
@@ -44,6 +47,11 @@ import {
 } from "./constants.js";
 import {
   anchorParameterUpdate,
+  anchorGovernanceAction,
+  anchorRevisionConditions,
+  canonicalGovernanceUpdates,
+  type GovernanceActionInput,
+  type RevisionCondition,
   assertProposalMetadata,
   canonicalParameterUpdates,
   parameterUpdateFromAnchor,
@@ -148,6 +156,8 @@ export interface CreateParameterProposalParams extends GovernanceHolderAccountOv
    * family order and execute together under one sponsorship and one vote.
    */
   updates: readonly ParameterUpdate[];
+  action?: GovernanceActionInput;
+  conditions?: readonly RevisionCondition[];
   metadata: ProposalMetadataV1;
   initialSupport: GovernanceIntegerLike;
 }
@@ -252,6 +262,15 @@ export class DuskWrite {
             program: this.program.programId,
           }
         : options.accounts!;
+      if (instructionAccounts?.some(account => account.name === "governanceControl") && accounts.market) {
+        (accounts as Record<string, unknown>).governanceControl ??= deriveGovernanceControlAddress(address(accounts.market as AddressLike), this.program.programId)[0];
+      }
+      if (accounts.market && instructionAccounts?.some(account => account.name === "removalBallot")) {
+        (accounts as Record<string, unknown>).removalBallot ??= deriveRemovalBallotAddress(address(accounts.market as AddressLike), this.program.programId)[0];
+      }
+      if (accounts.market && accounts.proposal && instructionAccounts?.some(account => account.name === "cancellationBallot")) {
+        (accounts as Record<string, unknown>).cancellationBallot ??= deriveCancellationBallotAddress(address(accounts.market as AddressLike), address(accounts.proposal as AddressLike), this.program.programId)[0];
+      }
       builder = builder.accounts(normalizeAccountKeys(accounts));
     }
     const remaining = [...(options.remainingAccounts ?? [])];
@@ -989,7 +1008,9 @@ export class DuskWrite {
       "createParameterProposal" as DuskInstructionName,
       {
         nonce: governanceIntegerBN(params.nonce, "nonce"),
-        updates: canonicalParameterUpdates(params.updates).map(anchorParameterUpdate),
+        updates: canonicalGovernanceUpdates(params.updates, params.action).map(anchorParameterUpdate),
+        action: anchorGovernanceAction(params.action),
+        conditions: anchorRevisionConditions(params.conditions),
         metadata: cloneProposalMetadata(params.metadata),
         initialSupport: governanceIntegerBN(params.initialSupport, "initialSupport"),
       },
@@ -1141,6 +1162,9 @@ export class DuskWrite {
         baseMint: address(state.baseSide.assetMint),
         quoteMint: address(state.quoteSide.assetMint),
         proposal,
+        ylpMint: state.ylpMint,
+        baseHlpYlpVault: state.baseHlpVault.ylpVault,
+        quoteHlpYlpVault: state.quoteHlpVault.ylpVault,
       },
     });
     const instruction = await this.instruction("executeParameterProposal", undefined, options);
@@ -2433,6 +2457,10 @@ export interface RemoveLiquidityParams extends YlpLiquidityAccounts {
  */
 function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown> {
   const bn = (value: GovernanceIntegerLike, label: string) => governanceIntegerBN(value, label);
+  if (bn(config.amm.peakAmplificationNad as GovernanceIntegerLike, "peakAmplificationNad").gtn(1_000_000_000)
+      && bn(config.amm.adjustmentStepNad as GovernanceIntegerLike, "adjustmentStepNad").isZero()) {
+    throw new Error("concentrated markets require an enabled center controller");
+  }
   return {
     swapFeeBps: config.swapFeeBps,
     divergenceFeeShareCapBps: config.divergenceFeeShareCapBps,

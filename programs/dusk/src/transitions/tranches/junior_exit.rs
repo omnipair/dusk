@@ -18,7 +18,7 @@ impl Default for JuniorExitConfig {
     fn default() -> Self {
         Self {
             minimum_notice_slots: 7 * MS_PER_DAY / TARGET_MS_PER_SLOT,
-            maximum_notice_slots: 10 * MS_PER_DAY / TARGET_MS_PER_SLOT,
+            maximum_notice_slots: crate::constants::JUNIOR_MAX_NOTICE_SLOTS,
             exercise_window_slots: 2 * MS_PER_DAY / TARGET_MS_PER_SLOT,
             request_fee_bps: 5,
         }

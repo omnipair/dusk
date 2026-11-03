@@ -5,7 +5,7 @@ use crate::{
     account::{get_size_with_discriminator, initialize_pda_account_if_needed},
     constants::*,
     errors::ErrorCode,
-    events::{GovernanceSupportChanged, ParameterProposalCreated, ParameterProposalQueued},
+    events::GovernanceSupportChanged,
     instructions::accounts::validate_lp_mint,
     state::{
         GovernanceBalance, GovernanceSupport, GovernanceTokenKind, Market, MarketParameterUpdate, ParameterProposal,
@@ -20,6 +20,8 @@ use anchor_spl::token_interface::{Mint, Token2022, TokenAccount};
 pub struct CreateGovernanceProposalArgs {
     pub nonce: u64,
     pub updates: Vec<MarketParameterUpdate>,
+    pub action: crate::state::GovernanceAction,
+    pub conditions: Vec<crate::state::FamilyRevisionCondition>,
     pub metadata: ProposalMetadataV1,
     /// One positive amount per remaining [balance, support] pair. Balance
     /// addresses must be strictly ascending; all owners authorize the signer.
@@ -44,6 +46,9 @@ pub struct CreateGovernanceProposal<'info> {
         bump = market.bump,
     )]
     pub market: Box<Account<'info, Market>>,
+
+    #[account(init_if_needed, payer = proposer, space = get_size_with_discriminator::<crate::state::GovernanceControl>(), seeds = [crate::state::GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump)]
+    pub governance_control: Box<Account<'info, crate::state::GovernanceControl>>,
 
     #[account(
         init,
@@ -102,7 +107,15 @@ impl<'info> CreateGovernanceProposal<'info> {
             ctx.accounts.market.key(),
             ctx.accounts.market.base_side.asset_decimals,
         )?;
-        ctx.accounts.market.validate_parameter_updates(&args.updates)?;
+        ctx.accounts
+            .governance_control
+            .initialize_if_needed(ctx.accounts.market.key(), ctx.bumps.governance_control)?;
+        super::validate_governance_action(
+            &ctx.accounts.market,
+            &ctx.accounts.governance_control,
+            args.action,
+            &args.updates,
+        )?;
         let base_amount = super::proposal::governance_vault_amount(
             &ctx.accounts.market,
             &ctx.accounts.ylp_mint,
@@ -133,6 +146,8 @@ impl<'info> CreateGovernanceProposal<'info> {
             ctx.accounts.market.tranches.generation,
             &ctx.accounts.market.parameter_revisions,
             args.updates,
+            args.action,
+            args.conditions,
             args.metadata,
             eligible_supply,
             clock.unix_timestamp,
@@ -183,32 +198,26 @@ impl<'info> CreateGovernanceProposal<'info> {
             ctx.accounts.proposal.sponsorship_floor,
             ErrorCode::ProposalSponsorshipTooLow
         );
-        let queued = ctx.accounts.proposal.queue_if_supported(
+        let queued = super::queue_supported_proposal(
+            &mut ctx.accounts.proposal,
+            proposal_key,
+            &mut ctx.accounts.governance_control,
+            &ctx.accounts.market,
             eligible_supply,
-            &ctx.accounts.market.tranches,
             clock.unix_timestamp,
         )?;
-        emit_cpi!(ParameterProposalCreated {
-            proposal: proposal_key,
-            market: market_key,
-            proposer: ctx.accounts.proposer.key(),
-            nonce: args.nonce,
-            junior_generation: ctx.accounts.proposal.junior_generation,
-            family_revisions: ctx.accounts.proposal.family_revisions,
-            digest: ctx.accounts.proposal.digest,
-            sponsorship_floor: ctx.accounts.proposal.sponsorship_floor,
-            initial_support: ctx.accounts.proposal.current_support(&ctx.accounts.market.tranches)?,
-            status: ctx.accounts.proposal.status.code(),
-            updates: ctx.accounts.proposal.updates.clone(),
-            metadata: ctx.accounts.proposal.metadata.clone(),
-        });
+        emit_cpi!(super::created_event(
+            &ctx.accounts.proposal,
+            proposal_key,
+            ctx.accounts.proposal.current_support(&ctx.accounts.market.tranches)?
+        ));
         for mut change in changes {
             change.status = ctx.accounts.proposal.status.code();
             change.total_locked = ctx.accounts.proposal.current_support(&ctx.accounts.market.tranches)?;
             emit_cpi!(change);
         }
         if queued {
-            emit_cpi!(queued_event(&ctx.accounts.proposal, proposal_key));
+            emit_cpi!(super::queued_event(&ctx.accounts.proposal, proposal_key));
         }
         Ok(())
     }
@@ -227,6 +236,9 @@ pub struct SupportGovernanceProposal<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     pub market: Box<Account<'info, Market>>,
+
+    #[account(mut, seeds = [crate::state::GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump)]
+    pub governance_control: Box<Account<'info, crate::state::GovernanceControl>>,
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
     pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -276,9 +288,12 @@ impl<'info> SupportGovernanceProposal<'info> {
             ctx.remaining_accounts,
             &args.contributions,
         )?;
-        let queued = ctx.accounts.proposal.queue_if_supported(
+        let queued = super::queue_supported_proposal(
+            &mut ctx.accounts.proposal,
+            proposal_key,
+            &mut ctx.accounts.governance_control,
+            &ctx.accounts.market,
             eligible_supply,
-            &ctx.accounts.market.tranches,
             Clock::get()?.unix_timestamp,
         )?;
         for mut change in changes {
@@ -287,7 +302,7 @@ impl<'info> SupportGovernanceProposal<'info> {
             emit_cpi!(change);
         }
         if queued {
-            emit_cpi!(queued_event(&ctx.accounts.proposal, proposal_key));
+            emit_cpi!(super::queued_event(&ctx.accounts.proposal, proposal_key));
         }
         Ok(())
     }
@@ -419,22 +434,14 @@ fn commit_contributions<'info>(
     Ok(changes)
 }
 
-fn queued_event(proposal: &ParameterProposal, key: Pubkey) -> ParameterProposalQueued {
-    ParameterProposalQueued {
-        proposal: key,
-        total_locked: proposal.queued_support,
-        eligible_supply: proposal.queued_eligible_ylp,
-        queued_at: proposal.queued_at,
-        execute_after: proposal.execute_after,
-        execution_deadline: proposal.execution_deadline,
-    }
-}
-
 #[event_cpi]
 #[derive(Accounts)]
 pub struct WithdrawGovernanceSupport<'info> {
     pub authority: Signer<'info>,
     pub market: Box<Account<'info, Market>>,
+    #[account(seeds = [crate::state::GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump = governance_control.bump, has_one = market)]
+    pub governance_control: Box<Account<'info, crate::state::GovernanceControl>>,
+
     /// CHECK: Owner, discriminator, canonical address, digest and proposer checked in handler; may become a tombstone.
     #[account(mut)]
     pub proposal: UncheckedAccount<'info>,
@@ -479,8 +486,12 @@ impl<'info> WithdrawGovernanceSupport<'info> {
             balance.key(),
             ErrorCode::InvalidProposalSupport
         );
-        proposal.mark_stale_if_revision_changed(&ctx.accounts.market.parameter_revisions);
-        proposal.mark_expired_if_past_deadline(Clock::get()?.unix_timestamp);
+        proposal.status = proposal.effective_status(
+            &ctx.accounts.governance_control,
+            &ctx.accounts.market.parameter_revisions,
+            ctx.accounts.proposal.key(),
+            &Clock::get()?,
+        );
         require!(
             proposal.status != ParameterProposalStatus::Queued,
             ErrorCode::ProposalSupportFrozen

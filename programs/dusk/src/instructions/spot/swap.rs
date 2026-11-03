@@ -8,7 +8,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{SwapExecuted, SwapOrigin},
+    events::{HlpRebalanced, SwapExecuted, SwapOrigin},
     generate_market_seeds,
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
@@ -307,27 +307,40 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(asset_out_credit, args.min_asset_out, ErrorCode::SlippageExceeded);
 
-        // Keep the ordinary no-hLP swap path below its hard compute ceiling.
-        if ctx.accounts.market.base_hlp_vault.hlp_supply > 0 || ctx.accounts.market.quote_hlp_vault.hlp_supply > 0 {
-            crate::instructions::accounting::emit_hlp_rebalanced(
-                &ctx.accounts.market,
-                base_rebalance,
-                quote_rebalance,
-                current_slot,
+        // Reuse one event buffer: Solana's bump allocator does not reclaim
+        // the temporary vectors produced by consecutive emit_cpi! calls.
+        let mut event_instruction = anchor_lang::solana_program::instruction::Instruction {
+            program_id: crate::ID,
+            accounts: Vec::new(),
+            data: Vec::new(),
+        };
+        if let Some(event) = HlpRebalanced::from_receipts(
+            market_key,
+            &ctx.accounts.market,
+            base_rebalance,
+            quote_rebalance,
+            current_slot,
+        )? {
+            crate::instructions::accounting::emit_cpi_event_with_instruction(
+                &event,
                 ctx.accounts.event_authority.to_account_info(),
+                &mut event_instruction,
             )?;
         }
-
-        emit_cpi!(SwapExecuted::from_amm(
-            market_key,
-            trader_key,
-            trader_key,
-            None,
-            SwapOrigin::Spot,
-            current_slot,
-            quote,
-            &ctx.accounts.market,
-        )?);
+        crate::instructions::accounting::emit_cpi_event_with_instruction(
+            &SwapExecuted::from_amm(
+                market_key,
+                trader_key,
+                trader_key,
+                None,
+                SwapOrigin::Spot,
+                current_slot,
+                quote,
+                &ctx.accounts.market,
+            )?,
+            ctx.accounts.event_authority.to_account_info(),
+            &mut event_instruction,
+        )?;
 
         Ok(())
     }

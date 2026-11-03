@@ -38,6 +38,7 @@ pub struct GovernanceBalance {
     pub delegate: Pubkey,
     pub total_amount: u64,
     pub committed_amount: u64,
+    pub recovery_locks: [super::RecoveryLock; super::MAX_RECOVERY_LOCKS],
     pub base_yield: VirtualYieldLedger,
     pub quote_yield: VirtualYieldLedger,
     pub bump: u8,

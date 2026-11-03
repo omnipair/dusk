@@ -5,7 +5,7 @@ use crate::{
     account::get_size_with_discriminator,
     constants::*,
     errors::ErrorCode,
-    events::{ParameterProposalCreated, ParameterProposalExecuted, ParameterProposalQueued},
+    events::ParameterProposalExecuted,
     instructions::accounts::validate_lp_mint,
     state::{
         Market, MarketParameterUpdate, ParameterProposal, ParameterProposalStatus, ProposalMetadataV1, ProposalSupport,
@@ -25,6 +25,8 @@ pub struct CreateParameterProposalArgs {
     /// One to nine updates, at most one per family, in ascending family
     /// order. One sponsorship and one vote cover all of them.
     pub updates: Vec<MarketParameterUpdate>,
+    pub action: crate::state::GovernanceAction,
+    pub conditions: Vec<crate::state::FamilyRevisionCondition>,
     pub metadata: ProposalMetadataV1,
     pub initial_support: u64,
 }
@@ -51,6 +53,9 @@ pub struct CreateParameterProposal<'info> {
         bump = market.bump,
     )]
     pub market: Box<Account<'info, Market>>,
+
+    #[account(init_if_needed, payer = proposer, space = get_size_with_discriminator::<crate::state::GovernanceControl>(), seeds = [crate::state::GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump)]
+    pub governance_control: Box<Account<'info, crate::state::GovernanceControl>>,
 
     #[account(
         init,
@@ -154,7 +159,7 @@ impl<'info> CreateParameterProposal<'info> {
             ErrorCode::InsufficientBalance
         );
         args.metadata.validate()?;
-        self.market.validate_parameter_updates(&args.updates)?;
+        super::validate_governance_action(&self.market, &self.governance_control, args.action, &args.updates)?;
         validate_market_pda(&self.market, self.market.key())?;
         require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
         validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)?;
@@ -189,6 +194,9 @@ impl<'info> CreateParameterProposal<'info> {
     }
 
     pub fn handle_create(ctx: Context<'_, '_, '_, 'info, Self>, args: CreateParameterProposalArgs) -> Result<()> {
+        ctx.accounts
+            .governance_control
+            .initialize_if_needed(ctx.accounts.market.key(), ctx.bumps.governance_control)?;
         let eligible_supply = ctx.accounts.validate(&args)?;
         let sponsorship_floor = crate::state::sponsorship_floor(eligible_supply)?;
         require_gte!(
@@ -247,6 +255,8 @@ impl<'info> CreateParameterProposal<'info> {
             ctx.accounts.market.tranches.generation,
             &market_revisions,
             args.updates,
+            args.action,
+            args.conditions,
             args.metadata,
             eligible_supply,
             clock.unix_timestamp,
@@ -298,34 +308,21 @@ impl<'info> CreateParameterProposal<'info> {
             .governance_locked_ylp
             .checked_add(args.initial_support)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let queued = ctx.accounts.proposal.queue_if_supported(
+        let queued = super::queue_supported_proposal(
+            &mut ctx.accounts.proposal,
+            proposal_key,
+            &mut ctx.accounts.governance_control,
+            &ctx.accounts.market,
             eligible_supply,
-            &ctx.accounts.market.tranches,
             clock.unix_timestamp,
         )?;
-        emit_cpi!(ParameterProposalCreated {
-            proposal: proposal_key,
-            market: market_key,
-            proposer: proposer_key,
-            nonce: ctx.accounts.proposal.nonce,
-            junior_generation: ctx.accounts.proposal.junior_generation,
-            family_revisions: ctx.accounts.proposal.family_revisions,
-            digest: ctx.accounts.proposal.digest,
-            sponsorship_floor: ctx.accounts.proposal.sponsorship_floor,
-            initial_support: args.initial_support,
-            status: ctx.accounts.proposal.status.code(),
-            updates: ctx.accounts.proposal.updates.clone(),
-            metadata: ctx.accounts.proposal.metadata.clone(),
-        });
+        emit_cpi!(super::created_event(
+            &ctx.accounts.proposal,
+            proposal_key,
+            ctx.accounts.proposal.current_support(&ctx.accounts.market.tranches)?
+        ));
         if queued {
-            emit_cpi!(ParameterProposalQueued {
-                proposal: proposal_key,
-                total_locked: ctx.accounts.proposal.queued_support,
-                eligible_supply: ctx.accounts.proposal.queued_eligible_ylp,
-                queued_at: ctx.accounts.proposal.queued_at,
-                execute_after: ctx.accounts.proposal.execute_after,
-                execution_deadline: ctx.accounts.proposal.execution_deadline,
-            });
+            emit_cpi!(super::queued_event(&ctx.accounts.proposal, ctx.accounts.proposal.key()));
         }
         Ok(())
     }
@@ -369,6 +366,9 @@ pub struct QueueParameterProposal<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    #[account(mut, seeds = [crate::state::GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump)]
+    pub governance_control: Box<Account<'info, crate::state::GovernanceControl>>,
+
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
 
@@ -401,26 +401,29 @@ impl<'info> QueueParameterProposal<'info> {
 
     pub fn handle_queue(ctx: Context<Self>) -> Result<()> {
         let eligible_supply = ctx.accounts.validate()?;
+        let proposal_key = ctx.accounts.proposal.key();
         let market_revisions = ctx.accounts.market.parameter_revisions;
         if ctx.accounts.proposal.mark_stale_if_revision_changed(&market_revisions) {
+            emit_cpi!(super::ProposalResolved {
+                proposal: proposal_key,
+                market: ctx.accounts.market.key(),
+                status: ParameterProposalStatus::Stale,
+                resolved_at: Clock::get()?.unix_timestamp
+            });
             return Ok(());
         }
         require!(
-            ctx.accounts.proposal.queue_if_supported(
+            super::queue_supported_proposal(
+                &mut ctx.accounts.proposal,
+                proposal_key,
+                &mut ctx.accounts.governance_control,
+                &ctx.accounts.market,
                 eligible_supply,
-                &ctx.accounts.market.tranches,
                 Clock::get()?.unix_timestamp,
             )?,
             ErrorCode::ProposalSupportInsufficient
         );
-        emit_cpi!(ParameterProposalQueued {
-            proposal: ctx.accounts.proposal.key(),
-            total_locked: ctx.accounts.proposal.queued_support,
-            eligible_supply: ctx.accounts.proposal.queued_eligible_ylp,
-            queued_at: ctx.accounts.proposal.queued_at,
-            execute_after: ctx.accounts.proposal.execute_after,
-            execution_deadline: ctx.accounts.proposal.execution_deadline,
-        });
+        emit_cpi!(super::queued_event(&ctx.accounts.proposal, ctx.accounts.proposal.key()));
         Ok(())
     }
 }
@@ -440,6 +443,9 @@ pub struct ExecuteParameterProposal<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
+    #[account(mut, seeds = [crate::state::GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump)]
+    pub governance_control: Box<Account<'info, crate::state::GovernanceControl>>,
+
     #[account(address = market.base_side.asset_mint @ ErrorCode::InvalidMint)]
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(address = market.quote_side.asset_mint @ ErrorCode::InvalidMint)]
@@ -447,6 +453,18 @@ pub struct ExecuteParameterProposal<'info> {
 
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
+    #[account(address = market.ylp_mint)]
+    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    /// CHECK: Exact canonical custody, including authenticated zero custody before hLP initialization.
+    pub base_hlp_ylp_vault: UncheckedAccount<'info>,
+    /// CHECK: Exact canonical custody, including authenticated zero custody before hLP initialization.
+    pub quote_hlp_ylp_vault: UncheckedAccount<'info>,
+    /// CHECK: Mandatory canonical address; absent/System-empty or a fully authenticated ballot.
+    #[account(mut, seeds = [crate::state::RECOVERY_BALLOT_SEED, market.key().as_ref(), crate::state::RECOVERY_REMOVAL_KEY.as_ref()], bump)]
+    pub removal_ballot: UncheckedAccount<'info>,
+    /// CHECK: Mandatory canonical address; an executor cannot omit a live objection.
+    #[account(mut, seeds = [crate::state::RECOVERY_BALLOT_SEED, market.key().as_ref(), proposal.key().as_ref()], bump)]
+    pub cancellation_ballot: UncheckedAccount<'info>,
 }
 
 impl<'info> ExecuteParameterProposal<'info> {
@@ -459,51 +477,155 @@ impl<'info> ExecuteParameterProposal<'info> {
         Ok(())
     }
 
-    pub fn handle_execute(ctx: Context<Self>) -> Result<()> {
+    pub fn handle_execute(ctx: Context<Self>) -> Result<ParameterProposalStatus> {
         ctx.accounts.validate()?;
-        let market_revisions = ctx.accounts.market.parameter_revisions;
-        if ctx.accounts.proposal.mark_stale_if_revision_changed(&market_revisions) {
-            return Ok(());
-        }
-
         let clock = Clock::get()?;
+        let key = ctx.accounts.proposal.key();
+        let revisions = ctx.accounts.market.parameter_revisions;
+        let eligible = super::governance_eligible_from_accounts(
+            &ctx.accounts.market,
+            &ctx.accounts.ylp_mint,
+            &ctx.accounts.base_hlp_ylp_vault,
+            &ctx.accounts.quote_hlp_ylp_vault,
+        )?;
+        let epoch = ctx.accounts.governance_control.manager_epoch;
+        if let Some(ballot) = super::recovery::refresh_canonical_ballot(
+            &ctx.accounts.removal_ballot.to_account_info(),
+            None,
+            &ctx.accounts.market,
+            &mut ctx.accounts.governance_control,
+            crate::state::RecoveryTarget::RemoveManager { epoch },
+            eligible,
+            &clock,
+        )? {
+            emit_cpi!(super::recovery::ballot_event(
+                ctx.accounts.removal_ballot.key(),
+                &ballot
+            ));
+            emit_cpi!(super::ManagerChanged {
+                market: ctx.accounts.market.key(),
+                manager: Pubkey::default(),
+                epoch: ctx.accounts.governance_control.manager_epoch
+            });
+        }
+        let target = crate::state::RecoveryTarget::CancelProposal {
+            proposal: key,
+            digest: ctx.accounts.proposal.digest,
+        };
+        if let Some(ballot) = super::recovery::refresh_canonical_ballot(
+            &ctx.accounts.cancellation_ballot.to_account_info(),
+            Some(ctx.accounts.proposal.to_account_info()),
+            &ctx.accounts.market,
+            &mut ctx.accounts.governance_control,
+            target,
+            eligible,
+            &clock,
+        )? {
+            ctx.accounts.proposal.reload()?;
+            emit_cpi!(super::recovery::ballot_event(
+                ctx.accounts.cancellation_ballot.key(),
+                &ballot
+            ));
+        }
+        let effective =
+            ctx.accounts
+                .proposal
+                .effective_status(&ctx.accounts.governance_control, &revisions, key, &clock);
+        if effective != ParameterProposalStatus::Queued {
+            ctx.accounts.proposal.status = effective;
+            ctx.accounts.governance_control.release(key);
+            emit_cpi!(super::ProposalResolved {
+                proposal: key,
+                market: ctx.accounts.market.key(),
+                status: effective,
+                resolved_at: clock.unix_timestamp
+            });
+            return Ok(effective);
+        }
         require_gte!(
-            clock.unix_timestamp,
+            ctx.accounts.proposal.origin.clock_value(&clock)?,
             ctx.accounts.proposal.execute_after,
             ErrorCode::ProposalTimelockNotReady
         );
-        require_gte!(
-            ctx.accounts.proposal.execution_deadline,
-            clock.unix_timestamp,
-            ErrorCode::ProposalExecutionWindowExpired
-        );
-        crate::instructions::accounting::accrue_market_interest(
-            &mut ctx.accounts.market,
-            clock.slot,
-            ctx.accounts.event_authority.to_account_info(),
-        )?;
-        ctx.accounts.market.execute_parameter_updates_authenticated(
-            &ctx.accounts.proposal.updates,
-            &clock,
-            ctx.remaining_accounts,
-        )?;
-        if !MarketParameterUpdate::is_oracle_only(&ctx.accounts.proposal.updates) {
-            let fees = crate::instructions::lending_market_admission_fees(
-                &ctx.accounts.market,
-                &ctx.accounts.base_mint,
-                &ctx.accounts.quote_mint,
-                clock.epoch,
-            )?;
-            ctx.accounts.market.assert_market_health_with_fees(fees)?;
+        match ctx.accounts.proposal.action {
+            crate::state::GovernanceAction::AppointManager {
+                manager,
+                expected_epoch,
+            } => {
+                require!(
+                    ctx.accounts.proposal.origin == crate::state::ProposalOrigin::Lp,
+                    ErrorCode::InvalidManager
+                );
+                ctx.accounts
+                    .governance_control
+                    .initialize_baseline(&ctx.accounts.market);
+                ctx.accounts
+                    .governance_control
+                    .replace_manager(manager, expected_epoch)?;
+                emit_cpi!(super::ManagerChanged {
+                    market: ctx.accounts.market.key(),
+                    manager,
+                    epoch: ctx.accounts.governance_control.manager_epoch
+                });
+            }
+            crate::state::GovernanceAction::Parameters => {
+                let is_manager = matches!(
+                    ctx.accounts.proposal.origin,
+                    crate::state::ProposalOrigin::Manager { .. }
+                );
+                ctx.accounts.governance_control.assert_pending(key, &clock)?;
+                let updates = super::effective_parameter_updates(&ctx.accounts.market, &ctx.accounts.proposal.updates);
+                if !updates.is_empty() {
+                    crate::instructions::accounting::accrue_market_interest(
+                        &mut ctx.accounts.market,
+                        clock.slot,
+                        ctx.accounts.event_authority.to_account_info(),
+                    )?;
+                    ctx.accounts.market.execute_parameter_updates_authenticated(
+                        &updates,
+                        &clock,
+                        ctx.remaining_accounts,
+                    )?;
+                    if !MarketParameterUpdate::is_oracle_only(&updates) {
+                        let fees = crate::instructions::lending_market_admission_fees(
+                            &ctx.accounts.market,
+                            &ctx.accounts.base_mint,
+                            &ctx.accounts.quote_mint,
+                            clock.epoch,
+                        )?;
+                        ctx.accounts.market.assert_market_health_with_fees(fees)?;
+                    }
+                }
+                if !is_manager {
+                    for update in &ctx.accounts.proposal.updates {
+                        let index = update.family().code() as usize;
+                        // An LP ratification can change the manager's reference
+                        // even when its exact target already equals the market.
+                        // Such an approval must invalidate earlier snapshots too.
+                        if ctx.accounts.market.parameter_revisions[index] == revisions[index] {
+                            ctx.accounts.market.parameter_revisions[index] =
+                                revisions[index].checked_add(1).ok_or(ErrorCode::MarketMathOverflow)?;
+                        }
+                        ctx.accounts.governance_control.reanchor(update);
+                    }
+                }
+            }
         }
         ctx.accounts.proposal.status = ParameterProposalStatus::Executed;
+        ctx.accounts.governance_control.release(key);
         emit_cpi!(ParameterProposalExecuted {
-            proposal: ctx.accounts.proposal.key(),
+            proposal: key,
             market: ctx.accounts.market.key(),
             families: ctx.accounts.proposal.families().map(|family| family.code()).collect(),
             new_family_revisions: ctx.accounts.market.parameter_revisions,
             executed_at: clock.unix_timestamp,
         });
-        Ok(())
+        emit_cpi!(super::ProposalResolved {
+            proposal: key,
+            market: ctx.accounts.market.key(),
+            status: ParameterProposalStatus::Executed,
+            resolved_at: clock.unix_timestamp
+        });
+        Ok(ParameterProposalStatus::Executed)
     }
 }

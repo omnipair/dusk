@@ -32,6 +32,12 @@ pub use governance_balance::*;
 
 pub mod governance_support;
 pub use governance_support::*;
+pub mod governance_control;
+pub use governance_control::*;
+pub mod recovery_ballot;
+pub use recovery_ballot::*;
+pub mod recovery_vote;
+pub use recovery_vote::*;
 
 pub use crate::transitions::tranches::*;
 

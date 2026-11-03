@@ -985,6 +985,10 @@ pub struct ParameterProposalCreated {
     pub market: Pubkey,
     pub proposer: Pubkey,
     pub nonce: u64,
+    pub origin: crate::state::ProposalOrigin,
+    pub action: crate::state::GovernanceAction,
+    pub conditions: Vec<crate::state::FamilyRevisionCondition>,
+    pub execution_digest: [u8; 32],
     pub junior_generation: u64,
     /// Each updated family's revision at creation; untouched families read
     /// zero. The family of every update is its variant.
@@ -1011,6 +1015,9 @@ pub struct ParameterProposalSupported {
 #[event]
 pub struct ParameterProposalQueued {
     pub proposal: Pubkey,
+    pub clock: crate::state::ProposalClock,
+    pub execution_digest: [u8; 32],
+    pub family_revisions: [u64; 9],
     pub total_locked: u64,
     pub eligible_supply: u64,
     pub queued_at: i64,

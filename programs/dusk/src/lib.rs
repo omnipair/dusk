@@ -186,7 +186,7 @@ pub mod dusk {
         QueueParameterProposal::handle_queue(ctx)
     }
 
-    pub fn execute_parameter_proposal(ctx: Context<ExecuteParameterProposal>) -> Result<()> {
+    pub fn execute_parameter_proposal(ctx: Context<ExecuteParameterProposal>) -> Result<ParameterProposalStatus> {
         ExecuteParameterProposal::handle_execute(ctx)
     }
 
@@ -230,6 +230,33 @@ pub mod dusk {
         args: WithdrawParameterSupportArgs,
     ) -> Result<()> {
         WithdrawGovernanceSupport::handle(ctx, args)
+    }
+
+    pub fn create_manager_proposal(ctx: Context<CreateManagerProposal>, args: CreateManagerProposalArgs) -> Result<()> {
+        CreateManagerProposal::handle(ctx, args)
+    }
+
+    pub fn resolve_manager_proposal(
+        ctx: Context<ResolveManagerProposal>,
+        cancel: bool,
+    ) -> Result<ParameterProposalStatus> {
+        ResolveManagerProposal::handle(ctx, cancel)
+    }
+
+    pub fn open_recovery_ballot(ctx: Context<OpenRecoveryBallot>, target: RecoveryTarget) -> Result<()> {
+        OpenRecoveryBallot::handle(ctx, target)
+    }
+
+    pub fn vote_recovery_ballot(ctx: Context<VoteRecoveryBallot>, args: VoteRecoveryBallotArgs) -> Result<()> {
+        VoteRecoveryBallot::handle(ctx, args)
+    }
+
+    pub fn refresh_recovery_ballot(ctx: Context<RefreshRecoveryBallot>) -> Result<bool> {
+        RefreshRecoveryBallot::handle(ctx)
+    }
+
+    pub fn release_recovery_vote(ctx: Context<ReleaseRecoveryVote>) -> Result<()> {
+        ReleaseRecoveryVote::handle(ctx)
     }
 
     // Liquidity instructions

@@ -438,16 +438,17 @@ instruction in a transaction without signing or sending it.
 
 ### Direct-yLP Parameter Governance
 
-Market layout v2 has no market manager. The program exposes eight independent
+Each market starts with its creator as manager. LP governance remains available
+and can replace the manager or remove it, leaving the role empty. The program exposes nine
 parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
-Limit, Center Controller, Insurance, and Oracle. A direct yLP holder burn-locks at least
+Limit, Center Controller, Insurance, Oracle, and Tranche. A direct yLP holder burn-locks at least
 1% of eligible direct yLP to create a typed proposal. Strictly more than 50%
-support queues it for a 7-day timelock and a 7-day execution window. Execution
+support queues it for a 7-day timelock (10 days for tranche changes) and a 7-day execution window. Execution
 is permissionless. Proposals containing exactly one Oracle update can restore
 pricing despite distress or high utilization; positive weight still verifies a
 fresh proposed source. Every other proposal, including mixed Oracle proposals,
 requires both lending sides below 80% utilization and adequate market health.
-Support thresholds, timelock, and execution window apply to every proposal.
+Manager announcements use the fixed manager policy and do not require LP sponsorship.
 
 Use the typed update constructors so values are checked against the same hard
 bounds before an instruction is built:
@@ -973,9 +974,10 @@ necessarily cancel an RPC request already sent over the transport.
 ### Reusable governance balances and delegation
 
 `dusk.governance` builds instructions and transactions; it never signs or submits.
-Amounts are raw **yLP atoms**, not asset amounts or dollar values. Only direct yLP
-is eligible; hLP vault holdings remain excluded. Deposited and committed shares
-continue accruing swap fees and interest to their original owner.
+Amounts are raw receipt atoms, not asset amounts or dollar values. Senior yLP
+and the current junior cohort are eligible; hLP vault holdings remain excluded.
+Junior receipts are valued using their live reserve-share backing. Deposited
+and committed shares continue accruing income to their original owner.
 
 ```ts
 const deposit = await dusk.governance.deposit({ market, owner, amount: 100_000n });
@@ -1011,8 +1013,11 @@ proposals, support proposals, or release collecting support. Replacing/revoking
 that delegate takes effect immediately, including for existing allocations.
 Delegate changes need only the owner and their governance balance; closing an
 empty wallet ATA cannot block revocation. Fund the balance before setting a delegate.
-Queued support stays frozen until execution, expiry, or staleness under the
-existing rules. Idle shares remain owner-withdrawable. The same shares cannot
+Queued support stays frozen until execution, cancellation, expiry, or staleness.
+Recovery votes can separately encumber the same ownership until their ballot
+ends or target becomes terminal. `availableAmount` is unallocated ownership;
+withdrawal must also leave enough ownership for every active recovery vote.
+The same shares cannot
 support multiple proposals simultaneously. Falling below the original sponsorship
 minimum cancels a collecting proposal. The final release leaves its permanent
 tombstone, refunding excess rent to the proposer; allocation rent returns to its
@@ -1029,9 +1034,154 @@ table. Use the returned `instruction` to compose such a transaction; initial
 sponsorship cannot be split across multiple transactions. Existing queue and
 execute helpers work for proposals with direct, reusable, or mixed support.
 
+### Elected managers and proposal commitments
+
+The market creator (`initializeMarket` payer) is the initial manager, installed
+atomically at creation. LPs can elect a replacement wallet or program-derived
+manager through the ordinary majority and seven-day timelock. LP removal leaves
+the role empty until a new election passes; subsequent parameter proposals never
+restore the creator automatically. `dusk.governance.getManager(market)` returns
+the active authority or `null`. A manager can announce a typed parameter bundle without
+LP sponsorship or support. Every announcement waits the maximum junior exit
+notice plus one protocol day, followed by a seven-protocol-day execution window
+(both measured in scheduled slots). All updates in a bundle execute atomically. An error rolls back the
+complete update and its accounting checkpoints.
+
+```ts
+const election = await dusk.governance.electManager({
+  market, proposer: delegate, manager, nonce: 2n, metadata,
+  contributions: [{ owner, amount: 100_000n }],
+});
+// Ordinary LP support and execute flows apply to this appointment.
+
+const announcement = await dusk.governance.proposeAsManager({
+  market, manager, payer, nonce: 1n, updates, metadata,
+});
+// manager signs; payer funds rent. A program-owned manager can sign through CPI.
+
+const execute = await dusk.write.executeParameterProposal({
+  market, proposal: announcement.proposal,
+});
+// Anyone can execute after notice. Decode return data or ProposalResolved:
+// success can mean a terminal stale/cancelled/expired outcome without applying.
+
+const cleanup = await dusk.governance.resolveManagerProposal({
+  market, proposal: announcement.proposal,
+});
+// Permissionless once terminal; excess rent returns to the original payer.
+```
+
+The manager has a fixed protocol policy. Oracle providers, feeds and policy
+remain LP-only. Launch settings become immutable at the market's `startTime`,
+including for LP proposals. Other numerical ranges use per-family references
+from the last executed LP approval; manager rotation does not reset them. There
+is a three-day announcement cooldown per market, preserved through cancellation
+and manager replacement. Every market has at most one pending bundle.
+
+Concentrated markets require an enabled center controller at creation and after
+every parameter bundle, for LP governance as well as managers. A CPMM curve does
+not use the controller; returning to CPMM can release its retained recenter
+reserves. A proposal that enables concentration from a disabled CPMM controller
+must include a valid controller configuration in the same atomic bundle.
+
+| Manager setting | Fixed policy |
+|---|---|
+| Base fee, prelaunch peak/maximum fee | Changed values 0–100 bps. |
+| Compounding | 0–100%. Fee asset may change between the supported modes. |
+| Dynamic-fee share caps | Each ≤250 bps. |
+| Fee coefficients, volatility caps/half-life and prelaunch schedule tuning | Nonzero references: ±20% LP reference. Optional components may turn off; activation from a zero reference uses protocol bounds. Reactivation into a nonzero reference band is allowed. |
+| Prelaunch durations | ≤30 days. All launch fields freeze at `startTime`. |
+| Amplification and curve widths | Amplification ±25% LP reference; core/fade widths ±500 bps. Canonical CPMM is allowed. |
+| Coverage signals | ±25% LP reference, with lower < upper. |
+| Interest adaptation half-life | ½×–2× LP reference, within 1 hour–30 days. |
+| Initial/minimum APR; maximum APR | Initial/minimum ±2 percentage points. A nonzero maximum stays within ±10 points of the LP cap; uncapped mode is allowed. From an uncapped LP reference, a new cap must cover the target initial APR and be ≤LP initial APR +10 points. |
+| Borrow utilization | Changed values ≤80%, within protocol bounds. |
+| Four price/depth EMA half-lives | ½×–2× their respective LP reference, within 1 minute–12 hours. These are separate from the interest model. |
+| Daily public-borrow allowance | 0–LP-approved allowance, subject to the existing protocol ceiling. |
+| Center controller | Enabled when concentrated; step ≤0.1%, trigger ≤1% and ≥step, interval 18,000–432,000 slots (nominally 1–24 hours at 200ms/slot). |
+| Insurance coverage / daily draw | Each ±5 percentage points LP reference, within protocol ceilings 75% / 50%. |
+| Junior income / exit request / liquidation fee | Respectively ±10 percentage points / ±5 bps / ±25 bps LP reference, within protocol ranges 10–90% / 1–50 bps / 25–300 bps. |
+
+Only executed LP parameter approvals reanchor the updated families, including
+exact-target ratifications that have become no-ops. They still advance the
+family revision. There are no per-change movement limits or rolling monthly budgets.
+
+There is one pending atomic bundle per market. Proposals collecting LP support
+reserve nothing. The first LP proposal to reach majority takes the pending slot,
+preempting a manager bundle if necessary. Neither managers nor another LP
+proposal can replace a pending LP bundle. It must execute, expire or be vetoed.
+All queued bundles snapshot the complete configuration revision array; any
+configuration mismatch stales the whole bundle. Application is atomic.
+
+Every manager bundle has a hardcoded notice of the maximum junior exit notice
+plus one protocol day: **4,752,000 scheduled slots** (11 nominal days at 200ms per
+slot). Its execution window is 3,024,000 slots. LP proposals retain their existing
+7-day Unix notice, or 10 days for tranche changes. Use `proposalClockUnit(origin)`
+to interpret `queuedAt`, `executeAfter` and `executionDeadline`, or the `clock`
+field on `ParameterProposalQueued`. Recovery ballots and the announcement
+cooldown use Unix seconds. Cancelling and reannouncing restarts the full notice.
+
+The V4 **intent digest** commits to exact targets, origin, manager epoch/policy,
+action, explicit revision conditions, metadata and junior cohort. Changing the
+starting settings does not invalidate a collecting LP endorsement if these
+endorsed values and conditions remain unchanged. Supply `conditions` when a
+proposal should require a particular starting revision. At majority, the program
+revalidates the targets, seals all configuration revisions and starts a full
+notice period. The separate **execution digest** commits to those revisions,
+queue-time support/electorate and timestamps. Use
+`verifyDecodedParameterProposalDigest` and `verifyDecodedExecutionDigest` to
+verify both commitments; the deprecated `familyRevisions` input to the V4 intent
+helper has no effect.
+
+Manager proposals are bound to their election epoch. Replacement or removal
+stales all earlier manager announcements and older pending appointments cannot
+restore an authority from an earlier epoch. The manager can cancel its own
+announcement with `resolveManagerProposal({ ..., cancel: true, manager })`.
+Proposals retain a permanent identity tombstone after rent cleanup, so their
+address cannot be reused and recovery references remain verifiable.
+
+### Immediate LP cancellation and manager removal
+
+```ts
+const removal = await dusk.governance.openRemovalBallot({ market, payer });
+const cancellation = await dusk.governance.openCancellationBallot({
+  market, payer, proposal,
+});
+const vote = await dusk.governance.voteRecovery({
+  market, ballot: removal.ballot, source: governanceBalance,
+  authority: ownerOrDelegate, payer, amount: 100_000n,
+});
+// A direct ProposalSupport account is also a source; include sourceProposal.
+```
+
+| Rule | Behavior |
+|---|---|
+| Opening a ballot | Veto targets the one pending bundle; removal targets the manager independently. Starts a seven-day window; does not pause proposals or remove anyone. |
+| Passing | Strict majority of the current eligible LP value acts in the same transaction, without another timelock. |
+| Ownership | Existing governance-locked ownership can vote. A source's cumulative vote cannot exceed its owned receipts. |
+| Vote locks | Participating ownership stays locked until the ballot ends or its target becomes terminal. Each source supports at most eight active recovery locks. |
+| Rounds | A reopened ballot has a new round; old receipts cannot vote again or release a newer round's locks. |
+
+Majority uses the live electorate and current junior backing, rather than an
+opening-time snapshot. `refreshRecoveryBallot` lets anyone reevaluate it during
+the window. Parameter execution also checks the canonical cancellation/removal
+ballots, so it cannot bypass a current majority by omitting their accounts. An
+unpassed ballot does not acquire a majority retroactively after its window ends.
+Retired junior receipt votes do not count toward a replacement cohort.
+
+`releaseRecoveryVote({ market, ballot, source, round })` clears an ended vote's
+lock and returns its receipt rent to the original payer. Early release requires
+proof that the exact target is terminal. This instruction is permissionless;
+it grants no authority to withdraw the owner's principal or income.
+
+The manager and LP delegate can be program-derived authorities. This permits
+external governance or manager syndicates to compose through CPI, with a
+separate funded payer. Token issuance and protocol-fee revenue sharing are not
+implemented by these governance instructions.
+
 ### Retired junior governance balances
 
-A proposal's V3 digest includes `juniorGeneration` as well as its targets and family revisions. Pass the decoded proposal's generation to `computeParameterProposalDigest`; receipt units from a retired generation do not contribute to a later generation's voting value.
+A proposal's V4 intent digest includes `juniorGeneration` as well as its targets and explicit conditions. Pass the decoded proposal's generation to `computeParameterProposalDigest`; receipt units from a retired generation do not contribute to a later generation's voting value.
 
 For an ended allocation or obsolete deposit, select the original mint explicitly:
 

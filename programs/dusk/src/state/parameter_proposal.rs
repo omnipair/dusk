@@ -12,9 +12,10 @@ use crate::{
 
 use super::{FeeProfile, IrmConfig, OraclePolicy, TrancheCapital};
 
-/// Domain separator for the immutable, client-verifiable proposal digest. V3
-/// binds the junior cohort, updates, and each updated family's revision.
-pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V3";
+/// Immutable support intent. Execution assumptions are committed separately
+/// when a majority starts the notice period.
+pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V4";
+pub const PARAMETER_EXECUTION_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_EXECUTION_V2";
 
 /// Number of governed parameter families, and of `Market::parameter_revisions`.
 pub const PARAMETER_FAMILY_COUNT: usize = 9;
@@ -32,7 +33,57 @@ pub enum ParameterFamily {
     Tranche,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub enum ProposalOrigin {
+    Lp,
+    Manager { epoch: u64, policy_version: u64 },
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub enum ProposalClock {
+    UnixSeconds,
+    Slots,
+}
+
+impl ProposalOrigin {
+    pub fn clock_kind(self) -> ProposalClock {
+        match self {
+            Self::Lp => ProposalClock::UnixSeconds,
+            Self::Manager { .. } => ProposalClock::Slots,
+        }
+    }
+    pub fn clock_value(self, clock: &Clock) -> Result<i64> {
+        match self {
+            Self::Lp => Ok(clock.unix_timestamp),
+            Self::Manager { .. } => i64::try_from(clock.slot).map_err(|_| error!(ErrorCode::MarketMathOverflow)),
+        }
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub enum GovernanceAction {
+    Parameters,
+    AppointManager { manager: Pubkey, expected_epoch: u64 },
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub struct FamilyRevisionCondition {
+    pub family: ParameterFamily,
+    pub revision: u64,
+}
+
 impl ParameterFamily {
+    pub const ALL: [Self; PARAMETER_FAMILY_COUNT] = [
+        Self::Fee,
+        Self::Concentration,
+        Self::Irm,
+        Self::EmaHalfLives,
+        Self::DailyBorrowLimit,
+        Self::CenterController,
+        Self::Insurance,
+        Self::Oracle,
+        Self::Tranche,
+    ];
     pub fn code(self) -> u8 {
         match self {
             Self::Fee => 0,
@@ -68,7 +119,8 @@ pub enum MarketParameterUpdate {
         max_daily_borrow_bps: u16,
     },
     /// Sticky-center movement thresholds. A fully-zero tuple disables center
-    /// adjustment; partial zero tuples are invalid.
+    /// adjustment in CPMM mode; concentrated markets require a live controller.
+    /// Partial zero tuples are invalid.
     CenterController {
         adjustment_threshold_nad: u64,
         adjustment_step_nad: u64,
@@ -107,8 +159,8 @@ pub fn validate_parameter_update_set(updates: &[MarketParameterUpdate]) -> Resul
     Ok(())
 }
 
-/// The revision each updated family must still be at for the proposal to
-/// apply; families the proposal does not touch read zero and are ignored.
+/// Minimal projection of revisions for the updated families. Collecting
+/// endorsements ignore this snapshot; sealing adds every execution dependency.
 pub fn updated_family_revisions(
     updates: &[MarketParameterUpdate],
     market_revisions: &[u64; PARAMETER_FAMILY_COUNT],
@@ -231,16 +283,21 @@ pub struct ParameterProposal {
     pub nonce: u64,
     /// Cohort whose junior receipt units may contribute to this proposal.
     pub junior_generation: u64,
+    pub origin: ProposalOrigin,
+    pub action: GovernanceAction,
+    pub rent_refund: Pubkey,
+    #[max_len(9)]
+    pub conditions: Vec<FamilyRevisionCondition>,
     /// The families this proposal changes, one update each, in ascending
     /// family order. They execute together or not at all.
     #[max_len(9)]
     pub updates: Vec<MarketParameterUpdate>,
-    /// The revision of each updated family when the proposal was created; an
-    /// executed change to any of them makes this proposal stale. Families the
-    /// proposal does not update read zero.
+    /// Full configuration snapshot sealed when a bundle becomes pending.
+    /// Collecting endorsements bind only their explicit revision conditions.
     pub family_revisions: [u64; PARAMETER_FAMILY_COUNT],
     pub metadata: ProposalMetadataV1,
     pub digest: [u8; 32],
+    pub execution_digest: [u8; 32],
     pub status: ParameterProposalStatus,
     /// Frozen minimum support needed to keep this proposal alive after its
     /// initial 1% sponsorship burn-lock.
@@ -254,6 +311,7 @@ pub struct ParameterProposal {
     pub queued_support: u64,
     pub queued_eligible_ylp: u64,
     pub created_at: i64,
+    /// Unix seconds for LP proposals, scheduled slots for manager proposals.
     pub queued_at: i64,
     pub execute_after: i64,
     pub execution_deadline: i64,
@@ -270,22 +328,33 @@ impl ParameterProposal {
         junior_generation: u64,
         market_revisions: &[u64; PARAMETER_FAMILY_COUNT],
         updates: Vec<MarketParameterUpdate>,
+        action: GovernanceAction,
+        conditions: Vec<FamilyRevisionCondition>,
         metadata: ProposalMetadataV1,
         eligible_supply: u64,
         created_at: i64,
         bump: u8,
     ) -> Result<()> {
         metadata.validate()?;
-        validate_parameter_update_set(&updates)?;
+        match action {
+            GovernanceAction::Parameters => validate_parameter_update_set(&updates)?,
+            GovernanceAction::AppointManager { manager, .. } => require!(
+                updates.is_empty() && manager != Pubkey::default(),
+                ErrorCode::InvalidParameterProposal
+            ),
+        }
+        validate_revision_conditions(&conditions)?;
         require!(eligible_supply > 0, ErrorCode::ProposalSponsorshipTooLow);
         let family_revisions = updated_family_revisions(&updates, market_revisions);
-        let digest = parameter_proposal_digest(
+        let digest = proposal_intent_digest(
             crate::ID,
             market,
             proposer,
             nonce,
             junior_generation,
-            &family_revisions,
+            ProposalOrigin::Lp,
+            action,
+            &conditions,
             &updates,
             &metadata,
         )?;
@@ -293,10 +362,15 @@ impl ParameterProposal {
         self.proposer = proposer;
         self.nonce = nonce;
         self.junior_generation = junior_generation;
+        self.origin = ProposalOrigin::Lp;
+        self.action = action;
+        self.rent_refund = proposer;
+        self.conditions = conditions;
         self.updates = updates;
         self.family_revisions = family_revisions;
         self.metadata = metadata;
         self.digest = digest;
+        self.execution_digest = [0; 32];
         self.status = ParameterProposalStatus::Collecting;
         self.sponsorship_floor = sponsorship_floor(eligible_supply)?;
         self.total_locked = 0;
@@ -327,18 +401,41 @@ impl ParameterProposal {
         )
         .map_err(|_| error!(ErrorCode::InvalidParameterProposal))?;
         require_keys_eq!(proposal_key, expected, ErrorCode::InvalidParameterProposal);
-        validate_parameter_update_set(&self.updates).map_err(|_| error!(ErrorCode::InvalidParameterProposal))?;
-        self.assert_digest()
+        match self.action {
+            GovernanceAction::Parameters => {
+                validate_parameter_update_set(&self.updates).map_err(|_| error!(ErrorCode::InvalidParameterProposal))?
+            }
+            GovernanceAction::AppointManager { manager, .. } => {
+                require!(
+                    self.origin == ProposalOrigin::Lp && self.updates.is_empty() && manager != Pubkey::default(),
+                    ErrorCode::InvalidParameterProposal
+                );
+            }
+        }
+        self.assert_digest()?;
+        if matches!(
+            self.status,
+            ParameterProposalStatus::Queued | ParameterProposalStatus::Executed
+        ) {
+            require!(
+                self.execution_digest == self.compute_execution_digest()?,
+                ErrorCode::InvalidProposalDigest
+            );
+        }
+        Ok(())
     }
 
     pub fn assert_digest(&self) -> Result<()> {
-        let expected = parameter_proposal_digest(
+        validate_revision_conditions(&self.conditions)?;
+        let expected = proposal_intent_digest(
             crate::ID,
             self.market,
             self.proposer,
             self.nonce,
             self.junior_generation,
-            &self.family_revisions,
+            self.origin,
+            self.action,
+            &self.conditions,
             &self.updates,
             &self.metadata,
         )?;
@@ -362,6 +459,7 @@ impl ParameterProposal {
     }
 
     pub fn queue_if_supported(&mut self, eligible_supply: u64, tranches: &TrancheCapital, now: i64) -> Result<bool> {
+        require!(self.origin == ProposalOrigin::Lp, ErrorCode::ProposalNotCollecting);
         require!(
             self.status == ParameterProposalStatus::Collecting,
             ErrorCode::ProposalNotCollecting
@@ -392,13 +490,13 @@ impl ParameterProposal {
         self.updates.iter().map(MarketParameterUpdate::family)
     }
 
-    /// Whether every family this proposal changes is still at the revision
-    /// it was created against.
+    /// Explicit conditions always apply. Queued proposals additionally require
+    /// every dependency sealed when their notice period began.
     pub fn revisions_current(&self, market_revisions: &[u64; PARAMETER_FAMILY_COUNT]) -> bool {
-        self.families().all(|family| {
-            let index = family.code() as usize;
-            market_revisions[index] == self.family_revisions[index]
-        })
+        self.conditions
+            .iter()
+            .all(|condition| market_revisions[condition.family.code() as usize] == condition.revision)
+            && (self.status == ParameterProposalStatus::Collecting || self.family_revisions == *market_revisions)
     }
 
     pub fn mark_stale_if_revision_changed(&mut self, market_revisions: &[u64; PARAMETER_FAMILY_COUNT]) -> bool {
@@ -422,13 +520,118 @@ impl ParameterProposal {
     }
 
     pub fn cancel_if_below_sponsorship_floor(&mut self, tranches: &TrancheCapital) -> Result<bool> {
-        if self.status == ParameterProposalStatus::Collecting
+        if self.origin == ProposalOrigin::Lp
+            && self.status == ParameterProposalStatus::Collecting
             && self.current_support(tranches)? < self.sponsorship_floor
         {
             self.status = ParameterProposalStatus::Cancelled;
             return Ok(true);
         }
         Ok(false)
+    }
+
+    pub fn terminal(&self) -> bool {
+        matches!(
+            self.status,
+            ParameterProposalStatus::Executed
+                | ParameterProposalStatus::Cancelled
+                | ParameterProposalStatus::Expired
+                | ParameterProposalStatus::Stale
+        )
+    }
+
+    pub fn effective_status(
+        &self,
+        control: &super::GovernanceControl,
+        revisions: &[u64; PARAMETER_FAMILY_COUNT],
+        key: Pubkey,
+        clock: &Clock,
+    ) -> ParameterProposalStatus {
+        if self.terminal() {
+            return self.status;
+        }
+        let authority_current = match self.origin {
+            ProposalOrigin::Lp => match self.action {
+                GovernanceAction::Parameters => true,
+                GovernanceAction::AppointManager { expected_epoch, .. } => expected_epoch == control.manager_epoch,
+            },
+            ProposalOrigin::Manager { epoch, policy_version } => {
+                control.manager == self.proposer
+                    && control.manager_epoch == epoch
+                    && policy_version == super::MANAGER_POLICY_VERSION
+            }
+        };
+        if !authority_current || !self.revisions_current(revisions) {
+            return ParameterProposalStatus::Stale;
+        }
+        if self.status == ParameterProposalStatus::Queued {
+            let now = match self.origin.clock_value(clock) {
+                Ok(now) => now,
+                Err(_) => return ParameterProposalStatus::Expired,
+            };
+            if now > self.execution_deadline {
+                return ParameterProposalStatus::Expired;
+            }
+            if !control.pending.is_some_and(|pending| pending.proposal == key) {
+                return ParameterProposalStatus::Stale;
+            }
+        }
+        self.status
+    }
+
+    pub fn refresh_intent_digest(&mut self) -> Result<()> {
+        validate_revision_conditions(&self.conditions)?;
+        self.digest = proposal_intent_digest(
+            crate::ID,
+            self.market,
+            self.proposer,
+            self.nonce,
+            self.junior_generation,
+            self.origin,
+            self.action,
+            &self.conditions,
+            &self.updates,
+            &self.metadata,
+        )?;
+        Ok(())
+    }
+
+    pub fn seal_execution(&mut self, revisions: &[u64; PARAMETER_FAMILY_COUNT]) -> Result<()> {
+        require!(
+            self.status == ParameterProposalStatus::Queued && self.execution_digest == [0; 32],
+            ErrorCode::InvalidParameterProposal
+        );
+        require!(
+            self.conditions
+                .iter()
+                .all(|condition| revisions[condition.family.code() as usize] == condition.revision),
+            ErrorCode::ProposalStale
+        );
+        self.family_revisions = *revisions;
+        self.execution_digest = self.compute_execution_digest()?;
+        Ok(())
+    }
+
+    pub fn pending_bundle(&self, proposal: Pubkey) -> super::PendingBundle {
+        super::PendingBundle {
+            proposal,
+            origin: self.origin,
+            action: self.action,
+            deadline: self.execution_deadline,
+        }
+    }
+
+    fn compute_execution_digest(&self) -> Result<[u8; 32]> {
+        let snapshot = (
+            self.family_revisions,
+            self.queued_support,
+            self.queued_eligible_ylp,
+            self.queued_at,
+            self.execute_after,
+            self.execution_deadline,
+        )
+            .try_to_vec()?;
+        Ok(hashv(&[PARAMETER_EXECUTION_DIGEST_DOMAIN, &self.digest, &snapshot]).to_bytes())
     }
 }
 
@@ -468,6 +671,17 @@ pub fn has_strict_support_majority(total_locked: u64, eligible_supply: u64) -> R
     Ok(support > threshold)
 }
 
+pub fn validate_revision_conditions(conditions: &[FamilyRevisionCondition]) -> Result<()> {
+    require!(
+        conditions.len() <= PARAMETER_FAMILY_COUNT
+            && conditions
+                .windows(2)
+                .all(|pair| pair[0].family.code() < pair[1].family.code()),
+        ErrorCode::ParameterUpdatesNotCanonical
+    );
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn parameter_proposal_digest(
     program_id: Pubkey,
@@ -475,33 +689,46 @@ pub fn parameter_proposal_digest(
     proposer: Pubkey,
     nonce: u64,
     junior_generation: u64,
-    family_revisions: &[u64; PARAMETER_FAMILY_COUNT],
+    _family_revisions: &[u64; PARAMETER_FAMILY_COUNT],
     updates: &[MarketParameterUpdate],
     metadata: &ProposalMetadataV1,
 ) -> Result<[u8; 32]> {
-    let updates_bytes = updates
-        .to_vec()
-        .try_to_vec()
-        .map_err(|_| error!(ErrorCode::InvalidProposalDigest))?;
-    let metadata_bytes = metadata
-        .try_to_vec()
-        .map_err(|_| error!(ErrorCode::InvalidProposalDigest))?;
-    let nonce = nonce.to_le_bytes();
-    let junior_generation = junior_generation.to_le_bytes();
-    let revisions_bytes: Vec<u8> = family_revisions
-        .iter()
-        .flat_map(|revision| revision.to_le_bytes())
-        .collect();
+    proposal_intent_digest(
+        program_id,
+        market,
+        proposer,
+        nonce,
+        junior_generation,
+        ProposalOrigin::Lp,
+        GovernanceAction::Parameters,
+        &[],
+        updates,
+        metadata,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn proposal_intent_digest(
+    program_id: Pubkey,
+    market: Pubkey,
+    proposer: Pubkey,
+    nonce: u64,
+    junior_generation: u64,
+    origin: ProposalOrigin,
+    action: GovernanceAction,
+    conditions: &[FamilyRevisionCondition],
+    updates: &[MarketParameterUpdate],
+    metadata: &ProposalMetadataV1,
+) -> Result<[u8; 32]> {
+    let payload = (origin, action, conditions.to_vec(), updates.to_vec(), metadata.clone()).try_to_vec()?;
     Ok(hashv(&[
         PARAMETER_PROPOSAL_DIGEST_DOMAIN,
         program_id.as_ref(),
         market.as_ref(),
         proposer.as_ref(),
-        &nonce,
-        &junior_generation,
-        &revisions_bytes,
-        &updates_bytes,
-        &metadata_bytes,
+        &nonce.to_le_bytes(),
+        &junior_generation.to_le_bytes(),
+        &payload,
     ])
     .to_bytes())
 }

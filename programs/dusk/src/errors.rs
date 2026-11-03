@@ -444,4 +444,22 @@ pub enum ErrorCode {
     OracleStale,
     #[msg("Oracle sequence or source observation regressed")]
     OracleReplay,
+    #[msg("The manager authority or epoch is no longer current")]
+    ManagerEpochMismatch,
+    #[msg("The elected manager is required")]
+    InvalidManager,
+    #[msg("The change exceeds the fixed manager policy")]
+    ManagerPolicyExceeded,
+    #[msg("A bundle is already pending in this market")]
+    PendingBundleExists,
+    #[msg("The bounded governance pending capacity is full")]
+    GovernanceCapacityExceeded,
+    #[msg("Governance ownership is still encumbered by a recovery ballot")]
+    RecoveryVoteLocked,
+    #[msg("The recovery ballot or its target is no longer active")]
+    RecoveryBallotInactive,
+    #[msg("Wait three days between manager announcements for this market")]
+    ManagerAnnouncementCooldown,
+    #[msg("Launch-only settings are immutable after the market starts")]
+    LaunchSettingsImmutable,
 }

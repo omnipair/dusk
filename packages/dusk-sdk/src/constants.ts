@@ -725,3 +725,14 @@ export function deriveIncomeEpochAddress(market: PublicKey, bookIndex: number, e
   if (!Number.isInteger(bookIndex) || bookIndex < 0 || bookIndex > 3) throw new Error("bookIndex must be 0–3");
   return PublicKey.findProgramAddressSync([Buffer.from("income_epoch"), market.toBuffer(), Buffer.from([bookIndex]), u64Seed(epoch, "epoch")], programId);
 }
+
+export function deriveGovernanceControlAddress(market: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("governance_control"), market.toBuffer()], programId);
+}
+
+export function deriveCancellationBallotAddress(market: PublicKey, proposal: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("recovery_ballot"), market.toBuffer(), proposal.toBuffer()], programId);
+}
+export function deriveRemovalBallotAddress(market: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("recovery_ballot"), market.toBuffer(), Buffer.alloc(32)], programId);
+}

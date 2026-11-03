@@ -180,30 +180,34 @@ impl MarketConfig {
     pub fn apply_fee_profile(&mut self, profile: FeeProfile) -> Result<()> {
         profile.validate()?;
         let mut next = *self;
-        next.swap_fee_bps = profile.base_fee_bps;
-        next.divergence_fee_share_cap_bps = profile.divergence_fee_share_cap_bps;
-        next.volatility_fee_share_cap_bps = profile.volatility_fee_share_cap_bps;
-        next.amm.divergence_fee_coefficient_nad = profile.divergence_fee_coefficient_nad;
-        next.amm.volatility_fee_coefficient_nad = profile.volatility_fee_coefficient_nad;
-        next.amm.volatility_half_life_ms = profile.volatility_half_life_ms;
-        next.amm.volatility_shock_cap_nad = profile.volatility_shock_cap_nad;
-        next.amm.volatility_cap_nad = profile.volatility_accumulator_cap_nad;
-        next.amm.swap_fee_collect_mode = profile.swap_fee_collect_mode;
-        next.amm.compounding_fee_bps = profile.compounding_fee_bps;
-        next.amm.launch_fee_start_bps = profile.launch_fee_start_bps;
-        next.amm.launch_fee_duration_seconds = profile.launch_fee_duration_seconds;
-        next.amm.launch_fee_decay_mode = profile.launch_fee_decay_mode;
-        next.amm.launch_market_price_step_bps = profile.launch_market_price_step_bps;
-        next.amm.launch_market_number_of_periods = profile.launch_market_number_of_periods;
-        next.amm.launch_market_reduction_factor_bps = profile.launch_market_reduction_factor_bps;
-        next.amm.launch_rate_limit_asset = profile.launch_rate_limit_asset;
-        next.amm.launch_rate_limit_reference_nad = profile.launch_rate_limit_reference_nad;
-        next.amm.launch_rate_limit_increment_bps = profile.launch_rate_limit_increment_bps;
-        next.amm.launch_rate_limit_max_fee_bps = profile.launch_rate_limit_max_fee_bps;
-        next.amm.launch_rate_limit_duration_seconds = profile.launch_rate_limit_duration_seconds;
+        next.copy_fee_profile_fields(profile);
         next.validate()?;
         *self = next;
         Ok(())
+    }
+
+    pub(crate) fn copy_fee_profile_fields(&mut self, profile: FeeProfile) {
+        self.swap_fee_bps = profile.base_fee_bps;
+        self.divergence_fee_share_cap_bps = profile.divergence_fee_share_cap_bps;
+        self.volatility_fee_share_cap_bps = profile.volatility_fee_share_cap_bps;
+        self.amm.divergence_fee_coefficient_nad = profile.divergence_fee_coefficient_nad;
+        self.amm.volatility_fee_coefficient_nad = profile.volatility_fee_coefficient_nad;
+        self.amm.volatility_half_life_ms = profile.volatility_half_life_ms;
+        self.amm.volatility_shock_cap_nad = profile.volatility_shock_cap_nad;
+        self.amm.volatility_cap_nad = profile.volatility_accumulator_cap_nad;
+        self.amm.swap_fee_collect_mode = profile.swap_fee_collect_mode;
+        self.amm.compounding_fee_bps = profile.compounding_fee_bps;
+        self.amm.launch_fee_start_bps = profile.launch_fee_start_bps;
+        self.amm.launch_fee_duration_seconds = profile.launch_fee_duration_seconds;
+        self.amm.launch_fee_decay_mode = profile.launch_fee_decay_mode;
+        self.amm.launch_market_price_step_bps = profile.launch_market_price_step_bps;
+        self.amm.launch_market_number_of_periods = profile.launch_market_number_of_periods;
+        self.amm.launch_market_reduction_factor_bps = profile.launch_market_reduction_factor_bps;
+        self.amm.launch_rate_limit_asset = profile.launch_rate_limit_asset;
+        self.amm.launch_rate_limit_reference_nad = profile.launch_rate_limit_reference_nad;
+        self.amm.launch_rate_limit_increment_bps = profile.launch_rate_limit_increment_bps;
+        self.amm.launch_rate_limit_max_fee_bps = profile.launch_rate_limit_max_fee_bps;
+        self.amm.launch_rate_limit_duration_seconds = profile.launch_rate_limit_duration_seconds;
     }
 
     /// Effective base fee for one swap. Launch protection is a bounded,
@@ -435,6 +439,10 @@ impl MarketConfig {
         );
         self.irm.validate()?;
         self.amm.validate()?;
+        require!(
+            self.amm.concentrated_curve_parameters()?.is_cpmm() || self.amm.adjustment_step_nad > 0,
+            ErrorCode::InvalidMarketConfig
+        );
         Ok(())
     }
 }
@@ -578,6 +586,72 @@ impl Market {
         Ok(())
     }
 
+    pub fn assert_launch_settings_unchanged_after_start(
+        &self,
+        updates: &[MarketParameterUpdate],
+        now: i64,
+    ) -> Result<()> {
+        if now < self.config.start_time {
+            return Ok(());
+        }
+        let old = self.config.fee_profile();
+        for update in updates {
+            if let MarketParameterUpdate::Fee(next) = update {
+                require!(
+                    old.launch_fee_start_bps == next.launch_fee_start_bps
+                        && old.launch_fee_duration_seconds == next.launch_fee_duration_seconds
+                        && old.launch_fee_decay_mode == next.launch_fee_decay_mode
+                        && old.launch_market_price_step_bps == next.launch_market_price_step_bps
+                        && old.launch_market_number_of_periods == next.launch_market_number_of_periods
+                        && old.launch_market_reduction_factor_bps == next.launch_market_reduction_factor_bps
+                        && old.launch_rate_limit_asset == next.launch_rate_limit_asset
+                        && old.launch_rate_limit_reference_nad == next.launch_rate_limit_reference_nad
+                        && old.launch_rate_limit_increment_bps == next.launch_rate_limit_increment_bps
+                        && old.launch_rate_limit_max_fee_bps == next.launch_rate_limit_max_fee_bps
+                        && old.launch_rate_limit_duration_seconds == next.launch_rate_limit_duration_seconds,
+                    ErrorCode::LaunchSettingsImmutable
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn current_parameter_update(&self, family: ParameterFamily) -> MarketParameterUpdate {
+        match family {
+            ParameterFamily::Fee => MarketParameterUpdate::Fee(self.config.fee_profile()),
+            ParameterFamily::Concentration => MarketParameterUpdate::Concentration {
+                peak_amplification_nad: self.config.amm.peak_amplification_nad,
+                core_half_width_bps: self.config.amm.core_half_width_bps,
+                fade_width_bps: self.config.amm.fade_width_bps,
+            },
+            ParameterFamily::Irm => MarketParameterUpdate::Irm(self.config.irm),
+            ParameterFamily::EmaHalfLives => MarketParameterUpdate::EmaHalfLives {
+                price_ms: self.config.ema_half_life_ms,
+                directional_price_ms: self.config.directional_ema_half_life_ms,
+                curve_depth_ms: self.config.curve_depth_ema_half_life_ms,
+                center_price_ms: self.config.amm.center_ema_half_life_ms,
+            },
+            ParameterFamily::DailyBorrowLimit => MarketParameterUpdate::DailyBorrowLimit {
+                max_daily_borrow_bps: self.config.max_daily_borrow_bps,
+            },
+            ParameterFamily::CenterController => MarketParameterUpdate::CenterController {
+                adjustment_threshold_nad: self.config.amm.adjustment_threshold_nad,
+                adjustment_step_nad: self.config.amm.adjustment_step_nad,
+                min_adjustment_interval_slots: self.config.amm.min_adjustment_interval_slots,
+            },
+            ParameterFamily::Insurance => MarketParameterUpdate::InsuranceDrawCaps {
+                principal_coverage_bps: self.insurance.principal_coverage_bps,
+                per_day_bps: self.insurance.per_day_draw_bps,
+            },
+            ParameterFamily::Oracle => MarketParameterUpdate::Oracle(self.oracle.policy),
+            ParameterFamily::Tranche => MarketParameterUpdate::Tranche {
+                junior_income_share_bps: self.tranche_policy.junior_income_share_bps,
+                request_fee_bps: self.junior_exit_config.request_fee_bps,
+                liquidation_fee_bps: self.tranche_policy.liquidation_fee_bps,
+            },
+        }
+    }
+
     /// Validate a proposal's updates without permitting unrelated
     /// configuration fields to move with them: one to nine, at most one per
     /// family in ascending family order, each a real change within its own
@@ -717,6 +791,7 @@ impl Market {
     /// family as one atomic change, enforce admission for non-oracle-only
     /// changes, and then advance the revision of each family that changed.
     /// Any failure leaves the market untouched.
+    #[cfg(test)]
     pub fn execute_parameter_updates(&mut self, updates: &[MarketParameterUpdate], current_slot: u64) -> Result<()> {
         self.execute_parameter_updates_inner(updates, current_slot, None)
     }
@@ -730,6 +805,7 @@ impl Market {
         clock: &Clock,
         accounts: &[AccountInfo],
     ) -> Result<()> {
+        self.assert_launch_settings_unchanged_after_start(updates, clock.unix_timestamp)?;
         let next = updates.iter().find_map(|update| match update {
             MarketParameterUpdate::Oracle(policy) => Some(*policy),
             _ => None,

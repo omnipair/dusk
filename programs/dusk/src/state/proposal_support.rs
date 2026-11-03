@@ -82,6 +82,7 @@ pub struct ProposalSupport {
     pub proposal: Pubkey,
     pub supporter: Pubkey,
     pub locked_amount: u64,
+    pub recovery_locks: [super::RecoveryLock; super::MAX_RECOVERY_LOCKS],
     pub base_yield: VirtualYieldLedger,
     pub quote_yield: VirtualYieldLedger,
     pub bump: u8,
@@ -101,6 +102,7 @@ impl ProposalSupport {
         self.proposal = proposal;
         self.supporter = supporter;
         self.locked_amount = 0;
+        self.recovery_locks = [super::RecoveryLock::default(); super::MAX_RECOVERY_LOCKS];
         self.base_yield = VirtualYieldLedger::default();
         self.base_yield
             .initialize(base_swap_fee_growth_index_q64, base_interest_growth_index_q64);
