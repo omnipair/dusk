@@ -76,3 +76,27 @@ Useful knobs:
 - `DUSK_SMOKE_HLP_DEPOSIT=0` skips the default smoke-test hLP deposit.
 - `DUSK_SMOKE_HLP_DEPOSIT_AMOUNT=10` controls the smoke-test base hLP deposit amount.
 - `DUSK_SMOKE_SWAP=0` fetches state without sending the smoke swap.
+
+## Publishing the SDK
+
+Merging never publishes `@omnipair/dusk-sdk`; a deployment does. After both
+programs are live, upload their IDLs from the same build, then tag the deployed
+commit with the version in `packages/dusk-sdk/package.json`. From the checkout
+that was deployed:
+
+```bash
+anchor idl upgrade --filepath target/idl/dusk.json --provider.cluster devnet --provider.wallet "${ANCHOR_WALLET:-deployer-keypair.json}" "$DUSK_PROGRAM_ID"
+anchor idl upgrade --filepath target/idl/leverage_delegate.json --provider.cluster devnet --provider.wallet "${ANCHOR_WALLET:-deployer-keypair.json}" "$DUSK_LEVERAGE_DELEGATE_PROGRAM_ID"
+VERSION="$(node -p "require('./packages/dusk-sdk/package.json').version")"
+git tag -a "dusk-sdk-v$VERSION" -m "@omnipair/dusk-sdk $VERSION"
+git push origin "dusk-sdk-v$VERSION"
+```
+
+A program deployed to a new ID takes `anchor idl init` instead of
+`anchor idl upgrade`. The tag starts `.github/workflows/publish-sdk.yaml`. It
+builds the package from the tagged commit, which must already be on `main`, and
+publishes only when every IDL the package ships matches the IDL account on the
+cluster. `-next.<n>` and `-devnet.<n>` versions describe devnet and publish
+under the `next` and `devnet` dist-tags; a stable version describes mainnet and
+becomes `latest`. A version already on npm is not published again. A manual run
+of the workflow with `dry_run` checks a tag without publishing it.
