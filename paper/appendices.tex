@@ -9,9 +9,9 @@ Object & Role \\
 \midrule
 $V_i^{\rm reserve}$ & Physical token balance; custody for several separately owned buckets. \\
 $C_i$ & Accounted reserve cash; subject to instruction-specific availability checks. \\
-$R_i$ & Stored live reserve satisfying the cash/debt/hLP identity; basis of proportional yLP mint and burn amounts. \\
+$R_i$ & Stored live reserve satisfying the cash/debt/hLP identity; basis of proportional srLP mint and burn amounts. \\
 $X_i=R_i-J_i$ & Executable reserve coordinate after removing unpaid public and isolated interest. \\
-$(U,V)$ & Ordinary yLP tranche after separating both hLP ownership claims; the trader-facing curve coordinates. \\
+$(U,V)$ & Ordinary srLP tranche after separating both hLP ownership claims; the trader-facing curve coordinates. \\
 \bottomrule
 \end{tabularx}\end{center}
 
@@ -138,7 +138,7 @@ D_b^{h,*}=50\frac{1{,}100}{909.09091\ldots}=60.5.
 \]
 Total executable reserves are approximately $(1{,}260.5,1{,}041.73554)$. The trader did not receive output from a 1,150-by-1,150 constant-product pool: quoting the full synthetic total would have given a different result. Reconstruction changes the gross ownership and funding decomposition around the already executed ordinary path.
 
-In integer shares, equation~\eqref{eq:ownership} floors the vault balances against the unchanged ordinary supply. This can change total yLP supply even though ordinary holders neither mint nor burn during the spot trade. Fee eligibility is frozen at the appropriate earlier state, and actual debt shares are converted through the debt index. A complete transition therefore carries more information than just the real-valued reserve endpoints shown above.
+In integer shares, equation~\eqref{eq:ownership} floors the vault balances against the unchanged ordinary supply. This can change total srLP supply even though ordinary holders neither mint nor burn during the spot trade. Fee eligibility is frozen at the appropriate earlier state, and actual debt shares are converted through the debt index. A complete transition therefore carries more information than just the real-valued reserve endpoints shown above.
 
 \subsection{What the target does and does not hedge}
 
@@ -146,7 +146,7 @@ For a base-target vault at a marked price $p$, gross collateral value in quote u
 
 The familiar constant-product LP value proportional to $\sqrt p$ provides motivation for continuously adjusted leveraged liquidity. A static two-times LP position exposed to a discrete jump is not the same process as a continuously adjusted position, and neither expression is the current Dusk execution algorithm. The earlier formula $E_0(\sqrt r-1)^2$ should not be used to infer an active Dusk pre-solve threshold or quote correction. The present program quotes ordinary liquidity and reconstructs ownership algebraically.
 
-Funding interest and fees can change the target equities used in reconstruction. Recovery explicitly decreases one target equity. A loss socialized by another path can also affect the economics of the vault's yLP claim. Opposite-asset neutrality at one endpoint therefore does not imply a constant token balance across time or an unconditional impermanent-loss guarantee.
+Funding interest and fees can change the target equities used in reconstruction. Recovery explicitly decreases one target equity. A loss socialized by another path can also affect the economics of the vault's srLP claim. Opposite-asset neutrality at one endpoint therefore does not imply a constant token balance across time or an unconditional impermanent-loss guarantee.
 
 \subsection{Inventory weights and local leverage}
 
@@ -162,7 +162,7 @@ At a constant-product point $pU=V$, both weights are one half and both leverages
 
 \subsection{Settlement preconditions}
 
-The integrated engine verifies the expected curve revision, yLP supply, each vault's yLP shares, indexed debt shares, and principal state. It settles the specified funding-interest cash debit, replaces the old hLP live component with the endpoint's funding component, removes current public and isolated unpaid interest for the endpoint comparison, and verifies the bounded raw-atom distance. It then commits ownership and debt and asserts the reserve ledger.
+The integrated engine verifies the expected curve revision, srLP supply, each vault's srLP shares, indexed debt shares, and principal state. It settles the specified funding-interest cash debit, replaces the old hLP live component with the endpoint's funding component, removes current public and isolated unpaid interest for the endpoint comparison, and verifies the bounded raw-atom distance. It then commits ownership and debt and asserts the reserve ledger.
 
 The current integrated preparation also requires hLP backing inventories to be empty; direct exits account for backing inventory when present. Positive marked NAV alone does not establish that a particular operation is admissible. Available cash, funding-interest settlement, the prepared pre-state, and the instruction's other guards still apply. If these constraints cannot be satisfied, the transaction can fail atomically rather than publishing a partial hedge.
 
@@ -184,7 +184,7 @@ When the claim is zero, actual debt can still imply critical stress, but ordinar
 
 \subsection{Terminal closeout is an interest-loss path}
 
-The terminal engine refreshes linear symmetric-EMA collateral value to the current instruction slot, checks that it is below indexed funding debt, and checks that the shortfall is no larger than the unpaid interest. This distinguishes passive funding insolvency from a principal hole without letting either a stale observation or a temporary live reserve ratio decide eligibility. Native recovery separately quotes the target claim on the configured concentrated reference curve at the same current-slot symmetric EMA and smoothed depth, including full swap fees, then adds the borrowed-token claim. That reference recovery determines principal repayment, insurance and writeoff. The plan is bound to the state it valued, records the permitted insurance request, retires the vault's owned yLP, and realizes the recoverable interest. Reference reserves never replace live inventory; the post-close curve is rebuilt around the actual remaining reserves. Insurance is senior to the remaining socialized interest loss and is constrained by available capital, protocol concentration limits, and caller bounds.
+The terminal engine refreshes linear symmetric-EMA collateral value to the current instruction slot, checks that it is below indexed funding debt, and checks that the shortfall is no larger than the unpaid interest. This distinguishes passive funding insolvency from a principal hole without letting either a stale observation or a temporary live reserve ratio decide eligibility. Native recovery separately quotes the target claim on the configured concentrated reference curve at the same current-slot symmetric EMA and smoothed depth, including full swap fees, then adds the borrowed-token claim. That reference recovery determines principal repayment, insurance and writeoff. The plan is bound to the state it valued, records the permitted insurance request, retires the vault's owned srLP, and realizes the recoverable interest. Reference reserves never replace live inventory; the post-close curve is rebuilt around the actual remaining reserves. Insurance is senior to the remaining socialized interest loss and is constrained by available capital, protocol concentration limits, and caller bounds.
 
 The caller also supplies a maximum socialized-loss bound and minimum bounty output. The bounty is computed from recovered funding interest; it is not an extra source of recovery capital. Published user yield remains a separate liability. A surviving hLP token balance can be burned for zero principal after a terminal event, while its checkpointed yield can still be harvested.
 
@@ -277,7 +277,7 @@ Let $a$ be the amount credited to reserve custody after an input token transfer.
 
 These definitions matter when quoting a minimum received amount. A bound on protocol fee share does not bound AMM price impact. It also does not erase a Token-2022 transfer fee. A margin entry limit uses the all-in relation between paid notional and collateral actually obtained, with direction-appropriate rounding. A client that treats gross output, fee-net output, and final token credit as the same amount can accept a worse trade than the user intended.
 
-Fees also need correct ownership timing. The trade's eligible ordinary supply and vault-owned yLP balances are captured before later reconstruction changes those balances. Claimable yield is published through its liability indexes. Compounded yield increases principal and changes the target equities through the integrated fee allocation. The integrated hLP full-value path marks opposite-token fee conversion at the actual concentrated marginal price. The retained native replay below used the earlier endpoint-inventory-ratio conversion; its fee-allocation numbers are historical and must not be substituted for current quotes. Protected recenter funds remain a separate custody claim. These are three different destinations for collected value, each with a different effect on future quotes and redemptions.
+Fees also need correct ownership timing. The trade's eligible ordinary supply and vault-owned srLP balances are captured before later reconstruction changes those balances. Claimable yield is published through its liability indexes. Compounded yield increases principal and changes the target equities through the integrated fee allocation. The integrated hLP full-value path marks opposite-token fee conversion at the actual concentrated marginal price. The retained native replay below used the earlier endpoint-inventory-ratio conversion; its fee-allocation numbers are historical and must not be substituted for current quotes. Protected recenter funds remain a separate custody claim. These are three different destinations for collected value, each with a different effect on future quotes and redemptions.
 
 \subsection{Margin and delegated orders}
 
@@ -304,12 +304,12 @@ The toy concentrated segment $(x+100)(y+100)=40{,}000$ starts at $x=y=100$, $p=1
 
 \subsection{An executed concentrated example}
 
-Ordinary yLP contributes 100 META and 100 USDC. Each hLP contributes 50 target tokens. With META initially one USDC, actual cash is 150 META plus 150 USDC; gross live claims are 200 of each, including 50 of each internal funding component. The concentration setting is peak amplification four, core half-width 100 bps and fade width 400 bps. A trader sells $22.222222222$ META, receiving $19.360948321$ USDC without fees. Final price is $0.711853017$ and actual cash is $172.222222222$ META plus $130.639051679$ USDC.
+Ordinary srLP contributes 100 META and 100 USDC. Each hLP contributes 50 target tokens. With META initially one USDC, actual cash is 150 META plus 150 USDC; gross live claims are 200 of each, including 50 of each internal funding component. The concentration setting is peak amplification four, core half-width 100 bps and fade width 400 bps. A trader sells $22.222222222$ META, receiving $19.360948321$ USDC without fees. Final price is $0.711853017$ and actual cash is $172.222222222$ META plus $130.639051679$ USDC.
 
 \begin{center}\small
 \begin{tabularx}{\linewidth}{@{}lXr@{}}\toprule
 Holder & Gross claim and matched debt after settlement & Net USDC value \\\midrule
-Ordinary yLP & 122.222222 META + 80.639052 USDC; no debt & 167.643309 \\
+Ordinary srLP & 122.222222 META + 80.639052 USDC; no debt & 167.643309 \\
 META hLP & 50 META + 32.988703 USDC; owes 32.988703 USDC & 35.592651 \\
 USDC hLP & 75.783519 META + 50 USDC; owes 75.783519 META & 50.000000 \\\bottomrule
 \end{tabularx}\end{center}
@@ -320,7 +320,7 @@ Holding the ordinary depositor's original assets would be worth 171.185302. Its 
 
 \subsection{Fees and the boundary of this result}
 
-With a 30-bps base fee and 20\% protocol share, the same gross input pays approximately 0.066667 META. Before ownership reconstruction, the initial ordinary/META-hLP/USDC-hLP shares split the LP allocation 50/25/25. With compounding disabled, ordinary yLP receives a 0.026667-META entitlement, each hLP 0.013333 META, and protocol 0.013333 META. Final holder values including these pro-rata claims are approximately 167.764783, 35.644084 and 50.009503 USDC at the new final mark 0.712691622.
+With a 30-bps base fee and 20\% protocol share, the same gross input pays approximately 0.066667 META. Before ownership reconstruction, the initial ordinary/META-hLP/USDC-hLP shares split the LP allocation 50/25/25. With compounding disabled, ordinary srLP receives a 0.026667-META entitlement, each hLP 0.013333 META, and protocol 0.013333 META. Final holder values including these pro-rata claims are approximately 167.764783, 35.644084 and 50.009503 USDC at the new final mark 0.712691622.
 
 With LP compounding enabled in this historical replay, the former reserve-ratio conversion credits USDC hLP 0.008807 USDC for its opposite-token fee, compared with approximately 0.009503 at the frozen marginal price; the difference stays in ordinary inventory. The integrated branch uses the concentrated marginal mark instead. Funding accrual, public receivables, recovery rewards, market recentering and debt losses are separate transitions and cannot be inferred to be costless from the zero-accrual examples. The current accounting and validation boundary is described in Section~\ref{sec:hlp-accounting}.
 

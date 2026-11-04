@@ -130,7 +130,7 @@ probabilities, and the finite search does not establish a global optimum.
 - This is a native economic regression, not an instruction-level exploit proof.
   It does not prove that a live bundle is feasible, nor that every configuration
   is safe. More realistic costs could erase some modeled incremental profits.
-- yLP/hLP claims use the same external mark. The additional `marked_custody`
+- srLP/hLP claims use the same external mark. The additional `marked_custody`
   column independently sums cash, fee custody, interest custody, backing,
   protection and insurance. It excludes outstanding external loan claims, so
   compare it with LP claims only after the tested loan is fully settled. These

@@ -10,7 +10,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
         signer: &[&[&[u8]]],
         remaining: &[AccountInfo<'info>],
     ) -> Result<()> {
-        if self.lp_mint.key() == self.market.ylp_mint {
+        if self.lp_mint.key() == self.market.srlp_mint {
             dusk::cpi::remove_liquidity(
                 CpiContext::new_with_signer(
                     self.dusk_program.to_account_info(),
@@ -19,12 +19,12 @@ impl<'info> ExecuteProtectionOrder<'info> {
                         owner: self.order.to_account_info(),
                         base_mint: self.base_mint.to_account_info(),
                         quote_mint: self.quote_mint.to_account_info(),
-                        ylp_mint: self.ylp_mint.to_account_info(),
+                        srlp_mint: self.srlp_mint.to_account_info(),
                         base_reserve_vault: self.base_reserve_vault.to_account_info(),
                         quote_reserve_vault: self.quote_reserve_vault.to_account_info(),
                         owner_base_account: self.custody_base_account.to_account_info(),
                         owner_quote_account: self.custody_quote_account.to_account_info(),
-                        owner_ylp_account: self.custody_lp_account.to_account_info(),
+                        owner_srlp_account: self.custody_lp_account.to_account_info(),
                         base_yield_account: self.base_yield_account.to_account_info(),
                         quote_yield_account: self.quote_yield_account.to_account_info(),
                         token_program: self.token_program.to_account_info(),
@@ -36,7 +36,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 )
                 .with_remaining_accounts(remaining.to_vec()),
                 dusk::instructions::RemoveLiquidityArgs {
-                    ylp_amount: lp_amount,
+                    srlp_amount: lp_amount,
                     min_base_amount_out: if payment_asset == MarketAsset::Base {
                         min_payment_out
                     } else {
@@ -59,9 +59,9 @@ impl<'info> ExecuteProtectionOrder<'info> {
             // all nine AccountInfos through a second CPI on SBF's bump heap.
             // Preserve any trailing asset-hook accounts unchanged.
             let prefix = [
-                self.market.ylp_mint,
-                self.market.base_hlp_vault.ylp_vault,
-                self.market.quote_hlp_vault.ylp_vault,
+                self.market.srlp_mint,
+                self.market.base_hlp_vault.srlp_vault,
+                self.market.quote_hlp_vault.srlp_vault,
                 self.market.base_side.interest_vault,
                 self.market.quote_side.interest_vault,
                 self.market.base_side.asset_mint,
@@ -88,7 +88,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
                         owner: self.order.to_account_info(),
                         base_mint: self.base_mint.to_account_info(),
                         quote_mint: self.quote_mint.to_account_info(),
-                        ylp_mint: self.ylp_mint.to_account_info(),
+                        srlp_mint: self.srlp_mint.to_account_info(),
                         target_hlp_mint: self.lp_mint.to_account_info(),
                         base_reserve_vault: self.base_reserve_vault.to_account_info(),
                         quote_reserve_vault: self.quote_reserve_vault.to_account_info(),
@@ -103,8 +103,8 @@ impl<'info> ExecuteProtectionOrder<'info> {
                             self.custody_quote_account.to_account_info()
                         },
                         owner_hlp_account: self.custody_lp_account.to_account_info(),
-                        hlp_ylp_account: self
-                            .hlp_ylp_account
+                        hlp_srlp_account: self
+                            .hlp_srlp_account
                             .as_ref()
                             .ok_or(LeverageDelegateError::InvalidOrder)?
                             .to_account_info(),

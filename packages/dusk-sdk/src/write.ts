@@ -136,13 +136,13 @@ export interface HlpLiquidityBuild {
 }
 
 export interface GovernanceMarketAccountOverrides {
-  ylpMint?: AddressLike;
-  baseHlpYlpVault?: AddressLike;
-  quoteHlpYlpVault?: AddressLike;
+  srlpMint?: AddressLike;
+  baseHlpSrlpVault?: AddressLike;
+  quoteHlpSrlpVault?: AddressLike;
 }
 
 export interface GovernanceHolderAccountOverrides extends GovernanceMarketAccountOverrides {
-  holderYlpAccount?: AddressLike;
+  holderSrlpAccount?: AddressLike;
   baseYieldAccount?: AddressLike;
   quoteYieldAccount?: AddressLike;
 }
@@ -185,15 +185,15 @@ export interface ExecuteParameterProposalParams {
 }
 
 export interface WithdrawParameterSupportParams {
-  /** Omit to withdraw all support; otherwise release this many yLP atoms. */
+  /** Omit to withdraw all support; otherwise release this many srLP atoms. */
   amount?: GovernanceIntegerLike;
   supporter: AddressLike;
   market: AddressLike;
   proposal: AddressLike;
   /** The proposal's creator; receives its rent when the last supporter withdraws. */
   proposer: AddressLike;
-  ylpMint?: AddressLike;
-  supporterYlpAccount?: AddressLike;
+  srlpMint?: AddressLike;
+  supporterSrlpAccount?: AddressLike;
   baseYieldAccount?: AddressLike;
   quoteYieldAccount?: AddressLike;
 }
@@ -207,11 +207,11 @@ export interface ParameterGovernanceBuild {
 
 interface GovernanceMarketState {
   oracle?: { policy: OraclePolicyInput };
-  ylpMint: PublicKey;
+  srlpMint: PublicKey;
   baseSide: { assetMint: PublicKey };
   quoteSide: { assetMint: PublicKey };
-  baseHlpVault: { ylpVault: PublicKey };
-  quoteHlpVault: { ylpVault: PublicKey };
+  baseHlpVault: { srlpVault: PublicKey };
+  quoteHlpVault: { srlpVault: PublicKey };
 }
 
 type AnchorMethodBuilder = {
@@ -344,18 +344,18 @@ export class DuskWrite {
   ): Promise<AccountMeta[]> {
     const market = address(marketAddress);
     const state = (marketSnapshot ?? await this.fetchMarketAccount(market)) as {
-      ylpMint: AccountMeta["pubkey"];
+      srlpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"]; assetMint: AccountMeta["pubkey"]; reserveVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"]; assetMint: AccountMeta["pubkey"]; reserveVault: AccountMeta["pubkey"] };
       baseHlpVault: {
         hlpSupply: { toString(): string };
         residualExposure: { toString(): string };
-        ylpVault: AccountMeta["pubkey"];
+        srlpVault: AccountMeta["pubkey"];
       };
       quoteHlpVault: {
         hlpSupply: { toString(): string };
         residualExposure: { toString(): string };
-        ylpVault: AccountMeta["pubkey"];
+        srlpVault: AccountMeta["pubkey"];
       };
     };
     const hlpActive =
@@ -365,9 +365,9 @@ export class DuskWrite {
       BigInt(state.quoteHlpVault.residualExposure.toString()) !== 0n;
     if (!hlpActive) return [];
     return [
-      { pubkey: state.ylpMint, isSigner: false, isWritable: true },
-      { pubkey: state.baseHlpVault.ylpVault, isSigner: false, isWritable: true },
-      { pubkey: state.quoteHlpVault.ylpVault, isSigner: false, isWritable: true },
+      { pubkey: state.srlpMint, isSigner: false, isWritable: true },
+      { pubkey: state.baseHlpVault.srlpVault, isSigner: false, isWritable: true },
+      { pubkey: state.quoteHlpVault.srlpVault, isSigner: false, isWritable: true },
       { pubkey: state.baseSide.interestVault, isSigner: false, isWritable: true },
       { pubkey: state.quoteSide.interestVault, isSigner: false, isWritable: true },
       // Fresh public-interest settlements rebalance both vaults. These keys
@@ -385,18 +385,18 @@ export class DuskWrite {
   ): Promise<AnchorMethodBuilder> {
     const market = address(options.market);
     const state = (await this.fetchMarketAccount(market)) as {
-      ylpMint: AccountMeta["pubkey"];
+      srlpMint: AccountMeta["pubkey"];
       baseSide: { interestVault: AccountMeta["pubkey"] };
       quoteSide: { interestVault: AccountMeta["pubkey"] };
       baseHlpVault: {
         hlpSupply: { toString(): string };
         residualExposure: { toString(): string };
-        ylpVault: AccountMeta["pubkey"];
+        srlpVault: AccountMeta["pubkey"];
       };
       quoteHlpVault: {
         hlpSupply: { toString(): string };
         residualExposure: { toString(): string };
-        ylpVault: AccountMeta["pubkey"];
+        srlpVault: AccountMeta["pubkey"];
       };
     };
     const hlpActive =
@@ -406,9 +406,9 @@ export class DuskWrite {
       BigInt(state.quoteHlpVault.residualExposure.toString()) !== 0n;
     const prefix: AccountMeta[] = hlpActive
       ? [
-          { pubkey: state.ylpMint, isSigner: false, isWritable: true },
-          { pubkey: state.baseHlpVault.ylpVault, isSigner: false, isWritable: true },
-          { pubkey: state.quoteHlpVault.ylpVault, isSigner: false, isWritable: true },
+          { pubkey: state.srlpMint, isSigner: false, isWritable: true },
+          { pubkey: state.baseHlpVault.srlpVault, isSigner: false, isWritable: true },
+          { pubkey: state.quoteHlpVault.srlpVault, isSigner: false, isWritable: true },
           { pubkey: state.baseSide.interestVault, isSigner: false, isWritable: true },
           { pubkey: state.quoteSide.interestVault, isSigner: false, isWritable: true },
         ]
@@ -767,7 +767,7 @@ export class DuskWrite {
     const lpMint = address(params.lpMint);
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
-    const tokenKind = params.tokenKind === "ylp" || params.tokenKind === 0 ? { ylp: {} } : params.tokenKind === "junior" || params.tokenKind === 2 ? { junior: {} } : { hlp: {} };
+    const tokenKind = params.tokenKind === "srlp" || params.tokenKind === 0 ? { srlp: {} } : params.tokenKind === "junior" || params.tokenKind === 2 ? { junior: {} } : { hlp: {} };
     return this.instruction("initializeYieldAccounts" as DuskInstructionName, { owner, tokenKind }, {
       accounts: {
         payer,
@@ -817,7 +817,7 @@ export class DuskWrite {
     let tokenKind = params.tokenKind;
     if (tokenKind === undefined) {
       const state = await this.fetchMarketAccount(market) as Market;
-      if (lpMint.equals(state.ylpMint)) tokenKind = "ylp";
+      if (lpMint.equals(state.srlpMint)) tokenKind = "srlp";
       else if (lpMint.equals(state.juniorMint)) tokenKind = "junior";
       else if (lpMint.equals(state.baseSide.hlpMint) || lpMint.equals(state.quoteSide.hlpMint)) tokenKind = "hlp";
       else throw new Error("LP mint does not belong to the market");
@@ -859,7 +859,7 @@ export class DuskWrite {
     payer: AddressLike;
     baseMint: AddressLike;
     quoteMint: AddressLike;
-    ylpMint: AddressLike;
+    srlpMint: AddressLike;
     baseHlpMint: AddressLike;
     quoteHlpMint: AddressLike;
     teamTreasury: AddressLike;
@@ -873,7 +873,7 @@ export class DuskWrite {
     bootstrapPriceNad?: GovernanceIntegerLike;
     launchFeeProgressOffset?: number;
     lpMetadata: {
-      ylp: { name: string; symbol: string; uri: string };
+      srlp: { name: string; symbol: string; uri: string };
       baseHlp: { name: string; symbol: string; uri: string };
       quoteHlp: { name: string; symbol: string; uri: string };
     };
@@ -897,7 +897,7 @@ export class DuskWrite {
         paramsHash: [...paramsHash],
         bootstrapPriceNad,
         launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
-        ylpMetadata: params.lpMetadata.ylp,
+        srlpMetadata: params.lpMetadata.srlp,
         baseHlpMetadata: params.lpMetadata.baseHlp,
         quoteHlpMetadata: params.lpMetadata.quoteHlp,
       },
@@ -906,10 +906,10 @@ export class DuskWrite {
           payer: address(params.payer),
           baseMint,
           quoteMint,
-          ylpMint: address(params.ylpMint),
+          srlpMint: address(params.srlpMint),
           baseHlpMint: address(params.baseHlpMint),
           quoteHlpMint: address(params.quoteHlpMint),
-          ylpTokenMetadata: deriveTokenMetadataAddress(address(params.ylpMint))[0],
+          srlpTokenMetadata: deriveTokenMetadataAddress(address(params.srlpMint))[0],
           baseHlpTokenMetadata: deriveTokenMetadataAddress(address(params.baseHlpMint))[0],
           quoteHlpTokenMetadata: deriveTokenMetadataAddress(address(params.quoteHlpMint))[0],
           market,
@@ -980,7 +980,7 @@ export class DuskWrite {
     return new Transaction().add(await this.fortifyMarketInstruction(params));
   }
 
-  /** Burn-lock initial direct-yLP support and create one immutable proposal over one or more families. */
+  /** Burn-lock initial direct-srLP support and create one immutable proposal over one or more families. */
   async createParameterProposal(
     params: CreateParameterProposalParams
   ): Promise<ParameterGovernanceBuild> {
@@ -988,7 +988,7 @@ export class DuskWrite {
     const proposer = address(params.proposer);
     const market = address(params.market);
     const state = await this.governanceMarketState(market);
-    const ylpMint = address(params.ylpMint ?? state.ylpMint);
+    const srlpMint = address(params.srlpMint ?? state.srlpMint);
     const [proposal] = deriveParameterProposalAddress(
       market,
       proposer,
@@ -1000,9 +1000,9 @@ export class DuskWrite {
       proposer,
       this.program.programId
     );
-    const proposerYlpAccount = address(
-      params.holderYlpAccount ??
-        getAssociatedTokenAddressSync(ylpMint, proposer, true, TOKEN_2022_PROGRAM_ID)
+    const proposerSrlpAccount = address(
+      params.holderSrlpAccount ??
+        getAssociatedTokenAddressSync(srlpMint, proposer, true, TOKEN_2022_PROGRAM_ID)
     );
     const instruction = await this.instruction(
       "createParameterProposal" as DuskInstructionName,
@@ -1020,16 +1020,16 @@ export class DuskWrite {
           market,
           proposal,
           proposalSupport,
-          ylpMint,
-          proposerYlpAccount,
+          srlpMint,
+          proposerSrlpAccount,
           baseYieldAccount: address(
             params.baseYieldAccount ??
               deriveYieldAccountAddress(
                 market,
                 proposer,
-                ylpMint,
+                srlpMint,
                 state.baseSide.assetMint,
-                "ylp",
+                "srlp",
                 this.program.programId
               )[0]
           ),
@@ -1038,14 +1038,14 @@ export class DuskWrite {
               deriveYieldAccountAddress(
                 market,
                 proposer,
-                ylpMint,
+                srlpMint,
                 state.quoteSide.assetMint,
-                "ylp",
+                "srlp",
                 this.program.programId
               )[0]
           ),
-          baseHlpYlpVault: address(params.baseHlpYlpVault ?? state.baseHlpVault.ylpVault),
-          quoteHlpYlpVault: address(params.quoteHlpYlpVault ?? state.quoteHlpVault.ylpVault),
+          baseHlpSrlpVault: address(params.baseHlpSrlpVault ?? state.baseHlpVault.srlpVault),
+          quoteHlpSrlpVault: address(params.quoteHlpSrlpVault ?? state.quoteHlpVault.srlpVault),
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         },
@@ -1059,7 +1059,7 @@ export class DuskWrite {
     };
   }
 
-  /** Add burn-locked direct-yLP support; crossing strict majority queues atomically. */
+  /** Add burn-locked direct-srLP support; crossing strict majority queues atomically. */
   async supportParameterProposal(
     params: SupportParameterProposalParams
   ): Promise<ParameterGovernanceBuild> {
@@ -1067,15 +1067,15 @@ export class DuskWrite {
     const market = address(params.market);
     const proposal = address(params.proposal);
     const state = await this.governanceMarketState(market);
-    const ylpMint = address(params.ylpMint ?? state.ylpMint);
+    const srlpMint = address(params.srlpMint ?? state.srlpMint);
     const [proposalSupport] = deriveProposalSupportAddress(
       proposal,
       supporter,
       this.program.programId
     );
-    const supporterYlpAccount = address(
-      params.holderYlpAccount ??
-        getAssociatedTokenAddressSync(ylpMint, supporter, true, TOKEN_2022_PROGRAM_ID)
+    const supporterSrlpAccount = address(
+      params.holderSrlpAccount ??
+        getAssociatedTokenAddressSync(srlpMint, supporter, true, TOKEN_2022_PROGRAM_ID)
     );
     const instruction = await this.instruction(
       "supportParameterProposal" as DuskInstructionName,
@@ -1086,16 +1086,16 @@ export class DuskWrite {
           market,
           proposal,
           proposalSupport,
-          ylpMint,
-          supporterYlpAccount,
+          srlpMint,
+          supporterSrlpAccount,
           baseYieldAccount: address(
             params.baseYieldAccount ??
               deriveYieldAccountAddress(
                 market,
                 supporter,
-                ylpMint,
+                srlpMint,
                 state.baseSide.assetMint,
-                "ylp",
+                "srlp",
                 this.program.programId
               )[0]
           ),
@@ -1104,14 +1104,14 @@ export class DuskWrite {
               deriveYieldAccountAddress(
                 market,
                 supporter,
-                ylpMint,
+                srlpMint,
                 state.quoteSide.assetMint,
-                "ylp",
+                "srlp",
                 this.program.programId
               )[0]
           ),
-          baseHlpYlpVault: address(params.baseHlpYlpVault ?? state.baseHlpVault.ylpVault),
-          quoteHlpYlpVault: address(params.quoteHlpYlpVault ?? state.quoteHlpVault.ylpVault),
+          baseHlpSrlpVault: address(params.baseHlpSrlpVault ?? state.baseHlpVault.srlpVault),
+          quoteHlpSrlpVault: address(params.quoteHlpSrlpVault ?? state.quoteHlpVault.srlpVault),
           token2022Program: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         },
@@ -1139,9 +1139,9 @@ export class DuskWrite {
         accounts: {
           market,
           proposal,
-          ylpMint: address(params.ylpMint ?? state.ylpMint),
-          baseHlpYlpVault: address(params.baseHlpYlpVault ?? state.baseHlpVault.ylpVault),
-          quoteHlpYlpVault: address(params.quoteHlpYlpVault ?? state.quoteHlpVault.ylpVault),
+          srlpMint: address(params.srlpMint ?? state.srlpMint),
+          baseHlpSrlpVault: address(params.baseHlpSrlpVault ?? state.baseHlpVault.srlpVault),
+          quoteHlpSrlpVault: address(params.quoteHlpSrlpVault ?? state.quoteHlpVault.srlpVault),
         },
       }
     );
@@ -1162,9 +1162,9 @@ export class DuskWrite {
         baseMint: address(state.baseSide.assetMint),
         quoteMint: address(state.quoteSide.assetMint),
         proposal,
-        ylpMint: state.ylpMint,
-        baseHlpYlpVault: state.baseHlpVault.ylpVault,
-        quoteHlpYlpVault: state.quoteHlpVault.ylpVault,
+        srlpMint: state.srlpMint,
+        baseHlpSrlpVault: state.baseHlpVault.srlpVault,
+        quoteHlpSrlpVault: state.quoteHlpVault.srlpVault,
       },
     });
     const instruction = await this.instruction("executeParameterProposal", undefined, options);
@@ -1183,15 +1183,15 @@ export class DuskWrite {
     const market = address(params.market);
     const proposal = address(params.proposal);
     const state = await this.governanceMarketState(market);
-    const ylpMint = address(params.ylpMint ?? state.ylpMint);
+    const srlpMint = address(params.srlpMint ?? state.srlpMint);
     const [proposalSupport] = deriveProposalSupportAddress(
       proposal,
       supporter,
       this.program.programId
     );
-    const supporterYlpAccount = address(
-      params.supporterYlpAccount ??
-        getAssociatedTokenAddressSync(ylpMint, supporter, true, TOKEN_2022_PROGRAM_ID)
+    const supporterSrlpAccount = address(
+      params.supporterSrlpAccount ??
+        getAssociatedTokenAddressSync(srlpMint, supporter, true, TOKEN_2022_PROGRAM_ID)
     );
     const instruction = await this.instruction(
       "withdrawParameterSupport" as DuskInstructionName,
@@ -1203,16 +1203,16 @@ export class DuskWrite {
           proposal,
           proposer: address(params.proposer),
           proposalSupport,
-          ylpMint,
-          supporterYlpAccount,
+          srlpMint,
+          supporterSrlpAccount,
           baseYieldAccount: address(
             params.baseYieldAccount ??
               deriveYieldAccountAddress(
                 market,
                 supporter,
-                ylpMint,
+                srlpMint,
                 state.baseSide.assetMint,
-                "ylp",
+                "srlp",
                 this.program.programId
               )[0]
           ),
@@ -1221,9 +1221,9 @@ export class DuskWrite {
               deriveYieldAccountAddress(
                 market,
                 supporter,
-                ylpMint,
+                srlpMint,
                 state.quoteSide.assetMint,
-                "ylp",
+                "srlp",
                 this.program.programId
               )[0]
           ),
@@ -1821,13 +1821,13 @@ export class DuskWrite {
   }
 
   /**
-   * Add balanced yLP liquidity. `minYlpAmount` is the caller's slippage floor;
+   * Add balanced srLP liquidity. `minSrlpAmount` is the caller's slippage floor;
    * the program rejects the deposit rather than minting fewer shares.
    */
   async addLiquidityInstruction(
     params: AddLiquidityParams
   ): Promise<TransactionInstruction> {
-    const common = await this.resolveYlpAccounts(params);
+    const common = await this.resolveSrlpAccounts(params);
     return this.instruction(
       "addLiquidity" as DuskInstructionName,
       {
@@ -1839,7 +1839,7 @@ export class DuskWrite {
           params.quoteDepositAmount,
           "quoteDepositAmount"
         ),
-        minYlpAmount: governanceIntegerBN(params.minYlpAmount, "minYlpAmount"),
+        minSrlpAmount: governanceIntegerBN(params.minSrlpAmount, "minSrlpAmount"),
       },
       {
         accounts: {
@@ -1858,18 +1858,18 @@ export class DuskWrite {
   }
 
   /**
-   * Burn yLP for the underlying pair. Both minimums are enforced by the
+   * Burn srLP for the underlying pair. Both minimums are enforced by the
    * program, so a partially-filled withdrawal fails instead of silently
    * returning less of one side.
    */
   async removeLiquidityInstruction(
     params: RemoveLiquidityParams
   ): Promise<TransactionInstruction> {
-    const common = await this.resolveYlpAccounts(params);
+    const common = await this.resolveSrlpAccounts(params);
     return this.instruction(
       "removeLiquidity" as DuskInstructionName,
       {
-        ylpAmount: governanceIntegerBN(params.ylpAmount, "ylpAmount"),
+        srlpAmount: governanceIntegerBN(params.srlpAmount, "srlpAmount"),
         minBaseAmountOut: governanceIntegerBN(
           params.minBaseAmountOut,
           "minBaseAmountOut"
@@ -1890,7 +1890,7 @@ export class DuskWrite {
   }
 
   /**
-   * Accounts shared by both balanced yLP instructions. Reserve vaults and yLP
+   * Accounts shared by both balanced srLP instructions. Reserve vaults and srLP
    * yield accounts derive from the market; token programs resolve per mint so
    * a Token-2022 side needs no caller branching.
    */
@@ -2177,18 +2177,18 @@ export class DuskWrite {
     };
   }
 
-  private async resolveYlpAccounts(params: YlpLiquidityAccounts) {
+  private async resolveSrlpAccounts(params: SrlpLiquidityAccounts) {
     const market = address(params.market);
     const owner = address(params.owner);
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
-    const ylpMint = address(params.ylpMint);
+    const srlpMint = address(params.srlpMint);
     return {
       market,
       owner,
       baseMint,
       quoteMint,
-      ylpMint,
+      srlpMint,
       baseReserveVault: address(
         params.baseReserveVault ??
           deriveMarketReserveVaultAddress(market, baseMint)[0]
@@ -2199,15 +2199,15 @@ export class DuskWrite {
       ),
       ownerBaseAccount: address(params.ownerBaseAccount),
       ownerQuoteAccount: address(params.ownerQuoteAccount),
-      ownerYlpAccount: address(params.ownerYlpAccount),
+      ownerSrlpAccount: address(params.ownerSrlpAccount),
       baseYieldAccount: address(
         params.baseYieldAccount ??
           deriveYieldAccountAddress(
             market,
             owner,
-            ylpMint,
+            srlpMint,
             baseMint,
-            "ylp",
+            "srlp",
             this.program.programId
           )[0]
       ),
@@ -2216,9 +2216,9 @@ export class DuskWrite {
           deriveYieldAccountAddress(
             market,
             owner,
-            ylpMint,
+            srlpMint,
             quoteMint,
-            "ylp",
+            "srlp",
             this.program.programId
           )[0]
       ),
@@ -2342,15 +2342,15 @@ export interface CloseLeverageParams extends LeverageAccounts {
   authority?: AddressLike;
 }
 
-interface YlpLiquidityAccounts {
+interface SrlpLiquidityAccounts {
   market: AddressLike;
   owner: AddressLike;
   baseMint: AddressLike;
   quoteMint: AddressLike;
-  ylpMint: AddressLike;
+  srlpMint: AddressLike;
   ownerBaseAccount: AddressLike;
   ownerQuoteAccount: AddressLike;
-  ownerYlpAccount: AddressLike;
+  ownerSrlpAccount: AddressLike;
   baseReserveVault?: AddressLike;
   quoteReserveVault?: AddressLike;
   baseYieldAccount?: AddressLike;
@@ -2433,18 +2433,18 @@ export interface SwapParams {
   remainingAccounts?: AccountMeta[];
 }
 
-export interface AddLiquidityParams extends YlpLiquidityAccounts {
+export interface AddLiquidityParams extends SrlpLiquidityAccounts {
   /** Maximum gross spend. Guided first deposits pair at the current validated
    * oracle price; unused amounts remain with the owner. Native seeding uses
    * both amounts to establish the initial ratio. */
   baseDepositAmount: RawAmount;
   quoteDepositAmount: RawAmount;
-  /** Slippage floor on minted yLP shares. */
-  minYlpAmount: RawAmount;
+  /** Slippage floor on minted srLP shares. */
+  minSrlpAmount: RawAmount;
 }
 
-export interface RemoveLiquidityParams extends YlpLiquidityAccounts {
-  ylpAmount: RawAmount;
+export interface RemoveLiquidityParams extends SrlpLiquidityAccounts {
+  srlpAmount: RawAmount;
   minBaseAmountOut: RawAmount;
   minQuoteAmountOut: RawAmount;
 }

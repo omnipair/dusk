@@ -98,7 +98,7 @@ impl<'info> ManageGovernanceBalance<'info> {
             ctx.accounts.market.base_side.asset_decimals,
         )?;
         let depositing = matches!(action, GovernanceBalanceAction::Deposit { .. });
-        let retired = if ctx.accounts.lp_mint.key() != ctx.accounts.market.ylp_mint
+        let retired = if ctx.accounts.lp_mint.key() != ctx.accounts.market.srlp_mint
             && ctx.accounts.lp_mint.key() != ctx.accounts.market.junior_mint
         {
             require!(!depositing, ErrorCode::InvalidLpMintKey);
@@ -110,7 +110,7 @@ impl<'info> ManageGovernanceBalance<'info> {
         } else {
             None
         };
-        let token_kind = if ctx.accounts.lp_mint.key() == ctx.accounts.market.ylp_mint {
+        let token_kind = if ctx.accounts.lp_mint.key() == ctx.accounts.market.srlp_mint {
             GovernanceTokenKind::Senior
         } else {
             if depositing {
@@ -128,7 +128,7 @@ impl<'info> ManageGovernanceBalance<'info> {
             &ctx.accounts.owner_lp_account,
         )?;
         let yield_kind = match token_kind {
-            GovernanceTokenKind::Senior => YieldTokenKind::Ylp,
+            GovernanceTokenKind::Senior => YieldTokenKind::Srlp,
             GovernanceTokenKind::Junior => YieldTokenKind::Junior,
         };
         ctx.accounts.base_yield_account.assert_account(
@@ -242,10 +242,10 @@ impl<'info> ManageGovernanceBalance<'info> {
                     .ok_or(ErrorCode::MarketMathOverflow)?;
                 match token_kind {
                     GovernanceTokenKind::Senior => {
-                        ctx.accounts.market.governance_locked_ylp = ctx
+                        ctx.accounts.market.governance_locked_srlp = ctx
                             .accounts
                             .market
-                            .governance_locked_ylp
+                            .governance_locked_srlp
                             .checked_add(amount)
                             .ok_or(ErrorCode::MarketMathOverflow)?;
                     }
@@ -271,10 +271,10 @@ impl<'info> ManageGovernanceBalance<'info> {
                 balance.total_amount -= amount;
                 match token_kind {
                     GovernanceTokenKind::Senior => {
-                        ctx.accounts.market.governance_locked_ylp = ctx
+                        ctx.accounts.market.governance_locked_srlp = ctx
                             .accounts
                             .market
-                            .governance_locked_ylp
+                            .governance_locked_srlp
                             .checked_sub(amount)
                             .ok_or(ErrorCode::InvalidProposalSupport)?;
                     }

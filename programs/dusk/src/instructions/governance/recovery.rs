@@ -15,6 +15,7 @@ pub struct RecoveryBallotChanged {
     pub junior_generation: u64,
     pub ends_at: i64,
     pub passed: bool,
+    pub passed_slot: u64,
 }
 
 #[event_cpi]
@@ -51,6 +52,12 @@ impl OpenRecoveryBallot<'_> {
         let ballot = &mut ctx.accounts.ballot;
         if ballot.market != Pubkey::default() {
             require_keys_eq!(ballot.market, ctx.accounts.market.key(), ErrorCode::InvalidMarket);
+            // Preserve the previous decision's release boundary before a
+            // reusable removal ballot advances to another manager term.
+            require!(
+                !ballot.passed || clock.slot > ballot.passed_slot,
+                ErrorCode::RecoveryVoteLocked
+            );
             if ballot.target == target {
                 require!(!ballot.passed, ErrorCode::RecoveryBallotInactive);
                 if ballot.window_active(now) {
@@ -75,6 +82,7 @@ impl OpenRecoveryBallot<'_> {
             .checked_add(RECOVERY_BALLOT_WINDOW)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         ballot.passed = false;
+        ballot.passed_slot = 0;
         ballot.bump = ctx.bumps.ballot;
         emit_cpi!(ballot_event(ballot.key(), ballot));
         Ok(())
@@ -108,12 +116,12 @@ pub struct VoteRecoveryBallot<'info> {
     pub target_proposal: Option<UncheckedAccount<'info>>,
     #[account(init_if_needed, payer = payer, space = get_size_with_discriminator::<RecoveryVote>(), seeds = [RECOVERY_VOTE_SEED, ballot.key().as_ref(), &args.round.to_le_bytes(), source.key().as_ref()], bump)]
     pub vote: Box<Account<'info, RecoveryVote>>,
-    #[account(address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Canonical custody, or zero custody before hLP initialization, authenticated by the handler.
-    pub base_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub base_hlp_srlp_vault: UncheckedAccount<'info>,
     /// CHECK: Canonical custody, or zero custody before hLP initialization, authenticated by the handler.
-    pub quote_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub quote_hlp_srlp_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -124,9 +132,9 @@ impl VoteRecoveryBallot<'_> {
         let market = &ctx.accounts.market;
         let eligible = governance_eligible_from_accounts(
             market,
-            &ctx.accounts.ylp_mint,
-            &ctx.accounts.base_hlp_ylp_vault,
-            &ctx.accounts.quote_hlp_ylp_vault,
+            &ctx.accounts.srlp_mint,
+            &ctx.accounts.base_hlp_srlp_vault,
+            &ctx.accounts.quote_hlp_srlp_vault,
         )?;
         let ballot_key = ctx.accounts.ballot.key();
         let ballot = &mut ctx.accounts.ballot;
@@ -237,6 +245,10 @@ impl ReleaseRecoveryVote<'_> {
         let vote = &ctx.accounts.vote;
         let clock = Clock::get()?;
         let now = clock.unix_timestamp;
+        require!(
+            ballot.round != vote.round || !ballot.passed || clock.slot > ballot.passed_slot,
+            ErrorCode::RecoveryVoteLocked
+        );
         let still_active = if ballot.round == vote.round && ballot.window_active(now) {
             inspect_target(
                 ballot.target,
@@ -308,7 +320,7 @@ fn encumber_source(
         require_gte!(balance.total_amount, amount, ErrorCode::InsufficientBalance);
         let kind = GovernanceTokenKind::from_code(balance.token_kind)?;
         let expected_mint = match kind {
-            GovernanceTokenKind::Senior => market.ylp_mint,
+            GovernanceTokenKind::Senior => market.srlp_mint,
             GovernanceTokenKind::Junior => market.junior_mint,
         };
         require_keys_eq!(balance.lp_mint, expected_mint, ErrorCode::InvalidLpMintKey);
@@ -419,6 +431,7 @@ pub(super) fn ballot_event(key: Pubkey, ballot: &RecoveryBallot) -> RecoveryBall
         junior_generation: ballot.junior_generation,
         ends_at: ballot.ends_at,
         passed: ballot.passed,
+        passed_slot: ballot.passed_slot,
     }
 }
 
@@ -480,6 +493,7 @@ pub(super) fn refresh_ballot(
         return Ok(false);
     }
     ballot.passed = true;
+    ballot.passed_slot = clock.slot;
     match ballot.target {
         RecoveryTarget::RemoveManager { epoch } => control.replace_manager(Pubkey::default(), epoch)?,
         RecoveryTarget::CancelProposal { proposal: key, .. } => {
@@ -523,12 +537,12 @@ pub struct RefreshRecoveryBallot<'info> {
     /// CHECK: Exact target identity and terminal status verified before applying any outcome.
     #[account(mut)]
     pub target_proposal: Option<UncheckedAccount<'info>>,
-    #[account(address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Canonical custody, or zero custody before hLP initialization, authenticated by the handler.
-    pub base_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub base_hlp_srlp_vault: UncheckedAccount<'info>,
     /// CHECK: Canonical custody, or zero custody before hLP initialization, authenticated by the handler.
-    pub quote_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub quote_hlp_srlp_vault: UncheckedAccount<'info>,
 }
 
 impl RefreshRecoveryBallot<'_> {
@@ -536,9 +550,9 @@ impl RefreshRecoveryBallot<'_> {
         let market = &ctx.accounts.market;
         let eligible = governance_eligible_from_accounts(
             market,
-            &ctx.accounts.ylp_mint,
-            &ctx.accounts.base_hlp_ylp_vault,
-            &ctx.accounts.quote_hlp_ylp_vault,
+            &ctx.accounts.srlp_mint,
+            &ctx.accounts.base_hlp_srlp_vault,
+            &ctx.accounts.quote_hlp_srlp_vault,
         )?;
         let clock = Clock::get()?;
         let now = clock.unix_timestamp;

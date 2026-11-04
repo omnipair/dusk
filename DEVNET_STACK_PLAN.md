@@ -97,13 +97,13 @@ someone who cannot read the logs.
 | --- | --- | --- |
 | Global shell | Header, search, wallet, theme, errors, toasts | Deployment identity, network selection, freshness and degradation state |
 | Markets | Explore tabs, filters, sticky desktop table, mobile cards | Curve-kind badge and filter, Dusk TVL/utilization/health, source and freshness |
-| Market detail | Identity, vitals, docked actions, chart, liquidity, borrowing, history, parameters | Curve/range/fee-tier, yLP/hLP, lending and governance constraints |
+| Market detail | Identity, vitals, docked actions, chart, liquidity, borrowing, history, parameters | Curve/range/fee-tier, srLP/hLP, lending and governance constraints |
 | Trade | Existing centered transaction shell | SDK quote/build/simulate for both curve kinds, exact fees and price impact |
 | Borrow | Existing centered form and guide | Deposit/borrow/repay/withdraw previews and health consequences |
 | Leverage | Existing mobile-first ordering and desktop two-column shell | Real positions, open/adjust/close/liquidate, delegated TP/SL |
 | Liquidity | Existing split Radix sheet and compact amount controls | Add/remove, balanced and single-sided, range editor, LP lock and governed migration |
 | Create market | Fixed overlay, step rail, review and staged deployment feedback | Curve parameters, fee/risk inputs, proposal/direct authority, timelock |
-| Portfolio | Public/self modes and continuous command/chart composition | yLP, hLP, ranged LP, lending, leverage, locked LP, orders, proposals, auctions, activity |
+| Portfolio | Public/self modes and continuous command/chart composition | srLP, hLP, ranged LP, lending, leverage, locked LP, orders, proposals, auctions, activity |
 | Governance | Existing table/detail/wizard/sheet vocabulary | Proposal list/detail/create, lock, queue, execute, expired/failed states |
 | Faucet | — | Test-token minting; exists only where a faucet is configured, absent on mainnet |
 
@@ -178,7 +178,7 @@ Required domains:
 
 - Market creation and multi-market discovery.
 - Swap and quote for both curve kinds.
-- Balanced and single-sided yLP/hLP operations.
+- Balanced and single-sided srLP/hLP operations.
 - Concentrated range management.
 - Deposit, borrow, repay, withdraw, health, and liquidation auctions.
 - Open, adjust, close, and liquidate leverage.
@@ -598,7 +598,7 @@ proposal expires and a new one has to be raised.
 
 **Market creation is a bootstrap, not an instruction.** `bootstrap_market.ts`
 ensures the futarchy authority exists, creates three transfer-hooked LP mints
-(yLP, base hLP, quote hLP) each with its own keypair and mint transaction,
+(srLP, base hLP, quote hLP) each with its own keypair and mint transaction,
 opens a WSOL account for the team treasury, then calls `initialize_market`
 across twenty accounts, then initializes yield accounts, the LP transfer hook
 and token metadata. That is why the SDK surface is a module rather than a

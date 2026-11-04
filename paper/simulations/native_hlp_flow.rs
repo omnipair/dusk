@@ -8,27 +8,27 @@ use serde_json::{json, Value};
 const UNIT: u64 = 1_000_000_000;
 fn snapshot(m: &BenchmarkMarket) -> Value {
     let c = m.checkpoint().unwrap();
-    let supply = c.base.ylp_supply as f64;
+    let supply = c.base.srlp_supply as f64;
     let price = m.curve_snapshot().unwrap().spot_price_nad as f64 / NAD as f64;
     let unit = UNIT as f64;
     let mut values = Vec::new();
     for (name, shares, debt_b, debt_q) in [
         (
             "ordinary",
-            c.base.ylp_supply - c.base_hlp.ylp_shares - c.quote_hlp.ylp_shares,
+            c.base.srlp_supply - c.base_hlp.srlp_shares - c.quote_hlp.srlp_shares,
             0.0,
             0.0,
         ),
         (
             "base_hlp",
-            c.base_hlp.ylp_shares,
+            c.base_hlp.srlp_shares,
             0.0,
             Debt::shares_to_debt(c.base_hlp.debt_shares, c.quote.borrow_index_nad).unwrap() as f64
                 / unit,
         ),
         (
             "quote_hlp",
-            c.quote_hlp.ylp_shares,
+            c.quote_hlp.srlp_shares,
             Debt::shares_to_debt(c.quote_hlp.debt_shares, c.base.borrow_index_nad).unwrap() as f64
                 / unit,
             0.0,
@@ -38,7 +38,7 @@ fn snapshot(m: &BenchmarkMarket) -> Value {
         let quote = c.quote.live_reserve as f64 / unit * shares as f64 / supply;
         values.push(json!({"name":name,"shares":shares,"base":base,"quote":quote,"debt_base":debt_b,"debt_quote":debt_q,"net_usd":(base-debt_b)*price+quote-debt_q,"gross_leverage":(base*price+quote)/((base-debt_b)*price+quote-debt_q)}));
     }
-    json!({"price":price,"cash_base":c.base.cash_reserve as f64/unit,"cash_quote":c.quote.cash_reserve as f64/unit,"live_base":c.base.live_reserve as f64/unit,"live_quote":c.quote.live_reserve as f64/unit,"supply":c.base.ylp_supply,"holders":values})
+    json!({"price":price,"cash_base":c.base.cash_reserve as f64/unit,"cash_quote":c.quote.cash_reserve as f64/unit,"live_base":c.base.live_reserve as f64/unit,"live_quote":c.quote.live_reserve as f64/unit,"supply":c.base.srlp_supply,"holders":values})
 }
 fn run(amp: u64, fee: u16, compound: u16, with_hlp: bool) -> Value {
     let clock = BenchmarkClock {
@@ -81,12 +81,12 @@ fn run(amp: u64, fee: u16, compound: u16, with_hlp: bool) -> Value {
     let mut m = BenchmarkMarket::initialize_at(
         Pubkey::new_unique(),
         BenchmarkMarketInit {
-            ylp_mint: Pubkey::new_unique(),
+            srlp_mint: Pubkey::new_unique(),
             base_side: side(),
             quote_side: side(),
             config,
-            base_hlp_ylp_vault: Pubkey::new_unique(),
-            quote_hlp_ylp_vault: Pubkey::new_unique(),
+            base_hlp_srlp_vault: Pubkey::new_unique(),
+            quote_hlp_srlp_vault: Pubkey::new_unique(),
             base_insurance_vault: Pubkey::new_unique(),
             quote_insurance_vault: Pubkey::new_unique(),
             params_hash: [0; 32],
@@ -98,12 +98,12 @@ fn run(amp: u64, fee: u16, compound: u16, with_hlp: bool) -> Value {
         clock,
     )
     .unwrap();
-    m.execute_add_ylp(BenchmarkAddYlpRequest {
+    m.execute_add_srlp(BenchmarkAddSrlpRequest {
         clock,
         owner,
         base_reserve_credit: 100 * UNIT,
         quote_reserve_credit: 100 * UNIT,
-        min_ylp_amount: 1,
+        min_srlp_amount: 1,
         global_reduce_only: false,
     })
     .unwrap();

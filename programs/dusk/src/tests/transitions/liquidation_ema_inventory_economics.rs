@@ -38,8 +38,8 @@ fn cmp_hlp_fees(v: &HlpVault, asset: MarketAsset) -> f64 {
 // Fees are added once, assigned by the native hLP yield indexes.
 fn cmp_nav(m: &Market, debt: MarketAsset, mark: u64) -> Result<[f64; 7]> {
     let mut t = m.clone();
-    t.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
-    t.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
+    t.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;
+    t.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
     let p = if debt == MarketAsset::Quote {
         u128::from(mark)
     } else {
@@ -60,8 +60,8 @@ fn cmp_nav(m: &Market, debt: MarketAsset, mark: u64) -> Result<[f64; 7]> {
         + cmp_hlp_fees(&t.base_hlp_vault, MarketAsset::Quote) * qv;
     let hqf = cmp_hlp_fees(&t.quote_hlp_vault, MarketAsset::Base) * bv
         + cmp_hlp_fees(&t.quote_hlp_vault, MarketAsset::Quote) * qv;
-    let hs = t.base_hlp_vault.ylp_shares + t.quote_hlp_vault.ylp_shares;
-    let fraction = (t.base_side.shares.ylp_supply - hs) as f64 / t.base_side.shares.ylp_supply as f64;
+    let hs = t.base_hlp_vault.srlp_shares + t.quote_hlp_vault.srlp_shares;
+    let fraction = (t.base_side.shares.srlp_supply - hs) as f64 / t.base_side.shares.srlp_supply as f64;
     let principal = cmp_value(t.curve_reserve(MarketAsset::Base)?, MarketAsset::Base, debt, mark)
         + cmp_value(t.curve_reserve(MarketAsset::Quote)?, MarketAsset::Quote, debt, mark);
     let mut lpfees = 0.0;
@@ -231,7 +231,7 @@ fn cmp_v1_inventory(
 }
 #[test]
 fn audit_ema_inventory_economic_comparison() {
-    println!("EMA_CMP,amp,hlp,side,size,equity_bps,mark,tokenfee,withdrawal,front,method,status,repaid,remaining_debt,remaining_coll,reward_value,front_cost,front_output,backrun_profit,attack_profit,ylp,base_hlp,quote_hlp,protocol,protected,insurance,eligible_after,emergency_before,improves,residual_mark_gap,residual_route_gap,insurance_draw,writeoff,liq_fees,liq_full,backing,mm_bps");
+    println!("EMA_CMP,amp,hlp,side,size,equity_bps,mark,tokenfee,withdrawal,front,method,status,repaid,remaining_debt,remaining_coll,reward_value,front_cost,front_output,backrun_profit,attack_profit,srlp,base_hlp,quote_hlp,protocol,protected,insurance,eligible_after,emergency_before,improves,residual_mark_gap,residual_route_gap,insurance_draw,writeoff,liq_fees,liq_full,backing,mm_bps");
     let mut constructed = 0;
     let mut skipped = 0;
     let mut rows = 0;
@@ -268,9 +268,9 @@ fn audit_ema_inventory_economic_comparison() {
                                     .unwrap();
                                     no_accrual(&mut m, 2);
                                     if withdrawal > 0 {
-                                        let ordinary = m.base_side.shares.ylp_supply
-                                            - m.base_hlp_vault.ylp_shares
-                                            - m.quote_hlp_vault.ylp_shares;
+                                        let ordinary = m.base_side.shares.srlp_supply
+                                            - m.base_hlp_vault.srlp_shares
+                                            - m.quote_hlp_vault.srlp_shares;
                                         if let Err(e) = m
                                             .remove_liquidity(ordinary * withdrawal / 10000)
                                             .and_then(|_| m.finalize_amm_transition_and_observe_risk(2))
@@ -494,9 +494,9 @@ fn cmp_current_candidate(
                 )?;
                 let profit;
                 let mut eligibility = HlpYieldEligibility {
-                    ylp_supply: trial.base_side.shares.ylp_supply,
-                    base_hlp_ylp_shares: trial.base_hlp_vault.ylp_shares,
-                    quote_hlp_ylp_shares: trial.quote_hlp_vault.ylp_shares,
+                    srlp_supply: trial.base_side.shares.srlp_supply,
+                    base_hlp_srlp_shares: trial.base_hlp_vault.srlp_shares,
+                    quote_hlp_srlp_shares: trial.quote_hlp_vault.srlp_shares,
                 };
                 if external_profitable {
                     trial.settle_flash_recovery(&mut Mut::Leverage(&mut next), side, allocation, q.collateral_debit, repaid, f.effective_gross_for_credit(loss.insurance_credit)?, loss.insurance_credit, full, slot)?;
@@ -620,9 +620,9 @@ fn cmp_current_candidate(
                 .as_ref()
                 .map(|s| s.interest_eligibility)
                 .unwrap_or(HlpYieldEligibility {
-                    ylp_supply: trial.base_side.shares.ylp_supply,
-                    base_hlp_ylp_shares: trial.base_hlp_vault.ylp_shares,
-                    quote_hlp_ylp_shares: trial.quote_hlp_vault.ylp_shares,
+                    srlp_supply: trial.base_side.shares.srlp_supply,
+                    base_hlp_srlp_shares: trial.base_hlp_vault.srlp_shares,
+                    quote_hlp_srlp_shares: trial.quote_hlp_vault.srlp_shares,
                 });
             if q.reward_credit < 50 {
                 continue;
@@ -660,10 +660,10 @@ fn cmp_publish_fee(
         fee.lp,
         fee.protocol,
         ProtocolAuctionSplit::default(),
-        e.ylp_supply,
+        e.srlp_supply,
     )?;
-    m.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, e.base_hlp_ylp_shares)?;
-    m.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, e.quote_hlp_ylp_shares)?;
+    m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, e.base_hlp_srlp_shares)?;
+    m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, e.quote_hlp_srlp_shares)?;
     Ok(())
 }
 
@@ -692,7 +692,7 @@ fn audit_ema_inventory_withdrawal_does_not_trigger_healthy_position() {
                 let before = m.flash_liquidation_health(&Ref::Leverage(&p), debt, fee).unwrap();
                 assert!(!before.eligible().unwrap());
                 let ordinary =
-                    m.base_side.shares.ylp_supply - m.base_hlp_vault.ylp_shares - m.quote_hlp_vault.ylp_shares;
+                    m.base_side.shares.srlp_supply - m.base_hlp_vault.srlp_shares - m.quote_hlp_vault.srlp_shares;
                 m.remove_liquidity(ordinary / 4).unwrap();
                 m.finalize_amm_transition_and_observe_risk(2).unwrap();
                 let after = m.flash_liquidation_health(&Ref::Leverage(&p), debt, fee).unwrap();

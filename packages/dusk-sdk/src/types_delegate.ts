@@ -1244,7 +1244,7 @@ export type LeverageDelegate = {
           "writable": true
         },
         {
-          "name": "ylpMint",
+          "name": "srlpMint",
           "writable": true
         },
         {
@@ -1272,7 +1272,7 @@ export type LeverageDelegate = {
           "writable": true
         },
         {
-          "name": "hlpYlpAccount",
+          "name": "hlpSrlpAccount",
           "writable": true
         },
         {
@@ -1706,7 +1706,7 @@ export type LeverageDelegate = {
           "writable": true
         },
         {
-          "name": "ylpMint",
+          "name": "srlpMint",
           "writable": true
         },
         {
@@ -1734,7 +1734,7 @@ export type LeverageDelegate = {
           "optional": true
         },
         {
-          "name": "hlpYlpAccount",
+          "name": "hlpSrlpAccount",
           "writable": true,
           "optional": true
         },
@@ -2716,7 +2716,7 @@ export type LeverageDelegate = {
           {
             "name": "protectedFloorPerShareNad",
             "docs": [
-              "yLP principal floor protected from funded recenter/ramp impairment."
+              "srLP principal floor protected from funded recenter/ramp impairment."
             ],
             "type": "u128"
           },
@@ -2748,7 +2748,7 @@ export type LeverageDelegate = {
             "docs": [
               "When true, dynamic surcharge is locked in the non-quoteable protected",
               "recenter bucket; when false, the identical trader charge is routed to",
-              "claimable yLP fee accounting."
+              "claimable srLP fee accounting."
             ],
             "type": "bool"
           },
@@ -3478,7 +3478,7 @@ export type LeverageDelegate = {
             "name": "hlpFundingInterestGrowthRemainderScaled",
             "docs": [
               "Source-scoped Q64 carry for interest paid by hLP funding debt. Funding",
-              "uses a non-hLP denominator, while public interest uses total yLP",
+              "uses a non-hLP denominator, while public interest uses total srLP",
               "supply; sharing one carry across those denominators would eventually",
               "leak rounding entitlement between the two populations."
             ],
@@ -3750,11 +3750,11 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "ylpVault",
+            "name": "srlpVault",
             "type": "pubkey"
           },
           {
-            "name": "ylpShares",
+            "name": "srlpShares",
             "type": "u64"
           },
           {
@@ -3828,9 +3828,9 @@ export type LeverageDelegate = {
           {
             "name": "baseSwapFeeRemainderQ64",
             "docs": [
-              "Aggregate sub-atom yLP entitlement carried across hLP checkpoints.",
+              "Aggregate sub-atom srLP entitlement carried across hLP checkpoints.",
               "These are distinct from each holder YieldAccount remainder: this layer",
-              "converts vault-owned yLP growth into hLP growth without double-flooring."
+              "converts vault-owned srLP growth into hLP growth without double-flooring."
             ],
             "type": "u64"
           },
@@ -3849,7 +3849,7 @@ export type LeverageDelegate = {
           {
             "name": "baseSwapFeeGrowthRemainderScaled",
             "docs": [
-              "Sub-index distribution carry for the second, yLP-to-hLP allocation",
+              "Sub-index distribution carry for the second, srLP-to-hLP allocation",
               "layer. Whole-token backing represented here has already left the",
               "corresponding `unallocated_*` bucket."
             ],
@@ -4572,7 +4572,7 @@ export type LeverageDelegate = {
             "type": "u8"
           },
           {
-            "name": "ylpMint",
+            "name": "srlpMint",
             "type": "pubkey"
           },
           {
@@ -4699,15 +4699,15 @@ export type LeverageDelegate = {
             "name": "initialLiquidityAuthority",
             "docs": [
               "One-shot signer allowed to provide the first fully-backed Base/Quote",
-              "seed. It is cleared permanently once yLP supply becomes nonzero."
+              "seed. It is cleared permanently once srLP supply becomes nonzero."
             ],
             "type": "pubkey"
           },
           {
-            "name": "governanceLockedYlp",
+            "name": "governanceLockedSrlp",
             "docs": [
-              "External yLP burned into direct support or reusable governance balances. This is added back",
-              "when computing direct-yLP eligibility; internal reserve-share supply is",
+              "External srLP burned into direct support or reusable governance balances. This is added back",
+              "when computing direct-srLP eligibility; internal reserve-share supply is",
               "intentionally unchanged by governance locking."
             ],
             "type": "u64"
@@ -5623,7 +5623,7 @@ export type LeverageDelegate = {
         "kind": "struct",
         "fields": [
           {
-            "name": "ylpSupply",
+            "name": "srlpSupply",
             "type": "u64"
           }
         ]
@@ -5673,7 +5673,7 @@ export type LeverageDelegate = {
             "docs": [
               "Physical reserve-vault atoms retained from toxicity surcharge for a",
               "future protected recenter. They are custody-backed but excluded from",
-              "executable cash/live reserves, yLP NAV, and every withdrawal claim."
+              "executable cash/live reserves, srLP NAV, and every withdrawal claim."
             ],
             "type": "u64"
           }
@@ -6033,7 +6033,7 @@ export type LeverageDelegate = {
             "name": "lpMint",
             "docs": [
               "LP mint whose balance earns this account's revenue stream. This keeps",
-              "base-hLP, quote-hLP, and yLP entitlements in disjoint PDA namespaces."
+              "base-hLP, quote-hLP, and srLP entitlements in disjoint PDA namespaces."
             ],
             "type": "pubkey"
           },

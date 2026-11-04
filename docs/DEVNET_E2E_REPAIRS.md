@@ -5,7 +5,7 @@ reproduced and covered by regressions in `tests/v2-final-smoke.test.ts`.
 These changes preserve the account layouts, instructions, SDK interface and
 liquidation policy.
 
-## Reseeding after the last external yLP exit
+## Reseeding after the last external srLP exit
 
 The last external withdrawal leaves the permanently locked minimum shares and
 small cash reserves. It deliberately clears the concentrated AMM. Previously,
@@ -13,7 +13,7 @@ the next deposit's update tried to reconstruct the concentrated curve from
 that dust before adding the new cash, and continuity validation rejected it.
 
 An uninitialized market with only minimum shares now uses the existing
-terminal checkpoint. That checkpoint still requires equal yLP supplies, no
+terminal checkpoint. That checkpoint still requires equal srLP supplies, no
 public or isolated debt or principal, cash equal to live reserves, and no
 active hLP vault. The new deposit then rebuilds the curve with its added
 liquidity. The deposit's ordinary share calculation still accounts for the
@@ -65,7 +65,7 @@ must be verified separately after the executable upgrade.
 
 ## Read previews after the last liquidity exit
 
-The drained market retains minimum yLP shares and rounding dust, but its AMM
+The drained market retains minimum srLP shares and rounding dust, but its AMM
 is deliberately uninitialized. Market previews now preserve those reserves,
 shares and exchange rates while returning zero executable spot/depth and
 borrowing capacity. They do not reconstruct a concentrated curve from dust.

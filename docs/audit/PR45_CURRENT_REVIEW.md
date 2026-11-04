@@ -13,9 +13,9 @@ repayment/liquidation ledger. The coupled state checked was:
 
 | Coupled state | Required relationship | Mutating paths checked |
 | --- | --- | --- |
-| hLP receipt supply and vault-owned yLP/debt | A live receipt cohort owns the matching vault claim and liability | Deposit, withdraw, direct burn reconciliation, terminal close |
+| hLP receipt supply and vault-owned srLP/debt | A live receipt cohort owns the matching vault claim and liability | Deposit, withdraw, direct burn reconciliation, terminal close |
 | Live reserve, executable cash, unpaid interest and flash receivable | Book value and custody stay backed while unpaid interest and flashed collateral remain non-executable | Funding, swap, flash begin/settle, terminal close |
-| yLP and hLP yield indexes and supply | Historical yield is checkpointed before ownership or denominator changes | Deposit, withdraw, transfer hook, direct burn reconciliation, funding, terminal close |
+| srLP and hLP yield indexes and supply | Historical yield is checkpointed before ownership or denominator changes | Deposit, withdraw, transfer hook, direct burn reconciliation, funding, terminal close |
 | Fixed debt shares and principal | Repayment and liquidation classify collected cash and insured loss consistently with the position retired | Borrow, repay, flash liquidation, emergency settlement |
 | Frozen hLP mask and debt/ownership reconstruction | A distressed vault is not silently rehedged or erased by an ordinary swap | Swap, flash recovery, terminal close |
 
@@ -53,7 +53,7 @@ Alice's principal and principal-only insurance quote in both asset directions.
 
 ### Retired hLP receipts and new deposits
 
-Both terminal close paths zero the vault's yLP and debt while leaving the
+Both terminal close paths zero the vault's srLP and debt while leaving the
 existing hLP receipt supply in place so holders can claim already-funded yield
 and burn the receipts. A subsequent deposit sees nonzero supply but zero old
 NAV. `deposit_single_sided` calls `hlp_shares_for_delta_nav`, which requires a
@@ -102,7 +102,7 @@ and leverage: symmetric EMA price, `curve_depth_ema_nad`, configured
 concentration and full swap fees. The borrowed-token claim is added directly.
 The quote-only path does not construct an active hLP transition, so the
 insolvent vault cannot block pricing its own close. External flash terminal
-settlement uses the caller's actual fixed payment and the borrowed-token yLP
+settlement uses the caller's actual fixed payment and the borrowed-token srLP
 claim bound at begin, so an interleaved Dusk swap cannot change the session's
 loss allocation. The complete begin/route/settle transaction must still fit
 Solana's compute limit. Native Dusk recovery remains available through the

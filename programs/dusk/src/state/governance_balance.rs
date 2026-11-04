@@ -26,7 +26,7 @@ impl GovernanceTokenKind {
     }
 }
 
-/// Owner-held virtual yLP. Both idle and committed shares accrue yield here.
+/// Owner-held virtual srLP. Both idle and committed shares accrue yield here.
 #[account]
 #[derive(InitSpace)]
 pub struct GovernanceBalance {

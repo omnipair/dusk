@@ -45,7 +45,7 @@ pub struct PreparedSwap {
     pub quote: AmmSwapQuote,
     pub base_pre_rebalance: HlpRebalanceReceipt,
     pub quote_pre_rebalance: HlpRebalanceReceipt,
-    pub fee_eligible_ylp_supply: u64,
+    pub fee_eligible_srlp_supply: u64,
     pub interest_eligibility: HlpYieldEligibility,
     pub(crate) cash_policy: SwapCashPolicy,
     pub(crate) post_fee_curve_cache: Option<Box<ConcentratedCurveCache>>,
@@ -249,7 +249,7 @@ impl PreparedSwap {
             quote.fee.compounded_dynamic_surcharge_debit,
             protocol_fee_bps,
             protocol_auction_split,
-            self.fee_eligible_ylp_supply,
+            self.fee_eligible_srlp_supply,
         )?;
         market.base_side.assert_share_backing()?;
         market.quote_side.assert_share_backing()?;
@@ -257,9 +257,11 @@ impl PreparedSwap {
         // The fee index belongs to the shares held at the start of this swap.
         // Settle that interval before the hLP transition replaces ownership.
         market
-            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, self.interest_eligibility.base_hlp_ylp_shares)?;
-        market
-            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, self.interest_eligibility.quote_hlp_ylp_shares)?;
+            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, self.interest_eligibility.base_hlp_srlp_shares)?;
+        market.checkpoint_hlp_yield_from_srlp_shares(
+            MarketAsset::Quote,
+            self.interest_eligibility.quote_hlp_srlp_shares,
+        )?;
         let debt_asset = quote.asset_in.opposite();
         consume_hlp_tracking_unrealized_interest(
             &mut self.base_pre_rebalance,
@@ -420,14 +422,14 @@ impl SwapRequest {
     ) -> Result<Box<PreparedSwap>> {
         market.accrue_interest_to_slot(self.current_slot)?;
         require_eq!(
-            market.base_side.shares.ylp_supply,
-            market.quote_side.shares.ylp_supply,
+            market.base_side.shares.srlp_supply,
+            market.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
         let interest_eligibility = HlpYieldEligibility {
-            ylp_supply: market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+            srlp_supply: market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
         };
         if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
             market.prepare_amm_for_swap(self.current_slot)?;
@@ -615,10 +617,10 @@ impl SwapRequest {
                 target_asset: MarketAsset::Quote,
                 ..HlpRebalanceReceipt::default()
             },
-            fee_eligible_ylp_supply: market
+            fee_eligible_srlp_supply: market
                 .side(MarketAsset::try_from_code(quote.fee.fee_asset)?)
                 .shares
-                .ylp_supply,
+                .srlp_supply,
             interest_eligibility,
             cash_policy,
             post_fee_curve_cache,

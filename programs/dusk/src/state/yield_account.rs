@@ -4,7 +4,7 @@ use crate::{constants::YIELD_GROWTH_FRACTION_MASK_Q64, errors::ErrorCode, math::
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum YieldTokenKind {
-    Ylp,
+    Srlp,
     Hlp,
     Junior,
 }
@@ -12,7 +12,7 @@ pub enum YieldTokenKind {
 impl YieldTokenKind {
     pub fn code(self) -> u8 {
         match self {
-            Self::Ylp => 0,
+            Self::Srlp => 0,
             Self::Hlp => 1,
             Self::Junior => 2,
         }
@@ -25,7 +25,7 @@ pub struct YieldAccount {
     pub owner: Pubkey,
     pub market: Pubkey,
     /// LP mint whose balance earns this account's revenue stream. This keeps
-    /// base-hLP, quote-hLP, and yLP entitlements in disjoint PDA namespaces.
+    /// base-hLP, quote-hLP, and srLP entitlements in disjoint PDA namespaces.
     pub lp_mint: Pubkey,
     pub asset_mint: Pubkey,
     pub token_kind: u8,
@@ -124,7 +124,7 @@ impl YieldAccount {
 
     /// Credit an interest-growth interval without changing this account's LP
     /// checkpoint namespace. hLP exits use this for the exiting vault-owned
-    /// yLP shares while preserving sub-atom entitlement across split exits.
+    /// srLP shares while preserving sub-atom entitlement across split exits.
     pub fn credit_interest_growth(
         &mut self,
         balance: u64,

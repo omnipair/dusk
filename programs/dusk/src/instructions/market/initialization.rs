@@ -28,7 +28,7 @@ use crate::{
 };
 
 use crate::instructions::accounts::{
-    derive_hlp_ylp_vault_address, require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
+    derive_hlp_srlp_vault_address, require_supported_asset_mint, token_program_for_mint, validate_lp_mint,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -46,7 +46,7 @@ pub struct InitializeMarketArgs {
     /// Number of price-fee periods already completed before graduation.
     pub launch_fee_progress_offset: u16,
     /// Metadata for the three LP mints, created atomically with the market.
-    pub ylp_metadata: InitializeLpMetadataArgs,
+    pub srlp_metadata: InitializeLpMetadataArgs,
     pub base_hlp_metadata: InitializeLpMetadataArgs,
     pub quote_hlp_metadata: InitializeLpMetadataArgs,
 }
@@ -73,22 +73,22 @@ pub struct InitializeMarket<'info> {
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
-        constraint = ylp_mint.key() != base_mint.key() @ ErrorCode::InvalidLpMintKey,
-        constraint = ylp_mint.key() != quote_mint.key() @ ErrorCode::InvalidLpMintKey,
+        constraint = srlp_mint.key() != base_mint.key() @ ErrorCode::InvalidLpMintKey,
+        constraint = srlp_mint.key() != quote_mint.key() @ ErrorCode::InvalidLpMintKey,
     )]
     #[account(mut)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         constraint = base_hlp_mint.key() != base_mint.key() @ ErrorCode::InvalidLpMintKey,
         constraint = base_hlp_mint.key() != quote_mint.key() @ ErrorCode::InvalidLpMintKey,
-        constraint = base_hlp_mint.key() != ylp_mint.key() @ ErrorCode::InvalidLpMintKey,
+        constraint = base_hlp_mint.key() != srlp_mint.key() @ ErrorCode::InvalidLpMintKey,
     )]
     #[account(mut)]
     pub base_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         constraint = quote_hlp_mint.key() != base_mint.key() @ ErrorCode::InvalidLpMintKey,
         constraint = quote_hlp_mint.key() != quote_mint.key() @ ErrorCode::InvalidLpMintKey,
-        constraint = quote_hlp_mint.key() != ylp_mint.key() @ ErrorCode::InvalidLpMintKey,
+        constraint = quote_hlp_mint.key() != srlp_mint.key() @ ErrorCode::InvalidLpMintKey,
         constraint = quote_hlp_mint.key() != base_hlp_mint.key() @ ErrorCode::InvalidLpMintKey,
     )]
     #[account(mut)]
@@ -96,12 +96,12 @@ pub struct InitializeMarket<'info> {
 
     #[account(
         mut,
-        seeds = [METADATA_SEED_PREFIX, MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(), ylp_mint.key().as_ref()],
+        seeds = [METADATA_SEED_PREFIX, MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(), srlp_mint.key().as_ref()],
         seeds::program = MPL_TOKEN_METADATA_PROGRAM_ID,
         bump
     )]
-    /// CHECK: Metaplex metadata PDA for the yLP mint.
-    pub ylp_token_metadata: UncheckedAccount<'info>,
+    /// CHECK: Metaplex metadata PDA for the srLP mint.
+    pub srlp_token_metadata: UncheckedAccount<'info>,
     #[account(
         mut,
         seeds = [METADATA_SEED_PREFIX, MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(), base_hlp_mint.key().as_ref()],
@@ -257,7 +257,7 @@ impl<'info> InitializeMarket<'info> {
         Market::validate_mint_domain(
             self.base_mint.key(),
             self.quote_mint.key(),
-            self.ylp_mint.key(),
+            self.srlp_mint.key(),
             self.base_hlp_mint.key(),
             self.quote_hlp_mint.key(),
         )?;
@@ -265,19 +265,19 @@ impl<'info> InitializeMarket<'info> {
         require_supported_asset_mint(&self.quote_mint)?;
 
         let market = self.market.key();
-        validate_lp_mint(&self.ylp_mint, market, self.base_mint.decimals)?;
+        validate_lp_mint(&self.srlp_mint, market, self.base_mint.decimals)?;
         validate_lp_mint(&self.base_hlp_mint, market, self.base_mint.decimals)?;
         validate_lp_mint(&self.quote_hlp_mint, market, self.quote_mint.decimals)?;
 
-        require_vanity_suffix(&self.ylp_mint, "yLP")?;
+        require_vanity_suffix(&self.srlp_mint, "srLP")?;
         require_vanity_suffix(&self.base_hlp_mint, "hLP")?;
         require_vanity_suffix(&self.quote_hlp_mint, "hLP")?;
 
-        require!(self.ylp_mint.supply == 0, ErrorCode::NonZeroSupply);
+        require!(self.srlp_mint.supply == 0, ErrorCode::NonZeroSupply);
         require!(self.base_hlp_mint.supply == 0, ErrorCode::NonZeroSupply);
         require!(self.quote_hlp_mint.supply == 0, ErrorCode::NonZeroSupply);
 
-        validate_lp_metadata_args(&args.ylp_metadata)?;
+        validate_lp_metadata_args(&args.srlp_metadata)?;
         validate_lp_metadata_args(&args.base_hlp_metadata)?;
         validate_lp_metadata_args(&args.quote_hlp_metadata)?;
 
@@ -300,7 +300,7 @@ impl<'info> InitializeMarket<'info> {
         let payer_key = ctx.accounts.payer.key();
         let base_mint = ctx.accounts.base_mint.key();
         let quote_mint = ctx.accounts.quote_mint.key();
-        let ylp_mint = ctx.accounts.ylp_mint.key();
+        let srlp_mint = ctx.accounts.srlp_mint.key();
         let base_hlp_mint = ctx.accounts.base_hlp_mint.key();
         let quote_hlp_mint = ctx.accounts.quote_hlp_mint.key();
         let base_collateral_vault = ctx.accounts.base_collateral_vault.key();
@@ -442,17 +442,17 @@ impl<'info> InitializeMarket<'info> {
             interest_vault: ctx.accounts.quote_interest_vault.key(),
             ..MarketSide::default()
         };
-        let base_hlp_ylp_vault = derive_hlp_ylp_vault_address(market_key, base_hlp_mint, ylp_mint).0;
-        let quote_hlp_ylp_vault = derive_hlp_ylp_vault_address(market_key, quote_hlp_mint, ylp_mint).0;
+        let base_hlp_srlp_vault = derive_hlp_srlp_vault_address(market_key, base_hlp_mint, srlp_mint).0;
+        let quote_hlp_srlp_vault = derive_hlp_srlp_vault_address(market_key, quote_hlp_mint, srlp_mint).0;
 
         // Initialize all market state only after every external account is ready.
         ctx.accounts.market.initialize(
-            ylp_mint,
+            srlp_mint,
             base_side,
             quote_side,
             args.config,
-            base_hlp_ylp_vault,
-            quote_hlp_ylp_vault,
+            base_hlp_srlp_vault,
+            quote_hlp_srlp_vault,
             base_insurance_vault,
             quote_insurance_vault,
             args.params_hash,
@@ -481,13 +481,13 @@ impl<'info> InitializeMarket<'info> {
         create_lp_metadata(
             &ctx.accounts.market,
             &ctx.accounts.payer,
-            &ctx.accounts.ylp_mint,
-            &ctx.accounts.ylp_token_metadata,
+            &ctx.accounts.srlp_mint,
+            &ctx.accounts.srlp_token_metadata,
             &ctx.accounts.system_program,
             &ctx.accounts.sysvar_instructions,
             &ctx.accounts.token_2022_program,
             &ctx.accounts.token_metadata_program,
-            args.ylp_metadata,
+            args.srlp_metadata,
         )?;
         create_lp_metadata(
             &ctx.accounts.market,
@@ -517,7 +517,7 @@ impl<'info> InitializeMarket<'info> {
             market: market_key,
             base_mint,
             quote_mint,
-            ylp_mint,
+            srlp_mint,
             base_collateral_vault,
             quote_collateral_vault,
             base_insurance_vault,

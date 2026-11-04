@@ -42,11 +42,11 @@ impl TestAccount {
 
 fn market_requiring_hlp_swap_accounts() -> Market {
     let mut market = Market {
-        ylp_mint: Pubkey::new_unique(),
+        srlp_mint: Pubkey::new_unique(),
         ..Market::default()
     };
-    market.base_hlp_vault.ylp_vault = Pubkey::new_unique();
-    market.quote_hlp_vault.ylp_vault = Pubkey::new_unique();
+    market.base_hlp_vault.srlp_vault = Pubkey::new_unique();
+    market.quote_hlp_vault.srlp_vault = Pubkey::new_unique();
     market.base_side.interest_vault = Pubkey::new_unique();
     market.quote_side.interest_vault = Pubkey::new_unique();
     market.base_hlp_vault.hlp_supply = 1;
@@ -55,9 +55,9 @@ fn market_requiring_hlp_swap_accounts() -> Market {
 
 fn canonical_hlp_swap_accounts(market: &Market) -> Vec<TestAccount> {
     vec![
-        TestAccount::new(market.ylp_mint, Token2022::id(), true),
-        TestAccount::new(market.base_hlp_vault.ylp_vault, Token2022::id(), true),
-        TestAccount::new(market.quote_hlp_vault.ylp_vault, Token2022::id(), true),
+        TestAccount::new(market.srlp_mint, Token2022::id(), true),
+        TestAccount::new(market.base_hlp_vault.srlp_vault, Token2022::id(), true),
+        TestAccount::new(market.quote_hlp_vault.srlp_vault, Token2022::id(), true),
         TestAccount::new(market.base_side.interest_vault, Token::id(), true),
         TestAccount::new(market.quote_side.interest_vault, Token2022::id(), true),
     ]
@@ -88,7 +88,7 @@ fn residual_only_hlp_rejects_a_missing_or_reordered_prefix_before_math() {
     );
 
     let mut accounts = canonical_hlp_swap_accounts(&market);
-    accounts.swap(BASE_HLP_YLP_VAULT_INDEX, QUOTE_HLP_YLP_VAULT_INDEX);
+    accounts.swap(BASE_HLP_SRLP_VAULT_INDEX, QUOTE_HLP_SRLP_VAULT_INDEX);
     let infos: Vec<_> = accounts.iter_mut().map(TestAccount::account_info).collect();
     assert_eq!(
         HlpSwapAccountLayout::try_from((&market, infos.as_slice())).unwrap_err(),
@@ -119,12 +119,12 @@ fn canonical_hlp_prefix_is_consumed_once_and_preserves_hook_tail_order() {
 fn inactive_hlp_side_accepts_its_uninitialized_derived_vault_but_active_side_does_not() {
     let market = market_requiring_hlp_swap_accounts();
     let mut accounts = canonical_hlp_swap_accounts(&market);
-    accounts[QUOTE_HLP_YLP_VAULT_INDEX].owner = anchor_lang::system_program::ID;
+    accounts[QUOTE_HLP_SRLP_VAULT_INDEX].owner = anchor_lang::system_program::ID;
     let infos: Vec<_> = accounts.iter_mut().map(TestAccount::account_info).collect();
     HlpSwapAccountLayout::try_from((&market, infos.as_slice())).unwrap();
 
     let mut accounts = canonical_hlp_swap_accounts(&market);
-    accounts[BASE_HLP_YLP_VAULT_INDEX].owner = anchor_lang::system_program::ID;
+    accounts[BASE_HLP_SRLP_VAULT_INDEX].owner = anchor_lang::system_program::ID;
     let infos: Vec<_> = accounts.iter_mut().map(TestAccount::account_info).collect();
     assert_eq!(
         HlpSwapAccountLayout::try_from((&market, infos.as_slice())).unwrap_err(),

@@ -98,7 +98,7 @@ fn ema_health_and_reference_survive_proportional_lp_withdrawal() {
         let p = seeded_position(&mut m, MarketAsset::Quote, 800_000, 1_000_000);
         let before = m.flash_liquidation_health(&Ref::Leverage(&p), MarketAsset::Quote, LeverageCollateralFee::default()).unwrap();
         let (reference, state) = m.ema_liquidation_curve(MarketAsset::Base, 1).unwrap();
-        let shares = m.base_side.shares.ylp_supply / 4;
+        let shares = m.base_side.shares.srlp_supply / 4;
         m.remove_liquidity(shares).unwrap();
         m.finalize_amm_transition_and_observe_risk(1).unwrap();
         let after = m.flash_liquidation_health(&Ref::Leverage(&p), MarketAsset::Quote, LeverageCollateralFee::default()).unwrap();

@@ -1,13 +1,13 @@
 /**
  * LP token images.
  *
- * yLP: the two asset logos, base on the left half and quote on the right,
+ * srLP: the two asset logos, base on the left half and quote on the right,
  * clipped to a circle with a hairline ring — the same composition V1 used for
  * its `omLP` tokens, so the two products read as one family in a wallet.
  *
  * hLP: the logo of the asset the token is exposed to, full circle, with an
  * `h` badge in the lower right so the two hLP mints of a market are told
- * apart from each other and from the yLP at a glance.
+ * apart from each other and from the srLP at a glance.
  *
  * Missing logos fall back to a two-letter placeholder tile, as V1 did.
  */
@@ -21,7 +21,7 @@ export interface LpImageSources {
 }
 
 export interface LpImageSet {
-  ylp: Buffer;
+  srlp: Buffer;
   baseHlp: Buffer;
   quoteHlp: Buffer;
 }
@@ -111,7 +111,7 @@ async function clipToCircle(image: Buffer, size: number): Promise<Buffer> {
     .toBuffer();
 }
 
-export async function renderYlpImage(sources: LpImageSources, size = DEFAULT_LP_IMAGE_SIZE): Promise<Buffer> {
+export async function renderSrlpImage(sources: LpImageSources, size = DEFAULT_LP_IMAGE_SIZE): Promise<Buffer> {
   const half = size / 2;
   const [base, quote] = await Promise.all([
     squareLogo(sources.baseLogo, sources.baseSymbol, size),
@@ -142,10 +142,10 @@ export async function renderHlpImage(
 }
 
 export async function renderLpImages(sources: LpImageSources, size = DEFAULT_LP_IMAGE_SIZE): Promise<LpImageSet> {
-  const [ylp, baseHlp, quoteHlp] = await Promise.all([
-    renderYlpImage(sources, size),
+  const [srlp, baseHlp, quoteHlp] = await Promise.all([
+    renderSrlpImage(sources, size),
     renderHlpImage(sources.baseLogo, sources.baseSymbol, size),
     renderHlpImage(sources.quoteLogo, sources.quoteSymbol, size),
   ]);
-  return { ylp, baseHlp, quoteHlp };
+  return { srlp, baseHlp, quoteHlp };
 }

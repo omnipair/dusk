@@ -3,10 +3,10 @@ use super::*;
 #[test]
 fn eligible_supply_adds_all_governance_locks_back_before_excluding_hlp_vaults() {
     let mut market = Market::default();
-    let before_lock = direct_ylp_eligible_supply(&market, 1_000, 125, 75).unwrap();
+    let before_lock = direct_srlp_eligible_supply(&market, 1_000, 125, 75).unwrap();
 
-    market.governance_locked_ylp = 300;
-    let after_lock = direct_ylp_eligible_supply(&market, 700, 125, 75).unwrap();
+    market.governance_locked_srlp = 300;
+    let after_lock = direct_srlp_eligible_supply(&market, 700, 125, 75).unwrap();
 
     assert_eq!(before_lock, 800);
     assert_eq!(after_lock, before_lock);
@@ -15,7 +15,7 @@ fn eligible_supply_adds_all_governance_locks_back_before_excluding_hlp_vaults() 
 #[test]
 fn eligible_supply_rejects_vault_balances_outside_the_mint_supply_partition() {
     let market = Market::default();
-    assert!(direct_ylp_eligible_supply(&market, 100, 60, 41).is_err());
+    assert!(direct_srlp_eligible_supply(&market, 100, 60, 41).is_err());
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn eligible_supply_counts_only_active_user_owned_junior_backing() {
     market.governance_locked_junior = 300;
     // 700 active user receipts represent 350 current reserve shares. Locked
     // junior stays eligible; permanent and exit-queued receipts do not.
-    assert_eq!(direct_ylp_eligible_supply(&market, 1_000, 100, 100).unwrap(), 1_150);
+    assert_eq!(direct_srlp_eligible_supply(&market, 1_000, 100, 100).unwrap(), 1_150);
 }
 
 #[test]

@@ -48,7 +48,7 @@ closed-form segments.
 3. Freeze base, volatility, and distance fees.
 4. Quote the net input once on the concentrated curve.
 5. Reconstruct both hLP positions algebraically at the quoted endpoint.
-6. Commit cash, live reserves, yLP shares, debt, fee/yield checkpoints, and the
+6. Commit cash, live reserves, srLP shares, debt, fee/yield checkpoints, and the
    trade observation once. Volatility and the EMA anchor use the final
    executable price after compounding and hLP settlement, matching risk and
    the next quote.
@@ -70,7 +70,7 @@ adapters retain their corresponding rollback boundary.
 
 ## Launch protection and governance
 
-Ordinary yLP liquidity may be seeded before `start_time`; swaps, lending,
+Ordinary srLP liquidity may be seeded before `start_time`; swaps, lending,
 leverage, and hLP funding remain unavailable until that exact timestamp.
 Markets may configure a bounded launch base fee that decays in O(1) from the
 launch fee to the normal base fee using either a linear schedule or sixteen
@@ -106,9 +106,9 @@ against current reserves. No manager/operator or maintenance crank is used.
 
 The current swap never moves the center used to price itself. Retained
 surcharge is credited after the endpoint into a custody-backed, non-quoteable
-Base/Quote recenter bucket. It is excluded from yLP NAV and withdrawals. A
+Base/Quote recenter bucket. It is excluded from srLP NAV and withdrawals. A
 later admitted center move atomically deploys the bucket as reserve principal
-only when the resulting curve leaves yLP principal unimpaired.
+only when the resulting curve leaves srLP principal unimpaired.
 
 ## hLP hedge
 
@@ -116,14 +116,14 @@ Perfect hedge means zero net opposite-asset exposure, not literal constant
 gross 2x leverage away from a balanced 50/50 point. For each vault:
 
 ```text
-opposite-asset yLP claim - opposite-asset funding debt = 0
+opposite-asset srLP claim - opposite-asset funding debt = 0
 ```
 
 At a balanced CPMM point this is the familiar 2x result. On an off-center
 concentrated curve the LP inventory weights differ, so the gross leverage
 needed for the same zero-opposite-exposure hedge changes with the curve.
 
-The implementation reconstructs debt and yLP ownership from final ordinary
+The implementation reconstructs debt and srLP ownership from final ordinary
 reserves using canonical floor/ceil claim rules. Both active hLPs are checked at
 atom precision after Spot, leverage, and liquidation transitions.
 
@@ -136,9 +136,9 @@ linearly to 500 bps at 17/16 and reports critical stress at 9/8. Matching input,
 the funding gap, and remaining hLP target equity cap the tranche.
 
 The complete trader input still executes on the ordinary curve. Only the bonus
-output is paid by reducing the stressed hLP's target equity; ordinary yLP shares
+output is paid by reducing the stressed hLP's target equity; ordinary srLP shares
 and published fee claims are untouched. The final transition pays accrued
-funding interest and selects debt directly from the final proportional yLP
+funding interest and selects debt directly from the final proportional srLP
 claim, using a fixed adjacent-atom rounding certificate rather than an
 iterative solver. Ordinary `swap` remains available in reduce-only mode and
 can receive the hLP recovery bonus whenever its input matches a funding gap;
@@ -148,14 +148,14 @@ without a dedicated keeper instruction.
 
 If passive funding consumes all marked hLP collateral before that recovery
 executes, `close_insolvent_hlp` closes the vault through a terminal
-waterfall. It first retires the vault-owned yLP position, then draws the
+waterfall. It first retires the vault-owned srLP position, then draws the
 borrowed-asset insurance vault. A bounded caller bounty is paid from recovered
-funding interest, the remaining payable interest is credited to ordinary yLP,
+funding interest, the remaining payable interest is credited to ordinary srLP,
 and only the caller-capped remainder of accrued funding interest is socialized.
 A loss reaching original debt principal is rejected as a broken
 hedge/accounting invariant. Published hLP fee claims are not seized; the
 remaining hLP tokens are burnable for zero principal after closure. The
-terminal instruction has its own insurance/interest/yLP accounts, so ordinary
+terminal instruction has its own insurance/interest/srLP accounts, so ordinary
 swaps keep their existing account list.
 
 ## Accounting invariants
@@ -195,7 +195,7 @@ part of a full principal shortfall; uncovered principal is socialized and
 unpaid interest is canceled. See `docs/FLASH_LIQUIDATION_CONTRACT.md` for the
 instruction contract and emergency permission rules.
 
-Proportional yLP changes scale every liquidity tranche. A protected center
+Proportional srLP changes scale every liquidity tranche. A protected center
 change reconstructs the concentrated state through the same positive closed-form
 constructor after deploying its locked bucket; ordinary withdrawals cannot
 deploy or redeem that bucket.

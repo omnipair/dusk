@@ -15,16 +15,16 @@ fn token_2022_hlp_interest_books_only_actual_vault_credit() {
     let gross_interest_paid = 10_000;
     let actual_interest_credit = transfer_fee.calculate_post_fee_amount(gross_interest_paid).unwrap();
     let mut market = Market::default();
-    market.base_side.shares.ylp_supply = 4_000;
-    market.quote_side.shares.ylp_supply = 4_000;
-    market.base_hlp_vault.ylp_shares = 1_000;
+    market.base_side.shares.srlp_supply = 4_000;
+    market.quote_side.shares.srlp_supply = 4_000;
+    market.base_hlp_vault.srlp_shares = 1_000;
     market.base_hlp_vault.hlp_supply = 1_000;
-    market.quote_hlp_vault.ylp_shares = 1_000;
+    market.quote_hlp_vault.srlp_shares = 1_000;
     market.quote_hlp_vault.hlp_supply = 1_000;
     let eligibility = HlpYieldEligibility {
-        ylp_supply: 4_000,
-        base_hlp_ylp_shares: 1_000,
-        quote_hlp_ylp_shares: 1_000,
+        srlp_supply: 4_000,
+        base_hlp_srlp_shares: 1_000,
+        quote_hlp_srlp_shares: 1_000,
     };
 
     record_hlp_interest_credit(
@@ -56,18 +56,18 @@ fn token_2022_hlp_interest_books_only_actual_vault_credit() {
 #[test]
 fn inline_funding_preserves_prior_public_yield_but_excludes_both_hlps() {
     let mut market = Market::default();
-    market.base_side.shares.ylp_supply = 10_000;
-    market.quote_side.shares.ylp_supply = 10_000;
-    market.base_hlp_vault.ylp_shares = 4_000;
+    market.base_side.shares.srlp_supply = 10_000;
+    market.quote_side.shares.srlp_supply = 10_000;
+    market.base_hlp_vault.srlp_shares = 4_000;
     market.base_hlp_vault.hlp_supply = 4_000;
-    market.quote_hlp_vault.ylp_shares = 2_000;
+    market.quote_hlp_vault.srlp_shares = 2_000;
     market.quote_hlp_vault.hlp_supply = 2_000;
     market.base_hlp_vault.quote_interest_remainder_q64 = 17;
     market.quote_hlp_vault.quote_interest_remainder_q64 = 29;
     let eligibility = HlpYieldEligibility {
-        ylp_supply: 10_000,
-        base_hlp_ylp_shares: 4_000,
-        quote_hlp_ylp_shares: 2_000,
+        srlp_supply: 10_000,
+        base_hlp_srlp_shares: 4_000,
+        quote_hlp_srlp_shares: 2_000,
     };
     market
         .quote_side
@@ -83,16 +83,16 @@ fn inline_funding_preserves_prior_public_yield_but_excludes_both_hlps() {
         accrue_fee_liability_with_remainder(2_000, public_growth, 0, 29).unwrap();
     let (quote_nested_growth, quote_nested_remainder) =
         distribute_growth_q64(quote_public_whole, 2_000, 0).unwrap();
-    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
-    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
+    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base).unwrap();
+    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote).unwrap();
 
-    // Model predictive yLP ownership changes while conserving ordinary+MIN
+    // Model predictive srLP ownership changes while conserving ordinary+MIN
     // supply. The mutation boundary already checkpointed prior public yield;
     // the new hLP-funded interval credits neither old nor current balances.
-    market.base_side.shares.ylp_supply = 9_000;
-    market.quote_side.shares.ylp_supply = 9_000;
-    market.base_hlp_vault.ylp_shares = 1_000;
-    market.quote_hlp_vault.ylp_shares = 4_000;
+    market.base_side.shares.srlp_supply = 9_000;
+    market.quote_side.shares.srlp_supply = 9_000;
+    market.base_hlp_vault.srlp_shares = 1_000;
+    market.quote_hlp_vault.srlp_shares = 4_000;
     record_inline_hlp_interest_credit(
         &mut market,
         MarketAsset::Quote,
@@ -127,16 +127,16 @@ fn inline_funding_preserves_prior_public_yield_but_excludes_both_hlps() {
 #[test]
 fn public_interest_does_not_consume_hlp_funding_carry() {
     let mut market = Market::default();
-    market.base_side.shares.ylp_supply = 10_000;
-    market.quote_side.shares.ylp_supply = 10_000;
-    market.base_hlp_vault.ylp_shares = 4_000;
+    market.base_side.shares.srlp_supply = 10_000;
+    market.quote_side.shares.srlp_supply = 10_000;
+    market.base_hlp_vault.srlp_shares = 4_000;
     market.base_hlp_vault.hlp_supply = 4_000;
-    market.quote_hlp_vault.ylp_shares = 2_000;
+    market.quote_hlp_vault.srlp_shares = 2_000;
     market.quote_hlp_vault.hlp_supply = 2_000;
     let eligibility = HlpYieldEligibility {
-        ylp_supply: 10_000,
-        base_hlp_ylp_shares: 4_000,
-        quote_hlp_ylp_shares: 2_000,
+        srlp_supply: 10_000,
+        base_hlp_srlp_shares: 4_000,
+        quote_hlp_srlp_shares: 2_000,
     };
     record_inline_hlp_interest_credit(
         &mut market,
@@ -168,8 +168,8 @@ fn public_interest_does_not_consume_hlp_funding_carry() {
     );
     assert_eq!(market.quote_side.fees.interest_growth_remainder_scaled, public_carry);
 
-    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
-    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
+    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base).unwrap();
+    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote).unwrap();
     let (base_public_whole, base_outer_remainder) =
         accrue_fee_liability_with_remainder(4_000, public_growth, 0, 0).unwrap();
     let (base_nested_growth, base_nested_remainder) =
@@ -195,16 +195,16 @@ fn public_interest_does_not_consume_hlp_funding_carry() {
 #[test]
 fn min_liquidity_sinks_zero_holder_funding_and_later_deposit_starts_clean() {
     let mut market = Market::default();
-    market.base_side.shares.ylp_supply = 301_000;
-    market.quote_side.shares.ylp_supply = 301_000;
-    market.base_hlp_vault.ylp_shares = 200_000;
+    market.base_side.shares.srlp_supply = 301_000;
+    market.quote_side.shares.srlp_supply = 301_000;
+    market.base_hlp_vault.srlp_shares = 200_000;
     market.base_hlp_vault.hlp_supply = 200_000;
-    market.quote_hlp_vault.ylp_shares = 100_000;
+    market.quote_hlp_vault.srlp_shares = 100_000;
     market.quote_hlp_vault.hlp_supply = 100_000;
     let eligibility = HlpYieldEligibility {
-        ylp_supply: 301_000,
-        base_hlp_ylp_shares: 200_000,
-        quote_hlp_ylp_shares: 100_000,
+        srlp_supply: 301_000,
+        base_hlp_srlp_shares: 200_000,
+        quote_hlp_srlp_shares: 100_000,
     };
 
     record_inline_hlp_interest_credit(
@@ -232,8 +232,8 @@ fn min_liquidity_sinks_zero_holder_funding_and_later_deposit_starts_clean() {
 
     // A depositor arriving after publication initializes at this checkpoint.
     // Increasing supply cannot make the already-backed sink claimable.
-    market.base_side.shares.ylp_supply += 50_000;
-    market.quote_side.shares.ylp_supply += 50_000;
+    market.base_side.shares.srlp_supply += 50_000;
+    market.quote_side.shares.srlp_supply += 50_000;
     let post_funding_checkpoint = market.quote_side.fees.interest_growth_index_q64;
     market.quote_side.carry_forward_interest().unwrap();
     assert_eq!(market.quote_side.fees.interest_growth_index_q64, post_funding_checkpoint);
@@ -247,20 +247,20 @@ fn min_liquidity_sinks_zero_holder_funding_and_later_deposit_starts_clean() {
 #[test]
 fn last_ordinary_exit_clears_funding_carry_before_next_cohort() {
     let mut market = Market::default();
-    market.base_side.shares.ylp_supply = 4_000;
-    market.quote_side.shares.ylp_supply = 4_000;
+    market.base_side.shares.srlp_supply = 4_000;
+    market.quote_side.shares.srlp_supply = 4_000;
     market.base_side.reserves.live_reserve = 4_000;
     market.base_side.reserves.cash_reserve = 4_000;
     market.quote_side.reserves.live_reserve = 4_000;
     market.quote_side.reserves.cash_reserve = 4_000;
-    market.base_hlp_vault.ylp_shares = 1_000;
+    market.base_hlp_vault.srlp_shares = 1_000;
     market.base_hlp_vault.hlp_supply = 1_000;
-    market.quote_hlp_vault.ylp_shares = 1_000;
+    market.quote_hlp_vault.srlp_shares = 1_000;
     market.quote_hlp_vault.hlp_supply = 1_000;
     let first_eligibility = HlpYieldEligibility {
-        ylp_supply: 4_000,
-        base_hlp_ylp_shares: 1_000,
-        quote_hlp_ylp_shares: 1_000,
+        srlp_supply: 4_000,
+        base_hlp_srlp_shares: 1_000,
+        quote_hlp_srlp_shares: 1_000,
     };
     record_inline_hlp_interest_credit(
         &mut market,
@@ -277,11 +277,11 @@ fn last_ordinary_exit_clears_funding_carry_before_next_cohort() {
     // The 1_000 ordinary shares exit, leaving only MIN_LIQUIDITY outside the
     // two hLP vaults. Both source carries must end with that departing cohort.
     market.remove_liquidity(1_000).unwrap();
-    assert_eq!(market.base_side.shares.ylp_supply, 3_000);
+    assert_eq!(market.base_side.shares.srlp_supply, 3_000);
     assert_eq!(
-        market.base_side.shares.ylp_supply
-            - market.base_hlp_vault.ylp_shares
-            - market.quote_hlp_vault.ylp_shares,
+        market.base_side.shares.srlp_supply
+            - market.base_hlp_vault.srlp_shares
+            - market.quote_hlp_vault.srlp_shares,
         MIN_LIQUIDITY
     );
     assert_eq!(market.base_side.fees.hlp_funding_interest_growth_remainder_scaled, 0);
@@ -290,9 +290,9 @@ fn last_ordinary_exit_clears_funding_carry_before_next_cohort() {
     let deposit = market.add_liquidity(1_000, 1_000).unwrap();
     let next_holder_checkpoint = market.quote_side.fees.interest_growth_index_q64;
     let second_eligibility = HlpYieldEligibility {
-        ylp_supply: market.base_side.shares.ylp_supply,
-        base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-        quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+        srlp_supply: market.base_side.shares.srlp_supply,
+        base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+        quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
     };
     let (expected_next_growth, expected_next_carry) = distribute_growth_q64(137, 2_000, 0).unwrap();
     record_inline_hlp_interest_credit(
@@ -315,23 +315,23 @@ fn last_ordinary_exit_clears_funding_carry_before_next_cohort() {
     );
     assert_eq!(
         accrue_fee_liability_with_remainder(
-            deposit.ylp_amount,
+            deposit.srlp_amount,
             market.quote_side.fees.interest_growth_index_q64,
             next_holder_checkpoint,
             0,
         )
         .unwrap(),
-        accrue_fee_liability_with_remainder(deposit.ylp_amount, expected_next_growth, 0, 0).unwrap()
+        accrue_fee_liability_with_remainder(deposit.srlp_amount, expected_next_growth, 0, 0).unwrap()
     );
 }
 
 #[test]
 fn partial_direct_burn_checkpoints_old_supply_before_reconciling() {
     let mut market = Market::default();
-    market.base_side.shares.ylp_supply = 10;
-    market.quote_side.shares.ylp_supply = 10;
+    market.base_side.shares.srlp_supply = 10;
+    market.quote_side.shares.srlp_supply = 10;
     market.base_side.fees.unallocated_swap_fee_liability = 10;
-    market.base_hlp_vault.ylp_shares = 10;
+    market.base_hlp_vault.srlp_shares = 10;
     market.base_hlp_vault.hlp_supply = 10;
 
     reconcile_live_hlp_supply(&mut market, MarketAsset::Base, 5).unwrap();

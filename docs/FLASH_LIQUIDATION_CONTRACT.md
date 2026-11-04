@@ -72,7 +72,7 @@ The user selected a provisional principal component of 5% of outstanding covered
 borrower/leverage principal per debt token. The user selected full insurance
 funding from the designated allocation through 75% of target, followed by a
 linear decrease to zero at the target. The user selected existing market LP
-yield distribution for the remainder, including hLP through its yLP holdings.
+yield distribution for the remainder, including hLP through its srLP holdings.
 Markets may launch with zero insurance and optional pre-funding; no minimum
 seed or insurance-funded launch gate is required. The user selected an
 additional H/15 (approximately 6.67%) of current indexed hLP funding debt
@@ -95,7 +95,7 @@ separate. The 5% principal target and 75%-to-100% linear taper are selected for
 calibration; the additional H/15 hLP target component is also selected. Optional top-ups
 use the existing `fortify_market` instruction and actual net vault credits.
 Credit the LP remainder under existing market yield ownership and checkpoint
-rules, including hLP through its yLP holdings. Do not take a second protocol
+rules, including hLP through its srLP holdings. Do not take a second protocol
 share from the already allocated LP remainder or reapply an unrelated interest
 or swap-fee percentage. Account for liquidation revenue distinctly in receipts
 and events even if it reuses an existing yield-distribution mechanism.

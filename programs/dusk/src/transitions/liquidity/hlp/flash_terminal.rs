@@ -78,9 +78,9 @@ impl Market {
             .checked_add(loss.interest_paid - cash_interest)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         loss.interest_paid = cash_interest;
-        self.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
-        self.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
-        let initial_supply = self.base_side.shares.ylp_supply;
+        self.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;
+        self.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
+        let initial_supply = self.base_side.shares.srlp_supply;
         self.side_mut(target).reserves.flash_receivable = self
             .side(target)
             .reserves
@@ -124,13 +124,13 @@ impl Market {
             .live_reserve
             .checked_sub(payout)
             .ok_or(ErrorCode::ReserveUnderflow)?;
-        self.base_side.shares.burn(vault.ylp_shares)?;
-        self.quote_side.shares.burn(vault.ylp_shares)?;
+        self.base_side.shares.burn(vault.srlp_shares)?;
+        self.quote_side.shares.burn(vault.srlp_shares)?;
         let v = match target {
             MarketAsset::Base => &mut self.base_hlp_vault,
             MarketAsset::Quote => &mut self.quote_hlp_vault,
         };
-        v.ylp_shares = 0;
+        v.srlp_shares = 0;
         v.debt_shares = 0;
         v.debt_principal = 0;
         v.base_hlp_live_reserve = 0;
@@ -168,12 +168,12 @@ impl Market {
         };
         let target_receipt = HlpRebalanceReceipt {
             target_asset: target,
-            ylp_burn_amount: vault.ylp_shares,
+            srlp_burn_amount: vault.srlp_shares,
             debt_delta: -i128::from(debt),
             interest_paid: loss.interest_paid,
-            current_swap_fee_eligible_ylp_shares: vault.ylp_shares,
-            tracking_start_ylp_shares: vault.ylp_shares,
-            tracking_start_ylp_supply: initial_supply,
+            current_swap_fee_eligible_srlp_shares: vault.srlp_shares,
+            tracking_start_srlp_shares: vault.srlp_shares,
+            tracking_start_srlp_supply: initial_supply,
             ..HlpRebalanceReceipt::default()
         };
         if target == MarketAsset::Base {

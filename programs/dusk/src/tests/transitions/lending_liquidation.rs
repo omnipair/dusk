@@ -59,8 +59,8 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         global_health_base_contribution_for_quote_debt: 109,
         ..Debt::default()
     };
-    base_side.shares.ylp_supply = 1_000_000_000;
-    quote_side.shares.ylp_supply = 1_000_000_000;
+    base_side.shares.srlp_supply = 1_000_000_000;
+    quote_side.shares.srlp_supply = 1_000_000_000;
     let mut market = Market {
         oracle: Default::default(),
         income: Default::default(),
@@ -69,7 +69,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         tranche_policy: Default::default(),
         junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
-        ylp_mint: Pubkey::new_unique(),
+        srlp_mint: Pubkey::new_unique(),
         base_side: Box::new(base_side),
         quote_side: Box::new(quote_side),
         config: valid_config(),
@@ -81,7 +81,7 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         insurance: Insurance::default(),
         params_hash: [9; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_ylp: 0,
+        governance_locked_srlp: 0,
         governance_locked_junior: 0,
         parameter_revisions: [0; 9],
         last_marginal_observation_nad: 0,
@@ -231,9 +231,9 @@ fn market_with_cash_backed_debt(
         }
     }
 
-    let ylp_supply = debt_live.min(collateral_cash).max(1);
-    base_side.shares.ylp_supply = ylp_supply;
-    quote_side.shares.ylp_supply = ylp_supply;
+    let srlp_supply = debt_live.min(collateral_cash).max(1);
+    base_side.shares.srlp_supply = srlp_supply;
+    quote_side.shares.srlp_supply = srlp_supply;
     let mut market = Market {
         oracle: Default::default(),
         income: Default::default(),
@@ -242,7 +242,7 @@ fn market_with_cash_backed_debt(
         tranche_policy: Default::default(),
         junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
-        ylp_mint: Pubkey::new_unique(),
+        srlp_mint: Pubkey::new_unique(),
         base_side: Box::new(base_side),
         quote_side: Box::new(quote_side),
         config: valid_config(),
@@ -254,7 +254,7 @@ fn market_with_cash_backed_debt(
         insurance: Insurance::default(),
         params_hash: [7; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_ylp: 0,
+        governance_locked_srlp: 0,
         governance_locked_junior: 0,
         parameter_revisions: [0; 9],
         last_marginal_observation_nad: 0,

@@ -111,8 +111,8 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                     *market.amm = AmmState::default();
                     market.prepare_amm_for_swap(1).unwrap();
                     let start = market.integrated_curve_state_nad().unwrap();
-                    let eligible_supply = market.tranches.senior_reserve_shares(market.base_side.shares.ylp_supply).unwrap();
-                    let eligible_shares = [market.base_hlp_vault.ylp_shares, market.quote_hlp_vault.ylp_shares];
+                    let eligible_supply = market.tranches.senior_reserve_shares(market.base_side.shares.srlp_supply).unwrap();
+                    let eligible_shares = [market.base_hlp_vault.srlp_shares, market.quote_hlp_vault.srlp_shares];
                     let before_cash = (
                         market.base_side.reserves.cash_reserve,
                         market.quote_side.reserves.cash_reserve,
@@ -369,9 +369,9 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                 }
                 assert_eq!(market.unrealized_interest(asset).unwrap(), 0);
                 market.assert_market_invariants().unwrap();
-                let eligibility = HlpYieldEligibility { ylp_supply: market.base_side.shares.ylp_supply,
-                    base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-                    quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares };
+                let eligibility = HlpYieldEligibility { srlp_supply: market.base_side.shares.srlp_supply,
+                    base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+                    quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares };
                 market.settle_new_hlp_public_interest(eligibility, [crate::transitions::LeverageCollateralFee::default(); 2], 1).unwrap();
                 let prices = current_hlp_curve_prices(&market).unwrap();
                 let navs = [
@@ -588,15 +588,15 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
                 hlp_share_nav_nad_with_prices(&market, MarketAsset::Base, prices).unwrap(),
                 hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap(),
             ];
-            let ordinary_before = market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
+            let ordinary_before = market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
             let (gross, lp_credit) = market.fund_public_interest(interest_asset, u64::MAX, 2_000).unwrap();
             assert!(gross > 0 && gross <= unpaid_tokens * UNIT);
             assert_eq!(lp_credit, gross - gross / 5);
             assert_eq!(market.curve_reserves_nad().unwrap(), raw_before);
             assert_eq!(current_hlp_curve_prices(&market).unwrap(), prices);
             market.record_receivable_income_credit(interest_asset, false, lp_credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
-            market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
-            market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
+            market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base).unwrap();
+            market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote).unwrap();
             let core_before_rehedge = [
                 hlp_share_nav_nad_with_prices(&market, MarketAsset::Base, prices).unwrap(),
                 hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap(),
@@ -606,7 +606,7 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
             market.finalize_amm_transition_and_observe_risk(1).unwrap();
             market.assert_market_invariants().unwrap();
             let prices_after = current_hlp_curve_prices(&market).unwrap();
-            let ordinary_after = market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
+            let ordinary_after = market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
             assert_eq!(ordinary_before, ordinary_after);
             for target in [MarketAsset::Base, MarketAsset::Quote] {
                 let nav_after = hlp_share_nav_nad_with_prices(&market, target, prices_after).unwrap();
@@ -677,10 +677,10 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             market.sync_income_receivable(interest_asset, false, 0).unwrap();
             market.sync_income_receivable(interest_asset, true, 0).unwrap();
             // Previously funded yield is outside the spendable new interval.
-            let supply = market.base_side.shares.ylp_supply;
+            let supply = market.base_side.shares.srlp_supply;
             market.side_mut(interest_asset).record_interest_credit_with_supply(1_234 * UNIT, 0, ProtocolAuctionSplit::default(), 0, supply).unwrap();
-            market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
-            market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
+            market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base).unwrap();
+            market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote).unwrap();
             let protected = [market.hlp_yield_growth_indexes(MarketAsset::Base, interest_asset).1,
                 market.hlp_yield_growth_indexes(MarketAsset::Quote, interest_asset).1];
             let prices = current_hlp_curve_prices(&market).unwrap();
@@ -689,11 +689,11 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                 hlp_share_nav_nad_with_prices(&market, MarketAsset::Base, prices).unwrap(),
                 hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap(),
             ];
-            let ordinary_before = market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
+            let ordinary_before = market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
             let frozen_market = market.clone();
             let ordinary_value = |m: &Market| {
                 [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|asset| {
-                    let claim = ylp_live_underlying_amount_from_values(m.curve_reserve(asset).unwrap(), m.base_side.shares.ylp_supply, ordinary_before).unwrap();
+                    let claim = srlp_live_underlying_amount_from_values(m.curve_reserve(asset).unwrap(), m.base_side.shares.srlp_supply, ordinary_before).unwrap();
                     asset_value_in_target_nad_with_prices(m, prices, asset, claim, MarketAsset::Quote).unwrap()
                 }).sum::<u128>()
             };
@@ -705,15 +705,15 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             assert_eq!(market.curve_reserves_nad().unwrap(), raw_before);
             assert_eq!(current_hlp_curve_prices(&market).unwrap(), prices);
             market.record_receivable_income_credit(interest_asset, false, lp_credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
-            let eligibility = HlpYieldEligibility { ylp_supply: supply,
-                base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-                quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares };
+            let eligibility = HlpYieldEligibility { srlp_supply: supply,
+                base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+                quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares };
             let receipt = market.settle_new_hlp_public_interest(eligibility,
                 [fee; 2], 1)
                 .unwrap_or_else(|e| panic!("amp={amplification} asset={interest_asset:?} unpaid={unpaid_tokens}: {e}"));
             assert!(receipt.published.iter().flatten().sum::<u64>() <= lp_credit);
             market.assert_market_invariants().unwrap();
-            let ordinary_after = market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares;
+            let ordinary_after = market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
             assert_eq!(ordinary_before, ordinary_after);
 
             assert!(ordinary_value(&market).abs_diff(ordinary_nav_before) < 100_000,
@@ -747,7 +747,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
 }
 
 #[test]
-fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_ylp() {
+fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_srlp() {
     const UNIT: u64 = 1_000_000;
     for target in [MarketAsset::Base, MarketAsset::Quote] {
         for income_asset in [MarketAsset::Base, MarketAsset::Quote] {
@@ -770,12 +770,12 @@ fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_ylp() {
                 market.freeze_negative_hlp_vaults().unwrap();
                 assert!(market.hlp_frozen(target));
                 assert!(!market.hlp_frozen(target.opposite()));
-                market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
-                market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
+                market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base).unwrap();
+                market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote).unwrap();
                 let eligibility = HlpYieldEligibility {
-                    ylp_supply: market.base_side.shares.ylp_supply,
-                    base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-                    quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+                    srlp_supply: market.base_side.shares.srlp_supply,
+                    base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+                    quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
                 };
                 let frozen_before = if target == MarketAsset::Base {
                     market.base_hlp_vault
@@ -805,19 +805,19 @@ fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_ylp() {
                 assert_eq!(receipt.reserve_debit[t], [0, 0]);
                 assert_eq!(receipt.reserve_credit[t], [0, 0]);
                 let expected = mul_div_u128(
-                    u128::from(funded_credit / 2), u128::from(frozen_before.ylp_shares), u128::from(market.tranches.senior_reserve_shares(eligibility.ylp_supply).unwrap()),
+                    u128::from(funded_credit / 2), u128::from(frozen_before.srlp_shares), u128::from(market.tranches.senior_reserve_shares(eligibility.srlp_supply).unwrap()),
                 ).unwrap() as u64;
                 assert!(receipt.published[t][i] > 0);
                 assert!(receipt.published[t][i].abs_diff(expected) <= 1);
                 assert!(receipt.published.iter().flatten().sum::<u64>() <= funded_credit);
-                assert_eq!(frozen_after.ylp_shares, frozen_before.ylp_shares);
+                assert_eq!(frozen_after.srlp_shares, frozen_before.srlp_shares);
                 assert_eq!(frozen_after.debt_shares, frozen_before.debt_shares);
                 assert_eq!(frozen_after.debt_principal, frozen_before.debt_principal);
-                let minted = receipt.base_rebalance.ylp_mint_amount + receipt.quote_rebalance.ylp_mint_amount;
-                let burned = receipt.base_rebalance.ylp_burn_amount + receipt.quote_rebalance.ylp_burn_amount;
-                assert_eq!(market.base_side.shares.ylp_supply, eligibility.ylp_supply + minted - burned);
-                assert_eq!(market.base_side.shares.ylp_supply - market.base_hlp_vault.ylp_shares - market.quote_hlp_vault.ylp_shares,
-                    eligibility.non_hlp_ylp_supply().unwrap());
+                let minted = receipt.base_rebalance.srlp_mint_amount + receipt.quote_rebalance.srlp_mint_amount;
+                let burned = receipt.base_rebalance.srlp_burn_amount + receipt.quote_rebalance.srlp_burn_amount;
+                assert_eq!(market.base_side.shares.srlp_supply, eligibility.srlp_supply + minted - burned);
+                assert_eq!(market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares,
+                    eligibility.non_hlp_srlp_supply().unwrap());
                 if !with_active_cohort {
                     assert_eq!(reserves(&market), reserves_before);
                     assert_eq!(market.current_concentrated_spot_price_nad().unwrap(), price_before);
@@ -917,9 +917,9 @@ fn tranche_hlp_exit_buys_only_departing_coupons_and_does_not_gift_next_depositor
             market.side_mut(asset).reserves.live_reserve += 10_000 * UNIT;
             market.sync_income_receivable(asset, false, 0).unwrap();
             market.prepare_amm_for_swap(1).unwrap();
-            let static_units = market.base_side.shares.ylp_supply - if target == MarketAsset::Base { market.base_hlp_vault.ylp_shares } else { market.quote_hlp_vault.ylp_shares };
+            let static_units = market.base_side.shares.srlp_supply - if target == MarketAsset::Base { market.base_hlp_vault.srlp_shares } else { market.quote_hlp_vault.srlp_shares };
             let ordinary_value = |m: &Market, prices: HlpCurvePrices| [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|a| {
-                let amount = ylp_live_underlying_amount_from_values(m.curve_reserve(a).unwrap(), m.base_side.shares.ylp_supply, static_units).unwrap();
+                let amount = srlp_live_underlying_amount_from_values(m.curve_reserve(a).unwrap(), m.base_side.shares.srlp_supply, static_units).unwrap();
                 asset_value_in_target_nad_with_prices(m, prices, a, amount, MarketAsset::Quote).unwrap()
             }).sum::<u128>();
             let initial_unpaid = market.hlp_unpaid_income(target, asset).unwrap();
@@ -945,9 +945,9 @@ fn tranche_hlp_exit_buys_only_departing_coupons_and_does_not_gift_next_depositor
             let (_, credit) = market.fund_public_interest(asset, u64::MAX, 0).unwrap();
             assert_eq!(credit, 10_000 * UNIT - advanced);
             market.record_receivable_income_credit(asset, false, credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
-            let eligibility = HlpYieldEligibility { ylp_supply: market.base_side.shares.ylp_supply,
-                base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-                quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares };
+            let eligibility = HlpYieldEligibility { srlp_supply: market.base_side.shares.srlp_supply,
+                base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+                quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares };
             let settled = market.settle_new_hlp_public_interest(eligibility, [crate::transitions::LeverageCollateralFee::default(); 2], 1).unwrap();
             assert_eq!(settled.published[target.code() as usize], [0, 0]);
             assert_eq!(settled.reserve_credit[target.code() as usize], [0, 0]);
@@ -1038,7 +1038,7 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
             for (target, frozen, before) in [(MarketAsset::Base,frozen_mask&1!=0,base_frozen),(MarketAsset::Quote,frozen_mask&2!=0,quote_frozen)] {
                 if frozen {
                     let after=if target == MarketAsset::Base {market.base_hlp_vault} else {market.quote_hlp_vault};
-                    assert_eq!(after.ylp_shares,before.ylp_shares);
+                    assert_eq!(after.srlp_shares,before.srlp_shares);
                     assert_eq!(after.debt_shares,before.debt_shares);
                     assert_eq!(after.debt_principal,before.debt_principal);
                     assert_eq!(after.base_hlp_live_reserve,before.base_hlp_live_reserve);

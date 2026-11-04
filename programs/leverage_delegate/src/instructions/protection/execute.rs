@@ -22,8 +22,8 @@ pub struct ExecuteProtectionOrder<'info> {
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut, address = order.lp_mint)]
     pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
-    #[account(mut, address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(mut, address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
     pub base_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
@@ -36,7 +36,7 @@ pub struct ExecuteProtectionOrder<'info> {
     #[account(mut)]
     pub borrowed_interest_vault: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
     #[account(mut)]
-    pub hlp_ylp_account: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
+    pub hlp_srlp_account: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
     #[account(mut, address = order.custody_lp_account,
         constraint = custody_lp_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,
         constraint = custody_lp_account.mint == lp_mint.key() @ LeverageDelegateError::InvalidTokenAccount)]
@@ -290,7 +290,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
         a.custody_base_account.reload()?;
         a.custody_quote_account.reload()?;
 
-        // All unused proceeds, including the other yLP asset, belong to the sponsor.
+        // All unused proceeds, including the other srLP asset, belong to the sponsor.
         for (mint, custody, recipient) in [
             (&a.base_mint, &a.custody_base_account, &a.owner_base_account),
             (

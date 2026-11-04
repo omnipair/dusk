@@ -56,11 +56,11 @@ impl BenchmarkMarket {
         let finalized = finalized.ok_or(ErrorCode::BrokenInvariant)?;
         // The atomic settlement changes ownership before the public loss.
         // Its final observation changes the cache, not ownership; these are
-        // therefore the yLP weights at the loss event.
-        let pre_loss_supply = next.base_side.shares.ylp_supply;
+        // therefore the srLP weights at the loss event.
+        let pre_loss_supply = next.base_side.shares.srlp_supply;
         let pre_loss_hlp_shares = [
-            next.base_hlp_vault.ylp_shares,
-            next.quote_hlp_vault.ylp_shares,
+            next.base_hlp_vault.srlp_shares,
+            next.quote_hlp_vault.srlp_shares,
         ];
         let mut cash = BenchmarkCashFlow::default();
         let transfer = |amount| BenchmarkTokenTransferOutcome {
@@ -147,7 +147,7 @@ impl BenchmarkMarket {
     /// harvesting or changing the live scenario. Whole raw atoms only.
     pub fn stress_hlp_yield(&self, external: &BenchmarkHlpOwnedState) -> Result<[u64; 2]> {
         let mut next = clone_market(&self.market)?;
-        next.checkpoint_hlp_yield_from_ylp(external.target_asset)?;
+        next.checkpoint_hlp_yield_from_srlp(external.target_asset)?;
         let mut ext = external.try_fork()?;
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             let (swap, interest) = next.hlp_yield_growth_indexes(external.target_asset, asset);
@@ -208,12 +208,12 @@ impl BenchmarkMarket {
     }
     pub fn stress_opposite_gaps(&self) -> Result<[i128; 2]> {
         let m = &self.market;
-        let supply = m.base_side.shares.ylp_supply as u128;
+        let supply = m.base_side.shares.srlp_supply as u128;
         let base = m.curve_reserve(MarketAsset::Quote)? as u128
-            * m.base_hlp_vault.ylp_shares as u128
+            * m.base_hlp_vault.srlp_shares as u128
             / supply;
         let quote = m.curve_reserve(MarketAsset::Base)? as u128
-            * m.quote_hlp_vault.ylp_shares as u128
+            * m.quote_hlp_vault.srlp_shares as u128
             / supply;
         Ok([
             base as i128

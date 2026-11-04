@@ -143,9 +143,9 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         cash_reserve: quote_cash,
         ..Reserves::default()
     };
-    let ylp_supply = base_cash.min(quote_cash).max(1);
-    base_side.shares.ylp_supply = ylp_supply;
-    quote_side.shares.ylp_supply = ylp_supply;
+    let srlp_supply = base_cash.min(quote_cash).max(1);
+    base_side.shares.srlp_supply = srlp_supply;
+    quote_side.shares.srlp_supply = srlp_supply;
     let mut market = Market {
         oracle: Default::default(),
         income: Default::default(),
@@ -154,7 +154,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         tranche_policy: Default::default(),
         junior_mint: Pubkey::default(),
         version: MARKET_LAYOUT_VERSION,
-        ylp_mint: Pubkey::new_unique(),
+        srlp_mint: Pubkey::new_unique(),
         base_side: Box::new(base_side),
         quote_side: Box::new(quote_side),
         config: valid_config(),
@@ -172,7 +172,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         insurance: Insurance::default(),
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_ylp: 0,
+        governance_locked_srlp: 0,
         governance_locked_junior: 0,
         parameter_revisions: [0; 9],
         last_marginal_observation_nad: 0,
@@ -1208,8 +1208,8 @@ proptest! {
 fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
     let mut market = invariant_market(900, 1_000);
     market.base_side.reserves.live_reserve = 1_010;
-    market.base_side.shares.ylp_supply = 1_010;
-    market.quote_side.shares.ylp_supply = 1_010;
+    market.base_side.shares.srlp_supply = 1_010;
+    market.quote_side.shares.srlp_supply = 1_010;
     *market.amm = AmmState::default();
     market.prepare_amm_for_swap(0).unwrap();
     market.debt.base_borrow_index_nad = (NAD as u128) * 11 / 10;

@@ -288,7 +288,7 @@
           "name": "quote_mint"
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
@@ -308,7 +308,7 @@
           "writable": true
         },
         {
-          "name": "owner_ylp_account",
+          "name": "owner_srlp_account",
           "writable": true
         },
         {
@@ -1639,11 +1639,11 @@
           "writable": true
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
-          "name": "target_hlp_ylp_vault",
+          "name": "target_hlp_srlp_vault",
           "writable": true
         },
         {
@@ -2492,12 +2492,12 @@
           }
         },
         {
-          "name": "ylp_mint"
+          "name": "srlp_mint"
         },
         {
-          "name": "base_hlp_ylp_vault",
+          "name": "base_hlp_srlp_vault",
           "docs": [
-            "Token-2022 yLP vault by the handler; an existing vault is fully parsed",
+            "Token-2022 srLP vault by the handler; an existing vault is fully parsed",
             "and validated before proposal state changes."
           ],
           "writable": true,
@@ -2532,15 +2532,15 @@
               },
               {
                 "kind": "account",
-                "path": "ylp_mint"
+                "path": "srlp_mint"
               }
             ]
           }
         },
         {
-          "name": "quote_hlp_ylp_vault",
+          "name": "quote_hlp_srlp_vault",
           "docs": [
-            "hLP yLP vault above."
+            "hLP srLP vault above."
           ],
           "writable": true,
           "pda": {
@@ -2574,7 +2574,7 @@
               },
               {
                 "kind": "account",
-                "path": "ylp_mint"
+                "path": "srlp_mint"
               }
             ]
           }
@@ -2938,13 +2938,13 @@
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "ylp_mint"
+          "name": "srlp_mint"
         },
         {
-          "name": "base_hlp_ylp_vault"
+          "name": "base_hlp_srlp_vault"
         },
         {
-          "name": "quote_hlp_ylp_vault"
+          "name": "quote_hlp_srlp_vault"
         },
         {
           "name": "removal_ballot",
@@ -3229,11 +3229,11 @@
           }
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
-          "name": "proposer_ylp_account",
+          "name": "proposer_srlp_account",
           "writable": true
         },
         {
@@ -3245,9 +3245,9 @@
           "writable": true
         },
         {
-          "name": "base_hlp_ylp_vault",
+          "name": "base_hlp_srlp_vault",
           "docs": [
-            "Token-2022 yLP vault by the handler; an existing vault is fully parsed",
+            "Token-2022 srLP vault by the handler; an existing vault is fully parsed",
             "and validated before proposal state changes."
           ],
           "writable": true,
@@ -3282,15 +3282,15 @@
               },
               {
                 "kind": "account",
-                "path": "ylp_mint"
+                "path": "srlp_mint"
               }
             ]
           }
         },
         {
-          "name": "quote_hlp_ylp_vault",
+          "name": "quote_hlp_srlp_vault",
           "docs": [
-            "hLP yLP vault above."
+            "hLP srLP vault above."
           ],
           "writable": true,
           "pda": {
@@ -3324,7 +3324,7 @@
               },
               {
                 "kind": "account",
-                "path": "ylp_mint"
+                "path": "srlp_mint"
               }
             ]
           }
@@ -4017,7 +4017,7 @@
           "name": "quote_mint"
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
@@ -4041,7 +4041,7 @@
           "writable": true
         },
         {
-          "name": "hlp_ylp_account",
+          "name": "hlp_srlp_account",
           "docs": [
             "authority are all validated before any market mutation. A System-owned",
             "empty PDA is initialized inline by the deposit handler."
@@ -4581,13 +4581,13 @@
           "writable": true
         },
         {
-          "name": "ylp_mint"
+          "name": "srlp_mint"
         },
         {
-          "name": "base_hlp_ylp_vault"
+          "name": "base_hlp_srlp_vault"
         },
         {
-          "name": "quote_hlp_ylp_vault"
+          "name": "quote_hlp_srlp_vault"
         },
         {
           "name": "removal_ballot",
@@ -5867,7 +5867,7 @@
           "name": "quote_mint"
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
@@ -5879,7 +5879,7 @@
           "writable": true
         },
         {
-          "name": "ylp_token_metadata",
+          "name": "srlp_token_metadata",
           "writable": true,
           "pda": {
             "seeds": [
@@ -5935,7 +5935,7 @@
               },
               {
                 "kind": "account",
-                "path": "ylp_mint"
+                "path": "srlp_mint"
               }
             ],
             "program": {
@@ -7182,7 +7182,7 @@
       "name": "open_liquidity_gates",
       "docs": [
         "Permissionless launch adapters use the same fully-backed seeding path",
-        "as ordinary yLP deposits. The initializer is the one-shot authority;",
+        "as ordinary srLP deposits. The initializer is the one-shot authority;",
         "after this succeeds, subsequent liquidity is permissionless."
       ],
       "discriminator": [
@@ -7242,7 +7242,7 @@
           "name": "quote_mint"
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
@@ -7262,7 +7262,7 @@
           "writable": true
         },
         {
-          "name": "owner_ylp_account",
+          "name": "owner_srlp_account",
           "writable": true
         },
         {
@@ -8641,13 +8641,13 @@
           "writable": true
         },
         {
-          "name": "ylp_mint"
+          "name": "srlp_mint"
         },
         {
-          "name": "base_hlp_ylp_vault"
+          "name": "base_hlp_srlp_vault"
         },
         {
-          "name": "quote_hlp_ylp_vault"
+          "name": "quote_hlp_srlp_vault"
         },
         {
           "name": "event_authority",
@@ -8782,13 +8782,13 @@
           "optional": true
         },
         {
-          "name": "ylp_mint"
+          "name": "srlp_mint"
         },
         {
-          "name": "base_hlp_ylp_vault"
+          "name": "base_hlp_srlp_vault"
         },
         {
-          "name": "quote_hlp_ylp_vault"
+          "name": "quote_hlp_srlp_vault"
         },
         {
           "name": "event_authority",
@@ -8999,7 +8999,7 @@
           "name": "quote_mint"
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
@@ -9019,7 +9019,7 @@
           "writable": true
         },
         {
-          "name": "owner_ylp_account",
+          "name": "owner_srlp_account",
           "writable": true
         },
         {
@@ -11089,13 +11089,13 @@
           "writable": true
         },
         {
-          "name": "ylp_mint"
+          "name": "srlp_mint"
         },
         {
-          "name": "base_hlp_ylp_vault"
+          "name": "base_hlp_srlp_vault"
         },
         {
-          "name": "quote_hlp_ylp_vault"
+          "name": "quote_hlp_srlp_vault"
         },
         {
           "name": "system_program",
@@ -11277,11 +11277,11 @@
           }
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
-          "name": "supporter_ylp_account",
+          "name": "supporter_srlp_account",
           "writable": true
         },
         {
@@ -11293,10 +11293,10 @@
           "writable": true
         },
         {
-          "name": "base_hlp_ylp_vault"
+          "name": "base_hlp_srlp_vault"
         },
         {
-          "name": "quote_hlp_ylp_vault"
+          "name": "quote_hlp_srlp_vault"
         },
         {
           "name": "token_2022_program",
@@ -12386,13 +12386,13 @@
           }
         },
         {
-          "name": "ylp_mint"
+          "name": "srlp_mint"
         },
         {
-          "name": "base_hlp_ylp_vault"
+          "name": "base_hlp_srlp_vault"
         },
         {
-          "name": "quote_hlp_ylp_vault"
+          "name": "quote_hlp_srlp_vault"
         },
         {
           "name": "system_program",
@@ -13117,11 +13117,11 @@
           }
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
-          "name": "supporter_ylp_account",
+          "name": "supporter_srlp_account",
           "writable": true
         },
         {
@@ -13421,7 +13421,7 @@
           "name": "quote_mint"
         },
         {
-          "name": "ylp_mint",
+          "name": "srlp_mint",
           "writable": true
         },
         {
@@ -13449,7 +13449,7 @@
           "writable": true
         },
         {
-          "name": "hlp_ylp_account",
+          "name": "hlp_srlp_account",
           "writable": true,
           "pda": {
             "seeds": [
@@ -13481,7 +13481,7 @@
               },
               {
                 "kind": "account",
-                "path": "ylp_mint"
+                "path": "srlp_mint"
               }
             ]
           }
@@ -14740,7 +14740,7 @@
     {
       "code": 6016,
       "name": "ProposalSupportInsufficient",
-      "msg": "Proposal does not have a strict majority of eligible yLP"
+      "msg": "Proposal does not have a strict majority of eligible srLP"
     },
     {
       "code": 6017,
@@ -15484,7 +15484,7 @@
             "type": "u64"
           },
           {
-            "name": "min_ylp_amount",
+            "name": "min_srlp_amount",
             "type": "u64"
           }
         ]
@@ -15544,11 +15544,11 @@
             "type": "u64"
           },
           {
-            "name": "ylp_amount",
+            "name": "srlp_amount",
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "srlp_supply",
             "type": "u64"
           }
         ]
@@ -15772,7 +15772,7 @@
           {
             "name": "protected_floor_per_share_nad",
             "docs": [
-              "yLP principal floor protected from funded recenter/ramp impairment."
+              "srLP principal floor protected from funded recenter/ramp impairment."
             ],
             "type": "u128"
           },
@@ -15804,7 +15804,7 @@
             "docs": [
               "When true, dynamic surcharge is locked in the non-quoteable protected",
               "recenter bucket; when false, the identical trader charge is routed to",
-              "claimable yLP fee accounting."
+              "claimable srLP fee accounting."
             ],
             "type": "bool"
           },
@@ -17712,7 +17712,7 @@
             "name": "hlp_funding_interest_growth_remainder_scaled",
             "docs": [
               "Source-scoped Q64 carry for interest paid by hLP funding debt. Funding",
-              "uses a non-hLP denominator, while public interest uses total yLP",
+              "uses a non-hLP denominator, while public interest uses total srLP",
               "supply; sharing one carry across those denominators would eventually",
               "leak rounding entitlement between the two populations."
             ],
@@ -18248,7 +18248,7 @@
     {
       "name": "GovernanceBalance",
       "docs": [
-        "Owner-held virtual yLP. Both idle and committed shares accrue yield here."
+        "Owner-held virtual srLP. Both idle and committed shares accrue yield here."
       ],
       "type": {
         "kind": "struct",
@@ -18373,7 +18373,7 @@
           {
             "name": "token_kind",
             "docs": [
-              "0 senior yLP, 1 current-generation junior LP."
+              "0 senior srLP, 1 current-generation junior LP."
             ],
             "type": "u8"
           },
@@ -18643,7 +18643,7 @@
             "type": "u64"
           },
           {
-            "name": "ylp_amount",
+            "name": "srlp_amount",
             "type": "u64"
           },
           {
@@ -18662,7 +18662,7 @@
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "srlp_supply",
             "type": "u64"
           },
           {
@@ -18868,9 +18868,9 @@
           {
             "name": "borrowed_claim",
             "docs": [
-              "Borrowed-token yLP claim frozen when the quote is created. A full",
+              "Borrowed-token srLP claim frozen when the quote is created. A full",
               "terminal session uses this value even if an interleaved Dusk swap moves",
-              "the live pro-rata yLP reserve ratio before settlement."
+              "the live pro-rata srLP reserve ratio before settlement."
             ],
             "type": "u64"
           },
@@ -18975,24 +18975,24 @@
             }
           },
           {
-            "name": "base_hlp_ylp_minted",
+            "name": "base_hlp_srlp_minted",
             "docs": [
-              "Internal yLP changes made by this flash recovery. They are not user",
+              "Internal srLP changes made by this flash recovery. They are not user",
               "liquidity deposits or exits and are included here to avoid a second",
               "event CPI on the compute-constrained atomic settlement path."
             ],
             "type": "u64"
           },
           {
-            "name": "base_hlp_ylp_burned",
+            "name": "base_hlp_srlp_burned",
             "type": "u64"
           },
           {
-            "name": "quote_hlp_ylp_minted",
+            "name": "quote_hlp_srlp_minted",
             "type": "u64"
           },
           {
-            "name": "quote_hlp_ylp_burned",
+            "name": "quote_hlp_srlp_burned",
             "type": "u64"
           },
           {
@@ -19140,7 +19140,7 @@
             "type": "u64"
           },
           {
-            "name": "ylp_amount",
+            "name": "srlp_amount",
             "type": "u64"
           },
           {
@@ -19148,7 +19148,7 @@
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "srlp_supply",
             "type": "u64"
           },
           {
@@ -19185,8 +19185,8 @@
     {
       "name": "HlpRebalanced",
       "docs": [
-        "Internal vault-owned yLP changes from one completed hLP hedge transition.",
-        "Ordinary yLP deposits and exits continue to use `LiquidityAdded` and",
+        "Internal vault-owned srLP changes from one completed hLP hedge transition.",
+        "Ordinary srLP deposits and exits continue to use `LiquidityAdded` and",
         "`LiquidityRemoved`. This event includes both vaults because one operation",
         "can burn shares in one vault and mint them in the other. Debt changes are",
         "indexed-debt changes; funding interest is also reported by the canonical",
@@ -19204,31 +19204,31 @@
             "type": "u64"
           },
           {
-            "name": "base_hlp_ylp_minted",
+            "name": "base_hlp_srlp_minted",
             "type": "u64"
           },
           {
-            "name": "base_hlp_ylp_burned",
+            "name": "base_hlp_srlp_burned",
             "type": "u64"
           },
           {
-            "name": "quote_hlp_ylp_minted",
+            "name": "quote_hlp_srlp_minted",
             "type": "u64"
           },
           {
-            "name": "quote_hlp_ylp_burned",
+            "name": "quote_hlp_srlp_burned",
             "type": "u64"
           },
           {
-            "name": "base_hlp_ylp_shares_after",
+            "name": "base_hlp_srlp_shares_after",
             "type": "u64"
           },
           {
-            "name": "quote_hlp_ylp_shares_after",
+            "name": "quote_hlp_srlp_shares_after",
             "type": "u64"
           },
           {
-            "name": "ylp_supply_after",
+            "name": "srlp_supply_after",
             "type": "u64"
           },
           {
@@ -19328,13 +19328,13 @@
             "type": "u64"
           },
           {
-            "name": "ylp_burned",
+            "name": "srlp_burned",
             "type": "u64"
           },
           {
             "name": "interest_paid",
             "docs": [
-              "Borrowed-asset funding interest credited to yLP after caller bounty and",
+              "Borrowed-asset funding interest credited to srLP after caller bounty and",
               "transfer fees."
             ],
             "type": "u64"
@@ -19386,11 +19386,11 @@
             "type": "u64"
           },
           {
-            "name": "ylp_vault",
+            "name": "srlp_vault",
             "type": "pubkey"
           },
           {
-            "name": "ylp_shares",
+            "name": "srlp_shares",
             "type": "u64"
           },
           {
@@ -19464,9 +19464,9 @@
           {
             "name": "base_swap_fee_remainder_q64",
             "docs": [
-              "Aggregate sub-atom yLP entitlement carried across hLP checkpoints.",
+              "Aggregate sub-atom srLP entitlement carried across hLP checkpoints.",
               "These are distinct from each holder YieldAccount remainder: this layer",
-              "converts vault-owned yLP growth into hLP growth without double-flooring."
+              "converts vault-owned srLP growth into hLP growth without double-flooring."
             ],
             "type": "u64"
           },
@@ -19485,7 +19485,7 @@
           {
             "name": "base_swap_fee_growth_remainder_scaled",
             "docs": [
-              "Sub-index distribution carry for the second, yLP-to-hLP allocation",
+              "Sub-index distribution carry for the second, srLP-to-hLP allocation",
               "layer. Whole-token backing represented here has already left the",
               "corresponding `unallocated_*` bucket."
             ],
@@ -19879,7 +19879,7 @@
             "type": "u16"
           },
           {
-            "name": "ylp_metadata",
+            "name": "srlp_metadata",
             "docs": [
               "Metadata for the three LP mints, created atomically with the market."
             ],
@@ -21317,11 +21317,11 @@
             "type": "u64"
           },
           {
-            "name": "ylp_amount",
+            "name": "srlp_amount",
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "srlp_supply",
             "type": "u64"
           },
           {
@@ -21357,7 +21357,7 @@
             "type": "pubkey"
           },
           {
-            "name": "ylp_amount",
+            "name": "srlp_amount",
             "type": "u64"
           },
           {
@@ -21383,7 +21383,7 @@
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "srlp_supply",
             "type": "u64"
           },
           {
@@ -21426,7 +21426,7 @@
           {
             "name": "token_kind",
             "docs": [
-              "`0` for yLP and `1` for hLP."
+              "`0` for srLP and `1` for hLP."
             ],
             "type": "u8"
           },
@@ -21491,7 +21491,7 @@
             "type": "u8"
           },
           {
-            "name": "ylp_mint",
+            "name": "srlp_mint",
             "type": "pubkey"
           },
           {
@@ -21618,15 +21618,15 @@
             "name": "initial_liquidity_authority",
             "docs": [
               "One-shot signer allowed to provide the first fully-backed Base/Quote",
-              "seed. It is cleared permanently once yLP supply becomes nonzero."
+              "seed. It is cleared permanently once srLP supply becomes nonzero."
             ],
             "type": "pubkey"
           },
           {
-            "name": "governance_locked_ylp",
+            "name": "governance_locked_srlp",
             "docs": [
-              "External yLP burned into direct support or reusable governance balances. This is added back",
-              "when computing direct-yLP eligibility; internal reserve-share supply is",
+              "External srLP burned into direct support or reusable governance balances. This is added back",
+              "when computing direct-srLP eligibility; internal reserve-share supply is",
               "intentionally unchanged by governance locking."
             ],
             "type": "u64"
@@ -21938,7 +21938,7 @@
             "type": "pubkey"
           },
           {
-            "name": "ylp_mint",
+            "name": "srlp_mint",
             "type": "pubkey"
           },
           {
@@ -22631,14 +22631,14 @@
           {
             "name": "swap_fee_growth_index_q64",
             "docs": [
-              "Per-yLP-share swap-fee growth, scaled by 2^64."
+              "Per-srLP-share swap-fee growth, scaled by 2^64."
             ],
             "type": "u128"
           },
           {
             "name": "interest_growth_index_q64",
             "docs": [
-              "Per-yLP-share interest growth, scaled by 2^64."
+              "Per-srLP-share interest growth, scaled by 2^64."
             ],
             "type": "u128"
           }
@@ -23067,7 +23067,7 @@
           {
             "name": "total_locked",
             "docs": [
-              "Senior voting units are one-for-one yLP reserve shares."
+              "Senior voting units are one-for-one srLP reserve shares."
             ],
             "type": "u64"
           },
@@ -23082,12 +23082,12 @@
           {
             "name": "queued_support",
             "docs": [
-              "Immutable queue-time numerator and direct-yLP denominator."
+              "Immutable queue-time numerator and direct-srLP denominator."
             ],
             "type": "u64"
           },
           {
-            "name": "queued_eligible_ylp",
+            "name": "queued_eligible_srlp",
             "type": "u64"
           },
           {
@@ -23847,11 +23847,11 @@
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "srlp_supply",
             "type": "u64"
           },
           {
-            "name": "ylp_exchange_rate_nad",
+            "name": "srlp_exchange_rate_nad",
             "type": "u128"
           },
           {
@@ -24574,6 +24574,13 @@
             "type": "bool"
           },
           {
+            "name": "passed_slot",
+            "docs": [
+              "A successful ballot releases voting locks only after this slot."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "bump",
             "type": "u8"
           }
@@ -24624,6 +24631,10 @@
           {
             "name": "passed",
             "type": "bool"
+          },
+          {
+            "name": "passed_slot",
+            "type": "u64"
           }
         ]
       }
@@ -25019,7 +25030,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "ylp_amount",
+            "name": "srlp_amount",
             "type": "u64"
           },
           {
@@ -25051,7 +25062,7 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "ylp_supply",
+            "name": "srlp_supply",
             "type": "u64"
           }
         ]
@@ -25101,7 +25112,7 @@
             "docs": [
               "Physical reserve-vault atoms retained from toxicity surcharge for a",
               "future protected recenter. They are custody-backed but excluded from",
-              "executable cash/live reserves, yLP NAV, and every withdrawal claim."
+              "executable cash/live reserves, srLP NAV, and every withdrawal claim."
             ],
             "type": "u64"
           }
@@ -25607,7 +25618,7 @@
           {
             "name": "retained_fee",
             "docs": [
-              "Dynamic surcharge retained outside executable/yLP inventory until an",
+              "Dynamic surcharge retained outside executable/srLP inventory until an",
               "admitted center move deploys it."
             ],
             "type": "u64"
@@ -25658,9 +25669,9 @@
             "type": "u64"
           },
           {
-            "name": "ylp_supply",
+            "name": "srlp_supply",
             "docs": [
-              "Internal yLP share supply after the swap."
+              "Internal srLP share supply after the swap."
             ],
             "type": "u64"
           },
@@ -25674,7 +25685,7 @@
           {
             "name": "base",
             "docs": [
-              "Each side's price, price EMA, and yLP growth indexes after the swap."
+              "Each side's price, price EMA, and srLP growth indexes after the swap."
             ],
             "type": {
               "defined": {
@@ -26470,7 +26481,7 @@
     {
       "name": "VirtualYieldLedger",
       "docs": [
-        "A yield ledger for yLP burned into one support position. Its checkpoints",
+        "A yield ledger for srLP burned into one support position. Its checkpoints",
         "isolate each proposal lock while the user's ordinary YieldAccounts continue",
         "to follow only the live balance in their Token-2022 ATA."
       ],
@@ -26618,7 +26629,7 @@
             "name": "lp_mint",
             "docs": [
               "LP mint whose balance earns this account's revenue stream. This keeps",
-              "base-hLP, quote-hLP, and yLP entitlements in disjoint PDA namespaces."
+              "base-hLP, quote-hLP, and srLP entitlements in disjoint PDA namespaces."
             ],
             "type": "pubkey"
           },
@@ -26807,7 +26818,7 @@
         "kind": "enum",
         "variants": [
           {
-            "name": "Ylp"
+            "name": "Srlp"
           },
           {
             "name": "Hlp"
@@ -26855,6 +26866,11 @@
       "value": "[102, 117, 116, 97, 114, 99, 104, 121, 95, 97, 117, 116, 104, 111, 114, 105, 116, 121]"
     },
     {
+      "name": "HLP_SRLP_VAULT_SEED_PREFIX",
+      "type": "bytes",
+      "value": "[104, 108, 112, 95, 121, 108, 112, 95, 118, 97, 117, 108, 116]"
+    },
+    {
       "name": "HLP_TERMINAL_CALLER_BPS",
       "docs": [
         "Caller reward for closing a terminal hLP vault, paid from recovered funding",
@@ -26862,11 +26878,6 @@
       ],
       "type": "u16",
       "value": "50"
-    },
-    {
-      "name": "HLP_YLP_VAULT_SEED_PREFIX",
-      "type": "bytes",
-      "value": "[104, 108, 112, 95, 121, 108, 112, 95, 118, 97, 117, 108, 116]"
     },
     {
       "name": "INSURANCE_SEED_PREFIX",
@@ -27113,7 +27124,7 @@
     {
       "name": "PARAMETER_PROPOSAL_SPONSOR_BPS",
       "docs": [
-        "Direct-yLP parameter governance thresholds and wall-clock lifecycle."
+        "Direct-srLP parameter governance thresholds and wall-clock lifecycle."
       ],
       "type": "u16",
       "value": "100"

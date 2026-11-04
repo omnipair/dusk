@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    carry_forward_governance_yield, checkpoint_supporter_yield, direct_ylp_eligible_supply,
+    carry_forward_governance_yield, checkpoint_supporter_yield, direct_srlp_eligible_supply,
     validate_governance_token_accounts, validate_market_pda, validate_supporter_accounts,
 };
 
@@ -84,11 +84,11 @@ pub struct CreateParameterProposal<'info> {
     )]
     pub proposal_support: Box<Account<'info, ProposalSupport>>,
 
-    #[account(mut, address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(mut, address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(mut)]
-    pub proposer_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub proposer_srlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -96,9 +96,9 @@ pub struct CreateParameterProposal<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             proposer.key().as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
             market.base_side.asset_mint.as_ref(),
-            &[YieldTokenKind::Ylp.code()],
+            &[YieldTokenKind::Srlp.code()],
         ],
         bump = base_yield_account.bump,
     )]
@@ -110,42 +110,42 @@ pub struct CreateParameterProposal<'info> {
             YIELD_ACCOUNT_SEED_PREFIX,
             market.key().as_ref(),
             proposer.key().as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
             market.quote_side.asset_mint.as_ref(),
-            &[YieldTokenKind::Ylp.code()],
+            &[YieldTokenKind::Srlp.code()],
         ],
         bump = quote_yield_account.bump,
     )]
     pub quote_yield_account: Box<Account<'info, YieldAccount>>,
 
     /// CHECK: Canonical PDA. A System-owned empty account is initialized as a
-    /// Token-2022 yLP vault by the handler; an existing vault is fully parsed
+    /// Token-2022 srLP vault by the handler; an existing vault is fully parsed
     /// and validated before proposal state changes.
     #[account(
         mut,
         seeds = [
-            HLP_YLP_VAULT_SEED_PREFIX,
+            HLP_SRLP_VAULT_SEED_PREFIX,
             market.key().as_ref(),
             market.base_side.hlp_mint.as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
         ],
         bump,
     )]
-    pub base_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub base_hlp_srlp_vault: UncheckedAccount<'info>,
 
     /// CHECK: Validated and initialized under the same rules as the base-side
-    /// hLP yLP vault above.
+    /// hLP srLP vault above.
     #[account(
         mut,
         seeds = [
-            HLP_YLP_VAULT_SEED_PREFIX,
+            HLP_SRLP_VAULT_SEED_PREFIX,
             market.key().as_ref(),
             market.quote_side.hlp_mint.as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
         ],
         bump,
     )]
-    pub quote_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub quote_hlp_srlp_vault: UncheckedAccount<'info>,
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
@@ -154,42 +154,42 @@ impl<'info> CreateParameterProposal<'info> {
     pub fn validate(&self, args: &CreateParameterProposalArgs) -> Result<u64> {
         require!(args.initial_support > 0, ErrorCode::AmountZero);
         require_gte!(
-            self.proposer_ylp_account.amount,
+            self.proposer_srlp_account.amount,
             args.initial_support,
             ErrorCode::InsufficientBalance
         );
         args.metadata.validate()?;
         super::validate_governance_action(&self.market, &self.governance_control, args.action, &args.updates)?;
         validate_market_pda(&self.market, self.market.key())?;
-        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
-        validate_lp_mint(&self.ylp_mint, self.market.key(), self.market.base_side.asset_decimals)?;
-        let base_hlp_ylp_amount = governance_vault_amount(
+        require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
+        validate_lp_mint(&self.srlp_mint, self.market.key(), self.market.base_side.asset_decimals)?;
+        let base_hlp_srlp_amount = governance_vault_amount(
             &self.market,
-            &self.ylp_mint,
-            &self.base_hlp_ylp_vault,
-            self.market.base_hlp_vault.ylp_vault,
-            self.market.base_hlp_vault.ylp_shares,
+            &self.srlp_mint,
+            &self.base_hlp_srlp_vault,
+            self.market.base_hlp_vault.srlp_vault,
+            self.market.base_hlp_vault.srlp_shares,
         )?;
-        let quote_hlp_ylp_amount = governance_vault_amount(
+        let quote_hlp_srlp_amount = governance_vault_amount(
             &self.market,
-            &self.ylp_mint,
-            &self.quote_hlp_ylp_vault,
-            self.market.quote_hlp_vault.ylp_vault,
-            self.market.quote_hlp_vault.ylp_shares,
+            &self.srlp_mint,
+            &self.quote_hlp_srlp_vault,
+            self.market.quote_hlp_vault.srlp_vault,
+            self.market.quote_hlp_vault.srlp_shares,
         )?;
         validate_supporter_accounts(
             &self.market,
             self.proposer.key(),
-            &self.ylp_mint,
-            &self.proposer_ylp_account,
+            &self.srlp_mint,
+            &self.proposer_srlp_account,
             &self.base_yield_account,
             &self.quote_yield_account,
         )?;
-        direct_ylp_eligible_supply(
+        direct_srlp_eligible_supply(
             &self.market,
-            self.ylp_mint.supply,
-            base_hlp_ylp_amount,
-            quote_hlp_ylp_amount,
+            self.srlp_mint.supply,
+            base_hlp_srlp_amount,
+            quote_hlp_srlp_amount,
         )
     }
 
@@ -214,31 +214,31 @@ impl<'info> CreateParameterProposal<'info> {
         create_token_account(
             &ctx.accounts.market.to_account_info(),
             &ctx.accounts.proposer.to_account_info(),
-            &ctx.accounts.base_hlp_ylp_vault.to_account_info(),
-            &ctx.accounts.ylp_mint.to_account_info(),
+            &ctx.accounts.base_hlp_srlp_vault.to_account_info(),
+            &ctx.accounts.srlp_mint.to_account_info(),
             &ctx.accounts.system_program.to_account_info(),
             &ctx.accounts.token_2022_program.to_account_info(),
             &[
-                HLP_YLP_VAULT_SEED_PREFIX,
+                HLP_SRLP_VAULT_SEED_PREFIX,
                 market_key.as_ref(),
                 ctx.accounts.market.base_side.hlp_mint.as_ref(),
-                ctx.accounts.ylp_mint.key().as_ref(),
-                &[ctx.bumps.base_hlp_ylp_vault],
+                ctx.accounts.srlp_mint.key().as_ref(),
+                &[ctx.bumps.base_hlp_srlp_vault],
             ],
         )?;
         create_token_account(
             &ctx.accounts.market.to_account_info(),
             &ctx.accounts.proposer.to_account_info(),
-            &ctx.accounts.quote_hlp_ylp_vault.to_account_info(),
-            &ctx.accounts.ylp_mint.to_account_info(),
+            &ctx.accounts.quote_hlp_srlp_vault.to_account_info(),
+            &ctx.accounts.srlp_mint.to_account_info(),
             &ctx.accounts.system_program.to_account_info(),
             &ctx.accounts.token_2022_program.to_account_info(),
             &[
-                HLP_YLP_VAULT_SEED_PREFIX,
+                HLP_SRLP_VAULT_SEED_PREFIX,
                 market_key.as_ref(),
                 ctx.accounts.market.quote_side.hlp_mint.as_ref(),
-                ctx.accounts.ylp_mint.key().as_ref(),
-                &[ctx.bumps.quote_hlp_ylp_vault],
+                ctx.accounts.srlp_mint.key().as_ref(),
+                &[ctx.bumps.quote_hlp_srlp_vault],
             ],
         )?;
         crate::instructions::accounting::accrue_market_interest(
@@ -276,7 +276,7 @@ impl<'info> CreateParameterProposal<'info> {
             &ctx.accounts.market,
             &mut ctx.accounts.base_yield_account,
             &mut ctx.accounts.quote_yield_account,
-            ctx.accounts.proposer_ylp_account.amount,
+            ctx.accounts.proposer_srlp_account.amount,
             indexes,
         )?;
         ctx.accounts.proposal_support.accrue_virtual_yield(
@@ -288,8 +288,8 @@ impl<'info> CreateParameterProposal<'info> {
         token_burn(
             ctx.accounts.proposer.to_account_info(),
             ctx.accounts.token_2022_program.to_account_info(),
-            ctx.accounts.ylp_mint.to_account_info(),
-            ctx.accounts.proposer_ylp_account.to_account_info(),
+            ctx.accounts.srlp_mint.to_account_info(),
+            ctx.accounts.proposer_srlp_account.to_account_info(),
             args.initial_support,
             &[],
         )?;
@@ -302,10 +302,10 @@ impl<'info> CreateParameterProposal<'info> {
         )?;
         ctx.accounts.proposal_support.locked_amount = args.initial_support;
         ctx.accounts.proposal.total_locked = args.initial_support;
-        ctx.accounts.market.governance_locked_ylp = ctx
+        ctx.accounts.market.governance_locked_srlp = ctx
             .accounts
             .market
-            .governance_locked_ylp
+            .governance_locked_srlp
             .checked_add(args.initial_support)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let queued = super::queue_supported_proposal(
@@ -330,25 +330,25 @@ impl<'info> CreateParameterProposal<'info> {
 
 pub(super) fn governance_vault_amount(
     market: &Account<Market>,
-    ylp_mint: &InterfaceAccount<Mint>,
+    srlp_mint: &InterfaceAccount<Mint>,
     vault: &UncheckedAccount,
     expected_vault: Pubkey,
-    tracked_ylp_shares: u64,
+    tracked_srlp_shares: u64,
 ) -> Result<u64> {
     require_keys_eq!(vault.key(), expected_vault, ErrorCode::InvalidHlpVault);
     let vault_info = vault.to_account_info();
     if *vault_info.owner == System::id() {
         require!(vault_info.data_is_empty(), ErrorCode::InvalidHlpVault);
-        require_eq!(tracked_ylp_shares, 0, ErrorCode::InvalidHlpVault);
+        require_eq!(tracked_srlp_shares, 0, ErrorCode::InvalidHlpVault);
         return Ok(0);
     }
     require_keys_eq!(*vault_info.owner, Token2022::id(), ErrorCode::InvalidTokenProgram);
     let data = vault_info.try_borrow_data()?;
     let mut data_slice: &[u8] = &data;
     let account = TokenAccount::try_deserialize_unchecked(&mut data_slice)?;
-    require_keys_eq!(account.mint, ylp_mint.key(), ErrorCode::InvalidHlpVault);
+    require_keys_eq!(account.mint, srlp_mint.key(), ErrorCode::InvalidHlpVault);
     require_keys_eq!(account.owner, market.key(), ErrorCode::InvalidHlpVault);
-    require_gte!(account.amount, tracked_ylp_shares, ErrorCode::InvalidHlpVault);
+    require_gte!(account.amount, tracked_srlp_shares, ErrorCode::InvalidHlpVault);
     Ok(account.amount)
 }
 
@@ -372,10 +372,10 @@ pub struct QueueParameterProposal<'info> {
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
 
-    #[account(address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
-    pub base_hlp_ylp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    pub quote_hlp_ylp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub base_hlp_srlp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub quote_hlp_srlp_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 }
 
 impl<'info> QueueParameterProposal<'info> {
@@ -387,15 +387,15 @@ impl<'info> QueueParameterProposal<'info> {
         );
         validate_governance_token_accounts(
             &self.market,
-            &self.ylp_mint,
-            &self.base_hlp_ylp_vault,
-            &self.quote_hlp_ylp_vault,
+            &self.srlp_mint,
+            &self.base_hlp_srlp_vault,
+            &self.quote_hlp_srlp_vault,
         )?;
-        direct_ylp_eligible_supply(
+        direct_srlp_eligible_supply(
             &self.market,
-            self.ylp_mint.supply,
-            self.base_hlp_ylp_vault.amount,
-            self.quote_hlp_ylp_vault.amount,
+            self.srlp_mint.supply,
+            self.base_hlp_srlp_vault.amount,
+            self.quote_hlp_srlp_vault.amount,
         )
     }
 
@@ -453,12 +453,12 @@ pub struct ExecuteParameterProposal<'info> {
 
     #[account(mut)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
-    #[account(address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Exact canonical custody, including authenticated zero custody before hLP initialization.
-    pub base_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub base_hlp_srlp_vault: UncheckedAccount<'info>,
     /// CHECK: Exact canonical custody, including authenticated zero custody before hLP initialization.
-    pub quote_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub quote_hlp_srlp_vault: UncheckedAccount<'info>,
     /// CHECK: Mandatory canonical address; absent/System-empty or a fully authenticated ballot.
     #[account(mut, seeds = [crate::state::RECOVERY_BALLOT_SEED, market.key().as_ref(), crate::state::RECOVERY_REMOVAL_KEY.as_ref()], bump)]
     pub removal_ballot: UncheckedAccount<'info>,
@@ -484,9 +484,9 @@ impl<'info> ExecuteParameterProposal<'info> {
         let revisions = ctx.accounts.market.parameter_revisions;
         let eligible = super::governance_eligible_from_accounts(
             &ctx.accounts.market,
-            &ctx.accounts.ylp_mint,
-            &ctx.accounts.base_hlp_ylp_vault,
-            &ctx.accounts.quote_hlp_ylp_vault,
+            &ctx.accounts.srlp_mint,
+            &ctx.accounts.base_hlp_srlp_vault,
+            &ctx.accounts.quote_hlp_srlp_vault,
         )?;
         let epoch = ctx.accounts.governance_control.manager_epoch;
         if let Some(ballot) = super::recovery::refresh_canonical_ballot(

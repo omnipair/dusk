@@ -4,7 +4,7 @@ use crate::{errors::ErrorCode, math::accrue_fee_liability_with_remainder};
 
 use super::YieldAccount;
 
-/// A yield ledger for yLP burned into one support position. Its checkpoints
+/// A yield ledger for srLP burned into one support position. Its checkpoints
 /// isolate each proposal lock while the user's ordinary YieldAccounts continue
 /// to follow only the live balance in their Token-2022 ATA.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]

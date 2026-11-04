@@ -37,8 +37,8 @@ async function main() {
 
   const owner = keypair.publicKey;
   const market = new PublicKey(process.env.MARKET ?? config.primaryMarket);
-  const ylpMint = new PublicKey(config.ylpMint);
-  const ylpAta = getAssociatedTokenAddressSync(ylpMint, owner, true, TOKEN_2022_PROGRAM_ID);
+  const srlpMint = new PublicKey(config.srlpMint);
+  const srlpAta = getAssociatedTokenAddressSync(srlpMint, owner, true, TOKEN_2022_PROGRAM_ID);
 
   const send = async (instructions: TransactionInstruction[]) => {
     const tx = new Transaction().add(
@@ -51,10 +51,10 @@ async function main() {
     return sig;
   };
 
-  const ylpAccount = await connection.getAccountInfo(ylpAta, "confirmed");
-  const held = ylpAccount ? ylpAccount.data.readBigUInt64LE(64) : 0n;
-  console.log(`yLP held by proposer: ${held}`);
-  if (held === 0n) throw new Error("proposer holds no yLP; it cannot sponsor a proposal");
+  const srlpAccount = await connection.getAccountInfo(srlpAta, "confirmed");
+  const held = srlpAccount ? srlpAccount.data.readBigUInt64LE(64) : 0n;
+  console.log(`srLP held by proposer: ${held}`);
+  if (held === 0n) throw new Error("proposer holds no srLP; it cannot sponsor a proposal");
 
   // The description is content-addressed: the chain stores the hash and length,
   // and the URI is where a reader fetches the text. Nothing fetches it here.
@@ -77,8 +77,8 @@ async function main() {
     // Sponsor with everything held, so the strict majority is reachable in one
     // step; the floor is only 1% but queuing needs more than half.
     initialSupport: held,
-    ylpMint,
-    holderYlpAccount: ylpAta,
+    srlpMint,
+    holderSrlpAccount: srlpAta,
   });
   console.log(`create  ${await send([created.instruction])}`);
   console.log(`proposal ${created.proposal.toBase58()}`);

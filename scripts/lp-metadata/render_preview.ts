@@ -23,7 +23,7 @@ const [baseLogo, quoteLogo] = await Promise.all([
 ]);
 const images = await renderLpImages({ baseLogo, quoteLogo, baseSymbol, quoteSymbol });
 const naming = marketLpTokenNaming({ baseSymbol, quoteSymbol });
-for (const kind of ["ylp", "baseHlp", "quoteHlp"] as const) {
+for (const kind of ["srlp", "baseHlp", "quoteHlp"] as const) {
   const file = join(outDir, `${kind}.png`);
   writeFileSync(file, images[kind]);
   console.log(`${naming[kind].symbol.padEnd(11)} ${naming[kind].name.padEnd(16)} ${file}`);

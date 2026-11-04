@@ -51,15 +51,15 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   both source-scoped hLP backing inventories. Confirm projected aggregate
   indexed hLP debt is capped in debt-share space for every positive funding
   transition without blocking withdrawal or deleveraging.
-- Review floating yLP liquidity, matched yLP redemption, and Token-2022
+- Review floating srLP liquidity, matched srLP redemption, and Token-2022
   transfer checkpointing.
-- Review fee liabilities and settlement paths for yLP, hLP, protocol, and
+- Review fee liabilities and settlement paths for srLP, hLP, protocol, and
   unallocated buckets. Verify reserve-custodied swap-fee
   liabilities separately from interest-vault-custodied liabilities.
 - Review every dynamic-fee component budget, the 50% aggregate hard cap,
   Huber-capped divergence potential, split-path resistance, and exact
   odd/even raw-token rounding.
-- Review direct-yLP parameter governance: 1% sponsorship, strict `>50%`
+- Review direct-srLP parameter governance: 1% sponsorship, strict `>50%`
   support, hLP-vault exclusion, virtual-yield accounting, seven-day timelock
   and execution window, family revisions, terminal remint, and the 80%
   utilization execution guard.
@@ -81,11 +81,11 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   insurance, yield, protocol-fee, and hedge flows to `DUSK_PROGRAM_ID`.
 - Do not sort Dusk market mints client-side; creator-chosen base/quote order
   defines the market and displayed price direction.
-- Display yLP as floating reserve-side yield LP shares.
+- Display srLP as floating reserve-side yield LP shares.
 - Display hLP as aggregate hedged LP vault shares with underlying borrowed
-  debt, not as wrapped yLP.
+  debt, not as wrapped srLP.
 - Surface reduce-only behavior and emergency reduce-only expectations.
-- Surface proposal metadata/digests, direct-yLP support at risk, the frozen
+- Surface proposal metadata/digests, direct-srLP support at risk, the frozen
   queued period, execution deadline, and terminal unlock state.
 
 ## SDK / Package Interface
@@ -104,7 +104,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 
 - Subscribe to the standalone Dusk program ID and Dusk IDL events.
 - Use `MarketEventMetadata.market` as the Dusk market key.
-- Track yLP supply, hLP vault-owned yLP, hLP supply, hLP debt, global-health
+- Track srLP supply, hLP vault-owned srLP, hLP supply, hLP debt, global-health
   contributions, stored liquidation CFs, insurance, fee liabilities, and
   market health as separate Dusk metrics.
 - Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,
@@ -119,7 +119,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   market may be exact CPMM or Dusk Concentrated AMM and may charge dynamic surcharge.
 - Surface base, divergence, volatility, retained, and distributed fee
   components separately.
-- Do not assume Dusk yLP behaves like a fixed-principal protected LP token.
+- Do not assume Dusk srLP behaves like a fixed-principal protected LP token.
 - Respect reduce-only mode and risk/circuit-breaker failures.
 - Confirm Token-2022 transfer-fee assets are quoted against measured inventory
   behavior where relevant.
@@ -144,7 +144,7 @@ Record target-cluster transaction signatures for:
 
 - market initialization;
 - add liquidity and remove liquidity;
-- claim yLP and hLP yield;
+- claim srLP and hLP yield;
 - swap with slippage protection;
 - deposit collateral, borrow, repay, and withdraw idle collateral;
 - healthy liquidation rejection;
@@ -152,4 +152,4 @@ Record target-cluster transaction signatures for:
 - insurance-backed liquidation path;
 - deposit single-sided liquidity and withdraw single-sided liquidity;
 - reduce-only mode rejection for risk-increasing paths.
-- create, support, queue, execute, and withdraw a direct-yLP parameter proposal.
+- create, support, queue, execute, and withdraw a direct-srLP parameter proposal.

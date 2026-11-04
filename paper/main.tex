@@ -60,7 +60,7 @@ $R_{\rm hLP,i}$ & $H_i$ & hLP live-reserve contribution to the ledger. \\
 \bottomrule
 \end{tabularx}\end{center}
 
-Two further coordinates connect that ledger to a quote: $X_i$ removes unpaid cash-backed interest, and $(U,V)$ separates ordinary yLP inventory from hLP ownership. They refine the original invariant without replacing it. In particular, $H_i$ is not the entire inventory owned by hLP: a vault's target-asset contribution also has cash or other reserve backing. Section~\ref{sec:hlp} makes its target contribution and funded opposite claim explicit.
+Two further coordinates connect that ledger to a quote: $X_i$ removes unpaid cash-backed interest, and $(U,V)$ separates ordinary srLP inventory from hLP ownership. They refine the original invariant without replacing it. In particular, $H_i$ is not the entire inventory owned by hLP: a vault's target-asset contribution also has cash or other reserve backing. Section~\ref{sec:hlp} makes its target contribution and funded opposite claim explicit.
 
 Let $P_i^f$ and $P_i^\ell$ be the outstanding principal counters. Unpaid cash-backed interest is
 \begin{equation}
@@ -109,10 +109,10 @@ V_i^{\rm reserve}\ \ge\ C_i+F_i^{\rm custody}+B_i^b+B_i^q+Z_i,
 \end{equation}
 where $B_i^b,B_i^q$ are backing inventory assigned to the two hLP vaults and $Z_i$ is protected recenter funding. An unsolicited token donation does not automatically increase executable liquidity. Interest-vault accounting is separate from this reserve-vault check.
 
-yLP is a fungible, market-wide two-sided liquidity claim. It does not give each holder an individual tick range. For total yLP supply $S$ and a burn of $s$ shares, the proportional reserve amounts use the stored live basis:
+srLP is a fungible, market-wide two-sided liquidity claim. It does not give each holder an individual tick range. For total srLP supply $S$ and a burn of $s$ shares, the proportional reserve amounts use the stored live basis:
 \begin{equation}
 a_i=\left\lfloor\frac{sR_i}{S}\right\rfloor.
-\label{eq:ylp}
+\label{eq:srlp}
 \end{equation}
 The withdrawal must still pass cash, market-health, and slippage checks. The existence of a share claim is not an unconditional redemption promise. The program checkpoints published yield before changing eligible balances; a principal withdrawal does not replace a separate harvest of that yield.
 
@@ -138,13 +138,13 @@ Equation~\eqref{eq:ledger} records ownership claims, not a guarantee that all cl
 
 Equation~\eqref{eq:principal} removes a further ambiguity. Unpaid interest belongs in the debt balance and influences risk, rates, and share accounting. Allowing it to create executable spot principal would quote a receivable as if it were newly supplied inventory. The program explicitly subtracts public and isolated unpaid interest before constructing its executable reserve state. The hLP transition separately accounts for hLP funding interest.
 
-The total yLP supply includes the balances owned by both aggregate hLP vaults. During an integrated spot trade, the ordinary holders' share count remains fixed while the vault-owned balances may be reconstructed. It is therefore useful to distinguish $S$, total supply used in proportional ownership, from $S_o$, the ordinary share supply held outside those vaults. Treating them as interchangeable would obscure who receives a fee or absorbs a change in vault equity.
+The total srLP supply includes the balances owned by both aggregate hLP vaults. During an integrated spot trade, the ordinary holders' share count remains fixed while the vault-owned balances may be reconstructed. It is therefore useful to distinguish $S$, total supply used in proportional ownership, from $S_o$, the ordinary share supply held outside those vaults. Treating them as interchangeable would obscure who receives a fee or absorbs a change in vault equity.
 \fi
 
 \section{Spot Execution and Yield}
 \label{sec:curve}
 
-Trading occurs on an ordinary yLP tranche $(U,V)$ obtained after removing hLP ownership from $(X_b,X_q)$. Let $z=\sqrt p$ denote the curve's marginal quote-per-base price in normalized units. The continuous reserve path is a full-range tail of liquidity $L_0>0$ plus up to two nested ranges. For range $j$ with liquidity $L_j$ and square-root boundaries $a_j<b_j$, define $\bar z_j=\clip(z,a_j,b_j)$. Then
+Trading occurs on an ordinary srLP tranche $(U,V)$ obtained after removing hLP ownership from $(X_b,X_q)$. Let $z=\sqrt p$ denote the curve's marginal quote-per-base price in normalized units. The continuous reserve path is a full-range tail of liquidity $L_0>0$ plus up to two nested ranges. For range $j$ with liquidity $L_j$ and square-root boundaries $a_j<b_j$, define $\bar z_j=\clip(z,a_j,b_j)$. Then
 \begin{align}
 U(z)&=\frac{L_0}{z}+\sum_j L_j\left(\frac{1}{\bar z_j}-\frac{1}{b_j}\right),\\
 V(z)&=L_0z+\sum_j L_j(\bar z_j-a_j).
@@ -201,7 +201,7 @@ The fee profile includes an optional launch schedule. Its time decay can be line
 
 Yield ownership, destination, and execution authority are distinct. The yield-account owner can set the recipient and an optional harvest authority independently. The owner, recipient, or configured harvest authority may invoke harvest, but payout goes to the recipient's canonical associated token account for the mint and token program. The additional authority authorizes execution of harvest; it does not give the signer arbitrary payout routing. An owner that is a program-derived address can act through its program's signed invocation.
 
-Compounding changes a reserve claim, whereas harvest settles a published liability. The integrated fee transition allocates value to the pre-trade eligible yLP ownership, converts each hLP's allocation into its target equity, and reconstructs the matching funding position. This is why simply adding the entire fee to one raw reserve after a trade is not a complete description of the current fee path.
+Compounding changes a reserve claim, whereas harvest settles a published liability. The integrated fee transition allocates value to the pre-trade eligible srLP ownership, converts each hLP's allocation into its target equity, and reconstructs the matching funding position. This is why simply adding the entire fee to one raw reserve after a trade is not a complete description of the current fee path.
 \fi
 
 \section{Depth Without Spot Motion}
@@ -323,7 +323,7 @@ In plain language, borrow against the opposite-token claim until it is canceled,
 
 Yield Basis develops leveraged LP exposure around Curve Cryptoswap collateral and crvUSD debt, with a LEVAMM and VirtualPool arbitrage route maintaining the position \cite{yieldbasis-technical}. Dusk puts the liquidity shares, funding debt, and exchange path in the same pair-local accounting system. It can therefore reconstruct the funded ownership at the endpoint already produced by its own quote.
 
-The base hLP vault holds a funded yLP position whose net exposure targets base; quote hLP is symmetric. Let $E_b,E_q$ be their target-asset equities after accounting for the funding and yield effects included in the transition. With no unpaid public interest or book offsets, the continuous canonical endpoint is
+The base hLP vault holds a funded srLP position whose net exposure targets base; quote hLP is symmetric. Let $E_b,E_q$ be their target-asset equities after accounting for the funding and yield effects included in the transition. With no unpaid public interest or book offsets, the continuous canonical endpoint is
 \begin{align}
 X_b&=U+E_b+E_q\frac UV,&
 D_b^{h,*}&=E_q\frac UV,\\
@@ -331,7 +331,7 @@ X_q&=V+E_q+E_b\frac VU,&
 D_q^{h,*}&=E_b\frac VU.
 \label{eq:endpoint}
 \end{align}
-The opposite-asset yLP claim and the target funding obligation match. For ordinary share supply $S_o$, vault-owned shares are reconstructed as
+The opposite-asset srLP claim and the target funding obligation match. For ordinary share supply $S_o$, vault-owned shares are reconstructed as
 \begin{equation}
 s_b=\left\lfloor\frac{S_oE_b}{U}\right\rfloor,\qquad
 s_q=\left\lfloor\frac{S_oE_q}{V}\right\rfloor,\qquad
@@ -389,7 +389,7 @@ It reaches its maximum at $g=A/16$. A spot trade supplying the borrowed asset ca
 \end{equation}
 The full trade still pays ordinary fees and follows the ordinary curve. The bonus consumes the selected hLP's equity. Critical stress is reported on actual debt before revenue netting, at $D/A\ge9/8$; it does not gate ordinary swap recovery. Swaps remain available in reduce-only mode and require the caller's input. The atomic flash recovery accepts a positive funding gap, or a frozen vault, before that boundary. It fixes a net opposite-token payment, transfers target collateral at an affordable discount, and requires same-transaction settlement. A full flash close remains subject to the terminal insolvency checks.
 
-Terminal hLP closeout is narrower than arbitrary debt forgiveness. Eligibility requires the current-slot symmetric-EMA value of the vault's target- and borrowed-token claims to be no greater than indexed debt. Native recovery is then valued on the EMA-price, smoothed-depth concentrated reference curve with the configured fees; external flash recovery uses the fixed payment and borrowed-token claim bound at begin. Closeout retires the vault's yLP exposure and allocates recovery to principal first. Bounded insurance covers eligible principal shortfall; remaining principal loss is written off and unpaid interest is canceled. Previously funded holder yield claims remain recorded. This is separate from ordinary borrower liquidation and from a routine hLP withdrawal.
+Terminal hLP closeout is narrower than arbitrary debt forgiveness. Eligibility requires the current-slot symmetric-EMA value of the vault's target- and borrowed-token claims to be no greater than indexed debt. Native recovery is then valued on the EMA-price, smoothed-depth concentrated reference curve with the configured fees; external flash recovery uses the fixed payment and borrowed-token claim bound at begin. Closeout retires the vault's srLP exposure and allocates recovery to principal first. Bounded insurance covers eligible principal shortfall; remaining principal loss is written off and unpaid interest is canceled. Previously funded holder yield claims remain recorded. This is separate from ordinary borrower liquidation and from a routine hLP withdrawal.
 
 \ifexpanded
 \subsection{Leveraged liquidity and Yield Basis}
@@ -487,7 +487,7 @@ Insurance targets are per debt token:
 \[
 T=\left\lceil P/20\right\rceil+\left\lceil H/15\right\rceil,
 \]
-where $P$ is covered public/margin principal and $H$ is indexed hLP funding debt. Of the collected solvent charge, 20\% is protocol revenue and 80\% is designated for insurance/LPs. This designated portion funds insurance fully through 75\% of target, tapers linearly to zero at target, and sends the remainder to existing LP yield ownership, including hLP through yLP. Existing insurance is not paid out merely because its target falls.
+where $P$ is covered public/margin principal and $H$ is indexed hLP funding debt. Of the collected solvent charge, 20\% is protocol revenue and 80\% is designated for insurance/LPs. This designated portion funds insurance fully through 75\% of target, tapers linearly to zero at target, and sends the remainder to existing LP yield ownership, including hLP through srLP. Existing insurance is not paid out merely because its target falls.
 
 Borrower/margin coverage is at most 75\% of eligible principal loss, further bounded by available funds and configured limits. Eligible hLP terminal shortfalls retain their separate coverage rule. All claimants share the fund's at-most-50\% spending budget, which refreshes after a slot-based 24-hour window using the remaining balance. Changing claimant type does not reset that budget.
 
@@ -517,7 +517,7 @@ Increase-size borrows and buys more held tokens. Decrease-size sells held tokens
 
 \subsection{Governance, delegated orders, and token admission}
 
-Parameter governance exposes seven families: fees, concentration, interest, EMA half-lives, public daily credit limits, the center controller, and insurance. A reusable owner/market governance balance holds virtual yLP and preserves its yield. One revocable delegate may create and support proposals with its available balance; the owner retains control of withdrawals and delegate assignment. Allocating support reserves balance rather than spending it twice. Both direct and reusable support permit partial withdrawal/reassignment while collecting; queued commitments remain locked until the applicable terminal condition. Revoking delegation does not erase an existing queued commitment. Released reusable support returns to the balance, while yield stays with its owner. Proposal digests, permanent identity tombstones and original rent-refund destinations prevent reused-identity and delegation-redirection errors.
+Parameter governance exposes seven families: fees, concentration, interest, EMA half-lives, public daily credit limits, the center controller, and insurance. A reusable owner/market governance balance holds virtual srLP and preserves its yield. One revocable delegate may create and support proposals with its available balance; the owner retains control of withdrawals and delegate assignment. Allocating support reserves balance rather than spending it twice. Both direct and reusable support permit partial withdrawal/reassignment while collecting; queued commitments remain locked until the applicable terminal condition. Revoking delegation does not erase an existing queued commitment. Released reusable support returns to the balance, while yield stays with its owner. Proposal digests, permanent identity tombstones and original rent-refund destinations prevent reused-identity and delegation-redirection errors.
 
 The separate order-delegate program authorizes conditional margin entries/exits and hLP stops. Dusk performs delegated close fee splitting and sends the owner's net residual to an owner-owned token account. Protocol/keeper charges and Token-2022 fees are included in net-payout checks. Conditional authority does not reserve cash or ensure timely execution. hLP order escrow preserves the owner's yield entitlement, with cleanup of funded claims after execution/cancellation where applicable.
 
@@ -526,7 +526,7 @@ Market admission rejects freeze-authority assets and unsupported transfer-hook b
 \section{Accrued LP Interest and hLP Recovery}
 \label{sec:hlp-accounting}
 
-The integrated candidate prices ordinary yLP entry and burn using full accrued public-interest value. Both hLP vaults use the same full-value basis for entry, NAV and hedge reconstruction. An entrant buys its share of the existing receivable; it does not receive old interest for free. Unpaid public interest remains outside executable swap reserves, and exits pay only available cash. A holder who exits does not retain a detached claim on future repayment. Repayment funds the receivable once; writeoff cancels unpaid value. Funded holder claims remain distinct from new yield.
+The integrated candidate prices ordinary srLP entry and burn using full accrued public-interest value. Both hLP vaults use the same full-value basis for entry, NAV and hedge reconstruction. An entrant buys its share of the existing receivable; it does not receive old interest for free. Unpaid public interest remains outside executable swap reserves, and exits pay only available cash. A holder who exits does not retain a detached claim on future repayment. Repayment funds the receivable once; writeoff cancels unpaid value. Funded holder claims remain distinct from new yield.
 
 For a quoted trade, ordinary trading coordinates $(U,V)$ differ from ordinary book claims $(A,B)=(U+o_b,V+o_q)$. The book offsets $o_b,o_q$ are fixed during that quote. Opposite debt is reconstructed from $E_bB/A$ and $E_qA/B$, while the executable trading coordinate excludes unpaid public interest. At zero offsets these expressions reduce to the earlier endpoint equations. The implementation certifies the reconstructed ownership and debt after pricing, including concentrated-curve fee allocation; this identity alone does not promise cash settlement at every state.
 
@@ -534,7 +534,7 @@ Cash-funded interest uses a per-asset advance ledger. The LP/protocol allocation
 
 The recovery target is matching opposite-token backing and debt; concentration can make gross leverage differ from literal $2\times$. Ordinary borrowed-asset swaps can earn a bounded hLP recovery bonus whenever a qualifying funding gap exists. The separate critical ratio $D/A\ge9/8$ is diagnostic, not an extra swap gate. Atomic external recovery instead uses \texttt{preview\_hlp\_flash}, \texttt{begin\_hlp\_flash} and \texttt{settle\_hlp\_flash}: target collateral is a temporary receivable until the quoted opposite-token payment arrives in the same transaction. The buyer may use inventory or an external route. Full terminal settlement requires its separate insolvency and opt-in checks, with principal-first recovery, bounded insurance, explicit writeoff, canceled unpaid interest and preservation of already funded holder yield. The dedicated \texttt{rescue\_hlp} instruction is removed; native recovery remains available through \texttt{swap}.
 
-Terminal hLP eligibility refreshes the vault's linear symmetric-EMA collateral value to the current instruction slot, rather than using either a stale snapshot or its live executable reserve ratio. For the native close, the target-token claim is then exchanged notionally on the same configured concentrated reference curve used by other internal emergency settlements: symmetric EMA price, smoothed \texttt{curve\_depth\_ema\_nad}, and the full configured fee schedule. The borrowed-token claim is added directly. This reference recovery determines principal repayment, insurance and writeoff; reference reserves are never installed as live inventory. The actual post-close reserve point is rebuilt after retiring the vault, so the accepted inventory and later-arbitrage risk remains. External flash terminal recovery instead accounts the actual fixed borrowed-token payment delivered by the caller and the borrowed-token yLP claim bound when the atomic session begins. An interleaved Dusk swap therefore does not reprice that session's loss allocation, but the complete route must still fit Solana's transaction compute limit. Native Dusk recovery remains the ordinary swap path; flash callers must simulate any direct Dusk or external route.
+Terminal hLP eligibility refreshes the vault's linear symmetric-EMA collateral value to the current instruction slot, rather than using either a stale snapshot or its live executable reserve ratio. For the native close, the target-token claim is then exchanged notionally on the same configured concentrated reference curve used by other internal emergency settlements: symmetric EMA price, smoothed \texttt{curve\_depth\_ema\_nad}, and the full configured fee schedule. The borrowed-token claim is added directly. This reference recovery determines principal repayment, insurance and writeoff; reference reserves are never installed as live inventory. The actual post-close reserve point is rebuilt after retiring the vault, so the accepted inventory and later-arbitrage risk remains. External flash terminal recovery instead accounts the actual fixed borrowed-token payment delivered by the caller and the borrowed-token srLP claim bound when the atomic session begins. An interleaved Dusk swap therefore does not reprice that session's loss allocation, but the complete route must still fit Solana's transaction compute limit. Native Dusk recovery remains the ordinary swap path; flash callers must simulate any direct Dusk or external route.
 
 This integration candidate has native and instruction-level coverage for concentration, both hLP vaults, cash funding, repayment, writeoff, transfer fees, flash rollback and spot-cash carry. It still requires a final combined-branch audit, economic review and route-specific compute simulation. The retained numerical replay below identifies its historical source snapshot separately from these current implementation claims. Nothing in this paper authorizes deployment or describes a production migration.
 

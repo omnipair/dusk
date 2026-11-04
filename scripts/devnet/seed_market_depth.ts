@@ -91,7 +91,7 @@ async function main() {
         primaryMarket: process.env.MARKET,
         baseMint: process.env.BASE_MINT,
         quoteMint: process.env.QUOTE_MINT,
-        ylpMint: process.env.YLP_MINT,
+        srlpMint: process.env.SRLP_MINT,
         baseDecimals: Number(process.env.BASE_DECIMALS ?? "6"),
       }
     : (await (await fetch(`${API}/api/dusk/v1/config`)).json()).data;
@@ -100,17 +100,17 @@ async function main() {
   const dusk = new Dusk({ programId: new PublicKey(config.programId), provider });
 
   const owner = keypair.publicKey;
-  // Defaults to the deployment's primary market. MARKET and YLP_MINT together
+  // Defaults to the deployment's primary market. MARKET and SRLP_MINT together
   // point it at any other market on the same program — the API's config
   // endpoint only describes the primary one.
   const market = new PublicKey(process.env.MARKET ?? config.primaryMarket);
   const baseMint = new PublicKey(config.baseMint);
   const quoteMint = new PublicKey(config.quoteMint);
-  const ylpMint = new PublicKey(process.env.YLP_MINT ?? config.ylpMint);
+  const srlpMint = new PublicKey(process.env.SRLP_MINT ?? config.srlpMint);
   const unit = 10n ** BigInt(config.baseDecimals);
   const ata = (mint: PublicKey) =>
     getAssociatedTokenAddressSync(mint, owner, false,
-      mint.equals(ylpMint) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID);
+      mint.equals(srlpMint) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID);
 
   const send = async (instructions: TransactionInstruction[]) => {
     const tx = new Transaction().add(
@@ -141,7 +141,7 @@ async function main() {
 
   await send([
     createAssociatedTokenAccountIdempotentInstruction(
-      owner, ata(ylpMint), owner, ylpMint, TOKEN_2022_PROGRAM_ID),
+      owner, ata(srlpMint), owner, srlpMint, TOKEN_2022_PROGRAM_ID),
   ]);
 
   const balance = async (mint: PublicKey) => {
@@ -192,11 +192,11 @@ async function main() {
         baseMint, market, owner,
         ownerBaseAccount: ata(baseMint),
         ownerQuoteAccount: ata(quoteMint),
-        ownerYlpAccount: ata(ylpMint),
-        quoteMint, ylpMint,
+        ownerSrlpAccount: ata(srlpMint),
+        quoteMint, srlpMint,
         baseDepositAmount: chunk.toString(),
         quoteDepositAmount: chunk.toString(),
-        minYlpAmount: "0",
+        minSrlpAmount: "0",
       }),
     ]);
     now = await depth();

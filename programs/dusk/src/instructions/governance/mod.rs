@@ -29,7 +29,7 @@ pub(crate) struct GovernanceYieldIndexes {
 }
 
 /// Close all yield intervals under the current parameters before changing an
-/// external yLP balance or its matching virtual support balance.
+/// external srLP balance or its matching virtual support balance.
 pub(crate) fn carry_forward_governance_yield(market: &mut Market, current_slot: u64) -> Result<GovernanceYieldIndexes> {
     market.accrue_interest_to_slot(current_slot)?;
     market.base_side.carry_forward_swap_fees()?;
@@ -48,13 +48,17 @@ pub(crate) fn checkpoint_supporter_yield(
     market: &Market,
     base_yield_account: &mut YieldAccount,
     quote_yield_account: &mut YieldAccount,
-    live_ylp_balance: u64,
+    live_srlp_balance: u64,
     indexes: GovernanceYieldIndexes,
 ) -> Result<()> {
-    market.checkpoint_holder_income(base_yield_account, live_ylp_balance, None)?;
-    market.checkpoint_holder_income(quote_yield_account, live_ylp_balance, None)?;
-    base_yield_account.accrue(live_ylp_balance, indexes.base_swap_fee_q64, indexes.base_interest_q64)?;
-    quote_yield_account.accrue(live_ylp_balance, indexes.quote_swap_fee_q64, indexes.quote_interest_q64)
+    market.checkpoint_holder_income(base_yield_account, live_srlp_balance, None)?;
+    market.checkpoint_holder_income(quote_yield_account, live_srlp_balance, None)?;
+    base_yield_account.accrue(live_srlp_balance, indexes.base_swap_fee_q64, indexes.base_interest_q64)?;
+    quote_yield_account.accrue(
+        live_srlp_balance,
+        indexes.quote_swap_fee_q64,
+        indexes.quote_interest_q64,
+    )
 }
 
 pub(crate) fn adjust_supporter_income_balance(
@@ -94,55 +98,55 @@ pub(crate) fn validate_market_pda(market: &Market, market_key: Pubkey) -> Result
 
 pub(crate) fn validate_governance_token_accounts(
     market: &Account<Market>,
-    ylp_mint: &InterfaceAccount<Mint>,
-    base_hlp_ylp_vault: &InterfaceAccount<TokenAccount>,
-    quote_hlp_ylp_vault: &InterfaceAccount<TokenAccount>,
+    srlp_mint: &InterfaceAccount<Mint>,
+    base_hlp_srlp_vault: &InterfaceAccount<TokenAccount>,
+    quote_hlp_srlp_vault: &InterfaceAccount<TokenAccount>,
 ) -> Result<()> {
     let market_key = market.key();
     validate_market_pda(market, market_key)?;
-    require_keys_eq!(market.ylp_mint, ylp_mint.key(), ErrorCode::InvalidLpMintKey);
-    validate_lp_mint(ylp_mint, market_key, market.base_side.asset_decimals)?;
+    require_keys_eq!(market.srlp_mint, srlp_mint.key(), ErrorCode::InvalidLpMintKey);
+    validate_lp_mint(srlp_mint, market_key, market.base_side.asset_decimals)?;
 
     require_keys_eq!(
-        market.base_hlp_vault.ylp_vault,
-        base_hlp_ylp_vault.key(),
+        market.base_hlp_vault.srlp_vault,
+        base_hlp_srlp_vault.key(),
         ErrorCode::InvalidHlpVault
     );
-    require_keys_eq!(base_hlp_ylp_vault.mint, ylp_mint.key(), ErrorCode::InvalidHlpVault);
-    require_keys_eq!(base_hlp_ylp_vault.owner, market_key, ErrorCode::InvalidHlpVault);
+    require_keys_eq!(base_hlp_srlp_vault.mint, srlp_mint.key(), ErrorCode::InvalidHlpVault);
+    require_keys_eq!(base_hlp_srlp_vault.owner, market_key, ErrorCode::InvalidHlpVault);
     require_gte!(
-        base_hlp_ylp_vault.amount,
-        market.base_hlp_vault.ylp_shares,
+        base_hlp_srlp_vault.amount,
+        market.base_hlp_vault.srlp_shares,
         ErrorCode::InvalidHlpVault
     );
 
     require_keys_eq!(
-        market.quote_hlp_vault.ylp_vault,
-        quote_hlp_ylp_vault.key(),
+        market.quote_hlp_vault.srlp_vault,
+        quote_hlp_srlp_vault.key(),
         ErrorCode::InvalidHlpVault
     );
-    require_keys_eq!(quote_hlp_ylp_vault.mint, ylp_mint.key(), ErrorCode::InvalidHlpVault);
-    require_keys_eq!(quote_hlp_ylp_vault.owner, market_key, ErrorCode::InvalidHlpVault);
+    require_keys_eq!(quote_hlp_srlp_vault.mint, srlp_mint.key(), ErrorCode::InvalidHlpVault);
+    require_keys_eq!(quote_hlp_srlp_vault.owner, market_key, ErrorCode::InvalidHlpVault);
     require_gte!(
-        quote_hlp_ylp_vault.amount,
-        market.quote_hlp_vault.ylp_shares,
+        quote_hlp_srlp_vault.amount,
+        market.quote_hlp_vault.srlp_shares,
         ErrorCode::InvalidHlpVault
     );
     Ok(())
 }
 
-pub(crate) fn direct_ylp_eligible_supply(
+pub(crate) fn direct_srlp_eligible_supply(
     market: &Market,
-    live_ylp_supply: u64,
-    base_hlp_ylp_amount: u64,
-    quote_hlp_ylp_amount: u64,
+    live_srlp_supply: u64,
+    base_hlp_srlp_amount: u64,
+    quote_hlp_srlp_amount: u64,
 ) -> Result<u64> {
-    let total_ownership = live_ylp_supply
-        .checked_add(market.governance_locked_ylp)
+    let total_ownership = live_srlp_supply
+        .checked_add(market.governance_locked_srlp)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let senior = total_ownership
-        .checked_sub(base_hlp_ylp_amount)
-        .and_then(|amount| amount.checked_sub(quote_hlp_ylp_amount))
+        .checked_sub(base_hlp_srlp_amount)
+        .and_then(|amount| amount.checked_sub(quote_hlp_srlp_amount))
         .ok_or(ErrorCode::InvalidHlpVault)?;
     let active_junior_receipts = market
         .tranches
@@ -160,52 +164,52 @@ pub(crate) fn direct_ylp_eligible_supply(
 /// addresses can prove zero custody; initialized accounts retain full checks.
 pub(crate) fn governance_eligible_from_accounts(
     market: &Account<Market>,
-    ylp_mint: &InterfaceAccount<Mint>,
-    base_hlp_ylp_vault: &UncheckedAccount,
-    quote_hlp_ylp_vault: &UncheckedAccount,
+    srlp_mint: &InterfaceAccount<Mint>,
+    base_hlp_srlp_vault: &UncheckedAccount,
+    quote_hlp_srlp_vault: &UncheckedAccount,
 ) -> Result<u64> {
     validate_market_pda(market, market.key())?;
-    require_keys_eq!(market.ylp_mint, ylp_mint.key(), ErrorCode::InvalidLpMintKey);
-    validate_lp_mint(ylp_mint, market.key(), market.base_side.asset_decimals)?;
+    require_keys_eq!(market.srlp_mint, srlp_mint.key(), ErrorCode::InvalidLpMintKey);
+    validate_lp_mint(srlp_mint, market.key(), market.base_side.asset_decimals)?;
     let base = proposal::governance_vault_amount(
         market,
-        ylp_mint,
-        base_hlp_ylp_vault,
-        market.base_hlp_vault.ylp_vault,
-        market.base_hlp_vault.ylp_shares,
+        srlp_mint,
+        base_hlp_srlp_vault,
+        market.base_hlp_vault.srlp_vault,
+        market.base_hlp_vault.srlp_shares,
     )?;
     let quote = proposal::governance_vault_amount(
         market,
-        ylp_mint,
-        quote_hlp_ylp_vault,
-        market.quote_hlp_vault.ylp_vault,
-        market.quote_hlp_vault.ylp_shares,
+        srlp_mint,
+        quote_hlp_srlp_vault,
+        market.quote_hlp_vault.srlp_vault,
+        market.quote_hlp_vault.srlp_shares,
     )?;
-    direct_ylp_eligible_supply(market, ylp_mint.supply, base, quote)
+    direct_srlp_eligible_supply(market, srlp_mint.supply, base, quote)
 }
 
 pub(crate) fn validate_supporter_accounts(
     market: &Account<Market>,
     supporter: Pubkey,
-    ylp_mint: &InterfaceAccount<Mint>,
-    supporter_ylp_account: &InterfaceAccount<TokenAccount>,
+    srlp_mint: &InterfaceAccount<Mint>,
+    supporter_srlp_account: &InterfaceAccount<TokenAccount>,
     base_yield_account: &YieldAccount,
     quote_yield_account: &YieldAccount,
 ) -> Result<()> {
-    validate_owner_lp_account(supporter, ylp_mint, supporter_ylp_account)?;
+    validate_owner_lp_account(supporter, srlp_mint, supporter_srlp_account)?;
     base_yield_account.assert_account(
         supporter,
         market.key(),
-        ylp_mint.key(),
+        srlp_mint.key(),
         market.base_side.asset_mint,
-        YieldTokenKind::Ylp,
+        YieldTokenKind::Srlp,
     )?;
     quote_yield_account.assert_account(
         supporter,
         market.key(),
-        ylp_mint.key(),
+        srlp_mint.key(),
         market.quote_side.asset_mint,
-        YieldTokenKind::Ylp,
+        YieldTokenKind::Srlp,
     )
 }
 
@@ -350,7 +354,7 @@ pub(super) fn queued_event(
         execution_digest: proposal.execution_digest,
         family_revisions: proposal.family_revisions,
         total_locked: proposal.queued_support,
-        eligible_supply: proposal.queued_eligible_ylp,
+        eligible_supply: proposal.queued_eligible_srlp,
         queued_at: proposal.queued_at,
         execute_after: proposal.execute_after,
         execution_deadline: proposal.execution_deadline,

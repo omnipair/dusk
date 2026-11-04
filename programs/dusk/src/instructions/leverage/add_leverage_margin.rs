@@ -138,9 +138,9 @@ impl<'info> AddLeverageMargin<'info> {
         )?;
         ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
         let interest_eligibility = HlpYieldEligibility {
-            ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: ctx.accounts.market.quote_hlp_vault.ylp_shares,
+            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: ctx.accounts.market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: ctx.accounts.market.quote_hlp_vault.srlp_shares,
         };
 
         // Resolve the gross transfer required for the exact net debt repayment.

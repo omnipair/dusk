@@ -759,15 +759,15 @@ impl<'info> SettleFlashLiquidation<'info> {
         }
         a.interest_vault.reload()?;
         let eligibility = crate::transitions::HlpYieldEligibility {
-            ylp_supply: a.market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: a.market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: a.market.quote_hlp_vault.ylp_shares,
+            srlp_supply: a.market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: a.market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: a.market.quote_hlp_vault.srlp_shares,
         };
         a.market.side_mut(asset).record_liquidation_fee_credit(
             fee.lp,
             fee.protocol,
             a.futarchy_authority.protocol_auction_split,
-            eligibility.ylp_supply,
+            eligibility.srlp_supply,
         )?;
         let referral_receipt = crate::instructions::leverage::settlement::record_leverage_interest(
             &mut a.market,
@@ -796,9 +796,9 @@ impl<'info> SettleFlashLiquidation<'info> {
             clock.slot,
         )?;
         a.market
-            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, eligibility.base_hlp_ylp_shares)?;
+            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, eligibility.base_hlp_srlp_shares)?;
         a.market
-            .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, eligibility.quote_hlp_ylp_shares)?;
+            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, eligibility.quote_hlp_srlp_shares)?;
         ctx.accounts.repayment_vault.reload()?;
         let refund = ctx
             .accounts

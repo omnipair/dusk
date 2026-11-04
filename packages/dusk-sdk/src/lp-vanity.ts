@@ -2,7 +2,7 @@
  * Vanity addresses for LP mints.
  *
  * Production builds of the program accept an LP mint only if its address ends
- * in `yLP` (the yLP mint) or `hLP` (either hLP mint); the check is an exact,
+ * in `srLP` (the srLP mint) or `hLP` (either hLP mint); the check is an exact,
  * case-sensitive comparison on the base58 string. Rather than grinding
  * keypairs, the mint is created at a `create_with_seed` address, and what is
  * ground is the seed: `sha256(base ‖ seed ‖ Token-2022)` until the encoding
@@ -10,8 +10,8 @@
  * to be kept secret and nothing new has to sign.
  *
  * The grinding itself runs on the vanity server (omnipair/vanity-server), the
- * same service the V1 app used for `omLP`. Three characters cost about 200k
- * attempts, well under a second there. Every result is re-derived locally
+ * same service the V1 app used for `omLP`. A four-character srLP suffix takes about 58 times as many
+ * attempts as a three-character hLP suffix. Every result is re-derived locally
  * before it is trusted.
  */
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
@@ -22,7 +22,7 @@ import type { MarketLpMintKind } from "./market-bootstrap.js";
 
 /** The address suffix `initialize_market` requires for each LP mint kind. */
 export const LP_MINT_ADDRESS_SUFFIX: Readonly<Record<MarketLpMintKind, string>> = {
-  ylp: "yLP",
+  srlp: "srLP",
   baseHlp: "hLP",
   quoteHlp: "hLP",
 };
@@ -126,10 +126,10 @@ export async function grindLpMintSeed(options: GrindLpMintSeedOptions): Promise<
 export async function grindMarketLpMintSeeds(
   options: Omit<GrindLpMintSeedOptions, "kind">
 ): Promise<Record<MarketLpMintKind, LpMintSeed>> {
-  const [ylp, baseHlp, quoteHlp] = await Promise.all([
-    grindLpMintSeed({ ...options, kind: "ylp" }),
+  const [srlp, baseHlp, quoteHlp] = await Promise.all([
+    grindLpMintSeed({ ...options, kind: "srlp" }),
     grindLpMintSeed({ ...options, kind: "baseHlp" }),
     grindLpMintSeed({ ...options, kind: "quoteHlp" }),
   ]);
-  return { ylp, baseHlp, quoteHlp };
+  return { srlp, baseHlp, quoteHlp };
 }

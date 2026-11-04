@@ -69,13 +69,13 @@ pub struct HlpFlashSettled {
     pub market: Pubkey,
     pub buyer: Pubkey,
     pub quote: HlpFlashQuote,
-    /// Internal yLP changes made by this flash recovery. They are not user
+    /// Internal srLP changes made by this flash recovery. They are not user
     /// liquidity deposits or exits and are included here to avoid a second
     /// event CPI on the compute-constrained atomic settlement path.
-    pub base_hlp_ylp_minted: u64,
-    pub base_hlp_ylp_burned: u64,
-    pub quote_hlp_ylp_minted: u64,
-    pub quote_hlp_ylp_burned: u64,
+    pub base_hlp_srlp_minted: u64,
+    pub base_hlp_srlp_burned: u64,
+    pub quote_hlp_srlp_minted: u64,
+    pub quote_hlp_srlp_burned: u64,
     pub funding_interest_paid: [u64; 2],
     pub loss: LiquidationLossAllocation,
     pub insurance_debit: u64,
@@ -351,9 +351,9 @@ impl<'info> SettleHlpFlash<'info> {
             ErrorCode::BrokenInvariant
         );
         let eligibility = HlpYieldEligibility {
-            ylp_supply: a.market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: a.market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: a.market.quote_hlp_vault.ylp_shares,
+            srlp_supply: a.market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: a.market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: a.market.quote_hlp_vault.srlp_shares,
         };
         let layout = HlpSwapAccountLayout::try_from((&**a.market, ctx.remaining_accounts))?;
         let terminal = if q.full {
@@ -457,10 +457,10 @@ impl<'info> SettleHlpFlash<'info> {
                 market: a.market.key(),
                 buyer: a.buyer.key(),
                 quote: q,
-                base_hlp_ylp_minted: base.ylp_mint_amount,
-                base_hlp_ylp_burned: base.ylp_burn_amount,
-                quote_hlp_ylp_minted: quote.ylp_mint_amount,
-                quote_hlp_ylp_burned: quote.ylp_burn_amount,
+                base_hlp_srlp_minted: base.srlp_mint_amount,
+                base_hlp_srlp_burned: base.srlp_burn_amount,
+                quote_hlp_srlp_minted: quote.srlp_mint_amount,
+                quote_hlp_srlp_burned: quote.srlp_burn_amount,
                 funding_interest_paid: [base.interest_paid, quote.interest_paid],
                 loss: terminal.loss,
                 insurance_debit: terminal.insurance_debit,

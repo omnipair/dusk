@@ -73,7 +73,7 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                     let initial_exposure = first.collateral_amount + second.collateral_amount;
                     assert_eq!(market.leverage_collateral_exposure(asset), initial_exposure);
 
-                    let shares = market.base_side.shares.ylp_supply / 100;
+                    let shares = market.base_side.shares.srlp_supply / 100;
                     market.remove_liquidity(shares).unwrap();
                     market.finalize_amm_transition_and_observe_risk(2).unwrap();
                     assert_eq!(first.margin_terms, terms);

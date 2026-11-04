@@ -79,7 +79,7 @@ pub(crate) fn validate_hlp_yield_account_pda(
 }
 
 /// Reconcile a partial direct Token-2022 hLP burn before the next hLP entry or
-/// exit. Historical nested yLP growth is published against the old stored
+/// exit. Historical nested srLP growth is published against the old stored
 /// denominator first; only future growth and principal pricing use the smaller
 /// live supply. A complete direct burn is intentionally fail-closed because no
 /// holder remains who can authorize the vault's normal final exit.
@@ -88,7 +88,7 @@ pub(crate) fn reconcile_live_hlp_supply(
     target_asset: MarketAsset,
     live_mint_supply: u64,
 ) -> Result<()> {
-    market.checkpoint_hlp_yield_from_ylp(target_asset)?;
+    market.checkpoint_hlp_yield_from_srlp(target_asset)?;
     let stored_supply = match target_asset {
         MarketAsset::Base => &mut market.base_hlp_vault.hlp_supply,
         MarketAsset::Quote => &mut market.quote_hlp_vault.hlp_supply,
@@ -119,19 +119,19 @@ pub(crate) fn record_hlp_interest_credit(
     }
 
     require_eq!(
-        market.base_side.shares.ylp_supply,
-        market.quote_side.shares.ylp_supply,
+        market.base_side.shares.srlp_supply,
+        market.quote_side.shares.srlp_supply,
         ErrorCode::BrokenInvariant
     );
-    let frozen_non_hlp_supply = eligibility.non_hlp_ylp_supply()?;
+    let frozen_non_hlp_supply = eligibility.non_hlp_srlp_supply()?;
     let tranche_income = market.side(borrowed_asset).fees.junior.initialized;
     if !tranche_income {
         let current_non_hlp_supply = HlpYieldEligibility {
-            ylp_supply: market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: market.quote_hlp_vault.ylp_shares,
+            srlp_supply: market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
         }
-        .non_hlp_ylp_supply()?;
+        .non_hlp_srlp_supply()?;
         require_eq!(
             current_non_hlp_supply,
             frozen_non_hlp_supply,
@@ -144,8 +144,8 @@ pub(crate) fn record_hlp_interest_credit(
     // those mutations against the current shares before publishing this
     // source-specific credit; replaying frozen old shares here would
     // over-credit a vault that already burned them.
-    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base)?;
-    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote)?;
+    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;
+    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
 
     if tranche_income {
         let (protocol, _) = crate::transitions::revenue::split_revenue(actual_interest_credit, protocol_fee_bps)?;
@@ -171,14 +171,14 @@ pub(crate) fn record_hlp_interest_credit(
     // Advance both vaults across the hLP-funded index delta without crediting
     // either one. Zero eligible shares preserves their already-earned
     // sub-atom remainders while preventing self- and cross-rebates.
-    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, 0)?;
-    market.checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, 0)
+    market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, 0)?;
+    market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, 0)
 }
 
 /// Publish one inline hLP interest-vault credit against ownership captured
 /// before predictive or post-trade rebalancing. Funding interest publishes
 /// only to the ordinary-plus-MIN lane; frozen hLP balances are excluded even
-/// if the operation mints or burns vault-owned yLP before token settlement.
+/// if the operation mints or burns vault-owned srLP before token settlement.
 pub(crate) fn record_inline_hlp_interest_credit(
     market: &mut Market,
     borrowed_asset: MarketAsset,

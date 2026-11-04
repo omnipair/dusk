@@ -26,7 +26,7 @@ import {
 import {
   deriveBorrowPositionAddress,
   deriveFutarchyAuthorityAddress,
-  deriveHlpYlpVaultAddress,
+  deriveHlpSrlpVaultAddress,
   deriveInsuranceAddress,
   deriveLeveragePositionAddress,
   deriveMarketAddress,
@@ -86,7 +86,7 @@ export const pda = {
   leveragePosition: deriveLeveragePositionAddress,
   yieldAccount: deriveYieldAccountAddress,
   yieldTransferHookValidation: deriveYieldTransferHookValidationAddress,
-  hlpYlpVault: deriveHlpYlpVaultAddress,
+  hlpSrlpVault: deriveHlpSrlpVaultAddress,
   insurance: deriveInsuranceAddress,
   referralPartner: deriveReferralPartnerAddress,
   referralAccrual: deriveReferralAccrualAddress,

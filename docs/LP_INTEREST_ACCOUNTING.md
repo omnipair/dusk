@@ -8,7 +8,7 @@ are also integrated into that PR.
 
 - Keep V1-style ownership: accrued public borrower interest is included in LP
   share value. Entrants pay for their share of the existing receivable.
-- Apply the same economic backing to yLP mint/burn and hLP share valuation.
+- Apply the same economic backing to srLP mint/burn and hLP share valuation.
 - An exiting holder receives the permitted cash withdrawal and retains no
   separate unpaid-interest entitlement. Existing funded yield is distinct.
 - Repayment converts a receivable into cash; it must not count the same income
@@ -25,7 +25,7 @@ policy are superseded. They are not part of this implementation.
 
 ## Terminal hLP receipt cohorts
 
-A terminal hLP close can leave old receipts in wallets after the vault's yLP
+A terminal hLP close can leave old receipts in wallets after the vault's srLP
 backing and funding debt have reached zero. Starting a new deposit against the
 same supply would give old receipts a claim on the new deposit. Dusk instead
 rotates that side to a fresh hLP mint. The old mint's final yield indexes are
@@ -33,13 +33,13 @@ frozen in its cohort PDA, so old receipts retain funded yield already earned
 without sharing in later deposits. Holders may transfer, harvest and burn old
 receipts; the new mint has a separate vault, supply and yield-account namespace.
 Rotation is permissionless only after terminal closure and does not alter the
-other hLP side or the yLP mint.
+other hLP side or the srLP mint.
 
 ## Full-value controller accounting (2026-10-19)
 
 The accounting implementation uses live-reserve claims consistently for hLP deposit
 funding, entry admission, NAV, hedge reconstruction and recovery quotes. The
-opposite-token funding leg matches the ratio used to mint the underlying yLP.
+opposite-token funding leg matches the ratio used to mint the underlying srLP.
 Existing funded holder claims remain separate from this NAV.
 
 Trading still uses the ordinary curve coordinates, with public unpaid interest
@@ -172,7 +172,7 @@ cannot recover only their own receipt's hedge or assign the cost to new holders.
 4. **Settle:** only new, measured credit in a dedicated session payment vault
    meets the obligation. Existing donations and credits sent directly to the
    market reserve do not qualify. The program restores the opposite-token
-   hedge, settles funding and yLP changes, refunds unused new payment, and
+   hedge, settles funding and srLP changes, refunds unused new payment, and
    closes the session. A missing or failing settle reverts the entire transaction.
 
 When current-slot symmetric-EMA collateral value is no greater than debt, the
@@ -281,7 +281,7 @@ rebalancing moving the mark. Historical funded claims are not used here.
 
 The implemented net-yield checkpoint differs from this gross-income diagnostic:
 it restores funding using only newly earned income before publishing the rest.
-The integration test covers both hLPs and yLP, SPL Token and Token-2022, both
+The integration test covers both hLPs and srLP, SPL Token and Token-2022, both
 interest assets, 1x/4x concentration, a 20%-to-60% protocol rate change, actual
 cash-funded harvests and repayment conservation including withheld transfer fees.
 The native allocation matrix covers 108 cases, including 1x/4x/10x concentration,
@@ -322,7 +322,7 @@ interface change, not a deployed migration.
 The implementation passes 523 native Dusk tests in each default/production
 profile, including a 108-case harvest conservation matrix. That matrix covers
 both interest assets, 1×/4×/10× concentration, funding gaps, and capped/uncapped
-transfer fees. It checks ordinary yLP value and both hLPs at a common mark,
+transfer fees. It checks ordinary srLP value and both hLPs at a common mark,
 including newly published yield and retained capital. Historical funded claims
 are preserved. Existing repayment/writeoff tests exercise the shared advance
 ledger and its frozen protocol allocation.

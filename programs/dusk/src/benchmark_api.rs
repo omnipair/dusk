@@ -54,12 +54,12 @@ pub struct BenchmarkClock {
 /// existed on Dusk. Token amounts remain raw integer atoms throughout.
 #[derive(Clone, Copy)]
 pub struct BenchmarkMarketInit {
-    pub ylp_mint: Pubkey,
+    pub srlp_mint: Pubkey,
     pub base_side: MarketSide,
     pub quote_side: MarketSide,
     pub config: MarketConfig,
-    pub base_hlp_ylp_vault: Pubkey,
-    pub quote_hlp_ylp_vault: Pubkey,
+    pub base_hlp_srlp_vault: Pubkey,
+    pub quote_hlp_srlp_vault: Pubkey,
     pub base_insurance_vault: Pubkey,
     pub quote_insurance_vault: Pubkey,
     pub params_hash: [u8; 32],
@@ -91,7 +91,7 @@ pub struct BenchmarkSwapExecution {
     pub quote: AmmSwapQuote,
     pub base_rebalance: HlpRebalanceReceipt,
     pub quote_rebalance: HlpRebalanceReceipt,
-    pub fee_eligible_ylp_supply: u64,
+    pub fee_eligible_srlp_supply: u64,
     pub interest_eligibility: HlpYieldEligibility,
 }
 
@@ -171,7 +171,7 @@ pub struct BenchmarkMarketSideCheckpoint {
     pub protected_recenter_reserve: u64,
     pub base_hlp_backing_inventory: u64,
     pub quote_hlp_backing_inventory: u64,
-    pub ylp_supply: u64,
+    pub srlp_supply: u64,
     pub fixed_debt_shares: u128,
     pub fixed_debt: u128,
     pub fixed_debt_principal: u64,
@@ -186,7 +186,7 @@ pub struct BenchmarkMarketSideCheckpoint {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BenchmarkHlpCheckpoint {
-    pub ylp_shares: u64,
+    pub srlp_shares: u64,
     pub hlp_supply: u64,
     pub debt_shares: u128,
     pub debt_principal: u64,
@@ -385,8 +385,8 @@ pub struct BenchmarkYieldAccountCheckpoint {
 ///
 /// `hlp_mint_supply` is kept separately from the holder balance because the
 /// production instruction reconciles the live Token-2022 mint supply before
-/// every entry and exit. `hlp_vault_ylp_balance` is the actual token-account
-/// balance backing the native vault's `ylp_shares` ledger.
+/// every entry and exit. `hlp_vault_srlp_balance` is the actual token-account
+/// balance backing the native vault's `srlp_shares` ledger.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BenchmarkHlpOwnedCheckpoint {
     pub target_asset: MarketAsset,
@@ -394,7 +394,7 @@ pub struct BenchmarkHlpOwnedCheckpoint {
     pub hlp_mint: Pubkey,
     pub hlp_mint_supply: u64,
     pub holder_hlp_token_balance: u64,
-    pub hlp_vault_ylp_balance: u64,
+    pub hlp_vault_srlp_balance: u64,
     pub measured_base_interest_vault_credits: u64,
     pub measured_quote_interest_vault_credits: u64,
     pub base_yield_account: BenchmarkYieldAccountCheckpoint,
@@ -476,30 +476,30 @@ pub struct BenchmarkHlpAwareSwapExecution {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct BenchmarkYlpLiquidityReceipt {
-    pub ylp_amount: u64,
-    pub ylp_supply: u64,
+pub struct BenchmarkSrlpLiquidityReceipt {
+    pub srlp_amount: u64,
+    pub srlp_supply: u64,
     pub base_reserve_amount: u64,
     pub quote_reserve_amount: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BenchmarkAddYlpRequest {
+pub struct BenchmarkAddSrlpRequest {
     pub clock: BenchmarkClock,
     pub owner: Pubkey,
     /// Exact base reserve-vault credit measured after token transfer fees.
     pub base_reserve_credit: u64,
     /// Exact quote reserve-vault credit measured after token transfer fees.
     pub quote_reserve_credit: u64,
-    pub min_ylp_amount: u64,
+    pub min_srlp_amount: u64,
     pub global_reduce_only: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BenchmarkRemoveYlpRequest {
+pub struct BenchmarkRemoveSrlpRequest {
     pub clock: BenchmarkClock,
-    pub ylp_amount: u64,
-    pub owner_ylp_balance_before: u64,
+    pub srlp_amount: u64,
+    pub owner_srlp_balance_before: u64,
     pub base_recipient_credit: u64,
     pub quote_recipient_credit: u64,
     pub min_base_recipient_credit: u64,
@@ -961,7 +961,7 @@ pub enum BenchmarkExternalStateRequirement {
     HlpHolderTokenBalance,
     HlpHolderBaseYieldAccount,
     HlpHolderQuoteYieldAccount,
-    HlpVaultYlpTokenBalance,
+    HlpVaultSrlpTokenBalance,
     InterestVaultTransferCredits,
     Token2022MintAndHookState,
     ReferralAccountState,
@@ -1052,7 +1052,7 @@ pub struct BenchmarkHlpOwnedState {
     hlp_mint: Pubkey,
     hlp_mint_supply: u64,
     holder_hlp_token_balance: u64,
-    hlp_vault_ylp_balance: u64,
+    hlp_vault_srlp_balance: u64,
     measured_base_interest_vault_credits: u64,
     measured_quote_interest_vault_credits: u64,
     base_yield_account_key: Pubkey,
@@ -1201,7 +1201,7 @@ impl BenchmarkHlpOwnedState {
             hlp_mint,
             hlp_mint_supply: vault.hlp_supply,
             holder_hlp_token_balance: 0,
-            hlp_vault_ylp_balance: vault.ylp_shares,
+            hlp_vault_srlp_balance: vault.srlp_shares,
             measured_base_interest_vault_credits: 0,
             measured_quote_interest_vault_credits: 0,
             base_yield_account_key,
@@ -1225,8 +1225,8 @@ impl BenchmarkHlpOwnedState {
         self.hlp_mint_supply
     }
 
-    pub const fn hlp_vault_ylp_balance(&self) -> u64 {
-        self.hlp_vault_ylp_balance
+    pub const fn hlp_vault_srlp_balance(&self) -> u64 {
+        self.hlp_vault_srlp_balance
     }
 
     pub fn checkpoint(&self) -> BenchmarkHlpOwnedCheckpoint {
@@ -1236,7 +1236,7 @@ impl BenchmarkHlpOwnedState {
             hlp_mint: self.hlp_mint,
             hlp_mint_supply: self.hlp_mint_supply,
             holder_hlp_token_balance: self.holder_hlp_token_balance,
-            hlp_vault_ylp_balance: self.hlp_vault_ylp_balance,
+            hlp_vault_srlp_balance: self.hlp_vault_srlp_balance,
             measured_base_interest_vault_credits: self.measured_base_interest_vault_credits,
             measured_quote_interest_vault_credits: self.measured_quote_interest_vault_credits,
             base_yield_account: yield_account_checkpoint(self.base_yield_account_key, &self.base_yield_account),
@@ -1251,7 +1251,7 @@ impl BenchmarkHlpOwnedState {
             hlp_mint: self.hlp_mint,
             hlp_mint_supply: self.hlp_mint_supply,
             holder_hlp_token_balance: self.holder_hlp_token_balance,
-            hlp_vault_ylp_balance: self.hlp_vault_ylp_balance,
+            hlp_vault_srlp_balance: self.hlp_vault_srlp_balance,
             measured_base_interest_vault_credits: self.measured_base_interest_vault_credits,
             measured_quote_interest_vault_credits: self.measured_quote_interest_vault_credits,
             base_yield_account_key: self.base_yield_account_key,
@@ -1553,12 +1553,12 @@ impl BenchmarkMarket {
     fn initialize_inner(market_key: Option<Pubkey>, init: BenchmarkMarketInit, clock: BenchmarkClock) -> Result<Self> {
         let mut market = Box::<Market>::default();
         market.initialize(
-            init.ylp_mint,
+            init.srlp_mint,
             init.base_side,
             init.quote_side,
             init.config,
-            init.base_hlp_ylp_vault,
-            init.quote_hlp_ylp_vault,
+            init.base_hlp_srlp_vault,
+            init.quote_hlp_srlp_vault,
             init.base_insurance_vault,
             init.quote_insurance_vault,
             init.params_hash,
@@ -1691,7 +1691,7 @@ impl BenchmarkMarket {
 
     /// Executes a swap and both native hLP token settlements in one rollback
     /// boundary. Use this path whenever hLP state is active; it keeps the two
-    /// yLP custody accounts and measured funding-interest credits synchronized
+    /// srLP custody accounts and measured funding-interest credits synchronized
     /// with the market-side rebalance receipts.
     pub fn execute_swap_with_hlp(
         &mut self,
@@ -2672,9 +2672,11 @@ impl BenchmarkMarket {
                 referral_interest.referral_amount,
             )?;
             next_market
-                .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, interest_eligibility.base_hlp_ylp_shares)?;
-            next_market
-                .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, interest_eligibility.quote_hlp_ylp_shares)?;
+                .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, interest_eligibility.base_hlp_srlp_shares)?;
+            next_market.checkpoint_hlp_yield_from_srlp_shares(
+                MarketAsset::Quote,
+                interest_eligibility.quote_hlp_srlp_shares,
+            )?;
         }
         let debt_cash = cash.side_mut(debt_asset);
         debt_cash.reserve_vault_debit = debt_cash
@@ -2880,7 +2882,7 @@ impl BenchmarkMarket {
         Ok(BenchmarkHlpExecution { market, external_after })
     }
 
-    /// Quotes the exact native principal/yLP/debt retirement at an explicit
+    /// Quotes the exact native principal/srLP/debt retirement at an explicit
     /// clock without committing market or holder state. The returned gross
     /// debits let the caller obtain the corresponding historical Token-2022
     /// credits before calling [`Self::execute_hlp_withdraw`].
@@ -2899,13 +2901,13 @@ impl BenchmarkMarket {
         );
         let mut preview = clone_market(&self.market)?;
         prepare_hlp_withdraw_market(&mut preview, external.target_asset, external.hlp_mint_supply, clock)?;
-        preview.checkpoint_hlp_yield_from_ylp(external.target_asset)?;
+        preview.checkpoint_hlp_yield_from_srlp(external.target_asset)?;
         preview.withdraw_single_sided(external.target_asset, hlp_amount)
     }
 
     /// Atomically mirrors `WithdrawSingleSided`, including pro-rata native
-    /// debt/yLP retirement, final-holder yield drain, measured funding-interest
-    /// credit, backing-yLP burn, and the exact Token-2022 recipient outcome.
+    /// debt/srLP retirement, final-holder yield drain, measured funding-interest
+    /// credit, backing-srLP burn, and the exact Token-2022 recipient outcome.
     pub fn execute_hlp_withdraw(
         &mut self,
         external: &mut BenchmarkHlpOwnedState,
@@ -2934,16 +2936,16 @@ impl BenchmarkMarket {
             ErrorCode::InsufficientBalance
         );
         let eligibility = HlpYieldEligibility {
-            ylp_supply: next_market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: next_market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: next_market.quote_hlp_vault.ylp_shares,
+            srlp_supply: next_market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: next_market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: next_market.quote_hlp_vault.srlp_shares,
         };
         require_eq!(
-            eligibility.ylp_supply,
-            next_market.quote_side.shares.ylp_supply,
+            eligibility.srlp_supply,
+            next_market.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
-        next_market.checkpoint_hlp_yield_from_ylp(next_external.target_asset)?;
+        next_market.checkpoint_hlp_yield_from_srlp(next_external.target_asset)?;
         let (base_swap_growth, base_interest_growth) =
             next_market.hlp_yield_growth_indexes(next_external.target_asset, MarketAsset::Base);
         let (quote_swap_growth, quote_interest_growth) =
@@ -3009,9 +3011,9 @@ impl BenchmarkMarket {
         next_market.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
         next_market.assert_market_health_with_fees(self.admission_market_fees())?;
 
-        next_external.hlp_vault_ylp_balance = next_external
-            .hlp_vault_ylp_balance
-            .checked_sub(native.ylp_amount)
+        next_external.hlp_vault_srlp_balance = next_external
+            .hlp_vault_srlp_balance
+            .checked_sub(native.srlp_amount)
             .ok_or(ErrorCode::InsufficientBalance)?;
         require_eq!(
             request.target_transfer.source_debit,
@@ -3043,13 +3045,13 @@ impl BenchmarkMarket {
         Ok(BenchmarkHlpExecution { market, external_after })
     }
 
-    /// Atomically applies the balanced-yLP instruction's market-side ordering:
+    /// Atomically applies the balanced-srLP instruction's market-side ordering:
     /// update, distribute already-backed yield, native add, then exact curve
     /// and risk finalization. Holder YieldAccounts remain external assertions.
-    pub fn execute_add_ylp(
+    pub fn execute_add_srlp(
         &mut self,
-        request: BenchmarkAddYlpRequest,
-    ) -> Result<BenchmarkMarketExecution<BenchmarkYlpLiquidityReceipt>> {
+        request: BenchmarkAddSrlpRequest,
+    ) -> Result<BenchmarkMarketExecution<BenchmarkSrlpLiquidityReceipt>> {
         self.require_monotonic_clock(request.clock)?;
         let revenue_before = self.revenue_checkpoint();
         let mut next = clone_market(&self.market)?;
@@ -3059,41 +3061,45 @@ impl BenchmarkMarket {
             ErrorCode::ReduceOnlyMode
         );
         next.require_initial_liquidity_authority(request.owner)?;
-        carry_forward_all_ylp_revenue(&mut next)?;
+        carry_forward_all_srlp_revenue(&mut next)?;
         let receipt = next.add_liquidity(request.base_reserve_credit, request.quote_reserve_credit)?;
-        require_gte!(receipt.ylp_amount, request.min_ylp_amount, ErrorCode::SlippageExceeded);
+        require_gte!(
+            receipt.srlp_amount,
+            request.min_srlp_amount,
+            ErrorCode::SlippageExceeded
+        );
         next.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
 
         let mut cash = BenchmarkCashFlow::default();
         cash.base.reserve_vault_credit = receipt.base_reserve_credit;
         cash.quote.reserve_vault_credit = receipt.quote_reserve_credit;
-        let output = BenchmarkYlpLiquidityReceipt {
-            ylp_amount: receipt.ylp_amount,
-            ylp_supply: receipt.ylp_supply,
+        let output = BenchmarkSrlpLiquidityReceipt {
+            srlp_amount: receipt.srlp_amount,
+            srlp_supply: receipt.srlp_supply,
             base_reserve_amount: receipt.base_reserve_credit,
             quote_reserve_amount: receipt.quote_reserve_credit,
         };
         self.commit_market_execution(next, request.clock, revenue_before, cash, output)
     }
 
-    /// Atomically applies balanced-yLP removal. Recipient credits are required
+    /// Atomically applies balanced-srLP removal. Recipient credits are required
     /// inputs because Token-2022 fees live outside Market state.
-    pub fn execute_remove_ylp(
+    pub fn execute_remove_srlp(
         &mut self,
-        request: BenchmarkRemoveYlpRequest,
-    ) -> Result<BenchmarkMarketExecution<BenchmarkYlpLiquidityReceipt>> {
+        request: BenchmarkRemoveSrlpRequest,
+    ) -> Result<BenchmarkMarketExecution<BenchmarkSrlpLiquidityReceipt>> {
         self.require_monotonic_clock(request.clock)?;
         let revenue_before = self.revenue_checkpoint();
         let mut next = clone_market(&self.market)?;
         advance_market_to_slot(&mut next, request.clock.slot)?;
         next.assert_started_at(request.clock.unix_timestamp)?;
         require_gte!(
-            request.owner_ylp_balance_before,
-            request.ylp_amount,
+            request.owner_srlp_balance_before,
+            request.srlp_amount,
             ErrorCode::InsufficientBalance
         );
-        carry_forward_all_ylp_revenue(&mut next)?;
-        let receipt = next.remove_liquidity(request.ylp_amount)?;
+        carry_forward_all_srlp_revenue(&mut next)?;
+        let receipt = next.remove_liquidity(request.srlp_amount)?;
         require_gte!(
             request.base_recipient_credit,
             request.min_base_recipient_credit,
@@ -3112,9 +3118,9 @@ impl BenchmarkMarket {
         cash.quote.reserve_vault_debit = receipt.quote_amount_out;
         cash.base.recipient_credit = request.base_recipient_credit;
         cash.quote.recipient_credit = request.quote_recipient_credit;
-        let output = BenchmarkYlpLiquidityReceipt {
-            ylp_amount: receipt.ylp_amount,
-            ylp_supply: receipt.ylp_supply,
+        let output = BenchmarkSrlpLiquidityReceipt {
+            srlp_amount: receipt.srlp_amount,
+            srlp_supply: receipt.srlp_supply,
             base_reserve_amount: receipt.base_amount_out,
             quote_reserve_amount: receipt.quote_amount_out,
         };
@@ -4271,9 +4277,9 @@ fn apply_hlp_entry_after_prepare(
         quote_swap_growth,
         quote_interest_growth,
     )?;
-    external.hlp_vault_ylp_balance = external
-        .hlp_vault_ylp_balance
-        .checked_add(native.ylp_amount)
+    external.hlp_vault_srlp_balance = external
+        .hlp_vault_srlp_balance
+        .checked_add(native.srlp_amount)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     external.hlp_mint_supply = external
         .hlp_mint_supply
@@ -4391,8 +4397,8 @@ fn validate_hlp_owned_state(external: &BenchmarkHlpOwnedState, market: &Market, 
         ErrorCode::InvalidHlpMintSupply
     );
     require_eq!(
-        external.hlp_vault_ylp_balance,
-        vault.ylp_shares,
+        external.hlp_vault_srlp_balance,
+        vault.srlp_shares,
         ErrorCode::InvalidVault
     );
     require_gte!(
@@ -4848,7 +4854,7 @@ fn empty_yield_account() -> YieldAccount {
         market: Pubkey::default(),
         lp_mint: Pubkey::default(),
         asset_mint: Pubkey::default(),
-        token_kind: YieldTokenKind::Ylp.code(),
+        token_kind: YieldTokenKind::Srlp.code(),
         recipient: Pubkey::default(),
         swap_fee_checkpoint_q64: 0,
         interest_checkpoint_q64: 0,
@@ -4903,7 +4909,7 @@ fn clone_market(market: &Market) -> Result<Market> {
     Market::try_deserialize(&mut input)
 }
 
-fn carry_forward_all_ylp_revenue(market: &mut Market) -> Result<()> {
+fn carry_forward_all_srlp_revenue(market: &mut Market) -> Result<()> {
     market.base_side.carry_forward_swap_fees()?;
     market.base_side.carry_forward_interest()?;
     market.quote_side.carry_forward_swap_fees()?;
@@ -5133,7 +5139,7 @@ fn market_side_checkpoint(side: &MarketSide, debt: &Debt, asset: MarketAsset) ->
         protected_recenter_reserve: side.reserves.protected_recenter_reserve,
         base_hlp_backing_inventory: side.reserves.base_hlp_backing_inventory,
         quote_hlp_backing_inventory: side.reserves.quote_hlp_backing_inventory,
-        ylp_supply: side.shares.ylp_supply,
+        srlp_supply: side.shares.srlp_supply,
         fixed_debt_shares,
         fixed_debt,
         fixed_debt_principal,
@@ -5149,7 +5155,7 @@ fn market_side_checkpoint(side: &MarketSide, debt: &Debt, asset: MarketAsset) ->
 
 fn hlp_checkpoint(vault: &crate::state::HlpVault) -> BenchmarkHlpCheckpoint {
     BenchmarkHlpCheckpoint {
-        ylp_shares: vault.ylp_shares,
+        srlp_shares: vault.srlp_shares,
         hlp_supply: vault.hlp_supply,
         debt_shares: vault.debt_shares,
         debt_principal: vault.debt_principal,
@@ -5240,7 +5246,7 @@ fn execute_swap(
     }
     .prepare(market)?;
     let quote = prepared.quote;
-    let fee_eligible_ylp_supply = prepared.fee_eligible_ylp_supply;
+    let fee_eligible_srlp_supply = prepared.fee_eligible_srlp_supply;
     let interest_eligibility = prepared.interest_eligibility;
     let finalized = prepared.finalize_state(
         market,
@@ -5252,7 +5258,7 @@ fn execute_swap(
         quote,
         base_rebalance: finalized.base_rebalance,
         quote_rebalance: finalized.quote_rebalance,
-        fee_eligible_ylp_supply,
+        fee_eligible_srlp_supply,
         interest_eligibility,
     })
 }
@@ -5270,13 +5276,13 @@ fn apply_hlp_rebalance_settlement(
 ) -> Result<()> {
     require!(receipt.target_asset == external.target_asset, ErrorCode::InvalidMint);
     require!(
-        receipt.ylp_mint_amount == 0 || receipt.ylp_burn_amount == 0,
+        receipt.srlp_mint_amount == 0 || receipt.srlp_burn_amount == 0,
         ErrorCode::BrokenInvariant
     );
-    external.hlp_vault_ylp_balance = external
-        .hlp_vault_ylp_balance
-        .checked_add(receipt.ylp_mint_amount)
-        .and_then(|value| value.checked_sub(receipt.ylp_burn_amount))
+    external.hlp_vault_srlp_balance = external
+        .hlp_vault_srlp_balance
+        .checked_add(receipt.srlp_mint_amount)
+        .and_then(|value| value.checked_sub(receipt.srlp_burn_amount))
         .ok_or(ErrorCode::InsufficientBalance)?;
     require_eq!(
         interest_transfer.source_debit,
@@ -5625,12 +5631,12 @@ mod tests {
         };
         let mut benchmark = BenchmarkMarket::initialize(
             BenchmarkMarketInit {
-                ylp_mint: Pubkey::new_unique(),
+                srlp_mint: Pubkey::new_unique(),
                 base_side,
                 quote_side,
                 config: valid_config(),
-                base_hlp_ylp_vault: Pubkey::new_unique(),
-                quote_hlp_ylp_vault: Pubkey::new_unique(),
+                base_hlp_srlp_vault: Pubkey::new_unique(),
+                quote_hlp_srlp_vault: Pubkey::new_unique(),
                 base_insurance_vault: Pubkey::new_unique(),
                 quote_insurance_vault: Pubkey::new_unique(),
                 params_hash: [7; 32],
@@ -5840,7 +5846,7 @@ mod tests {
         .prepare(&mut native)
         .unwrap();
         let native_quote = prepared.quote;
-        let native_fee_supply = prepared.fee_eligible_ylp_supply;
+        let native_fee_supply = prepared.fee_eligible_srlp_supply;
         let native_interest_eligibility = prepared.interest_eligibility;
         let native_finalized = prepared
             .finalize_state(
@@ -5854,7 +5860,7 @@ mod tests {
         assert_eq!(preview.quote, native_quote);
         assert_eq!(preview.base_rebalance, native_finalized.base_rebalance);
         assert_eq!(preview.quote_rebalance, native_finalized.quote_rebalance);
-        assert_eq!(preview.fee_eligible_ylp_supply, native_fee_supply);
+        assert_eq!(preview.fee_eligible_srlp_supply, native_fee_supply);
         assert_eq!(preview.interest_eligibility, native_interest_eligibility);
 
         let execution = benchmark.execute_swap(request).unwrap();
@@ -6341,32 +6347,32 @@ mod tests {
     }
 
     #[test]
-    fn balanced_ylp_wrappers_match_native_transition_order_exactly() {
+    fn balanced_srlp_wrappers_match_native_transition_order_exactly() {
         let mut benchmark = initialized_market();
         let mut native = clone_market(benchmark.market()).unwrap();
         let add_clock = BenchmarkClock {
             slot: 20,
             unix_timestamp: 20,
         };
-        let add_request = BenchmarkAddYlpRequest {
+        let add_request = BenchmarkAddSrlpRequest {
             clock: add_clock,
             owner: Pubkey::new_unique(),
             base_reserve_credit: 100_000,
             quote_reserve_credit: 200_000,
-            min_ylp_amount: 100_000,
+            min_srlp_amount: 100_000,
             global_reduce_only: false,
         };
 
         advance_market_to_slot(&mut native, add_clock.slot).unwrap();
-        carry_forward_all_ylp_revenue(&mut native).unwrap();
+        carry_forward_all_srlp_revenue(&mut native).unwrap();
         let native_add = native
             .add_liquidity(add_request.base_reserve_credit, add_request.quote_reserve_credit)
             .unwrap();
         native.finalize_amm_transition_and_observe_risk(add_clock.slot).unwrap();
 
-        let add = benchmark.execute_add_ylp(add_request).unwrap();
-        assert_eq!(add.receipt.ylp_amount, native_add.ylp_amount);
-        assert_eq!(add.receipt.ylp_supply, native_add.ylp_supply);
+        let add = benchmark.execute_add_srlp(add_request).unwrap();
+        assert_eq!(add.receipt.srlp_amount, native_add.srlp_amount);
+        assert_eq!(add.receipt.srlp_supply, native_add.srlp_supply);
         assert_eq!(add.receipt.base_reserve_amount, native_add.base_reserve_credit);
         assert_eq!(add.receipt.quote_reserve_amount, native_add.quote_reserve_credit);
         assert_eq!(add.cash.base.reserve_vault_credit, native_add.base_reserve_credit);
@@ -6378,28 +6384,28 @@ mod tests {
             slot: 21,
             unix_timestamp: 21,
         };
-        let ylp_amount = native_add.ylp_amount / 2;
+        let srlp_amount = native_add.srlp_amount / 2;
         advance_market_to_slot(&mut native, remove_clock.slot).unwrap();
-        carry_forward_all_ylp_revenue(&mut native).unwrap();
-        let native_remove = native.remove_liquidity(ylp_amount).unwrap();
+        carry_forward_all_srlp_revenue(&mut native).unwrap();
+        let native_remove = native.remove_liquidity(srlp_amount).unwrap();
         native
             .finalize_amm_transition_and_observe_risk(remove_clock.slot)
             .unwrap();
         native.assert_market_health().unwrap();
 
         let remove = benchmark
-            .execute_remove_ylp(BenchmarkRemoveYlpRequest {
+            .execute_remove_srlp(BenchmarkRemoveSrlpRequest {
                 clock: remove_clock,
-                ylp_amount,
-                owner_ylp_balance_before: native_add.ylp_amount,
+                srlp_amount,
+                owner_srlp_balance_before: native_add.srlp_amount,
                 base_recipient_credit: native_remove.base_amount_out,
                 quote_recipient_credit: native_remove.quote_amount_out,
                 min_base_recipient_credit: native_remove.base_amount_out,
                 min_quote_recipient_credit: native_remove.quote_amount_out,
             })
             .unwrap();
-        assert_eq!(remove.receipt.ylp_amount, native_remove.ylp_amount);
-        assert_eq!(remove.receipt.ylp_supply, native_remove.ylp_supply);
+        assert_eq!(remove.receipt.srlp_amount, native_remove.srlp_amount);
+        assert_eq!(remove.receipt.srlp_supply, native_remove.srlp_supply);
         assert_eq!(remove.cash.base.reserve_vault_debit, native_remove.base_amount_out);
         assert_eq!(remove.cash.quote.reserve_vault_debit, native_remove.quote_amount_out);
         assert_eq!(remove.cash.base.recipient_credit, native_remove.base_amount_out);
@@ -6711,7 +6717,7 @@ mod tests {
             .quote_yield_account
             .accrue(0, quote_swap, quote_interest)
             .unwrap();
-        expected_external.hlp_vault_ylp_balance += expected_receipt.ylp_amount;
+        expected_external.hlp_vault_srlp_balance += expected_receipt.srlp_amount;
         expected_external.hlp_mint_supply += expected_receipt.hlp_amount;
         expected_external.holder_hlp_token_balance += expected_receipt.hlp_amount;
         validate_hlp_owned_state(&expected_external, &expected_market, market_key).unwrap();
@@ -6755,7 +6761,7 @@ mod tests {
     }
 
     #[test]
-    fn hlp_aware_swap_atomically_settles_both_ylp_vaults() {
+    fn hlp_aware_swap_atomically_settles_both_srlp_vaults() {
         let (mut benchmark, _) = initialized_keyed_market();
         let owner = Pubkey::new_unique();
         let mut base_external =
@@ -6804,10 +6810,10 @@ mod tests {
         };
         let preview = benchmark.preview_swap(swap_request).unwrap();
         assert!(
-            preview.base_rebalance.ylp_mint_amount > 0
-                || preview.base_rebalance.ylp_burn_amount > 0
-                || preview.quote_rebalance.ylp_mint_amount > 0
-                || preview.quote_rebalance.ylp_burn_amount > 0
+            preview.base_rebalance.srlp_mint_amount > 0
+                || preview.base_rebalance.srlp_burn_amount > 0
+                || preview.quote_rebalance.srlp_mint_amount > 0
+                || preview.quote_rebalance.srlp_burn_amount > 0
         );
         let execution = benchmark
             .execute_swap_with_hlp(
@@ -6830,12 +6836,12 @@ mod tests {
             .unwrap();
         assert_eq!(execution.swap, preview);
         assert_eq!(
-            base_external.hlp_vault_ylp_balance(),
-            benchmark.market().base_hlp_vault.ylp_shares
+            base_external.hlp_vault_srlp_balance(),
+            benchmark.market().base_hlp_vault.srlp_shares
         );
         assert_eq!(
-            quote_external.hlp_vault_ylp_balance(),
-            benchmark.market().quote_hlp_vault.ylp_shares
+            quote_external.hlp_vault_srlp_balance(),
+            benchmark.market().quote_hlp_vault.srlp_shares
         );
     }
 
@@ -6865,11 +6871,11 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            entry.external_after.hlp_vault_ylp_balance,
-            entry.market.receipt.native.ylp_amount
+            entry.external_after.hlp_vault_srlp_balance,
+            entry.market.receipt.native.srlp_amount
         );
         let initial_hlp = external.holder_hlp_token_balance();
-        let initial_ylp = external.hlp_vault_ylp_balance();
+        let initial_srlp = external.hlp_vault_srlp_balance();
         let first_burn = (initial_hlp / 3).max(1);
         let first_clock = BenchmarkClock {
             slot: 1_000_002,
@@ -6901,7 +6907,10 @@ mod tests {
             .unwrap();
         assert_eq!(first.market.receipt.native, first_preview);
         assert_eq!(external.holder_hlp_token_balance(), initial_hlp - first_burn);
-        assert_eq!(external.hlp_vault_ylp_balance(), initial_ylp - first_preview.ylp_amount);
+        assert_eq!(
+            external.hlp_vault_srlp_balance(),
+            initial_srlp - first_preview.srlp_amount
+        );
         assert_eq!(
             external.checkpoint().measured_quote_interest_vault_credits,
             first_preview.interest_paid
@@ -6938,9 +6947,9 @@ mod tests {
         assert_eq!(final_exit.market.receipt.native, final_preview);
         assert_eq!(external.holder_hlp_token_balance(), 0);
         assert_eq!(external.hlp_mint_supply(), 0);
-        assert_eq!(external.hlp_vault_ylp_balance(), 0);
+        assert_eq!(external.hlp_vault_srlp_balance(), 0);
         assert_eq!(benchmark.market().base_hlp_vault.hlp_supply, 0);
-        assert_eq!(benchmark.market().base_hlp_vault.ylp_shares, 0);
+        assert_eq!(benchmark.market().base_hlp_vault.srlp_shares, 0);
     }
 
     #[test]

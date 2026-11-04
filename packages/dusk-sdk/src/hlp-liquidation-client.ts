@@ -133,7 +133,7 @@ export class DuskHlpLiquidations {
       borrowedMint: r.debt.assetMint, borrowedReserveVault: r.debt.reserveVault,
       borrowedInterestVault: r.debt.interestVault,
       insuranceVault: r.target === 0 ? r.state.insurance.quoteVault : r.state.insurance.baseVault,
-      callerBountyAccount, ylpMint: r.state.ylpMint, targetHlpYlpVault: targetVault.ylpVault,
+      callerBountyAccount, srlpMint: r.state.srlpMint, targetHlpSrlpVault: targetVault.srlpVault,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
     }, remainingAccounts: params.closeRemainingAccounts ? [...params.closeRemainingAccounts] : undefined });
     const instructions = [

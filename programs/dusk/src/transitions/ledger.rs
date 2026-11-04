@@ -124,11 +124,11 @@ impl Insurance {
 
 impl ReserveShares {
     pub fn shares_for_deposit(&self, reserve_before: u64, deposit_amount: u64) -> Result<u64> {
-        if self.ylp_supply == 0 || reserve_before == 0 {
+        if self.srlp_supply == 0 || reserve_before == 0 {
             return Ok(deposit_amount);
         }
         let shares = (deposit_amount as u128)
-            .checked_mul(self.ylp_supply as u128)
+            .checked_mul(self.srlp_supply as u128)
             .and_then(|value| value.checked_div(reserve_before as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         u64::try_from(shares).map_err(|_| ErrorCode::MarketMathOverflow.into())
@@ -136,18 +136,18 @@ impl ReserveShares {
 
     pub fn reserve_for_burn(&self, reserve_before: u64, share_amount: u64) -> Result<u64> {
         require!(share_amount > 0, ErrorCode::AmountZero);
-        require_gte!(self.ylp_supply, share_amount, ErrorCode::InsufficientBalance);
+        require_gte!(self.srlp_supply, share_amount, ErrorCode::InsufficientBalance);
         let reserve_amount = (share_amount as u128)
             .checked_mul(reserve_before as u128)
-            .and_then(|value| value.checked_div(self.ylp_supply as u128))
+            .and_then(|value| value.checked_div(self.srlp_supply as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         u64::try_from(reserve_amount).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
     pub fn mint(&mut self, share_amount: u64) -> Result<()> {
         require!(share_amount > 0, ErrorCode::AmountZero);
-        self.ylp_supply = self
-            .ylp_supply
+        self.srlp_supply = self
+            .srlp_supply
             .checked_add(share_amount)
             .ok_or(ErrorCode::SupplyOverflow)?;
         Ok(())
@@ -155,8 +155,8 @@ impl ReserveShares {
 
     pub fn burn(&mut self, share_amount: u64) -> Result<()> {
         require!(share_amount > 0, ErrorCode::AmountZero);
-        self.ylp_supply = self
-            .ylp_supply
+        self.srlp_supply = self
+            .srlp_supply
             .checked_sub(share_amount)
             .ok_or(ErrorCode::SupplyUnderflow)?;
         Ok(())
@@ -255,14 +255,14 @@ impl MarketSide {
     }
 
     /// Liquidation's protocol share is already selected before insurance is
-    /// funded. Distribute the remaining LP amount once, over ordinary yLP
-    /// ownership (including the yLP backing hLP), without another protocol cut.
+    /// funded. Distribute the remaining LP amount once, over ordinary srLP
+    /// ownership (including the srLP backing hLP), without another protocol cut.
     pub(crate) fn record_liquidation_fee_credit(
         &mut self,
         lp: u64,
         protocol: u64,
         split: ProtocolAuctionSplit,
-        eligible_ylp_supply: u64,
+        eligible_srlp_supply: u64,
     ) -> Result<()> {
         let credit = lp.checked_add(protocol).ok_or(ErrorCode::FeeMathOverflow)?;
         let (fee, buyback) = split_protocol_auction_fee(protocol, &split)?;
@@ -286,25 +286,25 @@ impl MarketSide {
             .unallocated_interest_liability
             .checked_add(lp)
             .ok_or(ErrorCode::FeeMathOverflow)?;
-        self.carry_forward_interest_with_supply(eligible_ylp_supply)?;
+        self.carry_forward_interest_with_supply(eligible_srlp_supply)?;
         self.fees.assert_backed()
     }
 
     #[inline(always)]
     pub fn assert_share_backing(&self) -> Result<()> {
-        if self.shares.ylp_supply == 0 {
+        if self.shares.srlp_supply == 0 {
             require_eq!(self.reserves.live_reserve, 0, ErrorCode::BrokenInvariant);
         }
         Ok(())
     }
 
-    pub fn ylp_exchange_rate_nad(&self) -> Result<u128> {
-        if self.shares.ylp_supply == 0 {
+    pub fn srlp_exchange_rate_nad(&self) -> Result<u128> {
+        if self.shares.srlp_supply == 0 {
             return Ok(0);
         }
         (self.reserves.live_reserve as u128)
             .checked_mul(crate::constants::NAD as u128)
-            .and_then(|value| value.checked_div(self.shares.ylp_supply as u128))
+            .and_then(|value| value.checked_div(self.shares.srlp_supply as u128))
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
@@ -351,7 +351,7 @@ impl MarketSide {
             0,
             protocol_fee_bps,
             protocol_auction_split,
-            self.shares.ylp_supply,
+            self.shares.srlp_supply,
         )
     }
 
@@ -360,14 +360,14 @@ impl MarketSide {
         fee_credit: u64,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
-        eligible_ylp_supply: u64,
+        eligible_srlp_supply: u64,
     ) -> Result<FeesReceipt> {
         self.record_claimable_swap_fees(
             fee_credit,
             0,
             protocol_fee_bps,
             protocol_auction_split,
-            eligible_ylp_supply,
+            eligible_srlp_supply,
         )
     }
 
@@ -375,7 +375,7 @@ impl MarketSide {
     /// from executable reserves as explicit liabilities.
     ///
     /// The protocol split applies only to `base_fee_credit`.
-    /// A distributed dynamic surcharge belongs entirely to yLPs; retained
+    /// A distributed dynamic surcharge belongs entirely to srLPs; retained
     /// surcharge must stay in the reserve and must not be passed here.
     pub fn record_claimable_swap_fees(
         &mut self,
@@ -383,7 +383,7 @@ impl MarketSide {
         distributed_dynamic_surcharge_credit: u64,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
-        eligible_ylp_supply: u64,
+        eligible_srlp_supply: u64,
     ) -> Result<FeesReceipt> {
         self.record_swap_fee_allocation(
             base_fee_credit,
@@ -392,7 +392,7 @@ impl MarketSide {
             0,
             protocol_fee_bps,
             protocol_auction_split,
-            eligible_ylp_supply,
+            eligible_srlp_supply,
         )
     }
 
@@ -408,7 +408,7 @@ impl MarketSide {
         compounded_dynamic_surcharge_credit: u64,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
-        eligible_ylp_supply: u64,
+        eligible_srlp_supply: u64,
     ) -> Result<FeesReceipt> {
         if base_fee_credit == 0 && distributed_dynamic_surcharge_credit == 0 {
             require_eq!(compounded_base_fee_credit, 0, ErrorCode::BrokenInvariant);
@@ -454,7 +454,7 @@ impl MarketSide {
             .unallocated_swap_fee_liability
             .checked_add(lp_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.carry_forward_swap_fees_with_supply(eligible_ylp_supply)?;
+        self.carry_forward_swap_fees_with_supply(eligible_srlp_supply)?;
         self.fees.assert_backed()?;
         FeesReceipt::from_side(self)
     }
@@ -471,7 +471,7 @@ impl MarketSide {
             protocol_fee_bps,
             protocol_auction_split,
             referral_interest_amount,
-            self.shares.ylp_supply,
+            self.shares.srlp_supply,
         )
     }
 
@@ -481,7 +481,7 @@ impl MarketSide {
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
         referral_interest_amount: u64,
-        eligible_ylp_supply: u64,
+        eligible_srlp_supply: u64,
     ) -> Result<FeesReceipt> {
         if interest_credit == 0 {
             return FeesReceipt::from_side(self);
@@ -498,7 +498,7 @@ impl MarketSide {
             .unallocated_interest_liability
             .checked_add(lp_interest)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.carry_forward_interest_with_supply(eligible_ylp_supply)?;
+        self.carry_forward_interest_with_supply(eligible_srlp_supply)?;
         self.fees.assert_backed()?;
         FeesReceipt::from_side(self)
     }
@@ -543,7 +543,7 @@ impl MarketSide {
     }
 
     /// Record interest paid by an hLP funding position. Its LP share is
-    /// indexed over ordinary yLP plus the permanently burned minimum shares,
+    /// indexed over ordinary srLP plus the permanently burned minimum shares,
     /// using a source-specific carry so public-interest rounding cannot cross
     /// into or out of this distribution lane.
     pub fn record_hlp_funding_interest_credit_with_supply(
@@ -551,12 +551,12 @@ impl MarketSide {
         interest_credit: u64,
         protocol_fee_bps: u16,
         protocol_auction_split: ProtocolAuctionSplit,
-        eligible_ylp_supply: u64,
+        eligible_srlp_supply: u64,
     ) -> Result<FeesReceipt> {
         if interest_credit == 0 {
             return FeesReceipt::from_side(self);
         }
-        require!(eligible_ylp_supply > 0, ErrorCode::BrokenInvariant);
+        require!(eligible_srlp_supply > 0, ErrorCode::BrokenInvariant);
         let (protocol_fee, lp_interest) = split_revenue(interest_credit, protocol_fee_bps)?;
         let (fee_auction_amount, buyback_auction_amount) =
             split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
@@ -564,10 +564,10 @@ impl MarketSide {
             .fees
             .junior
             .allocate(lp_interest, crate::state::TrancheRevenueSource::BorrowInterest)?;
-        let eligible_ylp_supply = self.fees.junior.senior_supply(eligible_ylp_supply)?;
+        let eligible_srlp_supply = self.fees.junior.senior_supply(eligible_srlp_supply)?;
         let (growth_delta, remainder_scaled) = distribute_growth_q64(
             senior,
-            eligible_ylp_supply,
+            eligible_srlp_supply,
             self.fees.hlp_funding_interest_growth_remainder_scaled,
         )?;
 
@@ -599,7 +599,7 @@ impl MarketSide {
         // With no ordinary holder, burned MIN_LIQUIDITY is the complete sink.
         // Discard its sub-Q64 carry as well so a later depositor cannot inherit
         // any fraction of already-published funding interest.
-        self.fees.hlp_funding_interest_growth_remainder_scaled = if eligible_ylp_supply == MIN_LIQUIDITY {
+        self.fees.hlp_funding_interest_growth_remainder_scaled = if eligible_srlp_supply == MIN_LIQUIDITY {
             0
         } else {
             remainder_scaled
@@ -620,7 +620,7 @@ impl MarketSide {
     }
 
     pub fn carry_forward_swap_fees(&mut self) -> Result<()> {
-        self.carry_forward_swap_fees_with_supply(self.shares.ylp_supply)
+        self.carry_forward_swap_fees_with_supply(self.shares.srlp_supply)
     }
 
     pub fn carry_forward_swap_fees_with_supply(&mut self, supply: u64) -> Result<()> {
@@ -657,7 +657,7 @@ impl MarketSide {
     }
 
     pub fn carry_forward_interest(&mut self) -> Result<()> {
-        self.carry_forward_interest_with_supply(self.shares.ylp_supply)
+        self.carry_forward_interest_with_supply(self.shares.srlp_supply)
     }
 
     pub fn carry_forward_interest_with_supply(&mut self, supply: u64) -> Result<()> {
@@ -781,11 +781,11 @@ impl Market {
 impl Market {
     pub fn assert_market_invariants(&self) -> Result<()> {
         require_eq!(
-            self.base_side.shares.ylp_supply,
-            self.quote_side.shares.ylp_supply,
+            self.base_side.shares.srlp_supply,
+            self.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
-        self.tranches.validate(self.base_side.shares.ylp_supply)?;
+        self.tranches.validate(self.base_side.shares.srlp_supply)?;
         for side in [&self.base_side, &self.quote_side] {
             if side.fees.junior.initialized {
                 require_eq!(

@@ -78,6 +78,8 @@ pub struct RecoveryBallot {
     pub opened_at: i64,
     pub ends_at: i64,
     pub passed: bool,
+    /// A successful ballot releases voting locks only after this slot.
+    pub passed_slot: u64,
     pub bump: u8,
 }
 

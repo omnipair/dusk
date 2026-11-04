@@ -27,7 +27,7 @@ pub struct MarketCreated {
     pub market: Pubkey,
     pub base_mint: Pubkey,
     pub quote_mint: Pubkey,
-    pub ylp_mint: Pubkey,
+    pub srlp_mint: Pubkey,
     pub base_collateral_vault: Pubkey,
     pub quote_collateral_vault: Pubkey,
     pub base_insurance_vault: Pubkey,
@@ -89,8 +89,8 @@ pub struct LiquidityAdded {
     pub owner: Pubkey,
     pub base_reserve_credit: u64,
     pub quote_reserve_credit: u64,
-    pub ylp_amount: u64,
-    pub ylp_supply: u64,
+    pub srlp_amount: u64,
+    pub srlp_supply: u64,
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
     pub metadata: MarketEventMetadata,
@@ -100,21 +100,21 @@ pub struct LiquidityAdded {
 pub struct LiquidityRemoved {
     pub market: Pubkey,
     pub owner: Pubkey,
-    pub ylp_amount: u64,
+    pub srlp_amount: u64,
     /// Gross amounts debited from the reserve vaults.
     pub base_reserve_debit: u64,
     pub quote_reserve_debit: u64,
     /// Net amounts credited to the owner after any Token-2022 transfer fee.
     pub base_owner_credit: u64,
     pub quote_owner_credit: u64,
-    pub ylp_supply: u64,
+    pub srlp_supply: u64,
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
     pub metadata: MarketEventMetadata,
 }
 
-/// Internal vault-owned yLP changes from one completed hLP hedge transition.
-/// Ordinary yLP deposits and exits continue to use `LiquidityAdded` and
+/// Internal vault-owned srLP changes from one completed hLP hedge transition.
+/// Ordinary srLP deposits and exits continue to use `LiquidityAdded` and
 /// `LiquidityRemoved`. This event includes both vaults because one operation
 /// can burn shares in one vault and mint them in the other. Debt changes are
 /// indexed-debt changes; funding interest is also reported by the canonical
@@ -123,13 +123,13 @@ pub struct LiquidityRemoved {
 pub struct HlpRebalanced {
     pub market: Pubkey,
     pub slot: u64,
-    pub base_hlp_ylp_minted: u64,
-    pub base_hlp_ylp_burned: u64,
-    pub quote_hlp_ylp_minted: u64,
-    pub quote_hlp_ylp_burned: u64,
-    pub base_hlp_ylp_shares_after: u64,
-    pub quote_hlp_ylp_shares_after: u64,
-    pub ylp_supply_after: u64,
+    pub base_hlp_srlp_minted: u64,
+    pub base_hlp_srlp_burned: u64,
+    pub quote_hlp_srlp_minted: u64,
+    pub quote_hlp_srlp_burned: u64,
+    pub base_hlp_srlp_shares_after: u64,
+    pub quote_hlp_srlp_shares_after: u64,
+    pub srlp_supply_after: u64,
     /// Quote-token debt of the base-target hLP.
     pub base_hlp_debt_increase: u64,
     pub base_hlp_debt_decrease: u64,
@@ -177,8 +177,8 @@ impl HlpRebalanced {
             ErrorCode::BrokenInvariant
         );
         let changed = |receipt: HlpRebalanceReceipt| {
-            receipt.ylp_mint_amount > 0
-                || receipt.ylp_burn_amount > 0
+            receipt.srlp_mint_amount > 0
+                || receipt.srlp_burn_amount > 0
                 || receipt.debt_delta != 0
                 || receipt.interest_paid > 0
         };
@@ -210,13 +210,13 @@ impl HlpRebalanced {
         Ok(Some(Self {
             market: market_key,
             slot,
-            base_hlp_ylp_minted: base.ylp_mint_amount,
-            base_hlp_ylp_burned: base.ylp_burn_amount,
-            quote_hlp_ylp_minted: quote.ylp_mint_amount,
-            quote_hlp_ylp_burned: quote.ylp_burn_amount,
-            base_hlp_ylp_shares_after: market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares_after: market.quote_hlp_vault.ylp_shares,
-            ylp_supply_after: market.base_side.shares.ylp_supply,
+            base_hlp_srlp_minted: base.srlp_mint_amount,
+            base_hlp_srlp_burned: base.srlp_burn_amount,
+            quote_hlp_srlp_minted: quote.srlp_mint_amount,
+            quote_hlp_srlp_burned: quote.srlp_burn_amount,
+            base_hlp_srlp_shares_after: market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares_after: market.quote_hlp_vault.srlp_shares,
+            srlp_supply_after: market.base_side.shares.srlp_supply,
             base_hlp_debt_increase,
             base_hlp_debt_decrease,
             base_hlp_debt_after,
@@ -236,7 +236,7 @@ impl HlpRebalanced {
 pub struct LpTransferred {
     pub market: Pubkey,
     pub lp_mint: Pubkey,
-    /// `0` for yLP and `1` for hLP.
+    /// `0` for srLP and `1` for hLP.
     pub token_kind: u8,
     pub source_owner: Pubkey,
     pub destination_owner: Pubkey,
@@ -450,7 +450,7 @@ pub struct SwapExecuted {
     pub base_fee: u64,
     pub divergence_fee: u64,
     pub volatility_fee: u64,
-    /// Dynamic surcharge retained outside executable/yLP inventory until an
+    /// Dynamic surcharge retained outside executable/srLP inventory until an
     /// admitted center move deploys it.
     pub retained_fee: u64,
     /// LP-owned fee compounded into reserve principal.
@@ -465,11 +465,11 @@ pub struct SwapExecuted {
     /// Final executable reserves after retention and inline hLP correction.
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
-    /// Internal yLP share supply after the swap.
-    pub ylp_supply: u64,
+    /// Internal srLP share supply after the swap.
+    pub srlp_supply: u64,
     /// Base price used to quote this execution, after any deferred controller step.
     pub start_price_nad: u64,
-    /// Each side's price, price EMA, and yLP growth indexes after the swap.
+    /// Each side's price, price EMA, and srLP growth indexes after the swap.
     pub base: MarketSideSnapshot,
     pub quote: MarketSideSnapshot,
 }
@@ -483,9 +483,9 @@ pub struct MarketSideSnapshot {
     pub spot_price_nad: u64,
     /// Symmetric risk EMA of the spot price.
     pub price_ema_nad: u64,
-    /// Per-yLP-share swap-fee growth, scaled by 2^64.
+    /// Per-srLP-share swap-fee growth, scaled by 2^64.
     pub swap_fee_growth_index_q64: u128,
-    /// Per-yLP-share interest growth, scaled by 2^64.
+    /// Per-srLP-share interest growth, scaled by 2^64.
     pub interest_growth_index_q64: u128,
 }
 
@@ -550,7 +550,7 @@ impl SwapExecuted {
             hlp_recovery_critical: swap.recovery.critical,
             base_live_reserve: state.base_side.reserves.live_reserve,
             quote_live_reserve: state.quote_side.reserves.live_reserve,
-            ylp_supply: state.base_side.shares.ylp_supply,
+            srlp_supply: state.base_side.shares.srlp_supply,
             start_price_nad: swap.start_price_nad,
             base,
             quote,
@@ -596,7 +596,7 @@ impl SwapExecuted {
             hlp_recovery_critical: false,
             base_live_reserve: swap.base_live_reserve,
             quote_live_reserve: swap.quote_live_reserve,
-            ylp_supply: state.base_side.shares.ylp_supply,
+            srlp_supply: state.base_side.shares.srlp_supply,
             start_price_nad,
             base,
             quote,
@@ -932,9 +932,9 @@ pub struct HlpOpened {
     /// Net reserve-vault credit after any input transfer fee.
     pub deposit_amount: u64,
     pub borrowed_amount: u64,
-    pub ylp_amount: u64,
+    pub srlp_amount: u64,
     pub hlp_amount: u64,
-    pub ylp_supply: u64,
+    pub srlp_supply: u64,
     pub hlp_supply: u64,
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
@@ -947,12 +947,12 @@ pub struct HlpClosed {
     /// `0` for base hLP and `1` for quote hLP.
     pub asset_side: u8,
     pub hlp_amount: u64,
-    pub ylp_amount: u64,
+    pub srlp_amount: u64,
     /// Amount credited to the owner after any output transfer fee.
     pub amount_out: u64,
     pub debt_repaid: u64,
     pub interest_paid: u64,
-    pub ylp_supply: u64,
+    pub srlp_supply: u64,
     pub hlp_supply: u64,
     pub base_live_reserve: u64,
     pub quote_live_reserve: u64,
@@ -964,8 +964,8 @@ pub struct HlpTerminalLiquidated {
     pub caller: Pubkey,
     pub target_asset: u8,
     pub debt_closed: u64,
-    pub ylp_burned: u64,
-    /// Borrowed-asset funding interest credited to yLP after caller bounty and
+    pub srlp_burned: u64,
+    /// Borrowed-asset funding interest credited to srLP after caller bounty and
     /// transfer fees.
     pub interest_paid: u64,
     /// Borrowed-asset amount credited to the caller after transfer fees.
@@ -1071,7 +1071,7 @@ pub struct GovernanceBalanceUpdated {
     pub owner: Pubkey,
     pub governance_balance: Pubkey,
     pub lp_mint: Pubkey,
-    /// 0 senior yLP, 1 current-generation junior LP.
+    /// 0 senior srLP, 1 current-generation junior LP.
     pub token_kind: u8,
     pub delegate: Pubkey,
     /// 0 deposit, 1 withdraw, 2 delegate change, 3 yield checkpoint/claim.

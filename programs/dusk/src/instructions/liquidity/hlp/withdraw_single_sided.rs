@@ -45,7 +45,7 @@ pub struct WithdrawSingleSided<'info> {
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
 
@@ -65,17 +65,17 @@ pub struct WithdrawSingleSided<'info> {
     #[account(
         mut,
         seeds = [
-            HLP_YLP_VAULT_SEED_PREFIX,
+            HLP_SRLP_VAULT_SEED_PREFIX,
             market.key().as_ref(),
             target_hlp_mint.key().as_ref(),
-            ylp_mint.key().as_ref(),
+            srlp_mint.key().as_ref(),
         ],
         bump,
-        token::mint = ylp_mint,
+        token::mint = srlp_mint,
         token::authority = market,
         token::token_program = token_2022_program,
     )]
-    pub hlp_ylp_account: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub hlp_srlp_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut)]
     pub base_yield_account: Box<Account<'info, YieldAccount>>,
@@ -109,7 +109,7 @@ impl<'info> WithdrawSingleSided<'info> {
             &self.quote_mint,
             &self.quote_reserve_vault,
         )?;
-        require_keys_eq!(self.market.ylp_mint, self.ylp_mint.key(), ErrorCode::InvalidLpMintKey);
+        require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
         let target_mint = match target_asset {
             MarketAsset::Base => &self.base_mint,
@@ -135,7 +135,7 @@ impl<'info> WithdrawSingleSided<'info> {
             ErrorCode::InsufficientBalance
         );
         validate_lp_mint(&self.target_hlp_mint, self.market.key(), target_mint.decimals)?;
-        validate_lp_mint(&self.ylp_mint, self.market.key(), self.base_mint.decimals)?;
+        validate_lp_mint(&self.srlp_mint, self.market.key(), self.base_mint.decimals)?;
         validate_hlp_yield_account_pda(
             self.base_yield_account.key(),
             self.base_yield_account.bump,
@@ -167,11 +167,11 @@ impl<'info> WithdrawSingleSided<'info> {
             YieldTokenKind::Hlp,
         )?;
         require_keys_eq!(
-            self.hlp_ylp_account.mint,
-            self.ylp_mint.key(),
+            self.hlp_srlp_account.mint,
+            self.srlp_mint.key(),
             ErrorCode::InvalidTokenAccount
         );
-        require_keys_eq!(self.hlp_ylp_account.owner, self.market.key(), ErrorCode::InvalidVault);
+        require_keys_eq!(self.hlp_srlp_account.owner, self.market.key(), ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
         Ok(())
@@ -205,18 +205,18 @@ impl<'info> WithdrawSingleSided<'info> {
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
         let terminal_burn = ctx.accounts.market.hlp_terminally_closed(target_asset);
         let interest_eligibility = HlpYieldEligibility {
-            ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
-            base_hlp_ylp_shares: ctx.accounts.market.base_hlp_vault.ylp_shares,
-            quote_hlp_ylp_shares: ctx.accounts.market.quote_hlp_vault.ylp_shares,
+            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: ctx.accounts.market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: ctx.accounts.market.quote_hlp_vault.srlp_shares,
         };
         require_eq!(
-            interest_eligibility.ylp_supply,
-            ctx.accounts.market.quote_side.shares.ylp_supply,
+            interest_eligibility.srlp_supply,
+            ctx.accounts.market.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
 
         // Checkpoint all yield earned before reducing the owner's hLP balance.
-        ctx.accounts.market.checkpoint_hlp_yield_from_ylp(target_asset)?;
+        ctx.accounts.market.checkpoint_hlp_yield_from_srlp(target_asset)?;
         let (base_swap_growth, base_interest_growth) = ctx
             .accounts
             .market
@@ -324,7 +324,7 @@ impl<'info> WithdrawSingleSided<'info> {
         }
         if terminal_burn {
             require!(
-                receipt.ylp_amount == 0
+                receipt.srlp_amount == 0
                     && receipt.target_amount_out == 0
                     && receipt.debt_repaid == 0
                     && receipt.interest_paid == 0,
@@ -344,19 +344,19 @@ impl<'info> WithdrawSingleSided<'info> {
             ctx.accounts.market.assert_market_health_with_fees(fees)?;
         }
 
-        // Burn backing yLP and transfer the released target asset to the owner.
-        let ylp_program = token_program_for_mint(
-            &ctx.accounts.ylp_mint,
+        // Burn backing srLP and transfer the released target asset to the owner.
+        let srlp_program = token_program_for_mint(
+            &ctx.accounts.srlp_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        if receipt.ylp_amount > 0 {
+        if receipt.srlp_amount > 0 {
             token_burn(
                 ctx.accounts.market.to_account_info(),
-                ylp_program,
-                ctx.accounts.ylp_mint.to_account_info(),
-                ctx.accounts.hlp_ylp_account.to_account_info(),
-                receipt.ylp_amount,
+                srlp_program,
+                ctx.accounts.srlp_mint.to_account_info(),
+                ctx.accounts.hlp_srlp_account.to_account_info(),
+                receipt.srlp_amount,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
             )?;
         }
@@ -408,11 +408,11 @@ impl<'info> WithdrawSingleSided<'info> {
             owner: owner_key,
             asset_side: target_asset.code(),
             hlp_amount: receipt.hlp_amount,
-            ylp_amount: receipt.ylp_amount,
+            srlp_amount: receipt.srlp_amount,
             amount_out: target_credit,
             debt_repaid: receipt.debt_repaid,
             interest_paid: receipt.interest_paid,
-            ylp_supply: ctx.accounts.market.base_side.shares.ylp_supply,
+            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
             hlp_supply: receipt.hlp_supply,
             base_live_reserve: ctx.accounts.market.base_side.reserves.live_reserve,
             quote_live_reserve: ctx.accounts.market.quote_side.reserves.live_reserve,

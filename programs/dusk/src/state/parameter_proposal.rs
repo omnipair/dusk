@@ -302,14 +302,14 @@ pub struct ParameterProposal {
     /// Frozen minimum support needed to keep this proposal alive after its
     /// initial 1% sponsorship burn-lock.
     pub sponsorship_floor: u64,
-    /// Senior voting units are one-for-one yLP reserve shares.
+    /// Senior voting units are one-for-one srLP reserve shares.
     pub total_locked: u64,
     /// Current-generation junior receipts. Their voting value is calculated
     /// from the live junior exchange rate whenever support is evaluated.
     pub total_locked_junior_receipts: u64,
-    /// Immutable queue-time numerator and direct-yLP denominator.
+    /// Immutable queue-time numerator and direct-srLP denominator.
     pub queued_support: u64,
-    pub queued_eligible_ylp: u64,
+    pub queued_eligible_srlp: u64,
     pub created_at: i64,
     /// Unix seconds for LP proposals, scheduled slots for manager proposals.
     pub queued_at: i64,
@@ -376,7 +376,7 @@ impl ParameterProposal {
         self.total_locked = 0;
         self.total_locked_junior_receipts = 0;
         self.queued_support = 0;
-        self.queued_eligible_ylp = 0;
+        self.queued_eligible_srlp = 0;
         self.created_at = created_at;
         self.queued_at = 0;
         self.execute_after = 0;
@@ -469,7 +469,7 @@ impl ParameterProposal {
             return Ok(false);
         }
         self.queued_support = current_support;
-        self.queued_eligible_ylp = eligible_supply;
+        self.queued_eligible_srlp = eligible_supply;
         self.status = ParameterProposalStatus::Queued;
         self.queued_at = now;
         let timelock = if MarketParameterUpdate::tranche_notice_required(&self.updates) {
@@ -625,7 +625,7 @@ impl ParameterProposal {
         let snapshot = (
             self.family_revisions,
             self.queued_support,
-            self.queued_eligible_ylp,
+            self.queued_eligible_srlp,
             self.queued_at,
             self.execute_after,
             self.execution_deadline,

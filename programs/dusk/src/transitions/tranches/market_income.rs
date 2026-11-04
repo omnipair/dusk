@@ -179,14 +179,14 @@ impl Market {
         }
         let i = asset.code() as usize + if funding { 2 } else { 0 };
         require_eq!(self.income.get()?.pending[i], 0, ErrorCode::BrokenInvariant);
-        let supply = self.base_side.shares.ylp_supply;
+        let supply = self.base_side.shares.srlp_supply;
         let senior_supply = self.tranches.senior_reserve_shares(supply)?;
-        let base_hlp = if funding { 0 } else { self.base_hlp_vault.ylp_shares };
-        let quote_hlp = if funding { 0 } else { self.quote_hlp_vault.ylp_shares };
+        let base_hlp = if funding { 0 } else { self.base_hlp_vault.srlp_shares };
+        let quote_hlp = if funding { 0 } else { self.quote_hlp_vault.srlp_shares };
         let excluded = if funding {
             self.base_hlp_vault
-                .ylp_shares
-                .checked_add(self.quote_hlp_vault.ylp_shares)
+                .srlp_shares
+                .checked_add(self.quote_hlp_vault.srlp_shares)
                 .ok_or(ErrorCode::SupplyOverflow)?
         } else {
             0

@@ -69,10 +69,10 @@ export type StoredMarket = {
   paramsHash: string;
   baseMint: string;
   quoteMint: string;
-  ylpMint: string;
+  srlpMint: string;
   baseHlpMint: string;
   quoteHlpMint: string;
-  ylpTokenMetadata: string;
+  srlpTokenMetadata: string;
   baseHlpTokenMetadata: string;
   quoteHlpTokenMetadata: string;
   baseReserveVault: string;
@@ -83,8 +83,8 @@ export type StoredMarket = {
   quoteInsuranceVault: string;
   baseInterestVault: string;
   quoteInterestVault: string;
-  baseHlpYlpVault: string;
-  quoteHlpYlpVault: string;
+  baseHlpSrlpVault: string;
+  quoteHlpSrlpVault: string;
   eventAuthority: string;
   seededLiquidity?: boolean;
 };
@@ -681,7 +681,7 @@ export function deriveYieldAccountAddress(
   owner: PublicKey,
   lpMint: PublicKey,
   assetMint: PublicKey,
-  tokenKind: "ylp" | "hlp"
+  tokenKind: "srlp" | "hlp"
 ): PublicKey {
   return derivePda(
     programId,
@@ -690,22 +690,22 @@ export function deriveYieldAccountAddress(
     owner.toBuffer(),
     lpMint.toBuffer(),
     assetMint.toBuffer(),
-    Buffer.from([tokenKind === "ylp" ? 0 : 1])
+    Buffer.from([tokenKind === "srlp" ? 0 : 1])
   );
 }
 
-export function deriveHlpYlpVaultAddress(
+export function deriveHlpSrlpVaultAddress(
   programId: PublicKey,
   market: PublicKey,
   targetHlpMint: PublicKey,
-  ylpMint: PublicKey
+  srlpMint: PublicKey
 ): PublicKey {
   return derivePda(
     programId,
     Buffer.from("hlp_ylp_vault"),
     market.toBuffer(),
     targetHlpMint.toBuffer(),
-    ylpMint.toBuffer()
+    srlpMint.toBuffer()
   );
 }
 
@@ -784,20 +784,20 @@ export function defaultAmmConfig() {
   };
 }
 
-export function defaultLpMetadata(kind: "ylp" | "baseHlp" | "quoteHlp" | "junior") {
+export function defaultLpMetadata(kind: "srlp" | "baseHlp" | "quoteHlp" | "junior") {
   const suffix =
-    kind === "ylp"
-      ? "YLP"
+    kind === "srlp"
+      ? "SRLP"
       : kind === "baseHlp"
         ? "BASE_HLP"
         : kind === "quoteHlp"
           ? "QUOTE_HLP"
           : "JUNIOR_LP";
   const defaults = {
-    ylp: {
-      name: "Omnipair Dusk yLP",
-      symbol: "yLP",
-      uri: "https://omnipair.fi/metadata/dusk/ylp.json",
+    srlp: {
+      name: "Omnipair Dusk srLP",
+      symbol: "srLP",
+      uri: "https://omnipair.fi/metadata/dusk/srlp.json",
     },
     baseHlp: {
       name: "Omnipair Dusk Base hLP",

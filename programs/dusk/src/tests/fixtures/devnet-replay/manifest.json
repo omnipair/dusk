@@ -19,7 +19,7 @@
       "lamports": 1461600,
       "bytes": 82
     },
-    "ylp_mint": {
+    "srlp_mint": {
       "address": "JBxhpnrdADegPpmB5jHagcPkRR5Nkqsgpc2pPmPAsjRg",
       "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "lamports": 2519520,
@@ -67,7 +67,7 @@
       "lamports": 3640080,
       "bytes": 395
     },
-    "base_hlp_ylp_vault": {
+    "base_hlp_srlp_vault": {
       "address": "EHbQTVJHWEoxX48m6M3bSY1hGbNbdC1tRgrwDum8L7Wh",
       "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "lamports": 2081040,

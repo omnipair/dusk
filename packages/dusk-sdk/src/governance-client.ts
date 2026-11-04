@@ -24,7 +24,7 @@ export interface RecoveryVoteParams {
 export interface GovernanceOwnerParams extends GovernanceHolderAccountOverrides {
   market: AddressLike;
   owner: AddressLike;
-  /** Defaults to the senior yLP governance balance. */
+  /** Defaults to the senior srLP governance balance. */
   kind?: GovernanceLpKind;
   lpMint?: AddressLike;
   ownerLpAccount?: AddressLike;
@@ -34,7 +34,7 @@ export interface GovernanceContribution {
   owner: AddressLike;
   /** Raw receipt atoms, taken only from this owner's matching uncommitted balance. */
   amount: GovernanceIntegerLike;
-  /** Defaults to senior yLP. */
+  /** Defaults to senior srLP. */
   kind?: GovernanceLpKind;
 }
 export interface CreateGovernanceProposalParams {
@@ -70,7 +70,7 @@ export interface WithdrawGovernanceSupportParams {
   lpMint?: AddressLike;
 }
 
-/** Reusable senior yLP and current-generation junior LP voting balances. */
+/** Reusable senior srLP and current-generation junior LP voting balances. */
 export class DuskGovernance {
   private readonly writer: DuskWrite;
   constructor(readonly program: Program<Dusk>) { this.writer = new DuskWrite(program); }
@@ -116,7 +116,7 @@ export class DuskGovernance {
       policyVersion: governanceIntegerBN(MANAGER_POLICY_VERSION, "policyVersion"),
       updates: updates.map(anchorParameterUpdate),
       metadata: {...params.metadata, descriptionSha256: Array.from(params.metadata.descriptionSha256)},
-    }, {accounts: {payer, manager, market, proposal, ylpMint: state.ylpMint, baseHlpYlpVault: state.baseHlpVault.ylpVault, quoteHlpYlpVault: state.quoteHlpVault.ylpVault, systemProgram: SystemProgram.programId}});
+    }, {accounts: {payer, manager, market, proposal, srlpMint: state.srlpMint, baseHlpSrlpVault: state.baseHlpVault.srlpVault, quoteHlpSrlpVault: state.quoteHlpVault.srlpVault, systemProgram: SystemProgram.programId}});
     return {proposal, instruction, transaction: new Transaction().add(instruction)};
   }
 
@@ -167,7 +167,7 @@ export class DuskGovernance {
       payer: address(params.payer), authority: address(params.authority), market, ballot, source, vote,
       sourceProposal: params.sourceProposal ? address(params.sourceProposal) : null,
       targetProposal: target.kind === "cancelProposal" ? address(target.proposal) : null,
-      ylpMint: state.ylpMint, baseHlpYlpVault: state.baseHlpVault.ylpVault, quoteHlpYlpVault: state.quoteHlpVault.ylpVault,
+      srlpMint: state.srlpMint, baseHlpSrlpVault: state.baseHlpVault.srlpVault, quoteHlpSrlpVault: state.quoteHlpVault.srlpVault,
       systemProgram: SystemProgram.programId,
     }});
     return {vote, instruction, transaction: new Transaction().add(instruction)};
@@ -180,7 +180,7 @@ export class DuskGovernance {
     const state = await this.accountClient<Market>("market").fetch(market);
     const instruction = await this.writer.instruction("refreshRecoveryBallot" as DuskInstructionName, undefined, {accounts: {
       market, ballot, targetProposal: target.kind === "cancelProposal" ? address(target.proposal) : null,
-      ylpMint: state.ylpMint, baseHlpYlpVault: state.baseHlpVault.ylpVault, quoteHlpYlpVault: state.quoteHlpVault.ylpVault,
+      srlpMint: state.srlpMint, baseHlpSrlpVault: state.baseHlpVault.srlpVault, quoteHlpSrlpVault: state.quoteHlpVault.srlpVault,
     }});
     return {instruction, transaction: new Transaction().add(instruction)};
   }
@@ -272,9 +272,9 @@ export class DuskGovernance {
     const [governanceBalance] = deriveGovernanceBalanceAddress(market, owner, lpMint, this.program.programId);
     const instruction = await this.writer.instruction("manageGovernanceBalance" as DuskInstructionName, action, { accounts: {
       owner, market, governanceBalance, lpMint,
-      ownerLpAccount: address(params.ownerLpAccount ?? params.holderYlpAccount ?? getAssociatedTokenAddressSync(lpMint, owner, true, TOKEN_2022_PROGRAM_ID)),
-      baseYieldAccount: address(params.baseYieldAccount ?? deriveYieldAccountAddress(market, owner, lpMint, state.baseSide.assetMint, kind === "senior" ? "ylp" : "junior", this.program.programId)[0]),
-      quoteYieldAccount: address(params.quoteYieldAccount ?? deriveYieldAccountAddress(market, owner, lpMint, state.quoteSide.assetMint, kind === "senior" ? "ylp" : "junior", this.program.programId)[0]),
+      ownerLpAccount: address(params.ownerLpAccount ?? params.holderSrlpAccount ?? getAssociatedTokenAddressSync(lpMint, owner, true, TOKEN_2022_PROGRAM_ID)),
+      baseYieldAccount: address(params.baseYieldAccount ?? deriveYieldAccountAddress(market, owner, lpMint, state.baseSide.assetMint, kind === "senior" ? "srlp" : "junior", this.program.programId)[0]),
+      quoteYieldAccount: address(params.quoteYieldAccount ?? deriveYieldAccountAddress(market, owner, lpMint, state.quoteSide.assetMint, kind === "senior" ? "srlp" : "junior", this.program.programId)[0]),
       token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
     }, remainingAccounts: kind === "junior" && !lpMint.equals(address(state.juniorMint))
       ? [{ pubkey: deriveJuniorCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false }]
@@ -295,8 +295,8 @@ export class DuskGovernance {
       metadata: { ...params.metadata, descriptionSha256: Array.from(params.metadata.descriptionSha256) },
       contributions: batch.amounts,
     }, { accounts: {
-      proposer, market, proposal, ylpMint: state.ylpMint, baseHlpYlpVault: state.baseHlpVault.ylpVault,
-      quoteHlpYlpVault: state.quoteHlpVault.ylpVault, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+      proposer, market, proposal, srlpMint: state.srlpMint, baseHlpSrlpVault: state.baseHlpVault.srlpVault,
+      quoteHlpSrlpVault: state.quoteHlpVault.srlpVault, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
     }, remainingAccounts: batch.remainingAccounts });
     return { proposal, supports: batch.supports, instruction, transaction: new Transaction().add(instruction) };
   }
@@ -310,8 +310,8 @@ export class DuskGovernance {
     const instruction = await this.writer.instruction("supportGovernanceProposal" as DuskInstructionName, {
       digest, contributions: batch.amounts,
     }, { accounts: {
-      authority: address(params.authority), market, proposal, ylpMint: state.ylpMint,
-      baseHlpYlpVault: state.baseHlpVault.ylpVault, quoteHlpYlpVault: state.quoteHlpVault.ylpVault, systemProgram: SystemProgram.programId,
+      authority: address(params.authority), market, proposal, srlpMint: state.srlpMint,
+      baseHlpSrlpVault: state.baseHlpVault.srlpVault, quoteHlpSrlpVault: state.quoteHlpVault.srlpVault, systemProgram: SystemProgram.programId,
     }, remainingAccounts: batch.remainingAccounts });
     return { proposal, supports: batch.supports, instruction, transaction: new Transaction().add(instruction) };
   }
@@ -357,7 +357,7 @@ export class DuskGovernance {
 }
 
 function governanceMint(state: Market, kind: GovernanceLpKind): PublicKey {
-  return address(kind === "senior" ? state.ylpMint : state.juniorMint);
+  return address(kind === "senior" ? state.srlpMint : state.juniorMint);
 }
 
 function positiveAmount(value: GovernanceIntegerLike) {

@@ -61,15 +61,15 @@ creation. At first liquidity, `preview_add_liquidity` uses the invocation's
 validated observation to choose reserve credits within both gross-spend caps
 (after transfer-fee conversion). Base rounds down and quote rounds up to token
 atoms; unused amounts are never transferred. `add_liquidity` recomputes the
-same credits from measured transfers before minting yLP. The resulting native
+same credits from measured transfers before minting srLP. The resulting native
 reserve ratio matches the reference up to less than one quote atom, rather
-than promising exact real-number equality. The existing min-yLP floor still
+than promising exact real-number equality. The existing min-srLP floor still
 protects execution. Native first liquidity and later proportional deposits
 retain their prior rules. No instruction payload or account layout changes.
 
 Validation covers missing/stale observations, mismatched caller ratios, a
 reference move between instruction construction and execution, unused wallet
-funds, min-yLP rollback, mixed token decimals, and rounded-preview idempotence.
+funds, min-srLP rollback, mixed token decimals, and rounded-preview idempotence.
 
 The first-deposit change also exercises a different inventory state in the
 existing partial delegated-close fixture. Decimal rescaling now uses an exact

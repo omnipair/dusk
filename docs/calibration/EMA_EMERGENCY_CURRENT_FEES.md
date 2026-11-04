@@ -26,7 +26,7 @@ Six reference candidates combine:
 | --- | --- |
 | Live depth | Preserve the concentrated curve's current depth, reconstruct at symmetric EMA |
 | Frozen depth | Use pre-shock depth as an idealized slow/frozen depth EMA |
-| Share-adjusted frozen depth | Scale that reference by current ordinary yLP shares / reference ordinary shares |
+| Share-adjusted frozen depth | Scale that reference by current ordinary srLP shares / reference ordinary shares |
 
 Each is tested with (a) the complete native fee formula evaluated on the reference path, retaining real launch/base/volatility inputs, and (b) a sensitivity retaining at least the full live-curve fee amount. No base-only fee exemption is introduced. The frozen-depth experiment is a deliberately stable reference; it does not claim to implement or calibrate a new on-chain depth oracle. In particular, it is not a direct use of `min(observed_depth, ema_depth)`.
 
@@ -48,7 +48,7 @@ The actor obtains collateral from a finite external CPMM with 100,000 debt-token
 
 The honest comparator also receives its best sampled permitted liquidation and arbitrage. Thus the reported additional profit is **manipulated sequence minus honest sequence**, not total post-liquidation arbitrage. A matched no-liquidation control measures the cost of trading out and back without the liquidation.
 
-Ordinary yLP and both hLP cohorts are marked at the same external price after the reverse trade, including earned fees once. Protocol fees, protected reserves and remaining insurance are separate. A remaining loan's mark-based deficit is also recorded; it must be deducted when comparing risk-adjusted pool resources. The headline full-close cases have no remaining loan or residual deficit.
+Ordinary srLP and both hLP cohorts are marked at the same external price after the reverse trade, including earned fees once. Protocol fees, protected reserves and remaining insurance are separate. A remaining loan's mark-based deficit is also recorded; it must be deducted when comparing risk-adjusted pool resources. The headline full-close cases have no remaining loan or residual deficit.
 
 Accrued interest/funding over time, priority fees, financing charges and competition are not simulated in the matrix. Trading costs and transfer fees are simulated. Additional financing/transaction costs are shown as sensitivities rather than invented estimates.
 
@@ -65,7 +65,7 @@ The EMA column uses frozen depth **and retains at least the full live fee charge
 | Recorded principal write-off | 4,924.779 | 6,778.861 | 4,209.216 | 4,209.216 |
 | Caller reward | 90.658 | 71.930 | 97.886 | 97.886 |
 | Actor net profit | 3,755.539 | 6,649.545 | 3,765.687 | 6,692.083 |
-| Final ordinary yLP value | 56,958.428 | 54,679.990 | 56,952.750 | 54,655.364 |
+| Final ordinary srLP value | 56,958.428 | 54,679.990 | 56,952.750 | 54,655.364 |
 | Final base hLP value | 8,603.382 | 8,002.411 | 8,601.658 | 7,995.460 |
 | Final quote hLP value | 7,585.540 | 6,432.325 | 7,582.086 | 6,416.844 |
 | Combined LP/hLP value | 73,147.350 | 69,114.726 | 73,136.494 | 69,067.668 |
@@ -115,7 +115,7 @@ With hLP, the position holds 9,788.670 collateral. Using the reference-depth can
 | Credited recovery | 4,308.104 | 4,308.104 |
 | Recorded write-off | 2,691.896 | 2,691.896 |
 | Actor net profit | 731.208 | 1,023.670 |
-| Ordinary yLP value | 62,936.609 | 62,379.408 |
+| Ordinary srLP value | 62,936.609 | 62,379.408 |
 | Base hLP value | 6,193.097 | 5,924.755 |
 | Quote hLP value | 10,248.482 | 10,156.722 |
 

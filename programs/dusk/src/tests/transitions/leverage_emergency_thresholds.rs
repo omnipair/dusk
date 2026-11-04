@@ -405,7 +405,7 @@ fn run(scenario: Scenario) -> Outcome {
         no_accrual(&mut market, slot);
         if step == 2 && case.withdrawal > 0 {
             let mut trial = market.clone();
-            let shares = trial.base_side.shares.ylp_supply * case.withdrawal / 10_000;
+            let shares = trial.base_side.shares.srlp_supply * case.withdrawal / 10_000;
             if let Err(e) = trial
                 .remove_liquidity(shares)
                 .and_then(|_| trial.finalize_amm_transition_and_observe_risk(slot))

@@ -1154,7 +1154,7 @@ function governanceActionFromAnchor(value: unknown): GovernanceActionInput {
 export interface DecodedExecutionCommitment extends DecodedParameterProposalForDigest {
   executionDigest: Uint8Array | number[];
   queuedSupport: GovernanceIntegerLike;
-  queuedEligibleYlp: GovernanceIntegerLike;
+  queuedEligibleSrlp: GovernanceIntegerLike;
   queuedAt: GovernanceIntegerLike;
   executeAfter: GovernanceIntegerLike;
   executionDeadline: GovernanceIntegerLike;
@@ -1165,7 +1165,7 @@ export async function computeDecodedExecutionDigest(programId: AddressLike, prop
   const intent = await computeDecodedParameterProposalDigest(programId, proposal);
   return sha256(concatBytes(new TextEncoder().encode("DUSK_PARAMETER_EXECUTION_V2"), intent,
     ...proposal.familyRevisions.map((revision,index) => encodeU64(revision, `familyRevisions[${index}]`)),
-    encodeU64(proposal.queuedSupport, "queuedSupport"), encodeU64(proposal.queuedEligibleYlp, "queuedEligibleYlp"),
+    encodeU64(proposal.queuedSupport, "queuedSupport"), encodeU64(proposal.queuedEligibleSrlp, "queuedEligibleSrlp"),
     encodeI64(proposal.queuedAt), encodeI64(proposal.executeAfter), encodeI64(proposal.executionDeadline)));
 }
 
@@ -1181,9 +1181,9 @@ export async function verifyDecodedParameterProposalDigest(
   return equalBytes(await computeDecodedParameterProposalDigest(programId, proposal), proposal.digest);
 }
 
-export function proposalSponsorshipFloor(eligibleYlp: GovernanceIntegerLike): bigint {
-  const eligible = toU64BigInt(eligibleYlp, "eligibleYlp");
-  if (eligible === 0n) throw new Error("eligibleYlp must be nonzero");
+export function proposalSponsorshipFloor(eligibleSrlp: GovernanceIntegerLike): bigint {
+  const eligible = toU64BigInt(eligibleSrlp, "eligibleSrlp");
+  if (eligible === 0n) throw new Error("eligibleSrlp must be nonzero");
   return (
     eligible * BigInt(PARAMETER_PROPOSAL_SPONSOR_BPS) +
     BigInt(GOVERNANCE_BPS_DENOMINATOR - 1)
@@ -1192,38 +1192,38 @@ export function proposalSponsorshipFloor(eligibleYlp: GovernanceIntegerLike): bi
 
 export function hasStrictProposalMajority(
   lockedSupport: GovernanceIntegerLike,
-  eligibleYlp: GovernanceIntegerLike
+  eligibleSrlp: GovernanceIntegerLike
 ): boolean {
   const locked = toU64BigInt(lockedSupport, "lockedSupport");
-  const eligible = toU64BigInt(eligibleYlp, "eligibleYlp");
+  const eligible = toU64BigInt(eligibleSrlp, "eligibleSrlp");
   return (
     locked * BigInt(GOVERNANCE_BPS_DENOMINATOR) >
     eligible * BigInt(PARAMETER_PROPOSAL_SUPPORT_BPS)
   );
 }
 
-export function minimumProposalQueueSupport(eligibleYlp: GovernanceIntegerLike): bigint {
-  const eligible = toU64BigInt(eligibleYlp, "eligibleYlp");
-  if (eligible === 0n) throw new Error("eligibleYlp must be nonzero");
+export function minimumProposalQueueSupport(eligibleSrlp: GovernanceIntegerLike): bigint {
+  const eligible = toU64BigInt(eligibleSrlp, "eligibleSrlp");
+  if (eligible === 0n) throw new Error("eligibleSrlp must be nonzero");
   return eligible / 2n + 1n;
 }
 
-export function eligibleDirectYlp(input: {
+export function eligibleDirectSrlp(input: {
   mintSupply: GovernanceIntegerLike;
-  governanceLockedYlp: GovernanceIntegerLike;
-  baseHlpYlpVaultAmount: GovernanceIntegerLike;
-  quoteHlpYlpVaultAmount: GovernanceIntegerLike;
+  governanceLockedSrlp: GovernanceIntegerLike;
+  baseHlpSrlpVaultAmount: GovernanceIntegerLike;
+  quoteHlpSrlpVaultAmount: GovernanceIntegerLike;
 }): bigint {
   const totalOwnership =
     toU64BigInt(input.mintSupply, "mintSupply") +
-    toU64BigInt(input.governanceLockedYlp, "governanceLockedYlp");
-  if (totalOwnership > U64_MAX) throw new Error("total yLP ownership exceeded u64");
+    toU64BigInt(input.governanceLockedSrlp, "governanceLockedSrlp");
+  if (totalOwnership > U64_MAX) throw new Error("total srLP ownership exceeded u64");
   const afterBase =
-    totalOwnership - toU64BigInt(input.baseHlpYlpVaultAmount, "baseHlpYlpVaultAmount");
-  if (afterBase < 0n) throw new Error("base hLP yLP vault exceeds total yLP ownership");
+    totalOwnership - toU64BigInt(input.baseHlpSrlpVaultAmount, "baseHlpSrlpVaultAmount");
+  if (afterBase < 0n) throw new Error("base hLP srLP vault exceeds total srLP ownership");
   const eligible =
-    afterBase - toU64BigInt(input.quoteHlpYlpVaultAmount, "quoteHlpYlpVaultAmount");
-  if (eligible < 0n) throw new Error("quote hLP yLP vault exceeds remaining yLP ownership");
+    afterBase - toU64BigInt(input.quoteHlpSrlpVaultAmount, "quoteHlpSrlpVaultAmount");
+  if (eligible < 0n) throw new Error("quote hLP srLP vault exceeds remaining srLP ownership");
   return eligible;
 }
 

@@ -57,12 +57,12 @@ const provider = {
 };
 const program = new Program(IDL, provider);
 program.account.market.fetch = async () => ({
-  ylpMint: keys[2],
+  srlpMint: keys[2],
   juniorMint: keys[9],
   baseSide: { assetMint: keys[3] },
   quoteSide: { assetMint: keys[4] },
-  baseHlpVault: { ylpVault: keys[5] },
-  quoteHlpVault: { ylpVault: keys[6] },
+  baseHlpVault: { srlpVault: keys[5] },
+  quoteHlpVault: { srlpVault: keys[6] },
 });
 
 const rationaleBytes = new TextEncoder().encode("# Rationale\nExact bytes matter.\n");
@@ -301,7 +301,7 @@ const build = await new DuskWrite(program).createParameterProposal({
   updates: everyFamily,
   metadata,
   initialSupport: "18446744073709551615",
-  holderYlpAccount: keys[7],
+  holderSrlpAccount: keys[7],
 });
 build.transaction.feePayer = keys[0];
 build.transaction.recentBlockhash = keys[9].toBase58();
@@ -330,14 +330,14 @@ const alternateBuild = await alternateWriter.createParameterProposal({
   updates: [update],
   metadata: verifiedMetadata,
   initialSupport: 1,
-  holderYlpAccount: keys[7],
+  holderSrlpAccount: keys[7],
 });
 const alternateBaseYield = deriveYieldAccountAddress(
   keys[1],
   keys[0],
   keys[2],
   keys[3],
-  "ylp",
+  "srlp",
   alternateProgramId
 )[0];
 const alternateQuoteYield = deriveYieldAccountAddress(
@@ -345,7 +345,7 @@ const alternateQuoteYield = deriveYieldAccountAddress(
   keys[0],
   keys[2],
   keys[4],
-  "ylp",
+  "srlp",
   alternateProgramId
 )[0];
 for (const expected of [alternateBaseYield, alternateQuoteYield]) {
@@ -440,7 +440,7 @@ const decoded = {market: keys[1], proposer: keys[0], nonce: new anchor.BN(7), ju
   origin: {manager: {epoch: new anchor.BN(7), policyVersion: new anchor.BN(1)}}, action: {parameters: {}},
   conditions: encodedConditions, updates: encodedUpdates, metadata: verifiedMetadata, digest: managedIntent,
   familyRevisions: [0, 0, 0, 0, 15, 0, 0, 0, 0].map(value => new anchor.BN(value)),
-  queuedSupport: new anchor.BN(0), queuedEligibleYlp: new anchor.BN(0), queuedAt: new anchor.BN(100),
+  queuedSupport: new anchor.BN(0), queuedEligibleSrlp: new anchor.BN(0), queuedAt: new anchor.BN(100),
   executeAfter: new anchor.BN(604_900), executionDeadline: new anchor.BN(1_209_700)};
 const expectedExecution = createHash("sha256").update(Buffer.concat([
   Buffer.from("DUSK_PARAMETER_EXECUTION_V2"), expectedManagedIntent,

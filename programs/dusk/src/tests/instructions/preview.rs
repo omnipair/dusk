@@ -17,8 +17,8 @@ fn daily_borrow_remaining(market: &Market, asset: MarketAsset, slot: u64) -> Res
 
 fn hlp_receipt_mutates_curve_inventory(receipt: &HlpRebalanceReceipt) -> bool {
     receipt.executed_delta != 0
-        || receipt.ylp_mint_amount != 0
-        || receipt.ylp_burn_amount != 0
+        || receipt.srlp_mint_amount != 0
+        || receipt.srlp_burn_amount != 0
         || receipt.debt_delta != 0
         || receipt.interest_paid != 0
 }
@@ -76,10 +76,10 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
     market.base_side.reserves.cash_reserve = 1_000_000;
     market.quote_side.reserves.live_reserve = 1_000_000;
     market.quote_side.reserves.cash_reserve = 1_000_000;
-    // Every tradable market has a nonzero ordinary yLP supply. The concentrated
+    // Every tradable market has a nonzero ordinary srLP supply. The concentrated
     // curve derives ordinary versus hLP ownership from this canonical supply.
-    market.base_side.shares.ylp_supply = 1_000_000;
-    market.quote_side.shares.ylp_supply = 1_000_000;
+    market.base_side.shares.srlp_supply = 1_000_000;
+    market.quote_side.shares.srlp_supply = 1_000_000;
     market.debt.base_borrow_index_nad = NAD as u128;
     market.debt.quote_borrow_index_nad = NAD as u128;
     market.debt.fixed_base_shares = existing_base_debt as u128;
@@ -103,7 +103,7 @@ fn unseeded_market_has_a_zero_spot_preview() {
     let market = Market::default();
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
         let side = preview_side(&market, asset, 0).unwrap();
-        assert_eq!(side.ylp_supply, 0);
+        assert_eq!(side.srlp_supply, 0);
         assert_eq!(side.spot_price_nad, 0);
         assert_eq!(side.borrow_index_nad, market.debt.borrow_index(asset));
     }
@@ -113,8 +113,8 @@ fn unseeded_market_has_a_zero_spot_preview() {
 #[test]
 fn drained_market_previews_locked_dust_without_reconstructing_a_trade_curve() {
     let mut market = Market::default();
-    market.base_side.shares.ylp_supply = MIN_LIQUIDITY;
-    market.quote_side.shares.ylp_supply = MIN_LIQUIDITY;
+    market.base_side.shares.srlp_supply = MIN_LIQUIDITY;
+    market.quote_side.shares.srlp_supply = MIN_LIQUIDITY;
     market.base_side.reserves.live_reserve = 1884;
     market.base_side.reserves.cash_reserve = 1884;
     market.quote_side.reserves.live_reserve = 490;
@@ -123,9 +123,9 @@ fn drained_market_previews_locked_dust_without_reconstructing_a_trade_curve() {
     market.debt.quote_borrow_index_nad = NAD as u128;
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
         let preview = preview_side(&market, asset, 0).unwrap();
-        assert_eq!(preview.ylp_supply, MIN_LIQUIDITY);
+        assert_eq!(preview.srlp_supply, MIN_LIQUIDITY);
         assert_eq!(preview.live_reserve, market.side(asset).reserves.live_reserve);
-        assert!(preview.ylp_exchange_rate_nad > 0);
+        assert!(preview.srlp_exchange_rate_nad > 0);
         assert_eq!(preview.spot_price_nad, 0);
         assert_eq!(preview.conservative_depth_nad, 0);
         assert_eq!(preview.daily_borrow_remaining, 0);
@@ -169,7 +169,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
                 side.asset_decimals = decimals;
                 side.reserves.cash_reserve = 13_978;
                 side.reserves.live_reserve = 13_978;
-                side.shares.ylp_supply = 13_976;
+                side.shares.srlp_supply = 13_976;
             }
             market.side_mut(asset_in).reserves.cash_reserve = 6_989;
             let vault = if asset_in == MarketAsset::Quote {
@@ -181,7 +181,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
                 market.quote_hlp_vault.base_hlp_live_reserve = 6_989;
                 &mut market.quote_hlp_vault
             };
-            vault.ylp_shares = 6_988;
+            vault.srlp_shares = 6_988;
             vault.hlp_supply = 6_989;
             vault.debt_shares = 1_000;
             vault.debt_principal = 6_989;
@@ -235,8 +235,8 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
             let debt = Debt::shares_to_debt(vault.debt_shares, index).unwrap();
             let claim = mul_div_u128(
                 market.side(asset_in).reserves.live_reserve as u128,
-                vault.ylp_shares as u128,
-                market.side(asset_in).shares.ylp_supply as u128,
+                vault.srlp_shares as u128,
+                market.side(asset_in).shares.srlp_supply as u128,
             )
             .unwrap();
             assert!(debt.abs_diff(claim) <= 1);
@@ -249,8 +249,8 @@ fn active_concentrated_preview_market() -> Market {
     let mut market = preview_test_market(0, 0);
     market.quote_side.reserves.live_reserve = 2_000_000;
     market.quote_side.reserves.cash_reserve = 2_000_000;
-    market.base_side.shares.ylp_supply = 1_000_000;
-    market.quote_side.shares.ylp_supply = 1_000_000;
+    market.base_side.shares.srlp_supply = 1_000_000;
+    market.quote_side.shares.srlp_supply = 1_000_000;
     market.config.swap_fee_bps = 30;
     market.config.target_hlp_leverage_bps = 20_000;
     market.config.settlement_divergence_bps = 10_000;
@@ -296,14 +296,14 @@ fn active_reconfigured_concentrated_preview_market() -> Market {
 fn exhausted_hlp_waterfall_cancels_interest_without_spending_principal_insurance() {
     let target_asset = MarketAsset::Base;
     let mut market = active_concentrated_preview_market();
-    let vault_shares = market.base_hlp_vault.ylp_shares;
-    let ylp_supply_before = market.base_side.shares.ylp_supply;
+    let vault_shares = market.base_hlp_vault.srlp_shares;
+    let srlp_supply_before = market.base_side.shares.srlp_supply;
     let target_claim = u64::try_from(
-        (market.base_side.reserves.live_reserve as u128) * (vault_shares as u128) / (ylp_supply_before as u128),
+        (market.base_side.reserves.live_reserve as u128) * (vault_shares as u128) / (srlp_supply_before as u128),
     )
     .unwrap();
     let borrowed_claim = u64::try_from(
-        (market.quote_side.reserves.live_reserve as u128) * (vault_shares as u128) / (ylp_supply_before as u128),
+        (market.quote_side.reserves.live_reserve as u128) * (vault_shares as u128) / (srlp_supply_before as u128),
     )
     .unwrap();
     let eligibility_collateral = market
@@ -351,13 +351,13 @@ fn exhausted_hlp_waterfall_cancels_interest_without_spending_principal_insurance
     assert_eq!(receipt.socialized_loss, 0);
     assert_eq!(receipt.interest_canceled, actual_debt - principal - expected_interest);
     assert_eq!(receipt.debt_closed, actual_debt);
-    assert_eq!(receipt.ylp_burn_amount, vault_shares);
+    assert_eq!(receipt.srlp_burn_amount, vault_shares);
     assert_eq!(market.insurance.quote_available, 1_200);
-    assert_eq!(market.base_hlp_vault.ylp_shares, 0);
+    assert_eq!(market.base_hlp_vault.srlp_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_shares, 0);
     assert_eq!(market.base_hlp_vault.debt_principal, 0);
-    assert_eq!(market.base_side.shares.ylp_supply, ylp_supply_before - vault_shares);
-    assert_eq!(market.quote_side.shares.ylp_supply, ylp_supply_before - vault_shares);
+    assert_eq!(market.base_side.shares.srlp_supply, srlp_supply_before - vault_shares);
+    assert_eq!(market.quote_side.shares.srlp_supply, srlp_supply_before - vault_shares);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
 
@@ -365,7 +365,7 @@ fn exhausted_hlp_waterfall_cancels_interest_without_spending_principal_insurance
     let first_burn = closed_supply / 2;
     let first = market.withdraw_single_sided(target_asset, first_burn).unwrap();
     assert_eq!(first.target_amount_out, 0);
-    assert_eq!(first.ylp_amount, 0);
+    assert_eq!(first.srlp_amount, 0);
     assert_eq!(first.hlp_supply, closed_supply - first_burn);
     let final_receipt = market.withdraw_single_sided(target_asset, first.hlp_supply).unwrap();
     assert_eq!(final_receipt.target_amount_out, 0);
@@ -376,7 +376,7 @@ fn assert_prepared_swaps_equal(preview: &PreparedSwap, execution: &PreparedSwap)
     assert_eq!(preview.quote, execution.quote);
     assert_eq!(preview.base_pre_rebalance, execution.base_pre_rebalance);
     assert_eq!(preview.quote_pre_rebalance, execution.quote_pre_rebalance);
-    assert_eq!(preview.fee_eligible_ylp_supply, execution.fee_eligible_ylp_supply);
+    assert_eq!(preview.fee_eligible_srlp_supply, execution.fee_eligible_srlp_supply);
     assert_eq!(preview.interest_eligibility, execution.interest_eligibility);
     assert_eq!(preview.post_fee_curve_cache, execution.post_fee_curve_cache);
 }
@@ -433,8 +433,8 @@ fn reserve_custodied_fee_split_does_not_apply_a_second_transfer_fee() {
 #[test]
 fn preview_and_execution_use_identical_state_plans() {
     let mut preview_market = preview_test_market(0, 0);
-    preview_market.base_side.shares.ylp_supply = 1_000_000;
-    preview_market.quote_side.shares.ylp_supply = 1_000_000;
+    preview_market.base_side.shares.srlp_supply = 1_000_000;
+    preview_market.quote_side.shares.srlp_supply = 1_000_000;
     let mut execution_market = preview_market.clone();
     let context = SwapRequest {
         current_slot: 7,
@@ -450,7 +450,7 @@ fn preview_and_execution_use_identical_state_plans() {
     assert_eq!(preview.quote, execution.quote);
     assert_eq!(preview.base_pre_rebalance, execution.base_pre_rebalance);
     assert_eq!(preview.quote_pre_rebalance, execution.quote_pre_rebalance);
-    assert_eq!(preview.fee_eligible_ylp_supply, execution.fee_eligible_ylp_supply);
+    assert_eq!(preview.fee_eligible_srlp_supply, execution.fee_eligible_srlp_supply);
     assert_eq!(preview_market.amm, execution_market.amm);
 }
 
@@ -726,13 +726,13 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
     let mut healthy_quote_market = healthy;
     let healthy_prepared = request.prepare(&mut healthy_quote_market).unwrap();
 
-    let ordinary_ylp_shares_before = stressed
+    let ordinary_srlp_shares_before = stressed
         .base_side
         .shares
-        .ylp_supply
-        .checked_sub(stressed.base_hlp_vault.ylp_shares)
+        .srlp_supply
+        .checked_sub(stressed.base_hlp_vault.srlp_shares)
         .unwrap()
-        .checked_sub(stressed.quote_hlp_vault.ylp_shares)
+        .checked_sub(stressed.quote_hlp_vault.srlp_shares)
         .unwrap();
     let mut prepared = request.prepare(&mut stressed).unwrap();
     assert_eq!(prepared.quote.recovery.target_asset, MarketAsset::Base.code());
@@ -756,10 +756,10 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
     assert!(receipt.base_rebalance.interest_paid > 0);
     stressed.assert_market_invariants().unwrap();
 
-    let supply = stressed.base_side.shares.ylp_supply as u128;
+    let supply = stressed.base_side.shares.srlp_supply as u128;
     let curve_reserves = stressed.curve_reserves_nad().unwrap();
     let opposite_claim =
-        mul_div_u128(curve_reserves.quote, stressed.base_hlp_vault.ylp_shares as u128, supply).unwrap();
+        mul_div_u128(curve_reserves.quote, stressed.base_hlp_vault.srlp_shares as u128, supply).unwrap();
     let debt = Debt::shares_to_debt(
         stressed.base_hlp_vault.debt_shares,
         stressed.debt.quote_borrow_index_nad,
@@ -772,17 +772,17 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
         opposite_claim.abs_diff(debt_nad)
     );
 
-    // Recovery may burn hLP-owned yLP, but it must not confiscate ordinary
-    // yLP ownership to finance the trader improvement.
-    let ordinary_ylp_shares_after = stressed
+    // Recovery may burn hLP-owned srLP, but it must not confiscate ordinary
+    // srLP ownership to finance the trader improvement.
+    let ordinary_srlp_shares_after = stressed
         .base_side
         .shares
-        .ylp_supply
-        .checked_sub(stressed.base_hlp_vault.ylp_shares)
+        .srlp_supply
+        .checked_sub(stressed.base_hlp_vault.srlp_shares)
         .unwrap()
-        .checked_sub(stressed.quote_hlp_vault.ylp_shares)
+        .checked_sub(stressed.quote_hlp_vault.srlp_shares)
         .unwrap();
-    assert_eq!(ordinary_ylp_shares_after, ordinary_ylp_shares_before);
+    assert_eq!(ordinary_srlp_shares_after, ordinary_srlp_shares_before);
 }
 
 #[test]
@@ -810,15 +810,15 @@ fn concentrated_spot_reconstructs_both_hlps_without_solver_cells() {
             },
         )
         .unwrap();
-    assert!(finalized.base_rebalance.ylp_mint_amount > 0 || finalized.base_rebalance.ylp_burn_amount > 0);
-    assert!(finalized.quote_rebalance.ylp_mint_amount > 0 || finalized.quote_rebalance.ylp_burn_amount > 0);
+    assert!(finalized.base_rebalance.srlp_mint_amount > 0 || finalized.base_rebalance.srlp_burn_amount > 0);
+    assert!(finalized.quote_rebalance.srlp_mint_amount > 0 || finalized.quote_rebalance.srlp_burn_amount > 0);
     for (old_vault, actual_vault) in [
         (old_base_vault, market.base_hlp_vault),
         (old_quote_vault, market.quote_hlp_vault),
     ] {
         let mut expected = old_vault;
         expected
-            .checkpoint_yield_from_ylp_shares(&market.base_side, &market.quote_side, old_vault.ylp_shares)
+            .checkpoint_yield_from_srlp_shares(&market.base_side, &market.quote_side, old_vault.srlp_shares)
             .unwrap();
         assert!(
             expected.base_swap_fee_growth_index_q64 > old_vault.base_swap_fee_growth_index_q64
@@ -829,16 +829,16 @@ fn concentrated_spot_reconstructs_both_hlps_without_solver_cells() {
     }
     market.assert_market_invariants().unwrap();
 
-    let supply = market.base_side.shares.ylp_supply as u128;
+    let supply = market.base_side.shares.srlp_supply as u128;
     let base_hlp_quote_claim = mul_div_u128(
         market.quote_side.reserves.live_reserve as u128,
-        market.base_hlp_vault.ylp_shares as u128,
+        market.base_hlp_vault.srlp_shares as u128,
         supply,
     )
     .unwrap();
     let quote_hlp_base_claim = mul_div_u128(
         market.base_side.reserves.live_reserve as u128,
-        market.quote_hlp_vault.ylp_shares as u128,
+        market.quote_hlp_vault.srlp_shares as u128,
         supply,
     )
     .unwrap();
@@ -941,16 +941,16 @@ fn forty_percent_fee_compounding_is_native_to_cpmm_and_concentrated_swaps() {
             assert!(compounded.quote_hlp_vault.last_nav_nad > baseline.quote_hlp_vault.last_nav_nad);
             compounded.assert_market_invariants().unwrap();
 
-            let supply = compounded.base_side.shares.ylp_supply as u128;
+            let supply = compounded.base_side.shares.srlp_supply as u128;
             let base_hlp_quote_claim = mul_div_u128(
                 compounded.quote_side.reserves.live_reserve as u128,
-                compounded.base_hlp_vault.ylp_shares as u128,
+                compounded.base_hlp_vault.srlp_shares as u128,
                 supply,
             )
             .unwrap();
             let quote_hlp_base_claim = mul_div_u128(
                 compounded.base_side.reserves.live_reserve as u128,
-                compounded.quote_hlp_vault.ylp_shares as u128,
+                compounded.quote_hlp_vault.srlp_shares as u128,
                 supply,
             )
             .unwrap();
@@ -1057,14 +1057,14 @@ fn concentrated_swap_preserves_preexisting_fee_and_hlp_yield_state() {
         buyback_auction_bps: 4_000,
     };
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let eligible_ylp_supply = market.side(asset).shares.ylp_supply;
+        let eligible_srlp_supply = market.side(asset).shares.srlp_supply;
         let side = market.side_mut(asset);
-        side.record_claimable_swap_fees(137, 41, 2_500, protocol_split, eligible_ylp_supply)
+        side.record_claimable_swap_fees(137, 41, 2_500, protocol_split, eligible_srlp_supply)
             .unwrap();
         side.record_interest_credit(113, 2_500, protocol_split, 0).unwrap();
     }
-    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Base).unwrap();
-    market.checkpoint_hlp_yield_from_ylp(MarketAsset::Quote).unwrap();
+    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base).unwrap();
+    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote).unwrap();
 
     let seeded_base_swap_index = market.base_side.fees.swap_fee_growth_index_q64;
     let seeded_quote_interest_index = market.quote_side.fees.interest_growth_index_q64;
@@ -1113,8 +1113,8 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     let mut market = preview_test_market(0, 0);
     market.quote_side.reserves.live_reserve = 2_000_000;
     market.quote_side.reserves.cash_reserve = 2_000_000;
-    market.base_side.shares.ylp_supply = 1_000_000;
-    market.quote_side.shares.ylp_supply = 1_000_000;
+    market.base_side.shares.srlp_supply = 1_000_000;
+    market.quote_side.shares.srlp_supply = 1_000_000;
     market.config.swap_fee_bps = 30;
     market.config.target_hlp_leverage_bps = 20_000;
     market.config.settlement_divergence_bps = 10_000;
@@ -1173,8 +1173,8 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     let mut retained_market = preview_test_market(0, 0);
     retained_market.quote_side.reserves.live_reserve = 2_000_000;
     retained_market.quote_side.reserves.cash_reserve = 2_000_000;
-    retained_market.base_side.shares.ylp_supply = 1_000_000;
-    retained_market.quote_side.shares.ylp_supply = 1_000_000;
+    retained_market.base_side.shares.srlp_supply = 1_000_000;
+    retained_market.quote_side.shares.srlp_supply = 1_000_000;
     retained_market.config.swap_fee_bps = 0;
     retained_market.config.divergence_fee_share_cap_bps = 5_000;
     retained_market.config.amm = AmmConfig {
@@ -1233,7 +1233,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         retained_execution_market.try_to_vec().unwrap()
     );
     // Retained atoms are physically funded after the endpoint but remain
-    // outside executable reserves, yLP NAV, and withdrawal claims. The current
+    // outside executable reserves, srLP NAV, and withdrawal claims. The current
     // quote never moves or rebuilds its own curve.
     assert!(retained_preview_market.amm.retention_target_stale);
     assert_eq!(retained_preview_market.amm.concentrated_curve_cache, curve_before);
@@ -1249,7 +1249,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
 
     let protected_after = retained_preview_market.base_side.reserves.protected_recenter_reserve;
     let live_before_withdraw = retained_preview_market.base_side.reserves.live_reserve;
-    let supply_before_withdraw = retained_preview_market.base_side.shares.ylp_supply;
+    let supply_before_withdraw = retained_preview_market.base_side.shares.srlp_supply;
     let burn = 1_000;
     let withdrawal = retained_preview_market.remove_liquidity(burn).unwrap();
     assert_eq!(

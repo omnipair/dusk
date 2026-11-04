@@ -17,7 +17,7 @@ and `.github/workflows/ci.yaml`.
 ## LP token metadata
 
 `scripts/devnet/create_named_market.ts` creates a market the way mainnet will:
-LP mints at `yLP`/`hLP` addresses ground by the vanity server for the creator's
+LP mints at `srLP`/`hLP` addresses ground by the vanity server for the creator's
 key, transfer-hook validation accounts for all three mints (Token-2022 refuses
 to move a hooked token without one), names from the SDK's `lpTokenNaming`, and
 per-mint images and JSON pinned to IPFS before the atomic `initialize_market`

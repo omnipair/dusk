@@ -27,12 +27,12 @@ pub struct CreateManagerProposal<'info> {
     #[account(init, payer = payer, space = get_size_with_discriminator::<ParameterProposal>(), seeds = [PARAMETER_PROPOSAL_SEED_PREFIX, market.key().as_ref(), manager.key().as_ref(), &nonce.to_le_bytes()], bump)]
     pub proposal: Box<Account<'info, ParameterProposal>>,
     pub system_program: Program<'info, System>,
-    #[account(address = market.ylp_mint)]
-    pub ylp_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = market.srlp_mint)]
+    pub srlp_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Exact canonical custody, including authenticated zero custody before hLP initialization.
-    pub base_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub base_hlp_srlp_vault: UncheckedAccount<'info>,
     /// CHECK: Exact canonical custody, including authenticated zero custody before hLP initialization.
-    pub quote_hlp_ylp_vault: UncheckedAccount<'info>,
+    pub quote_hlp_srlp_vault: UncheckedAccount<'info>,
     /// CHECK: Canonical removal ballot cannot be omitted to bypass current LP authorization.
     #[account(seeds = [RECOVERY_BALLOT_SEED, market.key().as_ref(), RECOVERY_REMOVAL_KEY.as_ref()], bump)]
     pub removal_ballot: UncheckedAccount<'info>,
@@ -63,9 +63,9 @@ impl CreateManagerProposal<'_> {
         let clock = Clock::get()?;
         let eligible = super::governance_eligible_from_accounts(
             &ctx.accounts.market,
-            &ctx.accounts.ylp_mint,
-            &ctx.accounts.base_hlp_ylp_vault,
-            &ctx.accounts.quote_hlp_ylp_vault,
+            &ctx.accounts.srlp_mint,
+            &ctx.accounts.base_hlp_srlp_vault,
+            &ctx.accounts.quote_hlp_srlp_vault,
         )?;
         if let Some(ballot) = super::recovery::read_canonical_ballot(
             &ctx.accounts.removal_ballot.to_account_info(),

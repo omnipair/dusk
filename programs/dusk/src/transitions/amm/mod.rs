@@ -16,7 +16,7 @@ use anchor_lang::prelude::*;
 use crate::{constants::*, errors::ErrorCode, math::*, state::*};
 
 use super::liquidity::{
-    apply_compounded_ylp_fee_to_end, quote_integrated_exact_in_with_frozen_fee, IntegratedCurveState,
+    apply_compounded_srlp_fee_to_end, quote_integrated_exact_in_with_frozen_fee, IntegratedCurveState,
     IntegratedFrozenFeeQuote, IntegratedSwapDirection,
 };
 
@@ -83,7 +83,7 @@ impl Market {
 }
 
 impl Market {
-    /// Locks retained toxicity surcharge outside executable/yLP inventory.
+    /// Locks retained toxicity surcharge outside executable/srLP inventory.
     /// The physical reserve vault already received these atoms from the
     /// trader; this ledger is the exclusive ownership claim until a funded
     /// recenter deploys the bucket.
@@ -100,7 +100,7 @@ impl Market {
     /// Release unused recenter custody as LP income when governance removes
     /// its controller. Native income follows the same 50/50 split as swap fees.
     pub(crate) fn release_protected_recenter_reserves(&mut self) -> Result<()> {
-        let supply = self.base_side.shares.ylp_supply;
+        let supply = self.base_side.shares.srlp_supply;
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             let side = self.side_mut(asset);
             let amount = side.reserves.protected_recenter_reserve;
@@ -158,7 +158,7 @@ impl Market {
             reserves.base > 0 && reserves.quote > 0,
             ErrorCode::InsufficientLiquidity
         );
-        require!(self.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
+        require!(self.base_side.shares.srlp_supply > 0, ErrorCode::SupplyUnderflow);
 
         let center_price_nad = self.current_curve_center_price_nad()?;
         let parameters = self.config.amm.concentrated_curve_parameters()?;
@@ -274,7 +274,7 @@ impl Market {
     /// transition: retention state, revision, empty-market state, and risk all
     /// advance together.
     pub(crate) fn finalize_amm_socialized_loss_and_observe_risk(&mut self, current_slot: u64) -> Result<()> {
-        if self.base_side.shares.ylp_supply == MIN_LIQUIDITY {
+        if self.base_side.shares.srlp_supply == MIN_LIQUIDITY {
             return self.finalize_amm_transition_and_observe_risk(current_slot);
         }
         let (price_nad, curve_depth_nad) = self.checkpoint_amm_socialized_loss_raw(current_slot)?;
@@ -296,7 +296,7 @@ impl Market {
             return self.finalize_amm_transition(current_slot);
         }
         if self.amm.initialized
-            && self.base_side.shares.ylp_supply > MIN_LIQUIDITY
+            && self.base_side.shares.srlp_supply > MIN_LIQUIDITY
             && before == self.curve_reserves_nad()?
         {
             let risk_current =
@@ -340,10 +340,10 @@ impl Market {
     /// applied curve from one evaluation, sharing one canonical result between
     /// transition accounting and risk observation.
     pub(crate) fn finalize_amm_transition_and_observe_risk(&mut self, current_slot: u64) -> Result<()> {
-        if self.base_side.shares.ylp_supply == MIN_LIQUIDITY {
+        if self.base_side.shares.srlp_supply == MIN_LIQUIDITY {
             require_eq!(
-                self.base_side.shares.ylp_supply,
-                self.quote_side.shares.ylp_supply,
+                self.base_side.shares.srlp_supply,
+                self.quote_side.shares.srlp_supply,
                 ErrorCode::BrokenInvariant
             );
             require!(
@@ -385,7 +385,7 @@ impl Market {
             reserves.base > 0 && reserves.quote > 0,
             ErrorCode::InsufficientLiquidity
         );
-        require!(self.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
+        require!(self.base_side.shares.srlp_supply > 0, ErrorCode::SupplyUnderflow);
 
         if !self.amm.initialized {
             self.ensure_amm_initialized(current_slot)?;
@@ -563,7 +563,7 @@ impl Market {
         let candidate_curve_depth_per_share = self.curve_depth_per_share_nad(candidate_curve_depth)?;
         let covered = covered_impairment_nad(self.amm.curve_depth_per_share_nad, candidate_curve_depth_per_share)?;
         // A protected bucket is sufficient only when deploying every locked
-        // atom leaves yLP curve principal no lower than before the center
+        // atom leaves srLP curve principal no lower than before the center
         // move. This avoids assigning a fungible token-value conversion to
         // the curve-depth metric and makes the funding proof exact.
         let protected_funds_move =
@@ -778,13 +778,13 @@ impl HlpCurveBasis {
     pub(crate) fn from_inventory(
         reserves: CurveReservesNad,
         supply: u64,
-        base_ylp_shares: u64,
-        quote_ylp_shares: u64,
+        base_srlp_shares: u64,
+        quote_srlp_shares: u64,
         base_hlp_quote_debt: u128,
         quote_hlp_base_debt: u128,
     ) -> Result<Self> {
         require!(supply > 0, ErrorCode::SupplyUnderflow);
-        if base_ylp_shares == 0 && quote_ylp_shares == 0 && base_hlp_quote_debt == 0 && quote_hlp_base_debt == 0 {
+        if base_srlp_shares == 0 && quote_srlp_shares == 0 && base_hlp_quote_debt == 0 && quote_hlp_base_debt == 0 {
             // With no hLP claims or debt, all executable inventory is ordinary.
             // Retain the signed-domain and nonzero checks of the general path.
             i128::try_from(reserves.base).map_err(|_| ErrorCode::MarketMathOverflow)?;
@@ -808,10 +808,10 @@ impl HlpCurveBasis {
                 quote_hlp_base_debt: 0,
             });
         }
-        let base_hlp_base_claim = mul_div_u128(reserves.base, base_ylp_shares as u128, supply as u128)?;
-        let base_hlp_quote_claim = mul_div_u128(reserves.quote, base_ylp_shares as u128, supply as u128)?;
-        let quote_hlp_base_claim = mul_div_u128(reserves.base, quote_ylp_shares as u128, supply as u128)?;
-        let quote_hlp_quote_claim = mul_div_u128(reserves.quote, quote_ylp_shares as u128, supply as u128)?;
+        let base_hlp_base_claim = mul_div_u128(reserves.base, base_srlp_shares as u128, supply as u128)?;
+        let base_hlp_quote_claim = mul_div_u128(reserves.quote, base_srlp_shares as u128, supply as u128)?;
+        let quote_hlp_base_claim = mul_div_u128(reserves.base, quote_srlp_shares as u128, supply as u128)?;
+        let quote_hlp_quote_claim = mul_div_u128(reserves.quote, quote_srlp_shares as u128, supply as u128)?;
         // Preserve each vault's actual point-in-time NAV while reconstructing
         // the zero-opposite-exposure endpoint. This is deliberately derived
         // from current claims and indexed debt rather than `last_nav_nad`,
@@ -1134,8 +1134,8 @@ impl Market {
     fn integrated_curve_state_with_mark_nad(&self) -> Result<(IntegratedCurveState, IntegratedCurveMark)> {
         let reserves = self.curve_reserves_nad()?;
         if !self.has_active_hlp()
-            && self.base_hlp_vault.ylp_shares == 0
-            && self.quote_hlp_vault.ylp_shares == 0
+            && self.base_hlp_vault.srlp_shares == 0
+            && self.quote_hlp_vault.srlp_shares == 0
             && self.base_hlp_vault.debt_shares == 0
             && self.quote_hlp_vault.debt_shares == 0
             && self.amm.frozen_hlp_mask == 0
@@ -1151,11 +1151,11 @@ impl Market {
         reserves: CurveReservesNad,
     ) -> Result<(IntegratedCurveState, IntegratedCurveMark)> {
         require_eq!(
-            self.base_side.shares.ylp_supply,
-            self.quote_side.shares.ylp_supply,
+            self.base_side.shares.srlp_supply,
+            self.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
-        require!(self.base_side.shares.ylp_supply > 0, ErrorCode::SupplyUnderflow);
+        require!(self.base_side.shares.srlp_supply > 0, ErrorCode::SupplyUnderflow);
         require!(
             reserves.base > 0 && reserves.quote > 0,
             ErrorCode::InsufficientLiquidity
@@ -1215,7 +1215,7 @@ impl Market {
             quote_hlp_base_debt,
             ..
         } = basis;
-        let supply = self.base_side.shares.ylp_supply;
+        let supply = self.base_side.shares.srlp_supply;
         let as_signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
         let base_interest = self.normalize_amount(
             self.unrealized_interest(MarketAsset::Base)?,
@@ -1245,28 +1245,28 @@ impl Market {
             .checked_add(if receivable_hedge {
                 hlp_unpaid[0][0]
             } else {
-                mul_div_u128(base_interest, self.base_hlp_vault.ylp_shares as u128, supply as u128)?
+                mul_div_u128(base_interest, self.base_hlp_vault.srlp_shares as u128, supply as u128)?
             })
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let base_opposite_book_net = base_opposite_net
             .checked_add(as_signed(if receivable_hedge {
                 hlp_unpaid[0][1]
             } else {
-                mul_div_u128(quote_interest, self.base_hlp_vault.ylp_shares as u128, supply as u128)?
+                mul_div_u128(quote_interest, self.base_hlp_vault.srlp_shares as u128, supply as u128)?
             })?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote_book_claim = quote_hlp_quote_claim
             .checked_add(if receivable_hedge {
                 hlp_unpaid[1][1]
             } else {
-                mul_div_u128(quote_interest, self.quote_hlp_vault.ylp_shares as u128, supply as u128)?
+                mul_div_u128(quote_interest, self.quote_hlp_vault.srlp_shares as u128, supply as u128)?
             })
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote_opposite_book_net = quote_opposite_net
             .checked_add(as_signed(if receivable_hedge {
                 hlp_unpaid[1][0]
             } else {
-                mul_div_u128(base_interest, self.quote_hlp_vault.ylp_shares as u128, supply as u128)?
+                mul_div_u128(base_interest, self.quote_hlp_vault.srlp_shares as u128, supply as u128)?
             })?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let needs_mark = base_opposite_book_net != 0 || quote_opposite_book_net != 0;
@@ -1461,8 +1461,8 @@ impl Market {
 
     pub(crate) fn hlp_curve_basis_from_reserves_nad(&self, reserves: CurveReservesNad) -> Result<HlpCurveBasis> {
         require_eq!(
-            self.base_side.shares.ylp_supply,
-            self.quote_side.shares.ylp_supply,
+            self.base_side.shares.srlp_supply,
+            self.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
         let base_hlp_quote_debt = self.normalize_amount(
@@ -1476,9 +1476,9 @@ impl Market {
 
         HlpCurveBasis::from_inventory(
             reserves,
-            self.base_side.shares.ylp_supply,
-            self.base_hlp_vault.ylp_shares,
-            self.quote_hlp_vault.ylp_shares,
+            self.base_side.shares.srlp_supply,
+            self.base_hlp_vault.srlp_shares,
+            self.quote_hlp_vault.srlp_shares,
             base_hlp_quote_debt,
             quote_hlp_base_debt,
         )
@@ -2166,8 +2166,8 @@ impl Market {
     }
 
     pub(crate) fn curve_depth_per_share_nad(&self, curve_depth_nad: u128) -> Result<u128> {
-        let supply = self.base_side.shares.ylp_supply;
-        require_eq!(supply, self.quote_side.shares.ylp_supply, ErrorCode::BrokenInvariant);
+        let supply = self.base_side.shares.srlp_supply;
+        require_eq!(supply, self.quote_side.shares.srlp_supply, ErrorCode::BrokenInvariant);
         require!(supply > 0, ErrorCode::SupplyUnderflow);
         let supply_nad = self.normalize_amount(supply as u128, self.base_side.asset_decimals)?;
         curve_depth_nad

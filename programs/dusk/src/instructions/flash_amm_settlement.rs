@@ -274,7 +274,7 @@ pub(super) fn settle_with_amm<'info>(
         fee.lp,
         fee.protocol,
         a.futarchy_authority.protocol_auction_split,
-        eligibility.ylp_supply,
+        eligibility.srlp_supply,
     )?;
     a.interest_vault.reload()?;
     let referral_receipt = record_leverage_interest(
@@ -297,9 +297,9 @@ pub(super) fn settle_with_amm<'info>(
         None,
     )?;
     a.market
-        .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Base, eligibility.base_hlp_ylp_shares)?;
+        .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, eligibility.base_hlp_srlp_shares)?;
     a.market
-        .checkpoint_hlp_yield_from_ylp_shares(MarketAsset::Quote, eligibility.quote_hlp_ylp_shares)?;
+        .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, eligibility.quote_hlp_srlp_shares)?;
     super::flash_liquidation::emit_liquidation_interest(
         a,
         asset,
