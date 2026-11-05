@@ -272,10 +272,17 @@ clears the debt leg but leaves position rent to the existing owner cleanup path.
 ## Install
 
 ```bash
-npm install @omnipair/dusk-sdk
+npm install @omnipair/dusk-sdk@next
 # or
-yarn add @omnipair/dusk-sdk
+yarn add @omnipair/dusk-sdk@next
 ```
+
+A version reaches npm once the programs it describes are deployed. Its dist-tag
+names the deployment: `next` and `devnet` follow devnet, and `latest` moves only
+with mainnet releases, so until the first one it still points at the early
+2.0.2 build. Pin an exact version, such as `2.16.0-next.20261102`, to match one
+deployment's program interface. Maintainers publish by tagging the deployed
+commit, as described in [Publishing the SDK](../../scripts/v2/README.md#publishing-the-sdk).
 
 ## Dusk Client
 

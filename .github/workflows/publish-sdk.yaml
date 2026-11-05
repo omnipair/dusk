@@ -1,0 +1,350 @@
+name: publish-sdk
+
+# Publishes @omnipair/dusk-sdk when a deployment goes live, never on merge.
+#
+# Once the programs and their Anchor IDLs are live on a cluster, a
+# `dusk-sdk-v<version>` tag on the deployed main commit starts this workflow.
+# It builds the package from that commit and publishes only when every IDL the
+# package ships matches the IDL account on the cluster the version describes:
+#
+#   <x.y.z>-next.<n>     devnet deployment    dist-tag next
+#   <x.y.z>-devnet.<n>   devnet deployment    dist-tag devnet
+#   <x.y.z>              mainnet deployment   dist-tag latest
+#
+# A manual run takes an existing tag: it publishes versions tagged on commits
+# that predate this workflow, or checks a tag without publishing (dry_run).
+# Tag pushes attest the tagged commit in the npm provenance; a manual run
+# attests the commit the workflow ran from.
+#
+# Authentication is npm trusted publishing (OIDC) for this file and the `npm`
+# environment. An NPM_TOKEN secret, when present, is the fallback.
+
+on:
+  push:
+    tags:
+      - "dusk-sdk-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing dusk-sdk-v<version> tag"
+        required: true
+        type: string
+      dry_run:
+        description: "Build and check without publishing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-sdk
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PACKAGE_NAME: "@omnipair/dusk-sdk"
+  PACKAGE_DIR: packages/dusk-sdk
+  TAG_PREFIX: dusk-sdk-v
+  NPM_VERSION: "11.21.1"
+
+jobs:
+  build:
+    name: Build and match the deployment
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    outputs:
+      version: ${{ steps.channel.outputs.version }}
+      dist_tag: ${{ steps.channel.outputs.dist_tag }}
+      published: ${{ steps.registry.outputs.published }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+    steps:
+      - name: Resolve version and channel
+        id: channel
+        run: |
+          case "$TAG" in
+            "$TAG_PREFIX"*) VERSION="${TAG#"$TAG_PREFIX"}" ;;
+            *)
+              echo "::error::$TAG is not a ${TAG_PREFIX}<version> tag."
+              exit 1
+              ;;
+          esac
+          SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if ! [[ "$VERSION" =~ $SEMVER ]]; then
+            echo "::error::$VERSION is not a semver version."
+            exit 1
+          fi
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE="${VERSION#*-}"
+            DIST_TAG="${PRERELEASE%%.*}"
+          else
+            DIST_TAG=latest
+          fi
+          case "$DIST_TAG" in
+            latest) CLUSTER=mainnet-beta ;;
+            next | devnet) CLUSTER=devnet ;;
+            *)
+              echo "::error::Prerelease '$DIST_TAG' has no npm channel. Devnet versions end in -next.<n> or -devnet.<n>; mainnet versions have no prerelease."
+              exit 1
+              ;;
+          esac
+          {
+            echo "version=$VERSION"
+            echo "dist_tag=$DIST_TAG"
+            echo "cluster=$CLUSTER"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tagged commit
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check tag, package and main
+        id: source
+        env:
+          VERSION: ${{ steps.channel.outputs.version }}
+          DIST_TAG: ${{ steps.channel.outputs.dist_tag }}
+          CLUSTER: ${{ steps.channel.outputs.cluster }}
+        run: |
+          git fetch --quiet --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          COMMIT="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "$COMMIT" refs/remotes/origin/main; then
+            echo "::error::$TAG points at $COMMIT, which is not on main. Tag the deployed commit once it has merged."
+            exit 1
+          fi
+          MANIFEST="$PACKAGE_DIR/package.json"
+          ID="$(node -p 'const m = require(process.argv[1]); `${m.name}@${m.version}`' "./$MANIFEST")"
+          if [ "$ID" != "$PACKAGE_NAME@$VERSION" ]; then
+            echo "::error::$TAG expects $PACKAGE_NAME@$VERSION, but $MANIFEST at $COMMIT declares $ID."
+            exit 1
+          fi
+          {
+            echo "### $PACKAGE_NAME@$VERSION"
+            echo ""
+            echo "| Tag | Commit | Cluster | dist-tag |"
+            echo "| --- | --- | --- | --- |"
+            echo "| \`$TAG\` | \`$COMMIT\` | $CLUSTER | \`$DIST_TAG\` |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+
+      - name: Install JavaScript dependencies
+        run: yarn install --frozen-lockfile
+
+      # The package's build script first copies an Anchor build from target/
+      # into src/. A release ships the committed src/, which CI checks against
+      # a clean Anchor build and the next step checks against the cluster.
+      - name: Build from the committed interface
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: |
+          rm -rf dist
+          npx --no-install tsc
+
+      - name: Match the deployed IDLs
+        working-directory: ${{ env.PACKAGE_DIR }}
+        env:
+          CLUSTER: ${{ steps.channel.outputs.cluster }}
+          RPC_URL: ${{ steps.channel.outputs.cluster == 'mainnet-beta' && (secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com') || (secrets.DEVNET_RPC_URL || 'https://api.devnet.solana.com') }}
+        run: |
+          node <<'NODE'
+          const { appendFileSync, readdirSync, readFileSync } = require("fs");
+          const { createHash } = require("crypto");
+          const { inflateSync } = require("zlib");
+          const { Connection, PublicKey } = require("@solana/web3.js");
+
+          // Anchor IDL account: 8-byte discriminator, 32-byte authority, u32
+          // length, then that many bytes of zlib-compressed IDL JSON.
+          const IDL_LENGTH_OFFSET = 40;
+          const IDL_DATA_OFFSET = 44;
+          const ATTEMPTS = 5;
+
+          const canonical = (value) =>
+            Array.isArray(value)
+              ? value.map(canonical)
+              : value && typeof value === "object"
+                ? Object.fromEntries(
+                    Object.keys(value)
+                      .sort()
+                      .map((key) => [key, canonical(value[key])])
+                  )
+                : value;
+          const canonicalJson = (value) => JSON.stringify(canonical(value));
+          const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+
+          async function getAccountInfo(connection, address) {
+            for (let attempt = 1; ; attempt++) {
+              try {
+                return await connection.getAccountInfo(address);
+              } catch (error) {
+                if (attempt === ATTEMPTS) throw error;
+                await new Promise((resolve) => setTimeout(resolve, 5_000 * attempt));
+              }
+            }
+          }
+
+          (async () => {
+            const { CLUSTER, RPC_URL, GITHUB_STEP_SUMMARY } = process.env;
+            const connection = new Connection(RPC_URL, "confirmed");
+            const files = readdirSync("src").filter((name) => /^idl_.+\.json$/.test(name)).sort();
+            const rows = [];
+            let failed = files.length === 0;
+            if (failed) console.log("::error::src/ holds no idl_*.json to check.");
+
+            for (const file of files) {
+              const shipped = JSON.parse(readFileSync(`src/${file}`, "utf8"));
+              const programId = new PublicKey(shipped.address);
+              const [base] = PublicKey.findProgramAddressSync([], programId);
+              const idlAddress = await PublicKey.createWithSeed(base, "anchor:idl", programId);
+              const account = await getAccountInfo(connection, idlAddress);
+              const shippedHash = sha256(canonicalJson(shipped));
+              let verdict = "match";
+              let deployedHash = "none";
+
+              if (!account) {
+                verdict = "no IDL account";
+                console.log(
+                  `::error::${file}: program ${programId.toBase58()} has no Anchor IDL account on ${CLUSTER} (${idlAddress.toBase58()}).`
+                );
+              } else {
+                const length = account.data.readUInt32LE(IDL_LENGTH_OFFSET);
+                const deployed = JSON.parse(
+                  inflateSync(account.data.subarray(IDL_DATA_OFFSET, IDL_DATA_OFFSET + length)).toString("utf8")
+                );
+                deployedHash = sha256(canonicalJson(deployed));
+                if (deployedHash !== shippedHash) {
+                  verdict = "differs";
+                  const sections = [...new Set([...Object.keys(shipped), ...Object.keys(deployed)])].filter(
+                    (key) => canonicalJson(shipped[key]) !== canonicalJson(deployed[key])
+                  );
+                  console.log(
+                    `::error::${file} differs from the ${CLUSTER} IDL of ${programId.toBase58()} in: ${sections.join(", ")}. Upgrade the IDL from the deployed build, or tag the commit that was deployed.`
+                  );
+                }
+              }
+
+              if (verdict !== "match") failed = true;
+              console.log(`${file} ${programId.toBase58()} ${CLUSTER}: ${verdict} (shipped ${shippedHash}, deployed ${deployedHash})`);
+              rows.push(
+                `| \`${file}\` | \`${programId.toBase58()}\` | \`${idlAddress.toBase58()}\` | \`${shippedHash.slice(0, 12)}\` | \`${deployedHash.slice(0, 12)}\` | ${verdict} |`
+              );
+            }
+
+            if (GITHUB_STEP_SUMMARY && rows.length > 0) {
+              appendFileSync(
+                GITHUB_STEP_SUMMARY,
+                [
+                  `Canonical IDL SHA-256 against ${CLUSTER}:`,
+                  "",
+                  "| IDL | Program | IDL account | Shipped | Deployed | Result |",
+                  "| --- | --- | --- | --- | --- | --- |",
+                  ...rows,
+                  "",
+                ].join("\n") + "\n"
+              );
+            }
+            if (failed) process.exit(1);
+          })().catch((error) => {
+            console.log(`::error::${String(error && error.message).replace(/https?:\/\/\S+/g, "<rpc-url>")}`);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Check the registry
+        id: registry
+        env:
+          VERSION: ${{ steps.channel.outputs.version }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          if OUTPUT="$(npm view "$PACKAGE_NAME@$VERSION" version 2>&1)"; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            STATUS="$PACKAGE_NAME@$VERSION is already on npm; nothing to publish."
+            echo "::notice::$STATUS"
+          elif grep -q E404 <<< "$OUTPUT"; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            if [ "$DRY_RUN" = "true" ]; then
+              STATUS="Not on npm yet. Dry run, so nothing is published."
+            else
+              STATUS="Not on npm yet; the publish job runs next."
+            fi
+          else
+            echo "$OUTPUT"
+            echo "::error::Could not read $PACKAGE_NAME@$VERSION from the npm registry."
+            exit 1
+          fi
+          echo "$STATUS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Pack
+        id: pack
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: |
+          DESTINATION="$RUNNER_TEMP/package"
+          mkdir -p "$DESTINATION"
+          TARBALL="$(npm pack --ignore-scripts --pack-destination "$DESTINATION" | tail -n 1)"
+          test -f "$DESTINATION/$TARBALL"
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: dusk-sdk-tarball
+          path: ${{ runner.temp }}/package/${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish to npm
+    needs: build
+    if: needs.build.outputs.published == 'false' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or newer.
+      - name: Install npm
+        run: npm install --global "npm@$NPM_VERSION"
+
+      - name: Download tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: dusk-sdk-tarball
+          path: package
+
+      - name: Publish
+        env:
+          # The leading ./ keeps npm from reading package/<file> as a GitHub repo.
+          TARBALL: ./package/${{ needs.build.outputs.tarball }}
+          VERSION: ${{ needs.build.outputs.version }}
+          DIST_TAG: ${{ needs.build.outputs.dist_tag }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          ID="$(tar -xOzf "$TARBALL" package/package.json | node -p 'const m = JSON.parse(require("fs").readFileSync(0, "utf8")); `${m.name}@${m.version}`')"
+          if [ "$ID" != "$PACKAGE_NAME@$VERSION" ]; then
+            echo "::error::$TARBALL holds $ID, expected $PACKAGE_NAME@$VERSION."
+            exit 1
+          fi
+          if ! npm publish "$TARBALL" --tag "$DIST_TAG" --access public --provenance; then
+            echo "::error::npm refused the publish. Check the trusted publisher for omnipair/dusk, publish-sdk.yaml and the npm environment, or the NPM_TOKEN fallback."
+            exit 1
+          fi
+          echo "Published [\`$PACKAGE_NAME@$VERSION\`](https://www.npmjs.com/package/$PACKAGE_NAME/v/$VERSION) under \`$DIST_TAG\`." >> "$GITHUB_STEP_SUMMARY"
