@@ -164,7 +164,7 @@ fn concentrated_hlp_receipt(
 /// opposite-asset srLP claim at the final reserve point.
 #[cfg(test)]
 fn canonical_debt_for_proportional_claim(
-    non_debt_reserve: u64,
+    non_debt_reserve: u128,
     hlp_srlp_shares: u64,
     total_srlp_supply: u64,
     borrow_index_nad: u128,
@@ -182,7 +182,7 @@ fn canonical_debt_for_proportional_claim(
 }
 
 fn canonical_debt_for_proportional_claim_with_carry(
-    non_debt_reserve: u64,
+    non_debt_reserve: u128,
     hlp_srlp_shares: u64,
     total_srlp_supply: u64,
     borrow_index_nad: u128,
@@ -199,11 +199,24 @@ fn canonical_debt_for_proportional_claim_with_carry(
     require!(ordinary_and_other_shares > 0, ErrorCode::SupplyUnderflow);
     require!(borrow_index_nad >= NAD as u128, ErrorCode::DebtShareDivisionOverflow);
 
-    let max_live = u128::from(u64::MAX - non_debt_reserve);
-    let numerator = (non_debt_reserve as u128 * hlp_srlp_shares as u128)
-        .checked_add(opposite_receivable as u128 * total_srlp_supply as u128)
-        .ok_or(ErrorCode::DebtMathOverflow)?;
-    let continuous_live = (numerator / ordinary_and_other_shares as u128).min(max_live);
+    let max_live = u128::from(u64::MAX).saturating_sub(non_debt_reserve);
+    let denominator = ordinary_and_other_shares as u128;
+    // Ordinary reserves fit one exact native division. Use full-width products
+    // only when the widened accounting reserve needs them.
+    let numerator = non_debt_reserve
+        .checked_mul(hlp_srlp_shares as u128)
+        .and_then(|v| v.checked_add(opposite_receivable as u128 * total_srlp_supply as u128));
+    let continuous_live = if let Some(numerator) = numerator {
+        crate::math::div_rem_native(numerator, denominator).0
+    } else {
+        let (live, live_fraction) = mul_div_rem_u128(non_debt_reserve, hlp_srlp_shares as u128, denominator)?;
+        let (receivable, receivable_fraction) =
+            mul_div_rem_u128(opposite_receivable as u128, total_srlp_supply as u128, denominator)?;
+        live.checked_add(receivable)
+            .and_then(|v| v.checked_add((live_fraction + receivable_fraction) / denominator))
+            .ok_or(ErrorCode::DebtMathOverflow)?
+    }
+    .min(max_live);
     let continuous = continuous_live
         .checked_add(u128::from(interest_carried))
         .ok_or(ErrorCode::DebtMathOverflow)?
@@ -214,8 +227,12 @@ fn canonical_debt_for_proportional_claim_with_carry(
     // d - floor((R + d) * h / S) is monotone in d and is zero at the floored
     // continuous solution, so no farther share count can improve either side.
     // Clipping to reserve capacity also covers a solution near u64::MAX.
-    let upper_shares = (continuous * NAD as u128).div_ceil(borrow_index_nad);
-    let quoted_shares = quoted_debt.map(|debt| (debt as u128 * NAD as u128).div_ceil(borrow_index_nad));
+    let shares_for = |debt: u128| {
+        let (whole, fraction) = crate::math::div_rem_native(debt * NAD as u128, borrow_index_nad);
+        whole + u128::from(fraction != 0)
+    };
+    let upper_shares = shares_for(continuous);
+    let quoted_shares = quoted_debt.map(|debt| shares_for(debt as u128));
     for debt_shares in [quoted_shares, Some(upper_shares), upper_shares.checked_sub(1)]
         .into_iter()
         .flatten()
@@ -230,7 +247,7 @@ fn canonical_debt_for_proportional_claim_with_carry(
             continue;
         }
         let claim = mul_div_u128(
-            non_debt_reserve as u128 + live,
+            non_debt_reserve + live,
             hlp_srlp_shares as u128,
             total_srlp_supply as u128,
         )?;
@@ -331,7 +348,7 @@ pub(crate) fn apply_concentrated_hlp_recovery(
 
     let opposite_reserve = market.side(asset_in).reserves.live_reserve;
     let canonical_opposite_claim = u64::try_from(
-        (opposite_reserve as u128)
+        opposite_reserve
             .checked_mul(vault.srlp_shares as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?
             / supply as u128,
@@ -506,7 +523,7 @@ impl HlpTerminalWaterfallPlan {
                 .side(self.target_asset)
                 .reserves
                 .live_reserve
-                .checked_sub(self.expected_target_hlp_live)
+                .checked_sub(u128::from(self.expected_target_hlp_live))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
         }
         if self.expected_borrowed_hlp_live > 0 {
@@ -514,7 +531,7 @@ impl HlpTerminalWaterfallPlan {
                 .side(borrowed_asset)
                 .reserves
                 .live_reserve
-                .checked_sub(self.expected_borrowed_hlp_live)
+                .checked_sub(u128::from(self.expected_borrowed_hlp_live))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
         }
         debit_cash_for_hlp_interest(market, borrowed_asset, interest_paid)?;
@@ -867,17 +884,17 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
                 .side(MarketAsset::Base)
                 .reserves
                 .live_reserve
-                .checked_sub(old_base_hlp_live)
-                .and_then(|value| value.checked_sub(quote_interest_paid))
-                .and_then(|value| value.checked_add(quote_interest_carried))
+                .checked_sub(u128::from(old_base_hlp_live))
+                .and_then(|value| value.checked_sub(u128::from(quote_interest_paid)))
+                .and_then(|value| value.checked_add(u128::from(quote_interest_carried)))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
             market
                 .side(MarketAsset::Quote)
                 .reserves
                 .live_reserve
-                .checked_sub(old_quote_hlp_live)
-                .and_then(|value| value.checked_sub(base_interest_paid))
-                .and_then(|value| value.checked_add(base_interest_carried))
+                .checked_sub(u128::from(old_quote_hlp_live))
+                .and_then(|value| value.checked_sub(u128::from(base_interest_paid)))
+                .and_then(|value| value.checked_add(u128::from(base_interest_carried)))
                 .ok_or(ErrorCode::ReserveUnderflow)?,
         )
     } else {
@@ -917,7 +934,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
                 .checked_add(base_interest_carried)
                 .ok_or(ErrorCode::ReserveUnderflow)?;
         }
-        (base, quote)
+        (u128::from(base), u128::from(quote))
     };
     // Integer srLP ownership can move the opposite-asset claim by more than
     // one token atom, especially when the mints have different decimals.
@@ -929,7 +946,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         canonical_debt_for_proportional_claim_with_carry(
             if end.receivable_hedge {
                 quote_non_debt_reserve
-                    .checked_sub(u64::try_from(unrealized[1]).map_err(|_| ErrorCode::MarketMathOverflow)?)
+                    .checked_sub(unrealized[1])
                     .ok_or(ErrorCode::ReserveUnderflow)?
             } else {
                 quote_non_debt_reserve
@@ -952,7 +969,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         canonical_debt_for_proportional_claim_with_carry(
             if end.receivable_hedge {
                 base_non_debt_reserve
-                    .checked_sub(u64::try_from(unrealized[0]).map_err(|_| ErrorCode::MarketMathOverflow)?)
+                    .checked_sub(unrealized[0])
                     .ok_or(ErrorCode::ReserveUnderflow)?
             } else {
                 base_non_debt_reserve
@@ -1001,14 +1018,20 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         certify_proportional_claim,
     );
 
-    let final_base_curve_reserve = base_non_debt_reserve
-        .checked_add(final_quote_hlp_live)
-        .and_then(|value| value.checked_sub(u64::try_from(unrealized[0]).ok()?))
-        .ok_or(ErrorCode::ReserveOverflow)?;
-    let final_quote_curve_reserve = quote_non_debt_reserve
-        .checked_add(final_base_hlp_live)
-        .and_then(|value| value.checked_sub(u64::try_from(unrealized[1]).ok()?))
-        .ok_or(ErrorCode::ReserveOverflow)?;
+    let final_base_curve_reserve = u64::try_from(
+        base_non_debt_reserve
+            .checked_add(u128::from(final_quote_hlp_live))
+            .and_then(|value| value.checked_sub(unrealized[0]))
+            .ok_or(ErrorCode::ReserveOverflow)?,
+    )
+    .map_err(|_| ErrorCode::ReserveOverflow)?;
+    let final_quote_curve_reserve = u64::try_from(
+        quote_non_debt_reserve
+            .checked_add(u128::from(final_base_hlp_live))
+            .and_then(|value| value.checked_sub(unrealized[1]))
+            .ok_or(ErrorCode::ReserveOverflow)?,
+    )
+    .map_err(|_| ErrorCode::ReserveOverflow)?;
 
     let base_receipt = concentrated_hlp_receipt(
         MarketAsset::Base,
@@ -1209,11 +1232,17 @@ impl ConcentratedHlpTransition {
         }
         let old_base_hlp_live = market.hlp_live_reserve(MarketAsset::Base)?;
         let old_quote_hlp_live = market.hlp_live_reserve(MarketAsset::Quote)?;
-        let identity_base_live = (market.base_side.reserves.live_reserve as u128)
+        let identity_base_live = market
+            .base_side
+            .reserves
+            .live_reserve
             .checked_sub(old_base_hlp_live)
             .and_then(|value| value.checked_add(self.final_quote_hlp_live as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let identity_quote_live = (market.quote_side.reserves.live_reserve as u128)
+        let identity_quote_live = market
+            .quote_side
+            .reserves
+            .live_reserve
             .checked_sub(old_quote_hlp_live)
             .and_then(|value| value.checked_add(self.final_base_hlp_live as u128))
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -1291,10 +1320,8 @@ impl ConcentratedHlpTransition {
         market.base_hlp_vault.quote_hlp_live_reserve = self.final_base_hlp_live;
         market.quote_hlp_vault.base_hlp_live_reserve = self.final_quote_hlp_live;
         market.quote_hlp_vault.quote_hlp_live_reserve = 0;
-        market.base_side.reserves.live_reserve =
-            u64::try_from(identity_base_live).map_err(|_| ErrorCode::ReserveOverflow)?;
-        market.quote_side.reserves.live_reserve =
-            u64::try_from(identity_quote_live).map_err(|_| ErrorCode::ReserveOverflow)?;
+        market.base_side.reserves.live_reserve = identity_base_live;
+        market.quote_side.reserves.live_reserve = identity_quote_live;
         if self.frozen_hlp_mask & 1 == 0 {
             market.base_hlp_vault.last_nav_nad = self.base_receipt.nav_nad;
             market.base_hlp_vault.residual_exposure = 0;
@@ -1772,12 +1799,23 @@ fn debit_cash_for_hlp_interest(market: &mut Market, asset: MarketAsset, interest
     if interest_paid == 0 {
         return Ok(());
     }
-    market.clear_income_receivable(asset, true, interest_paid, interest_paid)?;
+    if market.side(asset).fees.junior.initialized {
+        // The plan settles this amount before installing its final vault debt.
+        // Remove the matching frozen fees alongside the LP coupon, rather than
+        // treating the borrower's entire gross payment as LP-owned income.
+        let i = asset.code() as usize + 2;
+        let gross = market.income.get()?.revenue[i].gross_unpaid;
+        let remaining = gross.checked_sub(interest_paid).ok_or(ErrorCode::BrokenInvariant)?;
+        let markup = market.protocol_interest_markup_bps;
+        let share = market.operator.interest_share_bps;
+        let fee = market.income.get_mut()?.revenue[i].synchronize(remaining, interest_paid, markup, share)?;
+        market.clear_income_receivable(asset, true, interest_paid - fee, interest_paid - fee)?;
+    }
     let borrowed_side = market.side_mut(asset);
     borrowed_side.reserves.live_reserve = borrowed_side
         .reserves
         .live_reserve
-        .checked_sub(interest_paid)
+        .checked_sub(u128::from(interest_paid))
         .ok_or(ErrorCode::ReserveUnderflow)?;
     borrowed_side.reserves.cash_reserve = borrowed_side
         .reserves
@@ -2319,7 +2357,7 @@ fn hlp_exit_underlying_amount(
         return srlp_live_underlying_amount(market, asset, srlp_amount);
     }
     let funded = srlp_live_underlying_amount_from_values(
-        market.curve_reserve(asset)?,
+        u128::from(market.curve_reserve(asset)?),
         market.base_side.shares.srlp_supply,
         srlp_amount,
     )?;
@@ -2339,7 +2377,7 @@ pub(super) fn hlp_full_underlying_amount(market: &Market, target: MarketAsset, a
         return srlp_live_underlying_amount(market, asset, vault.srlp_shares);
     }
     let funded = srlp_live_underlying_amount_from_values(
-        market.curve_reserve(asset)?,
+        u128::from(market.curve_reserve(asset)?),
         side.shares.srlp_supply,
         vault.srlp_shares,
     )?;
@@ -2348,12 +2386,12 @@ pub(super) fn hlp_full_underlying_amount(market: &Market, target: MarketAsset, a
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
-fn srlp_live_underlying_amount_from_values(live_reserve: u64, supply: u64, srlp_amount: u64) -> Result<u64> {
+fn srlp_live_underlying_amount_from_values(live_reserve: u128, supply: u64, srlp_amount: u64) -> Result<u64> {
     if srlp_amount == 0 {
         return Ok(0);
     }
     require_gte!(supply, srlp_amount, ErrorCode::InsufficientBalance);
-    let amount = mul_div_u128(srlp_amount as u128, live_reserve as u128, supply as u128)?;
+    let amount = mul_div_u128(srlp_amount as u128, live_reserve, supply as u128)?;
     u64::try_from(amount).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
@@ -2662,6 +2700,20 @@ fn require_hlp_borrow_headroom(market: &Market, borrowed_asset: MarketAsset, amo
         market.side(borrowed_asset).reserves.cash_reserve as u128,
         projected_debt,
         ErrorCode::InsufficientBorrowHeadroom
+    );
+    let principal = match borrowed_asset {
+        MarketAsset::Base => market.quote_hlp_vault.debt_principal,
+        MarketAsset::Quote => market.base_hlp_vault.debt_principal,
+    }
+    .checked_add(amount)
+    .ok_or(ErrorCode::DebtMathOverflow)?;
+    let public =
+        u64::try_from(market.public_unpaid_interest(borrowed_asset)?).map_err(|_| ErrorCode::DebtMathOverflow)?;
+    let funding =
+        u64::try_from(projected_debt.saturating_sub(principal as u128)).map_err(|_| ErrorCode::DebtMathOverflow)?;
+    require!(
+        market.income_accrual_fits(borrowed_asset, public, funding)?,
+        ErrorCode::IncomeEpochNeedsRollover
     );
     let old_debt = Debt::shares_to_debt(current_shares, borrow_index_nad)?;
     crate::math::borrow_controller::check_new_borrow_liquidity(

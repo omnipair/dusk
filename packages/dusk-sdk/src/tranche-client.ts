@@ -3,15 +3,15 @@ import { PublicKey, SystemProgram, Transaction, SYSVAR_INSTRUCTIONS_PUBKEY, type
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { address, type AddressLike } from "./address.js";
 import { deriveJuniorMintAddress, deriveJuniorCohortAddress, deriveJuniorExitAddress, deriveYieldAccountAddress, deriveIncomeEpochAddress, deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID } from "./constants.js";
-import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js";
+import { integerBN, type IntegerLike } from "./parameters.js";
 import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
 import { DuskWrite } from "./write.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 
 export type TrancheAction =
-  | { kind: "enter"; seniorAmount: GovernanceIntegerLike; minimumJunior: GovernanceIntegerLike }
-  | { kind: "requestExit"; additionalJunior: GovernanceIntegerLike }
-  | { kind: "convertExit"; minimumSenior: GovernanceIntegerLike }
+  | { kind: "enter"; seniorAmount: IntegerLike; minimumJunior: IntegerLike }
+  | { kind: "requestExit"; additionalJunior: IntegerLike }
+  | { kind: "convertExit"; minimumSenior: IntegerLike }
   | { kind: "cancelExit" };
 
 /** srLP/jrLP builders. Conversion changes ownership of existing pool capital;
@@ -28,7 +28,7 @@ export class DuskTranches {
     const { bookIndex } = params;
     if (!Number.isInteger(bookIndex) || bookIndex < 0 || bookIndex > 3) throw new Error("bookIndex must be 0–3");
     const book = state.income.books[bookIndex];
-    if (book.units.lte(book.unpaid)) throw new Error("Income book has no settled units to roll");
+    if (book.units.lte(book.unpaid)) throw new Error("Income books have no settled units to roll");
     if (!state.income.pending[bookIndex].isZero()) throw new Error("Income custody settlement is pending");
     const incomeEpoch = deriveIncomeEpochAddress(market, bookIndex, book.epoch, this.program.programId)[0];
     const instruction = await this.write.instruction("rollIncomeEpoch", { bookIndex, epoch: book.epoch }, { accounts: {
@@ -99,13 +99,13 @@ export class DuskTranches {
   }
 
   /** A retired receipt has zero principal but can still own earned income. */
-  async burnRetired(params: { market: AddressLike; owner: AddressLike; retiredMint: AddressLike; amount: GovernanceIntegerLike }) {
+  async burnRetired(params: { market: AddressLike; owner: AddressLike; retiredMint: AddressLike; amount: IntegerLike }) {
     const market = address(params.market), owner = address(params.owner), retiredMint = address(params.retiredMint);
     const state = await this.program.account.market.fetch(market);
     if (retiredMint.equals(state.juniorMint)) throw new Error("Cannot burn an active generation through the retired-receipt path");
     const exitAddress = deriveJuniorExitAddress(market, owner, retiredMint, this.program.programId)[0];
     const exitState = await this.program.account.juniorExitAccount.fetchNullable(exitAddress);
-    const instruction = await this.write.instruction("burnRetiredJunior", { amount: governanceIntegerBN(params.amount, "amount") }, { accounts: {
+    const instruction = await this.write.instruction("burnRetiredJunior", { amount: integerBN(params.amount, "amount") }, { accounts: {
       market, owner, retiredMint, cohort: deriveJuniorCohortAddress(market, retiredMint, this.program.programId)[0],
       ownerJunior: getAssociatedTokenAddressSync(retiredMint, owner, true, TOKEN_2022_PROGRAM_ID),
       baseYield: deriveYieldAccountAddress(market, owner, retiredMint, state.baseSide.assetMint, "junior", this.program.programId)[0],
@@ -143,7 +143,7 @@ export class DuskTranches {
     const juniorMint = deriveJuniorMintAddress(market, generation, this.program.programId)[0];
     const cohort = deriveJuniorCohortAddress(market, juniorMint, this.program.programId)[0];
     const initialize = await this.write.instruction("initializeJunior", {
-      generation: governanceIntegerBN(generation, "generation"),
+      generation: integerBN(generation, "generation"),
       metadata: params.metadata,
     }, { accounts: {
       payer, market, juniorMint, cohort,
@@ -164,11 +164,11 @@ export class DuskTranches {
     const ownerJunior = getAssociatedTokenAddressSync(juniorMint, owner, true, TOKEN_2022_PROGRAM_ID);
     const exit = deriveJuniorExitAddress(market, owner, juniorMint, this.program.programId)[0];
     const action = params.action.kind === "enter"
-      ? { enter: { seniorAmount: governanceIntegerBN(params.action.seniorAmount, "seniorAmount"), minimumJunior: governanceIntegerBN(params.action.minimumJunior, "minimumJunior") } }
+      ? { enter: { seniorAmount: integerBN(params.action.seniorAmount, "seniorAmount"), minimumJunior: integerBN(params.action.minimumJunior, "minimumJunior") } }
       : params.action.kind === "requestExit"
-        ? { requestExit: { additionalJunior: governanceIntegerBN(params.action.additionalJunior, "additionalJunior") } }
+        ? { requestExit: { additionalJunior: integerBN(params.action.additionalJunior, "additionalJunior") } }
         : params.action.kind === "convertExit"
-          ? { convertExit: { minimumSenior: governanceIntegerBN(params.action.minimumSenior, "minimumSenior") } }
+          ? { convertExit: { minimumSenior: integerBN(params.action.minimumSenior, "minimumSenior") } }
           : { cancelExit: {} };
     const ix = await this.write.instruction("convertTranche", action, { accounts: {
       owner, market, seniorMint, juniorMint, ownerSenior, ownerJunior, exit,

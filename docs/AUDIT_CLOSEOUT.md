@@ -1,5 +1,8 @@
 # PR #45 closeout
 
+> Core LP voting and elected management in this historical record have also
+> been replaced by the [current operator model](MARKET_OPERATOR.md).
+
 > Historical design/evidence: the standalone insurance fund and its coverage,
 > draw, target, and donation rules were removed on 5 November 2026. Earlier
 > results below retain their original assumptions and are not validation of

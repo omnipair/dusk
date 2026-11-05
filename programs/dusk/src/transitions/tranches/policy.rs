@@ -5,7 +5,7 @@ use crate::{
     errors::ErrorCode,
 };
 
-/// Governed junior income allocation. Exit timing and the request/renewal and
+/// Operator-configured junior income allocation. Exit timing and the request/renewal and
 /// liquidation fees remain fixed by the protocol.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct TranchePolicy {
@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn governance_bounds_admit_defaults_and_reject_economic_extremes() {
+    fn operator_bounds_admit_defaults_and_reject_economic_extremes() {
         assert!(TranchePolicy::default().validate().is_ok());
         for share in [999, 9_001] {
             assert!(TranchePolicy {

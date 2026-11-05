@@ -107,7 +107,7 @@ impl JuniorExitTicket {
             .checked_add(u64::try_from(extra).map_err(|_| ErrorCode::MarketMathOverflow)?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         // Adding never pulls an existing maturity earlier, even after new
-        // deposits dilute queue crowding or governance shortens the default.
+        // deposits dilute queue crowding or the default notice is longer.
         let ready_at = clock
             .checked_add(notice)
             .ok_or(ErrorCode::MarketMathOverflow)?

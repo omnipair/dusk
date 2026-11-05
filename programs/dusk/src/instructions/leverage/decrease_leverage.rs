@@ -193,6 +193,7 @@ impl<'info> DecreaseLeverage<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         let mut prepared_swap = prepare_leverage_swap(
             &mut ctx.accounts.market,

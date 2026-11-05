@@ -115,6 +115,7 @@ impl<'info> CloseInsolventHlp<'info> {
             &mut self.market,
             current_slot,
             self.event_authority.to_account_info(),
+            self.futarchy_authority.revenue_share.interest_bps,
         )?;
         // The ordinary `Market::update` checkpoints hLP settlement and must
         // reject an already-insolvent vault. This terminal path instead
@@ -211,24 +212,31 @@ impl<'info> CloseInsolventHlp<'info> {
             ctx.accounts.borrowed_interest_vault.reload()?;
             ctx.accounts.borrowed_reserve_vault.reload()?;
             actual_interest_credit = token_account_credit(interest_before, &ctx.accounts.borrowed_interest_vault)?;
-            record_hlp_interest_credit(
-                &mut ctx.accounts.market,
-                borrowed_asset,
-                actual_interest_credit,
-                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-                ctx.accounts.futarchy_authority.protocol_auction_split,
-                eligibility,
-            )?;
         }
+        let protocol_interest_revenue = ctx
+            .accounts
+            .market
+            .quote_interest_revenue_credit(borrowed_asset, true, actual_interest_credit)?
+            .protocol;
+        // A bounty or transfer fee can consume the entire payment. Even then
+        // clear the authenticated pending settlement budget without issuing cash.
+        record_hlp_interest_credit(
+            &mut ctx.accounts.market,
+            borrowed_asset,
+            actual_interest_credit,
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            ctx.accounts.futarchy_authority.protocol_auction_split,
+            eligibility,
+        )?;
         crate::instructions::accounting::emit_interest_paid(
             &ctx.accounts.market,
             borrowed_asset,
             crate::events::DebtSource::Hlp,
             None,
-            crate::state::ReferralInterestQuote::new(
+            crate::state::ReferralInterestQuote::with_protocol_revenue(
                 receipt.interest_paid,
                 actual_interest_credit,
-                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                protocol_interest_revenue,
                 None,
             )?,
             caller_bounty,

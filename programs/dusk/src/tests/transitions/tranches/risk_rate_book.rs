@@ -2,11 +2,10 @@ use super::*;
 use crate::constants::TARGET_MS_PER_SLOT;
 
 #[test]
-fn governance_change_settles_the_old_model_and_does_not_reset_apr() {
+fn operator_change_settles_the_old_model_and_does_not_reset_apr() {
     let old = RiskRateConfig::default();
     let mut book = RiskRateBook::new(old, 100).unwrap();
     let next = RiskRateConfig {
-        initial_apr_nad: 100_000_000,
         half_life_ms: old.half_life_ms / 2,
         ..old
     };

@@ -30,8 +30,8 @@ test("creation defaults retain the approved half-life and explicit uncapped rate
   assert.equal(RISK_RATE_DEFAULTS.lowerSignalNad, 50_000_000);
   assert.equal(RISK_RATE_DEFAULTS.upperSignalNad, 62_500_000);
   assert.equal(RISK_RATE_DEFAULTS.initialAprNad, 40_000_000);
-  assert.equal(RISK_RATE_DEFAULTS.minimumAprNad, 20_000_000);
-  assert.equal(RISK_RATE_DEFAULTS.maximumAprNad, 0);
+  assert.equal("minimumAprNad" in RISK_RATE_DEFAULTS, false);
+  assert.equal("maximumAprNad" in RISK_RATE_DEFAULTS, false);
   assert.equal(RISK_RATE_DEFAULTS.borrowUtilizationLimitBps, 8_000);
 });
 

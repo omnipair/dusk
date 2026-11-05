@@ -425,6 +425,7 @@ impl<'info> CloseLeverage<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         let close_slice = ctx
             .accounts
@@ -902,8 +903,8 @@ impl<'info> CloseLeverage<'info> {
                     collateral_asset_mint: collateral_mint_key,
                     borrowed_amount: 0,
                     owner_debit: 0,
-                    debt_delta: -i64::try_from(receipt.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
-                    collateral_delta: -i64::try_from(receipt.collateral_sold).map_err(|_| ErrorCode::Overflow)?,
+                    debt_delta: -i128::from(receipt.debt_reduced),
+                    collateral_delta: -i128::from(receipt.collateral_sold),
                     debt_amount: receipt.remaining_debt_amount,
                     debt_shares: receipt.remaining_debt_shares,
                     collateral_amount: receipt.remaining_collateral_amount,

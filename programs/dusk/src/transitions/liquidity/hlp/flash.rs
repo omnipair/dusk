@@ -279,7 +279,7 @@ impl Market {
             .ok_or(ErrorCode::BrokenInvariant)?;
         reserve.live_reserve = reserve
             .live_reserve
-            .checked_sub(quote.collateral_debit)
+            .checked_sub(u128::from(quote.collateral_debit))
             .ok_or(ErrorCode::ReserveUnderflow)?;
         self.side_mut(borrowed).credit_reserve(quote.reserve_credit, true)?;
         let vault = match target {

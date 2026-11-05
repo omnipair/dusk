@@ -30,56 +30,44 @@ export function borrowDebtBreakdown(
 function amount(value: bigint, max = U64_MAX): void {
   if (value < 0n || value > max) throw new RangeError("Interest amount is out of range");
 }
-function rate(bps: number): bigint {
-  if (!Number.isSafeInteger(bps) || bps < 0 || bps > 10_000) throw new RangeError("Invalid protocol interest rate");
-  return BigInt(bps);
-}
-
-/** Accounting amounts only: this does not establish hLP settlement feasibility
- * or authorize a harvest. Inputs must come from the same accrued market state.
- * Only the effective transfer fee is charged on the custody transfer.
- */
+/** Fund LP income using the historical unpaid fee book. Protocol and operator
+ * fees remain unpaid until borrower cash arrives. No current fee rate is used.
+ * Inputs must describe the same checkpointed market state. */
 export function quoteInterestAdvanceAmounts(input: {
   unpaidPublicInterest: bigint;
+  unpaidFeeInterest: bigint;
   outstandingGrossAdvance: bigint;
+  outstandingRevenueEscrow: bigint;
   reserveCash: bigint;
   maxGross: bigint;
-  protocolBps: number;
   transferFee: TransferFeeNotice;
 }) {
-  const { unpaidPublicInterest: unpaid, outstandingGrossAdvance: advanced, reserveCash, maxGross } = input;
+  const { unpaidPublicInterest: unpaid, unpaidFeeInterest: fees,
+    outstandingGrossAdvance: advanced, outstandingRevenueEscrow: escrow, reserveCash, maxGross } = input;
   amount(unpaid, U128_MAX);
-  for (const value of [advanced, reserveCash, maxGross]) amount(value);
-  if (advanced > unpaid) throw new RangeError("Advance exceeds unpaid interest");
-  const bps = rate(input.protocolBps);
+  for (const value of [fees, advanced, escrow, reserveCash, maxGross]) amount(value);
+  if (advanced > unpaid || escrow > advanced || escrow > fees || fees > unpaid
+    || fees - escrow > unpaid - advanced) throw new RangeError("Inconsistent unpaid interest/advance");
   const available = unpaid - advanced;
   const grossAdvance = [available, reserveCash, maxGross].reduce((a, b) => a < b ? a : b);
-  const protocolEscrow = grossAdvance * bps / 10_000n;
-  const lpVaultDebit = grossAdvance - protocolEscrow;
+  const revenueEscrow = available === 0n ? 0n : grossAdvance * (fees - escrow) / available;
+  const lpVaultDebit = grossAdvance - revenueEscrow;
   const lpVaultCredit = transferFeeCredit(lpVaultDebit, input.transferFee, "effective");
-  return { grossAdvance, protocolEscrow, lpVaultDebit, lpVaultCredit, transferFee: lpVaultDebit - lpVaultCredit };
+  return { grossAdvance, revenueEscrow, lpVaultDebit, lpVaultCredit, transferFee: lpVaultDebit - lpVaultCredit };
 }
 
-/** Allocate the measured custody credit after repayment. Already-funded LP
- * interest is omitted from freshGrossInterest, so it cannot be paid twice.
- * The current protocol rate applies only to the fresh part; the escrowed part
- * is protocol revenue after its proportional share of the transfer fee.
- */
+/** Allocate measured custody credit against the frozen settlement budget.
+ * grossTransfer excludes LP yield already funded by an advance. pendingFeeGross
+ * includes both protocol and operator receivables. Recipient claims are settled
+ * by the on-chain fee book, including fractional cash from earlier payments. */
 export function allocateRepaidInterest(input: {
-  freshGrossInterest: bigint;
-  frozenProtocolGross: bigint;
+  grossTransfer: bigint;
+  pendingFeeGross: bigint;
   measuredVaultCredit: bigint;
-  currentProtocolBps: number;
 }) {
-  const { freshGrossInterest: fresh, frozenProtocolGross: frozen, measuredVaultCredit: credit } = input;
-  for (const value of [fresh, frozen, credit]) amount(value);
-  const bps = rate(input.currentProtocolBps);
-  const grossTransfer = fresh + frozen;
-  amount(grossTransfer);
-  if (credit > grossTransfer) throw new RangeError("Custody credit exceeds the transfer");
-  const frozenProtocolCredit = grossTransfer === 0n ? 0n : credit * frozen / grossTransfer;
-  const freshCredit = credit - frozenProtocolCredit;
-  const freshProtocolCredit = freshCredit * bps / 10_000n;
-  const protocolCredit = frozenProtocolCredit + freshProtocolCredit;
-  return { grossTransfer, frozenProtocolCredit, freshProtocolCredit, protocolCredit, lpCredit: credit - protocolCredit };
+  const { grossTransfer, pendingFeeGross: fees, measuredVaultCredit: credit } = input;
+  for (const value of [grossTransfer, fees, credit]) amount(value);
+  if (credit > grossTransfer || fees > grossTransfer) throw new RangeError("Custody credit or fees exceed settlement");
+  const revenueCredit = grossTransfer === 0n ? 0n : credit * fees / grossTransfer;
+  return { grossTransfer, revenueCredit, lpCredit: credit - revenueCredit };
 }

@@ -260,6 +260,7 @@ impl<'info> OpenLeverage<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         let margin_credit = deposit_credit;
 

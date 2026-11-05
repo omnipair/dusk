@@ -182,6 +182,7 @@ impl<'info> BeginHlpFlash<'info> {
             &mut a.market,
             clock.slot,
             ctx.accounts.event_authority.to_account_info(),
+            a.futarchy_authority.revenue_share.interest_bps,
         )?;
         a.market.advance_amm_clock(clock.slot)?;
         let quote = a.market.quote_hlp_flash_recovery(

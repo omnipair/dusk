@@ -27,12 +27,7 @@ export const MARKET_LAYOUT_VERSION = Number(
 );
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
-/** Direct-srLP parameter-governance constants. These values are immutable for Dusk market layout v1. */
-export const GOVERNANCE_BPS_DENOMINATOR = 10_000;
-export const PARAMETER_PROPOSAL_SPONSOR_BPS = 100;
-export const PARAMETER_PROPOSAL_SUPPORT_BPS = 5_000;
-export const PARAMETER_PROPOSAL_TIMELOCK_SECONDS = 7 * 24 * 60 * 60;
-export const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS = 7 * 24 * 60 * 60;
+/** Immutable Dusk operator and metadata limits. */
 export const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS = 8_000;
 export const PROPOSAL_METADATA_VERSION = 1;
 export const MAX_PROPOSAL_TITLE_BYTES = 96;
@@ -42,7 +37,6 @@ export const MAX_PROPOSAL_DESCRIPTION_BYTES = 32_768;
 // Update with the on-chain timing constant if the network cadence changes.
 export const DEFAULT_CONCENTRATION_RAMP_DURATION_SLOTS = 432_000;
 export const MIN_CONCENTRATION_RAMP_DURATION_SLOTS = 432_000;
-export const MAX_CONCENTRATION_RAMP_DURATION_SLOTS = 3_024_000;
 
 /**
  * PDA seeds used by the program
@@ -64,8 +58,6 @@ export const SEEDS = {
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
   REFERRAL_PARTNER: Buffer.from("referral_partner"),
   REFERRAL_ACCRUAL: Buffer.from("referral_accrual"),
-  PARAMETER_PROPOSAL: Buffer.from("parameter_proposal"),
-  PROPOSAL_SUPPORT: Buffer.from("proposal_support"),
   METADATA: Buffer.from("metadata"),
 } as const;
 
@@ -138,29 +130,10 @@ function u64Seed(value: U64SeedLike, label: string): Buffer {
 }
 
 /** Derive one immutable typed parameter proposal. The nonce is Borsh u64 LE. */
-export function deriveParameterProposalAddress(
-  market: PublicKey,
-  proposer: PublicKey,
-  nonce: U64SeedLike,
-  programId: PublicKey = DUSK_PROGRAM_ID
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.PARAMETER_PROPOSAL, market.toBuffer(), proposer.toBuffer(), u64Seed(nonce, "nonce")],
-    programId
-  );
-}
+
 
 /** Derive one support position. Locked srLP cannot be shared across proposals. */
-export function deriveProposalSupportAddress(
-  proposal: PublicKey,
-  supporter: PublicKey,
-  programId: PublicKey = DUSK_PROGRAM_ID
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.PROPOSAL_SUPPORT, proposal.toBuffer(), supporter.toBuffer()],
-    programId
-  );
-}
+
 
 /**
  * Derive Dusk market PDA address
@@ -362,12 +335,6 @@ export interface LpTransferHookValidationArgs {
   baseMint: PublicKey;
   quoteMint: PublicKey;
   tokenKind: YieldTokenKind;
-  /**
-   * Encode the seven-account layout of mints initialized before the event
-   * authority and Dusk program were added. Those mints publish no
-   * `LpTransferred` receipt.
-   */
-  legacyLayout?: boolean;
   programId?: PublicKey;
 }
 
@@ -534,18 +501,16 @@ export function buildLpTransferHookValidationAccountData({
   baseMint,
   quoteMint,
   tokenKind,
-  legacyLayout = false,
   programId = DUSK_PROGRAM_ID,
 }: LpTransferHookValidationArgs): Buffer {
-  const eventMetas = legacyLayout
-    ? []
-    : [
+  const eventMetas = [
         staticTransferHookMeta({
           pubkey: deriveEventAuthorityAddress(programId)[0],
           isSigner: false,
           isWritable: false,
         }),
         staticTransferHookMeta({ pubkey: programId, isSigner: false, isWritable: false }),
+        staticTransferHookMeta({ pubkey: deriveFutarchyAuthorityAddress(programId)[0], isSigner: false, isWritable: false }),
       ];
   return encodeTransferHookValidationAccountData([
     staticTransferHookMeta({ pubkey: market, isSigner: false, isWritable: true }),
@@ -576,11 +541,11 @@ export function buildLpTransferHookValidationAccountData({
       true
     ),
     ...eventMetas,
-    ...(yieldTokenKindCode(tokenKind) === 1 && !legacyLayout
+    ...(yieldTokenKindCode(tokenKind) !== 0
       ? [
           pdaTransferHookMeta(
             [
-              { kind: "literal", bytes: SEEDS.HLP_COHORT },
+              { kind: "literal", bytes: yieldTokenKindCode(tokenKind) === 2 ? Buffer.from("junior_cohort") : SEEDS.HLP_COHORT },
               { kind: "accountKey", index: TRANSFER_HOOK_MARKET_ACCOUNT_INDEX },
               { kind: "accountKey", index: 1 },
             ],
@@ -657,6 +622,7 @@ export function buildLpTransferHookAccountMetas({
     { pubkey: destinationQuoteYieldAccount, isSigner: false, isWritable: true },
     { pubkey: deriveEventAuthorityAddress(programId)[0], isSigner: false, isWritable: false },
     { pubkey: programId, isSigner: false, isWritable: false },
+    { pubkey: deriveFutarchyAuthorityAddress(programId)[0], isSigner: false, isWritable: false },
     ...(yieldTokenKindCode(tokenKind) === 1
       ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, programId)[0], isSigner: false, isWritable: false }]
       : yieldTokenKindCode(tokenKind) === 2
@@ -685,17 +651,10 @@ export function deriveHlpSrlpVaultAddress(
   );
 }
 
-/** Owner- and LP-mint-specific reusable governance balance. */
-export function deriveGovernanceBalanceAddress(market: PublicKey, owner: PublicKey, lpMint: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("governance_balance"), market.toBuffer(), owner.toBuffer(), lpMint.toBuffer()],
-    programId
-  );
-}
 
-export function deriveGovernanceSupportAddress(proposal: PublicKey, balance: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("governance_support"), proposal.toBuffer(), balance.toBuffer()], programId);
-}
+
+
+
 
 export function deriveJuniorMintAddress(market: PublicKey, generation: U64SeedLike, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("junior_mint"), market.toBuffer(), u64Seed(generation, "generation")], programId);
@@ -712,13 +671,21 @@ export function deriveIncomeEpochAddress(market: PublicKey, bookIndex: number, e
   return PublicKey.findProgramAddressSync([Buffer.from("income_epoch"), market.toBuffer(), Buffer.from([bookIndex]), u64Seed(epoch, "epoch")], programId);
 }
 
-export function deriveGovernanceControlAddress(market: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("governance_control"), market.toBuffer()], programId);
+
+
+
+
+
+export const OPERATOR_POLICY_VERSION = 1;
+export const OPERATOR_PENDING_LIMIT = 1;
+export const JUNIOR_MAX_NOTICE_SLOTS = 4_320_000;
+export const OPERATOR_NOTICE_SLOTS = 4_752_000;
+export const OPERATOR_EXECUTION_WINDOW_SLOTS = 3_024_000;
+export const MAX_OPERATOR_INTEREST_SHARE_BPS = 5_000;
+export function deriveOperatorProposalAddress(market: PublicKey, nonce: U64SeedLike, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("operator_change"), market.toBuffer(), u64Seed(nonce, "nonce")], programId);
 }
 
-export function deriveCancellationBallotAddress(market: PublicKey, proposal: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("recovery_ballot"), market.toBuffer(), proposal.toBuffer()], programId);
-}
-export function deriveRemovalBallotAddress(market: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync([Buffer.from("recovery_ballot"), market.toBuffer(), Buffer.alloc(32)], programId);
+export function deriveOperatorRevenueAddress(market: PublicKey,revenueEpoch:U64SeedLike,programId:PublicKey=DUSK_PROGRAM_ID):[PublicKey,number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("operator_revenue"),market.toBuffer(),u64Seed(revenueEpoch,"revenueEpoch")],programId);
 }

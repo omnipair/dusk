@@ -33,13 +33,13 @@ impl Market {
             side.reserves.live_reserve = side
                 .reserves
                 .live_reserve
-                .checked_add(aggregate_debt_increase - cash_debit)
+                .checked_add(u128::from(aggregate_debt_increase - cash_debit))
                 .ok_or(ErrorCode::ReserveOverflow)?;
         } else if aggregate_debt_increase < cash_debit {
             side.reserves.live_reserve = side
                 .reserves
                 .live_reserve
-                .checked_sub(cash_debit - aggregate_debt_increase)
+                .checked_sub(u128::from(cash_debit - aggregate_debt_increase))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
         }
         Ok(shares)
@@ -84,7 +84,7 @@ use crate::{
 fn test_market(base_cash: u64, quote_cash: u64) -> Market {
     let mut base_side = MarketSide {
         reserves: Reserves {
-            live_reserve: base_cash,
+            live_reserve: u128::from(base_cash),
             cash_reserve: base_cash,
             ..Reserves::default()
         },
@@ -92,7 +92,7 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
     };
     let mut quote_side = MarketSide {
         reserves: Reserves {
-            live_reserve: quote_cash,
+            live_reserve: u128::from(quote_cash),
             cash_reserve: quote_cash,
             ..Reserves::default()
         },
@@ -132,8 +132,10 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         risk: Risk::default(),
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_srlp: 0,
-        governance_locked_junior: 0,
+        operator: Default::default(),
+        protocol_interest_markup_bps:0,
+
+
         parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
@@ -483,7 +485,7 @@ fn apply_leverage_lifecycle_transition_reference(
         side_in.reserves.live_reserve = side_in
             .reserves
             .live_reserve
-            .checked_add(amount_in_after_fee)
+            .checked_add(u128::from(amount_in_after_fee))
             .ok_or(ErrorCode::ReserveOverflow)?;
         side_in.reserves.cash_reserve = side_in
             .reserves
@@ -494,9 +496,9 @@ fn apply_leverage_lifecycle_transition_reference(
             .reserves
             .live_reserve
             .checked_sub(
-                amount_out
+                u128::from(amount_out
                     .checked_add(extra_live_debit_out)
-                    .ok_or(ErrorCode::ReserveUnderflow)?,
+                    .ok_or(ErrorCode::ReserveUnderflow)?),
             )
             .ok_or(ErrorCode::ReserveUnderflow)?;
         side_out.reserves.cash_reserve = side_out
@@ -540,7 +542,7 @@ fn apply_leverage_lifecycle_transition_reference(
                 .side(debt_asset)
                 .reserves
                 .live_reserve
-                .checked_sub(transition.phantom_unpaid_interest)
+                .checked_sub(u128::from(transition.phantom_unpaid_interest))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
         }
     }
@@ -556,7 +558,7 @@ fn indexed_position(market: &mut Market, debt_asset: MarketAsset, principal: u64
     }
     let debt_after = market.debt.isolated_debt(debt_asset).unwrap();
     let accrued = u64::try_from(debt_after - debt_before).unwrap();
-    market.side_mut(debt_asset).reserves.live_reserve += accrued;
+    market.side_mut(debt_asset).reserves.live_reserve += u128::from(accrued);
     position
 }
 
@@ -1063,13 +1065,13 @@ fn open_leverage_tracks_isolated_debt_and_cash() {
     assert_eq!(market.debt.fixed_base_shares, 0);
     assert_eq!(
         market.base_side.reserves.live_reserve,
-        1_000_000 + quote.reserve_input_credit
+        u128::from(1_000_000 + quote.reserve_input_credit)
     );
     assert_eq!(
         market.base_side.reserves.cash_reserve,
         1_000_000 - 1_000 + quote.reserve_input_credit
     );
-    assert_eq!(market.quote_side.reserves.live_reserve, 1_000_000 - quote.amount_out);
+    assert_eq!(market.quote_side.reserves.live_reserve, u128::from(1_000_000 - quote.amount_out));
     assert_eq!(market.quote_side.reserves.cash_reserve, 1_000_000 - quote.amount_out);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
@@ -1371,6 +1373,11 @@ fn repeated_partial_closes_preserve_repayable_principal() {
     let debt_asset = MarketAsset::Quote;
     let mut market = test_market(1_000_000, 1_000_000);
     market.debt.quote_borrow_index_nad = 3 * NAD as u128 / 2;
+    // Keep another funded loan outstanding so the non-unit index remains live.
+    market.debt.isolated_quote_shares = 2;
+    market.debt.isolated_quote_principal = 3;
+    market.debt.leverage_base_collateral = 1_000;
+    market.quote_side.reserves.cash_reserve -= 3;
     let mut position = empty_position();
     let prepared_open = prepare_leverage_swap_with_policy(
         &mut market,
@@ -1660,7 +1667,7 @@ fn insolvent_liquidation_does_not_socialize_phantom_unpaid_interest() {
     market.debt.base_borrow_index_nad = 6 * NAD as u128 / 5;
     let aggregate_debt_before = market.debt.isolated_debt(MarketAsset::Base).unwrap();
     let accrued = u64::try_from(aggregate_debt_before - aggregate_debt_before_accrual).unwrap();
-    market.base_side.reserves.live_reserve += accrued;
+    market.base_side.reserves.live_reserve += u128::from(accrued);
     let curve_before = market.curve_reserve(MarketAsset::Base).unwrap();
     let aggregate_shares_before = market.debt.isolated_base_shares;
     let aggregate_principal_before = market.debt.isolated_base_principal;
@@ -2231,9 +2238,7 @@ fn distributed_leverage_surcharge_is_all_lp_owned() {
 #[test]
 fn leverage_operation_advances_the_controller_before_freezing_its_quote() {
     let mut market = concentrated_market();
-    market.config.amm.adjustment_threshold_nad = NAD / 100;
     market.config.amm.adjustment_step_nad = NAD / 100;
-    market.config.amm.min_adjustment_interval_slots = 1;
     market.amm.price_ema_nad = 2 * NAD;
     market.amm.last_observation_slot = 2;
     market.amm.last_adjustment_slot = 1;
@@ -2620,7 +2625,7 @@ fn advanced_interest_can_be_repaid_in_a_swap_with_no_starting_cash() {
         market.side_mut(debt_asset).reserves.cash_reserve -= 9_100;
         let unpaid = market.public_unpaid_interest(debt_asset).unwrap();
         let gross = u64::try_from(unpaid).unwrap();
-        market.side_mut(debt_asset).reserves.live_reserve += gross;
+        market.side_mut(debt_asset).reserves.live_reserve += u128::from(gross);
         market.fund_public_interest(debt_asset, gross, 2_000).unwrap();
         assert_eq!(market.side(debt_asset).reserves.cash_reserve, 0);
         market.assert_virtual_reserve_invariant(debt_asset).unwrap();

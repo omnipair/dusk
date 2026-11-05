@@ -162,7 +162,7 @@ pub struct BenchmarkRevenueCheckpoint {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BenchmarkMarketSideCheckpoint {
-    pub live_reserve: u64,
+    pub live_reserve: u128,
     pub cash_reserve: u64,
     pub protected_recenter_reserve: u64,
     pub base_hlp_backing_inventory: u64,
@@ -1786,7 +1786,7 @@ impl BenchmarkMarket {
                 0
             } else {
                 let mut low = 0_u64;
-                let mut high = debt_side.reserves.live_reserve;
+                let mut high = debt_side.reserves.live_reserve.min(u128::from(u64::MAX)) as u64;
                 while low < high {
                     let midpoint = low + (high - low) / 2 + 1;
                     let (terms, _) = preview_context.terms(midpoint)?;

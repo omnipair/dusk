@@ -9,24 +9,19 @@ type TypeNamed<N extends Dusk["types"][number]["name"]> = Extract<
   { name: N }
 >;
 type DuskAccountTypes = [
-  TypeNamed<"governanceControl">,
-  TypeNamed<"pendingBundle">,
-  TypeNamed<"recoveryBallot">,
-  TypeNamed<"recoveryTarget">,
-  TypeNamed<"recoveryVote">,
-  TypeNamed<"recoveryLock">,
-  TypeNamed<"proposalOrigin">,
-  TypeNamed<"governanceAction">,
-  TypeNamed<"familyRevisionCondition">,
-  TypeNamed<"parameterFamily">,
+  TypeNamed<"operatorRevenueAccount">,
+  TypeNamed<"interestRevenueBook">,
+  TypeNamed<"operatorProposal">,
+  TypeNamed<"operatorState">,
+  TypeNamed<"concentrationRamp">,
+  TypeNamed<"concentratedCurveParameters">,
+  TypeNamed<"riskRateUpdate">,
   TypeNamed<"oraclePolicy">,
   TypeNamed<"oracleObservation">,
   TypeNamed<"oracleState">,
   TypeNamed<"runtimePricing">,
   TypeNamed<"hlpFlashQuote">,
   TypeNamed<"hlpFlashSession">,
-  TypeNamed<"governanceBalance">,
-  TypeNamed<"governanceSupport">,
   TypeNamed<"liquidationSession">,
   TypeNamed<"liquidationHealth">,
   TypeNamed<"liquidationRates">,
@@ -68,10 +63,7 @@ type DuskAccountTypes = [
   TypeNamed<"marketConfig">,
   TypeNamed<"marketParameterUpdate">,
   TypeNamed<"marketSide">,
-  TypeNamed<"parameterProposal">,
-  TypeNamed<"parameterProposalStatus">,
   TypeNamed<"proposalMetadataV1">,
-  TypeNamed<"proposalSupport">,
   TypeNamed<"protocolAuctionConfig">,
   TypeNamed<"protocolAuctionEpoch">,
   TypeNamed<"protocolAuctionParams">,
@@ -85,28 +77,20 @@ type DuskAccountTypes = [
   TypeNamed<"revenueRecipients">,
   TypeNamed<"revenueShare">,
   TypeNamed<"risk">,
-  TypeNamed<"virtualYieldLedger">,
   TypeNamed<"yieldAccount">,
 ];
 type DuskEventTypes = [
-  TypeNamed<"proposalClock">,
-  TypeNamed<"recoveryBallotChanged">,
-  TypeNamed<"recoveryTarget">,
-  TypeNamed<"proposalResolved">,
-  TypeNamed<"managerChanged">,
-  TypeNamed<"proposalOrigin">,
-  TypeNamed<"governanceAction">,
-  TypeNamed<"familyRevisionCondition">,
-  TypeNamed<"parameterFamily">,
-  TypeNamed<"parameterProposalStatus">,
+  TypeNamed<"operatorRevenueClaimed">,
+  TypeNamed<"protocolInterestMarkupCheckpointed">,
+  TypeNamed<"operatorChanged">,
+  TypeNamed<"operatorChangeAnnounced">,
+  TypeNamed<"operatorChangeResolved">,
   TypeNamed<"juniorCohortInitialized">,
   TypeNamed<"juniorSeedCompounded">,
   TypeNamed<"juniorSeedFunded">,
   TypeNamed<"retiredJuniorBurned">,
   TypeNamed<"trancheConverted">,
   TypeNamed<"oraclePolicy">,
-  TypeNamed<"governanceBalanceUpdated">,
-  TypeNamed<"governanceSupportChanged">,
   TypeNamed<"liquidationHealth">,
   TypeNamed<"liquidationRates">,
   TypeNamed<"liquidationFeeAllocation">,
@@ -138,6 +122,7 @@ type DuskEventTypes = [
   TypeNamed<"hlpRetiredReceiptBurned">,
   TypeNamed<"hlpTerminalLiquidated">,
   TypeNamed<"riskRateConfig">,
+  TypeNamed<"riskRateUpdate">,
   TypeNamed<"leverageDelegationUpdated">,
   TypeNamed<"leverageMarginTerms">,
   TypeNamed<"leveragePositionClosed">,
@@ -160,11 +145,6 @@ type DuskEventTypes = [
   TypeNamed<"marketParameterUpdate">,
   TypeNamed<"marketReduceOnlyUpdated">,
   TypeNamed<"marketSideSnapshot">,
-  TypeNamed<"parameterProposalCreated">,
-  TypeNamed<"parameterProposalExecuted">,
-  TypeNamed<"parameterProposalQueued">,
-  TypeNamed<"parameterProposalSupportWithdrawn">,
-  TypeNamed<"parameterProposalSupported">,
   TypeNamed<"proposalMetadataV1">,
   TypeNamed<"protocolAuctionConfigUpdated">,
   TypeNamed<"protocolAuctionRecipientsUpdated">,
@@ -205,7 +185,7 @@ type DuskFlashAmmIdl = {
   accounts: [];
   events: [];
   types: [
-    TypeNamed<"flashAmmLiquidationQuote">,
+  TypeNamed<"flashAmmLiquidationQuote">,
     TypeNamed<"flashLiquidationQuote">,
     TypeNamed<"liquidationFeeAllocation">,
     TypeNamed<"liquidationHealth">,
@@ -229,8 +209,8 @@ export type IncomeEpoch = IdlTypes<DuskAccountIdl>["incomeEpoch"];
 export type FutarchyAuthority = IdlTypes<DuskAccountIdl>["futarchyAuthority"];
 export type ReferralPartner = IdlTypes<DuskAccountIdl>["referralPartner"];
 export type ReferralAccrual = IdlTypes<DuskAccountIdl>["referralAccrual"];
-export type ParameterProposal = IdlTypes<DuskAccountIdl>["parameterProposal"];
-export type ProposalSupport = IdlTypes<DuskAccountIdl>["proposalSupport"];
+
+
 
 export type HlpClosed = IdlTypes<DuskEventIdl>["hlpClosed"];
 export type HlpCohort = IdlTypes<DuskAccountIdl>["hlpCohort"];
@@ -249,12 +229,11 @@ export type MarketCreated = IdlTypes<DuskEventIdl>["marketCreated"];
 export type MarketDebtUpdated = IdlTypes<DuskEventIdl>["marketDebtUpdated"];
 export type MarketHealthUpdated = IdlTypes<DuskEventIdl>["marketHealthUpdated"];
 export type MarketReduceOnlyUpdated = IdlTypes<DuskEventIdl>["marketReduceOnlyUpdated"];
-export type ParameterProposalCreated = IdlTypes<DuskEventIdl>["parameterProposalCreated"];
-export type ParameterProposalExecuted = IdlTypes<DuskEventIdl>["parameterProposalExecuted"];
-export type ParameterProposalQueued = IdlTypes<DuskEventIdl>["parameterProposalQueued"];
-export type ParameterProposalSupported = IdlTypes<DuskEventIdl>["parameterProposalSupported"];
-export type ParameterProposalSupportWithdrawn =
-  IdlTypes<DuskEventIdl>["parameterProposalSupportWithdrawn"];
+
+
+
+
+
 export type BorrowPositionLiquidated = IdlTypes<DuskEventIdl>["borrowPositionLiquidated"];
 export type BorrowInterestAccrued = IdlTypes<DuskEventIdl>["borrowInterestAccrued"];
 export type BorrowInterestPaid = IdlTypes<DuskEventIdl>["borrowInterestPaid"];
@@ -282,10 +261,10 @@ export type FlashLiquidationBegun = IdlTypes<DuskEventIdl>["flashLiquidationBegu
 export type FlashLiquidationSettled = IdlTypes<DuskEventIdl>["flashLiquidationSettled"];
 export type EmergencyLiquidationSettled = IdlTypes<DuskEventIdl>["emergencyLiquidationSettled"];
 
-export type GovernanceBalance = IdlTypes<DuskAccountIdl>["governanceBalance"];
-export type GovernanceSupport = IdlTypes<DuskAccountIdl>["governanceSupport"];
-export type GovernanceBalanceUpdated = IdlTypes<DuskEventIdl>["governanceBalanceUpdated"];
-export type GovernanceSupportChanged = IdlTypes<DuskEventIdl>["governanceSupportChanged"];
+
+
+
+
 
 export type HlpFlashSession = IdlTypes<DuskAccountIdl>["hlpFlashSession"];
 export type HlpFlashStarted = IdlTypes<DuskEventIdl>["hlpFlashStarted"];
@@ -299,9 +278,17 @@ export type JuniorSeedFunded = IdlTypes<DuskEventIdl>["juniorSeedFunded"];
 export type RetiredJuniorBurned = IdlTypes<DuskEventIdl>["retiredJuniorBurned"];
 export type TrancheConverted = IdlTypes<DuskEventIdl>["trancheConverted"];
 
-export type GovernanceControl = IdlTypes<DuskAccountIdl>["governanceControl"];
-export type RecoveryBallot = IdlTypes<DuskAccountIdl>["recoveryBallot"];
-export type RecoveryVote = IdlTypes<DuskAccountIdl>["recoveryVote"];
-export type RecoveryBallotChanged = IdlTypes<DuskEventIdl>["recoveryBallotChanged"];
-export type ProposalResolved = IdlTypes<DuskEventIdl>["proposalResolved"];
-export type ManagerChanged = IdlTypes<DuskEventIdl>["managerChanged"];
+
+
+
+
+
+
+
+export type OperatorProposal = IdlTypes<DuskAccountIdl>["operatorProposal"];
+export type OperatorState = IdlTypes<DuskAccountIdl>["operatorState"];
+export type OperatorChanged = IdlTypes<DuskEventIdl>["operatorChanged"];
+export type OperatorChangeAnnounced = IdlTypes<DuskEventIdl>["operatorChangeAnnounced"];
+export type OperatorChangeResolved = IdlTypes<DuskEventIdl>["operatorChangeResolved"];
+
+export type OperatorRevenueAccount=IdlTypes<DuskAccountIdl>["operatorRevenueAccount"];

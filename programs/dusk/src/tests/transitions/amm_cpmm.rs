@@ -61,7 +61,7 @@ fn preview_liquidity_supports_the_full_valid_reserve_domain() {
     let side = MarketSide {
         asset_decimals: 0,
         reserves: Reserves {
-            live_reserve: u64::MAX,
+            live_reserve: u128::from(u64::MAX),
             ..Reserves::default()
         },
         ..MarketSide::default()

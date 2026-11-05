@@ -79,9 +79,7 @@ fn initialize(case: Case) -> Market {
     market.config.curve_depth_ema_half_life_ms = 60_000;
     market.config.amm.center_ema_half_life_ms = 60_000;
     if case.controller {
-        market.config.amm.adjustment_threshold_nad = NAD / 100;
         market.config.amm.adjustment_step_nad = NAD / 1_000;
-        market.config.amm.min_adjustment_interval_slots = 1;
         market.config.amm.divergence_fee_coefficient_nad = 10 * NAD;
     }
     market.config.target_hlp_leverage_bps = 20_000;

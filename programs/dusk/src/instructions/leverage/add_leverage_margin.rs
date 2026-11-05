@@ -135,6 +135,7 @@ impl<'info> AddLeverageMargin<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         ctx.accounts.market.prepare_leverage_margin_operation(current_slot)?;
         let interest_eligibility = HlpYieldEligibility {

@@ -5,6 +5,7 @@ use crate::{
     errors::ErrorCode,
     math::mul_div_u128,
     state::RiskRateConfig,
+    transitions::tranches::MINIMUM_BORROW_APR_NAD,
 };
 
 // Keep the fractional APR between calls. At slow half-lives, rounding every
@@ -12,10 +13,8 @@ use crate::{
 pub const RATE_SCALE: u128 = 1_000_000_000_000_000_000;
 const RATE_TO_NAD: u128 = RATE_SCALE / NAD as u128;
 const LN_TWO: u128 = 693_147_180_559_945_309;
-/// `maximum_apr_nad == 0` means no governance-selected economic ceiling. The
-/// endpoint still needs a representable bound so a valid, stale market cannot
-/// overflow before borrowers can repay or governance can install a new model.
-/// `u64::MAX` is also the largest explicit ceiling the public config can name.
+/// A representational endpoint keeps stale markets accruable without an
+/// operator-selected economic ceiling.
 const UNBOUNDED_NUMERIC_APR_NAD: u128 = u64::MAX as u128;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,13 +54,8 @@ pub fn accrue_risk_rate(
             integrated_apr_nad_ms: 0,
         });
     }
-    let minimum = config.minimum_apr_nad as u128 * RATE_TO_NAD;
-    let maximum_nad = if config.maximum_apr_nad == 0 {
-        UNBOUNDED_NUMERIC_APR_NAD
-    } else {
-        config.maximum_apr_nad as u128
-    };
-    let maximum = maximum_nad * RATE_TO_NAD;
+    let minimum = MINIMUM_BORROW_APR_NAD as u128 * RATE_TO_NAD;
+    let maximum = UNBOUNDED_NUMERIC_APR_NAD * RATE_TO_NAD;
     let start = previous_apr_e18.max(minimum);
     let start = if maximum == 0 { start } else { start.min(maximum) };
     let direction = match signal_nad {
@@ -75,7 +69,7 @@ pub fn accrue_risk_rate(
             integrated_apr_nad_ms: mul_div_u128(start, elapsed_ms as u128, RATE_TO_NAD)?,
         });
     }
-    if direction > 0 && config.maximum_apr_nad == 0 {
+    if direction > 0 {
         // Preserve the cheap ordinary path for the default uncapped model. Only
         // pay for a logarithmic crossing calculation when the elapsed interval
         // actually reaches the numeric endpoint (or direct evolution overflows).

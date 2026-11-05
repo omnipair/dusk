@@ -21,9 +21,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCreated, MarketEventMetadata},
     generate_market_seeds,
-    state::{
-        FutarchyAuthority, GovernanceControl, Market, MarketConfig, MarketSide, OraclePolicy, GOVERNANCE_CONTROL_SEED,
-    },
+    state::{FutarchyAuthority, Market, MarketConfig, MarketSide, OraclePolicy},
     token::create_token_account,
 };
 
@@ -36,9 +34,11 @@ pub struct InitializeMarketArgs {
     /// First in the wire payload so account validation reads only the PDA seed.
     pub params_hash: [u8; 32],
     pub config: MarketConfig,
+    /// Operator share of base interest; protocol markup is global and additive.
+    pub operator_interest_share_bps: u16,
     /// Initial oracle policy, installed atomically with the market. None uses
     /// native pricing. First liquidity authenticates a current report when
-    /// the selected weight is positive; later policy changes use governance.
+    /// the selected weight is positive. Oracle sources/policy are creation-only.
     pub oracle: Option<OraclePolicy>,
     /// Optional final bootstrap price imported by a permissionless launch
     /// adapter. Zero binds the reference to the first fully-backed seed.
@@ -132,9 +132,6 @@ pub struct InitializeMarket<'info> {
         bump
     )]
     pub market: Box<Account<'info, Market>>,
-
-    #[account(init, payer = payer, space = get_size_with_discriminator::<GovernanceControl>(), seeds = [GOVERNANCE_CONTROL_SEED, market.key().as_ref()], bump)]
-    pub governance_control: Box<Account<'info, GovernanceControl>>,
 
     #[account(
         seeds = [FUTARCHY_AUTHORITY_SEED_PREFIX],
@@ -260,6 +257,10 @@ impl<'info> InitializeMarket<'info> {
         validate_lp_metadata_args(&args.quote_hlp_metadata)?;
 
         args.config.validate()?;
+        require!(
+            args.operator_interest_share_bps <= crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS,
+            ErrorCode::OperatorPolicyExceeded
+        );
         args.oracle.unwrap_or_default().validate()?;
         require!(
             args.oracle.unwrap_or_default().lambda_bps == 0 || args.bootstrap_price_nad == 0,
@@ -417,17 +418,12 @@ impl<'info> InitializeMarket<'info> {
             ctx.bumps.market,
         )?;
         ctx.accounts.market.oracle.policy = args.oracle.unwrap_or_default();
-        ctx.accounts
-            .governance_control
-            .initialize_if_needed(market_key, ctx.bumps.governance_control)?;
-        ctx.accounts
-            .governance_control
-            .initialize_baseline(&ctx.accounts.market);
-        ctx.accounts.governance_control.replace_manager(payer_key, 0)?;
-        emit_cpi!(crate::instructions::ManagerChanged {
+        ctx.accounts.market.operator.interest_share_bps = args.operator_interest_share_bps;
+        ctx.accounts.market.protocol_interest_markup_bps = ctx.accounts.futarchy_authority.revenue_share.interest_bps;
+        emit_cpi!(crate::instructions::OperatorChanged {
             market: market_key,
-            manager: payer_key,
-            epoch: ctx.accounts.governance_control.manager_epoch,
+            operator: payer_key,
+            epoch: 0,
         });
 
         // Either all three LP metadata accounts exist with the market or none
@@ -479,6 +475,10 @@ impl<'info> InitializeMarket<'info> {
             target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,
             swap_fee_bps: args.config.swap_fee_bps,
             config: args.config,
+            operator: payer_key,
+            operator_revenue_recipient: payer_key,
+            operator_interest_share_bps: args.operator_interest_share_bps,
+            protocol_interest_markup_bps: ctx.accounts.market.protocol_interest_markup_bps,
             oracle: ctx.accounts.market.oracle.policy,
             params_hash: args.params_hash,
             initial_liquidity_authority: payer_key,

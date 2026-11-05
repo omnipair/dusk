@@ -45,9 +45,8 @@ pub struct YieldAccount {
     pub harvest_authority: Option<Pubkey>,
     pub income_initialized: bool,
     pub income: [crate::state::IncomeReceivableClaim; 2],
-    /// Owner's virtual receipts: junior exit escrow, or senior governance locks.
-    /// Governance cash yield uses its existing virtual ledger; historical
-    /// unpaid-income ownership is checkpointed here for both token kinds.
+    /// Owner's junior exit escrow receipts. Historical unpaid-income ownership
+    /// is checkpointed here alongside the liquid balance.
     pub escrow_balance: u64,
 }
 

@@ -1,6 +1,6 @@
 use crate::{
     errors::ErrorCode,
-    state::{Debt, Market, MarketAsset, MarketConfig, MarketParameterUpdate, ProposalMetadataV1},
+    state::{Debt, Market, MarketAsset, MarketConfig},
     transitions::{lending::SidePrices, AmmSwapQuote, HlpRebalanceReceipt, LeverageSwapFeeCredit, LeverageSwapQuote},
 };
 use anchor_lang::prelude::*;
@@ -35,6 +35,10 @@ pub struct MarketCreated {
     pub target_hlp_leverage_bps: u16,
     pub swap_fee_bps: u16,
     pub config: MarketConfig,
+    pub operator: Pubkey,
+    pub operator_revenue_recipient: Pubkey,
+    pub operator_interest_share_bps: u16,
+    pub protocol_interest_markup_bps: u16,
     /// Initial policy; an empty policy identifies an oracleless launch.
     pub oracle: crate::state::OraclePolicy,
     pub params_hash: [u8; 32],
@@ -75,8 +79,8 @@ pub struct LiquidityAdded {
     pub quote_reserve_credit: u64,
     pub srlp_amount: u64,
     pub srlp_supply: u64,
-    pub base_live_reserve: u64,
-    pub quote_live_reserve: u64,
+    pub base_live_reserve: u128,
+    pub quote_live_reserve: u128,
     pub metadata: MarketEventMetadata,
 }
 
@@ -92,8 +96,8 @@ pub struct LiquidityRemoved {
     pub base_owner_credit: u64,
     pub quote_owner_credit: u64,
     pub srlp_supply: u64,
-    pub base_live_reserve: u64,
-    pub quote_live_reserve: u64,
+    pub base_live_reserve: u128,
+    pub quote_live_reserve: u128,
     pub metadata: MarketEventMetadata,
 }
 
@@ -447,8 +451,8 @@ pub struct SwapExecuted {
     pub hlp_recovery_discount_bps: u16,
     pub hlp_recovery_critical: bool,
     /// Final executable reserves after retention and inline hLP correction.
-    pub base_live_reserve: u64,
-    pub quote_live_reserve: u64,
+    pub base_live_reserve: u128,
+    pub quote_live_reserve: u128,
     /// Internal srLP share supply after the swap.
     pub srlp_supply: u64,
     /// Base price used to quote this execution, after any deferred controller step.
@@ -653,16 +657,16 @@ pub struct LeverageSwapReceipt {
     /// Actual reserve-vault credit after any Token-2022 transfer fee.
     pub claimable_fee_credit: u64,
     /// Final executable reserves after retention and inline hLP correction.
-    pub base_live_reserve: u64,
-    pub quote_live_reserve: u64,
+    pub base_live_reserve: u128,
+    pub quote_live_reserve: u128,
 }
 
 impl LeverageSwapReceipt {
     pub fn new(
         quote: LeverageSwapQuote,
         credit: LeverageSwapFeeCredit,
-        base_live_reserve: u64,
-        quote_live_reserve: u64,
+        base_live_reserve: u128,
+        quote_live_reserve: u128,
     ) -> Result<Self> {
         Ok(Self {
             asset_in_side: quote.asset_in,
@@ -732,8 +736,8 @@ pub struct LeveragePositionUpdated {
     /// Gross debt-token payment from the wallet, including any transfer fee.
     pub owner_debit: u64,
     pub borrowed_amount: u64,
-    pub debt_delta: i64,
-    pub collateral_delta: i64,
+    pub debt_delta: i128,
+    pub collateral_delta: i128,
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
@@ -826,7 +830,7 @@ pub struct MarketDebtUpdated {
     pub position: Pubkey,
     pub owner: Pubkey,
     pub debt_asset_mint: Pubkey,
-    pub debt_delta: i64,
+    pub debt_delta: i128,
     /// Gross source-account debit and net destination-account credit.
     pub cash_debit: u64,
     pub cash_credit: u64,
@@ -918,8 +922,8 @@ pub struct HlpOpened {
     pub hlp_amount: u64,
     pub srlp_supply: u64,
     pub hlp_supply: u64,
-    pub base_live_reserve: u64,
-    pub quote_live_reserve: u64,
+    pub base_live_reserve: u128,
+    pub quote_live_reserve: u128,
 }
 
 #[event]
@@ -936,8 +940,8 @@ pub struct HlpClosed {
     pub interest_paid: u64,
     pub srlp_supply: u64,
     pub hlp_supply: u64,
-    pub base_live_reserve: u64,
-    pub quote_live_reserve: u64,
+    pub base_live_reserve: u128,
+    pub quote_live_reserve: u128,
 }
 
 #[event]
@@ -960,76 +964,6 @@ pub struct HlpTerminalLiquidated {
     pub remaining_hlp_supply: u64,
 }
 
-#[event]
-pub struct ParameterProposalCreated {
-    pub proposal: Pubkey,
-    pub market: Pubkey,
-    pub proposer: Pubkey,
-    pub nonce: u64,
-    pub origin: crate::state::ProposalOrigin,
-    pub action: crate::state::GovernanceAction,
-    pub conditions: Vec<crate::state::FamilyRevisionCondition>,
-    pub execution_digest: [u8; 32],
-    pub junior_generation: u64,
-    /// Each updated family's revision at creation; untouched families read
-    /// zero. The family of every update is its variant.
-    pub family_revisions: [u64; crate::state::PARAMETER_FAMILY_COUNT],
-    pub digest: [u8; 32],
-    pub sponsorship_floor: u64,
-    pub initial_support: u64,
-    pub status: u8,
-    /// The proposed updates and metadata exactly as stored on the proposal.
-    pub updates: Vec<MarketParameterUpdate>,
-    pub metadata: ProposalMetadataV1,
-}
-
-#[event]
-pub struct ParameterProposalSupported {
-    pub proposal: Pubkey,
-    pub supporter: Pubkey,
-    pub amount: u64,
-    pub supporter_locked: u64,
-    pub total_locked: u64,
-    pub status: u8,
-}
-
-#[event]
-pub struct ParameterProposalQueued {
-    pub proposal: Pubkey,
-    pub clock: crate::state::ProposalClock,
-    pub execution_digest: [u8; 32],
-    pub family_revisions: [u64; crate::state::PARAMETER_FAMILY_COUNT],
-    pub total_locked: u64,
-    pub eligible_supply: u64,
-    pub queued_at: i64,
-    pub execute_after: i64,
-    pub execution_deadline: i64,
-}
-
-#[event]
-pub struct ParameterProposalExecuted {
-    pub proposal: Pubkey,
-    pub market: Pubkey,
-    /// Family codes of every update applied, ascending.
-    pub families: Vec<u8>,
-    /// The market's revision of every family after execution.
-    pub new_family_revisions: [u64; crate::state::PARAMETER_FAMILY_COUNT],
-    pub executed_at: i64,
-}
-
-#[event]
-pub struct ParameterProposalSupportWithdrawn {
-    pub proposal: Pubkey,
-    pub supporter: Pubkey,
-    pub amount: u64,
-    pub total_locked: u64,
-    pub status: u8,
-    /// The last supporter left, so the proposal account became a
-    /// `ParameterProposalTombstone` and the rest of its rent returned to the
-    /// proposer.
-    pub proposal_tombstoned: bool,
-}
-
 #[cfg(test)]
 mod tests {
     include!("tests/events.rs");
@@ -1046,32 +980,12 @@ pub struct DebtFreePositionClosed {
     pub metadata: MarketEventMetadata,
 }
 
+/// A global markup change becomes prospective after the market closes its
+/// elapsed interest under the prior setting.
 #[event]
-pub struct GovernanceBalanceUpdated {
+pub struct ProtocolInterestMarkupCheckpointed {
     pub market: Pubkey,
-    pub owner: Pubkey,
-    pub governance_balance: Pubkey,
-    pub lp_mint: Pubkey,
-    /// 0 senior srLP, 1 current-generation junior LP.
-    pub token_kind: u8,
-    pub delegate: Pubkey,
-    /// 0 deposit, 1 withdraw, 2 delegate change, 3 yield checkpoint/claim.
-    pub action: u8,
-    pub amount: u64,
-    pub total_amount: u64,
-    pub committed_amount: u64,
-}
-
-#[event]
-pub struct GovernanceSupportChanged {
-    pub proposal: Pubkey,
-    pub governance_balance: Pubkey,
-    pub owner: Pubkey,
-    pub authority: Pubkey,
-    pub withdrawn: bool,
-    pub amount: u64,
-    pub owner_support: u64,
-    pub total_locked: u64,
-    pub status: u8,
-    pub proposal_tombstoned: bool,
+    pub previous_bps: u16,
+    pub markup_bps: u16,
+    pub slot: u64,
 }

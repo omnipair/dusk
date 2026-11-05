@@ -3,8 +3,8 @@ use crate::state::Debt;
 
 fn snapshot() -> (Market, Clock) {
     // Derived from the immutable devnet capture and encoded directly with
-    // layout 11. No old-account conversion runs in this regression test.
-    let bytes = include_bytes!("../fixtures/hlp-entry-layout11.bin");
+    // layout 12. No old-account conversion runs in this regression test.
+    let bytes = include_bytes!("../fixtures/hlp-entry-layout12.bin");
     let market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
     let clock = Clock {
         slot: 500_291_305,

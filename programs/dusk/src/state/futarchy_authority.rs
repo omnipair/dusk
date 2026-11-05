@@ -5,6 +5,8 @@ use crate::{constants::*, errors::ErrorCode};
 #[derive(Clone, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub struct RevenueShare {
     pub swap_bps: u16,
+    /// Global markup added to base borrowing interest. Each market closes
+    /// elapsed interest at its previous value before binding a changed markup.
     pub interest_bps: u16,
 }
 

@@ -172,6 +172,7 @@ impl<'info> DepositSingleSided<'info> {
             &mut self.market,
             current_slot,
             self.event_authority.to_account_info(),
+            self.futarchy_authority.revenue_share.interest_bps,
         )?;
         reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
         self.market.assert_current_version()?;

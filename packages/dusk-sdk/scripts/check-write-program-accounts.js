@@ -27,13 +27,14 @@ const provider = {
 };
 const program = new anchor.Program(IDL, provider);
 program.account.market.fetch = async () => ({
+  operator: {revenueRecipient:owner,revenueEpoch:new anchor.BN(0)},
   srlpMint: key(7),
   baseSide: { assetMint: baseMint },
   quoteSide: { assetMint: quoteMint },
   baseHlpVault: { srlpVault: key(13), hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0), srlpShares: new anchor.BN(0), debtShares: new anchor.BN(0) },
   quoteHlpVault: { srlpVault: key(14), hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0), srlpShares: new anchor.BN(0), debtShares: new anchor.BN(0) },
 });
-program.account.parameterProposal.fetch = async () => ({ updates: [] });
+program.account.operatorProposal.fetch=async()=>({revenueRecipient:null,nextOperator:null});
 const write = new DuskWrite(program);
 
 function creationParams(oracle) {
@@ -112,15 +113,13 @@ test("Token-2022 write helpers keep the fixed legacy Token account", async () =>
   }
 });
 
-test("governance execution resolves both market mint accounts", async () => {
-  const proposal = key(12);
-  const result = await write.executeParameterProposal({ market, proposal });
-  const accounts = program.idl.instructions.find((candidate) => candidate.name === "executeParameterProposal").accounts;
-  for (const [name, expected] of [["baseMint", baseMint], ["quoteMint", quoteMint], ["srlpMint", key(7)], ["baseHlpSrlpVault", key(13)], ["quoteHlpSrlpVault", key(14)]]) {
-    const index = accounts.findIndex((account) => account.name === name);
-    assert.ok(index >= 0, name);
-    assert.ok(result.instruction.keys[index].pubkey.equals(expected), name);
-  }
+test("operator execution needs no LP governance, balance or voting accounts", async () => {
+  const {DuskOperator}=await import("../dist/operator-client.js");
+  const result=await new DuskOperator(program).execute({market,proposal:key(12)});
+  const accounts=program.idl.instructions.find(ix=>ix.name==="executeOperatorChange").accounts;
+  assert.deepEqual(accounts.map(account=>account.name),["market","futarchyAuthority","proposal","acceptingOperator","previousRevenue","eventAuthority","program"]);
+  assert(result.instruction.keys[0].pubkey.equals(market));
+  assert.equal(result.transaction.instructions.length,2);
 });
 
 const policy = (lambdaBps = 2500) => ({
@@ -192,18 +191,16 @@ test("hLP liquidity actions preserve a caller-supplied oracle policy", async () 
   assert.equal(result.actionInstruction,action);
 });
 
-test("governance execution budgets activation and disable without requiring the old feed", async () => {
-  for (const [current, next, expectedInstructions] of [[0,2500,3],[2500,0,3],[0,0,1]]) {
-    const client = new anchor.Program(IDL, provider);
-    client.account.market.fetch = async () => ({srlpMint:key(7),baseSide:{assetMint:baseMint},quoteSide:{assetMint:quoteMint},
-      baseHlpVault:{srlpVault:key(13)},quoteHlpVault:{srlpVault:key(14)},oracle:{policy:policy(current)}});
-    client.account.parameterProposal.fetch = async () => ({updates:[{oracle:{0:policy(next)}}]});
-    const result = await new DuskWrite(client).executeParameterProposal({market,proposal:key(12)});
-    assert.equal(result.transaction.instructions.length,expectedInstructions);
-    if (expectedInstructions===3)
-      assert.deepEqual(result.transaction.instructions.slice(0,2).map(ix=>ix.data[0]),[1,2]);
+test("operator execution reads and budgets only the immutable market oracle", async () => {
+  const {DuskOperator}=await import("../dist/operator-client.js");
+  for(const current of [0,2500]) {
+    const client=new anchor.Program(IDL,provider);
+    client.account.market.fetch=async()=>({oracle:{policy:policy(current)},operator:{revenueRecipient:owner,revenueEpoch:new anchor.BN(0)}});
+    client.account.operatorProposal.fetch=async()=>({revenueRecipient:null,nextOperator:null});
+    const result=await new DuskOperator(client).execute({market,proposal:key(12)});
+    assert.equal(result.transaction.instructions.length,current>0?3:2);
     assert.deepEqual(result.transaction.instructions.at(-1).data,result.instruction.data);
-    assert.equal(result.instruction.keys.some(meta=>meta.pubkey.equals(key(21))),next>0);
+    assert.equal(result.instruction.keys.some(meta=>meta.pubkey.equals(key(21))),current>0);
   }
 });
 
@@ -220,7 +217,7 @@ test("oracle-selected creation fits a versioned transaction and rejects oversize
   assert.ok(build(ix).serialize().length<=1232);
   // Large enough to exceed Solana's packet limit while remaining below
   // Anchor's fixed 1,000-byte instruction-coder scratch buffer.
-  const large={name:"n".repeat(32),symbol:"s".repeat(10),uri:"https://"+"u".repeat(100)};
+  const large={name:"n".repeat(32),symbol:"s".repeat(10),uri:"https://"+"u".repeat(110)};
   const oversized=await write.initializeMarketInstruction({...input,lpMetadata:{srlp:large,baseHlp:large,quoteHlp:large}});
   assert.throws(()=>build(oversized),/market creation exceeds transaction size/);
 });

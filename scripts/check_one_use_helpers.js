@@ -360,6 +360,10 @@ const actionable = candidates.filter(({ recursive }) => !recursive);
 // gate: new one-use helpers still fail, while removing an accepted helper never
 // blocks a cleanup commit. Placement errors are never baselined.
 const acceptedOneUseHelpers = new Map([
+  // Keep the shared index capacity search and exact fractional-growth kernel
+  // separate from market writes. Boundary tests exercise index overflow,
+  // exhausted LP units, fee conservation, repayment, and liquidation recovery.
+  ["programs/dusk/src/transitions/lending/accrual.rs", new Set(["bounded_accrual_index", "unbounded_accrual_index"])],
   // Separate SBF frames keep the large swap/market scratch state out of the
   // caller's 4 KiB stack. These boundaries are exercised by native liquidation
   // and compound-fee conservation tests and the executable SBF paths.
@@ -445,10 +449,10 @@ const acceptedOneUseHelpers = new Map([
     ]),
   ],
   [
-    "programs/dusk/src/transitions/governance.rs",
+    "programs/dusk/src/transitions/market_config.rs",
     new Set(["effective_market_cap_fee_bps_at", "assert_liquidity_seeding_available_with_futarchy"]),
   ],
-  ["programs/dusk/src/transitions/ledger.rs", new Set(["draw_window"])],
+  ["programs/dusk/src/transitions/ledger.rs", new Set(["record_interest_custody"])],
   ["programs/dusk/src/transitions/lending/debt.rs", new Set(["isolated_clearance_for_max"])],
   [
     "programs/dusk/src/transitions/lending/mod.rs",
@@ -515,7 +519,7 @@ const acceptedOneUseHelpers = new Map([
   ["programs/dusk/src/transitions/liquidity/hlp/recovery.rs", new Set(["quote_hlp_recovery"])],
   [
     "programs/dusk/src/transitions/revenue.rs",
-    new Set(["quote_protocol_auction_settlement"]),
+    new Set(["quote_protocol_auction_settlement", "credit_protocol_interest_revenue"]),
   ],
   ["programs/dusk/src/math/risk.rs", new Set(["ema_u128_including_zero"])],
   [
@@ -568,24 +572,25 @@ acceptedOneUseHelpers.set("programs/dusk/src/math/op_gamm/interval.rs", new Set(
 // Source equivalence defines replay-history continuity across governance.
 // observation is the authority boundary for price-free repayment, also tested
 // directly to ensure deserialization cannot restore execution authority.
-acceptedOneUseHelpers.set("programs/dusk/src/oracle.rs", new Set(["same_source", "observation"]));
+acceptedOneUseHelpers.set("programs/dusk/src/oracle.rs", new Set(["observation", "read", "assert_not_before", "bind"]));
 // The quote finisher owns fees and final ownership certification in a separate
 // SBF frame; merging it with the solver exceeded the 4 KiB stack contract.
 acceptedOneUseHelpers.get("programs/dusk/src/transitions/amm/mod.rs").add("finish_concentrated_swap");
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm/oracle.rs", new Set(["quote_oracle_integrated"]));
-// Authentication of a proposed replacement must precede the atomic update;
-// this boundary also permits recovery from a dead previous provider.
-acceptedOneUseHelpers.get("programs/dusk/src/transitions/governance.rs").add("execute_parameter_updates_authenticated");
+// Authenticate the immutable oracle policy before the atomic operator update.
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/market_config.rs").add("execute_parameter_updates_authenticated");
 // Historical marks measure volatility only. The repayment boundary explicitly
 // separates price-free debt reduction from authenticated price-sensitive risk.
-acceptedOneUseHelpers.set("programs/dusk/src/transitions/oracle.rs", new Set(["remembered_oracle_mark", "update_for_debt_reduction"]));
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/oracle.rs", new Set(["update_for_debt_reduction"]));
 // SPL hook resolution owns dynamic seed indexing and privilege de-escalation;
 // it is differential-tested against SPL and isolated from token CPI plumbing.
 acceptedOneUseHelpers.set("programs/dusk/src/token.rs", new Set(["add_transfer_hook_accounts"]));
-// Recovery votes authenticate and encumber either a reusable balance or a
-// direct support account in one deserialization frame. Keep this separate
-// from ballot mutation; both source kinds are exercised through real accounts.
-acceptedOneUseHelpers.set("programs/dusk/src/instructions/governance/recovery.rs", new Set(["encumber_source"]));
+// These boundaries isolate independently tested configuration rollback, guarded
+// ramp candidates and centering loss calculations from the callers' SBF frames.
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/market_config.rs").add("copy_fee_profile_fields");
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/market_config.rs").add("execute_parameter_updates_inner");
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/amm/mod.rs").add("covered_impairment_nad");
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/curve_ramp.rs",new Set(["advance_concentration_ramp"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
 );

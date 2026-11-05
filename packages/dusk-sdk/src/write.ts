@@ -33,11 +33,6 @@ import {
   deriveTokenMetadataAddress,
   TOKEN_METADATA_PROGRAM_ID,
   deriveReferralAccrualAddress,
-  deriveParameterProposalAddress,
-  deriveGovernanceControlAddress,
-  deriveCancellationBallotAddress,
-  deriveRemovalBallotAddress,
-  deriveProposalSupportAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
   deriveHlpCohortAddress,
@@ -45,20 +40,9 @@ import {
   type YieldTokenKind,
 } from "./constants.js";
 import {
-  anchorParameterUpdate,
-  anchorGovernanceAction,
-  anchorRevisionConditions,
-  canonicalGovernanceUpdates,
-  type GovernanceActionInput,
-  type RevisionCondition,
-  assertProposalMetadata,
-  canonicalParameterUpdates,
-  parameterUpdateFromAnchor,
-  governanceIntegerBN,
-  type GovernanceIntegerLike,
-  type ParameterUpdate,
-  type ProposalMetadataV1,
-} from "./governance.js";
+  integerBN,
+  type IntegerLike,
+} from "./parameters.js";
 import {
   assertReferralInterestShareBps,
   referralAccrualAddresses,
@@ -121,85 +105,6 @@ export interface HlpLiquidityBuild {
   transaction: Transaction;
 }
 
-export interface GovernanceMarketAccountOverrides {
-  srlpMint?: AddressLike;
-  baseHlpSrlpVault?: AddressLike;
-  quoteHlpSrlpVault?: AddressLike;
-}
-
-export interface GovernanceHolderAccountOverrides extends GovernanceMarketAccountOverrides {
-  holderSrlpAccount?: AddressLike;
-  baseYieldAccount?: AddressLike;
-  quoteYieldAccount?: AddressLike;
-}
-
-export interface CreateParameterProposalParams extends GovernanceHolderAccountOverrides {
-  proposer: AddressLike;
-  market: AddressLike;
-  nonce: GovernanceIntegerLike;
-  /**
-   * One to seven updates, at most one per family. They are sent in ascending
-   * family order and execute together under one sponsorship and one vote.
-   */
-  updates: readonly ParameterUpdate[];
-  action?: GovernanceActionInput;
-  conditions?: readonly RevisionCondition[];
-  metadata: ProposalMetadataV1;
-  initialSupport: GovernanceIntegerLike;
-}
-
-export interface SupportParameterProposalParams extends GovernanceHolderAccountOverrides {
-  supporter: AddressLike;
-  market: AddressLike;
-  proposal: AddressLike;
-  amount: GovernanceIntegerLike;
-  /**
-   * Digest of the proposal the supporter reviewed. The program rejects the
-   * support if the account at `proposal` holds a different proposal.
-   */
-  digest: Uint8Array | readonly number[];
-}
-
-export interface QueueParameterProposalParams extends GovernanceMarketAccountOverrides {
-  market: AddressLike;
-  proposal: AddressLike;
-}
-
-export interface ExecuteParameterProposalParams {
-  market: AddressLike;
-  proposal: AddressLike;
-}
-
-export interface WithdrawParameterSupportParams {
-  /** Omit to withdraw all support; otherwise release this many srLP atoms. */
-  amount?: GovernanceIntegerLike;
-  supporter: AddressLike;
-  market: AddressLike;
-  proposal: AddressLike;
-  /** The proposal's creator; receives its rent when the last supporter withdraws. */
-  proposer: AddressLike;
-  srlpMint?: AddressLike;
-  supporterSrlpAccount?: AddressLike;
-  baseYieldAccount?: AddressLike;
-  quoteYieldAccount?: AddressLike;
-}
-
-export interface ParameterGovernanceBuild {
-  proposal: PublicKey;
-  proposalSupport?: PublicKey;
-  instruction: TransactionInstruction;
-  transaction: Transaction;
-}
-
-interface GovernanceMarketState {
-  oracle?: { policy: OraclePolicyInput };
-  srlpMint: PublicKey;
-  baseSide: { assetMint: PublicKey };
-  quoteSide: { assetMint: PublicKey };
-  baseHlpVault: { srlpVault: PublicKey };
-  quoteHlpVault: { srlpVault: PublicKey };
-}
-
 type AnchorMethodBuilder = {
   accounts(accounts: DuskAccounts): AnchorMethodBuilder;
   remainingAccounts(accounts: AccountMeta[]): AnchorMethodBuilder;
@@ -248,15 +153,6 @@ export class DuskWrite {
             program: this.program.programId,
           }
         : options.accounts!;
-      if (instructionAccounts?.some(account => account.name === "governanceControl") && accounts.market) {
-        (accounts as Record<string, unknown>).governanceControl ??= deriveGovernanceControlAddress(address(accounts.market as AddressLike), this.program.programId)[0];
-      }
-      if (accounts.market && instructionAccounts?.some(account => account.name === "removalBallot")) {
-        (accounts as Record<string, unknown>).removalBallot ??= deriveRemovalBallotAddress(address(accounts.market as AddressLike), this.program.programId)[0];
-      }
-      if (accounts.market && accounts.proposal && instructionAccounts?.some(account => account.name === "cancellationBallot")) {
-        (accounts as Record<string, unknown>).cancellationBallot ??= deriveCancellationBallotAddress(address(accounts.market as AddressLike), address(accounts.proposal as AddressLike), this.program.programId)[0];
-      }
       builder = builder.accounts(normalizeAccountKeys(accounts));
     }
     const remaining = [...(options.remainingAccounts ?? [])];
@@ -295,14 +191,7 @@ export class DuskWrite {
     const preview = options.accounts?.preview as DuskAccounts | undefined;
     const market = options.accounts?.market ?? nested?.market ?? preview?.market;
     if (!market) return options;
-    if (name === "executeParameterProposal" && options.accounts?.proposal) {
-      const client = (this.program.account as unknown as Record<string, {
-        fetch(key: PublicKey): Promise<{updates: unknown[]}>;
-      }>).parameterProposal;
-      const proposal = await client!.fetch(address(options.accounts.proposal as AddressLike));
-      const update = proposal.updates.map(parameterUpdateFromAnchor).find(update => update.kind === "oracle");
-      if (update?.kind === "oracle") return {...options, oraclePolicy: update.policy};
-    }
+
     const state = await this.fetchMarketAccount(address(market as AddressLike)) as { oracle?: {policy: OraclePolicyInput} };
     return {...options, oraclePolicy: state.oracle?.policy};
   }
@@ -472,8 +361,8 @@ export class DuskWrite {
     return this.instruction(
       "borrow" as DuskInstructionName,
       {
-        borrowAmount: governanceIntegerBN(params.borrowAmount, "borrowAmount"),
-        minDebtAmountOut: governanceIntegerBN(
+        borrowAmount: integerBN(params.borrowAmount, "borrowAmount"),
+        minDebtAmountOut: integerBN(
           params.minDebtAmountOut,
           "minDebtAmountOut"
         ),
@@ -550,18 +439,18 @@ export class DuskWrite {
     const openArgs = {
         positionId,
         debtAsset: params.debtAsset === "quote" ? 1 : 0,
-        marginAmount: governanceIntegerBN(params.marginAmount, "marginAmount"),
-        multiplierBps: governanceIntegerBN(
+        marginAmount: integerBN(params.marginAmount, "marginAmount"),
+        multiplierBps: integerBN(
           params.multiplierBps,
           "multiplierBps"
         ),
-        minCollateralOut: governanceIntegerBN(
+        minCollateralOut: integerBN(
           params.minCollateralOut,
           "minCollateralOut"
         ),
         referrer: null,
         positionOwner: null,
-        limitPriceNad: governanceIntegerBN(
+        limitPriceNad: integerBN(
           params.limitPriceNad ?? 0,
           "limitPriceNad"
         ),
@@ -691,8 +580,8 @@ export class DuskWrite {
       // non-array into one argument, so wrapping it in an outer object would
       // serialize a struct of zeros and the program would reject the amount.
       {
-        exactAssetIn: governanceIntegerBN(params.exactAssetIn, "exactAssetIn"),
-        minAssetOut: governanceIntegerBN(params.minAssetOut, "minAssetOut"),
+        exactAssetIn: integerBN(params.exactAssetIn, "exactAssetIn"),
+        minAssetOut: integerBN(params.minAssetOut, "minAssetOut"),
       },
       {
         market,
@@ -852,11 +741,13 @@ export class DuskWrite {
     teamTreasuryWsolAccount: AddressLike;
     paramsHash: Uint8Array | Buffer | number[];
     config: MarketLaunchConfig;
+    /** Share of base interest retained by the operator, 0–5000 bps. */
+    operatorInterestShareBps?: number;
     /** Installed atomically at creation. Omit or pass null for native pricing.
      * Guided first liquidity derives its ratio from the validated current feed. */
     oracle?: OraclePolicyInput | null;
     /** Native launch-adapter price in NAD. Guided creation requires zero. */
-    bootstrapPriceNad?: GovernanceIntegerLike;
+    bootstrapPriceNad?: IntegerLike;
     launchFeeProgressOffset?: number;
     lpMetadata: {
       srlp: { name: string; symbol: string; uri: string };
@@ -864,20 +755,23 @@ export class DuskWrite {
       quoteHlp: { name: string; symbol: string; uri: string };
     };
   }): Promise<TransactionInstruction> {
+    const operatorShare=params.operatorInterestShareBps??0;
+    if(!Number.isInteger(operatorShare)||operatorShare<0||operatorShare>5_000)throw new Error("operatorInterestShareBps must be 0–5000");
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
     const paramsHash = Uint8Array.from(params.paramsHash);
     if (paramsHash.length !== 32) {
       throw new Error(`paramsHash must be 32 bytes, received ${paramsHash.length}`);
     }
-    const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
+    const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash, this.program.programId);
     const oracle = params.oracle == null ? null : oraclePolicy(params.oracle);
-    const bootstrapPriceNad = governanceIntegerBN(params.bootstrapPriceNad ?? 0, "bootstrapPriceNad");
+    const bootstrapPriceNad = integerBN(params.bootstrapPriceNad ?? 0, "bootstrapPriceNad");
     if (oracle && oracle.lambdaBps > 0 && !bootstrapPriceNad.isZero())
       throw new Error("Oracle-guided markets derive the initial price from the feed; omit bootstrapPriceNad");
     return this.instruction(
       "initializeMarket" as DuskInstructionName,
       {
+        operatorInterestShareBps:operatorShare,
         config: anchorMarketConfig(params.config),
         oracle,
         paramsHash: [...paramsHash],
@@ -922,269 +816,6 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeMarketInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeMarketInstruction(params));
-  }
-
-  /** Burn-lock initial direct-srLP support and create one immutable proposal over one or more families. */
-  async createParameterProposal(
-    params: CreateParameterProposalParams
-  ): Promise<ParameterGovernanceBuild> {
-    assertProposalMetadata(params.metadata);
-    const proposer = address(params.proposer);
-    const market = address(params.market);
-    const state = await this.governanceMarketState(market);
-    const srlpMint = address(params.srlpMint ?? state.srlpMint);
-    const [proposal] = deriveParameterProposalAddress(
-      market,
-      proposer,
-      params.nonce,
-      this.program.programId
-    );
-    const [proposalSupport] = deriveProposalSupportAddress(
-      proposal,
-      proposer,
-      this.program.programId
-    );
-    const proposerSrlpAccount = address(
-      params.holderSrlpAccount ??
-        getAssociatedTokenAddressSync(srlpMint, proposer, true, TOKEN_2022_PROGRAM_ID)
-    );
-    const instruction = await this.instruction(
-      "createParameterProposal" as DuskInstructionName,
-      {
-        nonce: governanceIntegerBN(params.nonce, "nonce"),
-        updates: canonicalGovernanceUpdates(params.updates, params.action).map(anchorParameterUpdate),
-        action: anchorGovernanceAction(params.action),
-        conditions: anchorRevisionConditions(params.conditions),
-        metadata: cloneProposalMetadata(params.metadata),
-        initialSupport: governanceIntegerBN(params.initialSupport, "initialSupport"),
-      },
-      {
-        accounts: {
-          proposer,
-          market,
-          proposal,
-          proposalSupport,
-          srlpMint,
-          proposerSrlpAccount,
-          baseYieldAccount: address(
-            params.baseYieldAccount ??
-              deriveYieldAccountAddress(
-                market,
-                proposer,
-                srlpMint,
-                state.baseSide.assetMint,
-                "srlp",
-                this.program.programId
-              )[0]
-          ),
-          quoteYieldAccount: address(
-            params.quoteYieldAccount ??
-              deriveYieldAccountAddress(
-                market,
-                proposer,
-                srlpMint,
-                state.quoteSide.assetMint,
-                "srlp",
-                this.program.programId
-              )[0]
-          ),
-          baseHlpSrlpVault: address(params.baseHlpSrlpVault ?? state.baseHlpVault.srlpVault),
-          quoteHlpSrlpVault: address(params.quoteHlpSrlpVault ?? state.quoteHlpVault.srlpVault),
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        },
-      }
-    );
-    return {
-      proposal,
-      proposalSupport,
-      instruction,
-      transaction: new Transaction().add(instruction),
-    };
-  }
-
-  /** Add burn-locked direct-srLP support; crossing strict majority queues atomically. */
-  async supportParameterProposal(
-    params: SupportParameterProposalParams
-  ): Promise<ParameterGovernanceBuild> {
-    const supporter = address(params.supporter);
-    const market = address(params.market);
-    const proposal = address(params.proposal);
-    const state = await this.governanceMarketState(market);
-    const srlpMint = address(params.srlpMint ?? state.srlpMint);
-    const [proposalSupport] = deriveProposalSupportAddress(
-      proposal,
-      supporter,
-      this.program.programId
-    );
-    const supporterSrlpAccount = address(
-      params.holderSrlpAccount ??
-        getAssociatedTokenAddressSync(srlpMint, supporter, true, TOKEN_2022_PROGRAM_ID)
-    );
-    const instruction = await this.instruction(
-      "supportParameterProposal" as DuskInstructionName,
-      { amount: governanceIntegerBN(params.amount, "amount"), digest: proposalDigestBytes(params.digest) },
-      {
-        accounts: {
-          supporter,
-          market,
-          proposal,
-          proposalSupport,
-          srlpMint,
-          supporterSrlpAccount,
-          baseYieldAccount: address(
-            params.baseYieldAccount ??
-              deriveYieldAccountAddress(
-                market,
-                supporter,
-                srlpMint,
-                state.baseSide.assetMint,
-                "srlp",
-                this.program.programId
-              )[0]
-          ),
-          quoteYieldAccount: address(
-            params.quoteYieldAccount ??
-              deriveYieldAccountAddress(
-                market,
-                supporter,
-                srlpMint,
-                state.quoteSide.assetMint,
-                "srlp",
-                this.program.programId
-              )[0]
-          ),
-          baseHlpSrlpVault: address(params.baseHlpSrlpVault ?? state.baseHlpVault.srlpVault),
-          quoteHlpSrlpVault: address(params.quoteHlpSrlpVault ?? state.quoteHlpVault.srlpVault),
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-        },
-      }
-    );
-    return {
-      proposal,
-      proposalSupport,
-      instruction,
-      transaction: new Transaction().add(instruction),
-    };
-  }
-
-  /** Permissionlessly queue after the denominator falls below already-locked support. */
-  async queueParameterProposal(
-    params: QueueParameterProposalParams
-  ): Promise<ParameterGovernanceBuild> {
-    const market = address(params.market);
-    const proposal = address(params.proposal);
-    const state = await this.governanceMarketState(market);
-    const instruction = await this.instruction(
-      "queueParameterProposal" as DuskInstructionName,
-      undefined,
-      {
-        accounts: {
-          market,
-          proposal,
-          srlpMint: address(params.srlpMint ?? state.srlpMint),
-          baseHlpSrlpVault: address(params.baseHlpSrlpVault ?? state.baseHlpVault.srlpVault),
-          quoteHlpSrlpVault: address(params.quoteHlpSrlpVault ?? state.quoteHlpVault.srlpVault),
-        },
-      }
-    );
-    return { proposal, instruction, transaction: new Transaction().add(instruction) };
-  }
-
-  /** Execute inside the 7-day window. Standalone oracle policies can restore
-   * pricing during distress; other updates retain utilization/health guards. */
-  async executeParameterProposal(
-    params: ExecuteParameterProposalParams
-  ): Promise<ParameterGovernanceBuild> {
-    const market = address(params.market);
-    const proposal = address(params.proposal);
-    const state = await this.governanceMarketState(market);
-    const options = await this.withOraclePolicy("executeParameterProposal", {
-      accounts: {
-        market,
-        baseMint: address(state.baseSide.assetMint),
-        quoteMint: address(state.quoteSide.assetMint),
-        proposal,
-        srlpMint: state.srlpMint,
-        baseHlpSrlpVault: state.baseHlpVault.srlpVault,
-        quoteHlpSrlpVault: state.quoteHlpVault.srlpVault,
-      },
-    });
-    const instruction = await this.instruction("executeParameterProposal", undefined, options);
-    const budgetPolicy = options.oraclePolicy?.lambdaBps
-      ? options.oraclePolicy : state.oracle?.policy;
-    return { proposal, instruction, transaction: new Transaction().add(
-      ...oracleComputeBudgetInstructions(budgetPolicy), instruction,
-    ) };
-  }
-
-  /** Release all or part of direct support and credit earned yield to its owner. */
-  async withdrawParameterSupport(
-    params: WithdrawParameterSupportParams
-  ): Promise<ParameterGovernanceBuild> {
-    const supporter = address(params.supporter);
-    const market = address(params.market);
-    const proposal = address(params.proposal);
-    const state = await this.governanceMarketState(market);
-    const srlpMint = address(params.srlpMint ?? state.srlpMint);
-    const [proposalSupport] = deriveProposalSupportAddress(
-      proposal,
-      supporter,
-      this.program.programId
-    );
-    const supporterSrlpAccount = address(
-      params.supporterSrlpAccount ??
-        getAssociatedTokenAddressSync(srlpMint, supporter, true, TOKEN_2022_PROGRAM_ID)
-    );
-    const instruction = await this.instruction(
-      "withdrawParameterSupport" as DuskInstructionName,
-      { amount: params.amount === undefined ? null : governanceIntegerBN(params.amount, "amount") },
-      {
-        accounts: {
-          supporter,
-          market,
-          proposal,
-          proposer: address(params.proposer),
-          proposalSupport,
-          srlpMint,
-          supporterSrlpAccount,
-          baseYieldAccount: address(
-            params.baseYieldAccount ??
-              deriveYieldAccountAddress(
-                market,
-                supporter,
-                srlpMint,
-                state.baseSide.assetMint,
-                "srlp",
-                this.program.programId
-              )[0]
-          ),
-          quoteYieldAccount: address(
-            params.quoteYieldAccount ??
-              deriveYieldAccountAddress(
-                market,
-                supporter,
-                srlpMint,
-                state.quoteSide.assetMint,
-                "srlp",
-                this.program.programId
-              )[0]
-          ),
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-        },
-      }
-    );
-    return {
-      proposal,
-      proposalSupport,
-      instruction,
-      transaction: new Transaction().add(instruction),
-    };
-  }
-
-  private async governanceMarketState(market: PublicKey): Promise<GovernanceMarketState> {
-    return (await this.fetchMarketAccount(market)) as GovernanceMarketState;
   }
 
   async hlpLiquidityAction(
@@ -1316,14 +947,14 @@ export class DuskWrite {
     retiredMint: AddressLike;
     baseMint: AddressLike;
     quoteMint: AddressLike;
-    amount: GovernanceIntegerLike;
+    amount: IntegerLike;
     ownerHlpAccount?: AddressLike;
   }): Promise<TransactionInstruction> {
     const market = address(params.market);
     const owner = address(params.owner);
     const retiredMint = address(params.retiredMint);
     return this.instruction("burnRetiredHlpReceipt" as DuskInstructionName, {
-      amount: governanceIntegerBN(params.amount),
+      amount: integerBN(params.amount),
     }, {
       accounts: {
         market,
@@ -1577,7 +1208,7 @@ export class DuskWrite {
     const positionId = address(params.positionId);
     return this.instruction(
       "depositCollateral" as DuskInstructionName,
-      { positionId, depositAmount: governanceIntegerBN(params.depositAmount, "depositAmount") },
+      { positionId, depositAmount: integerBN(params.depositAmount, "depositAmount") },
       {
         accounts: {
           market,
@@ -1605,7 +1236,7 @@ export class DuskWrite {
     const market = address(params.market);
     const assetMint = address(params.assetMint);
     return this.instruction("donateCollateral" as DuskInstructionName,
-      { depositAmount: governanceIntegerBN(params.depositAmount, "depositAmount") }, {
+      { depositAmount: integerBN(params.depositAmount, "depositAmount") }, {
         accounts: {
           market, owner: address(params.owner), assetMint,
           collateralVault: address(params.collateralVault ?? deriveMarketCollateralVaultAddress(market, assetMint)[0]),
@@ -1622,8 +1253,8 @@ export class DuskWrite {
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
     return this.instruction("withdrawAllCollateral" as DuskInstructionName, {
-      minBaseOut: governanceIntegerBN(params.minBaseOut, "minBaseOut"),
-      minQuoteOut: governanceIntegerBN(params.minQuoteOut, "minQuoteOut"),
+      minBaseOut: integerBN(params.minBaseOut, "minBaseOut"),
+      minQuoteOut: integerBN(params.minQuoteOut, "minQuoteOut"),
     }, { accounts: {
       market, owner: address(params.owner), baseMint, quoteMint,
       borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.owner), address(params.positionId))[0]),
@@ -1639,7 +1270,7 @@ export class DuskWrite {
     const market = address(params.market);
     const collateralMint = address(params.collateralMint);
     return this.instruction("withdrawRepaidLeverage" as DuskInstructionName,
-      { minCollateralOut: governanceIntegerBN(params.minCollateralOut, "minCollateralOut") }, {
+      { minCollateralOut: integerBN(params.minCollateralOut, "minCollateralOut") }, {
         accounts: {
           market, owner: address(params.owner), collateralMint,
           leveragePosition: address(params.leveragePosition ?? deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]),
@@ -1673,8 +1304,8 @@ export class DuskWrite {
     return this.instruction(
       "withdrawCollateral" as DuskInstructionName,
       {
-        withdrawAmount: governanceIntegerBN(params.withdrawAmount, "withdrawAmount"),
-        minAssetAmountOut: governanceIntegerBN(params.minAssetAmountOut, "minAssetAmountOut"),
+        withdrawAmount: integerBN(params.withdrawAmount, "withdrawAmount"),
+        minAssetAmountOut: integerBN(params.minAssetAmountOut, "minAssetAmountOut"),
         minLiquidationCfBps: params.minLiquidationCfBps,
       },
       {
@@ -1723,7 +1354,7 @@ export class DuskWrite {
       : null;
     return this.instruction(
       "repay" as DuskInstructionName,
-      { repayAmount: governanceIntegerBN(params.repayAmount, "repayAmount") },
+      { repayAmount: integerBN(params.repayAmount, "repayAmount") },
       {
         accounts: {
           market,
@@ -1775,15 +1406,15 @@ export class DuskWrite {
     return this.instruction(
       "addLiquidity" as DuskInstructionName,
       {
-        baseDepositAmount: governanceIntegerBN(
+        baseDepositAmount: integerBN(
           params.baseDepositAmount,
           "baseDepositAmount"
         ),
-        quoteDepositAmount: governanceIntegerBN(
+        quoteDepositAmount: integerBN(
           params.quoteDepositAmount,
           "quoteDepositAmount"
         ),
-        minSrlpAmount: governanceIntegerBN(params.minSrlpAmount, "minSrlpAmount"),
+        minSrlpAmount: integerBN(params.minSrlpAmount, "minSrlpAmount"),
       },
       {
         accounts: {
@@ -1813,12 +1444,12 @@ export class DuskWrite {
     return this.instruction(
       "removeLiquidity" as DuskInstructionName,
       {
-        srlpAmount: governanceIntegerBN(params.srlpAmount, "srlpAmount"),
-        minBaseAmountOut: governanceIntegerBN(
+        srlpAmount: integerBN(params.srlpAmount, "srlpAmount"),
+        minBaseAmountOut: integerBN(
           params.minBaseAmountOut,
           "minBaseAmountOut"
         ),
-        minQuoteAmountOut: governanceIntegerBN(
+        minQuoteAmountOut: integerBN(
           params.minQuoteAmountOut,
           "minQuoteAmountOut"
         ),
@@ -1861,9 +1492,9 @@ export class DuskWrite {
       "increaseLeverage" as DuskInstructionName,
       {
         debtAsset: marketAssetIndex(params.debtAsset),
-        debtAmount: governanceIntegerBN(params.debtAmount, "debtAmount"),
-        marginAmount: governanceIntegerBN(marginAmount, "marginAmount"),
-        minCollateralOut: governanceIntegerBN(
+        debtAmount: integerBN(params.debtAmount, "debtAmount"),
+        marginAmount: integerBN(marginAmount, "marginAmount"),
+        minCollateralOut: integerBN(
           params.minCollateralOut,
           "minCollateralOut"
         ),
@@ -1910,12 +1541,12 @@ export class DuskWrite {
       "decreaseLeverage" as DuskInstructionName,
       {
         debtAsset: marketAssetIndex(params.debtAsset),
-        collateralAmount: governanceIntegerBN(
+        collateralAmount: integerBN(
           params.collateralAmount,
           "collateralAmount"
         ),
-        minRepayOut: governanceIntegerBN(params.minRepayOut, "minRepayOut"),
-        maxSurplusOut: governanceIntegerBN(params.maxSurplusOut ?? 0n, "maxSurplusOut"),
+        minRepayOut: integerBN(params.minRepayOut, "minRepayOut"),
+        maxSurplusOut: integerBN(params.maxSurplusOut ?? 0n, "maxSurplusOut"),
       },
       {
         accounts: {
@@ -1971,7 +1602,7 @@ export class DuskWrite {
       method as DuskInstructionName,
       {
         debtAsset: marketAssetIndex(params.debtAsset),
-        amount: governanceIntegerBN(params.amount, "amount"),
+        amount: integerBN(params.amount, "amount"),
       },
       {
         accounts: {
@@ -2024,7 +1655,7 @@ export class DuskWrite {
       "closeLeverage",
       {
         debtAsset: marketAssetIndex(params.debtAsset),
-        minAmountOut: governanceIntegerBN(params.minAmountOut, "minAmountOut"),
+        minAmountOut: integerBN(params.minAmountOut, "minAmountOut"),
         closeBps,
       },
       {
@@ -2400,9 +2031,9 @@ export interface RemoveLiquidityParams extends SrlpLiquidityAccounts {
  * going missing.
  */
 function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown> {
-  const bn = (value: GovernanceIntegerLike, label: string) => governanceIntegerBN(value, label);
-  if (bn(config.amm.peakAmplificationNad as GovernanceIntegerLike, "peakAmplificationNad").gtn(1_000_000_000)
-      && bn(config.amm.adjustmentStepNad as GovernanceIntegerLike, "adjustmentStepNad").isZero()) {
+  const bn = (value: IntegerLike, label: string) => integerBN(value, label);
+  if (bn(config.amm.peakAmplificationNad as IntegerLike, "peakAmplificationNad").gtn(1_000_000_000)
+      && bn(config.amm.adjustmentStepNad as IntegerLike, "adjustmentStepNad").isZero()) {
     throw new Error("concentrated markets require an enabled center controller");
   }
   return {
@@ -2430,9 +2061,7 @@ const AMM_U64_FIELDS = [
   "peakAmplificationNad",
   "centerEmaHalfLifeMs",
   "volatilityHalfLifeMs",
-  "adjustmentThresholdNad",
   "adjustmentStepNad",
-  "minAdjustmentIntervalSlots",
   "volatilityShockCapNad",
   "volatilityCapNad",
   "divergenceFeeCoefficientNad",
@@ -2442,7 +2071,7 @@ const AMM_U64_FIELDS = [
   "launchRateLimitDurationSeconds",
 ] as const;
 
-const IRM_U64_FIELDS = ["lowerSignalNad", "upperSignalNad", "halfLifeMs", "initialAprNad", "minimumAprNad", "maximumAprNad"] as const;
+const IRM_U64_FIELDS = ["lowerSignalNad", "upperSignalNad", "halfLifeMs", "initialAprNad"] as const;
 
 function anchorIntegerFields(
   source: Record<string, unknown>,
@@ -2451,7 +2080,7 @@ function anchorIntegerFields(
   const out: Record<string, unknown> = { ...source };
   for (const field of wide) {
     if (out[field] === undefined) continue;
-    out[field] = governanceIntegerBN(out[field] as GovernanceIntegerLike, field);
+    out[field] = integerBN(out[field] as IntegerLike, field);
   }
   return out;
 }
@@ -2461,24 +2090,6 @@ function normalizeArgs(args: DuskInstructionArgs): unknown[] {
     return [];
   }
   return Array.isArray(args) ? args : [args];
-}
-
-function proposalDigestBytes(digest: Uint8Array | readonly number[]): number[] {
-  const bytes = Array.from(digest);
-  if (bytes.length !== 32 || bytes.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 255)) {
-    throw new Error("proposal digest must be 32 bytes");
-  }
-  return bytes;
-}
-
-function cloneProposalMetadata(metadata: ProposalMetadataV1): ProposalMetadataV1 {
-  return {
-    version: metadata.version,
-    title: metadata.title,
-    descriptionUri: metadata.descriptionUri,
-    descriptionSha256: [...metadata.descriptionSha256],
-    descriptionLen: metadata.descriptionLen,
-  };
 }
 
 function mergeAccountMetas(...groups: readonly AccountMeta[][]): AccountMeta[] {
@@ -2559,5 +2170,5 @@ const ORACLE_READ_INSTRUCTIONS = new Set<string>([
   "previewBorrowPosition",
   "depositSingleSided",
   "withdrawSingleSided",
-  "executeParameterProposal",
+  "executeOperatorChange",
 ]);

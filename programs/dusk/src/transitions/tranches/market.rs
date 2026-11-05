@@ -15,7 +15,6 @@ impl Market {
             .junior_receipt_supply
             .checked_sub(self.tranches.permanent_receipts)
             .and_then(|v| v.checked_sub(self.tranches.queued_receipts))
-            .and_then(|v| v.checked_sub(self.governance_locked_junior))
             .ok_or(ErrorCode::BrokenInvariant)?;
         require_gte!(expected, live_mint_supply, ErrorCode::InvalidArgument);
         if expected != live_mint_supply {
@@ -166,7 +165,9 @@ impl Market {
                 .public_unpaid_interest(asset)?
                 .checked_sub(side.fees.public_interest_advance.outstanding_gross as u128)
                 .ok_or(ErrorCode::BrokenInvariant)?;
-            let funded = (side.reserves.live_reserve as u128)
+            let funded = side
+                .reserves
+                .live_reserve
                 .checked_sub(unfunded)
                 .ok_or(ErrorCode::BrokenInvariant)?;
             values[asset.code() as usize] = self.normalize_amount(funded, side.asset_decimals)?;

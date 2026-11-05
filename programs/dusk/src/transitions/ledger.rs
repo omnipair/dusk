@@ -8,13 +8,13 @@ use crate::transitions::{
 use crate::{constants::*, errors::ErrorCode, math::*, state::*};
 
 impl ReserveShares {
-    pub fn shares_for_deposit(&self, reserve_before: u64, deposit_amount: u64) -> Result<u64> {
+    pub fn shares_for_deposit(&self, reserve_before: u128, deposit_amount: u64) -> Result<u64> {
         if self.srlp_supply == 0 || reserve_before == 0 {
             return Ok(deposit_amount);
         }
         let shares = (deposit_amount as u128)
             .checked_mul(self.srlp_supply as u128)
-            .and_then(|value| value.checked_div(reserve_before as u128))
+            .and_then(|value| value.checked_div(reserve_before))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         u64::try_from(shares).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
@@ -176,7 +176,8 @@ impl MarketSide {
         if self.shares.srlp_supply == 0 {
             return Ok(0);
         }
-        (self.reserves.live_reserve as u128)
+        self.reserves
+            .live_reserve
             .checked_mul(crate::constants::NAD as u128)
             .and_then(|value| value.checked_div(self.shares.srlp_supply as u128))
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
@@ -186,7 +187,7 @@ impl MarketSide {
         self.reserves.live_reserve = self
             .reserves
             .live_reserve
-            .checked_add(amount)
+            .checked_add(u128::from(amount))
             .ok_or(ErrorCode::ReserveOverflow)?;
         if credit_cash {
             self.reserves.cash_reserve = self
@@ -202,7 +203,7 @@ impl MarketSide {
         self.reserves.live_reserve = self
             .reserves
             .live_reserve
-            .checked_sub(amount)
+            .checked_sub(u128::from(amount))
             .ok_or(ErrorCode::ReserveUnderflow)?;
         if debit_cash {
             self.reserves.cash_reserve = self
@@ -730,7 +731,7 @@ impl Market {
             .and_then(|value| value.checked_add(hlp_live))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_eq!(
-            side.reserves.live_reserve as u128,
+            side.reserves.live_reserve,
             expected_live_reserve,
             ErrorCode::BrokenInvariant
         );
@@ -747,8 +748,8 @@ pub struct SwapReceipt {
     pub base_fee_credit: u64,
     pub distributed_surcharge_credit: u64,
     pub fee_breakdown: SwapFeeBreakdown,
-    pub reserve_in_live_reserve: u64,
-    pub reserve_out_live_reserve: u64,
+    pub reserve_in_live_reserve: u128,
+    pub reserve_out_live_reserve: u128,
     pub fees: FeesReceipt,
 }
 

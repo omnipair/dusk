@@ -70,14 +70,8 @@ impl Market {
 
     pub(crate) fn liquidity_nad(&self) -> Result<u128> {
         geometric_mean_floor(
-            self.normalize_amount(
-                self.base_side.reserves.live_reserve as u128,
-                self.base_side.asset_decimals,
-            )?,
-            self.normalize_amount(
-                self.quote_side.reserves.live_reserve as u128,
-                self.quote_side.asset_decimals,
-            )?,
+            self.normalize_amount(self.base_side.reserves.live_reserve, self.base_side.asset_decimals)?,
+            self.normalize_amount(self.quote_side.reserves.live_reserve, self.quote_side.asset_decimals)?,
         )
     }
 }
@@ -97,7 +91,7 @@ impl Market {
         Ok(())
     }
 
-    /// Release unused recenter custody as LP income when governance removes
+    /// Release unused recenter custody as LP income when the operator removes
     /// its controller. Native income follows the same 50/50 split as swap fees.
     pub(crate) fn release_protected_recenter_reserves(&mut self) -> Result<()> {
         let supply = self.base_side.shares.srlp_supply;
@@ -355,8 +349,8 @@ impl Market {
                     && self.debt.fixed_quote_principal == 0
                     && self.debt.isolated_base_principal == 0
                     && self.debt.isolated_quote_principal == 0
-                    && self.base_side.reserves.live_reserve == self.base_side.reserves.cash_reserve
-                    && self.quote_side.reserves.live_reserve == self.quote_side.reserves.cash_reserve
+                    && self.base_side.reserves.live_reserve == u128::from(self.base_side.reserves.cash_reserve)
+                    && self.quote_side.reserves.live_reserve == u128::from(self.quote_side.reserves.cash_reserve)
                     && !self.has_active_hlp(),
                 ErrorCode::InsufficientLiquidity
             );
@@ -429,7 +423,9 @@ impl Market {
     /// path and positioning observes the applied curve.
     #[inline(always)]
     pub(crate) fn prepare_amm_for_swap(&mut self, current_slot: u64) -> Result<()> {
-        self.advance_amm_clock(current_slot)
+        self.advance_amm_clock(current_slot)?;
+        self.advance_concentration_ramp(current_slot)?;
+        Ok(())
     }
 
     /// Lazily advances at most one already-authorized center target. No
@@ -472,13 +468,13 @@ impl Market {
             }
             let center = self.amm.center_price_nad;
             let ema = self.amm.price_ema_nad;
-            let distance = symmetric_distance_nad(center, ema)?;
+            let distance = mul_div_u128(center.abs_diff(ema) as u128, NAD as u128, center as u128)?;
             let reachable = if pending.center_price_nad > center {
                 ema >= pending.center_price_nad
             } else {
                 ema <= pending.center_price_nad
             };
-            if distance < self.config.amm.adjustment_threshold_nad as u128 || !reachable {
+            if distance <= self.config.amm.adjustment_step_nad as u128 || !reachable {
                 self.amm.deferred_controller_target.clear();
                 self.amm
                     .refresh_retention_target(self.amm.curve_depth_per_share_nad, 0)?;
@@ -494,43 +490,27 @@ impl Market {
         }
 
         if candidate_center == 0 {
-            let earliest = self
-                .amm
-                .last_adjustment_slot
-                .checked_add(self.config.amm.min_adjustment_interval_slots)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            if current_slot < earliest
-                || symmetric_distance_nad(self.amm.center_price_nad, self.amm.price_ema_nad)?
-                    < self.config.amm.adjustment_threshold_nad as u128
-            {
+            if current_slot <= self.amm.last_adjustment_slot {
                 return Ok(false);
             }
             let center = self.amm.center_price_nad;
             let target = self.amm.price_ema_nad;
-            let step_nad = self.config.amm.adjustment_step_nad;
-            candidate_center = if target > center {
-                let stepped = ceil_div(
-                    (center as u128)
-                        .checked_mul(NAD.checked_add(step_nad).ok_or(ErrorCode::MarketMathOverflow)? as u128)
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
-                    NAD as u128,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-                u64::try_from(stepped)
-                    .map_err(|_| ErrorCode::MarketMathOverflow)?
-                    .min(target)
-            } else if target < center {
-                let down = (center as u128)
-                    .checked_mul(NAD as u128)
-                    .and_then(|value| value.checked_div((NAD + step_nad) as u128))
-                    .ok_or(ErrorCode::MarketMathOverflow)?
-                    .max(1);
-                u64::try_from(down)
-                    .map_err(|_| ErrorCode::MarketMathOverflow)?
-                    .max(target)
-            } else {
+            let distance = mul_div_u128(center.abs_diff(target) as u128, NAD as u128, center as u128)?;
+            let step = (self.config.amm.adjustment_step_nad as u128).max(distance / 5);
+            if distance <= step {
                 return Ok(false);
-            };
+            }
+            // Curve-style adaptive step toward the EMA. Existing funded-profit
+            // admission remains mandatory for the complete candidate move.
+            let candidate = (center as u128)
+                .checked_mul(distance - step)
+                .and_then(|a| (target as u128).checked_mul(step).and_then(|b| a.checked_add(b)))
+                .and_then(|sum| sum.checked_div(distance))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            candidate_center = u64::try_from(candidate).map_err(|_| ErrorCode::MarketMathOverflow)?;
+            if candidate_center == center {
+                return Ok(false);
+            }
         }
 
         let protected_base = self.base_side.reserves.protected_recenter_reserve;
@@ -574,18 +554,13 @@ impl Market {
             // boundary; these checks also keep native callers disciplined.
             self.config.amm.validate()?;
             candidate_cache.geometry()?;
-            let earliest = self
-                .amm
-                .last_adjustment_slot
-                .checked_add(self.config.amm.min_adjustment_interval_slots)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            require_gte!(current_slot, earliest, ErrorCode::InvalidArgument);
+            require!(current_slot > self.amm.last_adjustment_slot, ErrorCode::InvalidArgument);
             if protected_funds_move {
                 let new_base_live = self
                     .base_side
                     .reserves
                     .live_reserve
-                    .checked_add(protected_base)
+                    .checked_add(u128::from(protected_base))
                     .ok_or(ErrorCode::ReserveOverflow)?;
                 let new_base_cash = self
                     .base_side
@@ -597,7 +572,7 @@ impl Market {
                     .quote_side
                     .reserves
                     .live_reserve
-                    .checked_add(protected_quote)
+                    .checked_add(u128::from(protected_quote))
                     .ok_or(ErrorCode::ReserveOverflow)?;
                 let new_quote_cash = self
                     .quote_side
@@ -645,10 +620,15 @@ impl Market {
         Ok(false)
     }
 
-    /// Reconstructs a governance-selected concentrated shape from unchanged
-    /// ordinary reserves. Parameter changes are admitted only when the
-    /// existing protected-profit budget covers any principal impairment.
-    pub(crate) fn apply_concentrated_curve_parameter_update(&mut self, current_slot: u64) -> Result<()> {
+    /// Reconstruct an operator-selected shape at unchanged inventory. The
+    /// caller checks common-price LP backing and executable-price continuity.
+    /// Depth is a shape-dependent coordinate: rebase its protection floor at
+    /// the same ratio, rounding toward less spendable profit.
+    pub(crate) fn apply_concentrated_curve_parameter_update(
+        &mut self,
+        current_slot: u64,
+        reference_prices: [u64; 2],
+    ) -> Result<()> {
         let parameters = self.config.amm.concentrated_curve_parameters()?;
         let ordinary = self.ordinary_curve_point_nad()?;
         let cache = prepare_concentrated_cache_at_point(
@@ -657,23 +637,42 @@ impl Market {
             self.amm.center_price_nad,
             parameters,
         )?;
+        self.amm.concentrated_curve_cache = cache;
+        let price_nad = self
+            .current_concentrated_spot_price_nad()?
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        // Reject repricing before expensive risk/retention work. The ramp's
+        // outer snapshot restores the candidate cache on every rejected step.
+        for reference in reference_prices {
+            let difference = reference.abs_diff(price_nad) as u128;
+            require!(
+                difference <= 1 && difference * 1_000_000 <= reference as u128,
+                ErrorCode::OperatorPolicyExceeded
+            );
+        }
         let curve_depth_nad = cache
             .tail_liquidity
             .checked_add(cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
-        let covered = covered_impairment_nad(self.amm.curve_depth_per_share_nad, curve_depth_per_share_nad)?;
-        require!(self.amm.recenter_is_funded(covered), ErrorCode::BrokenInvariant);
-
+        let prior_depth = self.amm.curve_depth_per_share_nad;
+        require!(prior_depth > 0, ErrorCode::BrokenInvariant);
+        let (floor, remainder) = mul_div_rem_u128(
+            self.amm.protected_floor_per_share_nad,
+            curve_depth_per_share_nad,
+            prior_depth,
+        )?;
+        let floor = floor
+            .checked_add(u128::from(remainder != 0))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         self.amm.concentrated_curve_cache = cache;
         self.checkpoint_oracle_risk_depth()?;
-        self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
+        self.amm.curve_depth_per_share_nad = curve_depth_per_share_nad;
+        self.amm.protected_floor_per_share_nad = floor;
+        self.amm.mark_retention_target_stale();
         self.amm.deferred_controller_target.clear();
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
-        let price_nad = self
-            .current_concentrated_spot_price_nad()?
-            .ok_or(ErrorCode::BrokenInvariant)?;
         self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
         self.risk_revision = self.curve_revision;
         Ok(())
@@ -732,15 +731,6 @@ fn mul_bps_ceil(value: u128, bps: u16) -> Result<u128> {
         BPS_DENOMINATOR as u128,
     )
     .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-}
-
-fn symmetric_distance_nad(first: u64, second: u64) -> Result<u128> {
-    require!(first > 0 && second > 0, ErrorCode::InvalidSettlementPrice);
-    let high = first.max(second) as u128;
-    let low = first.min(second) as u128;
-    ceil_div(high.checked_mul(NAD as u128).ok_or(ErrorCode::MarketMathOverflow)?, low)
-        .and_then(|ratio| ratio.checked_sub(NAD as u128))
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 #[cfg(test)]
@@ -1106,7 +1096,7 @@ impl Market {
     }
 
     pub(crate) fn curve_reserve(&self, asset: MarketAsset) -> Result<u64> {
-        let live_reserve = self.side(asset).reserves.live_reserve as u128;
+        let live_reserve = self.side(asset).reserves.live_reserve;
         let curve_reserve = live_reserve
             .checked_sub(self.unrealized_interest(asset)?)
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -2671,17 +2661,11 @@ impl AmmConfig {
             ErrorCode::InvalidHalfLife
         );
 
-        let adjustment_disabled = self.adjustment_threshold_nad == 0
-            && self.adjustment_step_nad == 0
-            && self.min_adjustment_interval_slots == 0;
-        if !adjustment_disabled {
-            require!(
-                (MIN_AMM_ADJUSTMENT_NAD..=MAX_AMM_ADJUSTMENT_NAD).contains(&self.adjustment_step_nad)
-                    && (self.adjustment_step_nad..=MAX_AMM_ADJUSTMENT_NAD).contains(&self.adjustment_threshold_nad)
-                    && (1..=MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS).contains(&self.min_adjustment_interval_slots),
-                ErrorCode::InvalidMarketConfig
-            );
-        }
+        require!(
+            (self.is_cpmm() && self.adjustment_step_nad == 0)
+                || (MIN_AMM_ADJUSTMENT_NAD..=MAX_AMM_ADJUSTMENT_NAD).contains(&self.adjustment_step_nad),
+            ErrorCode::InvalidMarketConfig
+        );
 
         let volatility_signal_disabled = self.volatility_shock_cap_nad == 0 && self.volatility_cap_nad == 0;
         let volatility_signal_valid = self.volatility_shock_cap_nad > 0
@@ -2728,6 +2712,7 @@ impl AmmState {
         require!(initial_price_nad > 0, ErrorCode::InvalidSettlementPrice);
         Ok(Self {
             initialized: true,
+            concentration_ramp: Default::default(),
             concentrated_curve_cache: ConcentratedCurveCache::default(),
             center_price_nad: initial_price_nad,
             price_ema_nad: initial_price_nad,
@@ -2755,7 +2740,7 @@ impl AmmState {
         })
     }
 
-    /// Governance changed the controller request, so a cost cached for the
+    /// The operator changed the controller request, so a cost cached for the
     /// preceding request is no longer admissible. The next genuine operation
     /// evaluates one fresh target against current reserves.
     pub(crate) fn invalidate_deferred_controller_target(&mut self) {
@@ -2934,11 +2919,7 @@ impl AmmState {
             actual_impairment_nad,
             ErrorCode::BrokenInvariant
         );
-        let earliest_adjustment_slot = self
-            .last_adjustment_slot
-            .checked_add(config.min_adjustment_interval_slots)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        require_gte!(current_slot, earliest_adjustment_slot, ErrorCode::InvalidArgument);
+        require!(current_slot > self.last_adjustment_slot, ErrorCode::InvalidArgument);
         self.center_price_nad = new_center_price_nad;
         self.concentrated_curve_cache = new_cache;
         self.last_adjustment_slot = current_slot;

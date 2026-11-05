@@ -158,8 +158,10 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         risk: Default::default(),
         params_hash: [0; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_srlp: 0,
-        governance_locked_junior: 0,
+        operator: Default::default(),
+        protocol_interest_markup_bps:0,
+
+
         parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
@@ -341,7 +343,7 @@ fn canonical_extra_meta_schema_contains_both_asset_streams() {
         ..Market::default()
     };
     let metas = canonical_lp_transfer_hook_metas(market, &state, lp_mint).unwrap();
-    assert_eq!(metas.len(), 9);
+    assert_eq!(metas.len(), 10);
     assert_eq!(metas[0].address_config, market.to_bytes());
     assert!(bool::from(metas[0].is_writable));
     assert_eq!(metas[1].address_config, base_mint.to_bytes());
@@ -382,10 +384,10 @@ fn hlp_hook_always_resolves_its_mint_specific_cohort() {
         ..Market::default()
     };
     let metas = canonical_lp_transfer_hook_metas(market, &state, hlp_mint).unwrap();
-    assert_eq!(metas.len(), 10);
-    assert_eq!(metas[9].discriminator, 1);
-    assert!(!bool::from(metas[9].is_writable));
-    assert!(!bool::from(metas[9].is_signer));
+    assert_eq!(metas.len(), 11);
+    assert_eq!(metas[10].discriminator, 1);
+    assert!(!bool::from(metas[10].is_writable));
+    assert!(!bool::from(metas[10].is_signer));
 }
 
 #[test]

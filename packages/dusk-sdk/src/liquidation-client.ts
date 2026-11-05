@@ -8,7 +8,7 @@ import { address, type AddressLike } from "./address.js";
 import { DuskWrite } from "./write.js";
 import { DuskGet } from "./get.js";
 import { previewReturnDataBytes } from "./preview.js";
-import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js";
+import { integerBN, type IntegerLike } from "./parameters.js";
 import { tokenProgramForMint } from "./referral.js";
 import { deriveFutarchyAuthorityAddress, deriveLeverageCollateralVaultAddress, deriveReferralAccrualAddress } from "./constants.js";
 import { deriveLiquidationPaymentAddress, deriveLiquidationSessionAddress } from "./liquidation.js";
@@ -24,14 +24,14 @@ export interface LiquidationPositionParams {
 
 export interface FlashLiquidationParams extends LiquidationPositionParams {
   buyer: AddressLike;
-  maxRepayment: GovernanceIntegerLike;
+  maxRepayment: IntegerLike;
   full?: boolean;
   /** Net escrow balance increase, including all outgoing transfer gross-ups. */
-  maxPayment?: GovernanceIntegerLike;
+  maxPayment?: IntegerLike;
   /** Actual buyer receipt after collateral transfer fees. */
-  minCollateralCredit?: GovernanceIntegerLike;
+  minCollateralCredit?: IntegerLike;
   /** Final debt-token receipt when `settlement` is `duskAmm`. */
-  minBuyerCredit?: GovernanceIntegerLike;
+  minBuyerCredit?: IntegerLike;
   prefixInstructions?: readonly TransactionInstruction[];
   /** Dusk execution sells the received collateral in the paired settle and
    * nets debt principal internally. External settlement requires route payment. */
@@ -61,10 +61,10 @@ export interface FlashLiquidationRouteContext {
 
 export interface EmergencyLiquidationParams extends LiquidationPositionParams {
   caller: AddressLike;
-  collateralDebit: GovernanceIntegerLike;
+  collateralDebit: IntegerLike;
   full?: boolean;
-  minRewardCredit?: GovernanceIntegerLike;
-  minSwapOutput?: GovernanceIntegerLike;
+  minRewardCredit?: IntegerLike;
+  minSwapOutput?: IntegerLike;
   prefixInstructions?: readonly TransactionInstruction[];
 }
 
@@ -131,10 +131,10 @@ export class DuskLiquidations {
   /** Returns the executable discount after partial-health affordability checks.
    * The health-based ceiling alone must not be used to construct a payment or route.
    */
-  async preview(params: LiquidationPositionParams & { maxRepayment: GovernanceIntegerLike; full?: boolean }): Promise<FlashLiquidationQuote> {
+  async preview(params: LiquidationPositionParams & { maxRepayment: IntegerLike; full?: boolean }): Promise<FlashLiquidationQuote> {
     const resolved = await this.resolve(params);
     const instruction = await this.write.instruction("previewFlashLiquidation", {
-      debtAsset: resolved.debtAsset, maxRepayment: governanceIntegerBN(params.maxRepayment, "maxRepayment"), full: params.full ?? false,
+      debtAsset: resolved.debtAsset, maxRepayment: integerBN(params.maxRepayment, "maxRepayment"), full: params.full ?? false,
     }, { accounts: resolved.readAccounts });
     const returned = await this.get.simulateReturnData(instruction);
     return this.program.coder.types.decode("flashLiquidationQuote", previewReturnDataBytes(returned)) as FlashLiquidationQuote;
@@ -144,10 +144,10 @@ export class DuskLiquidations {
    * receipt. This includes both collateral transfers, AMM fees, liquidation
    * distributions, and the final debt-token transfer fee.
    */
-  async previewAmm(params: LiquidationPositionParams & { maxRepayment: GovernanceIntegerLike; full?: boolean }): Promise<FlashAmmLiquidationQuote> {
+  async previewAmm(params: LiquidationPositionParams & { maxRepayment: IntegerLike; full?: boolean }): Promise<FlashAmmLiquidationQuote> {
     const r = await this.resolve(params);
     const instruction = await this.write.instruction("previewFlashAmmLiquidation", {
-      debtAsset: r.debtAsset, maxRepayment: governanceIntegerBN(params.maxRepayment, "maxRepayment"), full: params.full ?? false,
+      debtAsset: r.debtAsset, maxRepayment: integerBN(params.maxRepayment, "maxRepayment"), full: params.full ?? false,
     }, { accounts: { preview: r.readAccounts, futarchyAuthority: deriveFutarchyAuthorityAddress(this.program.programId)[0] } });
     const returned = await this.get.simulateReturnData(instruction);
     return this.program.coder.types.decode("flashAmmLiquidationQuote", previewReturnDataBytes(returned)) as FlashAmmLiquidationQuote;
@@ -163,10 +163,10 @@ export class DuskLiquidations {
    * A useful below-target partial or external flash quote does not block it.
    * Proof failure remains a rejection; a failed requested slice is not evidence.
    */
-  async previewEmergency(params: LiquidationPositionParams & { collateralDebit: GovernanceIntegerLike; full?: boolean }): Promise<EmergencyLiquidationQuote> {
+  async previewEmergency(params: LiquidationPositionParams & { collateralDebit: IntegerLike; full?: boolean }): Promise<EmergencyLiquidationQuote> {
     const r = await this.resolve(params);
     const instruction = await this.write.instruction("previewEmergencyLiquidation", {
-      debtAsset: r.debtAsset, collateralDebit: governanceIntegerBN(params.collateralDebit, "collateralDebit"), full: params.full ?? false,
+      debtAsset: r.debtAsset, collateralDebit: integerBN(params.collateralDebit, "collateralDebit"), full: params.full ?? false,
     }, { accounts: { preview: r.readAccounts, futarchyAuthority: deriveFutarchyAuthorityAddress(this.program.programId)[0] } });
     const returned = await this.get.simulateReturnData(instruction);
     return this.program.coder.types.decode("emergencyLiquidationQuote", previewReturnDataBytes(returned)) as EmergencyLiquidationQuote;
@@ -210,9 +210,9 @@ export class DuskLiquidations {
       referralAccrual: referralPartner ? deriveReferralAccrualAddress(referralPartner, r.market, r.debtSide.assetMint, this.program.programId)[0] : null,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram };
     const instruction = await this.write.instruction("emergencyLiquidation", {
-      debtAsset: r.debtAsset, collateralDebit: governanceIntegerBN(params.collateralDebit, "collateralDebit"), full: params.full ?? false,
-      minRewardCredit: governanceIntegerBN(params.minRewardCredit ?? BigInt(quote.rewardCredit.toString()), "minRewardCredit"),
-      minSwapOutput: governanceIntegerBN(params.minSwapOutput ?? BigInt(quote.swapOutput.toString()), "minSwapOutput"),
+      debtAsset: r.debtAsset, collateralDebit: integerBN(params.collateralDebit, "collateralDebit"), full: params.full ?? false,
+      minRewardCredit: integerBN(params.minRewardCredit ?? BigInt(quote.rewardCredit.toString()), "minRewardCredit"),
+      minSwapOutput: integerBN(params.minSwapOutput ?? BigInt(quote.swapOutput.toString()), "minSwapOutput"),
     }, { accounts: { accounts, collateralReserveVault: r.collateralSide.reserveVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY }, remainingAccounts });
     return {
       quote, instruction, instructions: [...prefix, instruction],
@@ -279,10 +279,10 @@ export class DuskLiquidations {
     };
     const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY };
     const begin = await this.write.instruction("beginFlashLiquidation", {
-      position: r.position, debtAsset: r.debtAsset, maxRepayment: governanceIntegerBN(params.maxRepayment, "maxRepayment"),
-      maxPayment: governanceIntegerBN(params.maxPayment ?? BigInt(quote.payment.toString()), "maxPayment"),
-      minCollateralCredit: governanceIntegerBN(params.minCollateralCredit ?? BigInt(quote.collateralCredit.toString()), "minCollateralCredit"),
-      minBuyerCredit: governanceIntegerBN(internal ? params.minBuyerCredit ?? BigInt(ammQuote!.buyerCredit.toString()) : 0n, "minBuyerCredit"),
+      position: r.position, debtAsset: r.debtAsset, maxRepayment: integerBN(params.maxRepayment, "maxRepayment"),
+      maxPayment: integerBN(params.maxPayment ?? BigInt(quote.payment.toString()), "maxPayment"),
+      minCollateralCredit: integerBN(params.minCollateralCredit ?? BigInt(quote.collateralCredit.toString()), "minCollateralCredit"),
+      minBuyerCredit: integerBN(internal ? params.minBuyerCredit ?? BigInt(ammQuote!.buyerCredit.toString()) : 0n, "minBuyerCredit"),
       full: params.full ?? false, settleIndex,
     }, { accounts: { ...common, systemProgram: SystemProgram.programId } });
     const settle = await this.write.instruction("settleFlashLiquidation", [], {

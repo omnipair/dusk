@@ -232,7 +232,7 @@ impl Market {
                 0
             } else {
                 let mut low = 0_u64;
-                let mut high = debt_side.reserves.live_reserve;
+                let mut high = debt_side.reserves.cash_reserve;
                 let search_steps = position_capacity_search_steps(high);
                 for _ in 0..search_steps {
                     if low >= high {

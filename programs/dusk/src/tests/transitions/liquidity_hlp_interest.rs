@@ -23,7 +23,7 @@ fn h_lp_entry_accepts_full_value_public_interest_in_both_assets_and_curves() {
                     }
                 }
                 market.side_mut(interest_asset).reserves.cash_reserve -= 400_000 * UNIT;
-                market.side_mut(interest_asset).reserves.live_reserve += 25_000 * UNIT;
+                market.side_mut(interest_asset).reserves.live_reserve += u128::from(25_000 * UNIT);
                     market.sync_income_receivable(interest_asset, false, 0).unwrap();
                 market.config.amm = AmmConfig {
                     peak_amplification_nad: amplification * NAD,
@@ -92,7 +92,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                         }
                     }
                     market.side_mut(interest_asset).reserves.cash_reserve -= 400_000 * UNIT;
-                    market.side_mut(interest_asset).reserves.live_reserve += 25_000 * UNIT;
+                    market.side_mut(interest_asset).reserves.live_reserve += u128::from(25_000 * UNIT);
                     market.sync_income_receivable(interest_asset, false, 0).unwrap();
                     assert_eq!(plain_price, current_hlp_curve_prices(&market).unwrap());
                     market.config.swap_fee_bps = fee_bps;
@@ -235,7 +235,7 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
                 }
             }
             market.side_mut(target).reserves.cash_reserve -= 400_000 * UNIT;
-            market.side_mut(target).reserves.live_reserve += 7_600_000 * UNIT;
+            market.side_mut(target).reserves.live_reserve += u128::from(7_600_000 * UNIT);
             market.sync_income_receivable(target, false, 0).unwrap();
             market.sync_income_receivable(target.opposite(), true, 0).unwrap();
             market.config.amm = AmmConfig {
@@ -319,7 +319,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                     }
                 }
                 market.side_mut(asset).reserves.cash_reserve -= 400_000 * UNIT;
-                market.side_mut(asset).reserves.live_reserve += 25_000 * UNIT;
+                market.side_mut(asset).reserves.live_reserve += u128::from(25_000 * UNIT);
                 market.sync_income_receivable(asset, false, 0).unwrap();
                 market.config.amm = AmmConfig {
                     peak_amplification_nad: amplification * NAD,
@@ -438,7 +438,7 @@ fn full_value_recovery_bonus_reports_the_settled_price() {
             }
         }
         market.side_mut(target).reserves.cash_reserve -= 400_000 * UNIT;
-        market.side_mut(target).reserves.live_reserve += 25_000 * UNIT;
+        market.side_mut(target).reserves.live_reserve += u128::from(25_000 * UNIT);
         market.config.swap_fee_bps = 30;
         market.config.amm = AmmConfig {
             compounding_fee_bps: 10_000,
@@ -498,7 +498,7 @@ fn accrued_interest_rehedging_does_not_pay_a_same_slot_round_trip() {
                     }
                 }
                 market.side_mut(interest_asset).reserves.cash_reserve -= 400_000 * UNIT;
-                market.side_mut(interest_asset).reserves.live_reserve += interest * UNIT;
+                market.side_mut(interest_asset).reserves.live_reserve += u128::from(interest * UNIT);
                 market.config.swap_fee_bps = 0;
                 market.config.amm = AmmConfig {
                     peak_amplification_nad: amplification * NAD,
@@ -568,7 +568,7 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
                 }
             }
             market.side_mut(interest_asset).reserves.cash_reserve -= 400_000 * UNIT;
-            market.side_mut(interest_asset).reserves.live_reserve += unpaid_tokens * UNIT;
+            market.side_mut(interest_asset).reserves.live_reserve += u128::from(unpaid_tokens * UNIT);
             market.config.amm = AmmConfig {
                 peak_amplification_nad: amplification * NAD,
                 core_half_width_bps: if amplification == 1 { 0 } else { 100 },
@@ -590,7 +590,9 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
             let ordinary_before = market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
             let (gross, lp_credit) = market.fund_public_interest(interest_asset, u64::MAX, 2_000).unwrap();
             assert!(gross > 0 && gross <= unpaid_tokens * UNIT);
-            assert_eq!(lp_credit, gross - gross / 5);
+            // This coupon accrued at a zero markup. A later supplied fee rate
+            // cannot reduce its already assigned LP entitlement.
+            assert_eq!(lp_credit,gross);
             assert_eq!(market.curve_reserves_nad().unwrap(), raw_before);
             assert_eq!(current_hlp_curve_prices(&market).unwrap(), prices);
             market.record_receivable_income_credit(interest_asset, false, lp_credit, 0, ProtocolAuctionSplit::default(), 0).unwrap();
@@ -650,7 +652,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                 }
             }
             market.side_mut(interest_asset).reserves.cash_reserve -= 400_000 * UNIT;
-            market.side_mut(interest_asset).reserves.live_reserve += unpaid_tokens * UNIT;
+            market.side_mut(interest_asset).reserves.live_reserve += u128::from(unpaid_tokens * UNIT);
             market.sync_income_receivable(interest_asset, false, 0).unwrap();
             market.config.amm = AmmConfig {
                 peak_amplification_nad: amplification * NAD,
@@ -672,7 +674,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                 MarketAsset::Quote => market.debt.quote_borrow_index_nad += u128::from(NAD) * funding_bps / 10_000,
             }
             let unpaid = market.public_unpaid_interest(interest_asset).unwrap();
-            market.side_mut(interest_asset).reserves.live_reserve += (unpaid - before_unpaid) as u64;
+            market.side_mut(interest_asset).reserves.live_reserve += u128::from((unpaid - before_unpaid) as u64);
             market.sync_income_receivable(interest_asset, false, 0).unwrap();
             market.sync_income_receivable(interest_asset, true, 0).unwrap();
             // Previously funded yield is outside the spendable new interval.
@@ -692,14 +694,14 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             let frozen_market = market.clone();
             let ordinary_value = |m: &Market| {
                 [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|asset| {
-                    let claim = srlp_live_underlying_amount_from_values(m.curve_reserve(asset).unwrap(), m.base_side.shares.srlp_supply, ordinary_before).unwrap();
+                    let claim = srlp_live_underlying_amount_from_values(u128::from(m.curve_reserve(asset).unwrap()), m.base_side.shares.srlp_supply, ordinary_before).unwrap();
                     asset_value_in_target_nad_with_prices(m, prices, asset, claim, MarketAsset::Quote).unwrap()
                 }).sum::<u128>()
             };
             let ordinary_nav_before = ordinary_value(&market);
             let (gross, lp_gross) = market.fund_public_interest(interest_asset, u64::MAX, 2_000).unwrap();
             assert!(gross > 0 && u128::from(gross) <= unpaid);
-            assert_eq!(lp_gross, gross - gross / 5);
+            assert_eq!(lp_gross,gross);
             let lp_credit = fee.unwind_credit(lp_gross).unwrap();
             assert_eq!(market.curve_reserves_nad().unwrap(), raw_before);
             assert_eq!(current_hlp_curve_prices(&market).unwrap(), prices);
@@ -844,7 +846,7 @@ fn tranche_hlp_nav_includes_only_its_allocated_unpaid_interest() {
     market.debt.fixed_base_principal = 400_000 * UNIT;
     market.debt.fixed_base_shares = 410_000 * UNIT as u128;
     market.base_side.reserves.cash_reserve -= 400_000 * UNIT;
-    market.base_side.reserves.live_reserve += 10_000 * UNIT;
+    market.base_side.reserves.live_reserve += u128::from(10_000 * UNIT);
     market.sync_income_receivable(MarketAsset::Base, false, 0).unwrap();
     let income = market.income.get().unwrap();
     let own_unpaid = income.hlp[0][0].unpaid_value(&income.books[0]).unwrap();
@@ -875,7 +877,7 @@ fn tranche_hlp_rehedge_preserves_each_vaults_receivable_nav() {
                 MarketAsset::Quote => { market.debt.fixed_quote_principal = 400_000 * UNIT; market.debt.fixed_quote_shares = 425_000 * UNIT as u128; }
             }
             market.side_mut(asset).reserves.cash_reserve -= 400_000 * UNIT;
-            market.side_mut(asset).reserves.live_reserve += 25_000 * UNIT;
+            market.side_mut(asset).reserves.live_reserve += u128::from(25_000 * UNIT);
             market.sync_income_receivable(asset, false, 0).unwrap();
             market.prepare_amm_for_swap(1).unwrap();
             let prices = current_hlp_curve_prices(&market).unwrap();
@@ -912,12 +914,12 @@ fn tranche_hlp_exit_buys_only_departing_coupons_and_does_not_gift_next_depositor
                 MarketAsset::Quote => { market.debt.fixed_quote_principal = 400_000 * UNIT; market.debt.fixed_quote_shares = 410_000 * UNIT as u128; }
             }
             market.side_mut(asset).reserves.cash_reserve -= 400_000 * UNIT;
-            market.side_mut(asset).reserves.live_reserve += 10_000 * UNIT;
+            market.side_mut(asset).reserves.live_reserve += u128::from(10_000 * UNIT);
             market.sync_income_receivable(asset, false, 0).unwrap();
             market.prepare_amm_for_swap(1).unwrap();
             let static_units = market.base_side.shares.srlp_supply - if target == MarketAsset::Base { market.base_hlp_vault.srlp_shares } else { market.quote_hlp_vault.srlp_shares };
             let ordinary_value = |m: &Market, prices: HlpCurvePrices| [MarketAsset::Base, MarketAsset::Quote].into_iter().map(|a| {
-                let amount = srlp_live_underlying_amount_from_values(m.curve_reserve(a).unwrap(), m.base_side.shares.srlp_supply, static_units).unwrap();
+                let amount = srlp_live_underlying_amount_from_values(u128::from(m.curve_reserve(a).unwrap()), m.base_side.shares.srlp_supply, static_units).unwrap();
                 asset_value_in_target_nad_with_prices(m, prices, a, amount, MarketAsset::Quote).unwrap()
             }).sum::<u128>();
             let initial_unpaid = market.hlp_unpaid_income(target, asset).unwrap();
@@ -1000,8 +1002,6 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
                 core_half_width_bps: if amp > 1 { 1_000 } else { 0 },
                 fade_width_bps: if amp > 1 { 4_000 } else { 0 },
                 center_ema_half_life_ms: 60_000, volatility_half_life_ms: 60_000,
-                adjustment_threshold_nad: NAD / 100, adjustment_step_nad: NAD / 1_000,
-                min_adjustment_interval_slots: crate::state::MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS,
                 ..AmmConfig::default() },
             irm: IrmConfig::default(), ..MarketConfig::default()
          };

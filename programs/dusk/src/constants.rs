@@ -55,21 +55,8 @@ pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 /// if the cluster's scheduled slot duration changes again.
 #[constant]
 pub const TARGET_MS_PER_SLOT: u64 = 200;
-/// Direct-srLP parameter governance thresholds and wall-clock lifecycle.
-#[constant]
-pub const PARAMETER_PROPOSAL_SPONSOR_BPS: u16 = 100; // 1%
-#[constant]
-pub const PARAMETER_PROPOSAL_SUPPORT_BPS: u16 = 5_000; // strict >50%
-#[constant]
-pub const PARAMETER_PROPOSAL_TIMELOCK_SECONDS: i64 = 7 * 24 * 60 * 60;
-/// Tranche holders can need the full maximum exit notice before changing the
-/// economics they underwrite.
-#[constant]
-pub const TRANCHE_PARAMETER_TIMELOCK_SECONDS: i64 = 10 * 24 * 60 * 60;
-#[constant]
-pub const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
 /// A proposal changes one to this many families, at most one update each.
-pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 8;
+pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 7;
 #[constant]
 pub const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS: u64 = 8_000;
 
@@ -141,10 +128,6 @@ pub const MARKET_INTEREST_VAULT_SEED_PREFIX: &[u8] = b"market_interest";
 pub const BORROW_POSITION_SEED_PREFIX: &[u8] = b"borrow_position_v2";
 #[constant]
 pub const YIELD_ACCOUNT_SEED_PREFIX: &[u8] = b"yield";
-#[constant]
-pub const PARAMETER_PROPOSAL_SEED_PREFIX: &[u8] = b"parameter_proposal";
-#[constant]
-pub const PROPOSAL_SUPPORT_SEED_PREFIX: &[u8] = b"proposal_support";
 pub const TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX: &[u8] = b"extra-account-metas";
 #[constant]
 // Stable PDA namespace; the srLP rename does not move existing vaults.
@@ -162,23 +145,15 @@ pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// Serialized `Market` account layout discriminator.
 ///
-/// Layout 11 removes standalone coverage vaults and their draw windows.
-/// Credit losses are allocated directly to junior and then senior capital.
+/// Layout 12 replaces core LP governance with operator authority and removes
+/// configurable interest-rate floors/ceilings and redundant centering inputs.
+/// Aggregate virtual reserves use u128; physical token amounts remain u64.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 11;
+pub const MARKET_LAYOUT_VERSION: u8 = 12;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");
 
-/// Reusable owner governance balance and per-proposal allocation.
-pub const GOVERNANCE_BALANCE_SEED_PREFIX: &[u8] = b"governance_balance";
-pub const GOVERNANCE_SUPPORT_SEED_PREFIX: &[u8] = b"governance_support";
-
-/// Junior and manager notice share scheduled slots. Every manager bundle waits
-/// the maximum junior notice plus one additional protocol day.
+/// Maximum junior notice; operator changes wait this plus one protocol day.
 #[constant]
 pub const JUNIOR_MAX_NOTICE_SLOTS: u64 = 10 * MS_PER_DAY / TARGET_MS_PER_SLOT;
-#[constant]
-pub const MANAGER_NOTICE_SLOTS: u64 = JUNIOR_MAX_NOTICE_SLOTS + MS_PER_DAY / TARGET_MS_PER_SLOT;
-#[constant]
-pub const MANAGER_EXECUTION_WINDOW_SLOTS: u64 = 7 * MS_PER_DAY / TARGET_MS_PER_SLOT;

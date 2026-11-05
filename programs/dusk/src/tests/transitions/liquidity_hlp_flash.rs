@@ -421,7 +421,7 @@ fn spot_swap_carries_hlp_interest_when_cash_only_covers_trader_output() {
             }
             let public_interest = market.unrealized_interest(borrowed).unwrap() as u64;
             market.side_mut(borrowed).reserves.cash_reserve -= principal;
-            market.side_mut(borrowed).reserves.live_reserve += public_interest;
+            market.side_mut(borrowed).reserves.live_reserve += u128::from(public_interest);
             market.assert_market_invariants().unwrap();
             let vault_before = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
             let debt_before = Debt::shares_to_debt(vault_before.debt_shares, market.debt.borrow_index(borrowed)).unwrap();
@@ -564,7 +564,7 @@ fn cash_constrained_swap_carries_both_hlp_funding_liabilities() {
             }
             let public_interest = market.unrealized_interest(asset).unwrap() as u64;
             market.side_mut(asset).reserves.cash_reserve -= principal;
-            market.side_mut(asset).reserves.live_reserve += public_interest;
+            market.side_mut(asset).reserves.live_reserve += u128::from(public_interest);
         }
         market.assert_market_invariants().unwrap();
         let due_before = [MarketAsset::Base, MarketAsset::Quote].map(|target| {

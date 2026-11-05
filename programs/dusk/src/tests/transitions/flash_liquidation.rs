@@ -490,7 +490,7 @@ fn concentrated_recovery_certificate_never_skips_a_fee_bearing_integer_recovery(
                 MarketAsset::Quote => market.debt.quote_borrow_index_nad = 1_200_000_001,
             }
             let accrued = market.debt.isolated_debt(asset).unwrap() - debt_before;
-            market.side_mut(asset).reserves.live_reserve += u64::try_from(accrued).unwrap();
+            market.side_mut(asset).reserves.live_reserve += u128::from(u64::try_from(accrued).unwrap());
         }
         position.margin_terms = LeverageMarginTerms::at_entry(50_000).unwrap();
         let fee = LeverageCollateralFee::new(taxed.then_some(TransferFee {

@@ -64,10 +64,6 @@ import {
   buildLpTransferHookValidationAccountData,
   buildYieldTransferHookValidationAccountData,
   deriveFutarchyAuthorityAddress,
-  deriveGovernanceBalanceAddress,
-  deriveRemovalBallotAddress,
-  deriveCancellationBallotAddress,
-  deriveProposalSupportAddress,
   deriveHlpSrlpVaultAddress,
   deriveMarketAddress,
   deriveMarketCollateralVaultAddress,
@@ -100,10 +96,10 @@ import { DuskProtectionOrders } from "../packages/dusk-sdk/src/protection.js";
 import { DuskTranches } from "../packages/dusk-sdk/src/tranche-client.js";
 import { DuskYield } from "../packages/dusk-sdk/src/yield-client.js";
 import { DuskLiquidations } from "../packages/dusk-sdk/src/liquidation-client.js";
-import { DuskGovernance } from "../packages/dusk-sdk/src/governance-client.js";
-import { dailyBorrowLimitParameterUpdate, feeParameterUpdate, irmParameterUpdate, concentrationParameterUpdate, emaHalfLivesParameterUpdate, centerControllerParameterUpdate, trancheParameterUpdate, verifyDecodedParameterProposalDigest, verifyDecodedExecutionDigest } from "../packages/dusk-sdk/src/governance.js";
+import { DuskOperator } from "../packages/dusk-sdk/src/operator-client.js";
+import { dailyBorrowLimitParameterUpdate, feeParameterUpdate, irmParameterUpdate, concentrationParameterUpdate, emaHalfLivesParameterUpdate, centerControllerParameterUpdate, trancheParameterUpdate } from "../packages/dusk-sdk/src/parameters.js";
 import { DuskWrite } from "../packages/dusk-sdk/src/write.js";
-import { marketCreationLookupTablePlan, marketCreationV0Transaction, parameterProposalV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
+import { marketCreationLookupTablePlan, marketCreationV0Transaction, operatorChangeV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
 import { grossLiquidationPayment } from "../packages/dusk-sdk/src/liquidation.js";
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
@@ -123,7 +119,7 @@ const DUSK_PROGRAM_ID = new PublicKey("5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
   "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi"
 );
-const GOVERNANCE_ADAPTER_PROGRAM_ID = new PublicKey("AJZgAHa6yfsoLbJk3jzqj6dPcnei5Pb7heRMGWrZu1fQ");
+const OPERATOR_ADAPTER_PROGRAM_ID = new PublicKey("AJZgAHa6yfsoLbJk3jzqj6dPcnei5Pb7heRMGWrZu1fQ");
 const REFERRAL_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
   "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV"
 );
@@ -256,9 +252,7 @@ function marketConfig() {
       fadeWidthBps: 0,
       centerEmaHalfLifeMs: new BN(60_000),
       volatilityHalfLifeMs: new BN(60_000),
-      adjustmentThresholdNad: new BN(10_000_000),
       adjustmentStepNad: new BN(1_000_000),
-      minAdjustmentIntervalSlots: new BN(18_000),
       volatilityShockCapNad: new BN(0),
       volatilityCapNad: new BN(0),
       divergenceFeeCoefficientNad: new BN(0),
@@ -283,8 +277,6 @@ function marketConfig() {
       upperSignalNad: new BN(62_500_000),
       halfLifeMs: new BN(14 * 24 * 60 * 60 * 1000),
       initialAprNad: new BN(40_000_000),
-      minimumAprNad: new BN(20_000_000),
-      maximumAprNad: new BN(0),
       borrowUtilizationLimitBps: 8_000,
     },
     startTime: new BN(0),
@@ -323,7 +315,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       TOKEN_METADATA_PROGRAM_ID,
       path.join(__dirname, "../target/deploy/token_metadata_fixture.so")
     );
-    svm.addProgramFromFile(GOVERNANCE_ADAPTER_PROGRAM_ID, path.join(__dirname, "../target/deploy/governance_adapter.so"));
+    svm.addProgramFromFile(OPERATOR_ADAPTER_PROGRAM_ID, path.join(__dirname, "../target/deploy/operator_adapter.so"));
     connection = new LiteSVMConnection(svm);
 
     payer = Keypair.generate();
@@ -1044,6 +1036,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         paramsHash: [...paramsHash],
         bootstrapPriceNad: new anchor.BN(bootstrapPriceNad),
         launchFeeProgressOffset: 0,
+        operatorInterestShareBps: 0,
         srlpMetadata: { name: "Omnipair V2 (Dusk) srLP", symbol: "srLP", uri: "https://omnipair.fi/metadata/dusk/srlp.json" },
         baseHlpMetadata: { name: "Omnipair V2 (Dusk) Base hLP", symbol: "hLP", uri: "https://omnipair.fi/metadata/dusk/base-hlp.json" },
         quoteHlpMetadata: { name: "Omnipair V2 (Dusk) Quote hLP", symbol: "hLP", uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json" },
@@ -2335,7 +2328,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("checkpointIncome", this.test?.title);
   });
 
-  it("retires wiped junior escrow without reviving its receipts in the replacement generation", async function () {
+  it("burns retired junior receipts and preserves historical income after a new generation", async function () {
     const f = await addBalancedLiquidity(247);
     const sdkProgram = createDuskProgram({ provider: program.provider });
     const tranches = new DuskTranches(sdkProgram);
@@ -2344,17 +2337,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(first.transaction, [payer]);
     await connection.sendTransaction((await tranches.convert({ market: f.market, owner: payer.publicKey,
       action: { kind: "enter", seniorAmount: 20_000, minimumJunior: 20_000 } })).transaction, [payer]);
-    const governance = new DuskGovernance(sdkProgram);
     const owner = payer.publicKey;
-    const oldParams = { market: f.market, owner, kind: "junior" as const, lpMint: first.juniorMint };
-    await connection.sendTransaction((await governance.deposit({ ...oldParams, amount: 6_000 })).transaction, [payer]);
-    const rationale = { version: 1, title: "Parameter change", descriptionUri: "https://example.invalid/p.md", descriptionSha256: Array(32).fill(1), descriptionLen: 1 };
-    const oldProposal = await governance.createProposal({ market: f.market, proposer: owner, nonce: 77,
-      updates: [{ kind: "dailyBorrowLimit", maxDailyBorrowBps: 1_900 }], metadata: rationale,
-      contributions: [{ owner, kind: "junior", amount: 6_000 }] });
-    await connection.sendTransaction(oldProposal.transaction, [payer]);
-    const proposalBefore = await new DuskGet(sdkProgram).parameterProposal(oldProposal.proposal);
-    expect(proposalBefore.juniorGeneration.toString()).to.equal("0");
     await swapBaseForQuote(f, [], 10_000, 1);
     const request = await tranches.convert({ market: f.market, owner: payer.publicKey,
       action: { kind: "requestExit", additionalJunior: 8_000 } });
@@ -2392,36 +2375,16 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(after.tranches.juniorReceiptSupply.isZero()).to.equal(true);
     await connection.sendTransaction((await tranches.convert({ market: f.market, owner,
       action: { kind: "enter", seniorAmount: 500, minimumJunior: 500 } })).transaction, [payer]);
-    const newParams = { market: f.market, owner, kind: "junior" as const };
-    await connection.sendTransaction((await governance.deposit({ ...newParams, amount: 100 })).transaction, [payer]);
-    let rejected: unknown;
-    try {
-      const contribution = await governance.supportProposal({ market: f.market, proposal: oldProposal.proposal,
-        authority: owner, digest: proposalBefore.digest, contributions: [{ owner, kind: "junior", amount: 100 }] });
-      await connection.sendTransaction(contribution.transaction, [payer]);
-    } catch (error) { rejected = error; }
-    expect(String(rejected)).to.include("InvalidProposalSupport");
-    const activeLockedBefore = (await sdkProgram.account.market.fetch(f.market)).governanceLockedJunior;
-    expect(activeLockedBefore.toString()).to.equal("100");
-    await connection.sendTransaction((await governance.withdrawSupport({ market: f.market, proposal: oldProposal.proposal,
-      owner, authority: owner, kind: "junior", lpMint: first.juniorMint })).transaction, [payer]);
-    await connection.sendTransaction((await governance.withdraw({ ...oldParams, amount: 6_000 })).transaction, [payer]);
-    expect((await governance.getBalance(f.market, owner, "junior", first.juniorMint))!.totalAmount.toString()).to.equal("0");
-    expect((await sdkProgram.account.market.fetch(f.market)).governanceLockedJunior.toString()).to.equal(activeLockedBefore.toString());
-    const oldYield = deriveYieldAccountAddress(f.market, owner, first.juniorMint, f.baseMint, "junior")[0];
-    const earnedBefore = await new DuskGet(sdkProgram).yieldAccount(oldYield);
-    expect(earnedBefore.accruedSwapFeeAmount.gtn(0)).to.equal(true);
-    await connection.sendTransaction((await governance.claimYield(oldParams)).transaction, [payer]);
-    const earnedAfter = await new DuskGet(sdkProgram).yieldAccount(oldYield);
-    expect(earnedAfter.accruedSwapFeeAmount.toString()).to.equal(earnedBefore.accruedSwapFeeAmount.toString());
-    await connection.sendTransaction((await governance.withdraw({ ...newParams, amount: 100 })).transaction, [payer]);
     const burn = await tranches.burnRetired({ market: f.market, owner: payer.publicKey, retiredMint: first.juniorMint, amount: 12_000 });
     await connection.sendTransaction(burn.transaction, [payer]);
     trackV2Instruction("burnRetiredJunior", this.test?.title);
+    const oldYield = deriveYieldAccountAddress(f.market, owner, first.juniorMint, f.baseMint, "junior")[0];
+    expect((await new DuskGet(sdkProgram).yieldAccount(oldYield)).accruedSwapFeeAmount.gtn(0)).to.equal(true);
     expect((await getMint(connection as any, first.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(0n);
     expect((await sdkProgram.account.juniorExitAccount.fetch(request.exit)).ticket.receipts.isZero()).to.equal(true);
     expect((await sdkProgram.account.market.fetch(f.market)).tranches.juniorReceiptSupply.toString()).to.equal("500");
     expect((await getMint(connection as any, second.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(500n);
+    const earnedAfter = await new DuskGet(sdkProgram).yieldAccount(oldYield);
     const creditBefore = (await getAccount(connection as any, f.ownerBaseAccount)).amount;
     const harvest = await program.methods.harvest({ tokenKind: { junior: {} } }).accounts({
       market: f.market, owner, caller: owner, assetMint: f.baseMint, lpMint: first.juniorMint,
@@ -4295,9 +4258,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
-    config.amm.adjustmentThresholdNad = new BN("10000000");
     config.amm.adjustmentStepNad = new BN("10000000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     const fixture = await addBalancedLiquidity(76, config, {
       baseDeposit: 100_000_000,
@@ -4530,9 +4491,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     retainedConfig.amm.coreHalfWidthBps = 100;
     retainedConfig.amm.fadeWidthBps = 400;
     retainedConfig.amm.divergenceFeeCoefficientNad = new BN("100000000000");
-    retainedConfig.amm.adjustmentThresholdNad = new BN("1000");
     retainedConfig.amm.adjustmentStepNad = new BN("1000");
-    retainedConfig.amm.minAdjustmentIntervalSlots = new BN(1);
     const retained = await addBalancedLiquidity(82, retainedConfig, amounts, 9);
     await swapBaseForQuote(retained, [], grossInput, 1);
     trackV2Instruction("swap", this.test?.title);
@@ -4581,9 +4540,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config.amm.coreHalfWidthBps = 0; config.amm.fadeWidthBps = 0;
       }
       if (retained) {
-        config.amm.adjustmentThresholdNad = new BN("1000");
         config.amm.adjustmentStepNad = new BN("1000");
-        config.amm.minAdjustmentIntervalSlots = new BN(1);
       }
       return config;
     };
@@ -4702,9 +4659,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
     config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
-    config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
     const grossInput = 7_000_000_000_000_000n;
     const fixture = await addBalancedLiquidity(93, config, {
       baseDeposit: 100_000_000n,
@@ -4778,9 +4733,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
-    config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     const fixture = await addBalancedLiquidity(77, config, {
       baseDeposit: 100_000_000,
@@ -4886,9 +4839,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
-    config.amm.adjustmentThresholdNad = new BN("1000");
     config.amm.adjustmentStepNad = new BN("1000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("100000000000");
     const fixture = await addBalancedLiquidity(79, config, {
       baseDeposit: 100_000_000,
@@ -5021,6 +4972,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const assetProgram = feeTokens ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
     for (const amplification of [1, 4]) {
       for (const interestAsset of ["base", "quote"] as const) {
+        await updateInterestRevenue(2_000);
         const config = marketConfig();
         config.swapFeeBps = 0;
         config.divergenceFeeShareCapBps = 0;
@@ -5119,7 +5071,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         svm.setAccount(futarchyAuthority, { ...advanceAuthorityAccount,
           data: new Uint8Array(await accountCoder.encode("FutarchyAuthority", advanceAuthority)) });
         const advanced = interest / 2n;
-        const frozenProtocol = advanced / 5n;
+        const frozenFeeGross = interest / 6n; // 20% markup is 20/120 of gross.
+        const frozenProtocol = frozenFeeGross * advanced / interest;
         const yields = new DuskYield(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
         const fundParams = { market: f.market, caller: payer.publicKey,
           maxBaseGross: debtIsBase ? advanced : 0n, maxQuoteGross: debtIsBase ? 0n : advanced };
@@ -5137,7 +5090,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const funded = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
         const side = funded[`${interestAsset}_side`];
         expect(raw(side.fees.public_interest_advance.outstanding_gross)).to.equal(advanced);
-        expect(raw(side.fees.public_interest_advance.protocol_escrow)).to.equal(frozenProtocol);
+        expect(raw(side.fees.public_interest_advance.revenue_escrow)).to.equal(frozenProtocol);
         const supply = raw(side.shares.srlp_supply);
         const reserveVault = debtIsBase ? f.baseReserveVault : f.quoteReserveVault;
         const interestVault = debtIsBase ? f.baseInterestVault : f.quoteInterestVault;
@@ -5167,7 +5120,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const walletBefore = (await getAccount(connection as any, debtWallet, undefined, assetProgram)).amount;
         const authorityAccount = svm.getAccount(futarchyAuthority)!;
         const authority = accountCoder.decode("FutarchyAuthority", Buffer.from(authorityAccount.data)) as any;
-        authority.revenue_share.interest_bps = 6_000; // Only the unfunded half uses 60%.
+        authority.revenue_share.interest_bps = 6_000; // Applies only after this market closes its old interval.
         svm.setAccount(futarchyAuthority, { ...authorityAccount,
           data: new Uint8Array(await accountCoder.encode("FutarchyAuthority", authority)) });
         const repay = await program.methods.repay({ repayAmount: new BN(200_000 * unit) }).accounts({
@@ -5187,20 +5140,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const feeConfig = getTransferFeeConfig(await getMint(connection as any, debtMint, undefined, assetProgram));
         const fee = feeConfig ? calculateEpochFee(feeConfig, svm.getClock().epoch, transferGross) : 0n;
         const credit = transferGross - fee;
-        const protocolFrozenCredit = credit * frozenProtocol / transferGross;
-        const freshCredit = credit - protocolFrozenCredit;
-        const freshProtocol = freshCredit * 6n / 10n;
+        const feeCash = credit * frozenFeeGross / transferGross;
         const custodyAfter = await tokensWithWithheld(reserveVault) + await tokensWithWithheld(interestVault);
         const walletAfter = (await getAccount(connection as any, debtWallet, undefined, assetProgram)).amount;
         expect(custodyAfter - custodyBefore).to.equal(walletBefore - walletAfter);
-        expect(raw(repaidSide.fees.interest_protocol_fee_liability) - raw(side.fees.interest_protocol_fee_liability))
-          .to.equal(freshProtocol + protocolFrozenCredit);
+        const protocolCash = raw(repaidSide.fees.interest_protocol_fee_liability) - raw(side.fees.interest_protocol_fee_liability);
+        expect(feeCash - protocolCash >= 0n && feeCash - protocolCash <= 1n).to.equal(true);
+        expect(raw(repaid.protocol_interest_markup_bps)).to.equal(6_000n);
         // Cash pays the owners of accrued receivable units, not today's LP
         // balance. The legacy payment-time fee index must remain untouched.
         const bookIndex = debtIsBase ? 0 : 1;
         const beforeBook = funded.income.books[bookIndex];
         const afterBook = repaid.income.books[bookIndex];
-        const freshScaled = ((freshCredit - freshProtocol) << 64n) + raw(beforeBook.paid_remainder);
+        const freshScaled = ((credit - feeCash) << 64n) + raw(beforeBook.paid_remainder);
         expect(raw(afterBook.paid_per_unit_q64) - raw(beforeBook.paid_per_unit_q64))
           .to.equal(freshScaled / raw(beforeBook.units));
         expect(raw(repaidSide.fees.interest_growth_index_q64)).to.equal(raw(side.fees.interest_growth_index_q64));
@@ -5220,9 +5172,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
-    config.amm.adjustmentThresholdNad = new BN("10000000");
     config.amm.adjustmentStepNad = new BN("1000000");
-    config.amm.minAdjustmentIntervalSlots = new BN(1);
     config.amm.divergenceFeeCoefficientNad = new BN("10000000000");
     config.amm.compoundingFeeBps = 4_000;
     const fixture = await addBalancedLiquidity(99, config, {
@@ -5267,9 +5217,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         config.amm.peakAmplificationNad = new BN("5000000000");
         config.amm.coreHalfWidthBps = 100;
         config.amm.fadeWidthBps = 400;
-        config.amm.adjustmentThresholdNad = new BN("10000000");
         config.amm.adjustmentStepNad = new BN("1000000");
-        config.amm.minAdjustmentIntervalSlots = new BN(150);
         config.amm.volatilityShockCapNad = new BN("50000000");
         config.amm.volatilityCapNad = new BN("100000000");
         config.amm.divergenceFeeCoefficientNad = new BN("100000000");
@@ -5825,8 +5773,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("settles protocol swap and interest revenue from source-specific custody", async function () {
     const config = marketConfig();
-    config.irm.minimumAprNad = config.irm.initialAprNad;
-    config.irm.maximumAprNad = config.irm.initialAprNad;
     const fixture = await addBalancedLiquidity(53, config);
     const treasury = Keypair.generate().publicKey;
     const stakingVault = Keypair.generate().publicKey;
@@ -6085,7 +6031,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         lane: { fee: {} },
         source: { interest: {} },
         soldAmount: new BN(interestLiability.toString()),
-        maxPaymentAmount: new BN(1_000),
+        maxPaymentAmount: new BN(100_000),
       })
       .accounts({
         bidder: payer.publicKey,
@@ -6421,8 +6367,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const ledger = after[`${side}_side`];
         expect(custody.amount).to.equal(raw(ledger.reserves.cash_reserve) + raw(ledger.fees.swap_fee_custody_balance)
           + raw(ledger.reserves.protected_recenter_reserve) + raw(ledger.reserves.base_hlp_backing_inventory)
-          + raw(ledger.reserves.quote_hlp_backing_inventory) + raw(ledger.fees.public_interest_advance.protocol_escrow)
-          + raw(ledger.fees.public_interest_advance.protocol_release_pending));
+          + raw(ledger.reserves.quote_hlp_backing_inventory) + raw(ledger.fees.public_interest_advance.revenue_escrow)
+          + raw(ledger.fees.public_interest_advance.revenue_release_pending));
       }
       if (!fees && amp === 1 && target === "base" && mode === "inventory") {
         // The persistent payment vault already exists. Even a same-transaction
@@ -7452,6 +7398,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       destinationQuoteYieldAccount.toString(),
       eventAuthority().toString(),
       DUSK_PROGRAM_ID.toString(),
+      futarchyAuthority.toString(),
       validationAccount.toString(),
     ]);
     expect(metas.map((meta) => meta.isWritable)).to.deep.equal([
@@ -7462,6 +7409,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       true,
       true,
       true,
+      false,
       false,
       false,
       false,
@@ -7485,6 +7433,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       sourceQuoteYieldAccount.toString(),
       eventAuthority().toString(),
       DUSK_PROGRAM_ID.toString(),
+      futarchyAuthority.toString(),
       validationAccount.toString(),
     ]);
 
@@ -7568,7 +7517,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(destinationSrlpAfter.amount).to.equal(10_000n);
   });
 
-  it("reports LP transfers by self-CPI and keeps legacy-layout mints transferable", async function () {
+  it("reports LP transfers by self-CPI using the canonical fee-checkpoint accounts", async function () {
     const fixture = await addBalancedLiquidity(144);
     const hedge = await openBaseHedge(fixture);
     await initializeLpTransferHook(fixture, fixture.srlpMint);
@@ -7639,49 +7588,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(await balance(recipientSrlpAccount)).to.equal(10_000n);
     expect(await balance(recipientHlpAccount)).to.equal(1_000n);
 
-    // A mint initialized before the event accounts existed keeps its
-    // seven-account list: re-initialization leaves it unchanged, and transfers
-    // still checkpoint both holders but publish no receipt.
-    const legacy = await addBalancedLiquidity(146);
-    const legacyValidation = deriveYieldTransferHookValidationAddress(legacy.srlpMint)[0];
-    const legacyData = buildLpTransferHookValidationAccountData({
-      market: legacy.market,
-      baseMint: legacy.baseMint,
-      quoteMint: legacy.quoteMint,
-      tokenKind: "srlp",
-      legacyLayout: true,
-    });
-    svm.setAccount(legacyValidation, {
-      lamports: Number(svm.minimumBalanceForRentExemption(BigInt(legacyData.length))),
-      data: new Uint8Array(legacyData),
-      owner: DUSK_PROGRAM_ID,
-      executable: false,
-      rentEpoch: 0,
-    });
-    await initializeLpTransferHook(legacy, legacy.srlpMint);
-    expect(Buffer.from(svm.getAccount(legacyValidation)!.data).equals(legacyData)).to.equal(true);
-    const legacyRecipientSrlp = await createToken2022Ata(legacy.srlpMint, recipient);
-    await initializeYieldAccounts(legacy, recipient, legacy.srlpMint, "srlp");
-    await swapBaseForQuote(legacy);
-    const legacyTransfer = await transferLp(legacy.srlpMint, legacy.ownerSrlpAccount, legacyRecipientSrlp, 5_000n);
-    console.log(`    srLP transfer with the legacy layout: ${legacyTransfer.computeUnits.toLocaleString()} CU`);
-    expect(legacyTransfer.hookInvoked).to.equal(true);
-    expect(legacyTransfer.transfers).to.have.length(0);
-    expect(await balance(legacyRecipientSrlp)).to.equal(5_000n);
-    const legacyMarket = accountCoder.decode("Market", Buffer.from(svm.getAccount(legacy.market)!.data)) as any;
-    const sourceYield = accountCoder.decode(
-      "YieldAccount",
-      Buffer.from(
-        svm.getAccount(
-          deriveYieldAccountAddress(legacy.market, payer.publicKey, legacy.srlpMint, legacy.baseMint, "srlp")[0]
-        )!.data
-      )
-    ) as any;
-    // The swap's base fee reached the source holder through the checkpoint.
-    expect(sourceYield.swap_fee_checkpoint_q64.toString()).to.equal(
-      legacyMarket.base_side.fees.swap_fee_growth_index_q64.toString()
-    );
-    expect(BigInt(sourceYield.accrued_swap_fee_amount.toString()) > 0n).to.equal(true);
+
   });
 
   it("deposits collateral, borrows fixed quote debt, repays, and withdraws idle collateral", async function () {
@@ -8111,8 +8018,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     // annual accrual fixture at a fixed configured rate rather than letting
     // a seed-only market compound an uncapped scarcity rate for one year.
     const config = marketConfig();
-    config.irm.minimumAprNad = config.irm.initialAprNad;
-    config.irm.maximumAprNad = config.irm.initialAprNad;
     const fixture = await addBalancedLiquidity(69, config);
     const borrowPositionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, borrowPositionId)[0];
@@ -8295,7 +8200,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }
     expect(rebindRejected).to.equal(true);
 
-    advanceClockByYear();
+    operatorAtSlot(svm.getClock().slot + 10n * 432_000n);
     const repayTx = await program.methods
       .repay({ repayAmount: new BN(5_000) })
       .accounts({
@@ -8331,7 +8236,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       Buffer.from(svm.getAccount(referralAccrual)!.data)
     ) as any;
     const accruedBeforeDeactivation = BigInt(accrual.amount.toString());
-    expect(accruedBeforeDeactivation).to.equal((interestVault.amount * 2_500n) / 10_000n);
+    expect(accruedBeforeDeactivation).to.equal((BigInt(interestPayment.protocolInterestRevenue.toString()) * 2_500n) / 10_000n);
     expect(accruedBeforeDeactivation > 0n).to.equal(true);
 
     await configureReferralPartner(payer.publicKey, 7_500, false);
@@ -8444,7 +8349,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     ) as any;
     expect(position.quote_referral_interest_share_bps).to.equal(2_500);
 
-    advanceClockByYear();
+    operatorAtSlot(svm.getClock().slot + 10n * 432_000n);
     const interestVaultBeforeInactiveRepay = await getAccount(
       connection as any,
       fixture.quoteInterestVault
@@ -8481,7 +8386,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const interestCreditAfterDeactivation =
       interestVaultAfterInactiveRepay.amount - interestVaultBeforeInactiveRepay.amount;
     const accruedAfterDeactivation =
-      accruedBeforeDeactivation + (interestCreditAfterDeactivation * 2_500n) / 10_000n;
+      accruedBeforeDeactivation + (BigInt(cpiEvent(postDeactivationRepayTx,"borrowInterestPaid").protocolInterestRevenue.toString()) * 2_500n) / 10_000n;
     expect(BigInt(accrual.amount.toString())).to.equal(accruedAfterDeactivation);
 
     const rotatedRecipient = Keypair.generate().publicKey;
@@ -9181,8 +9086,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     this.timeout(120_000);
 
     const config = marketConfig();
-    config.irm.minimumAprNad = config.irm.initialAprNad;
-    config.irm.maximumAprNad = config.irm.initialAprNad;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -9332,7 +9235,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     // Realize nonzero isolated-debt interest after predictive hLP positioning.
     // The interest belongs to the srLP/hLP ownership snapshot above, not to
     // shares minted or burned while preparing this close.
-    advanceClockByYear();
+    operatorAtSlot(svm.getClock().slot + 10n * 432_000n);
     const ownerQuoteBeforeClose = await getAccount(connection as any, fixture.ownerQuoteAccount);
     const quoteInterestVaultBefore = await getAccount(
       connection as any,
@@ -11042,1128 +10945,239 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
   });
 
-  it("isolates reusable governance balances, combined sponsorship, revocation and partial withdrawals", async function () {
-    const f = await addBalancedLiquidity(231);
-    const initialSupply = (await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
-    const floor = Number((initialSupply + 99n) / 100n);
-    const initialContribution = Math.ceil(floor / 2) + 100;
-    const bob = Keypair.generate(), delegate = Keypair.generate(), replacement = Keypair.generate();
-    for (const signer of [bob, delegate, replacement]) svm.airdrop(signer.publicKey, BigInt(LAMPORTS_PER_SOL));
-    const sdkProgram = createDuskProgram({ provider: program.provider });
-    const sdkGet = new DuskGet(sdkProgram);
-    const gov = new DuskGovernance(sdkProgram);
-    const writer = new DuskWrite(sdkProgram);
-    const send = async (build: { transaction: Transaction }, signers: Keypair[] = []) => {
-      svm.expireBlockhash();
-      return connection.sendTransaction(build.transaction, [payer, ...signers]);
-    };
-    const reject = async (build: { transaction: Transaction }, signers: Keypair[], expected: string) => {
-      let error: unknown;
-      try { await send(build, signers); } catch (e) { error = e; }
-      expect(String(error)).to.include(expected);
-    };
-    const owner = payer.publicKey, market = f.market;
-    const ownerParams = { market, owner };
-    const bobParams = { market, owner: bob.publicKey };
-    const bobAta = await createToken2022Ata(f.srlpMint, bob.publicKey);
-    await initializeYieldAccounts(f, bob.publicKey, f.srlpMint, "srlp");
-    await initializeLpTransferHook(f, f.srlpMint);
-    await send({ transaction: new Transaction().add(await createTransferCheckedWithTransferHookInstruction(
-      connection as any, f.ownerSrlpAccount, f.srlpMint, bobAta, owner, 40_000n, 6, [], undefined, TOKEN_2022_PROGRAM_ID,
-    )) });
-    await send(await gov.deposit({ ...ownerParams, amount: 50_000 }));
-    await send(await gov.deposit({ ...bobParams, amount: 30_000 }), [bob]);
-    await send(await gov.setDelegate({ ...ownerParams, delegate: delegate.publicKey }));
-    await send(await gov.setDelegate({ ...bobParams, delegate: delegate.publicKey }), [bob]);
-    trackV2Instruction("manageGovernanceBalance", this.test?.title);
-    trackV2Instruction("setGovernanceDelegate", this.test?.title);
-    const mintSupply = async () => (await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
-    const decodedMarket = () => accountCoder.decode("Market", Buffer.from(svm.getAccount(market)!.data)) as any;
-    const totalOwnership = async () => await mintSupply() + BigInt(decodedMarket().governance_locked_srlp.toString());
-    expect(await totalOwnership()).to.equal(initialSupply);
-    expect(await mintSupply()).to.equal(initialSupply - 80_000n);
-    const create = (nonce: number, contributions: { owner: PublicKey; amount: number }[]) => gov.createProposal({
-      market, proposer: delegate.publicKey, nonce, contributions,
-      updates: [dailyBorrowLimitParameterUpdate(1_900)],
-      metadata: { version: 1, title: "Delegated governance", descriptionUri: "ipfs://delegation-test", descriptionSha256: Array(32).fill(1), descriptionLen: 1 },
-    });
-    // Neither owner alone meets the 1% floor. A failed batch must roll back all allocations.
-    await reject(await create(1, [{ owner, amount: initialContribution }]), [delegate], "ProposalSponsorshipTooLow");
-    await reject(await create(1, [{ owner, amount: initialContribution }, { owner: bob.publicKey, amount: 30_001 }]), [delegate], "InsufficientBalance");
-    expect((await gov.getBalance(market, owner))!.committedAmount.toNumber()).to.equal(0);
-    expect((await gov.getBalance(market, bob.publicKey))!.committedAmount.toNumber()).to.equal(0);
-    const duplicate = await create(1, [{ owner, amount: initialContribution }, { owner: bob.publicKey, amount: initialContribution }]);
-    const remainingStart = duplicate.instruction.keys.length - 4;
-    duplicate.instruction.keys.splice(remainingStart + 2, 2, ...duplicate.instruction.keys.slice(remainingStart, remainingStart + 2));
-    await reject(duplicate, [delegate], "InvalidProposalSupport");
-    const first = await create(1, [{ owner, amount: initialContribution }, { owner: bob.publicKey, amount: initialContribution }]);
-    expect(svm.getAccount(f.baseHlpSrlpVault)).to.equal(null);
-    await send(first, [delegate]);
-    trackV2Instruction("createGovernanceProposal", this.test?.title);
-    const proposal = first.proposal;
-    expect((await sdkGet.parameterProposal(proposal)).totalLocked.toNumber()).to.equal(initialContribution * 2);
-    expect((await gov.getSupport(proposal, market, owner))!.amount.toNumber()).to.equal(initialContribution);
-    expect(await totalOwnership()).to.equal(initialSupply);
-    await send(await gov.withdrawSupport({ market, proposal, owner, authority: delegate.publicKey, amount: 100 }), [delegate]);
-    await send(await gov.withdrawSupport({ market, proposal, owner: bob.publicKey, authority: bob.publicKey, amount: 100 }), [bob]);
-    expect((await sdkGet.parameterProposal(proposal)).totalLocked.toNumber()).to.equal(initialContribution * 2 - 200);
-    trackV2Instruction("withdrawGovernanceSupport", this.test?.title);
-    // Replacement takes effect on existing collecting allocations; the old delegate cannot act.
-    await send(await gov.setDelegate({ ...ownerParams, delegate: replacement.publicKey }));
-    await reject(await gov.withdrawSupport({ market, proposal, owner, authority: delegate.publicKey, amount: 50 }), [delegate], "InvalidSigner");
-    const digest = (await sdkGet.parameterProposal(proposal)).digest;
-    await reject(await gov.supportProposal({ market, proposal, authority: delegate.publicKey, digest, contributions: [{ owner, amount: 100 }] }), [delegate], "InvalidSigner");
-    await send(await gov.withdrawSupport({ market, proposal, owner, authority: owner, amount: 50 }));
-    expect((await sdkGet.parameterProposal(proposal)).status).to.have.property("cancelled");
-    await send(await gov.withdrawSupport({ market, proposal, owner, authority: replacement.publicKey }), [replacement]);
-    await send(await gov.withdrawSupport({ market, proposal, owner: bob.publicKey, authority: delegate.publicKey }), [delegate]);
-    expect(svm.getAccount(proposal)!.data.length).to.equal(114);
-    expect(await gov.getSupport(proposal, market, owner)).to.equal(null);
-    expect((await gov.getBalance(market, owner))!.availableAmount.toNumber()).to.equal(50_000);
-    expect(await mintSupply()).to.equal(initialSupply - 80_000n); // releasing support does not mint or transfer srLP
-    await send(await gov.setDelegate({ ...ownerParams, delegate: delegate.publicKey }));
-    const second = await create(2, [{ owner, amount: 1000 }, { owner: bob.publicKey, amount: 1000 }]);
-    await send(second, [delegate]);
-    const secondDigest = (await sdkGet.parameterProposal(second.proposal)).digest;
-    await reject(await gov.supportProposal({ market, proposal: second.proposal, authority: delegate.publicKey,
-      digest: Array(32).fill(0), contributions: [{ owner, amount: 10 }] }), [delegate], "ProposalDigestMismatch");
-    // Direct and delegated support share the same proposal but independent holdings/yield.
-    await send(await writer.supportParameterProposal({ market, proposal: second.proposal, supporter: owner, amount: 1000, digest: secondDigest }));
-    await swapBaseForQuote(f);
-    await send(await writer.withdrawParameterSupport({ market, proposal: second.proposal, proposer: delegate.publicKey, supporter: owner, amount: 400 }));
-    expect((await sdkGet.parameterProposal(second.proposal)).totalLocked.toNumber()).to.equal(2600);
-    const ownerYieldKey = deriveYieldAccountAddress(market, owner, f.srlpMint, f.baseMint, "srlp")[0];
-    await send(await gov.claimYield(ownerParams));
-    const yieldBefore = await sdkGet.yieldAccount(ownerYieldKey);
-    await send(await gov.claimYield(ownerParams));
-    const yieldAfter = await sdkGet.yieldAccount(ownerYieldKey);
-    expect(yieldAfter.accruedSwapFeeAmount.toString()).to.equal(yieldBefore.accruedSwapFeeAmount.toString());
-    expect(yieldAfter.swapFeeRemainderQ64.toString()).to.equal(yieldBefore.swapFeeRemainderQ64.toString());
-    expect(yieldBefore.accruedSwapFeeAmount.gtn(0)).to.equal(true);
-    const queuedBatch = await gov.supportProposal({ market, proposal: second.proposal, authority: delegate.publicKey, digest: secondDigest,
-      contributions: [{ owner, amount: 40_000 }, { owner: bob.publicKey, amount: 28_000 }] });
-    await send(queuedBatch, [delegate]);
-    const batchEvents = cpiEvents(queuedBatch.transaction).filter((event) => event.name === "governanceSupportChanged");
-    expect(batchEvents).to.have.length(2);
-    expect(new Set(batchEvents.map((event) => event.data.owner.toString()))).to.deep.equal(new Set([owner.toString(), bob.publicKey.toString()]));
-    for (const event of batchEvents) expect(event.data.totalLocked.toNumber()).to.equal(70_600);
-    trackV2Instruction("supportGovernanceProposal", this.test?.title);
-    const queued = await sdkGet.parameterProposal(second.proposal);
-    expect(queued.status).to.have.property("queued");
-    expect(queued.queuedEligibleSrlp.toNumber()).to.equal(Number(initialSupply));
-    expect(queued.queuedSupport.toNumber()).to.equal(70_600);
-    // Queued allocations survive revocation and cannot be freed through any withdrawal path.
-    await send(await gov.setDelegate({ ...ownerParams, delegate: null }));
-    await reject(await gov.withdrawSupport({ market, proposal: second.proposal, owner, authority: owner, amount: 1 }), [], "ProposalSupportFrozen");
-    await reject(await writer.withdrawParameterSupport({ market, proposal: second.proposal, proposer: delegate.publicKey, supporter: owner, amount: 1 }), [], "ProposalSupportFrozen");
-    await reject(await gov.withdraw({ ...ownerParams, amount: 9_001 }), [], "InsufficientBalance");
-    await send(await gov.withdraw({ ...ownerParams, amount: 100 }));
-    expect((await gov.getBalance(market, owner))!.committedAmount.toNumber()).to.equal(41_000);
-    const clock = svm.getClock(); clock.unixTimestamp = BigInt(queued.executionDeadline.toString()) + 1n; svm.setClock(clock);
-    await send(await gov.withdrawSupport({ market, proposal: second.proposal, owner, authority: owner }));
-    await send(await gov.withdrawSupport({ market, proposal: second.proposal, owner: bob.publicKey, authority: delegate.publicKey }), [delegate]);
-    expect(svm.getAccount(second.proposal)!.data.length).to.be.greaterThan(114); // direct support still exists
-    await send(await writer.withdrawParameterSupport({ market, proposal: second.proposal, proposer: delegate.publicKey, supporter: owner }));
-    expect(svm.getAccount(second.proposal)!.data.length).to.equal(114);
-    await send(await gov.withdraw({ ...ownerParams, amount: 49_900 }));
-    await send(await gov.withdraw({ ...bobParams, amount: 30_000 }), [bob]);
-    expect(await mintSupply()).to.equal(initialSupply);
-    expect(decodedMarket().governance_locked_srlp.toNumber()).to.equal(0);
-    expect((await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(initialSupply - 40_000n);
-    expect((await getAccount(connection as any, bobAta, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(40_000n);
-    // Revocation remains available after the LP deposits everything and closes their empty ATA.
-    await send(await gov.deposit({ ...bobParams, amount: 40_000 }), [bob]);
-    await send({ transaction: new Transaction().add(createCloseAccountInstruction(bobAta, bob.publicKey, bob.publicKey, [], TOKEN_2022_PROGRAM_ID)) }, [bob]);
-    expect(svm.getAccount(bobAta)).to.equal(null);
-    await send(await gov.setDelegate({ ...bobParams, delegate: null }), [bob]);
-    expect((await gov.getBalance(market, bob.publicKey))!.delegate.equals(PublicKey.default)).to.equal(true);
-  });
-
-  // Advance both clock domains at the protocol's nominal slot duration.
-  const managerAtUnix = (value: {toString(): string}) => {
-    const clock = svm.getClock(), next = BigInt(value.toString());
-    if (next > clock.unixTimestamp) clock.slot += (next - clock.unixTimestamp) * 5n;
-    clock.unixTimestamp = next; svm.setClock(clock);
-  };
-  const managerAtSlot = (value: {toString(): string}) => {
+  const operatorAtSlot = (value: {toString(): string}) => {
     const clock = svm.getClock(), next = BigInt(value.toString());
     if (next > clock.slot) clock.unixTimestamp += (next - clock.slot) / 5n;
-    clock.slot = next; svm.setClock(clock);
+    clock.slot = next; svm.setClock(clock); svm.expireBlockhash();
   };
-  const managerAtProposal = (proposal: {origin: {manager?: unknown}; executeAfter: {toString(): string}}) => {
-    if (proposal.origin.manager !== undefined) managerAtSlot(proposal.executeAfter);
-    else managerAtUnix(proposal.executeAfter);
-  };
-
-  async function electWalletManager(seed: number) {
+  async function operatorFixture(seed: number) {
     const f = await addBalancedLiquidity(seed);
     const sdkProgram = createDuskProgram({provider: program.provider});
-    const gov = new DuskGovernance(sdkProgram), writer = new DuskWrite(sdkProgram), get = new DuskGet(sdkProgram);
-    const owner = payer.publicKey, manager = Keypair.generate();
-    await connection.requestAirdrop(manager.publicKey, LAMPORTS_PER_SOL);
-    const supply = (await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
-    const metadata = {version: 1, title: "Manager mandate", descriptionUri: "ipfs://manager-mandate", descriptionSha256: Array(32).fill(3), descriptionLen: 1};
-    const send = async (build: {transaction: Transaction}, signers: Keypair[] = []) => {
-      svm.expireBlockhash(); build.transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      return connection.sendTransaction(build.transaction, [payer, ...signers]);
-    };
-    const at = managerAtUnix;
-    await send(await gov.deposit({market: f.market, owner, amount: supply / 2n + 1n}));
-    const election = await gov.electManager({market: f.market, proposer: owner, manager: manager.publicKey, nonce: 1, metadata, contributions: [{owner, amount: supply / 2n + 1n}]});
-    await send(election); at((await get.parameterProposal(election.proposal)).executeAfter);
-    await send(await writer.executeParameterProposal({market: f.market, proposal: election.proposal}));
-    const fee = (baseFeeBps: number) => feeParameterUpdate({baseFeeBps, divergenceFeeShareCapBps: 0, volatilityFeeShareCapBps: 0,
-      divergenceFeeCoefficientNad: 0, volatilityFeeCoefficientNad: 0, volatilityHalfLifeMs: 60_000, volatilityShockCapNad: 0, volatilityAccumulatorCapNad: 0});
-    return {f, sdkProgram, gov, writer, get, owner, manager, supply, metadata, election, send, at, fee};
-  }
-
-  it("starts with the creator as manager and preserves governance-only management after removal", async function () {
-    const f = await addBalancedLiquidity(258);
-    const sdkProgram = createDuskProgram({provider: program.provider});
-    const gov = new DuskGovernance(sdkProgram), writer = new DuskWrite(sdkProgram), get = new DuskGet(sdkProgram);
+    const operator = new DuskOperator(sdkProgram);
     const owner = payer.publicKey;
-    const send = async (build: {transaction: Transaction}) => {
-      svm.expireBlockhash(); build.transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      return connection.sendTransaction(build.transaction, [payer]);
-    };
-    const at = managerAtUnix;
-    const metadata = {version: 1, title: "Initial management", descriptionUri: "ipfs://initial-manager", descriptionSha256: Array(32).fill(4), descriptionLen: 1};
-    const fee = (baseFeeBps: number) => feeParameterUpdate({baseFeeBps, divergenceFeeShareCapBps: 0, volatilityFeeShareCapBps: 0,
-      divergenceFeeCoefficientNad: 0, volatilityFeeCoefficientNad: 0, volatilityHalfLifeMs: 60_000, volatilityShockCapNad: 0, volatilityAccumulatorCapNad: 0});
-    expect((await gov.getManager(f.market))!.equals(owner)).to.equal(true);
-    expect((await gov.getControl(f.market))!.managerEpoch.toString()).to.equal("1");
-    expect(svm.getAccount(f.baseHlpSrlpVault)).to.equal(null);
-    const managed = await gov.proposeAsManager({market: f.market, manager: owner, payer: owner, nonce: 1, metadata, updates: [fee(50)]});
-    const invalid = await gov.proposeAsManager({market: f.market, manager: owner, payer: owner, nonce: 1, metadata, updates: [fee(50)]});
-    invalid.instruction.keys.find(meta => meta.pubkey.equals(f.baseHlpSrlpVault))!.pubkey = owner;
-    let wrongVault: unknown; try {await send(invalid);} catch (error) {wrongVault = error;}
-    expect(String(wrongVault)).to.include("InvalidHlpVault");
-    await send(managed);
-    const stored = await get.parameterProposal(managed.proposal);
-    expect(BigInt(stored.executeAfter.sub(stored.queuedAt).toString())).to.equal(4_752_000n);
-    expect(cpiEvent(managed.transaction, "parameterProposalQueued").clock).to.have.property("slots");
-    // Wall time alone never permits a manager upgrade before the junior slot notice.
-    const wallOnly = svm.getClock(); wallOnly.unixTimestamp += 100n * 86_400n; svm.setClock(wallOnly);
-    let early: unknown; try { await send(await writer.executeParameterProposal({market: f.market, proposal: managed.proposal})); } catch (error) { early = error; }
-    expect(String(early)).to.include("ProposalTimelockNotReady");
-    managerAtProposal(stored); await send(await writer.executeParameterProposal({market: f.market, proposal: managed.proposal}));
-    expect((await sdkProgram.account.market.fetch(f.market)).config.swapFeeBps).to.equal(50);
-    const supply = (await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
-    const majority = supply / 2n + 1n;
-    await send(await gov.deposit({market: f.market, owner, amount: majority}));
-    const removal = await gov.openRemovalBallot({market: f.market, payer: owner}); await send(removal);
-    await send(await gov.voteRecovery({market: f.market, ballot: removal.ballot,
-      source: deriveGovernanceBalanceAddress(f.market, owner, f.srlpMint)[0], authority: owner, payer: owner, amount: majority}));
-    expect(await gov.getManager(f.market)).to.equal(null);
-    let denied: unknown; try {await send(await gov.proposeAsManager({market: f.market, manager: owner, payer: owner, nonce: 2, metadata, updates: [fee(60)]}));} catch (error) {denied = error;}
-    expect(String(denied)).to.include("InvalidManager");
-    const lp = await gov.createProposal({market: f.market, proposer: owner, nonce: 3, metadata,
-      updates: [fee(60)], contributions: [{owner, amount: majority}]});
-    await send(lp);
-    expect(await gov.getManager(f.market)).to.equal(null);
-    at((await get.parameterProposal(lp.proposal)).executeAfter);
-    await send(await writer.executeParameterProposal({market: f.market, proposal: lp.proposal}));
-    expect((await sdkProgram.account.market.fetch(f.market)).config.swapFeeBps).to.equal(60);
-    expect(await gov.getManager(f.market)).to.equal(null);
-    await send(await gov.withdrawSupport({market: f.market, proposal: lp.proposal, owner, authority: owner}));
-    const election = await gov.electManager({market: f.market, proposer: owner, manager: owner, nonce: 4, metadata, contributions: [{owner, amount: majority}]});
-    await send(election); at((await get.parameterProposal(election.proposal)).executeAfter);
-    await send(await writer.executeParameterProposal({market: f.market, proposal: election.proposal}));
-    expect((await gov.getManager(f.market))!.equals(owner)).to.equal(true);
-    expect((await gov.getControl(f.market))!.managerEpoch.toString()).to.equal("3");
-  });
-
-  it("retains exact-target LP endorsements across manager changes and seals a fresh notice at majority", async function () {
-    const setup = await electWalletManager(255);
-    const {f, gov, writer, get, owner, manager, supply, metadata, election, send, at, fee} = setup;
-    await send(await gov.withdrawSupport({market: f.market, proposal: election.proposal, owner, authority: owner}));
-    const floor = (supply + 99n) / 100n, majority = supply / 2n + 1n;
-    const ordinary = await gov.createProposal({market: f.market, proposer: owner, nonce: 20, metadata,
-      updates: [fee(60)], contributions: [{owner, amount: floor}]});
-    const conditional = await gov.createProposal({market: f.market, proposer: owner, nonce: 21, metadata,
-      updates: [fee(70)], conditions: [{family: 0, revision: 0}], contributions: [{owner, amount: floor}]});
-    await send(ordinary); await send(conditional);
-    const original = await get.parameterProposal(ordinary.proposal);
-    const managed = await gov.proposeAsManager({market: f.market, manager: manager.publicKey, payer: owner, nonce: 2, metadata, updates: [fee(50)]});
-    await send(managed, [manager]); managerAtProposal(await get.parameterProposal(managed.proposal));
-    await send(await writer.executeParameterProposal({market: f.market, proposal: managed.proposal}));
-    let rejected: unknown;
-    try {await send(await gov.supportProposal({market: f.market, proposal: conditional.proposal, authority: owner,
-      digest: (await get.parameterProposal(conditional.proposal)).digest, contributions: [{owner, amount: 1}]}));} catch (error) {rejected = error;}
-    expect(String(rejected)).to.include("ProposalStale");
-    await send(await gov.withdrawSupport({market: f.market, proposal: conditional.proposal, owner, authority: owner}));
-    expect(svm.getAccount(conditional.proposal)!.data.length).to.equal(114);
-    const majorityAt = svm.getClock().unixTimestamp;
-    await send(await gov.supportProposal({market: f.market, proposal: ordinary.proposal, authority: owner,
-      digest: original.digest, contributions: [{owner, amount: majority - floor}]}));
-    const sealed = await get.parameterProposal(ordinary.proposal);
-    expect(Buffer.from(sealed.digest)).to.deep.equal(Buffer.from(original.digest));
-    expect(sealed.familyRevisions[0].toString()).to.equal("1");
-    expect(BigInt(sealed.executeAfter.toString()) - majorityAt).to.equal(7n * 86_400n);
-    expect(await verifyDecodedParameterProposalDigest(DUSK_PROGRAM_ID, sealed)).to.equal(true);
-    expect(await verifyDecodedExecutionDigest(DUSK_PROGRAM_ID, sealed)).to.equal(true);
-    at(sealed.executeAfter); await send(await writer.executeParameterProposal({market: f.market, proposal: ordinary.proposal}));
-    expect((await setup.sdkProgram.account.market.fetch(f.market)).config.swapFeeBps).to.equal(60);
-    expect((await gov.getControl(f.market))!.baselineConfig.swapFeeBps).to.equal(60);
-  });
-
-  it("keeps one pending bundle and gives LP majority priority over a manager", async function () {
-    const setup = await electWalletManager(256);
-    const {f, gov, writer, get, owner, manager, supply, metadata, election, send, at, fee} = setup;
-    await send(await gov.withdrawSupport({market: f.market, proposal: election.proposal, owner, authority: owner}));
-    const state = await setup.sdkProgram.account.market.fetch(f.market);
-    const irm = irmParameterUpdate({...state.config.irm, initialAprNad: state.config.irm.initialAprNad.addn(10_000_000)});
-    const first = await gov.proposeAsManager({market: f.market, manager: manager.publicKey, payer: owner, nonce: 2, metadata, updates: [fee(50), irm]});
-    await send(first, [manager]);
-    at(svm.getClock().unixTimestamp + 3n * 86_400n);
-    const second = await gov.proposeAsManager({market: f.market, manager: manager.publicKey, payer: owner, nonce: 3, metadata, updates: [fee(40)]});
-    let occupied: unknown; try {await send(second, [manager]);} catch (error) {occupied = error;}
-    expect(String(occupied)).to.include("PendingBundleExists");
-    const lp = await gov.createProposal({market: f.market, proposer: owner, nonce: 20, metadata,
-      updates: [fee(60)], contributions: [{owner, amount: supply / 2n + 1n}]});
-    await send(lp); const lpState = await get.parameterProposal(lp.proposal);
-    expect((await gov.getControl(f.market))!.pending!.proposal.equals(lp.proposal)).to.equal(true);
-    occupied = undefined; try {await send(second, [manager]);} catch (error) {occupied = error;}
-    expect(String(occupied)).to.include("PendingBundleExists");
-    await send(await writer.executeParameterProposal({market: f.market, proposal: first.proposal}));
-    expect((await get.parameterProposal(first.proposal)).status).to.have.property("stale");
-    expect((await gov.getControl(f.market))!.pending!.proposal.equals(lp.proposal)).to.equal(true);
-    at(lpState.executeAfter); await send(await writer.executeParameterProposal({market: f.market, proposal: lp.proposal}));
-    const afterLp = await setup.sdkProgram.account.market.fetch(f.market);
-    expect(afterLp.config.swapFeeBps).to.equal(60);
-    expect(afterLp.config.irm.initialAprNad.toString()).to.equal(state.config.irm.initialAprNad.toString());
-    expect((await gov.getControl(f.market))!.pending).to.equal(null);
-    await send(second, [manager]);
-    managerAtProposal(await get.parameterProposal(second.proposal));
-    await send(await writer.executeParameterProposal({market: f.market, proposal: second.proposal}));
-    expect((await setup.sdkProgram.account.market.fetch(f.market)).config.swapFeeBps).to.equal(40);
-  });
-
-  it("advances LP approval revisions when the endorsed target already equals the live settings", async function () {
-    const setup = await electWalletManager(257);
-    const {f, gov, writer, get, owner, manager, supply, metadata, election, send, at} = setup;
-    await send(await gov.withdrawSupport({market: f.market, proposal: election.proposal, owner, authority: owner}));
-    const baseline = (await setup.sdkProgram.account.market.fetch(f.market)).config.irm;
-    const irm = (initialAprNad: number) => irmParameterUpdate({...baseline, initialAprNad});
-    const floor = (supply + 99n) / 100n, majority = supply / 2n + 1n;
-    const lp = await gov.createProposal({market: f.market, proposer: owner, nonce: 20, metadata,
-      updates: [irm(60_000_000)], contributions: [{owner, amount: floor}]});
-    await send(lp);
-    const first = await gov.proposeAsManager({market: f.market, manager: manager.publicKey, payer: owner, nonce: 2, metadata, updates: [irm(60_000_000)]});
-    await send(first, [manager]); managerAtProposal(await get.parameterProposal(first.proposal));
-    await send(await writer.executeParameterProposal({market: f.market, proposal: first.proposal}));
-    const earlierSnapshot = await gov.proposeAsManager({market: f.market, manager: manager.publicKey, payer: owner, nonce: 3, metadata, updates: [irm(20_000_000)]});
-    await send(earlierSnapshot, [manager]);
-    await send(await gov.supportProposal({market: f.market, proposal: lp.proposal, authority: owner,
-      digest: (await get.parameterProposal(lp.proposal)).digest, contributions: [{owner, amount: majority - floor}]}));
-    const approved = await get.parameterProposal(lp.proposal);
-    at(approved.executeAfter); await send(await writer.executeParameterProposal({market: f.market, proposal: lp.proposal}));
-    const state = await setup.sdkProgram.account.market.fetch(f.market);
-    expect(state.parameterRevisions[2].toString()).to.equal("2");
-    expect(state.config.irm.initialAprNad.toString()).to.equal("60000000");
-    expect((await gov.getControl(f.market))!.baselineConfig.irm.initialAprNad.toString()).to.equal("60000000");
-    await send(await writer.executeParameterProposal({market: f.market, proposal: earlierSnapshot.proposal}));
-    expect((await get.parameterProposal(earlierSnapshot.proposal)).status).to.have.property("stale");
-    expect((await setup.sdkProgram.account.market.fetch(f.market)).config.irm.initialAprNad.toString()).to.equal("60000000");
-  });
-
-  for (const kind of ["removal", "cancellation"] as const) {
-    it(`rechecks a live ${kind} majority at execution after unvoted LP supply shrinks`, async function () {
-      const setup = await electWalletManager(kind === "removal" ? 250 : 251);
-      const {f, gov, writer, get, owner, manager, supply, metadata, send, at, fee} = setup;
-      const proposal = await gov.proposeAsManager({market: f.market, manager: manager.publicKey, payer: owner, nonce: 2, metadata, updates: [fee(50)]});
-      await send(proposal, [manager]);
-      const queued = await get.parameterProposal(proposal.proposal);
-      managerAtSlot(queued.queuedAt.addn(5 * 432_000));
-      const open = kind === "removal" ? await gov.openRemovalBallot({market: f.market, payer: owner})
-        : await gov.openCancellationBallot({market: f.market, payer: owner, proposal: proposal.proposal});
-      await send(open);
-      const balance = deriveGovernanceBalanceAddress(f.market, owner, f.srlpMint)[0];
-      await send(await gov.voteRecovery({market: f.market, ballot: open.ballot, source: balance, authority: owner, payer: owner, amount: supply * 4n / 10n}));
-      expect((await gov.getRecoveryBallot(open.ballot)).passed).to.equal(false);
-      // A real burn of unvoted wallet receipts changes the live electorate.
-      // No refresh/finalize transaction is sent before the execution attempt.
-      await send({transaction: new Transaction().add(createBurnInstruction(f.ownerSrlpAccount, f.srlpMint, owner, supply * 3n / 10n, [], TOKEN_2022_PROGRAM_ID))});
-      expect((await gov.getRecoveryBallot(open.ballot)).passed).to.equal(false);
-      managerAtProposal(queued);
-      const bypass = await writer.executeParameterProposal({market: f.market, proposal: proposal.proposal});
-      bypass.instruction.keys.find(meta => meta.pubkey.equals(open.ballot))!.pubkey = owner;
-      let rejected: unknown; try {await send(bypass);} catch (error) {rejected = error;}
-      expect(String(rejected)).to.include("ConstraintSeeds");
-      const execution = await writer.executeParameterProposal({market: f.market, proposal: proposal.proposal});
-      const priorRound = (await gov.getRecoveryBallot(open.ballot)).round;
-      const immediateRelease = await gov.releaseRecoveryVote({market: f.market, ballot: open.ballot, source: balance,
-        round: priorRound, rentRefund: owner});
-      let combined: unknown;
-      try {await send({transaction: new Transaction().add(...execution.transaction.instructions, ...immediateRelease.transaction.instructions)});}
-      catch (error) {combined = error;}
-      expect(String(combined)).to.include("RecoveryVoteLocked");
-      expect((await gov.getRecoveryBallot(open.ballot)).passed).to.equal(false);
-      expect((await gov.getControl(f.market))!.manager.equals(manager.publicKey)).to.equal(true);
-      expect((await get.parameterProposal(proposal.proposal)).status).to.have.property("queued");
-      await send(execution);
-      expect((await gov.getRecoveryBallot(open.ballot)).passed).to.equal(true);
-      expect((await setup.sdkProgram.account.market.fetch(f.market)).config.swapFeeBps).to.equal(30);
-      const expected = kind === "removal" ? "stale" : "cancelled";
-      expect((await get.parameterProposal(proposal.proposal)).status).to.have.property(expected);
-      expect(cpiEvent(execution.transaction, "proposalResolved").status).to.have.property(expected);
-      if (kind === "removal") expect((await gov.getControl(f.market))!.manager.equals(PublicKey.default)).to.equal(true);
-      else expect((await gov.getControl(f.market))!.manager.equals(manager.publicKey)).to.equal(true);
-      expect((await gov.getRecoveryBallot(open.ballot)).passedSlot.toString()).to.equal(svm.getClock().slot.toString());
-      const releaseRound = (await gov.getRecoveryBallot(open.ballot)).round;
-      const release = () => gov.releaseRecoveryVote({market: f.market, ballot: open.ballot, source: balance, round: releaseRound});
-      let sameSlot: unknown; try {await send(await release());} catch (error) {sameSlot = error;}
-      expect(String(sameSlot)).to.include("RecoveryVoteLocked");
-      svm.warpToSlot(svm.getClock().slot + 1n);
-      await send(await release());
-    });
-  }
-
-  it("refreshes live majorities and isolates expired recovery rounds across manager epochs", async function () {
-    const setup = await electWalletManager(254);
-    const {f, gov, owner, manager, supply, metadata, send, at, writer, get} = setup;
-    const balance = deriveGovernanceBalanceAddress(f.market, owner, f.srlpMint)[0];
-    const open = await gov.openRemovalBallot({market: f.market, payer: owner}); await send(open);
-    const first = await gov.getRecoveryBallot(open.ballot);
-    const vote = {market: f.market, ballot: open.ballot, source: balance, authority: owner, payer: owner};
-    await send(await gov.voteRecovery({...vote, amount: 1}));
-    await send(await gov.refreshRecoveryBallot({market: f.market, ballot: open.ballot}));
-    trackV2Instruction("refreshRecoveryBallot", this.test?.title);
-    expect((await gov.getRecoveryBallot(open.ballot)).passed).to.equal(false);
-    at(first.endsAt);
-    await send(await gov.openRemovalBallot({market: f.market, payer: owner}));
-    const second = await gov.getRecoveryBallot(open.ballot);
-    expect(second.round.toString()).to.equal(first.round.addn(1).toString());
-    expect(second.seniorVotes.toString()).to.equal("0");
-    await send(await gov.voteRecovery({...vote, amount: 1}));
-    await send(await gov.withdrawSupport({market: f.market, proposal: setup.election.proposal, owner, authority: owner}));
-    await send(await gov.releaseRecoveryVote({market: f.market, ballot: open.ballot, source: balance, round: first.round}));
-    let locked: unknown; try {await send(await gov.withdraw({market: f.market, owner, amount: supply / 2n + 1n}));} catch (error) {locked = error;}
-    expect(String(locked)).to.include("RecoveryVoteLocked");
-    let replay: unknown; try {await send(await gov.voteRecovery({...vote, round: first.round, amount: 1}));} catch (error) {replay = error;}
-    expect(String(replay)).to.include("RecoveryBallotInactive");
-    await send(await gov.voteRecovery({...vote, amount: supply * 4n / 10n - 1n}));
-    const burned = supply * 3n / 10n;
-    await send({transaction: new Transaction().add(createBurnInstruction(f.ownerSrlpAccount, f.srlpMint, owner, burned, [], TOKEN_2022_PROGRAM_ID))});
-    await send(await gov.refreshRecoveryBallot({market: f.market, ballot: open.ballot}));
-    expect((await gov.getRecoveryBallot(open.ballot)).passed).to.equal(true);
-    expect((await gov.getControl(f.market))!.manager.equals(PublicKey.default)).to.equal(true);
-    const passed = await gov.getRecoveryBallot(open.ballot);
-    expect(passed.passedSlot.toString()).to.equal(svm.getClock().slot.toString());
-    let unsettled: unknown;
-    try {await send(await gov.releaseRecoveryVote({market: f.market, ballot: open.ballot, source: balance, round: second.round}));}
-    catch (error) {unsettled = error;}
-    expect(String(unsettled)).to.include("RecoveryVoteLocked");
-    svm.warpToSlot(svm.getClock().slot + 1n);
-    await send(await gov.refreshRecoveryBallot({market: f.market, ballot: open.ballot}));
-    expect((await gov.getRecoveryBallot(open.ballot)).passedSlot.toString()).to.equal(passed.passedSlot.toString());
-    await send(await gov.releaseRecoveryVote({market: f.market, ballot: open.ballot, source: balance, round: second.round}));
-    await send(await gov.withdraw({market: f.market, owner, amount: supply / 2n + 1n}));
-    const remaining = (await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
-    expect(remaining).to.equal(supply - burned);
-    const majority = remaining / 2n + 1n;
-    await send(await gov.deposit({market: f.market, owner, amount: majority}));
-    const next = await gov.electManager({market: f.market, proposer: owner, manager: manager.publicKey, nonce: 9, metadata, contributions: [{owner, amount: majority}]});
-    await send(next); at((await get.parameterProposal(next.proposal)).executeAfter);
-    await send(await writer.executeParameterProposal({market: f.market, proposal: next.proposal}));
-    expect((await gov.getControl(f.market))!.managerEpoch.toString()).to.equal("4");
-    const reopened = await gov.openRemovalBallot({market: f.market, payer: owner}); await send(reopened);
-    expect(reopened.ballot.equals(open.ballot)).to.equal(true);
-    const third = await gov.getRecoveryBallot(open.ballot);
-    expect(third.round.toString()).to.equal(second.round.addn(1).toString());
-    expect(third.passed).to.equal(false);
-    expect(third.seniorVotes.toString()).to.equal("0");
-  });
-
-  it("elects managers and latches recovery majorities using already locked LP ownership", async function () {
-    const f = await addBalancedLiquidity(248);
-    const sdkProgram = createDuskProgram({provider: program.provider});
-    const gov = new DuskGovernance(sdkProgram), writer = new DuskWrite(sdkProgram), get = new DuskGet(sdkProgram);
-    const owner = payer.publicKey, manager = Keypair.generate().publicKey, replacement = Keypair.generate().publicKey;
-    const supply = (await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
-    const half = supply / 2n, deposited = supply * 3n / 5n;
-    const metadata = {version: 1, title: "Market management", descriptionUri: "ipfs://manager-test", descriptionSha256: Array(32).fill(1), descriptionLen: 1};
+    const metadata = {version: 1, title: "Market settings", descriptionUri: "ipfs://operator-settings", descriptionSha256: Array(32).fill(3), descriptionLen: 1};
     const send = async (build: {transaction: Transaction}, signers: Keypair[] = []) => {
-      svm.expireBlockhash();
+      build.transaction.feePayer = owner; svm.expireBlockhash();
       build.transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
       return connection.sendTransaction(build.transaction, [payer, ...signers]);
     };
-    const reject = async (build: {transaction: Transaction}, expected: string, signers: Keypair[] = []) => {
-      let error: unknown; try {await send(build, signers);} catch (value) {error = value;}
-      expect(String(error)).to.include(expected);
-    };
-    const at = managerAtUnix;
-    const balance = deriveGovernanceBalanceAddress(f.market, owner, f.srlpMint)[0];
-    await send(await gov.deposit({market: f.market, owner, amount: deposited}));
-    const election = await gov.electManager({market: f.market, proposer: owner, manager, nonce: 1, metadata, contributions: [{owner, amount: deposited}]});
-    await send(election);
-    const queuedElection = await get.parameterProposal(election.proposal);
-    expect(queuedElection.action).to.have.property("appointManager");
-    expect(queuedElection.status).to.have.property("queued");
-    expect(BigInt(queuedElection.executeAfter.sub(queuedElection.queuedAt).toString())).to.equal(7n * 86_400n);
-    await reject(await writer.executeParameterProposal({market: f.market, proposal: election.proposal}), "ProposalTimelockNotReady");
-    at(queuedElection.executeAfter);
-    await send(await writer.executeParameterProposal({market: f.market, proposal: election.proposal}));
-    expect((await gov.getControl(f.market))!.manager.equals(manager)).to.equal(true);
-    expect((await gov.getControl(f.market))!.managerEpoch.toString()).to.equal("2");
-    await send(await gov.withdrawSupport({market: f.market, proposal: election.proposal, owner, authority: owner}));
-    const oldReplacement = await gov.electManager({market: f.market, proposer: owner, manager: replacement, nonce: 2, metadata, contributions: [{owner, amount: deposited}]});
-    await send(oldReplacement);
-    const oldQueued = await get.parameterProposal(oldReplacement.proposal);
-    const removal = await gov.openRemovalBallot({market: f.market, payer: owner});
-    await send(removal); trackV2Instruction("openRecoveryBallot", this.test?.title);
-    const opened = await gov.getRecoveryBallot(removal.ballot);
-    await send(await gov.openRemovalBallot({market: f.market, payer: owner}));
-    expect((await gov.getRecoveryBallot(removal.ballot)).endsAt.toString()).to.equal(opened.endsAt.toString());
-    expect((await gov.getControl(f.market))!.manager.equals(manager)).to.equal(true);
-    // Committed appointment ownership remains usable for removal. Exactly half is insufficient.
-    const recovery = {market: f.market, ballot: removal.ballot, source: balance, authority: owner, payer: owner};
-    await send(await gov.voteRecovery({...recovery, amount: half}));
-    expect((await gov.getRecoveryBallot(removal.ballot)).passed).to.equal(false);
-    await send(await gov.voteRecovery({...recovery, amount: 1}));
-    trackV2Instruction("voteRecoveryBallot", this.test?.title);
-    expect((await gov.getRecoveryBallot(removal.ballot)).passed).to.equal(true);
-    expect((await gov.getControl(f.market))!.manager.equals(PublicKey.default)).to.equal(true);
-    expect((await gov.getControl(f.market))!.managerEpoch.toString()).to.equal("3");
-    // An appointment approved before removal cannot reinstall authority afterward.
-    at(oldQueued.executeAfter);
-    const staleExecution = await writer.executeParameterProposal({market: f.market, proposal: oldReplacement.proposal});
-    await send(staleExecution);
-    expect(cpiEvent(staleExecution.transaction, "proposalResolved").status).to.have.property("stale");
-    expect((await gov.getControl(f.market))!.manager.equals(PublicKey.default)).to.equal(true);
-    await send(await gov.withdrawSupport({market: f.market, proposal: oldReplacement.proposal, owner, authority: owner}));
-    await send(await gov.releaseRecoveryVote({market: f.market, ballot: removal.ballot, source: balance, round: opened.round}));
-    trackV2Instruction("releaseRecoveryVote", this.test?.title);
-
-    const target = await gov.electManager({market: f.market, proposer: owner, manager: replacement, nonce: 3, metadata, contributions: [{owner, amount: deposited}]});
-    await send(target);
-    const directAmount = supply / 4n;
-    const direct = await writer.createParameterProposal({market: f.market, proposer: owner, nonce: 4, metadata,
-      updates: [dailyBorrowLimitParameterUpdate(1_900)], initialSupport: directAmount});
-    await send(direct);
-    const source = deriveProposalSupportAddress(direct.proposal, owner)[0];
-    const cancel = await gov.openCancellationBallot({market: f.market, payer: owner, proposal: target.proposal});
-    await send(cancel);
-    const ballot = await gov.getRecoveryBallot(cancel.ballot);
-    const vote = {market: f.market, ballot: cancel.ballot, authority: owner, payer: owner};
-    await send(await gov.voteRecovery({...vote, source: balance, amount: half - directAmount}));
-    const invalidRelease = await gov.releaseRecoveryVote({market: f.market, ballot: cancel.ballot, source: balance, round: ballot.round});
-    const targetMeta = invalidRelease.instruction.keys.find(meta => meta.pubkey.equals(target.proposal))!;
-    targetMeta.pubkey = DUSK_PROGRAM_ID; // Omitting proof of a live target cannot release counted ownership.
-    await reject(invalidRelease, "InvalidParameterProposal");
-    await send(await gov.voteRecovery({...vote, source, sourceProposal: direct.proposal, amount: directAmount}));
-    expect((await gov.getRecoveryBallot(cancel.ballot)).passed).to.equal(false);
-    await reject(await writer.withdrawParameterSupport({market: f.market, proposal: direct.proposal, proposer: owner, supporter: owner}), "RecoveryVoteLocked");
-    const outsider = Keypair.generate(); await connection.requestAirdrop(outsider.publicKey, LAMPORTS_PER_SOL);
-    await reject(await gov.voteRecovery({...vote, authority: outsider.publicKey, source: balance, amount: 1}), "InvalidSigner", [outsider]);
-    svm.warpToSlot(svm.getClock().slot + 1n);
-    const success = await gov.voteRecovery({...vote, source: balance, amount: 1});
-    await send(success);
-    expect(cpiEvent(success.transaction, "recoveryBallotChanged").passedSlot.toString()).to.equal(svm.getClock().slot.toString());
-    expect((await gov.getRecoveryBallot(cancel.ballot)).passed).to.equal(true);
-    expect((await get.parameterProposal(target.proposal)).status).to.have.property("cancelled");
-    await reject(await writer.executeParameterProposal({market: f.market, proposal: target.proposal}), "ProposalNotQueued");
-    await send(await gov.withdrawSupport({market: f.market, proposal: target.proposal, owner, authority: owner}));
-    expect(svm.getAccount(target.proposal)!.data.length).to.equal(114);
-    // Both the earlier direct voter and the majority-completing virtual voter
-    // release from the slot following success, even after target rent cleanup.
-    const passed = await gov.getRecoveryBallot(cancel.ballot);
-    expect(passed.passedSlot.toString()).to.equal(svm.getClock().slot.toString());
-    for (const votingSource of [balance, source]) {
-      await reject(await gov.releaseRecoveryVote({market: f.market, ballot: cancel.ballot, source: votingSource, round: ballot.round}), "RecoveryVoteLocked");
-    }
-    svm.warpToSlot(svm.getClock().slot + 1n);
-    await send(await gov.releaseRecoveryVote({market: f.market, ballot: cancel.ballot, source: balance, round: ballot.round}));
-    await send(await gov.releaseRecoveryVote({market: f.market, ballot: cancel.ballot, source, round: ballot.round}));
-    await send(await writer.withdrawParameterSupport({market: f.market, proposal: direct.proposal, proposer: owner, supporter: owner}));
-    await send(await gov.withdraw({market: f.market, owner, amount: deposited}));
-    expect((await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(supply);
-  });
-
-  it("composes LP governance and elected management through an external program PDA", async function () {
-    const f = await addBalancedLiquidity(249, marketConfig(), {
-      baseDeposit: 1_000_000_000, quoteDeposit: 2_000_000_000, minSrlp: 1,
-      baseMint: 5_000_000_000, quoteMint: 5_000_000_000,
-    });
-    const sdkProgram = createDuskProgram({provider: program.provider});
-    const gov = new DuskGovernance(sdkProgram), writer = new DuskWrite(sdkProgram), get = new DuskGet(sdkProgram);
-    const owner = payer.publicKey;
-    const [actor] = PublicKey.findProgramAddressSync([Buffer.from("actor"), owner.toBuffer()], GOVERNANCE_ADAPTER_PROGRAM_ID);
-    const send = async (build: {transaction: Transaction}) => {
-      svm.expireBlockhash(); build.transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      return connection.sendTransaction(build.transaction, [payer]);
-    };
-    const forward = (instruction: TransactionInstruction) => new TransactionInstruction({programId: GOVERNANCE_ADAPTER_PROGRAM_ID,
-      keys: [{pubkey: owner, isSigner: true, isWritable: true}, {pubkey: actor, isSigner: false, isWritable: true},
-        {pubkey: DUSK_PROGRAM_ID, isSigner: false, isWritable: false},
-        ...instruction.keys.map(meta => ({...meta, isSigner: meta.pubkey.equals(actor) ? false : meta.isSigner}))],
-      data: Buffer.concat([Buffer.from([0]), instruction.data]),
-    });
-    const sendCpi = async (build: {instruction: TransactionInstruction}) => {
-      const transaction = new Transaction().add(forward(build.instruction));
-      transaction.feePayer = owner; svm.expireBlockhash(); transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      expect(transaction.serializeMessage().length + 65).to.be.at.most(1_232);
-      const measured = await connection.sendTransactionMeasured(transaction, [payer]);
-      expect(measured.computeUnits <= LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
-      return transaction;
-    };
-    const at = managerAtUnix;
-    const metadata = {version: 1, title: "External manager", descriptionUri: "ipfs://external-manager", descriptionSha256: Array(32).fill(2), descriptionLen: 1};
-    await send({transaction: new Transaction().add(SystemProgram.transfer({fromPubkey: owner, toPubkey: actor, lamports: LAMPORTS_PER_SOL}))});
-    const supply = (await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
-    const actorAmount = supply / 4n;
-    const actorAta = await createToken2022Ata(f.srlpMint, actor);
-    await initializeYieldAccounts(f, actor, f.srlpMint, "srlp");
-    await initializeLpTransferHook(f, f.srlpMint);
-    await send({transaction: new Transaction().add(await createTransferCheckedWithTransferHookInstruction(
-      connection as any, f.ownerSrlpAccount, f.srlpMint, actorAta, owner, actorAmount, 6, [], undefined, TOKEN_2022_PROGRAM_ID))});
-    await sendCpi(await gov.deposit({market: f.market, owner: actor, amount: actorAmount}));
-    const proposal = await gov.createProposal({market: f.market, proposer: actor, nonce: 1, metadata,
-      updates: [dailyBorrowLimitParameterUpdate(1_900)], contributions: [{owner: actor, amount: (supply + 99n) / 100n}]});
-    await sendCpi(proposal);
-    const digest = (await get.parameterProposal(proposal.proposal)).digest;
-    await sendCpi(await gov.supportProposal({market: f.market, proposal: proposal.proposal, authority: actor, digest,
-      contributions: [{owner: actor, amount: (supply + 99n) / 100n}]}));
-    await sendCpi(await gov.withdrawSupport({market: f.market, proposal: proposal.proposal, owner: actor, authority: actor}));
-    await sendCpi(await gov.withdraw({market: f.market, owner: actor, amount: actorAmount}));
-    expect((await getAccount(connection as any, actorAta, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(actorAmount);
-    // The same elected authority can be program-owned. Manager creation must
-    // charge its separate funded payer rather than treating the PDA as a payer.
-    await send({transaction: new Transaction().add(new TransactionInstruction({programId: GOVERNANCE_ADAPTER_PROGRAM_ID,
-      keys: [{pubkey: owner, isSigner: true, isWritable: true}, {pubkey: actor, isSigner: false, isWritable: true},
-        {pubkey: SystemProgram.programId, isSigner: false, isWritable: false}], data: Buffer.from([1])}))});
-    expect(svm.getAccount(actor)!.owner.equals(GOVERNANCE_ADAPTER_PROGRAM_ID)).to.equal(true);
-    const majority = supply / 2n + 1n;
-    await send(await gov.deposit({market: f.market, owner, amount: majority}));
-    const election = await gov.electManager({market: f.market, proposer: owner, manager: actor, nonce: 2, metadata, contributions: [{owner, amount: majority}]});
-    await send(election); at((await get.parameterProposal(election.proposal)).executeAfter);
-    await send(await writer.executeParameterProposal({market: f.market, proposal: election.proposal}));
     const fee = (baseFeeBps: number) => feeParameterUpdate({baseFeeBps, divergenceFeeShareCapBps: 0, volatilityFeeShareCapBps: 0,
       divergenceFeeCoefficientNad: 0, volatilityFeeCoefficientNad: 0, volatilityHalfLifeMs: 60_000,
       volatilityShockCapNad: 0, volatilityAccumulatorCapNad: 0});
-    const managed = await gov.proposeAsManager({market: f.market, manager: actor, payer: owner, nonce: 3, metadata, updates: [fee(50)]});
-    await sendCpi(managed); trackV2Instruction("createManagerProposal", this.test?.title);
-    const queued = await get.parameterProposal(managed.proposal);
-    expect(queued.origin).to.have.property("manager");
-    expect(queued.totalLocked.toString()).to.equal("0");
-    expect(queued.sponsorshipFloor.toString()).to.equal("0");
-    expect(queued.rentRefund.equals(owner)).to.equal(true);
-    managerAtProposal(queued);
-    await send(await writer.executeParameterProposal({market: f.market, proposal: managed.proposal}));
-    expect((await sdkProgram.account.market.fetch(f.market)).config.swapFeeBps).to.equal(50);
-    await send(await gov.resolveManagerProposal({market: f.market, proposal: managed.proposal}));
-    trackV2Instruction("resolveManagerProposal", this.test?.title);
-    expect(svm.getAccount(managed.proposal)!.data.length).to.equal(114);
-    const cancelled = await gov.proposeAsManager({market: f.market, manager: actor, payer: owner, nonce: 4, metadata, updates: [fee(60)]});
-    await sendCpi(cancelled);
-    await sendCpi(await gov.resolveManagerProposal({market: f.market, proposal: cancelled.proposal, cancel: true, manager: actor}));
-    const cooldown = await gov.proposeAsManager({market: f.market, manager: actor, payer: owner, nonce: 5, metadata, updates: [fee(60)]});
-    let blocked: unknown; try {await sendCpi(cooldown);} catch (error) {blocked = error;}
-    expect(String(blocked)).to.include("ManagerAnnouncementCooldown");
-    expect((await sdkProgram.account.market.fetch(f.market)).config.swapFeeBps).to.equal(50);
+    return {f, sdkProgram, operator, owner, metadata, send, fee};
+  }
 
-    const clock = svm.getClock(); clock.unixTimestamp += 3n * 86_400n; svm.setClock(clock);
-    const state = await sdkProgram.account.market.fetch(f.market);
-    const maximum = await gov.proposeAsManager({market: f.market, manager: actor, payer: owner, nonce: 6,
-      metadata: {...metadata, title: "M".repeat(96), descriptionUri: "ipfs://" + "x".repeat(193), descriptionLen: 32_768},
-      updates: [fee(60), concentrationParameterUpdate({peakAmplificationNad: 1_250_000_000, coreHalfWidthBps: 100, fadeWidthBps: 400}),
-        irmParameterUpdate({...state.config.irm, halfLifeMs: 7 * 86_400_000, initialAprNad: 50_000_000}),
-        emaHalfLivesParameterUpdate({priceMs: 120_000, directionalPriceMs: 120_000, curveDepthMs: 120_000, centerPriceMs: 120_000}),
-        dailyBorrowLimitParameterUpdate(1_500), centerControllerParameterUpdate({adjustmentThresholdNad: 5_000_000, adjustmentStepNad: 500_000, minAdjustmentIntervalSlots: 36_000}),
-        trancheParameterUpdate({juniorIncomeShareBps: 6_000})]});
-    const forwarded = forward(maximum.instruction);
-    const lastHash = svm.getSlotHashes()[0]; lastHash.slot = svm.getClock().slot;
-    lastHash.hash = (await connection.getLatestBlockhash()).blockhash; svm.setSlotHashes([lastHash]);
-    const plan = marketCreationLookupTablePlan({payer: owner, recentSlot: Number(lastHash.slot), initializeMarketInstruction: forwarded});
-    await send({transaction: new Transaction().add(plan.createInstruction)});
-    for (const instruction of plan.extendInstructions) await send({transaction: new Transaction().add(instruction)});
-    svm.warpToSlot(svm.getClock().slot + 1n); svm.expireBlockhash();
-    const lookup = new AddressLookupTableAccount({key: plan.address, state: AddressLookupTableAccount.deserialize(svm.getAccount(plan.address)!.data)});
-    const v0 = parameterProposalV0Transaction({payer: owner, recentBlockhash: (await connection.getLatestBlockhash()).blockhash,
-      proposalInstruction: forwarded, lookupTables: [lookup]});
-    v0.sign([payer]);
-    const measured = await connection.sendTransactionMeasured(v0, []);
-    expect(measured.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
-    expect(v0.serialize().length).to.be.at.most(1_232);
-    const allQueued = await get.parameterProposal(maximum.proposal);
-    expect(allQueued.updates).to.have.length(7);
-    expect(BigInt(allQueued.executeAfter.sub(allQueued.queuedAt).toString())).to.equal(4_752_000n);
-    managerAtProposal(allQueued);
-    await send(await writer.executeParameterProposal({market: f.market, proposal: maximum.proposal}));
-    expect((await get.parameterProposal(maximum.proposal)).status).to.have.property("executed");
-    const final = await sdkProgram.account.market.fetch(f.market);
-    expect(final.parameterRevisions.map(value => value.toNumber())).to.deep.equal([2, 1, 1, 1, 1, 1, 0, 1]);
-    expect(final.config.amm.adjustmentStepNad.toString()).to.equal("500000");
-    expect(final.tranchePolicy.juniorIncomeShareBps).to.equal(6_000);
+  it("announces exactly one replaceable operator bundle without locking LP ownership", async function () {
+    const {f, sdkProgram, operator, owner, metadata, send, fee} = await operatorFixture(251);
+    const initial = await operator.market(f.market);
+    expect(initial.operator.authority.equals(owner)).to.equal(true);
+    const balance = (await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    const first = await operator.announce({market: f.market, payer: owner, operator: owner, metadata, updates: [fee(50)]});
+    await send(first); trackV2Instruction("announceOperatorChange", this.test?.title);
+    const sealed = await operator.proposal(first.proposal);
+    expect(await operator.verifyDigest(sealed)).to.equal(true);
+    expect(sealed.executeAfterSlot.sub(sealed.announcedAtSlot).toString()).to.equal("4752000");
+    expect((await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(balance);
+    operatorAtSlot(sealed.announcedAtSlot.addn(100));
+    const second = await operator.announce({market: f.market, payer: owner, operator: owner, metadata,
+      updates: [fee(75), dailyBorrowLimitParameterUpdate(1_900)]});
+    await send(second);
+    const replacement = await operator.proposal(second.proposal);
+    expect(replacement.executeAfterSlot.sub(sealed.executeAfterSlot).toString()).to.equal("100");
+    expect((await operator.pending(f.market))!.address.equals(second.proposal)).to.equal(true);
+    operatorAtSlot(sealed.executeAfterSlot);
+    let error: unknown;
+    try { await send(await operator.execute({market: f.market, proposal: first.proposal})); } catch (e) {error=e;}
+    expect(String(error)).to.include("OperatorProposalStale");
+    error=undefined;
+    try { await send(await operator.execute({market: f.market, proposal: second.proposal})); } catch (e) {error=e;}
+    expect(String(error)).to.include("OperatorNoticeNotReady");
+    expect((await operator.market(f.market)).config.swapFeeBps).to.equal(initial.config.swapFeeBps);
+    await send(await operator.resolve({market: f.market, proposal: first.proposal}));
+    trackV2Instruction("resolveOperatorChange", this.test?.title);
+    expect(svm.getAccount(first.proposal)?.data.length ?? 0).to.equal(0);
+    operatorAtSlot(replacement.executeAfterSlot);
+    await send(await operator.execute({market: f.market, proposal: second.proposal}));
+    trackV2Instruction("executeOperatorChange", this.test?.title);
+    const applied = await operator.market(f.market);
+    expect(applied.config.swapFeeBps).to.equal(75);
+    expect(applied.config.maxDailyBorrowBps).to.equal(1_900);
+    expect(await operator.pending(f.market)).to.equal(null);
+    await send(await operator.resolve({market: f.market, proposal: second.proposal}));
+    const cancelled = await operator.announce({market: f.market, payer: owner, operator: owner, metadata, updates: [fee(80)]});
+    await send(cancelled);
+    await send(await operator.cancel({market: f.market, proposal: cancelled.proposal, operator: owner}));
+    const expiring = await operator.announce({market: f.market, payer: owner, operator: owner, metadata, updates: [fee(90)]});
+    await send(expiring);
+    operatorAtSlot((await operator.proposal(expiring.proposal)).deadlineSlot.addn(1));
+    await send(await operator.resolve({market: f.market, proposal: expiring.proposal}));
+    expect(await operator.pending(f.market)).to.equal(null);
+    expect(sdkProgram.idl.instructions.some(ix=>/governance|parameterProposal|manager|recoveryBallot/i.test(ix.name))).to.equal(false);
   });
 
-  it("runs the direct-srLP parameter proposal lifecycle", async function () {
-    const fixture = await addBalancedLiquidity(61);
-    const proposer = payer.publicKey;
-    const nonce = new BN(1);
-    const proposal = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("parameter_proposal"),
-        fixture.market.toBuffer(),
-        proposer.toBuffer(),
-        nonce.toArrayLike(Buffer, "le", 8),
-      ],
-      DUSK_PROGRAM_ID
-    )[0];
-    const proposalSupport = PublicKey.findProgramAddressSync(
-      [Buffer.from("proposal_support"), proposal.toBuffer(), proposer.toBuffer()],
-      DUSK_PROGRAM_ID
-    )[0];
-    const baseYieldAccount = deriveYieldAccountAddress(
-      fixture.market,
-      proposer,
-      fixture.srlpMint,
-      fixture.baseMint,
-      "srlp"
-    )[0];
-    const quoteYieldAccount = deriveYieldAccountAddress(
-      fixture.market,
-      proposer,
-      fixture.srlpMint,
-      fixture.quoteMint,
-      "srlp"
-    )[0];
-    const srlpMintBefore = await getMint(
-      connection as any,
-      fixture.srlpMint,
-      undefined,
-      TOKEN_2022_PROGRAM_ID
-    );
-    expect(svm.getAccount(fixture.baseHlpSrlpVault)).to.equal(null);
-    expect(svm.getAccount(fixture.quoteHlpSrlpVault)).to.equal(null);
-    const eligibleSupply = srlpMintBefore.supply;
-    const sponsorship = (eligibleSupply + 99n) / 100n;
-    const strictMajority = eligibleSupply / 2n + 1n;
-    const additionalSupport = strictMajority - sponsorship;
-    const ownerSrlpBefore = await getAccount(
-      connection as any,
-      fixture.ownerSrlpAccount,
-      undefined,
-      TOKEN_2022_PROGRAM_ID
-    );
-
-    const createTx = await program.methods
-      .createParameterProposal({
-        action: {parameters: {}}, conditions: [],
-        nonce,
-        // Two families under one sponsorship and one vote, in ascending
-        // family order.
-        updates: [
-          {
-            dailyBorrowLimit: {
-              maxDailyBorrowBps: 1_900,
-            },
-          },
-          {
-            tranche: { juniorIncomeShareBps: 4_500 },
-          },
-        ],
-        metadata: {
-          version: 1,
-          title: "Lower daily borrow limit",
-          descriptionUri: "ipfs://dusk-litesvm-parameter-proposal",
-          descriptionSha256: Array(32).fill(1),
-          descriptionLen: 1,
-        },
-        initialSupport: new BN(sponsorship.toString()),
-      })
-      .accounts({
-        proposer,
-        market: fixture.market,
-        proposal,
-        proposalSupport,
-        srlpMint: fixture.srlpMint,
-        proposerSrlpAccount: fixture.ownerSrlpAccount,
-        baseYieldAccount,
-        quoteYieldAccount,
-        baseHlpSrlpVault: fixture.baseHlpSrlpVault,
-        quoteHlpSrlpVault: fixture.quoteHlpSrlpVault,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(createTx, [payer]);
-    const created = cpiEvent(createTx, "parameterProposalCreated");
-    expect(created.proposal.toString()).to.equal(proposal.toString());
-    trackV2Instruction("createParameterProposal", this.test?.title);
-    // The creation event carries the updates and metadata exactly as stored.
-    const stored = accountCoder.decode("ParameterProposal", Buffer.from(svm.getAccount(proposal)!.data)) as any;
-    expect(created.updates).to.deep.equal([
-      { dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } },
-      { tranche: { juniorIncomeShareBps: 4_500 } },
-    ]);
-    expect(stored.updates).to.have.length(2);
-    expect(stored.updates[1].Tranche.junior_income_share_bps).to.equal(4_500);
-    expect(stored.updates[0].DailyBorrowLimit.max_daily_borrow_bps).to.equal(1_900);
-    expect(created.familyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
-      stored.family_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
-    );
-    expect(created.metadata.version).to.equal(stored.metadata.version);
-    expect(created.metadata.title).to.equal(stored.metadata.title);
-    expect(created.metadata.descriptionUri).to.equal(stored.metadata.description_uri);
-    expect(Buffer.from(created.metadata.descriptionSha256).equals(Buffer.from(stored.metadata.description_sha256))).to.equal(
-      true
-    );
-    expect(created.metadata.descriptionLen).to.equal(stored.metadata.description_len);
-    expect(Buffer.from(created.digest).equals(Buffer.from(stored.digest))).to.equal(true);
-
-    const baseHlpSrlp = await getAccount(
-      connection as any,
-      fixture.baseHlpSrlpVault,
-      undefined,
-      TOKEN_2022_PROGRAM_ID
-    );
-    const quoteHlpSrlp = await getAccount(
-      connection as any,
-      fixture.quoteHlpSrlpVault,
-      undefined,
-      TOKEN_2022_PROGRAM_ID
-    );
-    expect(baseHlpSrlp.amount).to.equal(0n);
-    expect(quoteHlpSrlp.amount).to.equal(0n);
-
-    let marketAccount = svm.getAccount(fixture.market);
-    expect(marketAccount).to.not.equal(null);
-    let market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
-    expect(BigInt(market.governance_locked_srlp.toString())).to.equal(sponsorship);
-
-    const queueTx = await program.methods
-      .queueParameterProposal()
-      .accounts({
-        market: fixture.market,
-        proposal,
-        srlpMint: fixture.srlpMint,
-        baseHlpSrlpVault: fixture.baseHlpSrlpVault,
-        quoteHlpSrlpVault: fixture.quoteHlpSrlpVault,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    let insufficientQueueRejected = false;
-    try {
-      await connection.sendTransaction(queueTx, [payer]);
-    } catch {
-      insufficientQueueRejected = true;
-    }
-    expect(insufficientQueueRejected).to.equal(true);
-    trackV2Instruction("queueParameterProposal", this.test?.title);
-
-    const supportParameterProposalTx = (digest: number[]) =>
-      program.methods
-        .supportParameterProposal({
-          amount: new BN(additionalSupport.toString()),
-          digest,
-        })
-        .accounts({
-          supporter: proposer,
-          market: fixture.market,
-          proposal,
-          proposalSupport,
-          srlpMint: fixture.srlpMint,
-          supporterSrlpAccount: fixture.ownerSrlpAccount,
-          baseYieldAccount,
-          quoteYieldAccount,
-          baseHlpSrlpVault: fixture.baseHlpSrlpVault,
-          quoteHlpSrlpVault: fixture.quoteHlpSrlpVault,
-          token2022Program: TOKEN_2022_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          eventAuthority: eventAuthority(),
-          program: DUSK_PROGRAM_ID,
-        })
-        .transaction();
-    // Support names the proposal it reviewed: once the account closes, its
-    // address can hold a different proposal.
-    const reviewedDigest = Array.from(created.digest as number[]);
-    let staleDigestRejection: unknown;
-    try {
-      await connection.sendTransaction(
-        await supportParameterProposalTx(reviewedDigest.map((byte, index) => (index === 0 ? byte ^ 1 : byte))),
-        [payer]
-      );
-    } catch (error) {
-      staleDigestRejection = error;
-    }
-    expect(String(staleDigestRejection)).to.include("ProposalDigestMismatch");
-
-    const supportTx = await supportParameterProposalTx(reviewedDigest);
-    await connection.sendTransaction(supportTx, [payer]);
-    expect(cpiEvent(supportTx, "parameterProposalSupported").proposal.toString()).to.equal(
-      proposal.toString()
-    );
-    expect(cpiEvent(supportTx, "parameterProposalQueued").proposal.toString()).to.equal(
-      proposal.toString()
-    );
-    trackV2Instruction("supportParameterProposal", this.test?.title);
-
-    marketAccount = svm.getAccount(fixture.market);
-    expect(marketAccount).to.not.equal(null);
-    market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
-    expect(BigInt(market.governance_locked_srlp.toString())).to.equal(strictMajority);
-
-    const executeTx = await program.methods
-      .executeParameterProposal()
-      .accounts({
-        srlpMint: fixture.srlpMint,
-        baseHlpSrlpVault: fixture.baseHlpSrlpVault,
-        quoteHlpSrlpVault: fixture.quoteHlpSrlpVault,
-        removalBallot: deriveRemovalBallotAddress(fixture.market)[0],
-        cancellationBallot: deriveCancellationBallotAddress(fixture.market, proposal)[0],
-        market: fixture.market,
-        proposal,
-        baseMint: fixture.baseMint,
-        quoteMint: fixture.quoteMint,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    let earlyExecutionRejected = false;
-    try {
-      await connection.sendTransaction(executeTx, [payer]);
-    } catch {
-      earlyExecutionRejected = true;
-    }
-    expect(earlyExecutionRejected).to.equal(true);
-
-    const clock = svm.getClock();
-    clock.unixTimestamp = BigInt(cpiEvent(supportTx, "parameterProposalQueued").executeAfter.toString()) + 1n;
-    svm.setClock(clock);
-    svm.expireBlockhash();
-
-    const maturedExecuteTx = await program.methods
-      .executeParameterProposal()
-      .accounts({
-        srlpMint: fixture.srlpMint,
-        baseHlpSrlpVault: fixture.baseHlpSrlpVault,
-        quoteHlpSrlpVault: fixture.quoteHlpSrlpVault,
-        removalBallot: deriveRemovalBallotAddress(fixture.market)[0],
-        cancellationBallot: deriveCancellationBallotAddress(fixture.market, proposal)[0],
-        market: fixture.market,
-        proposal,
-        baseMint: fixture.baseMint,
-        quoteMint: fixture.quoteMint,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(maturedExecuteTx, [payer]);
-    const executed = cpiEvent(maturedExecuteTx, "parameterProposalExecuted");
-    expect(executed.proposal.toString()).to.equal(proposal.toString());
-    expect(Array.from(executed.families)).to.deep.equal([4, 7]);
-    trackV2Instruction("executeParameterProposal", this.test?.title);
-
-    marketAccount = svm.getAccount(fixture.market);
-    expect(marketAccount).to.not.equal(null);
-    market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
-    expect(market.config.max_daily_borrow_bps).to.equal(1_900);
-    expect(market.parameter_revisions[4].toNumber()).to.equal(1);
-    expect(market.parameter_revisions[7].toNumber()).to.equal(1);
-    expect(market.tranche_policy.junior_income_share_bps).to.equal(4_500);
-    expect(executed.newFamilyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
-      market.parameter_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
-    );
-
-    const proposalRent = BigInt(svm.getAccount(proposal)!.lamports);
-    const tombstoneRent = BigInt(svm.minimumBalanceForRentExemption(114n));
-    const supportRent = BigInt(svm.getAccount(proposalSupport)!.lamports);
-    const proposerLamportsBefore = BigInt(svm.getAccount(proposer)!.lamports);
-    const withdrawTx = await program.methods
-      .withdrawParameterSupport({ amount: null })
-      .accounts({
-        supporter: proposer,
-        market: fixture.market,
-        proposal,
-        proposer,
-        proposalSupport,
-        srlpMint: fixture.srlpMint,
-        supporterSrlpAccount: fixture.ownerSrlpAccount,
-        baseYieldAccount,
-        quoteYieldAccount,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(withdrawTx, [payer]);
-    const withdrawn = cpiEvent(withdrawTx, "parameterProposalSupportWithdrawn");
-    expect(withdrawn.proposal.toString()).to.equal(proposal.toString());
-    trackV2Instruction("withdrawParameterSupport", this.test?.title);
-    // The last supporter left an executed proposal: it becomes a tombstone
-    // retaining its immutable identity, and the proposer, who also pays this
-    // transaction's one-signature fee, receives the rest of its rent and the
-    // support account's rent.
-    expect(withdrawn.proposalTombstoned).to.equal(true);
-    const tombstone = svm.getAccount(proposal)!;
-    expect(tombstone.owner.toString()).to.equal(DUSK_PROGRAM_ID.toString());
-    // No instruction takes the tombstone as a typed account, so the IDL omits
-    // it; its discriminator is Anchor's usual `account:<Name>` hash.
-    expect(
-      Buffer.from(tombstone.data).subarray(0, 8).equals(
-        createHash("sha256").update("account:ParameterProposalTombstone").digest().subarray(0, 8)
-      )
-    ).to.equal(true);
-    expect(BigInt(tombstone.lamports)).to.equal(tombstoneRent);
-    expect(BigInt(svm.getAccount(proposer)!.lamports) - proposerLamportsBefore).to.equal(
-      proposalRent - tombstoneRent + supportRent - 5_000n
-    );
-    // The tombstone keeps the address: the same proposer and nonce cannot
-    // create a different proposal there.
-    let reusedAddressRejection: unknown;
-    try {
-      await connection.sendTransaction(
-        await program.methods
-          .createParameterProposal({
-        action: {parameters: {}}, conditions: [],
-            nonce,
-            updates: [{ dailyBorrowLimit: { maxDailyBorrowBps: 1_700 } }],
-            metadata: {
-              version: 1,
-              title: "Reuse a finished proposal address",
-              descriptionUri: "ipfs://dusk-litesvm-reused-proposal-address",
-              descriptionSha256: Array(32).fill(3),
-              descriptionLen: 1,
-            },
-            initialSupport: new BN(sponsorship.toString()),
-          })
-          .accounts({
-            proposer,
-            market: fixture.market,
-            proposal,
-            proposalSupport,
-            srlpMint: fixture.srlpMint,
-            proposerSrlpAccount: fixture.ownerSrlpAccount,
-            baseYieldAccount,
-            quoteYieldAccount,
-            baseHlpSrlpVault: fixture.baseHlpSrlpVault,
-            quoteHlpSrlpVault: fixture.quoteHlpSrlpVault,
-            token2022Program: TOKEN_2022_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-            eventAuthority: eventAuthority(),
-            program: DUSK_PROGRAM_ID,
-          })
-          .transaction(),
-        [payer]
-      );
-    } catch (error) {
-      reusedAddressRejection = error;
-    }
-    expect(String(reusedAddressRejection)).to.include("already in use");
-    expect(Buffer.from(svm.getAccount(proposal)!.data).length).to.equal(114);
-
-    const ownerSrlpAfter = await getAccount(
-      connection as any,
-      fixture.ownerSrlpAccount,
-      undefined,
-      TOKEN_2022_PROGRAM_ID
-    );
-    expect(ownerSrlpAfter.amount).to.equal(ownerSrlpBefore.amount);
-    expect(svm.getAccount(proposalSupport)).to.equal(null);
-    marketAccount = svm.getAccount(fixture.market);
-    expect(marketAccount).to.not.equal(null);
-    market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
-    expect(market.governance_locked_srlp.toNumber()).to.equal(0);
-
-    const queueNonce = new BN(2);
-    const queuedProposal = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("parameter_proposal"),
-        fixture.market.toBuffer(),
-        proposer.toBuffer(),
-        queueNonce.toArrayLike(Buffer, "le", 8),
-      ],
-      DUSK_PROGRAM_ID
-    )[0];
-    const queuedProposalSupport = PublicKey.findProgramAddressSync(
-      [Buffer.from("proposal_support"), queuedProposal.toBuffer(), proposer.toBuffer()],
-      DUSK_PROGRAM_ID
-    )[0];
-    const queuedSupport = eligibleSupply / 2n;
-    const queueCreateTx = await program.methods
-      .createParameterProposal({
-        action: {parameters: {}}, conditions: [],
-        nonce: queueNonce,
-        updates: [
-          {
-            dailyBorrowLimit: {
-              maxDailyBorrowBps: 1_800,
-            },
-          },
-        ],
-        metadata: {
-          version: 1,
-          title: "Measure denominator-fall queue",
-          descriptionUri: "ipfs://dusk-litesvm-denominator-fall-proposal",
-          descriptionSha256: Array(32).fill(2),
-          descriptionLen: 1,
-        },
-        initialSupport: new BN(queuedSupport.toString()),
-      })
-      .accounts({
-        proposer,
-        market: fixture.market,
-        proposal: queuedProposal,
-        proposalSupport: queuedProposalSupport,
-        srlpMint: fixture.srlpMint,
-        proposerSrlpAccount: fixture.ownerSrlpAccount,
-        baseYieldAccount,
-        quoteYieldAccount,
-        baseHlpSrlpVault: fixture.baseHlpSrlpVault,
-        quoteHlpSrlpVault: fixture.quoteHlpSrlpVault,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(queueCreateTx, [payer]);
-
-    await connection.sendTransaction(
-      new Transaction().add(
-        createBurnCheckedInstruction(
-          fixture.ownerSrlpAccount,
-          fixture.srlpMint,
-          payer.publicKey,
-          2n,
-          6,
-          [],
-          TOKEN_2022_PROGRAM_ID
-        )
-      ),
-      [payer]
-    );
-
-    const successfulQueueTx = await program.methods
-      .queueParameterProposal()
-      .accounts({
-        market: fixture.market,
-        proposal: queuedProposal,
-        srlpMint: fixture.srlpMint,
-        baseHlpSrlpVault: fixture.baseHlpSrlpVault,
-        quoteHlpSrlpVault: fixture.quoteHlpSrlpVault,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(successfulQueueTx, [payer]);
-    expect(
-      cpiEvent(successfulQueueTx, "parameterProposalQueued").proposal.toString()
-    ).to.equal(queuedProposal.toString());
+  it("requires operator signatures regardless of LP balance and accepts authority transfers explicitly", async function () {
+    const {f, operator, owner, metadata, send, fee} = await operatorFixture(252);
+    const next = Keypair.generate();
+    await connection.requestAirdrop(next.publicKey, LAMPORTS_PER_SOL);
+    // Give another wallet a strict majority of transferable LP receipts.
+    const holder = await createToken2022Ata(f.srlpMint, next.publicKey);
+    await initializeYieldAccounts(f, next.publicKey, f.srlpMint, "srlp");
+    await initializeLpTransferHook(f, f.srlpMint);
+    const balance = (await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    await send({transaction: new Transaction().add(await createTransferCheckedWithTransferHookInstruction(
+      connection as any, f.ownerSrlpAccount, f.srlpMint, holder, owner, balance * 3n / 4n, 6, [], undefined, TOKEN_2022_PROGRAM_ID))});
+    let error: unknown;
+    try { await send(await operator.announce({market:f.market,payer:owner,operator:next.publicKey,metadata,updates:[fee(50)]}),[next]); } catch(e){error=e;}
+    expect(String(error)).to.include("InvalidOperator");
+    const transfer = await operator.announce({market:f.market,payer:owner,operator:owner,metadata,nextOperator:next.publicKey});
+    await send(transfer);
+    operatorAtSlot((await operator.proposal(transfer.proposal)).executeAfterSlot);
+    error=undefined;
+    try {await send(await operator.execute({market:f.market,proposal:transfer.proposal}));}catch(e){error=e;}
+    expect(String(error)).to.include("InvalidOperator");
+    expect((await operator.market(f.market)).operator.authority.equals(owner)).to.equal(true);
+    await send(await operator.execute({market:f.market,proposal:transfer.proposal,acceptingOperator:next.publicKey}),[next]);
+    expect((await operator.market(f.market)).operator.authority.equals(next.publicKey)).to.equal(true);
+    error=undefined;
+    try {await send(await operator.announce({market:f.market,payer:owner,operator:owner,metadata,updates:[fee(50)]}));}catch(e){error=e;}
+    expect(String(error)).to.include("InvalidOperator");
+    const renounce=await operator.announce({market:f.market,payer:owner,operator:next.publicKey,metadata,nextOperator:SystemProgram.programId});
+    await send(renounce,[next]);operatorAtSlot((await operator.proposal(renounce.proposal)).executeAfterSlot);
+    await send(await operator.execute({market:f.market,proposal:renounce.proposal}));
+    expect((await operator.market(f.market)).operator.authority.equals(SystemProgram.programId)).to.equal(true);
   });
-  async function protectionBorrow(fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>) {
+
+  it("composes operator authority through a program-owned PDA with a separate payer", async function () {
+    const {f, operator, owner, metadata, send, fee} = await operatorFixture(253);
+    const [actor] = PublicKey.findProgramAddressSync([Buffer.from("actor"), owner.toBuffer()], OPERATOR_ADAPTER_PROGRAM_ID);
+    await send({transaction:new Transaction().add(SystemProgram.transfer({fromPubkey:owner,toPubkey:actor,lamports:LAMPORTS_PER_SOL}),
+      new TransactionInstruction({programId:OPERATOR_ADAPTER_PROGRAM_ID,keys:[
+        {pubkey:owner,isSigner:true,isWritable:true},{pubkey:actor,isSigner:false,isWritable:true},
+        {pubkey:SystemProgram.programId,isSigner:false,isWritable:false}],data:Buffer.from([1])}))});
+    const forward=(instruction:TransactionInstruction)=>new TransactionInstruction({programId:OPERATOR_ADAPTER_PROGRAM_ID,
+      keys:[{pubkey:owner,isSigner:true,isWritable:true},{pubkey:actor,isSigner:false,isWritable:true},
+        {pubkey:DUSK_PROGRAM_ID,isSigner:false,isWritable:false},...instruction.keys.map(meta=>({...meta,isSigner:meta.pubkey.equals(actor)?false:meta.isSigner}))],
+      data:Buffer.concat([Buffer.from([0]),instruction.data])});
+    const transfer=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,nextOperator:actor});
+    await send(transfer);operatorAtSlot((await operator.proposal(transfer.proposal)).executeAfterSlot);
+    const acceptance=await operator.execute({market:f.market,proposal:transfer.proposal,acceptingOperator:actor});
+    await send({transaction:new Transaction().add(...acceptance.setupInstructions,forward(acceptance.instruction))});
+    expect((await operator.market(f.market)).operator.authority.equals(actor)).to.equal(true);
+    expect(svm.getAccount(actor)!.owner.equals(OPERATOR_ADAPTER_PROGRAM_ID)).to.equal(true);
+    const bundle=await operator.announce({market:f.market,payer:owner,operator:actor,metadata,updates:[fee(60)]});
+    await send({transaction:new Transaction().add(forward(bundle.instruction))});
+    expect((await operator.proposal(bundle.proposal)).rentRefund.equals(owner)).to.equal(true);
+    operatorAtSlot((await operator.proposal(bundle.proposal)).executeAfterSlot);
+    await send(await operator.execute({market:f.market,proposal:bundle.proposal}));
+    expect((await operator.market(f.market)).config.swapFeeBps).to.equal(60);
+    const cancelled=await operator.announce({market:f.market,payer:owner,operator:actor,metadata,updates:[fee(70)]});
+    await send({transaction:new Transaction().add(forward(cancelled.instruction))});
+    const cancel=await operator.cancel({market:f.market,proposal:cancelled.proposal,operator:actor});
+    await send({transaction:new Transaction().add(forward(cancel.instruction))});
+  });
+
+  it("preserves collected operator cash across handoff and assigns later collections to the successor", async function () {
+    const {f, sdkProgram, operator, owner, metadata, send} = await operatorFixture(254);
+    const share=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,interestShareBps:3_000});
+    await send(share);operatorAtSlot((await operator.proposal(share.proposal)).executeAfterSlot);
+    await send(await operator.execute({market:f.market,proposal:share.proposal}));
+    const repay=async(borrowPosition:PublicKey)=>{
+      await send({transaction:await program.methods.repay({repayAmount:new BN(100_000)}).accounts({
+        market:f.market,futarchyAuthority,owner,debtAssetMint:f.quoteMint,collateralAssetMint:f.baseMint,
+        reserveVault:f.quoteReserveVault,interestVault:f.quoteInterestVault,ownerDebtAccount:f.ownerQuoteAccount,borrowPosition,
+        referralPartner:null,referralAccrual:null,tokenProgram:TOKEN_PROGRAM_ID,token2022Program:TOKEN_2022_PROGRAM_ID,
+        eventAuthority:eventAuthority(),program:DUSK_PROGRAM_ID,
+      }).transaction()});
+    };
+    const first=await protectionBorrow(f);
+    operatorAtSlot(svm.getClock().slot+10n*432_000n);
+    await repay(first.borrowPosition);
+    const firstCash=BigInt((await operator.market(f.market)).income.revenue[1]!.operatorClaimable.toString());
+    expect(firstCash>0n).to.equal(true);
+    const tranches=new DuskTranches(sdkProgram);
+    const maintenance=await tranches.prepareDrainedIncomeBooks({market:f.market,payer:owner});
+    for(const transaction of maintenance.transactions)await send({transaction});
+    const second=await protectionBorrow(f);
+    const bob=Keypair.generate();await connection.requestAirdrop(bob.publicKey,LAMPORTS_PER_SOL);
+    const transfer=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,nextOperator:bob.publicKey});
+    await send(transfer);operatorAtSlot((await operator.proposal(transfer.proposal)).executeAfterSlot);
+    const execution=await operator.execute({market:f.market,proposal:transfer.proposal,acceptingOperator:bob.publicKey});
+    expect(execution.setupInstructions.length).to.equal(1);
+    await send(execution,[bob]);trackV2Instruction("initializeOperatorRevenue",this.test?.title);
+    await repay(second.borrowPosition);
+    const aliceClaim=await operator.claim({market:f.market,revenueEpoch:0,assetMint:f.quoteMint,payer:owner});
+    expect(aliceClaim.recipient.equals(owner)).to.equal(true);
+    const aliceBefore=(await getAccount(connection as any,aliceClaim.recipientAssetAccount)).amount;
+    await send(aliceClaim);trackV2Instruction("claimOperatorRevenue",this.test?.title);
+    expect((await getAccount(connection as any,aliceClaim.recipientAssetAccount)).amount-aliceBefore).to.equal(firstCash);
+    const bobClaim=await operator.claim({market:f.market,assetMint:f.quoteMint,payer:owner});
+    expect(bobClaim.recipient.equals(bob.publicKey)).to.equal(true);
+    await send(bobClaim);
+    expect((await getAccount(connection as any,bobClaim.recipientAssetAccount)).amount>0n).to.equal(true);
+    let error:unknown;
+    try{await operator.claim({market:f.market,revenueEpoch:0,assetMint:f.quoteMint,payer:owner});}catch(e){error=e;}
+    expect(String(error)).to.include("no collected operator cash");
+  });
+
+  it("checkpoints numerically saturated mixed debt and permits repayment without reviving skipped interest", async function () {
+    const config = marketConfig();
+    config.irm.halfLifeMs = new BN(12 * 60 * 60 * 1_000);
+    const f = await addBalancedLiquidity(255, config, {baseDeposit:1_000_000_000_000n, quoteDeposit:2_000_000_000_000n,
+      minSrlp:1n, baseMint:5_000_000_000_000n, quoteMint:5_000_000_000_000n});
+    const sdk = createDuskProgram({provider:program.provider});
+    const operator = new DuskOperator(sdk);
+    const share = await operator.announce({market:f.market, payer:payer.publicKey, operator:payer.publicKey,
+      interestShareBps:3_000, metadata:{version:1,title:"Interest fee",descriptionUri:"ipfs://fee",descriptionSha256:Array(32).fill(7),descriptionLen:1}});
+    await connection.sendTransaction(share.transaction,[payer]);
+    operatorAtSlot((await operator.proposal(share.proposal)).executeAfterSlot);
+    await connection.sendTransaction((await operator.execute({market:f.market,proposal:share.proposal})).transaction,[payer]);
+    const {borrowPosition, positionId} = await protectionBorrow(f,1_000_000_000_000n,300_000_000_000n);
+    await openQuoteDebtLeverage(f,100_000_000_000);
+    operatorAtSlot(svm.getClock().slot + 60n * 432_000n);
+    const repay = await program.methods.repay({repayAmount:new BN("100000000000")}).accounts({
+      market:f.market,futarchyAuthority,owner:payer.publicKey,debtAssetMint:f.quoteMint,collateralAssetMint:f.baseMint,
+      reserveVault:f.quoteReserveVault,interestVault:f.quoteInterestVault,ownerDebtAccount:f.ownerQuoteAccount,borrowPosition,
+      referralPartner:null,referralAccrual:null,tokenProgram:TOKEN_PROGRAM_ID,token2022Program:TOKEN_2022_PROGRAM_ID,
+      eventAuthority:eventAuthority(),program:DUSK_PROGRAM_ID,
+    }).transaction();
+    repay.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}));
+    const measured = await connection.sendTransactionMeasured(repay,[payer]);
+    expect(measured.computeUnits <= 1_400_000n).to.equal(true);
+    const after = await operator.market(f.market);
+    expect(BigInt(after.quoteSide.reserves.liveReserve.toString()) > 0xffff_ffff_ffff_ffffn).to.equal(true);
+    const index = BigInt(after.debt.quoteBorrowIndexNad.toString());
+    const publicDebt = (BigInt(after.debt.fixedQuoteShares.toString()) * index / 1_000_000_000n)
+      + (BigInt(after.debt.isolatedQuoteShares.toString()) * index / 1_000_000_000n);
+    const principal = BigInt(after.debt.fixedQuotePrincipal.toString()) + BigInt(after.debt.isolatedQuotePrincipal.toString());
+    const book = after.income.revenue[1]!;
+    expect(BigInt(book.grossUnpaid.toString())).to.equal(publicDebt - principal);
+    expect(BigInt(book.grossUnpaid.toString())).to.equal(BigInt(after.income.books[1]!.unpaid.toString())
+      + BigInt(book.protocolUnpaid.toString()) + BigInt(book.operatorUnpaid.toString()));
+    expect(BigInt(book.operatorClaimable.toString()) > 0n).to.equal(true);
+    const deposit = await program.methods.depositCollateral({positionId,depositAmount:new BN(1)}).accounts({
+      market:f.market,owner:payer.publicKey,assetMint:f.baseMint,collateralVault:f.baseCollateralVault,
+      ownerAssetAccount:f.ownerBaseAccount,borrowPosition,tokenProgram:TOKEN_PROGRAM_ID,token2022Program:TOKEN_2022_PROGRAM_ID,
+      systemProgram:SystemProgram.programId,eventAuthority:eventAuthority(),program:DUSK_PROGRAM_ID,
+    }).transaction();
+    svm.expireBlockhash(); await connection.sendTransaction(deposit,[payer]);
+    const sameSlot = await operator.market(f.market);
+    expect(sameSlot.debt.quoteBorrowIndexNad.eq(after.debt.quoteBorrowIndexNad)).to.equal(true);
+    expect(sameSlot.income.revenue[1]!.grossUnpaid.eq(book.grossUnpaid)).to.equal(true);
+    const claim = await operator.claim({market:f.market,assetMint:f.quoteMint,payer:payer.publicKey});
+    svm.expireBlockhash(); await connection.sendTransaction(claim.transaction,[payer]);
+    expect((await operator.market(f.market)).income.revenue[1]!.operatorClaimable.isZero()).to.equal(true);
+    console.info(`saturated mixed-debt repayment: ${measured.computeUnits.toLocaleString()} CU`);
+  });
+
+  async function protectionBorrow(fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>, depositAmount: number | bigint = 10_000, borrowAmount: number | bigint = 5_000) {
     const positionId = Keypair.generate().publicKey;
     const borrowPosition = deriveBorrowPositionAddress(fixture.market, payer.publicKey, positionId)[0];
-    await connection.sendTransaction(await program.methods.depositCollateral({ positionId, depositAmount: new BN(10_000) }).accounts({
+    await connection.sendTransaction(await program.methods.depositCollateral({ positionId, depositAmount: new BN(depositAmount.toString()) }).accounts({
       market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint, collateralVault: fixture.baseCollateralVault,
       ownerAssetAccount: fixture.ownerBaseAccount, borrowPosition, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
     }).transaction(), [payer]);
-    await connection.sendTransaction(await program.methods.borrow({ borrowAmount: new BN(5_000), minDebtAmountOut: new BN(5_000), minLiquidationCfBps: 0, referrer: null }).accounts({
+    await connection.sendTransaction(await program.methods.borrow({ borrowAmount: new BN(borrowAmount.toString()), minDebtAmountOut: new BN(borrowAmount.toString()), minLiquidationCfBps: 0, referrer: null }).accounts({
       market: fixture.market, futarchyAuthority, owner: payer.publicKey, debtAssetMint: fixture.quoteMint, collateralAssetMint: fixture.baseMint,
       reserveVault: fixture.quoteReserveVault, ownerDebtAccount: fixture.ownerQuoteAccount, borrowPosition, referralPartner: null, referralAccrual: null,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
@@ -12540,174 +11554,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }
   }
 
-  it("upgrades a default native market, replaces a stale provider and repeatedly disables/reactivates its oracle", async function () {
-    const config = marketConfig();
-    const f = await addBalancedLiquidity(197, config, {baseDeposit:100_000_000,quoteDeposit:200_000_000,
-      minSrlp:1,baseMint:1_000_000_000,quoteMint:2_000_000_000});
-    await openBaseHedge(f, 2_000_000);
-    await openQuoteHedge(f, 4_000_000);
-    const {leveragePosition} = await openQuoteDebtLeverage(f,5000,hlpSwapAccounts(f),20_000);
-    const initial = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
-    expect(initial.oracle.policy.lambda_bps).to.equal(0);
-    expect(initial.oracle.policy.provider.equals(PublicKey.default)).to.equal(true);
-    const writer = new DuskWrite(createDuskProgram({provider:program.provider}));
-    const provider = new PublicKey("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
-    const base = Keypair.generate().publicKey, quote = Keypair.generate().publicKey;
-    const normalized = Keypair.generate().publicKey, normalizedOwner = Keypair.generate().publicKey;
-    const pythPolicy = {format:2,provider,baseAccount:base,quoteAccount:quote,baseFeedId:Array(32).fill(1),
-      quoteFeedId:Array(32).fill(2),lambdaBps:2500,adjustmentCapNad:new BN(2_000_000_000),maxAgeSeconds:60,
-      maxAgeSlots:new BN(100),maxConfidenceBps:100,maxPublishSkewSeconds:5};
-    const replacement = {...pythPolicy,format:1,provider:normalizedOwner,baseAccount:normalized,
-      quoteAccount:PublicKey.default,quoteFeedId:Array(32).fill(0),maxPublishSkewSeconds:0,lambdaBps:5000};
-    let sequence=0n;
-    const refresh = (policy: typeof pythPolicy, partial = false) => {
-      const clock = svm.getClock();
-      if (policy.format === 2) {
-        for (const [key,id,price] of [[base,1,200_000_000n],[quote,2,100_000_000n]] as const) {
-          const data=Buffer.alloc(134); data.set(createHash("sha256").update("account:PriceUpdateV2").digest().subarray(0,8));
-          data[40]=partial?0:1;data.fill(id,41,73);data.writeBigInt64LE(price,73);data.writeInt32LE(-8,89);
-          data.writeBigInt64LE(clock.unixTimestamp,93);data.writeBigUInt64LE(clock.slot,125);
-          svm.setAccount(key,{lamports:10_000_000,owner:provider,executable:false,data});
-        }
-      } else {
-        const data=Buffer.alloc(145);data.set(Buffer.from("DOPRV001"));data.fill(1,8,40);
-        data.set(f.baseMint.toBytes(),40);data.set(f.quoteMint.toBytes(),72);data.writeBigUInt64LE(2_000_000_000n,104);
-        data.writeBigInt64LE(clock.unixTimestamp,120);data.writeBigUInt64LE(clock.slot,128);data.writeBigUInt64LE(++sequence,136);data[144]=1;
-        svm.setAccount(normalized,{lamports:10_000_000,owner:normalizedOwner,executable:false,data});
-      }
-    };
-    const raisedCap={...replacement,adjustmentCapNad:new BN(3_000_000_000)};
-    for (const [i,policy] of [pythPolicy,replacement,{...replacement,lambdaBps:0},raisedCap,{...raisedCap,lambdaBps:0}].entries()) {
-      const supply=(await getMint(connection as any,f.srlpMint,undefined,TOKEN_2022_PROGRAM_ID)).supply;
-      const created=await writer.createParameterProposal({market:f.market,proposer:payer.publicKey,nonce:i+1,
-        holderSrlpAccount:f.ownerSrlpAccount,initialSupport:supply/2n+1n,updates:[{kind:"oracle",policy}],
-        metadata:{version:1,title:"Oracle policy",descriptionUri:"ipfs://oracle-policy-test",descriptionSha256:Array(32).fill(1),descriptionLen:1}});
-      await connection.sendTransaction(created.transaction,[payer]);
-      const clock=svm.getClock();clock.unixTimestamp+=7n*86400n+1n;clock.slot+=1n;svm.setClock(clock);svm.expireBlockhash();
-      // Disabling must work with a dead source and require no feed accounts.
-      if (policy.lambdaBps>0) refresh(policy);
-      const before=accountCoder.decode("LeveragePosition",Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
-      const beforeReserves=[f.baseReserveVault,f.quoteReserveVault].map(k=>Buffer.from(svm.getAccount(k)!.data));
-      const execution=await writer.executeParameterProposal({market:f.market,proposal:created.proposal});
-      if (i===0) {
-        refresh(policy,true);
-        let error:unknown;
-        try {await connection.sendTransaction(execution.transaction,[payer]);} catch(e){error=e;}
-        expect(String(error)).to.include("OracleAuthenticationFailed");
-        refresh(policy);svm.expireBlockhash();
-      }
-      await connection.sendTransaction(new Transaction().add(...execution.transaction.instructions),[payer]);
-      const after=accountCoder.decode("LeveragePosition",Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
-      expect(after.debt_shares.toString()).to.equal(before.debt_shares.toString());
-      expect(after.collateral_amount.toString()).to.equal(before.collateral_amount.toString());
-      [f.baseReserveVault,f.quoteReserveVault].forEach((k,j)=>expect(Buffer.from(svm.getAccount(k)!.data).equals(beforeReserves[j])).to.equal(true));
-      const market=accountCoder.decode("Market",Buffer.from(svm.getAccount(f.market)!.data)) as any;
-      expect(market.oracle.policy.lambda_bps).to.equal(policy.lambdaBps);
-      expect(market.oracle.policy.adjustment_cap_nad.toString()).to.equal(policy.adjustmentCapNad.toString());
-      // New source replaces the stale Pyth accounts without refreshing them.
-      const swap=await writer.buildSwapInstruction({market:f.market,trader:payer.publicKey,assetInMint:f.baseMint,
-        assetOutMint:f.quoteMint,exactAssetIn:1000,minAssetOut:1});
-      if (policy.lambdaBps===0) {
-        for (const key of [base,quote,normalized]) expect(swap.keys.some(meta=>meta.pubkey.equals(key))).to.equal(false);
-      }
-      await connection.sendTransaction(new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}),swap),[payer]);
-      const withdrawn=await writer.withdrawParameterSupport({market:f.market,proposal:created.proposal,proposer:payer.publicKey,
-        supporter:payer.publicKey,supporterSrlpAccount:f.ownerSrlpAccount});
-      await connection.sendTransaction(withdrawn.transaction,[payer]);
-    }
-  });
-
-  it("recovers a stale oracle in distress while retaining admission for mixed proposals", async function () {
-    const writer = new DuskWrite(createDuskProgram({provider: program.provider}));
-    for (const mode of ["replace", "disable", "mixed"] as const) {
-      const config = marketConfig(); config.swapFeeBps = 0;
-      const oracle = normalizedTestOracle(9000);
-      oracle.policy.adjustmentCapNad = new BN(20_000_000_000);
-      let sequence = 0n;
-      const publish = (source: ReturnType<typeof normalizedTestOracle>, f: Awaited<ReturnType<typeof initializeFinalMarket>>, price: bigint) => {
-        source.publish(f);
-        const account = svm.getAccount(source.key)!;
-        const data = Buffer.from(account.data);
-        data.writeBigUInt64LE(price, 104); data.writeBigUInt64LE(++sequence, 136);
-        svm.setAccount(source.key, {...account, data});
-      };
-      const f = await addBalancedLiquidity(203, config, {
-        baseDeposit: 1_000_000_000, quoteDeposit: 1_000_000_000, minSrlp: 1,
-        baseMint: 2_000_000_000, quoteMint: 2_000_000_000,
-      }, 6, TOKEN_PROGRAM_ID, undefined, async f => {
-        publish(oracle, f, 1_000_000_000n); return oracle.metas;
-      }, oracle.policy);
-      const positionId = Keypair.generate().publicKey;
-      const borrowPosition = deriveBorrowPositionAddress(f.market, payer.publicKey, positionId)[0];
-      await connection.sendTransaction(await writer.transaction("depositCollateral", {positionId, depositAmount: new BN(50_000_000)}, {
-        accounts: {market:f.market,owner:payer.publicKey,assetMint:f.baseMint,collateralVault:f.baseCollateralVault,
-          ownerAssetAccount:f.ownerBaseAccount,borrowPosition,tokenProgram:TOKEN_PROGRAM_ID,
-          token2022Program:TOKEN_2022_PROGRAM_ID,systemProgram:SystemProgram.programId},
-      }), [payer]);
-      const borrowAccounts = {market:f.market,futarchyAuthority,owner:payer.publicKey,debtAssetMint:f.quoteMint,
-        collateralAssetMint:f.baseMint,reserveVault:f.quoteReserveVault,ownerDebtAccount:f.ownerQuoteAccount,
-        borrowPosition,referralPartner:null,referralAccrual:null,tokenProgram:TOKEN_PROGRAM_ID,
-        token2022Program:TOKEN_2022_PROGRAM_ID};
-      await connection.sendTransaction(await writer.transaction("borrow", {borrowAmount:new BN(10_000_000),
-        minDebtAmountOut:new BN(10_000_000),minLiquidationCfBps:0,referrer:null}, {accounts:borrowAccounts}), [payer]);
-      const replacement = normalizedTestOracle(9000);
-      replacement.policy.adjustmentCapNad = oracle.policy.adjustmentCapNad;
-      const next = mode === "disable" ? {...oracle.policy,lambdaBps:0} : replacement.policy;
-      const supply = (await getMint(connection as any,f.srlpMint,undefined,TOKEN_2022_PROGRAM_ID)).supply;
-      const updates = mode === "mixed" ? [{kind:"dailyBorrowLimit" as const,maxDailyBorrowBps:1000},
-        {kind:"oracle" as const,policy:next}] : [{kind:"oracle" as const,policy:next}];
-      const proposal = await writer.createParameterProposal({market:f.market,proposer:payer.publicKey,nonce:1,
-        holderSrlpAccount:f.ownerSrlpAccount,initialSupport:supply/2n+1n,updates,
-        metadata:{version:1,title:"Oracle recovery",descriptionUri:"ipfs://oracle-recovery",
-          descriptionSha256:Array(32).fill(1),descriptionLen:1}});
-      await connection.sendTransaction(proposal.transaction,[payer]);
-      const clock=svm.getClock();clock.unixTimestamp+=7n*86400n+1n;clock.slot+=1n;svm.setClock(clock);
-      const trade = async () => connection.sendTransaction(await writer.buildSwapTransaction({market:f.market,
-        trader:payer.publicKey,assetInMint:f.baseMint,assetOutMint:f.quoteMint,exactAssetIn:1000,minAssetOut:1}),[payer]);
-      publish(oracle,f,100_000_000n);svm.expireBlockhash();await trade();
-      const later=svm.getClock();later.slot+=100_000n;later.unixTimestamp+=40_000n;svm.setClock(later);
-      publish(oracle,f,100_000_000n);svm.expireBlockhash();await trade();
-      const preview = decodePreviewMarketReturnData(await simulateReturnData(
-        await writer.transaction("previewMarket",[],{accounts:{market:f.market}}))) as any;
-      expect(preview.health.quoteDebtHealthBps.toNumber(),mode).to.be.lessThan(config.borrowMarketHealthFloorBps);
-      const outage=svm.getClock();outage.slot+=101n;outage.unixTimestamp+=61n;svm.setClock(outage);svm.expireBlockhash();
-      let stale:unknown;
-      try {await trade();} catch(e) {stale=e;}
-      expect(String(stale),mode).to.include("OracleStale");
-      let staleHealth:unknown;
-      try {await simulateReturnData(await writer.transaction("previewLiquidationHealth",[1],{accounts:{
-        market:f.market,borrowPosition,leveragePosition:null,collateralMint:f.baseMint,debtMint:f.quoteMint}}));
-      } catch(e) {staleHealth=e;}
-      expect(String(staleHealth),mode).to.include("OracleStale");
-      if(mode!=="disable") publish(replacement,f,100_000_000n);
-      const execute=await writer.executeParameterProposal({market:f.market,proposal:proposal.proposal});
-      const protectedKeys=[f.market,proposal.proposal,borrowPosition,f.baseReserveVault,f.quoteReserveVault];
-      const before=protectedKeys.map(key=>Buffer.from(svm.getAccount(key)!.data));
-      if(mode==="mixed") {
-        let rejected:unknown;
-        try {await connection.sendTransaction(execute.transaction,[payer]);} catch(e) {rejected=e;}
-        expect(String(rejected)).to.include("InsufficientMarketHealth");
-        protectedKeys.forEach((key,i)=>expect(Buffer.from(svm.getAccount(key)!.data).equals(before[i])).to.equal(true));
-        continue;
-      }
-      await connection.sendTransaction(execute.transaction,[payer]);
-      expect(Buffer.from(svm.getAccount(borrowPosition)!.data).equals(before[2])).to.equal(true);
-      expect(Buffer.from(svm.getAccount(f.baseReserveVault)!.data).equals(before[3])).to.equal(true);
-      expect(Buffer.from(svm.getAccount(f.quoteReserveVault)!.data).equals(before[4])).to.equal(true);
-      const stored=accountCoder.decode("ParameterProposal",Buffer.from(svm.getAccount(proposal.proposal)!.data)) as any;
-      expect(Object.keys(stored.status)).to.deep.equal(["Executed"]);
-      const observation=await writer.transaction("previewLiquidationHealth",[1],{accounts:{market:f.market,borrowPosition,
-        leveragePosition:null,collateralMint:f.baseMint,debtMint:f.quoteMint}});
-      const health=program.coder.types.decode("liquidationHealth",await simulateReturnData(observation)) as any;
-      expect(health.debt.gt(health.collateralValue),mode).to.equal(true);
-      expect(Buffer.from(svm.getAccount(borrowPosition)!.data).equals(before[2])).to.equal(true);
-      let newRisk:unknown;
-      try {await connection.sendTransaction(await writer.transaction("borrow", {borrowAmount:new BN(1),
-        minDebtAmountOut:new BN(1),minLiquidationCfBps:0,referrer:null}, {accounts:borrowAccounts}),[payer]);} catch(e){newRisk=e;}
-      expect(newRisk,mode).to.not.equal(undefined);
-    }
-  });
-
   it("rejects invalid OP feeds atomically while allowing principal and accrued-interest repayment", async function () {
     const config = marketConfig();
     const oracle=normalizedTestOracle();
@@ -12850,6 +11696,26 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           await connection.sendTransaction(new Transaction().add(ComputeBudgetProgram.requestHeapFrame({bytes:256*1024}),
             ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}),reverse),[payer]);
           expect((await getAccount(connection as any,fixture.ownerBaseAccount)).amount<=before).to.equal(true);
+        }
+        if (lambda===2500 && amp===4 && compound===0) {
+          const operator=new DuskOperator(sdkProgram);
+          const bundle=await operator.announce({market:fixture.market,payer:payer.publicKey,operator:payer.publicKey,
+            metadata:{version:1,title:"Curve ramp",descriptionUri:"ipfs://curve-ramp",descriptionSha256:Array(32).fill(4),descriptionLen:1},
+            updates:[{kind:"concentration",peakAmplificationNad:new BN(8_000_000_000),coreHalfWidthBps:1000,
+              fadeWidthBps:4000,rampDurationSlots:new BN(432_000)}]});
+          await connection.sendTransaction(bundle.transaction,[payer]);
+          operatorAtSlot((await operator.proposal(bundle.proposal)).executeAfterSlot);
+          const refresh=()=>{
+            const now=svm.getClock(), account=svm.getAccount(key)!, data=Buffer.from(account.data);
+            data.writeBigInt64LE(now.unixTimestamp,120);data.writeBigUInt64LE(now.slot,128);
+            data.writeBigUInt64LE(data.readBigUInt64LE(136)+1n,136);svm.setAccount(key,{...account,data});
+          };
+          refresh();await rollDrainedIncome(fixture.market);
+          await connection.sendTransaction((await operator.execute({market:fixture.market,proposal:bundle.proposal})).transaction,[payer]);
+          operatorAtSlot(svm.getClock().slot+432_000n);refresh();await rollDrainedIncome(fixture.market);
+          const rampSwap=await sdk.buildSwapTransaction({market:fixture.market,trader:payer.publicKey,
+            assetInMint:fixture.baseMint,assetOutMint:fixture.quoteMint,exactAssetIn:100_000,minAssetOut:1});
+          await connection.sendTransaction(rampSwap,[payer]);
         }
         if (lambda>0) {
           svm.expireBlockhash();

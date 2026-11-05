@@ -6,34 +6,6 @@ use crate::{
 use anchor_lang::prelude::*;
 
 impl Market {
-    /// Reconstruct the prior mark only to measure an observation change.
-    /// This does not grant execution authority to the persisted report.
-    pub(crate) fn remembered_oracle_mark(&self) -> Result<Option<u64>> {
-        if !self.amm.initialized {
-            return Ok(None);
-        }
-        let point = self.ordinary_curve_point_nad()?;
-        if self.oracle.policy.lambda_bps == 0 || self.oracle.last_observation.price_nad == 0 {
-            return u64::try_from(
-                self.amm
-                    .concentrated_curve_cache
-                    .geometry()?
-                    .spot_price_nad_prevalidated(point)?,
-            )
-            .map(Some)
-            .map_err(|_| ErrorCode::MarketMathOverflow.into());
-        }
-        let runtime = RuntimePricing::bind(self.oracle.policy, self.oracle.last_observation);
-        runtime
-            .curve(
-                self.config.amm.concentrated_curve_parameters()?,
-                self.current_curve_center_price_nad()?,
-                self.oracle.policy,
-            )?
-            .spot_price_nad(point)
-            .map(Some)
-    }
-
     pub(crate) fn checkpoint_oracle_risk_depth(&mut self) -> Result<()> {
         if self.oracle.policy.lambda_bps == 0 || !self.amm.initialized {
             return Ok(());

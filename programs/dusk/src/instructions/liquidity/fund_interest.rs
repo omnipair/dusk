@@ -101,6 +101,7 @@ impl<'info> FundInterest<'info> {
             &mut a.market,
             clock.slot,
             a.event_authority.to_account_info(),
+            a.futarchy_authority.revenue_share.interest_bps,
         )?;
         a.market.advance_amm_clock(clock.slot)?;
         a.market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;

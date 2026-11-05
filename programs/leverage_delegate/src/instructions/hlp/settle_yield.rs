@@ -20,6 +20,8 @@ pub struct SettleHlpOrderYield<'info> {
     pub order: Box<Account<'info, HlpOrder>>,
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
+    #[account(seeds=[dusk::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump,seeds::program=dusk::ID)]
+    pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
     #[account(address = order.target_hlp_mint)]
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
@@ -145,6 +147,7 @@ impl<'info> SettleHlpOrderYield<'info> {
             ctx.accounts.dusk_program.to_account_info(),
             ctx.accounts.dusk_event_authority.to_account_info(),
             ctx.accounts.market.to_account_info(),
+            ctx.accounts.futarchy_authority.to_account_info(),
             ctx.accounts.order.to_account_info(),
             ctx.accounts.base_mint.to_account_info(),
             ctx.accounts.target_hlp_mint.to_account_info(),
@@ -165,6 +168,7 @@ impl<'info> SettleHlpOrderYield<'info> {
             ctx.accounts.dusk_program.to_account_info(),
             ctx.accounts.dusk_event_authority.to_account_info(),
             ctx.accounts.market.to_account_info(),
+            ctx.accounts.futarchy_authority.to_account_info(),
             ctx.accounts.order.to_account_info(),
             ctx.accounts.quote_mint.to_account_info(),
             ctx.accounts.target_hlp_mint.to_account_info(),

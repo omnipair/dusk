@@ -178,14 +178,22 @@ fn preview_hlp_funding_limit(
         return Ok((HlpDepositStatus::NoLiquidity, 0));
     }
     let headroom = market.hlp_funding_headroom(target.opposite())?;
-    // floor(deposit * opposite / target) <= headroom. Use u128 through
-    // division and round up without an overflowing numerator addition.
-    let numerator = (u128::from(headroom) + 1) * u128::from(target_reserve);
-    let divisor = u128::from(opposite_reserve);
-    let ceiling = numerator / divisor + u128::from(numerator % divisor != 0);
-    let limit = u64::try_from(ceiling.saturating_sub(1)).unwrap_or(u64::MAX);
-    // Tiny deposits whose borrowed leg rounds to zero cannot enter.
-    if headroom == 0 || u128::from(limit) * divisor / u128::from(target_reserve) == 0 {
+    // floor(deposit * opposite / target) <= headroom. Compare ratios first:
+    // wider virtual reserves can overflow a u128 numerator even when the
+    // final raw-token limit fits u64.
+    let full_domain_fits = !crate::math::ratio_lte_full_width(
+        u128::from(headroom) + 1,
+        opposite_reserve,
+        u64::MAX as u128,
+        target_reserve,
+    )?;
+    let limit = if full_domain_fits {
+        u64::MAX
+    } else {
+        let ceiling = crate::math::mul_div_ceil_u128(u128::from(headroom) + 1, target_reserve, opposite_reserve)?;
+        u64::try_from(ceiling.saturating_sub(1)).map_err(|_| ErrorCode::MarketMathOverflow)?
+    };
+    if headroom == 0 || crate::math::mul_div_u128(u128::from(limit), opposite_reserve, target_reserve)? == 0 {
         return Ok((HlpDepositStatus::NoFundingCapacity, 0));
     }
     Ok((HlpDepositStatus::Ready, limit))

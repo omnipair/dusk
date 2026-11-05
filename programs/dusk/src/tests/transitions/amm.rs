@@ -12,9 +12,7 @@ fn concentrated_config() -> AmmConfig {
         fade_width_bps: 400,
         center_ema_half_life_ms: MIN_HALF_LIFE_MS,
         volatility_half_life_ms: MIN_HALF_LIFE_MS,
-        adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 1_000,
-        min_adjustment_interval_slots: 1,
         ..AmmConfig::default()
     }
 }
@@ -30,7 +28,7 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
         base_side: Box::new(MarketSide {
             asset_decimals: 9,
             reserves: Reserves {
-                live_reserve: reserve,
+                live_reserve: u128::from(reserve),
                 cash_reserve: reserve,
                 ..Reserves::default()
             },
@@ -42,7 +40,7 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
         quote_side: Box::new(MarketSide {
             asset_decimals: 9,
             reserves: Reserves {
-                live_reserve: reserve,
+                live_reserve: u128::from(reserve),
                 cash_reserve: reserve,
                 ..Reserves::default()
             },
@@ -390,9 +388,7 @@ fn quote_only_fee_is_withheld_from_base_sell_output() {
 #[test]
 fn concentrated_center_move_reconstructs_unchanged_reserves_in_closed_form() {
     let mut config = AmmConfig {
-        adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
-        min_adjustment_interval_slots: 1,
         ..AmmConfig::default()
     };
     config
@@ -412,7 +408,7 @@ fn concentrated_center_move_reconstructs_unchanged_reserves_in_closed_form() {
     assert!(market.advance_one_amm_controller_target(11).unwrap());
     assert_eq!(market.integrated_curve_state_nad().unwrap(), ordinary_before);
     assert_ne!(market.amm.concentrated_curve_cache, cache_before);
-    assert_eq!(market.amm.center_price_nad, NAD + NAD / 100);
+    assert_eq!(market.amm.center_price_nad, NAD + NAD / 5);
     assert_eq!(market.amm.last_adjustment_slot, 11);
     assert!(market.current_concentrated_spot_price_nad().unwrap().unwrap() > 0);
 }
@@ -420,9 +416,7 @@ fn concentrated_center_move_reconstructs_unchanged_reserves_in_closed_form() {
 #[test]
 fn concentrated_center_move_deploys_locked_bucket_only_when_it_preserves_srlp_principal() {
     let mut config = AmmConfig {
-        adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
-        min_adjustment_interval_slots: 1,
         ..AmmConfig::default()
     };
     config
@@ -452,10 +446,10 @@ fn concentrated_center_move_deploys_locked_bucket_only_when_it_preserves_srlp_pr
     assert!(market.advance_one_amm_controller_target(11).unwrap());
     assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
     assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
-    assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
-    assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
+    assert_eq!(market.base_side.reserves.live_reserve, base_live_before + u128::from(protected));
+    assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + u128::from(protected));
     assert!(market.amm.curve_depth_per_share_nad >= depth_before);
-    assert_eq!(market.amm.center_price_nad, NAD + NAD / 100);
+    assert_eq!(market.amm.center_price_nad, NAD + NAD / 5);
     market.assert_market_invariants().unwrap();
 }
 
@@ -550,9 +544,7 @@ fn bounded_oracle_swaps_materialize_hlp_and_reject_cycle_profit() {
         for lambda in [0,2500,5000,9999] {
             for owners in [0,1,2,3] {
                 let mut market=market_with_liquidity(config);
-                market.config.amm.adjustment_step_nad=0;
-                market.config.amm.adjustment_threshold_nad=0;
-                market.config.amm.min_adjustment_interval_slots=0;
+
                 market.prepare_amm_for_swap(1).unwrap();
                 if owners&1!=0 {market.deposit_single_sided(MarketAsset::Base,20_000*NAD,1).unwrap();}
                 if owners&2!=0 {market.deposit_single_sided(MarketAsset::Quote,20_000*NAD,1).unwrap();}
@@ -614,9 +606,7 @@ fn bounded_oracle_fee_compounding_and_frozen_cohorts_preserve_cycles() {
         for compound in [0,10_000] {
             for frozen in [0,1,2,3] {
                 let mut market=market_with_liquidity(concentrated_config());
-                market.config.amm.adjustment_step_nad=0;
-                market.config.amm.adjustment_threshold_nad=0;
-                market.config.amm.min_adjustment_interval_slots=0;
+
                 market.config.swap_fee_bps=100;
                 market.config.amm.compounding_fee_bps=compound;
                 market.prepare_amm_for_swap(1).unwrap();
@@ -651,9 +641,7 @@ fn bounded_oracle_exit_loans_cannot_outpay_own_pool_acquisition() {
                     for asset in [MarketAsset::Base,MarketAsset::Quote] {
                         for input_tokens in [100,10_000,200_000] {
                             let mut market=market_with_liquidity(config);
-                            market.config.amm.adjustment_step_nad=0;
-                            market.config.amm.adjustment_threshold_nad=0;
-                            market.config.amm.min_adjustment_interval_slots=0;
+
                             market.prepare_amm_for_swap(1).unwrap();
                             if with_hlp {
                                 market.deposit_single_sided(MarketAsset::Base,20_000*NAD,1).unwrap();

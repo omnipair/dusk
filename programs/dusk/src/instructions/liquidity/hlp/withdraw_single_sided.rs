@@ -191,6 +191,7 @@ impl<'info> WithdrawSingleSided<'info> {
             &mut self.market,
             current_slot,
             self.event_authority.to_account_info(),
+            self.futarchy_authority.revenue_share.interest_bps,
         )?;
         self.market.update()?;
         Ok(())
@@ -297,10 +298,13 @@ impl<'info> WithdrawSingleSided<'info> {
                 borrowed_asset,
                 crate::events::DebtSource::Hlp,
                 None,
-                crate::state::ReferralInterestQuote::new(
+                crate::state::ReferralInterestQuote::with_protocol_revenue(
                     receipt.interest_paid,
                     interest_vault_credit,
-                    ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                    ctx.accounts
+                        .market
+                        .quote_interest_revenue_credit(borrowed_asset, true, interest_vault_credit)?
+                        .protocol,
                     None,
                 )?,
                 0,

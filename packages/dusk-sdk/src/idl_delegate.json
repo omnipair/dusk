@@ -2055,6 +2055,73 @@
           "writable": true
         },
         {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                62,
+                254,
+                159,
+                172,
+                61,
+                59,
+                124,
+                201,
+                115,
+                229,
+                84,
+                36,
+                73,
+                157,
+                150,
+                203,
+                228,
+                237,
+                222,
+                36,
+                247,
+                148,
+                181,
+                131,
+                155,
+                204,
+                63,
+                226,
+                166,
+                7,
+                231,
+                51
+              ]
+            }
+          }
+        },
+        {
           "name": "target_hlp_mint"
         },
         {
@@ -2522,15 +2589,7 @@
             "type": "u64"
           },
           {
-            "name": "adjustment_threshold_nad",
-            "type": "u64"
-          },
-          {
             "name": "adjustment_step_nad",
-            "type": "u64"
-          },
-          {
-            "name": "min_adjustment_interval_slots",
             "type": "u64"
           },
           {
@@ -2650,6 +2709,14 @@
           {
             "name": "initialized",
             "type": "bool"
+          },
+          {
+            "name": "concentration_ramp",
+            "type": {
+              "defined": {
+                "name": "ConcentrationRamp"
+              }
+            }
           },
           {
             "name": "concentrated_curve_cache",
@@ -3009,6 +3076,81 @@
           {
             "name": "outer_upper_sqrt_price_nad",
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConcentratedCurveParameters",
+      "docs": [
+        "Operator configuration surface for the concentrated curve.",
+        "",
+        "`peak_amplification_nad` is center liquidity depth relative to a CPMM with",
+        "the same center reserves. `core_half_width_bps` keeps that complete depth",
+        "active around the sticky center. `fade_width_bps` adds one deterministic",
+        "half-depth shoulder before the nonzero full-range CPMM tail. One-times",
+        "amplification with zero widths is exact CPMM."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peak_amplification_nad",
+            "type": "u64"
+          },
+          {
+            "name": "core_half_width_bps",
+            "type": "u16"
+          },
+          {
+            "name": "fade_width_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConcentrationRamp",
+      "docs": [
+        "Scheduled targets do not mutate live geometry until a guarded step succeeds."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "start",
+            "type": {
+              "defined": {
+                "name": "ConcentratedCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "ConcentratedCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "start_slot",
+            "type": "u64"
+          },
+          {
+            "name": "end_slot",
+            "type": "u64"
+          },
+          {
+            "name": "last_attempt_slot",
+            "docs": [
+              "Successful or rejected steps are attempted at most once per slot."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -3527,6 +3669,13 @@
             "type": "u64"
           },
           {
+            "name": "revenue_interest_liability",
+            "docs": [
+              "Shared custody for operator claims and protocol fractional carry."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "fee_auction_reference_market",
             "docs": [
               "Governance-approved reference market for fee-lane auctions. A default",
@@ -4007,6 +4156,50 @@
           },
           {
             "name": "claimable",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InterestRevenueBook",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "gross_unpaid",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_unpaid",
+            "type": "u64"
+          },
+          {
+            "name": "operator_unpaid",
+            "type": "u64"
+          },
+          {
+            "name": "pending_gross",
+            "type": "u64"
+          },
+          {
+            "name": "pending_protocol_gross",
+            "type": "u64"
+          },
+          {
+            "name": "operator_claimable",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fraction_q64",
+            "type": "u64"
+          },
+          {
+            "name": "operator_fraction_q64",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_cash_fraction_q64",
             "type": "u64"
           }
         ]
@@ -4590,32 +4783,33 @@
             "type": "pubkey"
           },
           {
-            "name": "governance_locked_srlp",
+            "name": "operator",
             "docs": [
-              "External srLP burned into direct support or reusable governance balances. This is added back",
-              "when computing direct-srLP eligibility; internal reserve-share supply is",
-              "intentionally unchanged by governance locking."
+              "Sole per-market authority; token ownership carries no configuration rights."
             ],
-            "type": "u64"
+            "type": {
+              "defined": {
+                "name": "OperatorState"
+              }
+            }
           },
           {
-            "name": "governance_locked_junior",
+            "name": "protocol_interest_markup_bps",
             "docs": [
-              "Active-generation jrLP receipts burned into governance locks. They",
-              "remain part of junior receipt supply and keep full first-loss exposure."
+              "Internal mirror of the global FutarchyAuthority markup, never an operator parameter."
             ],
-            "type": "u64"
+            "type": "u16"
           },
           {
             "name": "parameter_revisions",
             "docs": [
               "Independent monotone revisions for fee, concentration, IRM, EMA,",
-              "daily-borrow-limit, and center-controller parameter families."
+              "daily-borrow-limit, center-controller, and tranche parameter families."
             ],
             "type": {
               "array": [
                 "u64",
-                8
+                7
               ]
             }
           },
@@ -4746,6 +4940,19 @@
                 {
                   "defined": {
                     "name": "IncomeReceivableBook"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "revenue",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "InterestRevenueBook"
                   }
                 },
                 4
@@ -4888,6 +5095,49 @@
       }
     },
     {
+      "name": "OperatorState",
+      "docs": [
+        "Operator authority is independent from LP ownership. A governance program",
+        "can hold it using a signer PDA; voting and token issuance belong outside Dusk."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "revenue_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "next_nonce",
+            "docs": [
+              "Monotone across authority transfers; a closed proposal PDA cannot be reused."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending",
+            "type": "pubkey"
+          },
+          {
+            "name": "revenue_recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "interest_share_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
       "name": "OracleObservation",
       "type": {
         "kind": "struct",
@@ -4975,8 +5225,7 @@
       "name": "OraclePolicy",
       "docs": [
         "Creation selects an optional policy atomically; omission uses native pricing.",
-        "Subsequent governance can change the policy within the same mathematical",
-        "limits. Every native market supports later oracle activation."
+        "The policy, provider and feed identity are immutable after creation."
       ],
       "type": {
         "kind": "struct",
@@ -5381,7 +5630,7 @@
     {
       "name": "PublicInterestAdvance",
       "docs": [
-        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "Reserve-cash funding of public borrower interest. The revenue-fee portion is",
         "held in the reserve vault until repayment, so cancellation can return it",
         "to executable cash without a transfer or a second transfer fee."
       ],
@@ -5393,7 +5642,7 @@
             "type": "u64"
           },
           {
-            "name": "protocol_escrow",
+            "name": "revenue_escrow",
             "type": "u64"
           },
           {
@@ -5405,9 +5654,9 @@
             "type": "u64"
           },
           {
-            "name": "protocol_release_pending",
+            "name": "revenue_release_pending",
             "docs": [
-              "Frozen protocol allocation released by repayment, still held in the",
+              "Frozen operator/protocol allocation released by repayment, still held in the",
               "reserve vault until the same instruction completes token settlement."
             ],
             "type": "u64"
@@ -5530,7 +5779,11 @@
           },
           {
             "name": "live_reserve",
-            "type": "u64"
+            "docs": [
+              "Wider than SPL custody: includes cash, indexed public debt and synthetic",
+              "hLP backing. Unpaid interest never becomes executable curve inventory."
+            ],
+            "type": "u128"
           },
           {
             "name": "cash_reserve",
@@ -5621,6 +5874,10 @@
           },
           {
             "name": "interest_bps",
+            "docs": [
+              "Global markup added to base borrowing interest. Each market closes",
+              "elapsed interest at its previous value before binding a changed markup."
+            ],
             "type": "u16"
           }
         ]
@@ -5679,8 +5936,7 @@
     {
       "name": "RiskRateConfig",
       "docs": [
-        "Per-market inputs for the coverage band controller. A zero maximum leaves",
-        "APR economically uncapped; arithmetic still rejects unrepresentable debt."
+        "Coverage controller configuration. Initial APR is creation-only."
       ],
       "type": {
         "kind": "struct",
@@ -5699,14 +5955,6 @@
           },
           {
             "name": "initial_apr_nad",
-            "type": "u64"
-          },
-          {
-            "name": "minimum_apr_nad",
-            "type": "u64"
-          },
-          {
-            "name": "maximum_apr_nad",
             "type": "u64"
           },
           {
@@ -5841,7 +6089,7 @@
     {
       "name": "TranchePolicy",
       "docs": [
-        "Governed junior income allocation. Exit timing and the request/renewal and",
+        "Operator-configured junior income allocation. Exit timing and the request/renewal and",
         "liquidation fees remain fixed by the protocol."
       ],
       "type": {
@@ -5994,9 +6242,8 @@
           {
             "name": "escrow_balance",
             "docs": [
-              "Owner's virtual receipts: junior exit escrow, or senior governance locks.",
-              "Governance cash yield uses its existing virtual ledger; historical",
-              "unpaid-income ownership is checkpointed here for both token kinds."
+              "Owner's junior exit escrow receipts. Historical unpaid-income ownership",
+              "is checkpointed here alongside the liquid balance."
             ],
             "type": "u64"
           }

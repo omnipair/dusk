@@ -32,8 +32,6 @@ import {
   deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
-  deriveParameterProposalAddress,
-  deriveProposalSupportAddress,
   deriveReferralAccrualAddress,
   deriveReferralPartnerAddress,
   deriveTokenMetadataAddress,
@@ -66,8 +64,6 @@ import type {
   LeverageDelegation,
   LeveragePosition,
   Market,
-  ParameterProposal,
-  ProposalSupport,
   ReferralAccrual,
   ReferralPartner,
   YieldAccount,
@@ -88,8 +84,6 @@ export const pda = {
   hlpSrlpVault: deriveHlpSrlpVaultAddress,
   referralPartner: deriveReferralPartnerAddress,
   referralAccrual: deriveReferralAccrualAddress,
-  parameterProposal: deriveParameterProposalAddress,
-  proposalSupport: deriveProposalSupportAddress,
 } as const;
 
 export interface PreviewHlpDepositCapacityParams extends SimulateOptions {
@@ -225,40 +219,6 @@ export class DuskGet {
     return this.programAccount<ReferralAccrual>("referralAccrual", account);
   }
 
-  parameterProposal(account: AddressLike): Promise<ParameterProposal> {
-    return this.programAccount<ParameterProposal>("parameterProposal", account);
-  }
-
-  proposalSupport(account: AddressLike): Promise<ProposalSupport> {
-    return this.programAccount<ProposalSupport>("proposalSupport", account);
-  }
-
-  parameterProposalFor(
-    market: AddressLike,
-    proposer: AddressLike,
-    nonce: U64SeedLike
-  ): Promise<ParameterProposal> {
-    const [proposal] = deriveParameterProposalAddress(
-      address(market),
-      address(proposer),
-      nonce,
-      this.program.programId
-    );
-    return this.parameterProposal(proposal);
-  }
-
-  proposalSupportFor(
-    proposal: AddressLike,
-    supporter: AddressLike
-  ): Promise<ProposalSupport> {
-    const [support] = deriveProposalSupportAddress(
-      address(proposal),
-      address(supporter),
-      this.program.programId
-    );
-    return this.proposalSupport(support);
-  }
-
   allMarkets() {
     return this.allProgramAccounts<Market>("market");
   }
@@ -277,14 +237,6 @@ export class DuskGet {
 
   allReferralAccruals() {
     return this.allProgramAccounts<ReferralAccrual>("referralAccrual");
-  }
-
-  allParameterProposals() {
-    return this.allProgramAccounts<ParameterProposal>("parameterProposal");
-  }
-
-  allProposalSupports() {
-    return this.allProgramAccounts<ProposalSupport>("proposalSupport");
   }
 
   private previewInstruction(

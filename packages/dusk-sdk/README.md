@@ -46,7 +46,7 @@ to existing reserves. The first-deposit change preserves all wire layouts.
 Every market can later activate an oracle, change its source/weight/cap, or return
 to native pricing through the existing parameter-proposal lifecycle.
 `parameterUpdate.oracle(policy)` creates the proposal update. Subsequent changes
-require governance, including before first liquidity; no creator-only setter
+are creation-only, including before first liquidity; no post-creation setter
 remains. `oraclePolicy()` validates the wire format. Positive weights are
 1–9,999 bps and a nonempty policy's adjustment multiplier must exceed one;
 there are no creation-time oracle ceilings or automatic outage-driven changes.
@@ -102,19 +102,20 @@ market reference but do not execute an hLP hedge by themselves.
 ## Protocol revenue defaults
 
 `DEFAULT_PROTOCOL_REVENUE_SHARE_BPS` is exported from the generated program IDL.
-Its initial value is 2,000 bps (20%): the protocol share of base swap fees,
-paid borrowing/leverage/hLP interest, and liquidation fees. Dynamic swap
+Its initial value is 2,000 bps (20%). It initializes the protocol share of base
+swap fees and the separate additive borrower interest markup, and sets the
+protocol share of liquidation fees. Dynamic swap
 surcharges remain excluded. Liquidation's total charge is fixed at 3% of net debt
 repaid, subject to available surplus; the shared constant sets the protocol's
 share of that charge.
 
 `initFutarchyAuthority` now accepts nullable `swapBps` and `interestBps`. Pass
 `null` for the program default, or a number for an explicit override, including
-zero. Governance can subsequently change either share and the auction split.
+zero. The FutarchyAuthority signer can subsequently change swap share or interest markup and the auction split.
 The bootstrap script uses the program defaults when `DUSK_PROTOCOL_SWAP_BPS` and
 `DUSK_PROTOCOL_INTEREST_BPS` are unset. Regenerate clients for this instruction change.
 Changing the Rust default affects new authorities and liquidation allocations;
-existing authorities retain their configured swap and interest shares.
+existing authorities retain their configured swap share and interest markup.
 
 The initial auction split remains 100% fee auctions / 0% buybacks. Referral
 commissions come out of the protocol interest share before the auction split.
@@ -412,195 +413,91 @@ with the earlier seven-entry list, which transfer without a receipt.
 `buildLpTransferHookValidationAccountData({ ..., legacyLayout: true })`
 encodes that earlier list.
 
-### Direct-srLP Parameter Governance
+### Market operator
 
-Each market starts with its creator as manager. LP governance remains available
-and can replace the manager or remove it, leaving the role empty. The program exposes eight
-parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
-Limit, Center Controller, Oracle, and Tranche. A direct srLP holder burn-locks at least
-1% of eligible direct srLP to create a typed proposal. Strictly more than 50%
-support queues it for a 7-day timelock (10 days for tranche changes) and a 7-day execution window. Execution
-is permissionless. Proposals containing exactly one Oracle update can restore
-pricing despite distress or high utilization; positive weight still verifies a
-fresh proposed source. Every other proposal, including mixed Oracle proposals,
-requires both lending sides below 80% utilization and adequate market health.
-Manager announcements use the fixed manager policy and do not require LP sponsorship.
-
-Use the typed update constructors so values are checked against the same hard
-bounds before an instruction is built:
+`dusk.operator` builds transactions without signing or submitting them. The
+operator starts as the deployer. LP balances confer no authority in Dusk.
+An external governance program may own the role using a signer PDA; its voting
+and token economics remain outside the core program.
 
 ```typescript
-import {
-  concentrationParameterUpdate,
-  uploadProposalMetadata,
-} from "@omnipair/dusk-sdk";
-
-const update = concentrationParameterUpdate({
-  // 20x center depth versus the reserve-matched CPMM.
-  peakAmplificationNad: 20n * 1_000_000_000n,
-  // Full peak depth inside ±100 bps, then one 400-bps shoulder.
-  coreHalfWidthBps: 100,
-  fadeWidthBps: 400,
+import { feeParameterUpdate, createProposalMetadata } from "@omnipair/dusk-sdk";
+const metadata = await createProposalMetadata({
+  title: "Update swap fees", markdown, descriptionUri: "ipfs://pinned-description",
 });
-
-const metadata = await uploadProposalMetadata({
-  title: "Update the concentration shape",
-  markdown: markdownSource, // string or exact UTF-8 Uint8Array
-  upload: async (exactBytes, { contentType }) => {
-    // Pin to IPFS, upload to Arweave, or use durable HTTPS storage.
-    // Do not transform `exactBytes` while uploading.
-    return { uri: await uploadGovernanceDocument(exactBytes, contentType) };
-  },
+const announcement = await dusk.operator.announce({
+  market, operator, payer, metadata,
+  updates: [feeParameterUpdate(nextFeeProfile)],
 });
-
-const { proposal, transaction } = await dusk.write.createParameterProposal({
-  proposer: wallet.publicKey,
-  market,
-  nonce: 7,
-  // One to seven updates, at most one per family, in any order. They are
-  // sent in family order and pass or fail together.
-  updates: [update],
-  metadata,
-  initialSupport,
-  // holderSrlpAccount is optional; the Token-2022 ATA is the default.
-});
+// operator signs; a separate funded payer pays account rent.
+const pending = await dusk.operator.proposal(announcement.proposal);
+const verified = await dusk.operator.verifyDigest(pending);
+// After pending.executeAfterSlot, anyone may execute within the window.
+const execution = await dusk.operator.execute({market, proposal: announcement.proposal});
+const cancellation = await dusk.operator.cancel({market, proposal: announcement.proposal, operator});
 ```
 
-`uploadProposalMetadata(...)` uploads the exact Markdown bytes through the
-provided storage adapter, retrieves the resulting URI, and verifies the exact
-length and SHA-256 before returning `ProposalMetadataV1`. For content that is
-already uploaded, use `createProposalMetadata(...)`; it performs the same
-retrieval check. Accepted on-chain URI schemes are `ipfs://`, `ar://`, and
-`https://`. IPFS content must still be pinned; a CID alone is not a persistence
-guarantee.
+The announcement waits **4,752,000 scheduled slots** (maximum junior notice plus
+one protocol day), then has a seven-day scheduled-slot execution window. There
+is one current bundle per market. Replacing it restarts the full notice; stale,
+executed or expired accounts may be closed to their original payer with
+`dusk.operator.resolve`. Pending changes never lock LP receipts or exits.
 
-Governance websites should call `tryFetchProposalDescription(...)`. Render the
-Markdown only when `verified` is true, using sanitized GitHub-flavored Markdown
-with raw HTML and external embeds disabled. On failure, display the immutable
-on-chain title and typed parameter diff plus the returned warning—never an
-unverified replacement document. Rationale availability never controls
-execution. `verifyDecodedParameterProposalDigest(...)` additionally reproduces
-the program's canonical Borsh/SHA-256 digest for a fetched proposal account.
+To transfer authority, announce `nextOperator`; execution also requires
+`acceptingOperator` to sign. A governance program accepts through CPI using its
+PDA. An explicit all-zero next authority permanently renounces control; there
+is no LP election or automatic deployer fallback. The monotonically increasing
+nonce prevents reusing a closed announcement address.
 
-The other typed update constructors are `feeParameterUpdate(...)`,
-`irmParameterUpdate(...)`, `emaHalfLivesParameterUpdate(...)`,
-`dailyBorrowLimitParameterUpdate(...)`, `centerControllerParameterUpdate(...)`
-and `trancheParameterUpdate(...)`. Concentration parameters apply
-immediately when the validated proposal executes, together with its other
-updates; there is no concentration ramp or ramp-duration argument.
-`canonicalParameterUpdates(...)` returns a set in the order the program
-accepts and rejects a repeated family, and `updatedFamilyRevisions(...)` builds
-the revision list a new proposal binds.
+Use `feeParameterUpdate`, `concentrationParameterUpdate`, `irmParameterUpdate`,
+`emaHalfLivesParameterUpdate`, `dailyBorrowLimitParameterUpdate`,
+`centerControllerParameterUpdate` and `trancheParameterUpdate` for the seven
+mutable families. Updates are canonicalized and execute atomically. The oracle
+policy and initial APR cannot appear in an operator update. APR has a fixed 1%
+floor, no selectable ceiling, and a 12-hour–30-day half-life. The centering update
+contains only the adaptive minimum step; concentration always retains the
+funded EMA controller.
 
-Support and lifecycle builders derive the proposal/support PDAs and all market
-governance accounts:
+A concentration update includes `rampDurationSlots` (default/minimum 432,000).
+Positive targets obey the 0.1×–10× rule; zero-width transitions still require the
+announced guarded ramp. Swaps lazily attempt intermediate geometry. A rejected
+step leaves the existing curve usable and does not prevent repayment or exits.
 
-```typescript
-await dusk.write.supportParameterProposal({
-  supporter: wallet.publicKey,
-  market,
-  proposal,
-  amount: additionalSupport,
-  // The digest of the proposal the supporter reviewed, from its creation
-  // event or account; support fails unless it matches the proposal.
-  digest: proposalDigest,
-});
+`createProposalMetadata` / `uploadProposalMetadata` verify exact UTF-8 Markdown,
+length and SHA-256 before building metadata. `tryFetchProposalDescription`
+returns verified content or a warning. Render verified Markdown with sanitized
+GitHub-flavored Markdown and raw HTML disabled. Description availability never
+controls execution. `verifyDigest` reproduces the on-chain Borsh commitment
+using the generated account layout.
 
-await dusk.write.queueParameterProposal({ market, proposal });
-await dusk.write.executeParameterProposal({ market, proposal });
-await dusk.write.withdrawParameterSupport({
-  supporter: wallet.publicKey,
-  market,
-  proposal,
-  // Receives the proposal's rent, less its tombstone's, when the last
-  // supporter withdraws.
-  proposer,
-});
+Operator interest revenue is 0–50% of base interest, set at creation or changed
+by a timed bundle. There is no operator swap revenue. The separate global
+FutarchyAuthority markup is added on top of base interest. Each market closes
+the old interval before adopting the latest global setting at its next checkpoint.
+The stored `debt.*RateAtTargetNad` is base APR. Apply the market's cached
+`protocolInterestMarkupBps` when displaying total borrower APR; the borrow
+index already includes that markup, so do not add it again to indexed debt.
+For $100 base interest, 30% operator share and 20% markup: LPs receive $70,
+the operator $30 and the protocol $20; the borrower pays $120.
+
+```ts
+const claim = await dusk.operator.claim({market, assetMint, payer});
+// For an earlier recipient, pass its sealed revenueEpoch.
 ```
 
-Each lifecycle method returns `{ proposal, proposalSupport?, instruction,
-transaction }`. Fetch state with `dusk.get.parameterProposal(proposal)`,
-`dusk.get.proposalSupportFor(proposal, supporter)`, or the matching helpers in
-`dusk.get.pda`.
+Fees are earned on collection. A handoff preserves already collected cash for
+the previous recipient; later payments belong to the new one. `execute` returns
+`setupInstructions` for a recipient archive when needed. Its `transaction`
+already includes them; PDA forwarding must prepend them before forwarding
+`instruction`. Neither claims nor swaps call the external governance program.
 
-Support is burned from the holder's external srLP account and represented by a
-proposal-specific virtual claim, so it cannot back multiple proposals. The
-claim continues earning srLP yield. Withdrawal releases the requested amount,
-credits accrued virtual yield to the owner, and remints only the released srLP.
-A partial release retains the remaining claim. Collecting support can be withdrawn; queued support stays frozen until the proposal executes,
-expires, or becomes stale. When the last supporter withdraws, the proposal
-becomes a tombstone: the account keeps only its discriminator, which stops the
-address from ever holding another proposal, and the rest of its rent returns
-to the proposer.
+Virtual-reserve fields and signed debt/collateral event deltas use 128-bit
+values. Keep decoded balances as `BN` or `bigint`; token transfer amounts still
+use the unsigned 64-bit SPL domain. Extreme accrual saturates coherently across
+debt and receivable books and advances its checkpoint without deferring excess
+interest. This introduces no configurable APR cap.
 
-hLP deposits and withdrawals use async composite builders because both
-asset-denominated `YieldAccount` PDAs must exist before the liquidity
-instruction runs. The SDK validates their owner, exact layout size, and Anchor
-discriminator. If either account is missing or is only a prefunded System PDA,
-it prepends the permissionless, idempotent initializer in the same transaction:
-
-```typescript
-const { transaction, setupInstructions, baseYieldAccount, quoteYieldAccount } =
-  await dusk.write.depositSingleSided(
-    { depositAmount, minHlpAmount },
-    {
-      payer: owner,
-      owner,
-      market,
-      targetHlpMint,
-      baseMint,
-      quoteMint,
-      accounts: depositAccounts,
-    }
-  );
-
-// setupInstructions is empty when both canonical accounts are already valid.
-await provider.sendAndConfirm(transaction);
-```
-
-`withdrawSingleSided(...)` has the same return shape and setup behavior. The
-initializer is safe to compose unconditionally, including when a third party
-has transferred lamports to the PDA address before initialization.
-
-`harvest` accepts the LP owner, designated yield recipient, or independent
-harvest authority for srLP and both hLP mints. Its `owner` account identifies
-the LP holder; `caller` signs and must match that owner,
-`YieldAccount.recipient`, or the optional `YieldAccount.harvestAuthority`.
-An unrelated caller is rejected with `InvalidSigner`.
-
-The LP owner sets or rotates a keeper with `setHarvestAuthority`, passing
-`harvestAuthority: keeperPublicKey`, and revokes it with `harvestAuthority: null`.
-New yield accounts start with no harvest authority. This changes who may
-trigger payment without changing who receives it. Only the owner can update
-either setting; changing the recipient does not clear the harvest authority.
-Each yield account has its own configuration, so configure each underlying
-asset and LP mint that the keeper should service.
-
-```typescript
-// The LP owner signs this configuration transaction.
-const transaction = await dusk.write.transaction(
-  "setHarvestAuthority",
-  { tokenKind: { srlp: {} }, harvestAuthority: keeperPublicKey },
-  { accounts: { market, owner, assetMint, lpMint, yieldAccount } }
-);
-await provider.sendAndConfirm(transaction);
-// Pass harvestAuthority: null through the same instruction to revoke.
-```
-
-For harvesting, set `caller` to the keeper and sign with its key. Neither the
-owner nor recipient needs to sign. Derive `recipientAssetAccount` as the
-current recipient's ATA using the underlying mint's token program; arbitrary
-destinations are rejected. Create that ATA before harvesting if necessary.
-The claim event records the LP owner, recipient, and caller separately, with
-the caller in `metadata.signer`. `HarvestAuthorityUpdated` records delegation,
-rotation, and revocation.
-
-LP token accounts should be owned by a wallet that can sign withdrawals and
-permission updates, or by a PDA whose controlling program invokes those Dusk
-instructions with `invoke_signed`. SPL multisig accounts cannot sign those
-instructions directly. PDA custody needs a controlling-program path to set
-an independent keeper; the existing hLP order flow can still harvest using
-the configured recipient.
+See [operator policy and protection details](../../docs/MARKET_OPERATOR.md).
 
 ### Referral Interest Sharing
 
@@ -944,231 +841,6 @@ remain application responsibilities; validate deployment identity before and
 after a capture. Cancellation and timeout bound the caller's wait; they do not
 necessarily cancel an RPC request already sent over the transport.
 
-### Reusable governance balances and delegation
-
-`dusk.governance` builds instructions and transactions; it never signs or submits.
-Amounts are raw receipt atoms, not asset amounts or dollar values. Senior srLP
-and the current junior cohort are eligible; hLP vault holdings remain excluded.
-Junior receipts are valued using their live reserve-share backing. Deposited
-and committed shares continue accruing income to their original owner.
-
-```ts
-const deposit = await dusk.governance.deposit({ market, owner, amount: 100_000n });
-const delegateTx = await dusk.governance.setDelegate({ market, owner, delegate });
-// Owner signs both; delegate receives no token-transfer or yield-withdrawal authority.
-
-const proposal = await dusk.governance.createProposal({
-  market, proposer: delegate, nonce: 1n, updates, metadata,
-  contributions: [{ owner, amount: 1_000n }, { owner: secondOwner, amount: 1_000n }],
-});
-// Delegate signs. Every contributing owner must have appointed this delegate.
-// Combined sponsorship must meet the existing minimum atomically.
-
-const support = await dusk.governance.supportProposal({
-  market, proposal: proposal.proposal, authority: delegate, digest,
-  contributions: [{ owner, amount: 5_000n }],
-});
-const release = await dusk.governance.withdrawSupport({
-  market, proposal: proposal.proposal, owner, authority: delegate, amount: 500n,
-});
-// Omit amount to release all. Released shares return to this owner's idle balance.
-
-const revoke = await dusk.governance.setDelegate({ market, owner, delegate: null });
-const balance = await dusk.governance.getBalance(market, owner); // includes availableAmount
-const allocations = await dusk.governance.listSupport(market, owner);
-const withdraw = await dusk.governance.withdraw({ market, owner, amount: 500n });
-const claim = await dusk.governance.claimYield({ market, owner });
-// claim credits the owner's YieldAccounts; use the existing harvest flow to collect.
-```
-
-The owner can always act directly. One delegate per owner per market can create
-proposals, support proposals, or release collecting support. Replacing/revoking
-that delegate takes effect immediately, including for existing allocations.
-Delegate changes need only the owner and their governance balance; closing an
-empty wallet ATA cannot block revocation. Fund the balance before setting a delegate.
-Queued support stays frozen until execution, cancellation, expiry, or staleness.
-Recovery votes can separately encumber the same ownership until their ballot
-ends or target becomes terminal, with successful votes releasable from the
-following slot. `availableAmount` is unallocated ownership;
-withdrawal must also leave enough ownership for every active recovery vote.
-The same shares cannot
-support multiple proposals simultaneously. Falling below the original sponsorship
-minimum cancels a collecting proposal. The final release leaves its permanent
-tombstone, refunding excess rent to the proposer; allocation rent returns to its
-original payer. Empty reusable balances remain open for future deposits.
-
-Direct wallet support remains available through `dusk.write`. Its
-`withdrawParameterSupport({ ..., amount })` now supports partial withdrawals;
-omitting `amount` releases all. The on-chain instruction now takes
-`{ amount: Option<u64> }`, so raw instruction callers must update their encoding.
-
-Combined builders sort owners canonically and reject duplicates. Large batches
-or long metadata may require a v0 transaction and a caller-provided address lookup
-table. Use the returned `instruction` to compose such a transaction; initial
-sponsorship cannot be split across multiple transactions. Existing queue and
-execute helpers work for proposals with direct, reusable, or mixed support.
-
-### Elected managers and proposal commitments
-
-The market creator (`initializeMarket` payer) is the initial manager, installed
-atomically at creation. LPs can elect a replacement wallet or program-derived
-manager through the ordinary majority and seven-day timelock. LP removal leaves
-the role empty until a new election passes; subsequent parameter proposals never
-restore the creator automatically. `dusk.governance.getManager(market)` returns
-the active authority or `null`. A manager can announce a typed parameter bundle without
-LP sponsorship or support. Every announcement waits the maximum junior exit
-notice plus one protocol day, followed by a seven-protocol-day execution window
-(both measured in scheduled slots). All updates in a bundle execute atomically. An error rolls back the
-complete update and its accounting checkpoints.
-
-```ts
-const election = await dusk.governance.electManager({
-  market, proposer: delegate, manager, nonce: 2n, metadata,
-  contributions: [{ owner, amount: 100_000n }],
-});
-// Ordinary LP support and execute flows apply to this appointment.
-
-const announcement = await dusk.governance.proposeAsManager({
-  market, manager, payer, nonce: 1n, updates, metadata,
-});
-// manager signs; payer funds rent. A program-owned manager can sign through CPI.
-
-const execute = await dusk.write.executeParameterProposal({
-  market, proposal: announcement.proposal,
-});
-// Anyone can execute after notice. Decode return data or ProposalResolved:
-// success can mean a terminal stale/cancelled/expired outcome without applying.
-
-const cleanup = await dusk.governance.resolveManagerProposal({
-  market, proposal: announcement.proposal,
-});
-// Permissionless once terminal; excess rent returns to the original payer.
-```
-
-The manager has a fixed protocol policy. Oracle providers, feeds and policy
-remain LP-only. Launch settings become immutable at the market's `startTime`,
-including for LP proposals. Other numerical ranges use per-family references
-from the last executed LP approval; manager rotation does not reset them. There
-is a three-day announcement cooldown per market, preserved through cancellation
-and manager replacement. Every market has at most one pending bundle.
-
-Concentrated markets require an enabled center controller at creation and after
-every parameter bundle, for LP governance as well as managers. A CPMM curve does
-not use the controller; returning to CPMM can release its retained recenter
-reserves. A proposal that enables concentration from a disabled CPMM controller
-must include a valid controller configuration in the same atomic bundle.
-
-| Manager setting | Fixed policy |
-|---|---|
-| Base fee, prelaunch peak/maximum fee | Changed values 0–100 bps. |
-| Compounding | 0–100%. Fee asset may change between the supported modes. |
-| Dynamic-fee share caps | Each ≤250 bps. |
-| Fee coefficients, volatility caps/half-life and prelaunch schedule tuning | Nonzero references: ±20% LP reference. Optional components may turn off; activation from a zero reference uses protocol bounds. Reactivation into a nonzero reference band is allowed. |
-| Prelaunch durations | ≤30 days. All launch fields freeze at `startTime`. |
-| Amplification and curve widths | Amplification ±25% LP reference; core/fade widths ±500 bps. Canonical CPMM is allowed. |
-| Coverage signals | ±25% LP reference, with lower < upper. |
-| Interest adaptation half-life | ½×–2× LP reference, within 1 hour–30 days. |
-| Initial/minimum APR; maximum APR | Initial/minimum ±2 percentage points. A nonzero maximum stays within ±10 points of the LP cap; uncapped mode is allowed. From an uncapped LP reference, a new cap must cover the target initial APR and be ≤LP initial APR +10 points. |
-| Borrow utilization | Changed values ≤80%, within protocol bounds. |
-| Four price/depth EMA half-lives | ½×–2× their respective LP reference, within 1 minute–12 hours. These are separate from the interest model. |
-| Daily public-borrow allowance | 0–LP-approved allowance, subject to the existing protocol ceiling. |
-| Center controller | Enabled when concentrated; step ≤0.1%, trigger ≤1% and ≥step, interval 18,000–432,000 slots (nominally 1–24 hours at 200ms/slot). |
-| Junior income share | ±10 percentage points LP reference, within 10–90%. Exit request/renewal and liquidation fees are fixed at 50 bps and 300 bps. |
-
-Only executed LP parameter approvals reanchor the updated families, including
-exact-target ratifications that have become no-ops. They still advance the
-family revision. There are no per-change movement limits or rolling monthly budgets.
-
-There is one pending atomic bundle per market. Proposals collecting LP support
-reserve nothing. The first LP proposal to reach majority takes the pending slot,
-preempting a manager bundle if necessary. Neither managers nor another LP
-proposal can replace a pending LP bundle. It must execute, expire or be vetoed.
-All queued bundles snapshot the complete configuration revision array; any
-configuration mismatch stales the whole bundle. Application is atomic.
-
-Every manager bundle has a hardcoded notice of the maximum junior exit notice
-plus one protocol day: **4,752,000 scheduled slots** (11 nominal days at 200ms per
-slot). Its execution window is 3,024,000 slots. LP proposals retain their existing
-7-day Unix notice, or 10 days for tranche changes. Use `proposalClockUnit(origin)`
-to interpret `queuedAt`, `executeAfter` and `executionDeadline`, or the `clock`
-field on `ParameterProposalQueued`. Recovery ballots and the announcement
-cooldown use Unix seconds. Cancelling and reannouncing restarts the full notice.
-
-The V5 **intent digest** commits to exact targets, origin, manager epoch/policy,
-action, explicit revision conditions, metadata and junior cohort. Changing the
-starting settings does not invalidate a collecting LP endorsement if these
-endorsed values and conditions remain unchanged. Supply `conditions` when a
-proposal should require a particular starting revision. At majority, the program
-revalidates the targets, seals all configuration revisions and starts a full
-notice period. The separate V3 **execution digest** commits to those revisions,
-queue-time support/electorate and timestamps. Use
-`verifyDecodedParameterProposalDigest` and `verifyDecodedExecutionDigest` to
-verify both commitments; the deprecated `familyRevisions` input to the V5 intent
-helper has no effect.
-
-Manager proposals are bound to their election epoch. Replacement or removal
-stales all earlier manager announcements and older pending appointments cannot
-restore an authority from an earlier epoch. The manager can cancel its own
-announcement with `resolveManagerProposal({ ..., cancel: true, manager })`.
-Proposals retain a permanent identity tombstone after rent cleanup, so their
-address cannot be reused and recovery references remain verifiable.
-
-### Immediate LP cancellation and manager removal
-
-```ts
-const removal = await dusk.governance.openRemovalBallot({ market, payer });
-const cancellation = await dusk.governance.openCancellationBallot({
-  market, payer, proposal,
-});
-const vote = await dusk.governance.voteRecovery({
-  market, ballot: removal.ballot, source: governanceBalance,
-  authority: ownerOrDelegate, payer, amount: 100_000n,
-});
-// A direct ProposalSupport account is also a source; include sourceProposal.
-```
-
-| Rule | Behavior |
-|---|---|
-| Opening a ballot | Veto targets the one pending bundle; removal targets the manager independently. Starts a seven-day window; does not pause proposals or remove anyone. |
-| Passing | Strict majority of the current eligible LP value acts in the same transaction, without another timelock. |
-| Ownership | Existing governance-locked ownership can vote. A source's cumulative vote cannot exceed its owned receipts. |
-| Vote locks | A successful vote releases ownership from the next slot (`Clock.slot > passedSlot`). Otherwise ownership stays locked until the ballot ends or its target becomes terminal. Each source supports at most eight active recovery locks. |
-| Rounds | A reopened ballot has a new round; old receipts cannot vote again or release a newer round's locks. |
-
-Majority uses the live electorate and current junior backing, rather than an
-opening-time snapshot. `refreshRecoveryBallot` lets anyone reevaluate it during
-the window. Parameter execution also checks the canonical cancellation/removal
-ballots, so it cannot bypass a current majority by omitting their accounts. An
-unpassed ballot does not acquire a majority retroactively after its window ends.
-Retired junior receipt votes do not count toward a replacement cohort.
-
-`releaseRecoveryVote({ market, ballot, source, round })` clears an ended vote's
-lock and returns its receipt rent to the original payer. After success it is
-available from the slot following `passedSlot`, including for earlier voters.
-If an unpassed ballot's exact target becomes terminal, authenticated target proof
-permits early release; otherwise its seven-day deadline applies. Other proposal
-commitments and recovery locks still apply to principal withdrawals. This
-instruction is permissionless; it grants no withdrawal authority.
-
-The manager and LP delegate can be program-derived authorities. This permits
-external governance or manager syndicates to compose through CPI, with a
-separate funded payer. Token issuance and protocol-fee revenue sharing are not
-implemented by these governance instructions.
-
-### Retired junior governance balances
-
-A proposal's V5 intent digest includes `juniorGeneration` as well as its targets and explicit conditions. Pass the decoded proposal's generation to `computeParameterProposalDigest`; receipt units from a retired generation do not contribute to a later generation's voting value.
-
-For an ended allocation or obsolete deposit, select the original mint explicitly:
-
-```ts
-const oldJunior = { market, owner, kind: "junior" as const, lpMint: retiredJuniorMint };
-const release = await dusk.governance.withdrawSupport({ ...oldJunior, proposal, authority: owner });
-const cleanup = await dusk.governance.withdraw({ ...oldJunior, amount: oldReceiptAmount });
-```
-
-Release proposal locks before withdrawing. The withdrawal returns the original retired receipts, with no remaining principal value; it does not mint replacement receipts. The builder includes the authenticated retired cohort so funded historical yield keeps its original indexes. Empty governance balances remain available for historical lookup. `getBalance`, `getSupport`, `listSupport`, and `setDelegate` also accept an original-mint override. As with other LP claims, use `dusk.tranches.prepareHolderIncome` with `retiredJuniorMint` first when archived income epochs need catch-up, then harvest through the ordinary yield flow. No reward or withdrawal permission is granted to a delegate by this cleanup.
-
 ### Mutable transfer-fee notice monitoring
 
 ```ts
@@ -1407,5 +1079,5 @@ remain seed-owned custody until a matching amount is available. These custody
 balances do not count as productive junior coverage until reinvested.
 
 Rate defaults are exported as `RISK_RATE_DEFAULTS`; the market configuration and
-governance builders can override them. `riskCoverageSignalNad` uses one junior
+creation helpers can override initial terms; the operator can tune future dynamics after notice. `riskCoverageSignalNad` uses one junior
 capital budget across both debt assets, with each asset's own utilization.

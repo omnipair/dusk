@@ -104,7 +104,7 @@ jobs:
             target/deploy/faucet.so
             target/deploy/referral_transfer_hook.so
             target/deploy/token_metadata_fixture.so
-            target/deploy/governance_adapter.so
+            target/deploy/operator_adapter.so
             target/idl/dusk.json
             target/idl/leverage_delegate.json
             target/idl/faucet.json

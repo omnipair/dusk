@@ -40,6 +40,8 @@ pub struct Harvest<'info> {
         bump = market.bump
     )]
     pub market: Box<Account<'info, Market>>,
+    #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
+    pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,
 
     /// LP holder identity. Its signature is not required when the designated
     /// recipient or harvest authority signs instead.

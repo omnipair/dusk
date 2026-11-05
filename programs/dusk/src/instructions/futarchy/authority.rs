@@ -17,7 +17,7 @@ pub struct InitFutarchyAuthorityArgs {
     pub authority: Pubkey,
     /// None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share.
     pub swap_bps: Option<u16>,
-    /// None uses DEFAULT_PROTOCOL_REVENUE_SHARE_BPS; Some(0) explicitly disables the share.
+    /// Global additive interest markup. None uses the protocol default; Some(0) disables markup.
     pub interest_bps: Option<u16>,
     pub max_referral_interest_share_bps: u16,
     pub futarchy_treasury: Pubkey,

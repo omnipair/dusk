@@ -1,7 +1,7 @@
 import { ComputeBudgetProgram, PublicKey, type AccountMeta } from "@solana/web3.js";
 import type { BN } from "@coral-xyz/anchor";
 import { address, type AddressLike } from "./address.js";
-import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js";
+import { integerBN, type IntegerLike } from "./parameters.js";
 
 export const NORMALIZED_ORACLE_V1 = 1;
 export const PYTH_RATIO_V2 = 2;
@@ -22,9 +22,9 @@ export interface OraclePolicyInput {
   baseFeedId: readonly number[] | Uint8Array;
   quoteFeedId: readonly number[] | Uint8Array;
   lambdaBps: number;
-  adjustmentCapNad: GovernanceIntegerLike;
+  adjustmentCapNad: IntegerLike;
   maxAgeSeconds: number;
-  maxAgeSlots: GovernanceIntegerLike;
+  maxAgeSlots: IntegerLike;
   maxConfidenceBps: number;
   maxPublishSkewSeconds: number;
 }
@@ -55,9 +55,9 @@ export function oraclePolicy(input: OraclePolicyInput): OraclePolicy {
     baseAccount: address(input.baseAccount), quoteAccount: address(input.quoteAccount),
     baseFeedId: id(input.baseFeedId), quoteFeedId: id(input.quoteFeedId),
     lambdaBps: integer(input.lambdaBps, 9999, "lambdaBps"),
-    adjustmentCapNad: governanceIntegerBN(input.adjustmentCapNad, "adjustmentCapNad"),
+    adjustmentCapNad: integerBN(input.adjustmentCapNad, "adjustmentCapNad"),
     maxAgeSeconds: integer(input.maxAgeSeconds, 0xffff_ffff, "maxAgeSeconds"),
-    maxAgeSlots: governanceIntegerBN(input.maxAgeSlots, "maxAgeSlots"),
+    maxAgeSlots: integerBN(input.maxAgeSlots, "maxAgeSlots"),
     maxConfidenceBps: integer(input.maxConfidenceBps, 9999, "maxConfidenceBps"),
     maxPublishSkewSeconds: integer(input.maxPublishSkewSeconds, 0xffff_ffff, "maxPublishSkewSeconds"),
   };

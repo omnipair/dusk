@@ -13,7 +13,7 @@ fn senior_entry_and_cash_exit_exclude_separately_owned_unpaid_interest() {
     market.debt.fixed_quote_shares = u128::from(425_000 * UNIT);
     market.debt.fixed_quote_principal = 400_000 * UNIT;
     market.quote_side.reserves.cash_reserve -= 400_000 * UNIT;
-    market.quote_side.reserves.live_reserve += 25_000 * UNIT;
+    market.quote_side.reserves.live_reserve += u128::from(25_000 * UNIT);
     let old_supply = market.base_side.shares.srlp_supply;
     let old_base_claim = market.base_side.reserves.live_reserve;
     let old_quote_claim = market.curve_reserve(MarketAsset::Quote).unwrap();
@@ -23,7 +23,7 @@ fn senior_entry_and_cash_exit_exclude_separately_owned_unpaid_interest() {
     assert_eq!(entry.quote_reserve_credit, 1_000 * UNIT);
     assert_eq!(
         srlp_live_underlying_amount(&market, MarketAsset::Base, old_supply).unwrap(),
-        old_base_claim
+        u64::try_from(old_base_claim).unwrap()
     );
     assert_eq!(
         market.quote_side.shares.reserve_for_burn(market.curve_reserve(MarketAsset::Quote).unwrap(), old_supply).unwrap(),
@@ -301,7 +301,7 @@ fn proportional_debt_matches_exhaustive_share_search() {
                         let claim = (reserve as u128 + debt) * hlp as u128 / supply as u128;
                         debt.abs_diff(claim) <= 1
                     });
-                    let result = canonical_debt_for_proportional_claim(reserve, hlp, supply, index, None);
+                    let result = canonical_debt_for_proportional_claim(u128::from(reserve), hlp, supply, index, None);
                     assert_eq!(
                         result.is_ok(),
                         exists,
@@ -340,7 +340,7 @@ fn proportional_debt_skips_unrepresentable_candidates_at_reserve_capacity() {
     // The continuous debt is just over one atom, but only zero debt fits
     // at this two-atom share quantum. Its claim error is exactly one.
     assert_eq!(
-        canonical_debt_for_proportional_claim(reserve, 1, u64::MAX - 1, 2 * NAD as u128, Some(u64::MAX)).unwrap(),
+        canonical_debt_for_proportional_claim(u128::from(reserve), 1, u64::MAX - 1, 2 * NAD as u128, Some(u64::MAX)).unwrap(),
         (0, 0),
     );
     // A larger continuous solution can exceed u64 while its capacity-clipped
@@ -376,7 +376,7 @@ proptest! {
             let first_shares = (min_debt * NAD as u128).div_ceil(index);
             first_shares * index / NAD as u128 <= max_debt
         };
-        let result = canonical_debt_for_proportional_claim(reserve, hlp, supply, index, quoted);
+        let result = canonical_debt_for_proportional_claim(u128::from(reserve), hlp, supply, index, quoted);
         prop_assert_eq!(result.is_ok(), feasible);
         if let Ok((shares, debt)) = result {
             prop_assert_eq!(shares * index / NAD as u128, u128::from(debt));
@@ -387,7 +387,7 @@ proptest! {
 
 #[cfg(feature = "benchmark")]
 fn captured_vob_market() -> Market {
-    let bytes = include_bytes!("../fixtures/vob-market-layout11.bin");
+    let bytes = include_bytes!("../fixtures/vob-market-layout12.bin");
     Market::try_deserialize(&mut bytes.as_slice()).unwrap()
 }
 

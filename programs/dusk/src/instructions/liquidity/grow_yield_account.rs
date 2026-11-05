@@ -12,7 +12,7 @@ use crate::{
 /// three bytes -- and every account created before that deploy is still the
 /// old length. Anchor deserializes the whole struct, so those accounts cannot
 /// be opened at all: harvest, `set_harvest_authority`, single-sided hLP
-/// deposits and governance support each fail with `AccountDidNotDeserialize`
+/// deposits each fail with `AccountDidNotDeserialize`
 /// before their handler runs. The holder has no way out, because every
 /// instruction that could fix it needs to open the account first.
 ///

@@ -23,8 +23,10 @@ fn empty_market() -> Market {
         risk: Risk::default(),
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_srlp: 0,
-        governance_locked_junior: 0,
+        operator: Default::default(),
+        protocol_interest_markup_bps:0,
+
+
         parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
@@ -53,10 +55,10 @@ fn seeded_market_with_cash_backed_debt(
         .unwrap()
         .checked_div(BPS_DENOMINATOR as u64)
         .unwrap();
-    market.base_side.reserves.live_reserve = base_live;
+    market.base_side.reserves.live_reserve = u128::from(base_live);
     market.base_side.reserves.cash_reserve = base_cash;
     market.base_side.shares.srlp_supply = srlp_supply;
-    market.quote_side.reserves.live_reserve = quote_live;
+    market.quote_side.reserves.live_reserve = u128::from(quote_live);
     market.quote_side.reserves.cash_reserve = quote_cash;
     market.quote_side.shares.srlp_supply = srlp_supply;
     market.debt.base_borrow_index_nad = NAD as u128;
@@ -68,7 +70,7 @@ fn seeded_market_with_cash_backed_debt(
     market
 }
 
-fn spot_diff_bps(base_before: u64, quote_before: u64, base_after: u64, quote_after: u64) -> u128 {
+fn spot_diff_bps(base_before: u128, quote_before: u128, base_after: u128, quote_after: u128) -> u128 {
     let before = (quote_before as u128)
         .checked_mul(NAD as u128)
         .unwrap()
@@ -88,8 +90,8 @@ fn spot_diff_bps(base_before: u64, quote_before: u64, base_after: u64, quote_aft
 }
 
 fn v1_style_liquidity_for_deposit(
-    base_reserve: u64,
-    quote_reserve: u64,
+    base_reserve: u128,
+    quote_reserve: u128,
     srlp_supply: u64,
     max_base_reserve_credit: u64,
     max_quote_reserve_credit: u64,
@@ -107,7 +109,7 @@ fn v1_style_liquidity_for_deposit(
     base_srlp.min(quote_srlp).try_into().unwrap()
 }
 
-fn v1_style_reserve_for_liquidity(reserve: u64, srlp_supply: u64, srlp_amount: u64) -> u64 {
+fn v1_style_reserve_for_liquidity(reserve: u128, srlp_supply: u64, srlp_amount: u64) -> u64 {
     ceil_div(
         (srlp_amount as u128).checked_mul(reserve as u128).unwrap(),
         srlp_supply as u128,
@@ -236,11 +238,11 @@ fn add_liquidity_matches_v1_limiting_side_formula() {
     assert_eq!(receipt.quote_reserve_credit, expected_quote_credit);
     assert_eq!(
         market.base_side.reserves.live_reserve,
-        base_reserve_before + expected_base_credit
+        base_reserve_before + u128::from(expected_base_credit)
     );
     assert_eq!(
         market.quote_side.reserves.live_reserve,
-        quote_reserve_before + expected_quote_credit
+        quote_reserve_before + u128::from(expected_quote_credit)
     );
     market.assert_market_invariants().unwrap();
 }
@@ -308,8 +310,8 @@ proptest! {
         max_quote_reserve_credit in 1_000u64..20_000_000,
     ) {
         let expected_srlp = v1_style_liquidity_for_deposit(
-            base_reserve,
-            quote_reserve,
+            u128::from(base_reserve),
+            u128::from(quote_reserve),
             srlp_supply,
             max_base_reserve_credit,
             max_quote_reserve_credit,
@@ -317,17 +319,17 @@ proptest! {
         prop_assume!(expected_srlp > 0);
 
         let expected_base_credit =
-            v1_style_reserve_for_liquidity(base_reserve, srlp_supply, expected_srlp);
+            v1_style_reserve_for_liquidity(u128::from(base_reserve), srlp_supply, expected_srlp);
         let expected_quote_credit =
-            v1_style_reserve_for_liquidity(quote_reserve, srlp_supply, expected_srlp);
+            v1_style_reserve_for_liquidity(u128::from(quote_reserve), srlp_supply, expected_srlp);
         prop_assert!(expected_base_credit <= max_base_reserve_credit);
         prop_assert!(expected_quote_credit <= max_quote_reserve_credit);
 
         let mut preview_market = empty_market();
-        preview_market.base_side.reserves.live_reserve = base_reserve;
+        preview_market.base_side.reserves.live_reserve = u128::from(base_reserve);
         preview_market.base_side.reserves.cash_reserve = base_reserve;
         preview_market.base_side.shares.srlp_supply = srlp_supply;
-        preview_market.quote_side.reserves.live_reserve = quote_reserve;
+        preview_market.quote_side.reserves.live_reserve = u128::from(quote_reserve);
         preview_market.quote_side.reserves.cash_reserve = quote_reserve;
         preview_market.quote_side.shares.srlp_supply = srlp_supply;
 
@@ -348,11 +350,11 @@ proptest! {
         prop_assert_eq!(receipt.quote_reserve_credit, preview.quote_reserve_credit);
         prop_assert_eq!(
             execution_market.base_side.reserves.live_reserve,
-            base_reserve + expected_base_credit
+            u128::from(base_reserve) + u128::from(expected_base_credit)
         );
         prop_assert_eq!(
             execution_market.quote_side.reserves.live_reserve,
-            quote_reserve + expected_quote_credit
+            u128::from(quote_reserve) + u128::from(expected_quote_credit)
         );
         prop_assert_eq!(
             execution_market.base_side.shares.srlp_supply,

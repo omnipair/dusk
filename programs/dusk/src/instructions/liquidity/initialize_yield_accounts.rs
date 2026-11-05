@@ -35,6 +35,8 @@ pub struct InitializeYieldAccounts<'info> {
         bump = market.bump
     )]
     pub market: Box<Account<'info, Market>>,
+    #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
+    pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,
 
     pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -164,6 +166,7 @@ impl<'info> InitializeYieldAccounts<'info> {
             market,
             Clock::get()?.slot,
             event_authority.to_account_info(),
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         let (base_swap, base_interest, quote_swap, quote_interest) =
             if let Some(contexts) = current_yield_contexts(market, lp_mint)? {

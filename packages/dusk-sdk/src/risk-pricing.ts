@@ -1,11 +1,9 @@
-/** Creation defaults. Governance may replace each market's controller. */
+/** Creation defaults. The operator may tune future controller dynamics after notice. */
 export const RISK_RATE_DEFAULTS = Object.freeze({
   lowerSignalNad: 50_000_000,
   upperSignalNad: 62_500_000,
   halfLifeMs: 14 * 24 * 60 * 60 * 1_000,
   initialAprNad: 40_000_000,
-  minimumAprNad: 20_000_000,
-  maximumAprNad: 0,
   borrowUtilizationLimitBps: 8_000,
 });
 

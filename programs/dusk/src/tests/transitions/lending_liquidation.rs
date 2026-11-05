@@ -80,8 +80,10 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         risk: Risk::default(),
         params_hash: [9; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_srlp: 0,
-        governance_locked_junior: 0,
+        operator: Default::default(),
+        protocol_interest_markup_bps:0,
+
+
         parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
@@ -188,12 +190,12 @@ fn market_with_cash_backed_debt(
     match debt_asset {
         MarketAsset::Base => {
             base_side.reserves = Reserves {
-                live_reserve: debt_live,
+                live_reserve: u128::from(debt_live),
                 cash_reserve: debt_cash_after_borrow,
                 ..Reserves::default()
             };
             quote_side.reserves = Reserves {
-                live_reserve: collateral_cash,
+                live_reserve: u128::from(collateral_cash),
                 cash_reserve: collateral_cash,
                 ..Reserves::default()
             };
@@ -208,12 +210,12 @@ fn market_with_cash_backed_debt(
         }
         MarketAsset::Quote => {
             base_side.reserves = Reserves {
-                live_reserve: collateral_cash,
+                live_reserve: u128::from(collateral_cash),
                 cash_reserve: collateral_cash,
                 ..Reserves::default()
             };
             quote_side.reserves = Reserves {
-                live_reserve: debt_live,
+                live_reserve: u128::from(debt_live),
                 cash_reserve: debt_cash_after_borrow,
                 ..Reserves::default()
             };
@@ -250,8 +252,10 @@ fn market_with_cash_backed_debt(
         risk: Risk::default(),
         params_hash: [7; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_srlp: 0,
-        governance_locked_junior: 0,
+        operator: Default::default(),
+        protocol_interest_markup_bps:0,
+
+
         parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
@@ -282,7 +286,7 @@ fn position_debt_after(market: &Market, borrow_position: &BorrowPosition, debt_a
     }
 }
 
-fn reserve_pair(market: &Market, asset: MarketAsset) -> (u64, u64) {
+fn reserve_pair(market: &Market, asset: MarketAsset) -> (u128, u64) {
     let side = market.side(asset);
     (side.reserves.live_reserve, side.reserves.cash_reserve)
 }
@@ -369,7 +373,7 @@ proptest! {
         let (live_after, cash_after) = reserve_pair(&market, debt_asset);
 
         prop_assert_eq!(receipt.socialized_loss, 0);
-        prop_assert_eq!(live_after, live_before - live_debit);
+        prop_assert_eq!(live_after, live_before - u128::from(live_debit));
         prop_assert_eq!(cash_after, cash_before + principal_credit);
         prop_assert!(repay_credit <= max_repay_credit);
         prop_assert!(debt_reduction.abs_diff(repay_credit) <= 1);
@@ -410,7 +414,7 @@ fn partial_liquidation_charges_the_aggregate_delta_without_rounding_writeoff() {
     assert_eq!(aggregate_debt_reduction, repay_credit);
     assert_eq!(
         market.quote_side.reserves.live_reserve,
-        live_before - (aggregate_debt_reduction - principal_credit)
+        live_before - u128::from(aggregate_debt_reduction - principal_credit)
     );
     assert_eq!(market.quote_side.reserves.cash_reserve, cash_before + principal_credit);
     market.assert_market_invariants().unwrap();
@@ -428,11 +432,11 @@ fn partial_liquidation_uses_aggregate_debt_delta_with_multiple_positions() {
     market.debt.global_health_base_contribution_for_quote_debt +=
         borrow_position.global_health_base_contribution_for_quote_debt;
     market.quote_side.reserves.cash_reserve -= borrow_amount;
-    market.quote_side.reserves.live_reserve = u64::try_from(
+    market.quote_side.reserves.live_reserve = u128::from(u64::try_from(
         market.quote_side.reserves.cash_reserve as u128
             + Debt::shares_to_debt(market.debt.fixed_quote_shares, market.debt.quote_borrow_index_nad).unwrap(),
     )
-    .unwrap();
+    .unwrap());
     market.assert_virtual_reserve_invariant(debt_asset).unwrap();
     let debt_before = position_debt_after(&market, &borrow_position, debt_asset);
 
@@ -500,7 +504,7 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
     assert_eq!(receipt.remaining_debt, 0);
     assert_eq!(
         market.quote_side.reserves.live_reserve,
-        live_before - (debt_before_u64 - principal_credit)
+        live_before - u128::from(debt_before_u64 - principal_credit)
     );
     assert_eq!(market.quote_side.reserves.cash_reserve, cash_before + principal_credit);
     market.assert_market_invariants().unwrap();
@@ -1016,4 +1020,25 @@ fn junior_liquidation_fee_preserves_room_to_restore_health() {
     assert_eq!(expected_junior_fee_bps(100, 11_000), 300);
     assert_eq!(expected_junior_fee_bps(500, 11_000), 300);
     assert_eq!(expected_junior_fee_bps(200, 10_250), 49);
+}
+
+#[test]
+fn numerically_saturated_interest_remains_liquidatable_with_full_loss_socialization() {
+    let asset = MarketAsset::Quote;
+    let (mut market, mut position) = market_with_cash_backed_debt(asset, 2_000_000_000_000, 2_000_000_000_000, 100_000_000_000, 500);
+    market.config.irm.half_life_ms = crate::constants::MS_PER_DAY / 2;
+    position.base_collateral = 1;
+    position.global_health_base_contribution_for_quote_debt = 1;
+    market.debt.global_health_base_contribution_for_quote_debt = 1;
+    let slot = 60 * crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    crate::transitions::lending::accrue_side::<false>(&mut market, asset, slot, Some(0)).unwrap();
+    let debt = position_debt_after(&market, &position, asset);
+    assert!(debt > i64::MAX as u128 && debt <= u64::MAX as u128);
+    let receipt = Liquidation::new_with_pricing(asset, 1, debt as u64 - 1,
+        liquidation_terms_for_debt(debt), LiquidationPricing::ReferencePrice { debt_per_collateral_price_nad: NAD })
+        .apply(&mut market, &mut position).unwrap();
+    assert_eq!(receipt.remaining_debt, 0);
+    assert_eq!(receipt.socialized_loss, debt as u64 - 1);
+    assert_eq!(position.fixed_quote_shares, 0);
+    market.assert_market_invariants().unwrap();
 }

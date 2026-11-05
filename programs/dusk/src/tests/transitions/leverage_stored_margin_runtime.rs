@@ -53,9 +53,7 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                     market.config.directional_ema_half_life_ms = 60_000;
                     market.config.curve_depth_ema_half_life_ms = 60_000;
                     if controller {
-                        market.config.amm.adjustment_threshold_nad = NAD / 100;
                         market.config.amm.adjustment_step_nad = NAD / 1_000;
-                        market.config.amm.min_adjustment_interval_slots = 1;
                     }
                     if hlp {
                         market.config.target_hlp_leverage_bps = 20_000;

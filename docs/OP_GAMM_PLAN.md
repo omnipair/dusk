@@ -1,5 +1,9 @@
 # OP-GAMM implementation plan
 
+> Historical planning document. Oracle policy and provider/feed identity are
+> now creation-only; the proposed later governed activation is superseded by
+> the [current operator policy](MARKET_OPERATOR.md).
+
 Updated 31 October 2026. The design originated on 26–27 October and is now integrated on merged PR #45, including its #52 changes. This document preserves the design decisions and planned validation sequence. The implemented contract, current validation and limitations are recorded in [implementation status](OP_GAMM_IMPLEMENTATION_STATUS.md).
 
 Proposed direction: one permissionless GAMM family that retains Dusk's lending, leverage, fungible LP ownership and hLP. λ = 0 runs without a price oracle; an authorized proposal can later activate λ > 0 in any market. Its accounting must remain consistent when the reference changes without a trade. Horus is an optional provider, not a prerequisite or privileged dependency.

@@ -208,22 +208,50 @@ not guarantee external liquidity, profitability, or successful inclusion.
 The complete audit item's review status is recorded in
 [the remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md).
 
-## Frozen fee split and cash advances (2026-10-19 follow-up)
+## Finite numerical representation
 
-Approved policy: the LP/protocol split is fixed when reserve cash funds the
-interest. A later protocol-rate change applies only to the unfunded part.
-The native ledger, public funding instruction and SDK implement this cutoff.
-The holder harvest pays funded claims; the SDK composes funding first. External
-hLP flash recovery follows the vault-wide lifecycle above.
+Virtual reserves and intermediate indexed-debt arithmetic use u128. Physical
+SPL custody and individual debt settlement amounts remain u64; signed receipt
+deltas use i128 so the full unsigned token range can be reported. New borrowing
+must preserve these domains and the capacity of existing income books.
 
-Each asset tracks gross advanced interest and frozen protocol escrow. The
-LP part is transferred to interest custody and credited by its measured net
-receipt. The protocol part stays in reserve custody, excluded from executable
-cash and LP value, until the corresponding interest is repaid. Repayment
-recycles the advance into executable cash; only fresh interest and released
-protocol escrow transfer to interest custody. The new fee rate applies only
-to the fresh net credit. Referral revenue is allocated from actual protocol
-credit when repayment occurs.
+At an extreme accrual boundary the market limits the shared index before
+issuing any additional debt or fee/LP receivable. Excess interest is forgone,
+not deferred, and the accrual slot still advances. Existing obligations are
+never independently clipped. Current APR continues evolving, and future
+interest can resume when all dependent books have room. Exhausted income-unit
+denominations retain the existing permissionless archive/roll path after
+settlement. The index resets only when every public and hLP debt share on that
+asset has been extinguished; historical income claims are retained.
+
+## Interest fees and cash advances
+
+Base borrower interest is split between LPs and the operator. The operator's
+share is 0–50%; it receives no swap revenue. The global protocol interest fee
+is a markup added on top of base interest, controlled by FutarchyAuthority.
+With $100 base interest, a 30% operator share and 20% protocol markup,
+borrowers owe $120: $70 LP income, $30 operator revenue and $20 protocol revenue.
+
+Rates are frozen as interest accrues. Each market checkpoints elapsed debt at
+its cached markup, then adopts the latest global markup for future accrual.
+An operator-share edit also accrues the previous interval before installing
+its new share. No later rate change re-prices the earlier fee book. Repayments
+and defaults are pooled within each asset/source receivable book.
+
+Operator entitlement follows collection: the recipient at payment receives
+the fee, including payment of previously accrued interest. On a handoff,
+already collected whole-atom cash is sealed for the outgoing recipient;
+unpaid fee amounts and sub-atom rounding carry follow the new recipient. Claims
+are backed by measured interest-vault cash and pay the recipient's canonical
+ATA. Claims never call an external governance program.
+
+Each asset tracks gross advanced interest and aggregate protocol/operator
+revenue escrow. Only LP income is advanced into interest custody; fees remain
+unpaid until borrower cash arrives. Frozen fee escrow stays in reserve custody,
+excluded from executable cash and LP value. Repayment recycles the advance;
+only fresh interest and released fee escrow transfer to interest custody.
+Measured Token-2022 credit is divided between the LP and fee books. Referral
+revenue comes only from the collected protocol allocation.
 
 Let `U` be gross public unpaid interest, `A` the outstanding gross advance,
 `R` the live reserve, and `C` available cash. Funding `a` records:
@@ -238,7 +266,7 @@ curve' = R' - (U - A') = R - (U - A)
 Thus funding alone does not change executable curve reserves. Borrower debt
 is unchanged. A clearance removes its proportional advance and frozen fee;
 the final clearance drains integer remainders. Paid advances replenish cash.
-Canceled advances return the held protocol portion to cash. The LP portion
+Canceled advances return the held fee portion to cash. The LP portion
 already paid is a real loss if the borrower defaults; it is not paid again,
 and junior-first principal loss allocation does not cover canceled interest.
 
@@ -250,7 +278,7 @@ native liquidation accounting.
 
 SDK functions `quoteInterestAdvanceAmounts` and `allocateRepaidInterest`
 provide integer accounting amounts, including the effective Token-2022 fee
-and a frozen/current-rate split. Use the simulated `previewFunding` for hLP feasibility and `buildHarvest`
+and the historical fee-book split. Use the simulated `previewFunding` for hLP feasibility and `buildHarvest`
 for transaction composition.
 
 ### Historical gross-income rehedge diagnostic

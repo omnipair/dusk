@@ -5,9 +5,6 @@ mod leverage_delegation;
 pub mod leverage_position;
 pub mod liquidation_session;
 pub mod market;
-pub mod parameter_proposal;
-pub mod parameter_proposal_tombstone;
-pub mod proposal_support;
 pub mod referral_accrual;
 pub mod referral_partner;
 pub mod yield_account;
@@ -20,24 +17,9 @@ pub use leverage_delegation::*;
 pub use leverage_position::*;
 pub use liquidation_session::*;
 pub use market::*;
-pub use parameter_proposal::*;
-pub use parameter_proposal_tombstone::*;
-pub use proposal_support::*;
 pub use referral_accrual::*;
 pub use referral_partner::*;
 pub use yield_account::*;
-
-pub mod governance_balance;
-pub use governance_balance::*;
-
-pub mod governance_support;
-pub use governance_support::*;
-pub mod governance_control;
-pub use governance_control::*;
-pub mod recovery_ballot;
-pub use recovery_ballot::*;
-pub mod recovery_vote;
-pub use recovery_vote::*;
 
 pub use crate::transitions::tranches::*;
 
@@ -49,3 +31,10 @@ pub use junior_exit_account::*;
 mod income_epoch;
 pub use crate::oracle::*;
 pub use income_epoch::*;
+
+pub use crate::transitions::market_parameters::*;
+mod operator;
+pub use operator::*;
+
+mod operator_revenue;
+pub use operator_revenue::*;

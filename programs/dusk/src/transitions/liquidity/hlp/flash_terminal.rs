@@ -79,7 +79,7 @@ impl Market {
             .side(target)
             .reserves
             .live_reserve
-            .checked_sub(quote.collateral_debit)
+            .checked_sub(u128::from(quote.collateral_debit))
             .ok_or(ErrorCode::ReserveUnderflow)?;
         self.side_mut(borrowed).credit_reserve(quote.reserve_credit, true)?;
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
@@ -87,7 +87,7 @@ impl Market {
                 .side(asset)
                 .reserves
                 .live_reserve
-                .checked_sub(vault.hlp_live_reserve(asset))
+                .checked_sub(u128::from(vault.hlp_live_reserve(asset)))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
         }
         let payout = loss
@@ -104,7 +104,7 @@ impl Market {
             .side(borrowed)
             .reserves
             .live_reserve
-            .checked_sub(payout)
+            .checked_sub(u128::from(payout))
             .ok_or(ErrorCode::ReserveUnderflow)?;
         self.base_side.shares.burn(vault.srlp_shares)?;
         self.quote_side.shares.burn(vault.srlp_shares)?;

@@ -9,11 +9,11 @@ import {
 
 import { address, type AddressLike } from "./address.js";
 import { deriveLeveragePositionAddress } from "./constants.js";
-import { toBN } from "./governance.js";
+import { toBN } from "./parameters.js";
 import DELEGATE_IDL from "./idl_delegate.js";
 import type { LeverageDelegate } from "./types_delegate.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { governanceIntegerBN } from "./governance.js";
+import { integerBN } from "./parameters.js";
 import type { RawAmount } from "./write.js";
 
 /** Hard-coded additional fee on successful built-in order execution. */
@@ -21,7 +21,7 @@ export const ORDER_PROTOCOL_FEE_BPS = 10n;
 
 /** Net protocol fee in raw units, rounded up. Token-2022 transfer fees are additional. */
 export function calculateOrderProtocolFee(executedValue: RawAmount): bigint {
-  const value = BigInt(governanceIntegerBN(executedValue, "executedValue").toString());
+  const value = BigInt(integerBN(executedValue, "executedValue").toString());
   if (value < 0n || value > 0xffffffffffffffffn) throw new RangeError("executedValue must fit u64");
   return (value * ORDER_PROTOCOL_FEE_BPS + 9_999n) / 10_000n;
 }

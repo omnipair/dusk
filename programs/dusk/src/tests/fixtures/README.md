@@ -8,19 +8,22 @@ The real META vault has 10,000,000 live shares and an actionable hedge (entry bl
 
 `vob-market-20260929.bin` and `vob-authority-20260929.bin` are public devnet Market and FutarchyAuthority account bytes captured at slot 505496119 for market `45qXCmfQrDxTDYc1k7Xu65Qo3kYHRYUkYmiCQKLvPBhL` (META/USDC). The block timestamp was 1790677156. They contain no private keys. Tests use this fixed state and timestamp to replay the twelve bid levels that exposed the fractional-output rounding carry, plus the opposite swap direction and an unexplained reserve-drift rejection. These fixtures are regression inputs, not current market data.
 
-The raw captures remain unchanged as provenance. Native tests now load the
-separate `hlp-entry-layout11.bin` and `vob-market-layout11.bin` derived fixtures.
-They are direct layout-11 encodings: standalone coverage state and mutable fee
-fields were removed, and the parameter revision list contains eight families.
-There is no old-layout conversion in the native test loaders.
+The raw captures remain unchanged as provenance. Native tests load separate
+layout-12 derived fixtures; no deployed-account conversion runs in the loaders.
 
-The intermediate account bodies were exported/adapted using the source and IDL
-at `84470edcfcb4999ceb870c39853736a5bcc1b147`, then decoded and re-encoded using
-the new program IDL. Added historical fields retain neutral values; existing
-reserve, debt, price, funding, and observation inputs are preserved. These are
-test-data conversions, not a deployed account migration or new network capture.
+Run `node scripts/derive_operator_fixtures.cjs` after an Anchor build to reproduce
+them. The script decodes the pinned layout-11 inputs at
+`b6cab984ae7ffef498042fb719f997633edcb11f`, then encodes layout 12 using the new
+IDL. LP governance locks and configurable APR bounds are removed, and operator,
+adaptive centering and concentration-ramp fields are added. Virtual reserves and
+swap-preview reserve coordinates use u128. The SDK batch fixture re-encodes
+each saved swap-preview return with the same schema. Historical reserve,
+debt, price and observation inputs remain unchanged. The synthetic operator is
+not a network authority. Old locked senior receipts are represented as external
+circulating ownership in this synthetic fixture, preserving its reserve-share
+denominator. These are test-data conversions, not deployed-account migrations.
 
 | Derived fixture | SHA-256 |
 |---|---|
-| `hlp-entry-layout11.bin` | `dc16ab3b343dec12e7b9da32b927f16d1ad2ef2a9047c309efead166c94c5700` |
-| `vob-market-layout11.bin` | `a0e96ba885ec4bf77109c140a8a0746391fd6317cf5b8ae8cee275a3258271ea` |
+| `hlp-entry-layout12.bin` | `7ad4466c6c043b2a30fb6e043584a2de655a75b25ee99d504cf1c49424c3c11d` |
+| `vob-market-layout12.bin` | `095858f3d8450ae3853b139af39d676a30bec0fd9d8cf49442c8981ad9a902db` |

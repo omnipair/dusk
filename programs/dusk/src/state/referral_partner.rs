@@ -84,9 +84,27 @@ impl ReferralInterestQuote {
         protocol_interest_revenue: u64,
         interest_share_bps: Option<u16>,
     ) -> Result<Self> {
+        Self::with_funded_protocol_revenue(
+            interest_paid,
+            interest_vault_credit,
+            protocol_interest_revenue,
+            interest_vault_credit,
+            interest_share_bps,
+        )
+    }
+
+    /// Frozen fee ownership may release prior fractional custody alongside a
+    /// new payment. The caller authenticates the complete fee-custody budget.
+    pub(crate) fn with_funded_protocol_revenue(
+        interest_paid: u64,
+        interest_vault_credit: u64,
+        protocol_interest_revenue: u64,
+        available_fee_custody: u64,
+        interest_share_bps: Option<u16>,
+    ) -> Result<Self> {
         require_gte!(interest_paid, interest_vault_credit, ErrorCode::FeeMathOverflow);
         require_gte!(
-            interest_vault_credit,
+            available_fee_custody,
             protocol_interest_revenue,
             ErrorCode::FeeMathOverflow
         );

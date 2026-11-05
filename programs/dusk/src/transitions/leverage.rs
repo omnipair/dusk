@@ -229,9 +229,9 @@ pub(crate) struct LeverageLifecycleTransition {
 /// writes remain explicit sequencing barriers outside this kernel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct LeverageLifecycleState {
-    base_live_reserve: u64,
+    base_live_reserve: u128,
     base_cash_reserve: u64,
-    quote_live_reserve: u64,
+    quote_live_reserve: u128,
     quote_cash_reserve: u64,
     base_interest_advance: crate::state::PublicInterestAdvance,
     quote_interest_advance: crate::state::PublicInterestAdvance,
@@ -319,14 +319,14 @@ impl LeverageLifecycleState {
         self.isolated_quote_principal = debt.isolated_quote_principal;
     }
 
-    const fn live_reserve(self, asset: MarketAsset) -> u64 {
+    const fn live_reserve(self, asset: MarketAsset) -> u128 {
         match asset {
             MarketAsset::Base => self.base_live_reserve,
             MarketAsset::Quote => self.quote_live_reserve,
         }
     }
 
-    fn live_reserve_mut(&mut self, asset: MarketAsset) -> &mut u64 {
+    fn live_reserve_mut(&mut self, asset: MarketAsset) -> &mut u128 {
         match asset {
             MarketAsset::Base => &mut self.base_live_reserve,
             MarketAsset::Quote => &mut self.quote_live_reserve,
@@ -363,7 +363,8 @@ impl LeverageLifecycleState {
     /// reserve. Retain interest outside fixed/isolated borrower debt while
     /// accounting for either borrower ledger's collected or canceled interest.
     fn projected_curve_reserve_from(self, start: Self, asset: MarketAsset, start_curve_reserve: u64) -> Result<u64> {
-        let delta = i128::from(self.live_reserve(asset)) - i128::from(start.live_reserve(asset));
+        let delta = i128::try_from(self.live_reserve(asset)).map_err(|_| ErrorCode::MarketMathOverflow)?
+            - i128::try_from(start.live_reserve(asset)).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let before = i128::try_from(start.unrealized_interest(asset)?).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let after = i128::try_from(self.unrealized_interest(asset)?).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let advance_delta = match asset {
@@ -686,18 +687,18 @@ fn derive_leverage_lifecycle_plan_from_state(
         let cleared = advance.clear(unpaid_before, unpaid_after, transition.clearance.interest_paid)?;
         restored_advance = cleared
             .repaid
-            .checked_add(cleared.protocol_returned)
+            .checked_add(cleared.revenue_returned)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         advanced_removed = cleared
             .repaid
             .checked_add(cleared.canceled)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        transition.socialized_advance_loss = cleared.canceled - cleared.protocol_returned;
+        transition.socialized_advance_loss = cleared.canceled - cleared.revenue_returned;
     }
 
     let asset_in_live = post
         .live_reserve(asset_in)
-        .checked_add(amount_in_after_fee)
+        .checked_add(u128::from(amount_in_after_fee))
         .ok_or(ErrorCode::ReserveOverflow)?;
     *post.live_reserve_mut(asset_in) = asset_in_live;
     let asset_in_cash = post
@@ -706,11 +707,12 @@ fn derive_leverage_lifecycle_plan_from_state(
         .ok_or(ErrorCode::ReserveOverflow)?;
     *post.cash_reserve_mut(asset_in) = asset_in_cash;
     let asset_out = asset_in.opposite();
-    let asset_out_live = u128::from(post.live_reserve(asset_out))
+    let asset_out_live = post
+        .live_reserve(asset_out)
         .checked_add(u128::from(restored_advance))
         .and_then(|v| v.checked_sub(u128::from(gross_amount_out) + u128::from(extra_live_debit_out)))
         .ok_or(ErrorCode::ReserveUnderflow)?;
-    *post.live_reserve_mut(asset_out) = u64::try_from(asset_out_live).map_err(|_| ErrorCode::ReserveOverflow)?;
+    *post.live_reserve_mut(asset_out) = asset_out_live;
     let asset_out_cash = u128::from(*post.cash_reserve_mut(asset_out))
         .checked_add(u128::from(restored_advance))
         .and_then(|v| v.checked_sub(u128::from(cash_debit_out)))
@@ -730,13 +732,13 @@ fn derive_leverage_lifecycle_plan_from_state(
         if aggregate_debt_increase > amount {
             let adjusted_live = post
                 .live_reserve(asset)
-                .checked_add(aggregate_debt_increase - amount)
+                .checked_add(u128::from(aggregate_debt_increase - amount))
                 .ok_or(ErrorCode::ReserveOverflow)?;
             *post.live_reserve_mut(asset) = adjusted_live;
         } else if aggregate_debt_increase < amount {
             let adjusted_live = post
                 .live_reserve(asset)
-                .checked_sub(amount - aggregate_debt_increase)
+                .checked_sub(u128::from(amount - aggregate_debt_increase))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
             *post.live_reserve_mut(asset) = adjusted_live;
         }
@@ -778,7 +780,7 @@ fn derive_leverage_lifecycle_plan_from_state(
         if transition.phantom_unpaid_interest > 0 {
             let adjusted_live = post
                 .live_reserve(debt_asset)
-                .checked_sub(transition.phantom_unpaid_interest)
+                .checked_sub(u128::from(transition.phantom_unpaid_interest))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
             *post.live_reserve_mut(debt_asset) = adjusted_live;
         }
@@ -828,6 +830,9 @@ fn apply_leverage_lifecycle_plan(
         plan.gross_amount_out,
     )?;
     require!(expected == plan, ErrorCode::BrokenInvariant);
+    if let SwapCashPolicy::Borrow { asset, .. } = plan.policy {
+        market.check_borrow_income_capacity(asset, &plan.post.debt())?;
+    }
     commit_leverage_lifecycle_state(market, plan.post);
     Ok(plan.transition)
 }
@@ -882,8 +887,8 @@ pub struct LeverageOpenReceipt {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LeverageUpdateReceipt {
     pub borrowed_amount: u64,
-    pub debt_delta: i64,
-    pub collateral_delta: i64,
+    pub debt_delta: i128,
+    pub collateral_delta: i128,
     pub debt_amount: u64,
     pub debt_shares: u128,
     pub collateral_amount: u64,
@@ -1103,7 +1108,7 @@ impl Market {
             .side(debt_asset)
             .reserves
             .live_reserve
-            .checked_sub(loss)
+            .checked_sub(u128::from(loss))
             .ok_or(ErrorCode::ReserveUnderflow)?;
         self.side_mut(debt_asset).reserves.live_reserve = post_loss_live_reserve;
         self.absorb_funded_credit_loss(
@@ -1464,8 +1469,8 @@ impl Market {
         )?;
         Ok(LeverageUpdateReceipt {
             borrowed_amount,
-            debt_delta: i64::try_from(borrowed_amount).map_err(|_| ErrorCode::Overflow)?,
-            collateral_delta: i64::try_from(collateral_credit).map_err(|_| ErrorCode::Overflow)?,
+            debt_delta: i128::from(borrowed_amount),
+            collateral_delta: i128::from(collateral_credit),
             debt_amount: position.debt_amount(&self.debt)?,
             debt_shares: position.debt_shares,
             collateral_amount: position.collateral_amount,
@@ -1594,8 +1599,8 @@ impl Market {
         }
         Ok(LeverageUpdateReceipt {
             borrowed_amount: 0,
-            debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
-            collateral_delta: -i64::try_from(collateral_debit).map_err(|_| ErrorCode::Overflow)?,
+            debt_delta: -i128::from(clearance.debt_reduced),
+            collateral_delta: -i128::from(collateral_debit),
             debt_amount: clearance.remaining_debt,
             debt_shares: position.debt_shares,
             collateral_amount: position.collateral_amount,
@@ -2083,7 +2088,7 @@ impl Market {
         let closeout_value = 0;
         Ok(LeverageUpdateReceipt {
             borrowed_amount: 0,
-            debt_delta: -i64::try_from(clearance.debt_reduced).map_err(|_| ErrorCode::Overflow)?,
+            debt_delta: -i128::from(clearance.debt_reduced),
             collateral_delta: 0,
             debt_amount: clearance.remaining_debt,
             debt_shares: position.debt_shares,

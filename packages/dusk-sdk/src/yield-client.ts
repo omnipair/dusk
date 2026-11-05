@@ -3,7 +3,7 @@ import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAd
 import { ComputeBudgetProgram, Transaction, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { address, type AddressLike } from "./address.js";
 import { deriveFutarchyAuthorityAddress, deriveHlpCohortAddress, deriveJuniorCohortAddress, deriveYieldAccountAddress } from "./constants.js";
-import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js";
+import { integerBN, type IntegerLike } from "./parameters.js";
 import { DuskGet } from "./get.js";
 import { previewReturnDataBytes } from "./preview.js";
 import { tokenProgramForMint } from "./referral.js";
@@ -15,8 +15,8 @@ export interface FundInterestParams {
   market: AddressLike;
   caller: AddressLike;
   /** Gross debt-token atoms, including the protocol allocation. Defaults to available cash. */
-  maxBaseGross?: GovernanceIntegerLike;
-  maxQuoteGross?: GovernanceIntegerLike;
+  maxBaseGross?: IntegerLike;
+  maxQuoteGross?: IntegerLike;
 }
 export type { FundInterestReceipt };
 export interface HarvestYieldParams extends FundInterestParams {
@@ -49,8 +49,8 @@ export class DuskYield {
     const market = address(params.market);
     const s = await this.get.market(market);
     return this.write.instruction("fundInterest", {
-      maxBaseGross: governanceIntegerBN(params.maxBaseGross ?? 0xffffffffffffffffn, "maxBaseGross"),
-      maxQuoteGross: governanceIntegerBN(params.maxQuoteGross ?? 0xffffffffffffffffn, "maxQuoteGross"),
+      maxBaseGross: integerBN(params.maxBaseGross ?? 0xffffffffffffffffn, "maxBaseGross"),
+      maxQuoteGross: integerBN(params.maxQuoteGross ?? 0xffffffffffffffffn, "maxQuoteGross"),
     }, { accounts: {
       market, caller: address(params.caller), futarchyAuthority: deriveFutarchyAuthorityAddress(this.program.programId)[0],
       baseMint: s.baseSide.assetMint, quoteMint: s.quoteSide.assetMint,

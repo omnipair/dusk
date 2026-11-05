@@ -349,11 +349,11 @@ impl Market {
         let base_srlp = self
             .base_side
             .shares
-            .shares_for_deposit(base_reserve_before, base_amount)?;
+            .shares_for_deposit(u128::from(base_reserve_before), base_amount)?;
         let quote_srlp = self
             .quote_side
             .shares
-            .shares_for_deposit(quote_reserve_before, quote_amount)?;
+            .shares_for_deposit(u128::from(quote_reserve_before), quote_amount)?;
         Ok(base_srlp.min(quote_srlp))
     }
 }

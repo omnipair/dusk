@@ -77,6 +77,29 @@ pub(crate) fn quote_protocol_auction_settlement(
 }
 
 impl Fees {
+    pub(crate) fn credit_protocol_interest_revenue(
+        &mut self,
+        protocol: u64,
+        split: ProtocolAuctionSplit,
+        referral: u64,
+    ) -> Result<()> {
+        require_gte!(protocol, referral, ErrorCode::FeeMathOverflow);
+        let (fee, buyback) = split_protocol_auction_fee(protocol - referral, &split)?;
+        self.referral_interest_liability = self
+            .referral_interest_liability
+            .checked_add(referral)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.interest_protocol_fee_liability = self
+            .interest_protocol_fee_liability
+            .checked_add(fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.interest_buyback_fee_liability = self
+            .interest_buyback_fee_liability
+            .checked_add(buyback)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
+
     pub fn protocol_auction_reference_market(&self, lane: ProtocolAuctionLane) -> Pubkey {
         match lane {
             ProtocolAuctionLane::Fee => self.fee_auction_reference_market,
@@ -138,6 +161,7 @@ impl Fees {
             .and_then(|value| value.checked_add(self.interest_protocol_fee_liability))
             .and_then(|value| value.checked_add(self.interest_buyback_fee_liability))
             .and_then(|value| value.checked_add(self.referral_interest_liability))
+            .and_then(|value| value.checked_add(self.revenue_interest_liability))
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
@@ -157,6 +181,7 @@ impl Fees {
             .interest_liability
             .checked_add(self.unallocated_interest_liability)
             .and_then(|value| value.checked_add(self.referral_interest_liability))
+            .and_then(|value| value.checked_add(self.revenue_interest_liability))
             .and_then(|value| value.checked_add(self.interest_protocol_fee_liability))
             .and_then(|value| value.checked_add(self.interest_buyback_fee_liability))
             .ok_or(ErrorCode::MarketMathOverflow)?;

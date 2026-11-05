@@ -1,3 +1,4 @@
+mod accrual;
 mod debt;
 mod liquidation;
 mod preview;
@@ -187,6 +188,7 @@ impl Market {
                 )?,
             ),
         };
+        require_gte!(u64::MAX as u128, projected_total_debt, ErrorCode::DebtMathOverflow);
         let target_contribution = self.debt_capped_global_health_contribution(
             borrow_asset,
             projected_position_debt,
@@ -340,7 +342,7 @@ impl Market {
         self.refresh_risk_at_slot(current_slot)
     }
 
-    /// Materializes risk at an already-read slot. Governance uses this before
+    /// Materializes risk at an already-read slot. Operator execution uses this before
     /// changing time constants so the entire elapsed interval is integrated
     /// under the configuration that was active during that interval.
     pub(crate) fn refresh_risk_at_slot(&mut self, current_slot: u64) -> Result<()> {
@@ -1071,10 +1073,9 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     current_slot: u64,
     signal_nad: Option<u128>,
 ) -> Result<Option<InterestAccrualReceipt>> {
-    let (index, index_remainder, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
+    let (index, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
         MarketAsset::Base => (
             market.debt.base_borrow_index_nad,
-            market.debt.base_borrow_index_remainder,
             market.debt.base_rate_at_target_nad,
             market.debt.base_last_accrual_slot,
             market.debt.fixed_base_shares,
@@ -1082,7 +1083,6 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         ),
         MarketAsset::Quote => (
             market.debt.quote_borrow_index_nad,
-            market.debt.quote_borrow_index_remainder,
             market.debt.quote_rate_at_target_nad,
             market.debt.quote_last_accrual_slot,
             market.debt.fixed_quote_shares,
@@ -1101,10 +1101,6 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         market.sync_income_receivable(asset, false, 0)?;
         market.sync_income_receivable(asset, true, 0)?;
     }
-    if current_slot == last_accrual_slot {
-        return Ok(None);
-    }
-    let dt_ms = slots_to_ms(last_accrual_slot, current_slot).ok_or(ErrorCode::MarketMathOverflow)?;
     if fixed_shares == 0 && isolated_shares == 0 && hlp_shares == 0 {
         let next_rate_at_target = rate_at_target;
         match asset {
@@ -1112,23 +1108,29 @@ pub(crate) fn accrue_side<const REPORT: bool>(
                 market.debt.base_rate_at_target_nad = next_rate_at_target;
                 market.debt.base_last_accrual_slot = current_slot;
                 market.debt.base_borrow_index_remainder = 0;
+                market.debt.base_borrow_index_nad = NAD as u128;
             }
             MarketAsset::Quote => {
                 market.debt.quote_rate_at_target_nad = next_rate_at_target;
                 market.debt.quote_last_accrual_slot = current_slot;
                 market.debt.quote_borrow_index_remainder = 0;
+                market.debt.quote_borrow_index_nad = NAD as u128;
             }
         }
         return Ok(None);
     }
+    if current_slot == last_accrual_slot {
+        return Ok(None);
+    }
+    let dt_ms = slots_to_ms(last_accrual_slot, current_slot).ok_or(ErrorCode::MarketMathOverflow)?;
     let (cash, live) = match asset {
         MarketAsset::Base => (
             market.base_side.reserves.cash_reserve as u128,
-            market.base_side.reserves.live_reserve as u128,
+            market.base_side.reserves.live_reserve,
         ),
         MarketAsset::Quote => (
             market.quote_side.reserves.cash_reserve as u128,
-            market.quote_side.reserves.live_reserve as u128,
+            market.quote_side.reserves.live_reserve,
         ),
     };
     let hlp_live = market.hlp_live_reserve(asset)?;
@@ -1160,7 +1162,11 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         crate::math::borrow_controller::accrue_risk_rate(&market.config.irm, previous_e18, signal_nad, dt_ms)?;
     let next_rate_at_target = accrual.end_apr_e18 / NAD as u128;
     let next_rate_fraction = (accrual.end_apr_e18 % NAD as u128) as u64;
-    let rate = next_rate_at_target;
+    let rate = crate::math::mul_div_u128(
+        next_rate_at_target,
+        BPS_DENOMINATOR as u128 + market.protocol_interest_markup_bps as u128,
+        BPS_DENOMINATOR as u128,
+    )?;
     if hlp_shares > 0 {
         let vault = match asset {
             // Quote hLP borrows Base; Base hLP borrows Quote.
@@ -1176,40 +1182,16 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         );
         vault.funding_apr_ema_last_slot = current_slot;
     }
-    let (next_index, next_remainder) = if index == 0 || dt_ms == 0 {
-        (index, index_remainder)
-    } else {
-        let denominator = NAD as u128 * MS_PER_YEAR as u128;
-        let (whole, fractional) = mul_div_rem_u128(index, accrual.integrated_apr_nad_ms, denominator)?;
-        let remainder = fractional
-            .checked_add(index_remainder)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        (
-            index
-                .checked_add(whole)
-                .and_then(|value| value.checked_add(remainder / denominator))
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            remainder % denominator,
-        )
-    };
+    let (next_index, next_remainder, debt_after) =
+        market.bounded_accrual_index(asset, accrual.integrated_apr_nad_ms)?;
     // Fixed and isolated buckets remain separately floored. Combined
     // conversion would manufacture an atom at some index boundaries.
-    let fixed_after = if fixed_shares == 0 {
-        0
-    } else {
-        Debt::shares_to_debt(fixed_shares, next_index)?
-    };
-    let isolated_after = if isolated_shares == 0 {
-        0
-    } else {
-        Debt::shares_to_debt(isolated_shares, next_index)?
-    };
+    let [fixed_after, isolated_after, hlp_after] = debt_after;
     let accrued_interest = fixed_after
         .checked_add(isolated_after)
         .and_then(|after| after.checked_sub(cash_backed_before))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     if accrued_interest > 0 {
-        let accrued_interest = u64::try_from(accrued_interest).map_err(|_| ErrorCode::ReserveOverflow)?;
         let side = market.side_mut(asset);
         side.reserves.live_reserve = side
             .reserves
@@ -1253,7 +1235,7 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         margin_interest: isolated_after
             .checked_sub(Debt::shares_to_debt(isolated_shares, index)?)
             .ok_or(ErrorCode::MarketMathOverflow)?,
-        hlp_interest: Debt::shares_to_debt(hlp_shares, next_index)?
+        hlp_interest: hlp_after
             .checked_sub(hlp_debt_before)
             .ok_or(ErrorCode::MarketMathOverflow)?,
     };
@@ -1577,7 +1559,7 @@ impl Market {
             collateral_fee.unwind_credit(collateral_amount)? > 0,
             ErrorCode::InsufficientMarketHealth
         );
-        let debt_delta = i64::try_from(borrow_amount).map_err(|_| ErrorCode::Overflow)?;
+        let debt_delta = i128::from(borrow_amount);
         if self.risk.curve_depth_ema_nad == 0 {
             self.refresh_risk_at_slot(current_slot)?;
         }
@@ -1625,6 +1607,30 @@ impl Market {
             aggregate_debt_increase as u128,
             borrow_amount,
         )?;
+        let mut projected_debt = self.debt;
+        match borrow_asset {
+            MarketAsset::Base => {
+                projected_debt.fixed_base_shares = projected_debt
+                    .fixed_base_shares
+                    .checked_add(debt_shares)
+                    .ok_or(ErrorCode::DebtShareMathOverflow)?;
+                projected_debt.fixed_base_principal = projected_debt
+                    .fixed_base_principal
+                    .checked_add(borrow_amount)
+                    .ok_or(ErrorCode::DebtMathOverflow)?;
+            }
+            MarketAsset::Quote => {
+                projected_debt.fixed_quote_shares = projected_debt
+                    .fixed_quote_shares
+                    .checked_add(debt_shares)
+                    .ok_or(ErrorCode::DebtShareMathOverflow)?;
+                projected_debt.fixed_quote_principal = projected_debt
+                    .fixed_quote_principal
+                    .checked_add(borrow_amount)
+                    .ok_or(ErrorCode::DebtMathOverflow)?;
+            }
+        }
+        self.check_borrow_income_capacity(borrow_asset, &projected_debt)?;
         let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
         self.side_mut(borrow_asset).daily_borrow_bucket.record_borrow(
             borrow_amount,
@@ -1641,13 +1647,13 @@ impl Market {
             debt_side.reserves.live_reserve = debt_side
                 .reserves
                 .live_reserve
-                .checked_add(aggregate_debt_increase - borrow_amount)
+                .checked_add(u128::from(aggregate_debt_increase - borrow_amount))
                 .ok_or(ErrorCode::ReserveOverflow)?;
         } else if aggregate_debt_increase < borrow_amount {
             debt_side.reserves.live_reserve = debt_side
                 .reserves
                 .live_reserve
-                .checked_sub(borrow_amount - aggregate_debt_increase)
+                .checked_sub(u128::from(borrow_amount - aggregate_debt_increase))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
         }
 
@@ -1800,7 +1806,7 @@ impl Market {
             }
         }
         self.settle_public_debt_reserves(repay_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
-        let debt_delta = -i64::try_from(repayment.position_debt_reduced).map_err(|_| ErrorCode::Overflow)?;
+        let debt_delta = -i128::from(repayment.position_debt_reduced);
         if let Some(slot) = finalize_at_slot {
             self.finalize_debt_repayment(slot, curve_reserves_before)?;
         } else if self.oracle_price_unavailable() {

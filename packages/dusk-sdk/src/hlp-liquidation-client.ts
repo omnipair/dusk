@@ -4,7 +4,7 @@ import { ComputeBudgetProgram, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUB
 import { address, type AddressLike } from "./address.js";
 import { deriveFutarchyAuthorityAddress } from "./constants.js";
 import { DuskGet } from "./get.js";
-import { governanceIntegerBN, type GovernanceIntegerLike } from "./governance.js";
+import { integerBN, type IntegerLike } from "./parameters.js";
 import { previewReturnDataBytes } from "./preview.js";
 import { tokenProgramForMint } from "./referral.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
@@ -31,10 +31,10 @@ export interface HlpFlashParams extends HlpRecoveryParams {
   buyer: AddressLike;
   /** Explicit opt-in to closing an insolvent vault's entire backing. */
   allowFull?: boolean;
-  maxPayment?: GovernanceIntegerLike;
-  maxCollateralDebit?: GovernanceIntegerLike;
-  minCollateralCredit?: GovernanceIntegerLike;
-  maxSocializedLoss?: GovernanceIntegerLike;
+  maxPayment?: IntegerLike;
+  maxCollateralDebit?: IntegerLike;
+  minCollateralCredit?: IntegerLike;
+  maxSocializedLoss?: IntegerLike;
   prefixInstructions?: readonly TransactionInstruction[];
   settleRemainingAccounts?: readonly AccountMeta[];
   route: (context: HlpFlashRouteContext) => Promise<readonly TransactionInstruction[]> | readonly TransactionInstruction[];
@@ -44,15 +44,15 @@ export interface HlpFlashParams extends HlpRecoveryParams {
 }
 
 export interface HlpRecoveryExit {
-  hlpAmount: GovernanceIntegerLike;
-  minTargetAmountOut?: GovernanceIntegerLike;
+  hlpAmount: IntegerLike;
+  minTargetAmountOut?: IntegerLike;
   options: HlpLiquidityBuildOptions;
 }
 
 export interface HlpNativeCloseAndExitParams extends HlpRecoveryParams {
   exit: HlpRecoveryExit;
-  maxSocializedLoss?: GovernanceIntegerLike;
-  minCallerBountyOut?: GovernanceIntegerLike;
+  maxSocializedLoss?: IntegerLike;
+  minCallerBountyOut?: IntegerLike;
   closeRemainingAccounts?: readonly AccountMeta[];
 }
 
@@ -104,8 +104,8 @@ export class DuskHlpLiquidations {
     if (!address(exit.options.baseMint).equals(r.state.baseSide.assetMint) ||
         !address(exit.options.quoteMint).equals(r.state.quoteSide.assetMint)) throw new Error("Exit asset mints differ from market");
     const built = await this.write.withdrawSingleSided({
-      hlpAmount: governanceIntegerBN(exit.hlpAmount, "hlpAmount"),
-      minTargetAmountOut: governanceIntegerBN(exit.minTargetAmountOut ?? 0, "minTargetAmountOut"),
+      hlpAmount: integerBN(exit.hlpAmount, "hlpAmount"),
+      minTargetAmountOut: integerBN(exit.minTargetAmountOut ?? 0, "minTargetAmountOut"),
     }, exit.options);
     return built;
   }
@@ -123,8 +123,8 @@ export class DuskHlpLiquidations {
     const targetVault = r.target === 0 ? r.state.baseHlpVault : r.state.quoteHlpVault;
     const close = await this.write.instruction("closeInsolventHlp", {
       targetAsset: r.target,
-      maxSocializedLoss: governanceIntegerBN(params.maxSocializedLoss ?? 0xffffffffffffffffn, "maxSocializedLoss"),
-      minCallerBountyOut: governanceIntegerBN(params.minCallerBountyOut ?? 0, "minCallerBountyOut"),
+      maxSocializedLoss: integerBN(params.maxSocializedLoss ?? 0xffffffffffffffffn, "maxSocializedLoss"),
+      minCallerBountyOut: integerBN(params.minCallerBountyOut ?? 0, "minCallerBountyOut"),
     }, { accounts: {
       market: r.market, futarchyAuthority: r.futarchyAuthority, caller,
       borrowedMint: r.debt.assetMint, borrowedReserveVault: r.debt.reserveVault,
@@ -175,10 +175,10 @@ export class DuskHlpLiquidations {
     const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY };
     const begin = await this.write.instruction("beginHlpFlash", {
       targetAsset: r.target, allowFull: params.allowFull ?? false,
-      maxPayment: governanceIntegerBN(params.maxPayment ?? BigInt(quote.payment.toString()), "maxPayment"),
-      maxCollateralDebit: governanceIntegerBN(params.maxCollateralDebit ?? BigInt(quote.collateralDebit.toString()), "maxCollateralDebit"),
-      minCollateralCredit: governanceIntegerBN(params.minCollateralCredit ?? BigInt(quote.collateralCredit.toString()), "minCollateralCredit"),
-      maxSocializedLoss: governanceIntegerBN(params.maxSocializedLoss ?? 0xffffffffffffffffn, "maxSocializedLoss"), settleIndex,
+      maxPayment: integerBN(params.maxPayment ?? BigInt(quote.payment.toString()), "maxPayment"),
+      maxCollateralDebit: integerBN(params.maxCollateralDebit ?? BigInt(quote.collateralDebit.toString()), "maxCollateralDebit"),
+      minCollateralCredit: integerBN(params.minCollateralCredit ?? BigInt(quote.collateralCredit.toString()), "minCollateralCredit"),
+      maxSocializedLoss: integerBN(params.maxSocializedLoss ?? 0xffffffffffffffffn, "maxSocializedLoss"), settleIndex,
     }, { accounts: { ...common, systemProgram: SystemProgram.programId } });
     const settle = await this.write.instruction("settleHlpFlash", [], { accounts: common,
       remainingAccounts: params.settleRemainingAccounts ? [...params.settleRemainingAccounts] : await this.write.hlpRemainingAccounts(r.market, r.state) });

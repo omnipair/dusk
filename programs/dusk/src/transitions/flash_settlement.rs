@@ -205,7 +205,7 @@ impl Market {
         let advanced =
             self.settle_public_debt_reserves(asset, unpaid_before, loss.interest_paid, live_debit, principal_credit)?;
         self.apply_liquidation_position(position, asset, allocation, collateral_debit, full)?;
-        if loss.principal_written_off > 0 || advanced.canceled > advanced.protocol_returned {
+        if loss.principal_written_off > 0 || advanced.canceled > advanced.revenue_returned {
             self.finalize_amm_socialized_loss_and_observe_risk(slot)?;
         } else {
             self.finalize_debt_repayment(slot, before_curve)?;

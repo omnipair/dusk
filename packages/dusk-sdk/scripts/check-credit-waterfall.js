@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import IDL from "../src/idl_v2.json" with { type: "json" };
 import { liquidationFeeAllocation, liquidationLossAllocation } from "../dist/liquidation.js";
-import { JUNIOR_EXIT_REQUEST_FEE_BPS, LIQUIDATION_FEE_BPS, trancheParameterUpdate } from "../dist/governance.js";
+import { JUNIOR_EXIT_REQUEST_FEE_BPS, LIQUIDATION_FEE_BPS, trancheParameterUpdate } from "../dist/parameters.js";
 
 test("market creation and settlement expose no retired coverage vaults or donation instruction", () => {
   assert.ok(!IDL.instructions.some(ix => ix.name === "fortify_market"));

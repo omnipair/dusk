@@ -136,24 +136,24 @@ fn drained_market_previews_locked_dust_without_reconstructing_a_trade_curve() {
 #[test]
 fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
     use crate::{
-        constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MS_PER_YEAR, TARGET_MS_PER_SLOT},
+        constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, TARGET_MS_PER_SLOT},
         transitions::{lending::accrue_side, liquidity::SwapCashPolicy},
     };
 
     // Obtain the reported index through four legal full-utilization accruals.
     // Reuse that index in a liquid, fully hedged market after refinancing.
     let mut accrued = Market::default();
-    accrued.config.irm.maximum_apr_nad = 200 * NAD;
     accrued.debt.quote_borrow_index_nad = NAD as u128;
     accrued.debt.quote_rate_at_target_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD;
     accrued.base_hlp_vault.debt_shares = 1_000;
     accrued.base_hlp_vault.quote_hlp_live_reserve = 1_000;
     accrued.quote_side.reserves.live_reserve = 1_000;
+    let half_life_ms=accrued.config.irm.half_life_ms;
     for year in 1..=4 {
         accrue_side::<false>(
             &mut accrued,
             MarketAsset::Quote,
-            year * MS_PER_YEAR / TARGET_MS_PER_SLOT,
+            year * half_life_ms / TARGET_MS_PER_SLOT,
             Some(0),
         )
         .unwrap();
@@ -621,7 +621,7 @@ fn swaps_preserve_cash_backed_unrealized_interest_outside_the_hlp_endpoint() {
 
         assert_eq!(market.unrealized_interest(debt_asset).unwrap(), 25);
         assert_eq!(
-            market.side(debt_asset).reserves.live_reserve - market.curve_reserve(debt_asset).unwrap(),
+            market.side(debt_asset).reserves.live_reserve - u128::from(market.curve_reserve(debt_asset).unwrap()),
             25,
         );
         market.assert_market_invariants().unwrap();
@@ -1101,9 +1101,7 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         peak_amplification_nad: 4 * NAD,
         core_half_width_bps: 100,
         fade_width_bps: 400,
-        adjustment_threshold_nad: NAD / 100,
         adjustment_step_nad: NAD / 100,
-        min_adjustment_interval_slots: 1,
         divergence_fee_coefficient_nad: 10 * NAD,
         ..AmmConfig::default()
     };
@@ -1329,10 +1327,12 @@ fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
 fn existing_position_capacity_keeps_cash_and_daily_limits_on_additional_debt() {
     let (mut market, position) = existing_position_capacity_fixture(MarketAsset::Base);
     market.base_side.reserves.cash_reserve = 100;
-    market.config.irm.borrow_utilization_limit_bps = 10_000;
+    market.config.irm.borrow_utilization_limit_bps = 8_000;
     let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
     assert!(quote.existing_debt > 100);
-    assert_eq!(quote.max_borrow_amount.unwrap(), 100);
+    assert_eq!(quote.max_borrow_amount.unwrap(), 0);
+    market.base_side.reserves.cash_reserve=100_000;
+    market.base_side.reserves.live_reserve=u128::from(100_000 + Debt::shares_to_debt(market.debt.fixed_base_shares,market.debt.base_borrow_index_nad).unwrap() as u64);
     let daily_limit = market.daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps).unwrap();
     let remaining = market.base_side.daily_borrow_bucket.remaining(daily_limit, 0).unwrap();
     market.base_side.daily_borrow_bucket.record_borrow(remaining - 7, daily_limit, 0).unwrap();

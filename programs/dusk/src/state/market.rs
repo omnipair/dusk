@@ -1,18 +1,16 @@
 use anchor_lang::prelude::*;
 
-use crate::{constants::*, errors::ErrorCode};
+use crate::{constants::*, errors::ErrorCode, state::OperatorState};
 
-/// Maximum center amplification admitted by governance. The concentrated curve
+/// Maximum center amplification admitted by the protocol. The concentrated curve
 /// enforces this through the nonzero full-range tail share.
 pub const MAX_AMM_AMPLIFICATION_NAD: u64 = 2_000 * NAD;
 pub const MIN_AMM_ADJUSTMENT_NAD: u64 = NAD / 1_000_000;
 pub const MAX_AMM_ADJUSTMENT_NAD: u64 = NAD / 10;
 pub const MAX_AMM_VOLATILITY_NAD: u64 = 10 * NAD;
-/// Governance/arithmetic bound on signal sensitivity. Separate fee-share caps
+/// Protocol/arithmetic bound on signal sensitivity. Separate fee-share caps
 /// bound the Huberized divergence marginal and the volatility debit.
 pub const MAX_AMM_FEE_COEFFICIENT_NAD: u64 = 100 * NAD;
-/// One nominal day at the protocol's 200 ms scheduled slot cadence.
-pub const MAX_AMM_ADJUSTMENT_INTERVAL_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
 /// Fixed configuration extension room retained for future typed AMM controls.
 ///
 /// Keep this wire-carried reserve compact: the complete `MarketConfig` is also
@@ -69,9 +67,7 @@ pub struct AmmConfig {
     pub fade_width_bps: u16,
     pub center_ema_half_life_ms: u64,
     pub volatility_half_life_ms: u64,
-    pub adjustment_threshold_nad: u64,
     pub adjustment_step_nad: u64,
-    pub min_adjustment_interval_slots: u64,
     pub volatility_shock_cap_nad: u64,
     pub volatility_cap_nad: u64,
     pub divergence_fee_coefficient_nad: u64,
@@ -115,9 +111,7 @@ impl Default for AmmConfig {
             fade_width_bps: 0,
             center_ema_half_life_ms: MIN_HALF_LIFE_MS,
             volatility_half_life_ms: MIN_HALF_LIFE_MS,
-            adjustment_threshold_nad: 0,
-            adjustment_step_nad: 0,
-            min_adjustment_interval_slots: 0,
+            adjustment_step_nad: NAD / 1_000,
             volatility_shock_cap_nad: 0,
             volatility_cap_nad: 0,
             divergence_fee_coefficient_nad: 0,
@@ -172,6 +166,7 @@ pub struct ConcentratedCurveCache {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct AmmState {
     pub initialized: bool,
+    pub concentration_ramp: super::ConcentrationRamp,
     /// Concentrated CPMM-tail/band geometry. CPMM is represented by zero
     /// concentrated liquidity in this same cache.
     pub concentrated_curve_cache: ConcentratedCurveCache,
@@ -227,6 +222,7 @@ impl Default for AmmState {
     fn default() -> Self {
         Self {
             initialized: false,
+            concentration_ramp: Default::default(),
             concentrated_curve_cache: ConcentratedCurveCache::default(),
             center_price_nad: 0,
             price_ema_nad: 0,
@@ -257,19 +253,13 @@ impl Default for AmmState {
 
 pub const DEFAULT_DAILY_BORROW_BPS: u16 = 2_000;
 pub const MAX_DAILY_BORROW_BPS: u16 = 3_000;
-pub const MIN_IRM_TARGET_UTILIZATION_BPS: u16 = 6_000;
-pub const MAX_IRM_TARGET_UTILIZATION_BPS: u16 = 7_500;
 pub const DEFAULT_IRM_TARGET_UTILIZATION_BPS: u16 = 7_000;
-pub const MIN_IRM_CURVE_STEEPNESS_NAD: u64 = 2 * NAD;
-pub const MAX_IRM_CURVE_STEEPNESS_NAD: u64 = 8 * NAD;
 pub const DEFAULT_IRM_CURVE_STEEPNESS_NAD: u64 = 4 * NAD;
-pub const MIN_IRM_ADJUSTMENT_SPEED_PER_YEAR: u64 = 1;
-pub const MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR: u64 = 50;
 pub const DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR: u64 = 20;
 
 /// Complete mutable fee surface. The fields remain embedded in their existing
 /// `MarketConfig`/`AmmConfig` locations so this view can be used by typed
-/// governance without duplicating fee state.
+/// operator updates without duplicating fee state.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct FeeProfile {
     pub base_fee_bps: u16,
@@ -295,7 +285,7 @@ pub struct FeeProfile {
     pub launch_rate_limit_duration_seconds: u64,
 }
 
-pub use crate::transitions::tranches::RiskRateConfig as IrmConfig;
+pub use crate::transitions::tranches::{RiskRateConfig as IrmConfig, RiskRateUpdate as IrmUpdate};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct MarketConfig {
@@ -357,19 +347,19 @@ pub struct Debt {
     pub leverage_quote_collateral: u64,
 }
 
-/// Reserve-cash funding of public borrower interest. The protocol portion is
+/// Reserve-cash funding of public borrower interest. The revenue-fee portion is
 /// held in the reserve vault until repayment, so cancellation can return it
 /// to executable cash without a transfer or a second transfer fee.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct PublicInterestAdvance {
     pub outstanding_gross: u64,
-    pub protocol_escrow: u64,
+    pub revenue_escrow: u64,
     /// Native repayment has already restored this cash; its token handler
     /// must exclude it from the new interest-vault transfer.
     pub repayment_credit_pending: u64,
-    /// Frozen protocol allocation released by repayment, still held in the
+    /// Frozen operator/protocol allocation released by repayment, still held in the
     /// reserve vault until the same instruction completes token settlement.
-    pub protocol_release_pending: u64,
+    pub revenue_release_pending: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
@@ -403,6 +393,8 @@ pub struct Fees {
     pub interest_protocol_fee_liability: u64,
     pub interest_buyback_fee_liability: u64,
     pub referral_interest_liability: u64,
+    /// Shared custody for operator claims and protocol fractional carry.
+    pub revenue_interest_liability: u64,
     /// Governance-approved reference market for fee-lane auctions. A default
     /// key permits only the sold market itself when it directly pairs the sold
     /// and accepted mints.
@@ -524,15 +516,12 @@ pub struct Market {
     /// One-shot signer allowed to provide the first fully-backed Base/Quote
     /// seed. It is cleared permanently once srLP supply becomes nonzero.
     pub initial_liquidity_authority: Pubkey,
-    /// External srLP burned into direct support or reusable governance balances. This is added back
-    /// when computing direct-srLP eligibility; internal reserve-share supply is
-    /// intentionally unchanged by governance locking.
-    pub governance_locked_srlp: u64,
-    /// Active-generation jrLP receipts burned into governance locks. They
-    /// remain part of junior receipt supply and keep full first-loss exposure.
-    pub governance_locked_junior: u64,
+    /// Sole per-market authority; token ownership carries no configuration rights.
+    pub operator: OperatorState,
+    /// Internal mirror of the global FutarchyAuthority markup, never an operator parameter.
+    pub protocol_interest_markup_bps: u16,
     /// Independent monotone revisions for fee, concentration, IRM, EMA,
-    /// daily-borrow-limit, and center-controller parameter families.
+    /// daily-borrow-limit, center-controller, and tranche parameter families.
     pub parameter_revisions: [u64; crate::state::PARAMETER_FAMILY_COUNT],
     /// Latest trader-visible marginal price committed by a curve mutation.
     pub last_marginal_observation_nad: u64,
@@ -579,8 +568,9 @@ impl Market {
         reload_field(&mut self.risk, &mut cursor)?;
         reload_field(&mut self.params_hash, &mut cursor)?;
         reload_field(&mut self.initial_liquidity_authority, &mut cursor)?;
-        reload_field(&mut self.governance_locked_srlp, &mut cursor)?;
-        reload_field(&mut self.governance_locked_junior, &mut cursor)?;
+        reload_field(&mut self.operator, &mut cursor)?;
+        reload_field(&mut self.protocol_interest_markup_bps, &mut cursor)?;
+
         reload_field(&mut self.parameter_revisions, &mut cursor)?;
         reload_field(&mut self.last_marginal_observation_nad, &mut cursor)?;
         reload_field(&mut self.curve_revision, &mut cursor)?;
@@ -714,7 +704,9 @@ pub struct Reserves {
     /// from cash available to swaps, loans and withdrawals.
     pub flash_receivable: u64,
     // Virtual Reserves (r_virtual = r_cash + r_cash_backed_debt + r_hlp_live)
-    pub live_reserve: u64,
+    /// Wider than SPL custody: includes cash, indexed public debt and synthetic
+    /// hLP backing. Unpaid interest never becomes executable curve inventory.
+    pub live_reserve: u128,
     // Cash Reserves (r_cash)
     pub cash_reserve: u64,
     /// Physical reserve-vault atoms removed from executable AMM inventory by

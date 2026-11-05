@@ -2061,6 +2061,73 @@ export type LeverageDelegate = {
           "writable": true
         },
         {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                62,
+                254,
+                159,
+                172,
+                61,
+                59,
+                124,
+                201,
+                115,
+                229,
+                84,
+                36,
+                73,
+                157,
+                150,
+                203,
+                228,
+                237,
+                222,
+                36,
+                247,
+                148,
+                181,
+                131,
+                155,
+                204,
+                63,
+                226,
+                166,
+                7,
+                231,
+                51
+              ]
+            }
+          }
+        },
+        {
           "name": "targetHlpMint"
         },
         {
@@ -2528,15 +2595,7 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "adjustmentThresholdNad",
-            "type": "u64"
-          },
-          {
             "name": "adjustmentStepNad",
-            "type": "u64"
-          },
-          {
-            "name": "minAdjustmentIntervalSlots",
             "type": "u64"
           },
           {
@@ -2656,6 +2715,14 @@ export type LeverageDelegate = {
           {
             "name": "initialized",
             "type": "bool"
+          },
+          {
+            "name": "concentrationRamp",
+            "type": {
+              "defined": {
+                "name": "concentrationRamp"
+              }
+            }
           },
           {
             "name": "concentratedCurveCache",
@@ -3015,6 +3082,81 @@ export type LeverageDelegate = {
           {
             "name": "outerUpperSqrtPriceNad",
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "concentratedCurveParameters",
+      "docs": [
+        "Operator configuration surface for the concentrated curve.",
+        "",
+        "`peak_amplification_nad` is center liquidity depth relative to a CPMM with",
+        "the same center reserves. `core_half_width_bps` keeps that complete depth",
+        "active around the sticky center. `fade_width_bps` adds one deterministic",
+        "half-depth shoulder before the nonzero full-range CPMM tail. One-times",
+        "amplification with zero widths is exact CPMM."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "peakAmplificationNad",
+            "type": "u64"
+          },
+          {
+            "name": "coreHalfWidthBps",
+            "type": "u16"
+          },
+          {
+            "name": "fadeWidthBps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "concentrationRamp",
+      "docs": [
+        "Scheduled targets do not mutate live geometry until a guarded step succeeds."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "start",
+            "type": {
+              "defined": {
+                "name": "concentratedCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "target",
+            "type": {
+              "defined": {
+                "name": "concentratedCurveParameters"
+              }
+            }
+          },
+          {
+            "name": "startSlot",
+            "type": "u64"
+          },
+          {
+            "name": "endSlot",
+            "type": "u64"
+          },
+          {
+            "name": "lastAttemptSlot",
+            "docs": [
+              "Successful or rejected steps are attempted at most once per slot."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -3533,6 +3675,13 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
+            "name": "revenueInterestLiability",
+            "docs": [
+              "Shared custody for operator claims and protocol fractional carry."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "feeAuctionReferenceMarket",
             "docs": [
               "Governance-approved reference market for fee-lane auctions. A default",
@@ -4013,6 +4162,50 @@ export type LeverageDelegate = {
           },
           {
             "name": "claimable",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "interestRevenueBook",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "grossUnpaid",
+            "type": "u64"
+          },
+          {
+            "name": "protocolUnpaid",
+            "type": "u64"
+          },
+          {
+            "name": "operatorUnpaid",
+            "type": "u64"
+          },
+          {
+            "name": "pendingGross",
+            "type": "u64"
+          },
+          {
+            "name": "pendingProtocolGross",
+            "type": "u64"
+          },
+          {
+            "name": "operatorClaimable",
+            "type": "u64"
+          },
+          {
+            "name": "protocolFractionQ64",
+            "type": "u64"
+          },
+          {
+            "name": "operatorFractionQ64",
+            "type": "u64"
+          },
+          {
+            "name": "protocolCashFractionQ64",
             "type": "u64"
           }
         ]
@@ -4596,32 +4789,33 @@ export type LeverageDelegate = {
             "type": "pubkey"
           },
           {
-            "name": "governanceLockedSrlp",
+            "name": "operator",
             "docs": [
-              "External srLP burned into direct support or reusable governance balances. This is added back",
-              "when computing direct-srLP eligibility; internal reserve-share supply is",
-              "intentionally unchanged by governance locking."
+              "Sole per-market authority; token ownership carries no configuration rights."
             ],
-            "type": "u64"
+            "type": {
+              "defined": {
+                "name": "operatorState"
+              }
+            }
           },
           {
-            "name": "governanceLockedJunior",
+            "name": "protocolInterestMarkupBps",
             "docs": [
-              "Active-generation jrLP receipts burned into governance locks. They",
-              "remain part of junior receipt supply and keep full first-loss exposure."
+              "Internal mirror of the global FutarchyAuthority markup, never an operator parameter."
             ],
-            "type": "u64"
+            "type": "u16"
           },
           {
             "name": "parameterRevisions",
             "docs": [
               "Independent monotone revisions for fee, concentration, IRM, EMA,",
-              "daily-borrow-limit, and center-controller parameter families."
+              "daily-borrow-limit, center-controller, and tranche parameter families."
             ],
             "type": {
               "array": [
                 "u64",
-                8
+                7
               ]
             }
           },
@@ -4752,6 +4946,19 @@ export type LeverageDelegate = {
                 {
                   "defined": {
                     "name": "incomeReceivableBook"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "revenue",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "interestRevenueBook"
                   }
                 },
                 4
@@ -4894,6 +5101,49 @@ export type LeverageDelegate = {
       }
     },
     {
+      "name": "operatorState",
+      "docs": [
+        "Operator authority is independent from LP ownership. A governance program",
+        "can hold it using a signer PDA; voting and token issuance belong outside Dusk."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "revenueEpoch",
+            "type": "u64"
+          },
+          {
+            "name": "nextNonce",
+            "docs": [
+              "Monotone across authority transfers; a closed proposal PDA cannot be reused."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending",
+            "type": "pubkey"
+          },
+          {
+            "name": "revenueRecipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "interestShareBps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
       "name": "oracleObservation",
       "type": {
         "kind": "struct",
@@ -4981,8 +5231,7 @@ export type LeverageDelegate = {
       "name": "oraclePolicy",
       "docs": [
         "Creation selects an optional policy atomically; omission uses native pricing.",
-        "Subsequent governance can change the policy within the same mathematical",
-        "limits. Every native market supports later oracle activation."
+        "The policy, provider and feed identity are immutable after creation."
       ],
       "type": {
         "kind": "struct",
@@ -5387,7 +5636,7 @@ export type LeverageDelegate = {
     {
       "name": "publicInterestAdvance",
       "docs": [
-        "Reserve-cash funding of public borrower interest. The protocol portion is",
+        "Reserve-cash funding of public borrower interest. The revenue-fee portion is",
         "held in the reserve vault until repayment, so cancellation can return it",
         "to executable cash without a transfer or a second transfer fee."
       ],
@@ -5399,7 +5648,7 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "protocolEscrow",
+            "name": "revenueEscrow",
             "type": "u64"
           },
           {
@@ -5411,9 +5660,9 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "protocolReleasePending",
+            "name": "revenueReleasePending",
             "docs": [
-              "Frozen protocol allocation released by repayment, still held in the",
+              "Frozen operator/protocol allocation released by repayment, still held in the",
               "reserve vault until the same instruction completes token settlement."
             ],
             "type": "u64"
@@ -5536,7 +5785,11 @@ export type LeverageDelegate = {
           },
           {
             "name": "liveReserve",
-            "type": "u64"
+            "docs": [
+              "Wider than SPL custody: includes cash, indexed public debt and synthetic",
+              "hLP backing. Unpaid interest never becomes executable curve inventory."
+            ],
+            "type": "u128"
           },
           {
             "name": "cashReserve",
@@ -5627,6 +5880,10 @@ export type LeverageDelegate = {
           },
           {
             "name": "interestBps",
+            "docs": [
+              "Global markup added to base borrowing interest. Each market closes",
+              "elapsed interest at its previous value before binding a changed markup."
+            ],
             "type": "u16"
           }
         ]
@@ -5685,8 +5942,7 @@ export type LeverageDelegate = {
     {
       "name": "riskRateConfig",
       "docs": [
-        "Per-market inputs for the coverage band controller. A zero maximum leaves",
-        "APR economically uncapped; arithmetic still rejects unrepresentable debt."
+        "Coverage controller configuration. Initial APR is creation-only."
       ],
       "type": {
         "kind": "struct",
@@ -5705,14 +5961,6 @@ export type LeverageDelegate = {
           },
           {
             "name": "initialAprNad",
-            "type": "u64"
-          },
-          {
-            "name": "minimumAprNad",
-            "type": "u64"
-          },
-          {
-            "name": "maximumAprNad",
             "type": "u64"
           },
           {
@@ -5847,7 +6095,7 @@ export type LeverageDelegate = {
     {
       "name": "tranchePolicy",
       "docs": [
-        "Governed junior income allocation. Exit timing and the request/renewal and",
+        "Operator-configured junior income allocation. Exit timing and the request/renewal and",
         "liquidation fees remain fixed by the protocol."
       ],
       "type": {
@@ -6000,9 +6248,8 @@ export type LeverageDelegate = {
           {
             "name": "escrowBalance",
             "docs": [
-              "Owner's virtual receipts: junior exit escrow, or senior governance locks.",
-              "Governance cash yield uses its existing virtual ledger; historical",
-              "unpaid-income ownership is checkpointed here for both token kinds."
+              "Owner's junior exit escrow receipts. Historical unpaid-income ownership",
+              "is checkpointed here alongside the liquid balance."
             ],
             "type": "u64"
           }

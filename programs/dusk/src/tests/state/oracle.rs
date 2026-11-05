@@ -278,3 +278,29 @@ fn normalized_ratio_authenticates_both_assets_denomination_and_uncertainty() {
     a.data=base.try_to_vec().unwrap();b.data=quote.try_to_vec().unwrap();
     assert!(policy.read(&[a.info(),b.info()],&clock(),market.base_side.asset_mint,market.quote_side.asset_mint).is_err());
 }
+
+#[test]
+fn runtime_shape_reconfiguration_preserves_outstanding_quotes_and_reuses_exclusive_workspaces() {
+    use crate::transitions::amm::{ConcentratedCurveParameters, ConcentratedCurvePoint};
+    let (_, feed, _) = normalized();
+    let policy = OraclePolicy { lambda_bps: 2500, adjustment_cap_nad: 2 * NAD, ..Default::default() };
+    let runtime = RuntimePricing::bind(policy, OracleObservation { price_nad: feed.price_nad, ..Default::default() });
+    let point = ConcentratedCurvePoint { base_reserve: 1_000_000, quote_reserve: 2_300_000 };
+    let shape = |peak| ConcentratedCurveParameters { peak_amplification_nad: peak * NAD, core_half_width_bps: 1000, fade_width_bps: 4000 };
+    let original = runtime.curve(shape(4), 2 * NAD, policy).unwrap();
+    let original_price = original.spot_price_nad(point).unwrap();
+    let replacement = runtime.curve(shape(8), 2 * NAD, policy).unwrap();
+    assert!(!std::rc::Rc::ptr_eq(&original, &replacement));
+    assert_eq!(original.spot_price_nad(point).unwrap(), original_price);
+    let allocation = std::rc::Rc::as_ptr(&replacement);
+    drop(original);
+    drop(replacement);
+    let reused = runtime.curve(shape(6), 2 * NAD, policy).unwrap();
+    assert_eq!(std::rc::Rc::as_ptr(&reused), allocation);
+    let fresh = crate::math::op_gamm::BoundedOracleCurve::new(shape(6), 2 * NAD, feed.price_nad, 2500, 2 * NAD).unwrap();
+    assert_eq!(reused.spot_price_nad(point).unwrap(), fresh.spot_price_nad(point).unwrap());
+    drop(reused);
+    assert!(runtime.curve(shape(0), 2 * NAD, policy).is_err());
+    let restored = runtime.curve(shape(6), 2 * NAD, policy).unwrap();
+    assert_eq!(restored.spot_price_nad(point).unwrap(), fresh.spot_price_nad(point).unwrap());
+}
