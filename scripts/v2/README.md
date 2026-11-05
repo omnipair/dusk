@@ -98,5 +98,14 @@ builds the package from the tagged commit, which must already be on `main`, and
 publishes only when every IDL the package ships matches the IDL account on the
 cluster. `-next.<n>` and `-devnet.<n>` versions describe devnet and publish
 under the `next` and `devnet` dist-tags; a stable version describes mainnet and
-becomes `latest`. A version already on npm is not published again. A manual run
-of the workflow with `dry_run` checks a tag without publishing it.
+becomes `latest`. A version already on npm is not published again. The workflow
+logs in to npm through the package's trusted publisher (repository
+`omnipair/dusk`, workflow `publish-sdk.yaml`, environment `npm`). A manual run
+with `dry_run` checks a tag without publishing it: it runs the same build and
+IDL checks and logs in to npm, so a broken trusted publisher fails the dry run.
+npm does not check which branch a run comes from, so only runs from `main` or a
+`dusk-sdk-v*` tag can use the `npm` environment (Settings, Environments). The
+publish job of a run dispatched from another branch, a dry run included, is
+rejected before it starts. A tag push runs the workflow file of the tagged
+commit, so only organization owners can create, move or delete `dusk-sdk-v*`
+tags (ruleset `protect-sdk-release-tags`).

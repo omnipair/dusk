@@ -12,12 +12,19 @@ name: publish-sdk
 #   <x.y.z>              mainnet deployment   dist-tag latest
 #
 # A manual run takes an existing tag: it publishes versions tagged on commits
-# that predate this workflow, or checks a tag without publishing (dry_run).
-# Tag pushes attest the tagged commit in the npm provenance; a manual run
-# attests the commit the workflow ran from.
+# that predate this workflow, or checks a tag without publishing (dry_run). A
+# dry run also logs in to npm the way a real run does, so a broken trusted
+# publisher fails the dry run instead of the release. Tag pushes attest the
+# tagged commit in the npm provenance; a manual run attests the commit the
+# workflow ran from.
 #
 # Authentication is npm trusted publishing (OIDC) for this file and the `npm`
-# environment. An NPM_TOKEN secret, when present, is the fallback.
+# environment. An NPM_TOKEN secret, when present, is the fallback. npm does not
+# check which branch a run comes from, so only runs from main or a dusk-sdk-v*
+# tag can use the environment; the publish job of a run from another branch is
+# rejected before it starts. A tag push runs the workflow file of the tagged
+# commit, so only organization owners can create, move or delete dusk-sdk-v*
+# tags (ruleset protect-sdk-release-tags).
 
 on:
   push:
@@ -30,7 +37,7 @@ on:
         required: true
         type: string
       dry_run:
-        description: "Build and check without publishing"
+        description: "Check the build and the npm login without publishing"
         type: boolean
         default: false
 
@@ -269,21 +276,22 @@ jobs:
         run: |
           if OUTPUT="$(npm view "$PACKAGE_NAME@$VERSION" version 2>&1)"; then
             echo "published=true" >> "$GITHUB_OUTPUT"
-            STATUS="$PACKAGE_NAME@$VERSION is already on npm; nothing to publish."
-            echo "::notice::$STATUS"
+            STATUS="$PACKAGE_NAME@$VERSION is already on npm"
+            NEXT="nothing to publish."
           elif grep -q E404 <<< "$OUTPUT"; then
             echo "published=false" >> "$GITHUB_OUTPUT"
-            if [ "$DRY_RUN" = "true" ]; then
-              STATUS="Not on npm yet. Dry run, so nothing is published."
-            else
-              STATUS="Not on npm yet; the publish job runs next."
-            fi
+            STATUS="Not on npm yet"
+            NEXT="the publish job runs next."
           else
             echo "$OUTPUT"
             echo "::error::Could not read $PACKAGE_NAME@$VERSION from the npm registry."
             exit 1
           fi
-          echo "$STATUS" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DRY_RUN" = "true" ]; then
+            NEXT="dry run, so the publish job only tests the npm login."
+          fi
+          echo "::notice::$STATUS; $NEXT"
+          echo "$STATUS; $NEXT" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Pack
         id: pack
@@ -306,7 +314,8 @@ jobs:
   publish:
     name: Publish to npm
     needs: build
-    if: needs.build.outputs.published == 'false' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    # A dry run comes here even for a version already on npm, to test the login.
+    if: needs.build.outputs.published == 'false' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: npm
@@ -336,6 +345,7 @@ jobs:
           TARBALL: ./package/${{ needs.build.outputs.tarball }}
           VERSION: ${{ needs.build.outputs.version }}
           DIST_TAG: ${{ needs.build.outputs.dist_tag }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           ID="$(tar -xOzf "$TARBALL" package/package.json | node -p 'const m = JSON.parse(require("fs").readFileSync(0, "utf8")); `${m.name}@${m.version}`')"
@@ -343,8 +353,37 @@ jobs:
             echo "::error::$TARBALL holds $ID, expected $PACKAGE_NAME@$VERSION."
             exit 1
           fi
-          if ! npm publish "$TARBALL" --tag "$DIST_TAG" --access public --provenance; then
+          LOGS="$RUNNER_TEMP/npm-logs"
+          ARGS=(publish "$TARBALL" --tag "$DIST_TAG" --access public --provenance --logs-dir "$LOGS")
+          if [ "$DRY_RUN" = "true" ]; then
+            # --force skips npm's refusal of a version already on npm, so a dry
+            # run of a published tag still logs in. A dry run uploads nothing.
+            ARGS+=(--dry-run --force)
+          fi
+          STATUS=0
+          npm "${ARGS[@]}" || STATUS=$?
+          # npm logs the trusted-publishing exchange, and why it failed, only in
+          # its debug log.
+          OIDC="$(cat "$LOGS"/*.log 2> /dev/null | grep oidc | sed -E 's/^[0-9]+ //' || true)"
+          echo "::group::Trusted publishing"
+          echo "${OIDC:-npm logged no trusted-publishing exchange.}"
+          echo "::endgroup::"
+          if [ "$STATUS" -ne 0 ]; then
             echo "::error::npm refused the publish. Check the trusted publisher for omnipair/dusk, publish-sdk.yaml and the npm environment, or the NPM_TOKEN fallback."
             exit 1
           fi
-          echo "Published [\`$PACKAGE_NAME@$VERSION\`](https://www.npmjs.com/package/$PACKAGE_NAME/v/$VERSION) under \`$DIST_TAG\`." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DRY_RUN" != "true" ]; then
+            echo "Published [\`$PACKAGE_NAME@$VERSION\`](https://www.npmjs.com/package/$PACKAGE_NAME/v/$VERSION) under \`$DIST_TAG\`." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # A dry run succeeds without credentials, so check the login here.
+          if grep -q "oidc Successfully retrieved and set token" <<< "$OIDC"; then
+            RESULT="npm accepted the trusted-publishing login."
+          elif [ -n "$NODE_AUTH_TOKEN" ] && WHO="$(npm whoami 2> /dev/null)"; then
+            RESULT="Trusted publishing failed; a real run would publish with NPM_TOKEN as $WHO."
+            echo "::warning::$RESULT"
+          else
+            echo "::error::npm refused the trusted-publishing login and no working NPM_TOKEN is set. Check the trusted publisher for omnipair/dusk, publish-sdk.yaml and the npm environment."
+            exit 1
+          fi
+          echo "Dry run: $RESULT Nothing was published." >> "$GITHUB_STEP_SUMMARY"
