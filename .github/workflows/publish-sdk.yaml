@@ -14,11 +14,15 @@ name: publish-sdk
 # A manual run takes an existing tag: it publishes versions tagged on commits
 # that predate this workflow, or checks a tag without publishing (dry_run). A
 # dry run also logs in to npm the way a real run does, so a broken trusted
-# publisher fails the dry run instead of the release. Tag pushes attest the tagged commit in the npm provenance; a manual run
-# attests the commit the workflow ran from.
+# publisher fails the dry run instead of the release. Tag pushes attest the
+# tagged commit in the npm provenance; a manual run attests the commit the
+# workflow ran from.
 #
 # Authentication is npm trusted publishing (OIDC) for this file and the `npm`
-# environment. An NPM_TOKEN secret, when present, is the fallback.
+# environment. An NPM_TOKEN secret, when present, is the fallback. npm does not
+# check which branch a run comes from, so only runs from main or a dusk-sdk-v*
+# tag can use the environment; the publish job of a run from another branch is
+# rejected before it starts.
 
 on:
   push:

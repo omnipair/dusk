@@ -103,3 +103,7 @@ logs in to npm through the package's trusted publisher (repository
 `omnipair/dusk`, workflow `publish-sdk.yaml`, environment `npm`). A manual run
 with `dry_run` checks a tag without publishing it: it runs the same build and
 IDL checks and logs in to npm, so a broken trusted publisher fails the dry run.
+npm does not check which branch a run comes from, so only runs from `main` or a
+`dusk-sdk-v*` tag can use the `npm` environment (Settings, Environments). The
+publish job of a run dispatched from another branch, a dry run included, is
+rejected before it starts.
