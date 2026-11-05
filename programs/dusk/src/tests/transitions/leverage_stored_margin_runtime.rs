@@ -203,22 +203,13 @@ fn unhealthy_symmetric_ema_allows_liquidation_even_with_a_better_execution_quote
             debt_asset: MarketAsset::Base,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
-            insurance_credit: 0,
+
         },
     );
     market.risk.quote_price_ema_nad = 700_000_000;
     assert!(market.leverage_reference_equity_bps(&position, 1500).unwrap() < 700);
     market
-        .liquidate_leverage_position(
-            &mut position,
-            Some(prepared),
-            quote.amount_in,
-            full_fee_credit(&quote),
-            LeverageInsuranceDraw::default(),
-            0,
-            ProtocolAuctionSplit::default(),
-            1,
-        )
+        .liquidate_leverage_position(&mut position, Some(prepared), quote.amount_in, full_fee_credit(&quote), 0, ProtocolAuctionSplit::default(), 1)
         .unwrap();
     assert_eq!(position.debt_shares, 0);
     assert_eq!(market.leverage_collateral_exposure(MarketAsset::Quote), 0);

@@ -474,10 +474,6 @@ export type Dusk = {
               "writable": true
             },
             {
-              "name": "insuranceVault",
-              "writable": true
-            },
-            {
               "name": "buyerCollateralAccount",
               "writable": true
             },
@@ -722,10 +718,6 @@ export type Dusk = {
             },
             {
               "name": "buyerRefundAccount",
-              "writable": true
-            },
-            {
-              "name": "insuranceVault",
               "writable": true
             },
             {
@@ -1598,7 +1590,7 @@ export type Dusk = {
         "Permissionlessly closes an hLP whose current-slot symmetric-EMA backing",
         "cannot cover funding debt. Native recovery uses EMA price, smoothed depth,",
         "concentration and configured fees. Recovery protects principal first;",
-        "insurance covers only principal loss and unpaid interest is canceled.",
+        "junior absorbs principal loss before senior; unpaid interest is canceled.",
         "Realized funding interest is cash-limited and funds the bounded caller",
         "reward. Existing funded holder claims remain claimable after cleanup."
       ],
@@ -1634,10 +1626,6 @@ export type Dusk = {
         },
         {
           "name": "borrowedInterestVault",
-          "writable": true
-        },
-        {
-          "name": "insuranceVault",
           "writable": true
         },
         {
@@ -4372,10 +4360,6 @@ export type Dusk = {
               "writable": true
             },
             {
-              "name": "insuranceVault",
-              "writable": true
-            },
-            {
               "name": "buyerCollateralAccount",
               "writable": true
             },
@@ -4739,124 +4723,6 @@ export type Dusk = {
           "name": "parameterProposalStatus"
         }
       }
-    },
-    {
-      "name": "fortifyMarket",
-      "discriminator": [
-        76,
-        16,
-        126,
-        53,
-        167,
-        6,
-        213,
-        2
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "donor",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "assetMint"
-        },
-        {
-          "name": "donorAssetAccount",
-          "writable": true
-        },
-        {
-          "name": "insuranceVault",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "eventAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "fortifyMarketArgs"
-            }
-          }
-        }
-      ]
     },
     {
       "name": "fundInterest",
@@ -6413,66 +6279,6 @@ export type Dusk = {
                   114,
                   97,
                   108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "quoteMint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "baseInsuranceVault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  115,
-                  117,
-                  114,
-                  97,
-                  110,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "baseMint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "quoteInsuranceVault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  115,
-                  117,
-                  114,
-                  97,
-                  110,
-                  99,
-                  101
                 ]
               },
               {
@@ -10564,10 +10370,6 @@ export type Dusk = {
               "writable": true
             },
             {
-              "name": "insuranceVault",
-              "writable": true
-            },
-            {
               "name": "buyerCollateralAccount",
               "writable": true
             },
@@ -10771,10 +10573,6 @@ export type Dusk = {
             },
             {
               "name": "buyerRefundAccount",
-              "writable": true
-            },
-            {
-              "name": "insuranceVault",
               "writable": true
             },
             {
@@ -14077,19 +13875,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "insuranceDonated",
-      "discriminator": [
-        238,
-        155,
-        254,
-        172,
-        251,
-        224,
-        236,
-        18
-      ]
-    },
-    {
       "name": "juniorCohortInitialized",
       "discriminator": [
         18,
@@ -15215,246 +15000,236 @@ export type Dusk = {
     },
     {
       "code": 6110,
-      "name": "insufficientInsurance",
-      "msg": "Insurance coverage is insufficient"
-    },
-    {
-      "code": 6111,
-      "name": "insuranceDrawExceeded",
-      "msg": "Required insurance draw exceeds caller cap"
-    },
-    {
-      "code": 6112,
       "name": "liquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6113,
+      "code": 6111,
       "name": "invalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6114,
+      "code": 6112,
       "name": "unbackedFeeLiability",
       "msg": "Fee liability is not backed by its custody balance"
     },
     {
-      "code": 6115,
+      "code": 6113,
       "name": "invalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6116,
+      "code": 6114,
       "name": "invalidInitialLiquidityAuthority",
       "msg": "Invalid initial liquidity authority"
     },
     {
-      "code": 6117,
+      "code": 6115,
       "name": "launchRateLimitSplitTransaction",
       "msg": "Launch rate limiter permits only one top-level market action per transaction"
     },
     {
-      "code": 6118,
+      "code": 6116,
       "name": "marketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6119,
+      "code": 6117,
       "name": "marketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6120,
+      "code": 6118,
       "name": "marketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6121,
+      "code": 6119,
       "name": "dailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6122,
+      "code": 6120,
       "name": "instructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6123,
+      "code": 6121,
       "name": "liquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6124,
+      "code": 6122,
       "name": "leverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6125,
+      "code": 6123,
       "name": "leverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6126,
+      "code": 6124,
       "name": "leverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6127,
+      "code": 6125,
       "name": "leveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6128,
+      "code": 6126,
       "name": "invalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6129,
+      "code": 6127,
       "name": "invalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6130,
+      "code": 6128,
       "name": "invalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6131,
+      "code": 6129,
       "name": "invalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6132,
+      "code": 6130,
       "name": "invalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6133,
+      "code": 6131,
       "name": "referralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6134,
+      "code": 6132,
       "name": "invalidReferralAccrual",
       "msg": "Invalid referral accrual account"
     },
     {
-      "code": 6135,
+      "code": 6133,
       "name": "invalidLeverageCollateralMint",
       "msg": "Leverage collateral transfer fee must be immutable with no pending change"
     },
     {
-      "code": 6136,
+      "code": 6134,
       "name": "freezableAssetMint",
       "msg": "Asset mint has an active freeze authority"
     },
     {
-      "code": 6137,
+      "code": 6135,
       "name": "parameterUpdatesNotCanonical",
-      "msg": "Parameter updates must name one to seven families, each once, in ascending family order"
+      "msg": "Parameter updates must name one to eight families, each once, in ascending family order"
     },
     {
-      "code": 6138,
+      "code": 6136,
       "name": "proposalDigestMismatch",
       "msg": "Parameter proposal does not match the digest the supporter reviewed"
     },
     {
-      "code": 6139,
+      "code": 6137,
       "name": "reservedLiquidationClock",
       "msg": "Reserved retired liquidation clock error"
     },
     {
-      "code": 6140,
+      "code": 6138,
       "name": "liquidationSessionActive",
       "msg": "Position has an active liquidation session"
     },
     {
-      "code": 6141,
+      "code": 6139,
       "name": "invalidLiquidationSession",
       "msg": "Invalid atomic liquidation session or instruction pairing"
     },
     {
-      "code": 6142,
+      "code": 6140,
       "name": "liquidationDoesNotImproveHealth",
       "msg": "Partial liquidation does not improve health after costs"
     },
     {
-      "code": 6143,
+      "code": 6141,
       "name": "incomeEpochNeedsRollover",
       "msg": "Archive and roll the income epoch before issuing new receivables"
     },
     {
-      "code": 6144,
+      "code": 6142,
       "name": "incomeHistoryRequired",
       "msg": "Prepare this holder's income history before changing its balance"
     },
     {
-      "code": 6145,
+      "code": 6143,
       "name": "oracleAccountMissing",
       "msg": "The market's configured oracle account was not supplied"
     },
     {
-      "code": 6146,
+      "code": 6144,
       "name": "oracleAuthenticationFailed",
       "msg": "Oracle account owner, identity or verification failed"
     },
     {
-      "code": 6147,
+      "code": 6145,
       "name": "oracleInvalidObservation",
       "msg": "Oracle report is invalid, future-dated, halted or too uncertain"
     },
     {
-      "code": 6148,
+      "code": 6146,
       "name": "oracleStale",
       "msg": "Oracle source observation is stale"
     },
     {
-      "code": 6149,
+      "code": 6147,
       "name": "oracleReplay",
       "msg": "Oracle sequence or source observation regressed"
     },
     {
-      "code": 6150,
+      "code": 6148,
       "name": "managerEpochMismatch",
       "msg": "The manager authority or epoch is no longer current"
     },
     {
-      "code": 6151,
+      "code": 6149,
       "name": "invalidManager",
       "msg": "The elected manager is required"
     },
     {
-      "code": 6152,
+      "code": 6150,
       "name": "managerPolicyExceeded",
       "msg": "The change exceeds the fixed manager policy"
     },
     {
-      "code": 6153,
+      "code": 6151,
       "name": "pendingBundleExists",
       "msg": "A bundle is already pending in this market"
     },
     {
-      "code": 6154,
+      "code": 6152,
       "name": "governanceCapacityExceeded",
       "msg": "The bounded governance pending capacity is full"
     },
     {
-      "code": 6155,
+      "code": 6153,
       "name": "recoveryVoteLocked",
       "msg": "Governance ownership is still encumbered by a recovery ballot"
     },
     {
-      "code": 6156,
+      "code": 6154,
       "name": "recoveryBallotInactive",
       "msg": "The recovery ballot or its target is no longer active"
     },
     {
-      "code": 6157,
+      "code": 6155,
       "name": "managerAnnouncementCooldown",
       "msg": "Wait three days between manager announcements for this market"
     },
     {
-      "code": 6158,
+      "code": 6156,
       "name": "launchSettingsImmutable",
       "msg": "Launch-only settings are immutable after the market starts"
     }
@@ -15942,10 +15717,6 @@ export type Dusk = {
           {
             "name": "allowFull",
             "type": "bool"
-          },
-          {
-            "name": "maxInsuranceDraw",
-            "type": "u64"
           },
           {
             "name": "maxSocializedLoss",
@@ -16478,10 +16249,6 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "insuranceDrawn",
-            "type": "u64"
-          },
-          {
             "name": "socializedLoss",
             "type": "u64"
           },
@@ -16686,10 +16453,6 @@ export type Dusk = {
           {
             "name": "targetAsset",
             "type": "u8"
-          },
-          {
-            "name": "maxInsuranceDraw",
-            "type": "u64"
           },
           {
             "name": "maxSocializedLoss",
@@ -17438,7 +17201,7 @@ export type Dusk = {
             }
           },
           {
-            "name": "insuranceFeeDebit",
+            "name": "juniorFeeDebit",
             "type": "u64"
           },
           {
@@ -17451,10 +17214,6 @@ export type Dusk = {
           },
           {
             "name": "ownerCredit",
-            "type": "u64"
-          },
-          {
-            "name": "insuranceDebit",
             "type": "u64"
           },
           {
@@ -18046,22 +17805,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "fortifyMarketArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "asset",
-            "type": "u8"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "fundInterestArgs",
       "type": {
         "kind": "struct",
@@ -18442,24 +18185,12 @@ export type Dusk = {
             }
           },
           {
-            "name": "baselineInsurancePrincipalCoverageBps",
-            "type": "u16"
-          },
-          {
-            "name": "baselineInsurancePerDayBps",
-            "type": "u16"
-          },
-          {
             "name": "baselineTranchePolicy",
             "type": {
               "defined": {
                 "name": "tranchePolicy"
               }
             }
-          },
-          {
-            "name": "baselineJuniorRequestFeeBps",
-            "type": "u16"
           },
           {
             "name": "pending",
@@ -18925,10 +18656,6 @@ export type Dusk = {
             }
           },
           {
-            "name": "maxInsuranceDraw",
-            "type": "u64"
-          },
-          {
             "name": "maxSocializedLoss",
             "type": "u64"
           },
@@ -19017,10 +18744,6 @@ export type Dusk = {
                 "name": "liquidationLossAllocation"
               }
             }
-          },
-          {
-            "name": "insuranceDebit",
-            "type": "u64"
           },
           {
             "name": "surplusCredit",
@@ -19353,13 +19076,9 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "insuranceDrawn",
-            "type": "u64"
-          },
-          {
             "name": "socializedLoss",
             "docs": [
-              "Principal loss after insurance. Unpaid interest is reported separately."
+              "Residual funded principal loss. Unpaid interest is reported separately."
             ],
             "type": "u64"
           },
@@ -19935,151 +19654,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "insurance",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "baseVault",
-            "type": "pubkey"
-          },
-          {
-            "name": "quoteVault",
-            "type": "pubkey"
-          },
-          {
-            "name": "baseAvailable",
-            "type": "u64"
-          },
-          {
-            "name": "quoteAvailable",
-            "type": "u64"
-          },
-          {
-            "name": "baseDrawWindow",
-            "type": {
-              "defined": {
-                "name": "insuranceDrawWindow"
-              }
-            }
-          },
-          {
-            "name": "quoteDrawWindow",
-            "type": {
-              "defined": {
-                "name": "insuranceDrawWindow"
-              }
-            }
-          },
-          {
-            "name": "principalCoverageBps",
-            "docs": [
-              "Maximum share of a borrower/leverage principal shortfall covered by",
-              "insurance. hLP funding claims use their own eligible-loss definition."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "perDayDrawBps",
-            "type": "u16"
-          }
-        ]
-      }
-    },
-    {
-      "name": "insuranceDonated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "donor",
-            "type": "pubkey"
-          },
-          {
-            "name": "asset",
-            "docs": [
-              "`0` for Base and `1` for Quote."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "requestedAmount",
-            "docs": [
-              "Gross amount requested from the donor's token account."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "creditedAmount",
-            "docs": [
-              "Net amount received after any Token-2022 transfer fee."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "availableAfter",
-            "type": "u64"
-          },
-          {
-            "name": "metadata",
-            "type": {
-              "defined": {
-                "name": "marketEventMetadata"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "insuranceDrawWindow",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "initialized",
-            "docs": [
-              "`start_slot` may legitimately be zero in a test or newly started bank;",
-              "keep initialization separate rather than using a sentinel slot."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "startSlot",
-            "docs": [
-              "Start of the nominal 24-hour window, measured in consensus slots."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "openingAvailable",
-            "docs": [
-              "Available insurance at the start of the window, before any draws."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "credited",
-            "docs": [
-              "Net token credits received after the window opened."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "drawn",
-            "docs": [
-              "Gross token amount debited by insurance draws in this window."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "juniorCohort",
       "type": {
         "kind": "struct",
@@ -20209,10 +19783,6 @@ export type Dusk = {
           {
             "name": "exerciseWindowSlots",
             "type": "u64"
-          },
-          {
-            "name": "requestFeeBps",
-            "type": "u16"
           }
         ]
       }
@@ -20628,10 +20198,6 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "insuranceDrawn",
-            "type": "u64"
-          },
-          {
             "name": "socializedLoss",
             "type": "u64"
           },
@@ -21035,11 +20601,7 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "insurance",
-            "type": "u64"
-          },
-          {
-            "name": "lp",
+            "name": "junior",
             "type": "u64"
           }
         ]
@@ -21073,7 +20635,7 @@ export type Dusk = {
       "name": "liquidationLossAllocation",
       "docs": [
         "A completed debt leg. `sale_recovery` is net of the caller reward and actual",
-        "transfer costs. Insurance never pays unpaid borrower/leverage interest."
+        "transfer costs. Unpaid borrower/leverage interest is canceled."
       ],
       "type": {
         "kind": "struct",
@@ -21084,10 +20646,6 @@ export type Dusk = {
           },
           {
             "name": "interestPaid",
-            "type": "u64"
-          },
-          {
-            "name": "insuranceCredit",
             "type": "u64"
           },
           {
@@ -21248,14 +20806,6 @@ export type Dusk = {
           },
           {
             "name": "paymentBalanceBefore",
-            "type": "u64"
-          },
-          {
-            "name": "insuranceBalanceAtQuote",
-            "type": "u64"
-          },
-          {
-            "name": "insuranceTargetAtQuote",
             "type": "u64"
           },
           {
@@ -21604,14 +21154,6 @@ export type Dusk = {
             }
           },
           {
-            "name": "insurance",
-            "type": {
-              "defined": {
-                "name": "insurance"
-              }
-            }
-          },
-          {
             "name": "paramsHash",
             "type": {
               "array": [
@@ -21654,7 +21196,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -21953,14 +21495,6 @@ export type Dusk = {
           },
           {
             "name": "quoteCollateralVault",
-            "type": "pubkey"
-          },
-          {
-            "name": "baseInsuranceVault",
-            "type": "pubkey"
-          },
-          {
-            "name": "quoteInsuranceVault",
             "type": "pubkey"
           },
           {
@@ -22432,19 +21966,6 @@ export type Dusk = {
             ]
           },
           {
-            "name": "insuranceDrawCaps",
-            "fields": [
-              {
-                "name": "principalCoverageBps",
-                "type": "u16"
-              },
-              {
-                "name": "perDayBps",
-                "type": "u16"
-              }
-            ]
-          },
-          {
             "name": "oracle",
             "fields": [
               {
@@ -22459,14 +21980,6 @@ export type Dusk = {
             "fields": [
               {
                 "name": "juniorIncomeShareBps",
-                "type": "u16"
-              },
-              {
-                "name": "requestFeeBps",
-                "type": "u16"
-              },
-              {
-                "name": "liquidationFeeBps",
                 "type": "u16"
               }
             ]
@@ -22936,9 +22449,6 @@ export type Dusk = {
             "name": "centerController"
           },
           {
-            "name": "insurance"
-          },
-          {
             "name": "oracle"
           },
           {
@@ -23024,7 +22534,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -23191,7 +22701,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -23268,7 +22778,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -23310,7 +22820,7 @@ export type Dusk = {
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -26243,18 +25753,14 @@ export type Dusk = {
     {
       "name": "tranchePolicy",
       "docs": [
-        "Governed tranche economics. Exit timing remains protocol-defined; only its",
-        "request/renewal fee is changed through the tranche parameter family."
+        "Governed junior income allocation. Exit timing and the request/renewal and",
+        "liquidation fees remain fixed by the protocol."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "juniorIncomeShareBps",
-            "type": "u16"
-          },
-          {
-            "name": "liquidationFeeBps",
             "type": "u16"
           }
         ]
@@ -26853,11 +26359,6 @@ export type Dusk = {
       "value": "5000"
     },
     {
-      "name": "defaultLiquidationFeeBps",
-      "type": "u16",
-      "value": "100"
-    },
-    {
       "name": "defaultProtocolRevenueShareBps",
       "docs": [
         "Initial DAO share of base swap fees and paid interest, and the protocol",
@@ -26886,9 +26387,9 @@ export type Dusk = {
       "value": "50"
     },
     {
-      "name": "insuranceSeedPrefix",
-      "type": "bytes",
-      "value": "[105, 110, 115, 117, 114, 97, 110, 99, 101]"
+      "name": "juniorExitFeeBps",
+      "type": "u16",
+      "value": "50"
     },
     {
       "name": "juniorMaxNoticeSlots",
@@ -26944,24 +26445,19 @@ export type Dusk = {
       "value": "5000"
     },
     {
+      "name": "liquidationFeeBps",
+      "type": "u16",
+      "value": "300"
+    },
+    {
       "name": "liquidationIncentiveBps",
       "type": "u16",
       "value": "100"
     },
     {
-      "name": "liquidationInsuranceFundingBps",
-      "type": "u16",
-      "value": "200"
-    },
-    {
       "name": "liquidationMaxIncentiveBps",
       "type": "u16",
       "value": "500"
-    },
-    {
-      "name": "liquidationPenaltyBps",
-      "type": "u16",
-      "value": "300"
     },
     {
       "name": "ltvBufferBps",
@@ -27013,12 +26509,11 @@ export type Dusk = {
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 6 keeps an explicit insurance-window initialization flag while",
-        "economic checkpoints use slots. Earlier development layouts must not",
-        "decode as this structure."
+        "Layout 11 removes standalone coverage vaults and their draw windows.",
+        "Credit losses are allocated directly to junior and then senior capital."
       ],
       "type": "u8",
-      "value": "10"
+      "value": "11"
     },
     {
       "name": "marketReserveVaultSeedPrefix",
@@ -27036,34 +26531,9 @@ export type Dusk = {
       "value": "8500"
     },
     {
-      "name": "maxInsuranceDrawPerDayBps",
-      "type": "u16",
-      "value": "5000"
-    },
-    {
-      "name": "maxInsurancePrincipalCoverageBps",
-      "docs": [
-        "Absolute protocol ceilings for insurance-vault loss concentration. Market",
-        "governance may lower either limit, including to zero, but may never raise",
-        "them above these values."
-      ],
-      "type": "u16",
-      "value": "7500"
-    },
-    {
-      "name": "maxJuniorExitFeeBps",
-      "type": "u16",
-      "value": "50"
-    },
-    {
       "name": "maxJuniorIncomeShareBps",
       "type": "u16",
       "value": "9000"
-    },
-    {
-      "name": "maxLiquidationFeeBps",
-      "type": "u16",
-      "value": "300"
     },
     {
       "name": "maxParameterFeeBps",
@@ -27085,19 +26555,9 @@ export type Dusk = {
       "value": "[109, 101, 116, 97, 100, 97, 116, 97]"
     },
     {
-      "name": "minJuniorExitFeeBps",
-      "type": "u16",
-      "value": "1"
-    },
-    {
       "name": "minJuniorIncomeShareBps",
       "type": "u16",
       "value": "1000"
-    },
-    {
-      "name": "minLiquidationFeeBps",
-      "type": "u16",
-      "value": "25"
     },
     {
       "name": "nad",

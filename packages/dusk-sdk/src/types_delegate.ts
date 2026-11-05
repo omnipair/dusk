@@ -4019,102 +4019,6 @@ export type LeverageDelegate = {
       }
     },
     {
-      "name": "insurance",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "baseVault",
-            "type": "pubkey"
-          },
-          {
-            "name": "quoteVault",
-            "type": "pubkey"
-          },
-          {
-            "name": "baseAvailable",
-            "type": "u64"
-          },
-          {
-            "name": "quoteAvailable",
-            "type": "u64"
-          },
-          {
-            "name": "baseDrawWindow",
-            "type": {
-              "defined": {
-                "name": "insuranceDrawWindow"
-              }
-            }
-          },
-          {
-            "name": "quoteDrawWindow",
-            "type": {
-              "defined": {
-                "name": "insuranceDrawWindow"
-              }
-            }
-          },
-          {
-            "name": "principalCoverageBps",
-            "docs": [
-              "Maximum share of a borrower/leverage principal shortfall covered by",
-              "insurance. hLP funding claims use their own eligible-loss definition."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "perDayDrawBps",
-            "type": "u16"
-          }
-        ]
-      }
-    },
-    {
-      "name": "insuranceDrawWindow",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "initialized",
-            "docs": [
-              "`start_slot` may legitimately be zero in a test or newly started bank;",
-              "keep initialization separate rather than using a sentinel slot."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "startSlot",
-            "docs": [
-              "Start of the nominal 24-hour window, measured in consensus slots."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "openingAvailable",
-            "docs": [
-              "Available insurance at the start of the window, before any draws."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "credited",
-            "docs": [
-              "Net token credits received after the window opened."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "drawn",
-            "docs": [
-              "Gross token amount debited by insurance draws in this window."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "juniorExitConfig",
       "type": {
         "kind": "struct",
@@ -4130,10 +4034,6 @@ export type LeverageDelegate = {
           {
             "name": "exerciseWindowSlots",
             "type": "u64"
-          },
-          {
-            "name": "requestFeeBps",
-            "type": "u16"
           }
         ]
       }
@@ -4679,14 +4579,6 @@ export type LeverageDelegate = {
             }
           },
           {
-            "name": "insurance",
-            "type": {
-              "defined": {
-                "name": "insurance"
-              }
-            }
-          },
-          {
             "name": "paramsHash",
             "type": {
               "array": [
@@ -4729,7 +4621,7 @@ export type LeverageDelegate = {
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -5955,18 +5847,14 @@ export type LeverageDelegate = {
     {
       "name": "tranchePolicy",
       "docs": [
-        "Governed tranche economics. Exit timing remains protocol-defined; only its",
-        "request/renewal fee is changed through the tranche parameter family."
+        "Governed junior income allocation. Exit timing and the request/renewal and",
+        "liquidation fees remain fixed by the protocol."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "juniorIncomeShareBps",
-            "type": "u16"
-          },
-          {
-            "name": "liquidationFeeBps",
             "type": "u16"
           }
         ]

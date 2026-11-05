@@ -60,7 +60,6 @@ export const SEEDS = {
   // Stable PDA namespace, shared with the program.
   HLP_SRLP_VAULT: Buffer.from("hlp_ylp_vault"),
   HLP_COHORT: Buffer.from("hlp_cohort"),
-  INSURANCE: Buffer.from("insurance"),
   EVENT_AUTHORITY: Buffer.from("__event_authority"),
   FUTARCHY_AUTHORITY: Buffer.from("futarchy_authority"),
   REFERRAL_PARTNER: Buffer.from("referral_partner"),
@@ -683,20 +682,6 @@ export function deriveHlpSrlpVaultAddress(
       srlpMint.toBuffer(),
     ],
     DUSK_PROGRAM_ID
-  );
-}
-
-/**
- * Derive insurance PDA address
- */
-export function deriveInsuranceAddress(
-  market: PublicKey,
-  assetMint: PublicKey,
-  programId: PublicKey = DUSK_PROGRAM_ID
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.INSURANCE, market.toBuffer(), assetMint.toBuffer()],
-    programId
   );
 }
 

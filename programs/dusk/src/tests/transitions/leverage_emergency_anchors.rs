@@ -39,20 +39,11 @@ fn margin_calibration_native_terminal_anchors() {
                         debt_asset,
                         debt_shares: position.debt_shares,
                         debt_principal: position.debt_principal,
-                        insurance_credit: 0,
+
                     },
                 );
                 let receipt = market
-                    .liquidate_leverage_position(
-                        &mut position,
-                        Some(prepared),
-                        collateral,
-                        full_fee_credit(&quote),
-                        LeverageInsuranceDraw::default(),
-                        0,
-                        ProtocolAuctionSplit::default(),
-                        1,
-                    )
+                    .liquidate_leverage_position(&mut position, Some(prepared), collateral, full_fee_credit(&quote), 0, ProtocolAuctionSplit::default(), 1)
                     .unwrap();
                 let loss = debt - quote.amount_out;
                 assert_eq!(receipt.socialized_loss, loss);

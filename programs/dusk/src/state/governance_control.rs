@@ -49,10 +49,7 @@ pub struct GovernanceControl {
     pub baseline_initialized: bool,
     /// Per-family LP-approved references, never an executable market snapshot.
     pub baseline_config: crate::state::MarketConfig,
-    pub baseline_insurance_principal_coverage_bps: u16,
-    pub baseline_insurance_per_day_bps: u16,
     pub baseline_tranche_policy: crate::state::TranchePolicy,
-    pub baseline_junior_request_fee_bps: u16,
     pub pending: Option<PendingBundle>,
     pub has_manager_announcement: bool,
     pub last_manager_announcement: i64,

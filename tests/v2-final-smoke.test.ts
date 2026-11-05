@@ -69,7 +69,6 @@ import {
   deriveCancellationBallotAddress,
   deriveProposalSupportAddress,
   deriveHlpSrlpVaultAddress,
-  deriveInsuranceAddress,
   deriveMarketAddress,
   deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
@@ -102,7 +101,7 @@ import { DuskTranches } from "../packages/dusk-sdk/src/tranche-client.js";
 import { DuskYield } from "../packages/dusk-sdk/src/yield-client.js";
 import { DuskLiquidations } from "../packages/dusk-sdk/src/liquidation-client.js";
 import { DuskGovernance } from "../packages/dusk-sdk/src/governance-client.js";
-import { dailyBorrowLimitParameterUpdate, feeParameterUpdate, irmParameterUpdate, concentrationParameterUpdate, emaHalfLivesParameterUpdate, centerControllerParameterUpdate, insuranceDrawCapsParameterUpdate, trancheParameterUpdate, verifyDecodedParameterProposalDigest, verifyDecodedExecutionDigest } from "../packages/dusk-sdk/src/governance.js";
+import { dailyBorrowLimitParameterUpdate, feeParameterUpdate, irmParameterUpdate, concentrationParameterUpdate, emaHalfLivesParameterUpdate, centerControllerParameterUpdate, trancheParameterUpdate, verifyDecodedParameterProposalDigest, verifyDecodedExecutionDigest } from "../packages/dusk-sdk/src/governance.js";
 import { DuskWrite } from "../packages/dusk-sdk/src/write.js";
 import { marketCreationLookupTablePlan, marketCreationV0Transaction, parameterProposalV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
@@ -1035,8 +1034,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const quoteReserveVault = deriveMarketReserveVaultAddress(market, quoteMint)[0];
     const baseCollateralVault = deriveMarketCollateralVaultAddress(market, baseMint)[0];
     const quoteCollateralVault = deriveMarketCollateralVaultAddress(market, quoteMint)[0];
-    const baseInsuranceVault = deriveInsuranceAddress(market, baseMint)[0];
-    const quoteInsuranceVault = deriveInsuranceAddress(market, quoteMint)[0];
     const baseInterestVault = deriveMarketInterestVaultAddress(market, baseMint)[0];
     const quoteInterestVault = deriveMarketInterestVaultAddress(market, quoteMint)[0];
 
@@ -1067,8 +1064,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         quoteReserveVault,
         baseCollateralVault,
         quoteCollateralVault,
-        baseInsuranceVault,
-        quoteInsuranceVault,
+
         baseInterestVault,
         quoteInterestVault,
         teamTreasury,
@@ -1119,7 +1115,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       try {await connection.sendTransaction(versionedTx);} catch(e) {error=e;}
       expect(String(error)).to.include(expectedError);
       for (const key of [market,baseReserveVault,quoteReserveVault,baseCollateralVault,quoteCollateralVault,
-        baseInsuranceVault,quoteInsuranceVault,baseInterestVault,quoteInterestVault,
+        baseInterestVault,quoteInterestVault,
         srlpTokenMetadata,baseHlpTokenMetadata,quoteHlpTokenMetadata]) expect(svm.getAccount(key)).to.equal(null);
       expect(Buffer.from(svm.getAccount(teamTreasuryWsolAccount)!.data).equals(treasuryBefore)).to.equal(true);
     } else {
@@ -1148,8 +1144,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       quoteReserveVault,
       baseCollateralVault,
       quoteCollateralVault,
-      baseInsuranceVault,
-      quoteInsuranceVault,
+
       baseInterestVault,
       quoteInterestVault,
     };
@@ -2234,21 +2229,21 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       action: { kind: "requestExit", additionalJunior: 10_000 } });
     await connection.sendTransaction(request.transaction, [payer]);
     const queued = await sdkProgram.account.juniorExitAccount.fetch(request.exit);
-    expect(queued.ticket.receipts.toString()).to.equal("9995");
+    expect(queued.ticket.receipts.toString()).to.equal("9950");
     const afterRequest = await sdkProgram.account.market.fetch(f.market);
     expect(afterRequest.tranches.juniorReserveShares.toString()).to.equal("20141");
-    expect(afterRequest.tranches.permanentReceipts.toString()).to.equal("146");
+    expect(afterRequest.tranches.permanentReceipts.toString()).to.equal("191");
     const early = await tranches.convert({ market: f.market, owner: payer.publicKey,
-      action: { kind: "convertExit", minimumSenior: 9_995 } });
+      action: { kind: "convertExit", minimumSenior: 9_950 } });
     let rejected = false;
     try { await connection.sendTransaction(early.transaction, [payer]); } catch { rejected = true; }
     expect(rejected).to.equal(true);
     svm.warpToSlot(BigInt(queued.ticket.readyAt.toString()));
     svm.expireBlockhash();
     const convert = await tranches.convert({ market: f.market, owner: payer.publicKey,
-      action: { kind: "convertExit", minimumSenior: 9_995 } });
+      action: { kind: "convertExit", minimumSenior: 9_950 } });
     await connection.sendTransaction(convert.transaction, [payer]);
-    expect((await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(seniorBefore - 10_005n);
+    expect((await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(seniorBefore - 10_050n);
     const final = await sdkProgram.account.market.fetch(f.market);
     expect(final.tranches.queuedReceipts.toString()).to.equal("0");
     expect(final.baseSide.shares.srlpSupply.toString()).to.equal(initial.baseSide.shares.srlpSupply.toString());
@@ -2267,7 +2262,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(rejected).to.equal(true);
     const cancel = await tranches.convert({ market: f.market, owner: payer.publicKey, action: { kind: "cancelExit" } });
     await connection.sendTransaction(cancel.transaction, [payer]);
-    expect((await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(10_000n);
+    expect((await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(9_995n);
   });
 
   it("funds and compounds the junior seed before any public junior depositor, preserving old senior income", async function () {
@@ -2494,40 +2489,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       TOKEN_2022_PROGRAM_ID
     );
     expect(ownerSrlp.amount).to.equal(140_280n);
-  });
-
-  it("accepts permissionless insurance donations", async function () {
-    const fixture = await addBalancedLiquidity(121);
-    const beforeAccount = svm.getAccount(fixture.market);
-    expect(beforeAccount).to.not.equal(null);
-    const before = accountCoder.decode("Market", Buffer.from(beforeAccount!.data)) as any;
-
-    const tx = await program.methods
-      .fortifyMarket({
-        asset: 0,
-        amount: new BN(1_234),
-      })
-      .accounts({
-        market: fixture.market,
-        donor: payer.publicKey,
-        assetMint: fixture.baseMint,
-        donorAssetAccount: fixture.ownerBaseAccount,
-        insuranceVault: fixture.baseInsuranceVault,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(tx, [payer]);
-    trackV2Instruction("fortifyMarket", this.test?.title);
-
-    const afterAccount = svm.getAccount(fixture.market);
-    expect(afterAccount).to.not.equal(null);
-    const after = accountCoder.decode("Market", Buffer.from(afterAccount!.data)) as any;
-    expect(after.insurance.base_available.toNumber()).to.equal(
-      before.insurance.base_available.toNumber() + 1_234
-    );
   });
 
   it("returns typed preview data for market state and swap quotes", async function () {
@@ -6302,7 +6263,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(recovery.hlpRecoveryBonusOutput.toNumber()).to.be.greaterThan(0);
   });
 
-
   it("settles vault-wide hLP flash recovery atomically with SDK quotes and fee tokens", async function () {
     this.timeout(180_000);
     const raw = (v: any) => BigInt(v.toString());
@@ -6453,7 +6413,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
           expect(raw(e[`${side}HlpSrlpBurned`]) > 0n).to.equal(true);
           expect(raw(v.srlp_shares)).to.equal(0n); expect(raw(v.debt_shares)).to.equal(0n);
           expect(raw(v.hlp_supply)).to.equal(raw(m[`${side}_hlp_vault`].hlp_supply));
-          expect(raw(e.loss.insuranceCredit)).to.equal(0n);
           expect(raw(e.loss.interestCanceled) > 0n).to.equal(true);
         }
         expect(raw(after[`${side}_side`].reserves.flash_receivable)).to.equal(0n);
@@ -6566,7 +6525,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const tx = await program.methods
       .closeInsolventHlp({
         targetAsset: 0,
-        maxInsuranceDraw: new BN(0),
+
         maxSocializedLoss: new BN("18446744073709551615"),
         minCallerBountyOut: new BN(1),
       })
@@ -6577,7 +6536,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         borrowedMint: fixture.quoteMint,
         borrowedReserveVault: fixture.quoteReserveVault,
         borrowedInterestVault: fixture.quoteInterestVault,
-        insuranceVault: fixture.quoteInsuranceVault,
+
         callerBountyAccount: fixture.ownerQuoteAccount,
         srlpMint: fixture.srlpMint,
         targetHlpSrlpVault: fixture.baseHlpSrlpVault,
@@ -6681,13 +6640,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     await connection.sendTransaction(await program.methods.closeInsolventHlp({
       targetAsset: 0,
-      maxInsuranceDraw: new BN(0),
+
       maxSocializedLoss: new BN("18446744073709551615"),
       minCallerBountyOut: new BN(1),
     }).accounts({
       market: fixture.market, futarchyAuthority, caller: payer.publicKey,
       borrowedMint: fixture.quoteMint, borrowedReserveVault: fixture.quoteReserveVault,
-      borrowedInterestVault: fixture.quoteInterestVault, insuranceVault: fixture.quoteInsuranceVault,
+      borrowedInterestVault: fixture.quoteInterestVault,
       callerBountyAccount: fixture.ownerQuoteAccount, srlpMint: fixture.srlpMint,
       targetHlpSrlpVault: fixture.baseHlpSrlpVault, tokenProgram: TOKEN_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
@@ -8739,7 +8698,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       collateralMint: debtAsset === 1 ? f.baseMint : f.quoteMint, debtMint: debtAsset === 1 ? f.quoteMint : f.baseMint, buyer: payer.publicKey, collateralVault,
       reserveVault: debtAsset === 1 ? f.quoteReserveVault : f.baseReserveVault,
       interestVault: debtAsset === 1 ? f.quoteInterestVault : f.baseInterestVault,
-      insuranceVault: debtAsset === 1 ? f.quoteInsuranceVault : f.baseInsuranceVault,
+
       buyerCollateralAccount: debtAsset === 1 ? f.ownerBaseAccount : f.ownerQuoteAccount, buyerRefundAccount: rewardAccount,
       ownerDebtAccount: debtAsset === 1 ? f.ownerQuoteAccount : f.ownerBaseAccount,
       futarchyAuthority, referralPartner: null, referralAccrual: null,
@@ -8854,7 +8813,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const { quote, event } = await executeFlash(fixture, borrowPosition, false, fixture.baseCollateralVault, 1_000);
     expect(event.debtRepaid.toNumber()).to.be.within(999, 1000);
     expect(event.remainingDebt.gt(new BN(0))).to.equal(true);
-    expect(event.fee.total.toNumber()).to.equal(Math.floor(event.debtRepaid.toNumber() / 100));
+    expect(event.fee.total.toNumber()).to.equal(Math.floor(event.debtRepaid.toNumber() * 3 / 100));
     const after = (await getAccount(connection as any, fixture.ownerBaseAccount)).amount;
     expect(after - before).to.equal(BigInt(quote.collateralCredit.toString()));
   });
@@ -9966,21 +9925,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const fixture = await addBalancedLiquidity(235, marketConfig(), undefined, 6, TOKEN_2022_PROGRAM_ID,
       { base: baseMint, quote: quoteMint });
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(fixture);
-    await connection.sendTransaction(await program.methods.fortifyMarket({
-      asset: 1,
-      amount: new BN(2_000),
-    }).accounts({
-      market: fixture.market,
-      donor: payer.publicKey,
-      assetMint: quoteMint,
-      donorAssetAccount: fixture.ownerQuoteAccount,
-      insuranceVault: fixture.quoteInsuranceVault,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      token2022Program: TOKEN_2022_PROGRAM_ID,
-      eventAuthority: eventAuthority(),
-      program: DUSK_PROGRAM_ID,
-    }).transaction(), [payer]);
-    const insuranceBefore = await getAccount(connection as any, fixture.quoteInsuranceVault, undefined, TOKEN_2022_PROGRAM_ID);
     await connection.sendTransaction(new Transaction().add(
       createSetTransferFeeInstruction(baseMint, payer.publicKey, [], 10_000, 1_000_000n, TOKEN_2022_PROGRAM_ID)
     ), [payer]);
@@ -9994,13 +9938,19 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const liquidatorDebtAccount = await createAccount(
       connection as any, payer, quoteMint, payer.publicKey, Keypair.generate(), undefined, TOKEN_2022_PROGRAM_ID
     );
+    const marketBefore = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    const seniorSupplyBefore = (await getMint(connection as any, fixture.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply;
+    const reserveBefore = (await getAccount(connection as any, fixture.quoteReserveVault, undefined, TOKEN_2022_PROGRAM_ID)).amount;
     const { tx, quote: liquidated } = await executeEmergency(fixture, leveragePosition, true, leverageCollateralVault, liquidatorDebtAccount);
+    const marketAfter = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    expect(marketBefore.tranches.junior_reserve_shares.gt(new BN(0))).to.equal(true);
+    expect(marketAfter.tranches.junior_reserve_shares.isZero()).to.equal(true);
+    expect(marketAfter.base_side.shares.srlp_supply.eq(marketBefore.base_side.shares.srlp_supply.sub(marketBefore.tranches.junior_reserve_shares))).to.equal(true);
+    expect(marketAfter.quote_side.shares.srlp_supply.eq(marketAfter.base_side.shares.srlp_supply)).to.equal(true);
+    expect((await getMint(connection as any, fixture.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(seniorSupplyBefore);
+    expect((await getAccount(connection as any, fixture.quoteReserveVault, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(reserveBefore);
     expect(liquidated.swapOutput.toNumber()).to.equal(0);
-    expect(liquidated.insuranceDebit.toNumber()).to.be.greaterThan(0);
     expect(liquidated.loss.principalWrittenOff.toNumber()).to.be.greaterThan(0);
-    expect(liquidated.loss.principalWrittenOff.toNumber()).to.be.greaterThan(0);
-    const insuranceAfter = await getAccount(connection as any, fixture.quoteInsuranceVault, undefined, TOKEN_2022_PROGRAM_ID);
-    expect(insuranceBefore.amount - insuranceAfter.amount).to.equal(BigInt(liquidated.insuranceDebit.toString()));
     expect(cpiEvents(tx).filter((event) => event.name === "swapExecuted")).to.have.length(0);
     expect((accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any).debt_shares.toString()).to.equal("0");
   });
@@ -10625,7 +10575,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
   }
 
-  for (const referenceValue of [1_000_000n, 959_500n]) {
+  for (const referenceValue of [1_000_000n, 985_000n]) {
     it(`settles a health-only affordable flash discount at reference value ${referenceValue}`, async function () {
       const f = await addBalancedLiquidity(271, marketConfig(), {
         baseDeposit: 100_000_000, quoteDeposit: 200_000_000, minSrlp: 1,
@@ -10698,7 +10648,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), leveragePosition.toBuffer()], DUSK_PROGRAM_ID)[0];
     const repaymentVault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), leveragePosition.toBuffer(), f.quoteMint.toBuffer()], DUSK_PROGRAM_ID)[0];
     const accounts = { ...readAccounts, buyer: payer.publicKey, collateralVault: leverageCollateralVault,
-      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault, insuranceVault: f.quoteInsuranceVault,
+      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault,
       buyerCollateralAccount: f.ownerBaseAccount, buyerRefundAccount: f.ownerQuoteAccount, ownerDebtAccount: f.ownerQuoteAccount,
       futarchyAuthority, referralPartner: null, referralAccrual: null,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram: TOKEN_PROGRAM_ID };
@@ -10719,7 +10669,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
       eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).instruction();
     const snapshot = () => [f.market, leveragePosition, leverageCollateralVault, f.ownerBaseAccount,
-      f.quoteReserveVault, f.quoteInsuranceVault].map(key => Buffer.from(svm.getAccount(key)!.data).toString("hex"));
+      f.quoteReserveVault].map(key => Buffer.from(svm.getAccount(key)!.data).toString("hex"));
     const before = snapshot();
     let rejected = false;
     try { await connection.sendTransaction(new Transaction().add(prefix, begin), [payer]); } catch { rejected = true; }
@@ -10787,7 +10737,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), leveragePosition.toBuffer()], DUSK_PROGRAM_ID)[0];
     const repaymentVault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), leveragePosition.toBuffer(), f.quoteMint.toBuffer()], DUSK_PROGRAM_ID)[0];
     const accounts = { ...readAccounts, buyer: payer.publicKey, collateralVault: leverageCollateralVault,
-      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault, insuranceVault: f.quoteInsuranceVault,
+      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault,
       buyerCollateralAccount: f.ownerBaseAccount, buyerRefundAccount: f.ownerQuoteAccount, ownerDebtAccount: f.ownerQuoteAccount,
       futarchyAuthority, referralPartner: null, referralAccrual: null,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram: TOKEN_PROGRAM_ID };
@@ -10846,7 +10796,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(quote.fee.total.toString()).to.equal("0");
     const callerAccount = await createAccount(connection as any, payer, f.quoteMint, payer.publicKey, Keypair.generate());
     const accounts = { ...readAccounts, buyer: payer.publicKey, collateralVault: leverageCollateralVault,
-      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault, insuranceVault: f.quoteInsuranceVault,
+      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault,
       buyerCollateralAccount: f.ownerBaseAccount, buyerRefundAccount: callerAccount, ownerDebtAccount: f.ownerQuoteAccount,
       futarchyAuthority, referralPartner: null, referralAccrual: null,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram: TOKEN_PROGRAM_ID };
@@ -10859,7 +10809,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("emergencyLiquidation", this.test?.title);
     const event = cpiEvent(tx, "emergencyLiquidationSettled");
     expect(event.quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
-    expect(event.quote.loss.insuranceCredit.toString()).to.equal("0");
     expect((await getAccount(connection as any, callerAccount)).amount).to.equal(BigInt(quote.rewardCredit.toString()));
     const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
     expect(after.debt_shares.toString()).to.equal("0");
@@ -10884,7 +10833,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const positionAccount = svm.getAccount(leveragePosition)!;
       const position = accountCoder.decode("LeveragePosition",Buffer.from(positionAccount.data)) as any;
       const debt = BigInt(position.debt_shares.toString()) * BigInt(market.debt.quote_borrow_index_nad.toString()) / 1_000_000_000n;
-      const value = (debt * 10_000n + 9_699n) / 9_700n; // 3% positive EMA equity.
+      const value = (debt * 10_000n + 9_599n) / 9_600n; // 4% positive EMA equity with the fixed 3% charge.
       const price = (value * 1_000_000_000n + BigInt(position.collateral_amount.toString()) - 1n) / BigInt(position.collateral_amount.toString());
       market.risk.base_price_ema_nad = new BN(price.toString());
       market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n/price).toString());
@@ -10916,7 +10865,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }}
   });
 
-  it("concentrated flash fees reach both hLP holders and emergency partials preserve the live position", async function () {
+  it("concentrated flash fees reach junior without changing hLP income and emergency partials preserve the live position", async function () {
     const config = marketConfig();
     config.amm.peakAmplificationNad = new BN(4_000_000_000);
     config.amm.coreHalfWidthBps = 100; config.amm.fadeWidthBps = 400;
@@ -10925,10 +10874,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await openBaseHedge(f, 100_000_000);
     await openQuoteHedge(f, 200_000_000);
     const { leveragePosition, leverageCollateralVault } = await openQuoteDebtLeverage(f, 1_000_000, hlpSwapAccounts(f));
-    await connection.sendTransaction(await program.methods.fortifyMarket({ asset: 1, amount: new BN(50_000_000) })
-      .accounts({ market: f.market, donor: payer.publicKey, assetMint: f.quoteMint, donorAssetAccount: f.ownerQuoteAccount,
-        insuranceVault: f.quoteInsuranceVault, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).transaction(), [payer]);
     const seedValue = async (value: bigint) => {
       const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
       const account = svm.getAccount(f.market)!;
@@ -10948,11 +10893,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     };
     const before = await seedValue(1_064_000n);
     const { event } = await executeFlash(f, leveragePosition, true, leverageCollateralVault, 100_000);
-    expect(event.fee.lp.gt(new BN(0))).to.equal(true);
-    expect(event.fee.insurance.toString()).to.equal("0");
+    expect(event.fee.junior.gt(new BN(0))).to.equal(true);
+    expect(event.fee.junior.toString()).to.equal((BigInt(event.fee.total.toString()) - BigInt(event.fee.protocol.toString())).toString());
     const after = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
     for (const vault of ["base_hlp_vault", "quote_hlp_vault"]) {
-      expect(after[vault].quote_interest_growth_index_q64.gt(before[vault].quote_interest_growth_index_q64)).to.equal(true);
+      expect(after[vault].quote_interest_growth_index_q64.eq(before[vault].quote_interest_growth_index_q64)).to.equal(true);
     }
     await seedValue(938_000n); // approximately 4% equity on the remaining 900k debt
     const sdk = new DuskLiquidations(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
@@ -11070,12 +11015,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     // At 4.76% equity a depressed live spot quote is no longer enough to
     // authorize full closure: the reference curve can still support partials.
     await setEmaValue(1_050n);
-    const partial = await sdk.preview({ ...request, maxRepayment: 100n, full: false });
+    const partial = await sdk.preview({ ...request, maxRepayment: 200n, full: false });
     expect(partial.repayment.gt(new BN(0))).to.equal(true);
     let referenceFullError: any;
     try { await sdk.previewEmergency(request); } catch (error) { referenceFullError = error; }
     expect(referenceFullError?.simulation?.value?.logs?.join("\n")).to.include("LiquidationRepayTooLarge");
-    const referencePartial = await sdk.previewEmergency({ ...request, collateralDebit: 50n, full: false });
+    const referencePartial = await sdk.previewEmergency({ ...request, collateralDebit: 100n, full: false });
     expect(referencePartial.repayment.gt(new BN(0))).to.equal(true);
     // A genuinely shallower depth EMA can make recovery impossible. Keep the
     // EMA price/health unchanged and verify the approved full fallback then.
@@ -11725,8 +11670,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         irmParameterUpdate({...state.config.irm, halfLifeMs: 7 * 86_400_000, initialAprNad: 50_000_000}),
         emaHalfLivesParameterUpdate({priceMs: 120_000, directionalPriceMs: 120_000, curveDepthMs: 120_000, centerPriceMs: 120_000}),
         dailyBorrowLimitParameterUpdate(1_500), centerControllerParameterUpdate({adjustmentThresholdNad: 5_000_000, adjustmentStepNad: 500_000, minAdjustmentIntervalSlots: 36_000}),
-        insuranceDrawCapsParameterUpdate({principalCoverageBps: 7_000, perDayBps: 4_500}),
-        trancheParameterUpdate({juniorIncomeShareBps: 6_000, requestFeeBps: state.juniorExitConfig.requestFeeBps + 5, liquidationFeeBps: 125})]});
+        trancheParameterUpdate({juniorIncomeShareBps: 6_000})]});
     const forwarded = forward(maximum.instruction);
     const lastHash = svm.getSlotHashes()[0]; lastHash.slot = svm.getClock().slot;
     lastHash.hash = (await connection.getLatestBlockhash()).blockhash; svm.setSlotHashes([lastHash]);
@@ -11742,13 +11686,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(measured.computeUnits < LITESVM_COMPUTE_UNIT_LIMIT).to.equal(true);
     expect(v0.serialize().length).to.be.at.most(1_232);
     const allQueued = await get.parameterProposal(maximum.proposal);
-    expect(allQueued.updates).to.have.length(8);
+    expect(allQueued.updates).to.have.length(7);
     expect(BigInt(allQueued.executeAfter.sub(allQueued.queuedAt).toString())).to.equal(4_752_000n);
     managerAtProposal(allQueued);
     await send(await writer.executeParameterProposal({market: f.market, proposal: maximum.proposal}));
     expect((await get.parameterProposal(maximum.proposal)).status).to.have.property("executed");
     const final = await sdkProgram.account.market.fetch(f.market);
-    expect(final.parameterRevisions.map(value => value.toNumber())).to.deep.equal([2, 1, 1, 1, 1, 1, 1, 0, 1]);
+    expect(final.parameterRevisions.map(value => value.toNumber())).to.deep.equal([2, 1, 1, 1, 1, 1, 0, 1]);
     expect(final.config.amm.adjustmentStepNad.toString()).to.equal("500000");
     expect(final.tranchePolicy.juniorIncomeShareBps).to.equal(6_000);
   });
@@ -11816,10 +11760,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
             },
           },
           {
-            insuranceDrawCaps: {
-              principalCoverageBps: 1_000,
-              perDayBps: 3_000,
-            },
+            tranche: { juniorIncomeShareBps: 4_500 },
           },
         ],
         metadata: {
@@ -11856,12 +11797,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const stored = accountCoder.decode("ParameterProposal", Buffer.from(svm.getAccount(proposal)!.data)) as any;
     expect(created.updates).to.deep.equal([
       { dailyBorrowLimit: { maxDailyBorrowBps: 1_900 } },
-      { insuranceDrawCaps: { principalCoverageBps: 1_000, perDayBps: 3_000 } },
+      { tranche: { juniorIncomeShareBps: 4_500 } },
     ]);
     expect(stored.updates).to.have.length(2);
+    expect(stored.updates[1].Tranche.junior_income_share_bps).to.equal(4_500);
     expect(stored.updates[0].DailyBorrowLimit.max_daily_borrow_bps).to.equal(1_900);
-    expect(stored.updates[1].InsuranceDrawCaps.principal_coverage_bps).to.equal(1_000);
-    expect(stored.updates[1].InsuranceDrawCaps.per_day_bps).to.equal(3_000);
     expect(created.familyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
       stored.family_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
     );
@@ -11992,7 +11932,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(earlyExecutionRejected).to.equal(true);
 
     const clock = svm.getClock();
-    clock.unixTimestamp += 7n * 24n * 60n * 60n + 1n;
+    clock.unixTimestamp = BigInt(cpiEvent(supportTx, "parameterProposalQueued").executeAfter.toString()) + 1n;
     svm.setClock(clock);
     svm.expireBlockhash();
 
@@ -12015,17 +11955,16 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(maturedExecuteTx, [payer]);
     const executed = cpiEvent(maturedExecuteTx, "parameterProposalExecuted");
     expect(executed.proposal.toString()).to.equal(proposal.toString());
-    expect(Array.from(executed.families)).to.deep.equal([4, 6]);
+    expect(Array.from(executed.families)).to.deep.equal([4, 7]);
     trackV2Instruction("executeParameterProposal", this.test?.title);
 
     marketAccount = svm.getAccount(fixture.market);
     expect(marketAccount).to.not.equal(null);
     market = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
     expect(market.config.max_daily_borrow_bps).to.equal(1_900);
-    expect(market.insurance.principal_coverage_bps).to.equal(1_000);
-    expect(market.insurance.per_day_draw_bps).to.equal(3_000);
     expect(market.parameter_revisions[4].toNumber()).to.equal(1);
-    expect(market.parameter_revisions[6].toNumber()).to.equal(1);
+    expect(market.parameter_revisions[7].toNumber()).to.equal(1);
+    expect(market.tranche_policy.junior_income_share_bps).to.equal(4_500);
     expect(executed.newFamilyRevisions.map((revision: { toNumber(): number }) => revision.toNumber())).to.deep.equal(
       market.parameter_revisions.map((revision: { toNumber(): number }) => revision.toNumber())
     );

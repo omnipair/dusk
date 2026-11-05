@@ -119,3 +119,16 @@ fn tranche_capital_encoding_matches_fixed_borsh_field_order() {
     assert_eq!(TrancheCapital::try_from_slice(&expected).unwrap(), capital);
     assert!(TrancheCapital::try_from_slice(&expected[..39]).is_err());
 }
+
+#[test]
+fn junior_can_be_fully_wiped_in_one_loss_before_senior_pays_the_remainder() {
+    let mut capital = TrancheCapital::default();
+    let mut total = 100;
+    capital.enter(60, total).unwrap();
+    let loss = capital.absorb_loss(100, 100, &mut total).unwrap();
+    assert!(loss.junior_wiped);
+    assert_eq!(loss.junior_value_before, 60);
+    assert_eq!(loss.senior_loss_value, 40);
+    assert_eq!(capital.junior_reserve_shares, 0);
+    assert_eq!(total, 40);
+}

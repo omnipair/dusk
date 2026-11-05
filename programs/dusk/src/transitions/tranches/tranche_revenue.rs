@@ -7,7 +7,7 @@ pub enum TrancheRevenueSource {
     BorrowInterest,
     /// LP-directed swap revenue after protocol cuts and measured transfer fees.
     SwapFee,
-    /// Only the former insurance-fill portion of a liquidation allocation.
+    /// The junior underwriting portion of a liquidation allocation.
     LiquidationCoverage,
 }
 

@@ -1,5 +1,10 @@
 # Flash liquidation settlement contract
 
+> Historical design record. Standalone coverage vaults, caps, target/taper, and
+> donation instructions described below were removed on 5 November 2026.
+> The [current loss and fee contract](CREDIT_LOSS_WATERFALL.md) supersedes those
+> portions; current instruction binding is documented in the program README.
+
 **2026-10-30 superseding policy:** incentives now depend only on current health.
 The distress clock and observation transaction are removed. Older timing clauses
 below are historical. See [health-only liquidation](HEALTH_ONLY_LIQUIDATION.md).
@@ -149,7 +154,7 @@ flash instructions is still required. The following gates remain material:
 | --- | --- |
 | Spendable cash | A focused native test obtains a curve quote backed partly by debt receivables, then observes `InsufficientLiquidity` during actual spot preparation. Existing `Close`/`Liquidate` cash policies already net debt internally; this spot rejection does not prove those policies would fail. Validate the policy selected for the redesign, including hLP interest floors and physical payouts; a curve quote alone is insufficient. |
 | hLP and recentering | The starting-debt mismatch is corrected: quotes retain recorded indexed hLP debt, funding is reserved once, and recenter funding projects the actual post-deployment state. All 576 native paths replay without the prior reserve-identity rejections. Seeded solvent and loss-taking anchors succeed in both debt directions. Preserve these regressions and the unchanged reconciliation guard when implementing the new instruction paths. |
-| Loss accounting | Current native liquidation can clear debt, consume insurance and rebase the concentrated curve/hLP after principal loss. Its existing proportional realized-interest allocation is not the selected principal-first waterfall. Implement and test funded interest, canceled interest, principal-only insurance and fee/referral treatment; the new economic sweep freezes accrual and cannot validate these changes. |
+| Loss accounting | Current native liquidation can clear debt, consume insurance and rebase the concentrated curve/hLP after principal loss. Its existing proportional realized-interest allocation is not the selected principal-first waterfall. Implement and test funded interest, canceled interest, junior-first principal loss allocation and fee/referral treatment; the new economic sweep freezes accrual and cannot validate these changes. |
 | Concurrent state changes | An hLP transition is tied to specific curve revisions, LP supply and hLP shares/debt. A plan prepared at flash begin cannot simply be applied after allowed LP/parameter/other-position operations. Keep the original payment/debt obligation bound, then prepare valid settlement accounting against current shared state with reservations intact. |
 | Instruction boundary | Native state tests do not exercise transfer-fee CPIs, session account lifecycle, token-account aliasing, exact begin/settle pairing, compute/account limits or concurrent instruction ordering. These remain required integration tests for the new entrypoints and previews. |
 

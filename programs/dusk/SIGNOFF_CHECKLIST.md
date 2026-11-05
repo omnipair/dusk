@@ -45,7 +45,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   yield and the payer's burn legs, including exact target-side shortfall
   conversion, bear the cost without an additional shared-live debit.
 - Re-check passive interest-driven hLP insolvency and terminal loss recovery:
-  `close_insolvent_hlp` must honor caller-supplied insurance/socialized-loss
+  `close_insolvent_hlp` must honor caller-supplied socialized-loss
   bounds and pay only the bounded caller bounty from recovered funding interest.
 - Review reserve conservation across executable cash, swap-fee custody, and
   both source-scoped hLP backing inventories. Confirm projected aggregate
@@ -64,7 +64,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   and execution window, family revisions, terminal remint, and the 80%
   utilization execution guard.
 - Review fixed debt, bounded global-health contributions, stored liquidation
-  CFs, normalized valuation, and liquidation/insurance/socialization accounting.
+  CFs, normalized valuation, and liquidation/junior-first loss accounting.
 - Review Token-2022 constraints and measured inventory-credit settlement.
 - Review concentrated-path SBF compute reports and minimum useful token
   precision/depth tests.
@@ -78,7 +78,7 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 ## App / Front-End
 
 - Route new Dusk market creation, liquidity, swap, lending, liquidation,
-  insurance, yield, protocol-fee, and hedge flows to `DUSK_PROGRAM_ID`.
+  tranche, yield, protocol-fee, and hedge flows to `DUSK_PROGRAM_ID`.
 - Do not sort Dusk market mints client-side; creator-chosen base/quote order
   defines the market and displayed price direction.
 - Display srLP as floating reserve-side yield LP shares.
@@ -105,11 +105,11 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
 - Subscribe to the standalone Dusk program ID and Dusk IDL events.
 - Use `MarketEventMetadata.market` as the Dusk market key.
 - Track srLP supply, hLP vault-owned srLP, hLP supply, hLP debt, global-health
-  contributions, stored liquidation CFs, insurance, fee liabilities, and
+  contributions, stored liquidation CFs, junior/senior loss allocation, fee liabilities, and
   market health as separate Dusk metrics.
 - Decode `LiquidityAdded`, `LiquidityRemoved`, `SwapExecuted`,
   `MarketDebtUpdated`, `BorrowPositionLiquidated`, yield, protocol-fee, hedge, and
-  insurance events from the Dusk IDL.
+  tranche events from the Dusk IDL.
 - Confirm analytics labels use Dusk market terminology.
 
 ## Aggregators And Routers
@@ -149,7 +149,7 @@ Record target-cluster transaction signatures for:
 - deposit collateral, borrow, repay, and withdraw idle collateral;
 - healthy liquidation rejection;
 - unhealthy liquidation on a controlled test market;
-- insurance-backed liquidation path;
+- junior exhaustion and remaining senior-loss liquidation paths;
 - deposit single-sided liquidity and withdraw single-sided liquidity;
 - reduce-only mode rejection for risk-increasing paths.
 - create, support, queue, execute, and withdraw a direct-srLP parameter proposal.

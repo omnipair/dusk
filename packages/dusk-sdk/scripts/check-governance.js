@@ -20,7 +20,6 @@ import {
   dailyBorrowLimitParameterUpdate,
   emaHalfLivesParameterUpdate,
   feeParameterUpdate,
-  insuranceDrawCapsParameterUpdate,
   oracleParameterUpdate,
   irmParameterUpdate,
   NAD,
@@ -40,7 +39,7 @@ import { parameterProposalV0Transaction } from "../dist/market-launch.js";
 import { DuskWrite } from "../dist/write.js";
 
 const SOLANA_TRANSACTION_LIMIT = 1_232;
-const EXPECTED_WORST_CASE_CREATE_SIZE = 1_390;
+const EXPECTED_WORST_CASE_CREATE_SIZE = 1_381;
 const { Program } = anchor;
 
 const keys = Array.from(
@@ -201,7 +200,6 @@ const everyFamily = [
   oracleParameterUpdate({format:1,provider:keys[8],baseAccount:keys[9],quoteAccount:PublicKey.default,
     baseFeedId:Array(32).fill(7),quoteFeedId:Array(32).fill(0),lambdaBps:9999,adjustmentCapNad:2n*NAD,
     maxAgeSeconds:60,maxAgeSlots:100,maxConfidenceBps:100,maxPublishSkewSeconds:0}),
-  insuranceDrawCapsParameterUpdate({ principalCoverageBps: 1_000, perDayBps: 3_000 }),
   centerControllerParameterUpdate({
     adjustmentThresholdNad: NAD / 100n,
     adjustmentStepNad: NAD / 1_000n,
@@ -230,15 +228,14 @@ const everyFamily = [
   }),
   trancheParameterUpdate({
     juniorIncomeShareBps: 5_000,
-    requestFeeBps: 5,
-    liquidationFeeBps: 100,
+
   }),
   update,
 ];
 const canonical = canonicalParameterUpdates(everyFamily);
 assert.deepEqual(
   canonical.map(({ kind }) => kind),
-  ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insuranceDrawCaps", "oracle", "tranche"],
+  ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "oracle", "tranche"],
   "updates must be sent in ascending family order"
 );
 assert.throws(() => canonicalParameterUpdates([]), /at least one/);
@@ -246,12 +243,11 @@ assert.throws(
   () => canonicalParameterUpdates([dailyBorrowLimitParameterUpdate(1_000), dailyBorrowLimitParameterUpdate(2_000)]),
   /more than once/
 );
-assert.throws(() => insuranceDrawCapsParameterUpdate({ principalCoverageBps: 7_501, perDayBps: 5_000 }));
 
-const marketRevisions = [11, 12, 13, 14, 15, 16, 17, 18, 19];
+const marketRevisions = [11, 12, 13, 14, 15, 16, 18, 19];
 assert.deepEqual(
   updatedFamilyRevisions([dailyBorrowLimitParameterUpdate(1_000)], marketRevisions),
-  [0n, 0n, 0n, 0n, 15n, 0n, 0n, 0n, 0n],
+  [0n, 0n, 0n, 0n, 15n, 0n, 0n, 0n],
   "families a proposal leaves alone bind revision zero"
 );
 const familyRevisions = updatedFamilyRevisions(everyFamily, marketRevisions);
@@ -264,7 +260,7 @@ const updatesBytes = Buffer.concat([
 ]);
 const metadataBytes = program.coder.types.encode("proposalMetadataV1", verifiedMetadata);
 const u64Le = (value) => new anchor.BN(value.toString()).toArrayLike(Buffer, "le", 8);
-assert.equal(PARAMETER_PROPOSAL_DIGEST_DOMAIN, "DUSK_PARAMETER_PROPOSAL_V4");
+assert.equal(PARAMETER_PROPOSAL_DIGEST_DOMAIN, "DUSK_PARAMETER_PROPOSAL_V5");
 const expectedDigest = createHash("sha256")
   .update(
     Buffer.concat([
@@ -439,11 +435,11 @@ assert.deepEqual(Buffer.from(managedIntent), expectedManagedIntent);
 const decoded = {market: keys[1], proposer: keys[0], nonce: new anchor.BN(7), juniorGeneration: new anchor.BN(0),
   origin: {manager: {epoch: new anchor.BN(7), policyVersion: new anchor.BN(1)}}, action: {parameters: {}},
   conditions: encodedConditions, updates: encodedUpdates, metadata: verifiedMetadata, digest: managedIntent,
-  familyRevisions: [0, 0, 0, 0, 15, 0, 0, 0, 0].map(value => new anchor.BN(value)),
+  familyRevisions: [0, 0, 0, 0, 15, 0, 0, 0].map(value => new anchor.BN(value)),
   queuedSupport: new anchor.BN(0), queuedEligibleSrlp: new anchor.BN(0), queuedAt: new anchor.BN(100),
   executeAfter: new anchor.BN(604_900), executionDeadline: new anchor.BN(1_209_700)};
 const expectedExecution = createHash("sha256").update(Buffer.concat([
-  Buffer.from("DUSK_PARAMETER_EXECUTION_V2"), expectedManagedIntent,
+  Buffer.from("DUSK_PARAMETER_EXECUTION_V3"), expectedManagedIntent,
   ...decoded.familyRevisions.map(u64Le), u64Le(0), u64Le(0), u64Le(100), u64Le(604_900), u64Le(1_209_700),
 ])).digest();
 assert.deepEqual(Buffer.from(await computeDecodedExecutionDigest(program.programId, decoded)), expectedExecution);
@@ -462,7 +458,7 @@ const managerProposal = await governance.proposeAsManager({market: keys[1], mana
 const managerArgs = program.coder.instruction.decode(managerProposal.instruction.data).data.args;
 assert.equal(managerArgs.expectedEpoch.toString(), "7");
 assert.equal(managerArgs.policyVersion.toString(), String(MANAGER_POLICY_VERSION));
-assert.equal(managerArgs.updates.length, 8);
+assert.equal(managerArgs.updates.length, 7);
 assert.equal(managerProposal.instruction.keys.filter(key => key.isSigner).length, 2);
 assert(managerProposal.instruction.keys.some(key => key.pubkey.equals(deriveGovernanceControlAddress(keys[1], program.programId)[0])));
 const managerLookup = new AddressLookupTableAccount({key: keys[8], state: {deactivationSlot: 0xffff_ffff_ffff_ffffn,

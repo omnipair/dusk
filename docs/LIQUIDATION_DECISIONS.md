@@ -1,5 +1,10 @@
 # Margin and flash liquidation decisions
 
+> Historical design/evidence: the standalone insurance fund and its coverage,
+> draw, target, and donation rules were removed on 5 November 2026. Earlier
+> results below retain their original assumptions and are not validation of
+> the current policy. See the [current junior-first waterfall](CREDIT_LOSS_WATERFALL.md).
+
 **2026-10-30 superseding policy:** incentives now depend only on current health.
 The distress clock and observation transaction are removed. Older timing clauses
 below are historical. See [health-only liquidation](HEALTH_ONLY_LIQUIDATION.md).
@@ -721,7 +726,6 @@ final LP/hLP claims. It preserves V2 eligibility and changes no liquidation
 runtime policy. #287652 remains open; inventory settlement is a design candidate,
 not an approved or implemented remedy.
 
-
 ## 2026-10-16: EMA-priced internal emergency settlement
 
 Approved: keep V2 linear symmetric-EMA eligibility and stored maintenance terms.
@@ -746,7 +750,6 @@ Status of #287652: direct live-price/depth dependency is being removed. Economic
 manipulation through the inventory change remains an explicitly documented risk;
 this change alone does not establish that the complete finding is resolved.
 See `calibration/EMA_EMERGENCY_CURRENT_FEES.md` for the pre-implementation comparison.
-
 
 Implementation and verification: [EMA internal settlement](calibration/EMA_INTERNAL_SETTLEMENT.md).
 The SDK quote/event interface now carries reference price/depth. All required

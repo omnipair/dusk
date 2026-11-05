@@ -461,8 +461,6 @@ impl Market {
         config: MarketConfig,
         base_hlp_srlp_vault: Pubkey,
         quote_hlp_srlp_vault: Pubkey,
-        base_insurance_vault: Pubkey,
-        quote_insurance_vault: Pubkey,
         params_hash: [u8; 32],
         initial_liquidity_authority: Pubkey,
         bootstrap_price_nad: u64,
@@ -520,18 +518,11 @@ impl Market {
             last_snapshot_slot: current_slot,
             ..Risk::default()
         };
-        self.insurance = Insurance {
-            base_vault: base_insurance_vault,
-            quote_vault: quote_insurance_vault,
-            principal_coverage_bps: crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS,
-            per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
-            ..Insurance::default()
-        };
         self.params_hash = params_hash;
         self.initial_liquidity_authority = initial_liquidity_authority;
         self.governance_locked_srlp = 0;
         self.governance_locked_junior = 0;
-        self.parameter_revisions = [0; 9];
+        self.parameter_revisions = [0; crate::state::PARAMETER_FAMILY_COUNT];
         self.last_marginal_observation_nad = 0;
         self.curve_revision = 0;
         self.risk_revision = 0;
@@ -639,15 +630,9 @@ impl Market {
                 adjustment_step_nad: self.config.amm.adjustment_step_nad,
                 min_adjustment_interval_slots: self.config.amm.min_adjustment_interval_slots,
             },
-            ParameterFamily::Insurance => MarketParameterUpdate::InsuranceDrawCaps {
-                principal_coverage_bps: self.insurance.principal_coverage_bps,
-                per_day_bps: self.insurance.per_day_draw_bps,
-            },
             ParameterFamily::Oracle => MarketParameterUpdate::Oracle(self.oracle.policy),
             ParameterFamily::Tranche => MarketParameterUpdate::Tranche {
                 junior_income_share_bps: self.tranche_policy.junior_income_share_bps,
-                request_fee_bps: self.junior_exit_config.request_fee_bps,
-                liquidation_fee_bps: self.tranche_policy.liquidation_fee_bps,
             },
         }
     }
@@ -748,38 +733,14 @@ impl Market {
                     next.amm.adjustment_step_nad = *adjustment_step_nad;
                     next.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
                 }
-                MarketParameterUpdate::InsuranceDrawCaps {
-                    principal_coverage_bps,
-                    per_day_bps,
-                } => {
-                    require!(
-                        *principal_coverage_bps <= MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS
-                            && *per_day_bps <= MAX_INSURANCE_DRAW_PER_DAY_BPS,
-                        ErrorCode::InvalidParameterUpdate
-                    );
-                    require!(
-                        self.insurance.principal_coverage_bps != *principal_coverage_bps
-                            || self.insurance.per_day_draw_bps != *per_day_bps,
-                        ErrorCode::ParameterUpdateNotMeaningful
-                    );
-                }
                 MarketParameterUpdate::Tranche {
                     junior_income_share_bps,
-                    request_fee_bps,
-                    liquidation_fee_bps,
                 } => {
                     let policy = crate::state::TranchePolicy {
                         junior_income_share_bps: *junior_income_share_bps,
-                        liquidation_fee_bps: *liquidation_fee_bps,
                     };
                     policy.validate()?;
-                    let mut exit = self.junior_exit_config;
-                    exit.request_fee_bps = *request_fee_bps;
-                    exit.validate()?;
-                    require!(
-                        self.tranche_policy != policy || self.junior_exit_config.request_fee_bps != *request_fee_bps,
-                        ErrorCode::ParameterUpdateNotMeaningful
-                    );
+                    require!(self.tranche_policy != policy, ErrorCode::ParameterUpdateNotMeaningful);
                 }
             }
         }
@@ -855,7 +816,6 @@ impl Market {
         let previous_amm = self.amm.clone();
         let previous_debt = self.debt;
         let previous_risk = self.risk;
-        let previous_insurance = self.insurance;
         let previous_tranche_policy = self.tranche_policy;
         let previous_junior_exit_config = self.junior_exit_config;
         let previous_revisions = self.parameter_revisions;
@@ -902,31 +862,14 @@ impl Market {
                             .daily_borrow_bucket
                             .decay_to_slot(quote_limit, current_slot)?;
                     }
-                    MarketParameterUpdate::InsuranceDrawCaps {
-                        principal_coverage_bps,
-                        per_day_bps,
-                    } => {
-                        // Open/checkpoint the current window under the old policy.
-                        // Lowering a cap can therefore only reduce future capacity;
-                        // it never retroactively restores already-spent allowance.
-                        self.insurance.checkpoint_draw_window(MarketAsset::Base, current_slot)?;
-                        self.insurance
-                            .checkpoint_draw_window(MarketAsset::Quote, current_slot)?;
-                        self.insurance.principal_coverage_bps = *principal_coverage_bps;
-                        self.insurance.per_day_draw_bps = *per_day_bps;
-                    }
                     MarketParameterUpdate::Tranche {
                         junior_income_share_bps,
-                        request_fee_bps,
-                        liquidation_fee_bps,
                     } => {
                         self.tranche_policy = crate::state::TranchePolicy {
                             junior_income_share_bps: *junior_income_share_bps,
-                            liquidation_fee_bps: *liquidation_fee_bps,
                         };
                         self.base_side.fees.junior.income_share_bps = *junior_income_share_bps;
                         self.quote_side.fees.junior.income_share_bps = *junior_income_share_bps;
-                        self.junior_exit_config.request_fee_bps = *request_fee_bps;
                     }
                     _ => {}
                 }
@@ -1014,7 +957,6 @@ impl Market {
             self.amm = previous_amm;
             self.debt = previous_debt;
             self.risk = previous_risk;
-            self.insurance = previous_insurance;
             self.tranche_policy = previous_tranche_policy;
             self.junior_exit_config = previous_junior_exit_config;
             self.parameter_revisions = previous_revisions;

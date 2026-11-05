@@ -180,15 +180,14 @@ quote instead offers the entire target-token claim. The full path requires
 explicit keeper opt-in. The flash quote freezes the target claim, borrowed-token
 claim, and fixed payment. Terminal settlement revalidates EMA insolvency, while
 same-market swaps may compose without repricing the session's loss allocation.
-The full transaction still reverts if any bound payment, cash, insurance, or
+The full transaction still reverts if any bound payment, cash or
 reserve invariant fails.
 
-Both native terminal closure and flash terminal closure protect principal
-first, draw principal-only insurance under the existing 75% coverage / 50% daily
-budget, and report principal writeoff separately from canceled interest. A
-caller cap may reject drift but cannot elect to skip available coverage.
+Both native terminal closure and flash terminal closure allocate the remaining
+funded principal loss to junior first, then senior. There is no outside coverage
+vault or draw budget. The caller can cap the total socialized principal loss.
 Funding interest is realized only to the extent that cash can pay it; the rest
-is canceled when the cohort closes. Insurance does not cash-fund that interest.
+is canceled when the cohort closes and does not become principal loss.
 Native closure retains seized inventory in the pool; flash closure physically
 releases the quoted target tokens. Historical funded claims remain untouched.
 Any flash surplus becomes funded yield of the retired cohort, whose receipts
@@ -241,7 +240,7 @@ is unchanged. A clearance removes its proportional advance and frozen fee;
 the final clearance drains integer remainders. Paid advances replenish cash.
 Canceled advances return the held protocol portion to cash. The LP portion
 already paid is a real loss if the borrower defaults; it is not paid again,
-and principal-only insurance does not cover canceled interest.
+and junior-first principal loss allocation does not cover canceled interest.
 
 The repayment kernel applies the debit and recycled credit together. A
 valid internal repayment must not fail because it tries to collect cash for
@@ -315,7 +314,6 @@ Market layout version 4 includes the two per-asset advance ledgers, temporary
 flash receivables, and per-vault recovery locks; all four SDK
 IDL/type files are regenerated with the source change. This is a development
 interface change, not a deployed migration.
-
 
 ## Harvest and flash validation (2026-10-20)
 

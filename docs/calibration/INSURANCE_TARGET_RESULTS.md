@@ -1,5 +1,10 @@
 # Insurance target sensitivity — 2026-10-10
 
+> Historical design/evidence: the standalone insurance fund and its coverage,
+> draw, target, and donation rules were removed on 5 November 2026. Earlier
+> results below retain their original assumptions and are not validation of
+> the current policy. See the [current junior-first waterfall](../CREDIT_LOSS_WATERFALL.md).
+
 ## Recommendation
 
 The user approved 5% of outstanding covered borrower/leverage principal per debt token as the provisional calibration target. Zero-insurance launches and optional pre-funding are approved; the illustrated seed is not required. The user selected an additional one-fifteenth of indexed hLP funding debt in the same token; the funding tables below exclude that component and hLP claims. This is an operating budget, not a statistically established optimum or a claim that it covers the saved stress scenarios. The user also approved full designated funding through 75% of target, then a linear taper to zero at the target.

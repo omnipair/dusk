@@ -6,7 +6,7 @@ import { TOKEN_PROGRAM_ID, createTransferCheckedInstruction, calculateFee } from
 import IDL from "../dist/idl_v2.js";
 import { DEFAULT_PROTOCOL_REVENUE_SHARE_BPS } from "../dist/constants.js";
 import { DuskLiquidations } from "../dist/liquidation-client.js";
-import { LIQUIDATION_POLICY, liquidationHealth, liquidationIncentives, liquidationFeeAllocation, liquidationInsuranceTarget, liquidationLossAllocation, grossLiquidationPayment, deriveLiquidationSessionAddress, deriveLiquidationPaymentAddress } from "../dist/liquidation.js";
+import { LIQUIDATION_POLICY, liquidationHealth, liquidationIncentives, liquidationFeeAllocation, liquidationLossAllocation, grossLiquidationPayment, deriveLiquidationSessionAddress, deriveLiquidationPaymentAddress } from "../dist/liquidation.js";
 
 test("health alone determines bounded incentives and exact eligibility", () => {
   for (const maintenanceBps of [1, 700, 1200, 1700, 9999]) {
@@ -32,25 +32,21 @@ test("health alone determines bounded incentives and exact eligibility", () => {
   assert.throws(() => liquidationIncentives({ collateralValue: 0n, debt: 0n, maintenanceBps: 700 }));
 });
 
-test("one percent liquidation fee follows the 80/20 split and insurance taper", () => {
-  assert.equal(DEFAULT_PROTOCOL_REVENUE_SHARE_BPS, 2_000);
-  assert.equal(LIQUIDATION_POLICY.protocolFeeShareBps, DEFAULT_PROTOCOL_REVENUE_SHARE_BPS);
-  assert.equal(liquidationInsuranceTarget(100_000n, 30_000n), 7_000n);
-  assert.deepEqual(liquidationFeeAllocation(100_000n, 8_750n, 10_000n), { total: 1000n, protocol: 200n, insurance: 400n, lp: 400n });
-  assert.deepEqual(liquidationFeeAllocation(100_000n, 10_001n, 10_000n, 50n), { total: 50n, protocol: 10n, insurance: 0n, lp: 40n });
-  for (const repayment of [0n, 99n, 100n, 499n, 500n, (1n << 64n) - 1n]) {
-    const fee = liquidationFeeAllocation(repayment, 0n, 0n);
-    assert.equal(fee.protocol, fee.total / 5n);
-    assert.equal(fee.protocol + fee.insurance + fee.lp, fee.total);
+test("fixed three percent liquidation fee allocates all underwriting income to junior", () => {
+  assert.deepEqual(liquidationFeeAllocation(100_000n), { total: 3_000n, protocol: 600n, junior: 2_400n });
+  assert.deepEqual(liquidationFeeAllocation(100_000n, 50n), { total: 50n, protocol: 10n, junior: 40n });
+  for (const repayment of [0n, 99n, 100n, (1n << 64n) - 1n]) {
+    const fee = liquidationFeeAllocation(repayment);
+    assert.equal(fee.protocol + fee.junior, fee.total);
   }
 });
 
-test("insolvent liquidation cancels interest and cannot draw more than 75% of principal loss", () => {
-  assert.deepEqual(liquidationLossAllocation(900n, 950n, 850n, 1000n), {
-    principalRepaid: 850n, interestPaid: 0n, insuranceCredit: 37n, principalWrittenOff: 13n, interestCanceled: 50n, surplus: 0n,
+test("insolvent liquidation cancels interest and passes the whole principal gap to tranches", () => {
+  assert.deepEqual(liquidationLossAllocation(900n, 950n, 850n), {
+    principalRepaid: 850n, interestPaid: 0n, principalWrittenOff: 50n, interestCanceled: 50n, surplus: 0n,
   });
-  assert.equal(liquidationLossAllocation(900n, 950n, 850n, 10n).principalWrittenOff, 40n);
-  assert.throws(() => liquidationLossAllocation(900n, 950n, 850n, 1000n, 7501));
+  assert.equal(liquidationLossAllocation(900n, 950n, 850n).principalWrittenOff, 50n);
+  assert.throws(() => liquidationLossAllocation(951n, 950n, 850n));
 });
 
 test("incoming gross-up is minimal under the actual SPL transfer-fee formula", () => {
@@ -64,14 +60,13 @@ test("incoming gross-up is minimal under the actual SPL transfer-fee formula", (
 
 test("atomic builder binds the exact settle index, custom program and owner-owned payout", async () => {
   const keys = Array.from({ length: 14 }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(i + 1)).publicKey);
-  const [programId, market, position, owner, buyer, baseMint, quoteMint, baseReserve, quoteReserve, baseCollateral, quoteCollateral, baseInterest, quoteInterest, insurance] = keys;
+  const [programId, market, position, owner, buyer, baseMint, quoteMint, baseReserve, quoteReserve, baseCollateral, quoteCollateral, baseInterest, quoteInterest, routeProgram] = keys;
   const program = new anchor.Program({ ...IDL, address: programId.toBase58() }, {
     connection: { getAccountInfo: async () => ({ owner: TOKEN_PROGRAM_ID }) }, wallet: { publicKey: buyer }, publicKey: buyer,
   });
   program.account.market.fetch = async () => ({
     baseSide: { assetMint: baseMint, reserveVault: baseReserve, collateralVault: baseCollateral, interestVault: baseInterest },
     quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, collateralVault: quoteCollateral, interestVault: quoteInterest },
-    insurance: { baseVault: insurance, quoteVault: insurance },
   });
   program.account.leveragePosition.fetch = async () => ({ market, owner, debtAsset: 1, referralPartner: SystemProgram.programId });
   const client = new DuskLiquidations(program);

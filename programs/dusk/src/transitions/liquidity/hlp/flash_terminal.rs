@@ -6,20 +6,18 @@ pub(crate) struct HlpFlashTerminalSettlement {
     pub base: HlpRebalanceReceipt,
     pub quote: HlpRebalanceReceipt,
     pub loss: LiquidationLossAllocation,
-    pub insurance_debit: u64,
     pub surplus_debit: u64,
     pub surplus_credit: u64,
 }
 
 impl Market {
     /// Price and apply the terminal ledger atomically. The instruction must
-    /// transfer exactly the returned insurance, interest and surplus amounts.
-    /// Caller slippage caps can reject but cannot skip available insurance.
+    /// transfer exactly the returned interest and surplus amounts.
+    /// Caller slippage caps bound the resulting loss and actual token credits.
     pub(crate) fn settle_terminal_hlp_flash(
         &mut self,
         quote: HlpFlashQuote,
         debt_fee: LeverageCollateralFee,
-        max_insurance_draw: u64,
         max_socialized_loss: u64,
         slot: u64,
     ) -> Result<HlpFlashTerminalSettlement> {
@@ -47,16 +45,7 @@ impl Market {
             .borrowed_claim
             .checked_add(quote.reserve_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let capacity = self.insurance.draw_capacity(borrowed, slot)?;
-        let mut loss = LiquidationLossAllocation::quote_with_coverage(
-            vault.debt_principal.min(debt),
-            debt,
-            recovery,
-            debt_fee.unwind_credit(capacity)?,
-            self.insurance.principal_coverage_bps,
-        )?;
-        let insurance_debit = debt_fee.effective_gross_for_credit(loss.insurance_credit)?;
-        require_gte!(max_insurance_draw, insurance_debit, ErrorCode::InsuranceDrawExceeded);
+        let mut loss = LiquidationLossAllocation::quote(vault.debt_principal.min(debt), debt, recovery)?;
         require_gte!(
             max_socialized_loss,
             loss.principal_written_off,
@@ -67,7 +56,6 @@ impl Market {
             .reserves
             .cash_reserve
             .checked_add(quote.reserve_credit)
-            .and_then(|v| v.checked_add(loss.insurance_credit))
             .ok_or(ErrorCode::ReserveOverflow)?;
         require_gte!(cash, loss.surplus, ErrorCode::InsufficientLiquidity);
         // Funding interest is paid from available cash. Cancel the unpaid
@@ -94,12 +82,6 @@ impl Market {
             .checked_sub(quote.collateral_debit)
             .ok_or(ErrorCode::ReserveUnderflow)?;
         self.side_mut(borrowed).credit_reserve(quote.reserve_credit, true)?;
-        if insurance_debit > 0 {
-            self.insurance.consume_draw(borrowed, insurance_debit, slot)?;
-        }
-        if loss.insurance_credit > 0 {
-            self.side_mut(borrowed).credit_reserve(loss.insurance_credit, true)?;
-        }
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             self.side_mut(asset).reserves.live_reserve = self
                 .side(asset)
@@ -187,7 +169,6 @@ impl Market {
             base,
             quote: other_quote,
             loss,
-            insurance_debit,
             surplus_debit: loss.surplus,
             surplus_credit,
         })

@@ -126,7 +126,6 @@ const DUSK_INSTRUCTIONS = [
   "updateProtocolAuctionRecipients",
   "updateProtocolAuctionRoute",
   "setGlobalReduceOnly",
-  "fortifyMarket",
   "configureReferralPartner",
   "initializeReferralAccrual",
   "setReferralRecipient",
@@ -567,7 +566,7 @@ export function getCoverageReport() {
     };
   }
   lastPrintedReportSignature = signature;
-  
+
   console.log("\n" + "═".repeat(70));
   console.log("📊 INSTRUCTION SMOKE COVERAGE REPORT");
   console.log("═".repeat(70));
@@ -581,13 +580,13 @@ export function getCoverageReport() {
   printCoverageSection("Dusk Instruction Smoke Coverage", ALL_INSTRUCTIONS);
   printComputeUnitReport();
   printComputeScenarioReport();
-  
+
   console.log("\n" + "═".repeat(70));
   console.log(
     `Aggregate Smoke Coverage: ${aggregate.percentage}% | Instructions Exercised: ${aggregate.covered}/${aggregate.total}`
   );
   console.log("═".repeat(70) + "\n");
-  
+
   return {
     covered: aggregate.covered,
     total: aggregate.total,

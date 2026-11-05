@@ -14,11 +14,11 @@ use super::{FeeProfile, IrmConfig, OraclePolicy, TrancheCapital};
 
 /// Immutable support intent. Execution assumptions are committed separately
 /// when a majority starts the notice period.
-pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V4";
-pub const PARAMETER_EXECUTION_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_EXECUTION_V2";
+pub const PARAMETER_PROPOSAL_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_PROPOSAL_V5";
+pub const PARAMETER_EXECUTION_DIGEST_DOMAIN: &[u8] = b"DUSK_PARAMETER_EXECUTION_V3";
 
 /// Number of governed parameter families, and of `Market::parameter_revisions`.
-pub const PARAMETER_FAMILY_COUNT: usize = 9;
+pub const PARAMETER_FAMILY_COUNT: usize = 8;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub enum ParameterFamily {
@@ -28,7 +28,6 @@ pub enum ParameterFamily {
     EmaHalfLives,
     DailyBorrowLimit,
     CenterController,
-    Insurance,
     Oracle,
     Tranche,
 }
@@ -80,7 +79,6 @@ impl ParameterFamily {
         Self::EmaHalfLives,
         Self::DailyBorrowLimit,
         Self::CenterController,
-        Self::Insurance,
         Self::Oracle,
         Self::Tranche,
     ];
@@ -92,9 +90,8 @@ impl ParameterFamily {
             Self::EmaHalfLives => 3,
             Self::DailyBorrowLimit => 4,
             Self::CenterController => 5,
-            Self::Insurance => 6,
-            Self::Oracle => 7,
-            Self::Tranche => 8,
+            Self::Oracle => 6,
+            Self::Tranche => 7,
         }
     }
 }
@@ -126,24 +123,16 @@ pub enum MarketParameterUpdate {
         adjustment_step_nad: u64,
         min_adjustment_interval_slots: u64,
     },
-    /// Insurance loss-concentration limits. These governed values can only
-    /// select a stricter policy than the protocol-level hard ceilings.
-    InsuranceDrawCaps {
-        principal_coverage_bps: u16,
-        per_day_bps: u16,
-    },
     /// Prospective reference and blend policy, bounded by the birth config.
     Oracle(OraclePolicy),
     /// Junior underwriting economics. Exit timing remains protocol-defined;
-    /// this family changes the income share and fee policy.
+    /// this family changes the income share.
     Tranche {
         junior_income_share_bps: u16,
-        request_fee_bps: u16,
-        liquidation_fee_bps: u16,
     },
 }
 
-/// One to nine updates, at most one per family, in ascending family order,
+/// One to eight updates, at most one per family, in ascending family order,
 /// so a proposal's updates have exactly one encoding and one digest.
 pub fn validate_parameter_update_set(updates: &[MarketParameterUpdate]) -> Result<()> {
     require!(
@@ -189,7 +178,6 @@ impl MarketParameterUpdate {
             Self::EmaHalfLives { .. } => ParameterFamily::EmaHalfLives,
             Self::DailyBorrowLimit { .. } => ParameterFamily::DailyBorrowLimit,
             Self::CenterController { .. } => ParameterFamily::CenterController,
-            Self::InsuranceDrawCaps { .. } => ParameterFamily::Insurance,
             Self::Oracle(_) => ParameterFamily::Oracle,
             Self::Tranche { .. } => ParameterFamily::Tranche,
         }
@@ -286,11 +274,11 @@ pub struct ParameterProposal {
     pub origin: ProposalOrigin,
     pub action: GovernanceAction,
     pub rent_refund: Pubkey,
-    #[max_len(9)]
+    #[max_len(8)]
     pub conditions: Vec<FamilyRevisionCondition>,
     /// The families this proposal changes, one update each, in ascending
     /// family order. They execute together or not at all.
-    #[max_len(9)]
+    #[max_len(8)]
     pub updates: Vec<MarketParameterUpdate>,
     /// Full configuration snapshot sealed when a bundle becomes pending.
     /// Collecting endorsements bind only their explicit revision conditions.

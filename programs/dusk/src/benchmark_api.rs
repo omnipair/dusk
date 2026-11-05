@@ -60,8 +60,6 @@ pub struct BenchmarkMarketInit {
     pub config: MarketConfig,
     pub base_hlp_srlp_vault: Pubkey,
     pub quote_hlp_srlp_vault: Pubkey,
-    pub base_insurance_vault: Pubkey,
-    pub quote_insurance_vault: Pubkey,
     pub params_hash: [u8; 32],
     pub initial_liquidity_authority: Pubkey,
     pub bootstrap_price_nad: u64,
@@ -117,8 +115,6 @@ pub struct BenchmarkAssetCashFlow {
     pub collateral_vault_credit: u64,
     pub collateral_vault_debit: u64,
     pub interest_vault_credit: u64,
-    pub insurance_vault_credit: u64,
-    pub insurance_vault_debit: u64,
     pub recipient_credit: u64,
 }
 
@@ -608,7 +604,7 @@ const BENCHMARK_LIQUIDATION_START_PREMIUM_DENOMINATOR: u64 = 100;
 
 /// The two executable branches of Dusk's native borrow-position auction.
 ///
-/// A normal bid cannot draw insurance or socialize loss. Floor settlement is
+/// A normal bid cannot socialize loss. Floor settlement is
 /// admitted only after the explicit external-bid window expires.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BenchmarkLiquidationPhase {
@@ -665,16 +661,11 @@ pub struct BenchmarkLiquidationPlan {
     pub collateral_swap_debit: u64,
     pub collateral_reserve_credit: u64,
     pub swap_output: u64,
-    /// Gross insurance-vault debit requested by the native floor path. The
-    /// corresponding reserve credit remains caller-supplied Token-2022 state.
-    pub insurance_draw_debit: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BenchmarkLiquidationPreviewRequest {
     pub plan: BenchmarkLiquidationPlanRequest,
-    /// Measured reserve-vault credit for `insurance_draw_debit`.
-    pub insurance_draw_credit: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -702,8 +693,6 @@ pub struct BenchmarkLiquidationTokenBalances {
     pub quote_interest_vault_balance: u64,
     pub base_collateral_vault_balance: u64,
     pub quote_collateral_vault_balance: u64,
-    pub base_insurance_vault_balance: u64,
-    pub quote_insurance_vault_balance: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -713,12 +702,11 @@ pub struct BenchmarkLiquidationExecuteRequest {
     /// debt-share rounding makes the exact native repayment smaller.
     pub max_repay_source_debit: u64,
     pub debt_transfer: BenchmarkTokenTransferOutcome,
-    pub insurance_draw_transfer: BenchmarkTokenTransferOutcome,
     pub interest_transfer: BenchmarkTokenTransferOutcome,
     pub collateral_transfer: BenchmarkTokenTransferOutcome,
     pub collateral_swap_transfer: BenchmarkTokenTransferOutcome,
     pub owner_residual_transfer: BenchmarkTokenTransferOutcome,
-    pub insurance_funding_transfer: BenchmarkTokenTransferOutcome,
+    pub junior_fee_transfer: BenchmarkTokenTransferOutcome,
     pub min_collateral_recipient_credit: u64,
     pub protocol_interest_fee_bps: u16,
     pub protocol_auction_split: ProtocolAuctionSplit,
@@ -730,12 +718,11 @@ pub struct BenchmarkLiquidationExecutionReceipt {
     pub plan: BenchmarkLiquidationPlan,
     pub native: LiquidationReceipt,
     pub debt_transfer: BenchmarkTokenTransferOutcome,
-    pub insurance_draw_transfer: BenchmarkTokenTransferOutcome,
     pub interest_transfer: BenchmarkTokenTransferOutcome,
     pub collateral_transfer: BenchmarkTokenTransferOutcome,
     pub collateral_swap_transfer: BenchmarkTokenTransferOutcome,
     pub owner_residual_transfer: BenchmarkTokenTransferOutcome,
-    pub insurance_funding_transfer: BenchmarkTokenTransferOutcome,
+    pub junior_fee_transfer: BenchmarkTokenTransferOutcome,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1559,8 +1546,6 @@ impl BenchmarkMarket {
             init.config,
             init.base_hlp_srlp_vault,
             init.quote_hlp_srlp_vault,
-            init.base_insurance_vault,
-            init.quote_insurance_vault,
             init.params_hash,
             init.initial_liquidity_authority,
             init.bootstrap_price_nad,
@@ -3457,7 +3442,7 @@ impl BenchmarkMarket {
         )
     }
 
-    /// Quotes exact native repayment, auction price, and insurance-vault debit
+    /// Quotes exact native repayment, auction price, and junior loss settlement
     /// without committing any account. Callers use the result to evaluate the
     /// historical Token-2022 schedules before requesting a receipt preview.
     pub fn preview_liquidation_plan(
@@ -3496,8 +3481,6 @@ impl BenchmarkMarket {
             quote_interest_vault_balance: self.market.quote_side.fees.interest_vault_balance,
             base_collateral_vault_balance,
             quote_collateral_vault_balance,
-            base_insurance_vault_balance: self.market.insurance.base_available,
-            quote_insurance_vault_balance: self.market.insurance.quote_available,
         })
     }
 
@@ -3618,26 +3601,11 @@ impl BenchmarkMarket {
                     ErrorCode::BrokenInvariant
                 );
                 require!(
-                    request.insurance_funding_transfer == BenchmarkTokenTransferOutcome::default(),
+                    request.junior_fee_transfer == BenchmarkTokenTransferOutcome::default(),
                     ErrorCode::BrokenInvariant
                 );
             }
         }
-        require_eq!(
-            request.insurance_draw_transfer.source_debit,
-            preview.plan.insurance_draw_debit,
-            ErrorCode::BrokenInvariant
-        );
-        require_eq!(
-            request.insurance_draw_transfer.destination_credit,
-            request.preview.insurance_draw_credit,
-            ErrorCode::BrokenInvariant
-        );
-        require_gte!(
-            request.insurance_draw_transfer.source_debit,
-            request.insurance_draw_transfer.destination_credit,
-            ErrorCode::BrokenInvariant
-        );
         let (interest_transfer, protocol_credit) = benchmark_public_interest_payment(
             &mut next_market,
             preview.plan.debt_asset,
@@ -3670,17 +3638,6 @@ impl BenchmarkMarket {
             request.min_collateral_recipient_credit,
             ErrorCode::SlippageExceeded
         );
-        require_eq!(
-            request.insurance_funding_transfer.source_debit,
-            preview.native.insurance_funded,
-            ErrorCode::BrokenInvariant
-        );
-        require_gte!(
-            request.insurance_funding_transfer.source_debit,
-            request.insurance_funding_transfer.destination_credit,
-            ErrorCode::BrokenInvariant
-        );
-
         if preview.plan.phase == BenchmarkLiquidationPhase::Bid {
             let liquidator_debt_balance = match preview.plan.debt_asset {
                 MarketAsset::Base => next_balances.liquidator_base_balance,
@@ -3700,19 +3657,6 @@ impl BenchmarkMarket {
                 request.debt_transfer.destination_credit,
             )?;
         }
-        require_gte!(
-            liquidation_insurance_balance(&next_balances, preview.plan.debt_asset),
-            request.insurance_draw_transfer.source_debit,
-            ErrorCode::InsufficientInsurance
-        );
-        debit_balance(
-            liquidation_insurance_balance_mut(&mut next_balances, preview.plan.debt_asset),
-            request.insurance_draw_transfer.source_debit,
-        )?;
-        credit_balance(
-            liquidation_reserve_balance_mut(&mut next_balances, preview.plan.debt_asset),
-            request.insurance_draw_transfer.destination_credit,
-        )?;
 
         // `preview_liquidation_on_state` already applied the native settlement
         // to the staged account pair. Reconcile token-program outcomes and
@@ -3776,19 +3720,28 @@ impl BenchmarkMarket {
         )?;
         debit_balance(
             liquidation_collateral_balance_mut(&mut next_balances, collateral_asset),
-            request.insurance_funding_transfer.source_debit,
+            request.junior_fee_transfer.source_debit,
         )?;
         credit_balance(
-            liquidation_insurance_balance_mut(&mut next_balances, collateral_asset),
-            request.insurance_funding_transfer.destination_credit,
+            match collateral_asset {
+                MarketAsset::Base => &mut next_balances.base_interest_vault_balance,
+                MarketAsset::Quote => &mut next_balances.quote_interest_vault_balance,
+            },
+            request.junior_fee_transfer.destination_credit,
         )?;
-        if preview.native.insurance_funded > 0 {
-            next_market.insurance.reconcile_credit(
-                preview.plan.debt_asset.opposite(),
-                preview.native.insurance_funded,
-                request.insurance_funding_transfer.destination_credit,
-            )?;
-        }
+        require_eq!(
+            request.junior_fee_transfer.source_debit,
+            preview.native.junior_fee_funded,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            request.junior_fee_transfer.destination_credit,
+            self.transfer_fees[transfer_fee_index(collateral_asset)]
+                .exit()
+                .unwind_credit(preview.native.junior_fee_funded)?,
+            ErrorCode::BrokenInvariant
+        );
+
         debit_balance(
             liquidation_reserve_balance_mut(&mut next_balances, preview.plan.debt_asset),
             request.owner_residual_transfer.source_debit,
@@ -3821,32 +3774,22 @@ impl BenchmarkMarket {
                 next_market.side(asset).fees.interest_vault_balance,
                 ErrorCode::UnbackedFeeLiability
             );
-            require_gte!(
-                liquidation_insurance_balance(&next_balances, asset),
-                next_market.insurance.available(asset),
-                ErrorCode::InsufficientInsurance
-            );
         }
 
         let mut cash = BenchmarkCashFlow::default();
         let debt_cash = cash.side_mut(preview.plan.debt_asset);
-        debt_cash.reserve_vault_credit = request
-            .debt_transfer
-            .destination_credit
-            .checked_add(request.insurance_draw_transfer.destination_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        debt_cash.reserve_vault_credit = request.debt_transfer.destination_credit;
         debt_cash.reserve_vault_debit = request
             .interest_transfer
             .source_debit
             .checked_add(request.owner_residual_transfer.source_debit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         debt_cash.interest_vault_credit = request.interest_transfer.destination_credit;
-        debt_cash.insurance_vault_debit = request.insurance_draw_transfer.source_debit;
         debt_cash.recipient_credit = request.owner_residual_transfer.destination_credit;
         let collateral_cash = cash.side_mut(preview.plan.debt_asset.opposite());
         collateral_cash.reserve_vault_credit = request.collateral_swap_transfer.destination_credit;
         collateral_cash.collateral_vault_debit = preview.native.collateral_seized;
-        collateral_cash.insurance_vault_credit = request.insurance_funding_transfer.destination_credit;
+        collateral_cash.interest_vault_credit = request.junior_fee_transfer.destination_credit;
         collateral_cash.recipient_credit = request.collateral_transfer.destination_credit;
 
         let position_after = borrow_position_checkpoint(&next_position, &next_market.debt)?;
@@ -3854,12 +3797,11 @@ impl BenchmarkMarket {
             plan: preview.plan,
             native: preview.native,
             debt_transfer: request.debt_transfer,
-            insurance_draw_transfer: request.insurance_draw_transfer,
             interest_transfer: request.interest_transfer,
             collateral_transfer: request.collateral_transfer,
             collateral_swap_transfer: request.collateral_swap_transfer,
             owner_residual_transfer: request.owner_residual_transfer,
-            insurance_funding_transfer: request.insurance_funding_transfer,
+            junior_fee_transfer: request.junior_fee_transfer,
         };
         let market = self.commit_market_execution(next_market, clock, revenue_before, cash, receipt)?;
         *position.position = next_position;
@@ -3996,7 +3938,6 @@ fn liquidation_plan(
         collateral_swap_debit: 0,
         collateral_reserve_credit: 0,
         swap_output: 0,
-        insurance_draw_debit: 0,
     })
 }
 
@@ -4058,7 +3999,6 @@ fn prepare_floor_liquidation_plan(
                     debt_asset: request.debt_asset,
                     debt_shares: 0,
                     debt_principal: 0,
-                    insurance_credit: 0,
                 },
             )?,
         )
@@ -4070,25 +4010,6 @@ fn prepare_floor_liquidation_plan(
         .fixed_repayment_for_max(position, request.debt_asset, u64::MAX)?
         .cash_repaid;
     let repay_credit = swap_output.min(full_repayment);
-    let remaining_debt = full_repayment
-        .checked_sub(repay_credit)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let insurance_draw_debit = if remaining_debt == 0 {
-        0
-    } else {
-        market
-            .insurance
-            .draw_capacity(request.debt_asset, request.clock.slot)?
-            .min(remaining_debt)
-    };
-    // A 100% debt-mint fee credits the reserve nothing; the instruction skips
-    // the draw and socializes the loss.
-    let debt_fee = transfer_fees[transfer_fee_index(request.debt_asset)].exit();
-    let insurance_draw_debit = if insurance_draw_debit > 0 && debt_fee.unwind_credit(insurance_draw_debit)? == 0 {
-        0
-    } else {
-        insurance_draw_debit
-    };
     let plan = BenchmarkLiquidationPlan {
         phase: BenchmarkLiquidationPhase::Floor,
         debt_asset: request.debt_asset,
@@ -4100,7 +4021,7 @@ fn prepare_floor_liquidation_plan(
         )?,
         terms: LiquidationTerms {
             liquidation_incentive_bps: LIQUIDATION_BACKSTOP_CALLER_BPS,
-            insurance_funding_bps: 0,
+            junior_fee_bps: 0,
             total_penalty_bps: LIQUIDATION_BACKSTOP_CALLER_BPS,
             max_repay_amount: full_repayment,
         },
@@ -4110,7 +4031,6 @@ fn prepare_floor_liquidation_plan(
         collateral_swap_debit,
         collateral_reserve_credit: request.collateral_reserve_credit,
         swap_output,
-        insurance_draw_debit,
     };
     Ok((plan, prepared))
 }
@@ -4123,18 +4043,11 @@ fn preview_liquidation_on_state(
 ) -> Result<BenchmarkLiquidationPreview> {
     if request.plan.phase == BenchmarkLiquidationPhase::Floor {
         let (plan, mut prepared) = prepare_floor_liquidation_plan(market, position, request.plan, transfer_fees)?;
-        require_gte!(
-            plan.insurance_draw_debit,
-            request.insurance_draw_credit,
-            ErrorCode::MarketMathOverflow
-        );
         let (finalized, internal) = market.settle_backstop_swap(
             prepared.as_deref_mut(),
             crate::transitions::amm::LendingSwapSettlement {
                 position,
                 debt_asset: plan.debt_asset,
-                insurance_spent: plan.insurance_draw_debit,
-                insurance_credit: request.insurance_draw_credit,
                 collateral_consumed: plan.collateral_consumed,
                 caller_bounty: plan.caller_bounty,
             },
@@ -4156,8 +4069,6 @@ fn preview_liquidation_on_state(
         });
     }
     let plan = liquidation_plan(market, position, request.plan, transfer_fees)?;
-    require_eq!(plan.insurance_draw_debit, 0, ErrorCode::BrokenInvariant);
-    require_eq!(request.insurance_draw_credit, 0, ErrorCode::InvalidArgument);
     let fee_schedule = transfer_fees[transfer_fee_index(plan.debt_asset.opposite())];
     let native = market.settle_auction_liquidation_with_fees(
         position,
@@ -4201,20 +4112,6 @@ fn liquidation_collateral_balance_mut(
     match asset {
         MarketAsset::Base => &mut balances.base_collateral_vault_balance,
         MarketAsset::Quote => &mut balances.quote_collateral_vault_balance,
-    }
-}
-
-fn liquidation_insurance_balance(balances: &BenchmarkLiquidationTokenBalances, asset: MarketAsset) -> u64 {
-    match asset {
-        MarketAsset::Base => balances.base_insurance_vault_balance,
-        MarketAsset::Quote => balances.quote_insurance_vault_balance,
-    }
-}
-
-fn liquidation_insurance_balance_mut(balances: &mut BenchmarkLiquidationTokenBalances, asset: MarketAsset) -> &mut u64 {
-    match asset {
-        MarketAsset::Base => &mut balances.base_insurance_vault_balance,
-        MarketAsset::Quote => &mut balances.quote_insurance_vault_balance,
     }
 }
 
@@ -5637,8 +5534,6 @@ mod tests {
                 config: valid_config(),
                 base_hlp_srlp_vault: Pubkey::new_unique(),
                 quote_hlp_srlp_vault: Pubkey::new_unique(),
-                base_insurance_vault: Pubkey::new_unique(),
-                quote_insurance_vault: Pubkey::new_unique(),
                 params_hash: [7; 32],
                 initial_liquidity_authority: Pubkey::new_unique(),
                 bootstrap_price_nad: 0,
@@ -7247,10 +7142,7 @@ mod tests {
             protocol_swap_fee_bps: 0,
             protocol_auction_split: ProtocolAuctionSplit::default(),
         };
-        let preview_request = BenchmarkLiquidationPreviewRequest {
-            plan: plan_request,
-            insurance_draw_credit: 0,
-        };
+        let preview_request = BenchmarkLiquidationPreviewRequest { plan: plan_request };
         let preview = benchmark.preview_liquidation(&position, preview_request).unwrap();
         assert_eq!(
             preview.plan.auction_price_nad,
@@ -7277,8 +7169,6 @@ mod tests {
                 &mut native_position,
                 MarketAsset::Base,
                 native_plan.repay_credit,
-                0,
-                0,
                 0,
                 native_plan.terms,
                 LiquidationPricing::ReferencePrice {
@@ -7313,12 +7203,11 @@ mod tests {
                     preview: preview_request,
                     max_repay_source_debit: 1_000,
                     debt_transfer: exact_transfer(preview.plan.repay_credit),
-                    insurance_draw_transfer: BenchmarkTokenTransferOutcome::default(),
                     interest_transfer: exact_transfer(preview.native.interest_paid),
                     collateral_transfer: exact_transfer(preview.native.collateral_to_liquidator),
                     collateral_swap_transfer: BenchmarkTokenTransferOutcome::default(),
                     owner_residual_transfer: BenchmarkTokenTransferOutcome::default(),
-                    insurance_funding_transfer: exact_transfer(preview.native.insurance_funded),
+                    junior_fee_transfer: exact_transfer(preview.native.junior_fee_funded),
                     min_collateral_recipient_credit: 0,
                     protocol_interest_fee_bps: 0,
                     protocol_auction_split: ProtocolAuctionSplit::default(),
@@ -7360,10 +7249,7 @@ mod tests {
             protocol_swap_fee_bps: 0,
             protocol_auction_split: ProtocolAuctionSplit::default(),
         };
-        let preview_request = BenchmarkLiquidationPreviewRequest {
-            plan: plan_request,
-            insurance_draw_credit: 0,
-        };
+        let preview_request = BenchmarkLiquidationPreviewRequest { plan: plan_request };
         let preview = benchmark.preview_liquidation(&position, preview_request).unwrap();
         assert_eq!(preview.plan.caller_bounty, 5);
         assert_eq!(preview.plan.collateral_swap_debit, 995);
@@ -7376,12 +7262,11 @@ mod tests {
             preview: preview_request,
             max_repay_source_debit: 0,
             debt_transfer: BenchmarkTokenTransferOutcome::default(),
-            insurance_draw_transfer: BenchmarkTokenTransferOutcome::default(),
             interest_transfer: exact_transfer(preview.native.interest_paid),
             collateral_transfer: exact_transfer(preview.plan.caller_bounty),
             collateral_swap_transfer: exact_transfer(preview.plan.collateral_swap_debit),
             owner_residual_transfer: exact_transfer(preview.owner_residual),
-            insurance_funding_transfer: BenchmarkTokenTransferOutcome::default(),
+            junior_fee_transfer: BenchmarkTokenTransferOutcome::default(),
             min_collateral_recipient_credit: 0,
             protocol_interest_fee_bps: 0,
             protocol_auction_split: ProtocolAuctionSplit::default(),
@@ -7451,7 +7336,6 @@ mod tests {
                 protocol_swap_fee_bps: 0,
                 protocol_auction_split: ProtocolAuctionSplit::default(),
             },
-            insurance_draw_credit: 0,
         };
         let preview = benchmark.preview_liquidation(&position, preview_request).unwrap();
         assert_eq!(preview.plan.collateral_consumed, 1);
@@ -7472,7 +7356,6 @@ mod tests {
                     preview: preview_request,
                     max_repay_source_debit: 0,
                     debt_transfer: BenchmarkTokenTransferOutcome::default(),
-                    insurance_draw_transfer: BenchmarkTokenTransferOutcome::default(),
                     interest_transfer: BenchmarkTokenTransferOutcome::default(),
                     collateral_transfer: BenchmarkTokenTransferOutcome::default(),
                     collateral_swap_transfer: BenchmarkTokenTransferOutcome {
@@ -7480,7 +7363,7 @@ mod tests {
                         destination_credit: 0,
                     },
                     owner_residual_transfer: BenchmarkTokenTransferOutcome::default(),
-                    insurance_funding_transfer: BenchmarkTokenTransferOutcome::default(),
+                    junior_fee_transfer: BenchmarkTokenTransferOutcome::default(),
                     min_collateral_recipient_credit: 0,
                     protocol_interest_fee_bps: 0,
                     protocol_auction_split: ProtocolAuctionSplit::default(),
@@ -7491,54 +7374,6 @@ mod tests {
         assert_eq!(execution.market.receipt.native.remaining_debt, 0);
         assert_eq!(execution.position_after.quote_collateral, 0);
         assert_eq!(execution.position_after.auction_debt_asset, u8::MAX);
-    }
-
-    #[test]
-    fn floor_skips_insurance_when_the_debt_fee_would_take_the_whole_draw() {
-        let (mut benchmark, mut position, _) = borrowed_liquidation_fixture(1);
-        {
-            let insurance = &mut benchmark.market_mut().insurance;
-            insurance.base_available = 50_000;
-            insurance.principal_coverage_bps = crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS;
-            insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
-        }
-        let trigger = benchmark
-            .execute_start_liquidation_auction(
-                &mut position,
-                BenchmarkStartLiquidationAuctionRequest {
-                    clock: BenchmarkClock {
-                        slot: 4,
-                        unix_timestamp: 4,
-                    },
-                    debt_asset: MarketAsset::Base,
-                },
-            )
-            .unwrap();
-        let plan_request = BenchmarkLiquidationPlanRequest {
-            clock: BenchmarkClock {
-                slot: 100,
-                unix_timestamp: trigger.market.receipt.first_floor_unix_timestamp,
-            },
-            debt_asset: MarketAsset::Base,
-            phase: BenchmarkLiquidationPhase::Floor,
-            max_repay_credit: 0,
-            collateral_reserve_credit: 0,
-            protocol_swap_fee_bps: 0,
-            protocol_auction_split: ProtocolAuctionSplit::default(),
-        };
-        let fee_free = benchmark.preview_liquidation_plan(&position, plan_request).unwrap();
-        assert!(fee_free.insurance_draw_debit > 0);
-
-        benchmark.set_mint_transfer_fee(
-            MarketAsset::Base,
-            BenchmarkMintTransferFee {
-                effective: Some(transfer_fee(10_000)),
-                pending: None,
-                pending_liquidation_eligible: false,
-            },
-        );
-        let confiscatory = benchmark.preview_liquidation_plan(&position, plan_request).unwrap();
-        assert_eq!(confiscatory.insurance_draw_debit, 0);
     }
 
     #[test]

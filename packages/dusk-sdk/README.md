@@ -1,5 +1,7 @@
 # @omnipair/dusk-sdk
 
+Current loss and fee specification: [junior-first credit loss waterfall](../../docs/CREDIT_LOSS_WATERFALL.md).
+
 For volume, fee, and borrower-interest consumers, see the
 [accounting event contract](../../programs/dusk/ACCOUNTING_EVENTS.md).
 `SwapExecuted` covers spot and leverage AMM executions and the market state they
@@ -9,7 +11,7 @@ collections with the same source attribution. Typed events and their
 `SwapOrigin`/`DebtSource` discriminants are exported from this package.
 
 TypeScript SDK for Dusk, the Omnipair V2 protocol architecture. This package
-targets Dusk market layout 8, including bounded oracle policies, aggregate leverage exposure and stored
+targets Dusk market layout 11, including bounded oracle policies, aggregate leverage exposure and stored
 position margin terms. Regenerate clients and use matching account layouts.
 
 ## Bounded oracle markets
@@ -102,7 +104,7 @@ market reference but do not execute an hLP hedge by themselves.
 `DEFAULT_PROTOCOL_REVENUE_SHARE_BPS` is exported from the generated program IDL.
 Its initial value is 2,000 bps (20%): the protocol share of base swap fees,
 paid borrowing/leverage/hLP interest, and liquidation fees. Dynamic swap
-surcharges remain excluded. Liquidation's total charge is still 1% of net debt
+surcharges remain excluded. Liquidation's total charge is fixed at 3% of net debt
 repaid, subject to available surplus; the shared constant sets the protocol's
 share of that charge.
 
@@ -236,7 +238,7 @@ payment and are not refunded to the next buyer.
 
 The 0.5%–5% ramp sets a maximum buyer discount. Partial quotes choose the highest
 whole-basis-point discount within that range that improves health after the
-1% repayment charge and collateral transfer costs. If none works, the partial
+3% repayment charge and collateral transfer costs. If none works, the partial
 rejects. Read the actual rate from `quote.rates.buyerDiscountBps`; use
 `liquidationIncentives(...).maximumBuyerDiscountBps` only for the ceiling. The
 legacy helper field `buyerDiscountBps` remains a deprecated alias for that ceiling.
@@ -253,7 +255,7 @@ useful below-target slices remain permitted. Preview acceptance does not reserve
 liquidity or guarantee keeper profitability. Simulate the complete transaction.
 
 `liquidationHealth`, `liquidationIncentives`, `liquidationFeeAllocation`,
-`liquidationInsuranceTarget`, and `liquidationLossAllocation` use integer atoms
+and `liquidationLossAllocation` use integer atoms
 and mirror the policy arithmetic. They do not replace the on-chain execution
 preview. Incentives depend only on current health; there is no time ramp or
 stored distress episode. `liquidationIncentives` takes only the health input.
@@ -391,7 +393,6 @@ Metrics returned by this preview use the symmetric EMA, before any hypothetical
 liquidation costs. They are not executable close payout or liquidation eligibility;
 the actual action's wallet flows come from its simulated settlement events.
 
-
 ### Swap and LP Transfer Events
 
 `SwapExecuted` records the market immediately after a completed trade: the
@@ -411,37 +412,12 @@ with the earlier seven-entry list, which transfer without a receipt.
 `buildLpTransferHookValidationAccountData({ ..., legacyLayout: true })`
 encodes that earlier list.
 
-### Optional insurance funding
-
-Markets can start with zero insurance. A voluntary top-up uses the existing
-`fortify_market` instruction; it is a donation and does not mint LP shares or
-give the donor a withdrawal claim.
-
-```typescript
-const topUp = await dusk.write.fortifyMarketInstruction({
-  donor: wallet.publicKey,
-  market,
-  asset: "quote",
-  assetMint: quoteMint,
-  amount: 1_000_000n, // Gross raw token atoms, not a USD amount.
-  // Optional: assetTokenProgram avoids the mint-owner RPC read.
-  // Optional: donorAssetAccount overrides the donor's default ATA.
-});
-```
-
-The builder does not fetch the market, so it can be appended after market
-initialization, subject to the transaction's account, size and compute limits.
-The donor's source token account must already exist. SPL Token and Token-2022
-are supported; insurance accounting records the net amount actually received
-after any transfer fee. `fortifyMarketTransaction(...)` wraps the same
-instruction in a transaction without signing or sending it.
-
 ### Direct-srLP Parameter Governance
 
 Each market starts with its creator as manager. LP governance remains available
-and can replace the manager or remove it, leaving the role empty. The program exposes nine
+and can replace the manager or remove it, leaving the role empty. The program exposes eight
 parameter families: Fee, Concentration, IRM, EMA Half-Lives, Daily Borrow
-Limit, Center Controller, Insurance, Oracle, and Tranche. A direct srLP holder burn-locks at least
+Limit, Center Controller, Oracle, and Tranche. A direct srLP holder burn-locks at least
 1% of eligible direct srLP to create a typed proposal. Strictly more than 50%
 support queues it for a 7-day timelock (10 days for tranche changes) and a 7-day execution window. Execution
 is permissionless. Proposals containing exactly one Oracle update can restore
@@ -509,7 +485,7 @@ the program's canonical Borsh/SHA-256 digest for a fetched proposal account.
 The other typed update constructors are `feeParameterUpdate(...)`,
 `irmParameterUpdate(...)`, `emaHalfLivesParameterUpdate(...)`,
 `dailyBorrowLimitParameterUpdate(...)`, `centerControllerParameterUpdate(...)`
-and `insuranceDrawCapsParameterUpdate(...)`. Concentration parameters apply
+and `trancheParameterUpdate(...)`. Concentration parameters apply
 immediately when the validated proposal executes, together with its other
 updates; there is no concentration ramp or ramp-duration argument.
 `canonicalParameterUpdates(...)` returns a set in the order the program
@@ -882,7 +858,6 @@ include `.js` extensions in emitted files.
 
 MIT
 
-
 ## Token amounts and UI extensions
 
 Dusk instruction amounts, token balances, and amount previews are raw integer
@@ -911,7 +886,6 @@ The token extension semantics are described in Solana's
 [scaled UI amount](https://solana.com/docs/tokens/extensions/scaled-ui-amount) and
 [interest-bearing token](https://solana.com/docs/tokens/extensions/interest-bearing-tokens)
 documentation.
-
 
 ## Shared virtual-book previews and simulation context
 
@@ -969,7 +943,6 @@ set cache expiry, coordinate database locks, or stream to subscribers. Those
 remain application responsibilities; validate deployment identity before and
 after a capture. Cancellation and timeout bound the caller's wait; they do not
 necessarily cancel an RPC request already sent over the transport.
-
 
 ### Reusable governance balances and delegation
 
@@ -1100,8 +1073,7 @@ must include a valid controller configuration in the same atomic bundle.
 | Four price/depth EMA half-lives | ½×–2× their respective LP reference, within 1 minute–12 hours. These are separate from the interest model. |
 | Daily public-borrow allowance | 0–LP-approved allowance, subject to the existing protocol ceiling. |
 | Center controller | Enabled when concentrated; step ≤0.1%, trigger ≤1% and ≥step, interval 18,000–432,000 slots (nominally 1–24 hours at 200ms/slot). |
-| Insurance coverage / daily draw | Each ±5 percentage points LP reference, within protocol ceilings 75% / 50%. |
-| Junior income / exit request / liquidation fee | Respectively ±10 percentage points / ±5 bps / ±25 bps LP reference, within protocol ranges 10–90% / 1–50 bps / 25–300 bps. |
+| Junior income share | ±10 percentage points LP reference, within 10–90%. Exit request/renewal and liquidation fees are fixed at 50 bps and 300 bps. |
 
 Only executed LP parameter approvals reanchor the updated families, including
 exact-target ratifications that have become no-ops. They still advance the
@@ -1122,16 +1094,16 @@ to interpret `queuedAt`, `executeAfter` and `executionDeadline`, or the `clock`
 field on `ParameterProposalQueued`. Recovery ballots and the announcement
 cooldown use Unix seconds. Cancelling and reannouncing restarts the full notice.
 
-The V4 **intent digest** commits to exact targets, origin, manager epoch/policy,
+The V5 **intent digest** commits to exact targets, origin, manager epoch/policy,
 action, explicit revision conditions, metadata and junior cohort. Changing the
 starting settings does not invalidate a collecting LP endorsement if these
 endorsed values and conditions remain unchanged. Supply `conditions` when a
 proposal should require a particular starting revision. At majority, the program
 revalidates the targets, seals all configuration revisions and starts a full
-notice period. The separate **execution digest** commits to those revisions,
+notice period. The separate V3 **execution digest** commits to those revisions,
 queue-time support/electorate and timestamps. Use
 `verifyDecodedParameterProposalDigest` and `verifyDecodedExecutionDigest` to
-verify both commitments; the deprecated `familyRevisions` input to the V4 intent
+verify both commitments; the deprecated `familyRevisions` input to the V5 intent
 helper has no effect.
 
 Manager proposals are bound to their election epoch. Replacement or removal
@@ -1185,7 +1157,7 @@ implemented by these governance instructions.
 
 ### Retired junior governance balances
 
-A proposal's V4 intent digest includes `juniorGeneration` as well as its targets and explicit conditions. Pass the decoded proposal's generation to `computeParameterProposalDigest`; receipt units from a retired generation do not contribute to a later generation's voting value.
+A proposal's V5 intent digest includes `juniorGeneration` as well as its targets and explicit conditions. Pass the decoded proposal's generation to `computeParameterProposalDigest`; receipt units from a retired generation do not contribute to a later generation's voting value.
 
 For an ended allocation or obsolete deposit, select the original mint explicitly:
 
@@ -1276,11 +1248,10 @@ capital returned to reserves. Subtract its capital debits from gross
 Repayment builders supply the canonical accounts needed for both hLP vaults.
 Raw callers must include the five existing hLP accounts followed by both asset
 mints and reserve vaults when fresh public interest is settled with active hLP.
-The Market layout is version 5 with `fees.publicInterestAdvance` on both sides,
+The Market layout is version 11 with `fees.publicInterestAdvance` on both sides,
 per-vault flash locks, and non-cash `reserves.flashReceivable`;
 use the regenerated IDL. It also records a frozen hLP mask and per-vault
 curve offsets; older snapshots are incompatible.
-
 
 ### Vault-wide hLP flash recovery
 
@@ -1312,13 +1283,13 @@ const plan = await dusk.hlpLiquidations.buildFlash({
 ```
 
 The helpers never sign, submit, or silently top up from the keeper's wallet.
-The quote is current-bank only. `maxPayment`, collateral limits, insurance and
+The quote is current-bank only. `maxPayment`, collateral limits and
 principal-loss caps protect the submitted plan against state drift. Prefix
 instructions must be supplied through `prefixInstructions` before building.
 An affected hLP cohort cannot mint/redeem between begin and settle; swaps and
 independent market operations remain composable subject to cash and accounting
 checks. The SDK's complete-plan simulator preserves bound instruction indices.
-`HlpFlashSettled.loss` separates principal recovery, principal insurance,
+`HlpFlashSettled.loss` separates principal recovery,
 principal writeoff and canceled interest; a partial recovery has an empty loss
 allocation. Native `HlpTerminalLiquidated.socializedLoss` now denotes principal
 loss only, with `interestCanceled` reported separately.
@@ -1373,7 +1344,6 @@ burn old receipts with `write.burnRetiredHlpReceiptInstruction`. If the asset
 has a Token-2022 transfer hook, pass its extra accounts as
 `transferHookAccounts` to the harvest builder. Burning never forfeits yield
 already checkpointed in the holder's yield accounts.
-
 
 ## srLP, jrLP and hLP
 

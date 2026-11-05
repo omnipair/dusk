@@ -292,86 +292,6 @@ fn active_reconfigured_concentrated_preview_market() -> Market {
     market
 }
 
-#[test]
-fn exhausted_hlp_waterfall_cancels_interest_without_spending_principal_insurance() {
-    let target_asset = MarketAsset::Base;
-    let mut market = active_concentrated_preview_market();
-    let vault_shares = market.base_hlp_vault.srlp_shares;
-    let srlp_supply_before = market.base_side.shares.srlp_supply;
-    let target_claim = u64::try_from(
-        (market.base_side.reserves.live_reserve as u128) * (vault_shares as u128) / (srlp_supply_before as u128),
-    )
-    .unwrap();
-    let borrowed_claim = u64::try_from(
-        (market.quote_side.reserves.live_reserve as u128) * (vault_shares as u128) / (srlp_supply_before as u128),
-    )
-    .unwrap();
-    let eligibility_collateral = market
-        .hlp_ema_collateral_value_in_borrowed(target_asset, target_claim, borrowed_claim, 1)
-        .unwrap();
-    let reference_swap_output = crate::transitions::amm::SwapRequest {
-        current_slot: 1,
-        current_unix_timestamp: 0,
-        asset_in: target_asset,
-        reserve_credit: target_claim,
-        protocol_fee_bps: 0,
-    }
-    .quote_ema_liquidation(&market)
-    .unwrap()
-    .amount_out;
-    let reference_recovery = borrowed_claim.checked_add(reference_swap_output).unwrap();
-    let desired_debt = eligibility_collateral.max(reference_recovery).checked_add(1_000).unwrap();
-    market.debt.quote_borrow_index_nad =
-        crate::math::mul_div_ceil_u128(desired_debt as u128, NAD as u128, market.base_hlp_vault.debt_shares).unwrap();
-    let actual_debt = u64::try_from(
-        Debt::shares_to_debt(market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad).unwrap(),
-    )
-    .unwrap();
-    let shortfall = actual_debt.saturating_sub(reference_recovery);
-    assert!(shortfall > 600);
-    assert!(shortfall <= actual_debt.saturating_sub(market.base_hlp_vault.debt_principal));
-    market.insurance.quote_available = 1_200;
-    market.advance_amm_clock(1).unwrap();
-    let plan = market.prepare_terminal_hlp_waterfall(
-        target_asset,
-        0,
-        crate::transitions::LeverageCollateralFee::default(),
-        1,
-        0,
-        0,
-    ).unwrap();
-    assert_eq!(plan.insurance_request(), 0);
-    let expected_interest = plan
-        .reference_recovery()
-        .saturating_sub(market.base_hlp_vault.debt_principal)
-        .min(market.quote_side.reserves.cash_reserve);
-    let principal = market.base_hlp_vault.debt_principal;
-    let receipt = plan.consume(&mut market, 0, 0, 0).unwrap();
-    assert_eq!(receipt.insurance_drawn, 0);
-    assert_eq!(receipt.socialized_loss, 0);
-    assert_eq!(receipt.interest_canceled, actual_debt - principal - expected_interest);
-    assert_eq!(receipt.debt_closed, actual_debt);
-    assert_eq!(receipt.srlp_burn_amount, vault_shares);
-    assert_eq!(market.insurance.quote_available, 1_200);
-    assert_eq!(market.base_hlp_vault.srlp_shares, 0);
-    assert_eq!(market.base_hlp_vault.debt_shares, 0);
-    assert_eq!(market.base_hlp_vault.debt_principal, 0);
-    assert_eq!(market.base_side.shares.srlp_supply, srlp_supply_before - vault_shares);
-    assert_eq!(market.quote_side.shares.srlp_supply, srlp_supply_before - vault_shares);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
-
-    let closed_supply = market.base_hlp_vault.hlp_supply;
-    let first_burn = closed_supply / 2;
-    let first = market.withdraw_single_sided(target_asset, first_burn).unwrap();
-    assert_eq!(first.target_amount_out, 0);
-    assert_eq!(first.srlp_amount, 0);
-    assert_eq!(first.hlp_supply, closed_supply - first_burn);
-    let final_receipt = market.withdraw_single_sided(target_asset, first.hlp_supply).unwrap();
-    assert_eq!(final_receipt.target_amount_out, 0);
-    assert_eq!(final_receipt.hlp_supply, 0);
-}
-
 fn assert_prepared_swaps_equal(preview: &PreparedSwap, execution: &PreparedSwap) {
     assert_eq!(preview.quote, execution.quote);
     assert_eq!(preview.base_pre_rebalance, execution.base_pre_rebalance);
@@ -1317,7 +1237,6 @@ proptest! {
     }
 }
 
-
 fn existing_position_capacity_fixture(debt_asset: MarketAsset) -> (Market, BorrowPosition) {
     let mut market = preview_test_market(0, 0);
     market.config.max_daily_borrow_bps = crate::state::MAX_DAILY_BORROW_BPS;
@@ -1528,4 +1447,79 @@ proptest! {
             &mut position.clone(), collateral_asset, max_withdraw + 1, 0,
         ).is_err());
     }
+}
+
+#[test]
+fn exhausted_hlp_waterfall_cancels_unpaid_interest_and_keeps_zero_value_receipts_burnable() {
+    let target_asset = MarketAsset::Base;
+    let mut market = active_concentrated_preview_market();
+    let vault_shares = market.base_hlp_vault.srlp_shares;
+    let srlp_supply_before = market.base_side.shares.srlp_supply;
+    let target_claim = u64::try_from(
+        (market.base_side.reserves.live_reserve as u128) * (vault_shares as u128) / (srlp_supply_before as u128),
+    )
+    .unwrap();
+    let borrowed_claim = u64::try_from(
+        (market.quote_side.reserves.live_reserve as u128) * (vault_shares as u128) / (srlp_supply_before as u128),
+    )
+    .unwrap();
+    let eligibility_collateral = market
+        .hlp_ema_collateral_value_in_borrowed(target_asset, target_claim, borrowed_claim, 1)
+        .unwrap();
+    let reference_swap_output = crate::transitions::amm::SwapRequest {
+        current_slot: 1,
+        current_unix_timestamp: 0,
+        asset_in: target_asset,
+        reserve_credit: target_claim,
+        protocol_fee_bps: 0,
+    }
+    .quote_ema_liquidation(&market)
+    .unwrap()
+    .amount_out;
+    let reference_recovery = borrowed_claim.checked_add(reference_swap_output).unwrap();
+    let desired_debt = eligibility_collateral.max(reference_recovery).checked_add(1_000).unwrap();
+    market.debt.quote_borrow_index_nad =
+        crate::math::mul_div_ceil_u128(desired_debt as u128, NAD as u128, market.base_hlp_vault.debt_shares).unwrap();
+    let actual_debt = u64::try_from(
+        Debt::shares_to_debt(market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad).unwrap(),
+    )
+    .unwrap();
+    let shortfall = actual_debt.saturating_sub(reference_recovery);
+    assert!(shortfall > 600);
+    assert!(shortfall <= actual_debt.saturating_sub(market.base_hlp_vault.debt_principal));
+    market.advance_amm_clock(1).unwrap();
+    let plan = market.prepare_terminal_hlp_waterfall(
+        target_asset,
+        1,
+        0,
+        0,
+    ).unwrap();
+    assert_eq!(plan.reference_recovery(), reference_recovery);
+    let expected_interest = plan
+        .reference_recovery()
+        .saturating_sub(market.base_hlp_vault.debt_principal)
+        .min(market.quote_side.reserves.cash_reserve);
+    let principal = market.base_hlp_vault.debt_principal;
+    let receipt = plan.consume(&mut market, 0).unwrap();
+    assert_eq!(receipt.socialized_loss, 0);
+    assert_eq!(receipt.interest_canceled, actual_debt - principal - expected_interest);
+    assert_eq!(receipt.debt_closed, actual_debt);
+    assert_eq!(receipt.srlp_burn_amount, vault_shares);
+    assert_eq!(market.base_hlp_vault.srlp_shares, 0);
+    assert_eq!(market.base_hlp_vault.debt_shares, 0);
+    assert_eq!(market.base_hlp_vault.debt_principal, 0);
+    assert_eq!(market.base_side.shares.srlp_supply, srlp_supply_before - vault_shares);
+    assert_eq!(market.quote_side.shares.srlp_supply, srlp_supply_before - vault_shares);
+    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+    market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+
+    let closed_supply = market.base_hlp_vault.hlp_supply;
+    let first_burn = closed_supply / 2;
+    let first = market.withdraw_single_sided(target_asset, first_burn).unwrap();
+    assert_eq!(first.target_amount_out, 0);
+    assert_eq!(first.srlp_amount, 0);
+    assert_eq!(first.hlp_supply, closed_supply - first_burn);
+    let final_receipt = market.withdraw_single_sided(target_asset, first.hlp_supply).unwrap();
+    assert_eq!(final_receipt.target_amount_out, 0);
+    assert_eq!(final_receipt.hlp_supply, 0);
 }

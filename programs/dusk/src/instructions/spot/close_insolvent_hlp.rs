@@ -24,7 +24,6 @@ use crate::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct CloseInsolventHlpArgs {
     pub target_asset: u8,
-    pub max_insurance_draw: u64,
     pub max_socialized_loss: u64,
     pub min_caller_bounty_out: u64,
 }
@@ -42,8 +41,6 @@ pub struct CloseInsolventHlp<'info> {
     pub borrowed_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub borrowed_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub insurance_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub caller_bounty_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
@@ -86,22 +83,13 @@ impl<'info> CloseInsolventHlp<'info> {
             self.borrowed_interest_vault.key(),
             ErrorCode::InvalidVault
         );
-        let insurance_key = match borrowed_asset {
-            MarketAsset::Base => self.market.insurance.base_vault,
-            MarketAsset::Quote => self.market.insurance.quote_vault,
-        };
-        require_keys_eq!(insurance_key, self.insurance_vault.key(), ErrorCode::InvalidVault);
         require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
         require_keys_eq!(
             target_vault.srlp_vault,
             self.target_hlp_srlp_vault.key(),
             ErrorCode::InvalidVault
         );
-        for account in [
-            &self.borrowed_reserve_vault,
-            &self.borrowed_interest_vault,
-            &self.insurance_vault,
-        ] {
+        for account in [&self.borrowed_reserve_vault, &self.borrowed_interest_vault] {
             require_keys_eq!(account.mint, self.borrowed_mint.key(), ErrorCode::InvalidVault);
             require_keys_eq!(account.owner, self.market.key(), ErrorCode::InvalidVault);
         }
@@ -146,42 +134,17 @@ impl<'info> CloseInsolventHlp<'info> {
         };
         let plan = ctx.accounts.market.prepare_terminal_hlp_waterfall(
             target_asset,
-            args.max_insurance_draw,
-            crate::instructions::leverage_collateral_fee(&ctx.accounts.borrowed_mint, Clock::get()?.epoch)?,
             current_slot,
             Clock::get()?.unix_timestamp,
             ctx.accounts.futarchy_authority.revenue_share.swap_bps,
         )?;
         require!(plan.target_asset() == target_asset, ErrorCode::BrokenInvariant);
-        let insurance_spent = plan.insurance_request();
-        let reserve_before = ctx.accounts.borrowed_reserve_vault.amount;
         let borrowed_token_program = token_program_for_mint(
             &ctx.accounts.borrowed_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        if insurance_spent > 0 {
-            transfer_checked_with_remaining_accounts(
-                ctx.accounts.market.to_account_info(),
-                ctx.accounts.insurance_vault.to_account_info(),
-                ctx.accounts.borrowed_reserve_vault.to_account_info(),
-                ctx.accounts.borrowed_mint.to_account_info(),
-                borrowed_token_program.clone(),
-                insurance_spent,
-                ctx.accounts.borrowed_mint.decimals,
-                &[&generate_market_seeds!(ctx.accounts.market)[..]],
-                ctx.remaining_accounts,
-            )?;
-            ctx.accounts.borrowed_reserve_vault.reload()?;
-            ctx.accounts.insurance_vault.reload()?;
-        }
-        let insurance_credit = token_account_credit(reserve_before, &ctx.accounts.borrowed_reserve_vault)?;
-        let receipt = plan.consume(
-            &mut ctx.accounts.market,
-            insurance_spent,
-            insurance_credit,
-            args.max_socialized_loss,
-        )?;
+        let receipt = plan.consume(&mut ctx.accounts.market, args.max_socialized_loss)?;
 
         if receipt.srlp_burn_amount > 0 {
             token_burn(
@@ -277,7 +240,7 @@ impl<'info> CloseInsolventHlp<'info> {
         // This is the terminal recovery path for an already-insolvent hLP.
         // A changed fee on either market mint can leave global health below
         // the floor; requiring that floor here would strand the debt instead
-        // of allowing insurance and socialization to close it.
+        // of allowing the junior/senior loss waterfall to close it.
         require_reserve_custody(
             ctx.accounts.borrowed_reserve_vault.amount,
             ctx.accounts.market.side(borrowed_asset),
@@ -290,7 +253,6 @@ impl<'info> CloseInsolventHlp<'info> {
             srlp_burned: receipt.srlp_burn_amount,
             interest_paid: actual_interest_credit,
             caller_bounty: caller_bounty_credit,
-            insurance_drawn: receipt.insurance_drawn,
             socialized_loss: receipt.socialized_loss,
             interest_canceled: receipt.interest_canceled,
             remaining_hlp_supply: receipt.remaining_hlp_supply,

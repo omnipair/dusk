@@ -79,8 +79,7 @@ export type StoredMarket = {
   quoteReserveVault: string;
   baseCollateralVault: string;
   quoteCollateralVault: string;
-  baseInsuranceVault: string;
-  quoteInsuranceVault: string;
+
   baseInterestVault: string;
   quoteInterestVault: string;
   baseHlpSrlpVault: string;
@@ -565,8 +564,6 @@ export function deriveMarketAddresses(params: {
     quoteReserveVault: derivePda(params.programId, Buffer.from("market_reserve"), market.toBuffer(), params.quoteMint.toBuffer()),
     baseCollateralVault: derivePda(params.programId, Buffer.from("market_collateral"), market.toBuffer(), params.baseMint.toBuffer()),
     quoteCollateralVault: derivePda(params.programId, Buffer.from("market_collateral"), market.toBuffer(), params.quoteMint.toBuffer()),
-    baseInsuranceVault: derivePda(params.programId, Buffer.from("insurance"), market.toBuffer(), params.baseMint.toBuffer()),
-    quoteInsuranceVault: derivePda(params.programId, Buffer.from("insurance"), market.toBuffer(), params.quoteMint.toBuffer()),
     baseInterestVault: derivePda(params.programId, Buffer.from("market_interest"), market.toBuffer(), params.baseMint.toBuffer()),
     quoteInterestVault: derivePda(params.programId, Buffer.from("market_interest"), market.toBuffer(), params.quoteMint.toBuffer()),
   };

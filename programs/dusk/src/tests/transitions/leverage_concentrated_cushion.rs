@@ -43,7 +43,6 @@ struct Totals {
     solvent: u64,
     emergency: u64,
     repaid: u64,
-    insurance: u64,
     loss: u64,
     owner: u64,
     reward: u64,
@@ -72,6 +71,9 @@ fn initialize(case: Case) -> Market {
     // Fixed total wallet deposits across hLP variants: $100k. With hLP, $80k
     // starts as srLP and $10k per asset enters through native single-sided entry.
     let mut market = calibration_market(if case.hlp { 80_000 } else { 100_000 }, case.amp);
+    // Synthetic reserve seeding bypasses market initialization. Initialize the
+    // tranche income lanes before any fees or interest accrue, as creation does.
+    market.synchronize_tranche_income();
     market.config.ema_half_life_ms = 60_000;
     market.config.directional_ema_half_life_ms = 60_000;
     market.config.curve_depth_ema_half_life_ms = 60_000;
@@ -93,12 +95,6 @@ fn initialize(case: Case) -> Market {
         market.finalize_amm_transition_and_observe_risk(1).unwrap();
     }
     market.config.amm.validate().unwrap();
-    market.insurance.principal_coverage_bps = crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS;
-    market.insurance.per_day_draw_bps = crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS;
-    market
-        .insurance
-        .credit(case.debt_asset, 1_000 * CALIBRATION_UNIT, 1)
-        .unwrap();
     market.assert_market_invariants().unwrap();
     market
 }
@@ -310,7 +306,6 @@ fn one_case_with_policy(case: Case, policy: Policy) -> Totals {
                         totals.solvent += u64::from(fill.kind == 2);
                         totals.emergency += u64::from(fill.kind == 3);
                         totals.repaid += paid.repaid;
-                        totals.insurance += paid.insurance;
                         totals.loss += paid.loss;
                         totals.owner += paid.owner;
                         totals.reward += paid.reward;
@@ -365,7 +360,7 @@ fn one_case_with_policy(case: Case, policy: Policy) -> Totals {
     }
     assert_eq!(
         totals.original_debt,
-        totals.repaid + totals.insurance + totals.loss + totals.remaining
+        totals.repaid + totals.loss + totals.remaining
     );
     assert!(slot >= 2);
     totals
@@ -373,7 +368,7 @@ fn one_case_with_policy(case: Case, policy: Policy) -> Totals {
 
 #[test]
 fn native_concentrated_cushion_report() {
-    println!("NATIVE_CUSHION,amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,opened,original_debt,partial,flash,solvent,emergency,repaid,insurance,loss,owner,reward,contribution,remaining,eligible,tail_observations,recentered,deferred,quote_failures,last_quote_error,failed_fills,blocked");
+    println!("NATIVE_CUSHION,amplification,controller,hlp,debt_side,pieces,path,cushion_bps,withdrawal_bps,opened,original_debt,partial,flash,solvent,emergency,repaid,loss,owner,reward,contribution,remaining,eligible,tail_observations,recentered,deferred,quote_failures,last_quote_error,failed_fills,blocked");
     let mut successes = [0; 3];
     let mut cases = 0;
     let full_sweep = std::env::var_os("DUSK_NATIVE_CUSHION_SWEEP").is_some();
@@ -425,7 +420,7 @@ fn native_concentrated_cushion_report() {
                                     successes[0] += t.solvent;
                                     successes[1] += u64::from(t.loss > 0);
                                     successes[2] += u64::from(hlp && t.repaid > 0);
-                                    println!("NATIVE_CUSHION,{amp},{controller},{hlp},{},{pieces},{path},{cushion},{withdrawal},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", debt_asset.code(), t.opened,t.original_debt,t.partial,t.flash,t.solvent,t.emergency,t.repaid,t.insurance,t.loss,t.owner,t.reward,t.contribution,t.remaining,t.eligible,t.tail_observations,t.recentered,t.deferred,t.quote_failures,t.last_quote_error,t.failed_fills,t.blocked);
+                                    println!("NATIVE_CUSHION,{amp},{controller},{hlp},{},{pieces},{path},{cushion},{withdrawal},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", debt_asset.code(), t.opened, t.original_debt, t.partial, t.flash, t.solvent, t.emergency, t.repaid, t.loss, t.owner, t.reward, t.contribution, t.remaining, t.eligible, t.tail_observations, t.recentered, t.deferred, t.quote_failures, t.last_quote_error, t.failed_fills, t.blocked);
                                     cases += 1;
                                 }
                             }
@@ -522,12 +517,10 @@ fn native_cushion_solvent_and_loss_settlements_preserve_active_hlp() {
             assert_eq!(next.collateral_amount, 0);
             assert_eq!(after.base_hlp_vault.residual_exposure, 0);
             assert_eq!(after.quote_hlp_vault.residual_exposure, 0);
-            assert_eq!(principal, paid.repaid + paid.insurance + paid.loss);
+            assert_eq!(principal, paid.repaid + paid.loss);
             if insolvent {
-                assert!(paid.insurance > 0);
                 assert!(paid.loss > 0);
             } else {
-                assert_eq!(paid.insurance, 0);
                 assert_eq!(paid.loss, 0);
                 assert!(paid.owner > 0);
             }

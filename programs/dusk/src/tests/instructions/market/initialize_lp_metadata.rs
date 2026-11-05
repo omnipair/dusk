@@ -73,22 +73,7 @@ fn metadata_market() -> MetadataMarketFixture {
     };
     let mut market = Market::default();
     market
-        .initialize(
-            srlp_mint,
-            base_side,
-            quote_side,
-            valid_config(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            [7; 32],
-            initial_liquidity_authority,
-            0,
-            0,
-            1,
-            255,
-        )
+        .initialize(srlp_mint, base_side, quote_side, valid_config(), Pubkey::new_unique(), Pubkey::new_unique(), [7; 32], initial_liquidity_authority, 0, 0, 1, 255)
         .unwrap();
     MetadataMarketFixture {
         market,

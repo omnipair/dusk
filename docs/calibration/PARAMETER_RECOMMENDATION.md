@@ -1,5 +1,10 @@
 # Margin and liquidation parameter recommendation
 
+> Historical design/evidence: the standalone insurance fund and its coverage,
+> draw, target, and donation rules were removed on 5 November 2026. Earlier
+> results below retain their original assumptions and are not validation of
+> the current policy. See the [current junior-first waterfall](../CREDIT_LOSS_WATERFALL.md).
+
 2026-10-07 · PR #45 · **Proposal awaiting the remaining product decisions.**
 
 **Historical calibration package.** The current stored-margin implementation

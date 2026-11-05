@@ -346,7 +346,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                         .liquidation_debt_allocation(&LiquidationPositionRef::Borrow(&position), asset, shares)
                         .unwrap();
                     let loss = market
-                        .settle_flash_recovery(&mut LiquidationPositionMut::Borrow(&mut position), asset, allocation, 50_000 * UNIT, 375_000 * UNIT, 0, 0, true, 1)
+                        .settle_flash_recovery(&mut LiquidationPositionMut::Borrow(&mut position), asset, allocation, 50_000 * UNIT, 375_000 * UNIT, true, 1)
                         .unwrap();
                     assert_eq!(loss.principal_written_off, 25_000 * UNIT);
                     assert_eq!(loss.interest_canceled, 25_000 * UNIT);
@@ -469,7 +469,6 @@ fn full_value_recovery_bonus_reports_the_settled_price() {
         assert!(price.abs_diff(market.risk.cached_spot_base_price_nad) <= 10);
     }
 }
-
 
 #[test]
 fn accrued_interest_rehedging_does_not_pay_a_same_slot_round_trip() {
@@ -854,7 +853,6 @@ fn tranche_hlp_nav_includes_only_its_allocated_unpaid_interest() {
     assert!(observed.abs_diff(expected) <= 1_000, "hLP counts another tranche's receivable: expected {expected}, observed {observed}, own unpaid {own_unpaid}");
 }
 
-
 #[test]
 fn tranche_hlp_rehedge_preserves_each_vaults_receivable_nav() {
     const UNIT: u64 = 1_000_000;
@@ -1008,9 +1006,7 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
             irm: IrmConfig::default(), ..MarketConfig::default()
          };
          let mut market = Market::default();
-         market.initialize(Pubkey::new_unique(), side(base_decimals), side(quote_decimals), config,
-            Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(),
-            [0;32], Pubkey::new_unique(), 60 * NAD, 0, 2_500, 255).unwrap();
+         market.initialize(Pubkey::new_unique(), side(base_decimals), side(quote_decimals), config, Pubkey::new_unique(), Pubkey::new_unique(), [0;32], Pubkey::new_unique(), 60 * NAD, 0, 2_500, 255).unwrap();
          market.add_liquidity(raw(10_000,base_decimals),raw(600_000,quote_decimals)).unwrap();
          market.finalize_amm_transition_and_observe_risk(2_500).unwrap();
          market.deposit_single_sided(MarketAsset::Base,raw(1_000,base_decimals),1).unwrap();

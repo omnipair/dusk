@@ -1,5 +1,5 @@
 use crate::{
-    constants::{MAX_JUNIOR_EXIT_FEE_BPS, MIN_JUNIOR_EXIT_FEE_BPS, MS_PER_DAY, TARGET_MS_PER_SLOT},
+    constants::{MS_PER_DAY, TARGET_MS_PER_SLOT},
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
     state::TrancheCapital,
@@ -11,7 +11,6 @@ pub struct JuniorExitConfig {
     pub minimum_notice_slots: u64,
     pub maximum_notice_slots: u64,
     pub exercise_window_slots: u64,
-    pub request_fee_bps: u16,
 }
 
 impl Default for JuniorExitConfig {
@@ -20,7 +19,6 @@ impl Default for JuniorExitConfig {
             minimum_notice_slots: 7 * MS_PER_DAY / TARGET_MS_PER_SLOT,
             maximum_notice_slots: crate::constants::JUNIOR_MAX_NOTICE_SLOTS,
             exercise_window_slots: 2 * MS_PER_DAY / TARGET_MS_PER_SLOT,
-            request_fee_bps: 5,
         }
     }
 }
@@ -30,8 +28,7 @@ impl JuniorExitConfig {
         require!(
             self.minimum_notice_slots > 0
                 && self.maximum_notice_slots >= self.minimum_notice_slots
-                && self.exercise_window_slots > 0
-                && (MIN_JUNIOR_EXIT_FEE_BPS..=MAX_JUNIOR_EXIT_FEE_BPS).contains(&self.request_fee_bps),
+                && self.exercise_window_slots > 0,
             ErrorCode::InvalidMarketConfig
         );
         Ok(())
@@ -78,8 +75,12 @@ impl JuniorExitTicket {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let renewing = self.receipts > 0 && clock >= self.ready_at;
         let fee_basis = if renewing { total } else { additional_receipts };
-        let fee = u64::try_from(mul_div_u128(fee_basis as u128, config.request_fee_bps as u128, 10_000)?)
-            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let fee = u64::try_from(mul_div_u128(
+            fee_basis as u128,
+            crate::constants::JUNIOR_EXIT_FEE_BPS as u128,
+            10_000,
+        )?)
+        .map_err(|_| ErrorCode::MarketMathOverflow)?;
         let net = total.checked_sub(fee).ok_or(ErrorCode::InsufficientBalance)?;
         require!(net > 0, ErrorCode::AmountZero);
         let mut next = *capital;

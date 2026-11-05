@@ -167,7 +167,6 @@ fn indexer_receipts_remain_compact() {
         collateral_seized: 2,
         collateral_to_liquidator: 3,
         collateral_credit: 4,
-        insurance_drawn: 5,
         socialized_loss: 6,
         remaining_debt: 7,
         base_collateral: 8,
@@ -199,7 +198,7 @@ fn indexer_receipts_remain_compact() {
     assert_eq!(HlpClosed::DISCRIMINATOR.len() + closed.try_to_vec().unwrap().len(), 145);
     assert_eq!(
         BorrowPositionLiquidated::DISCRIMINATOR.len() + liquidated.try_to_vec().unwrap().len(),
-        271
+        263
     );
 }
 

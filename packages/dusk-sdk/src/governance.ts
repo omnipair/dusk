@@ -45,19 +45,15 @@ export const SWAP_FEE_COLLECT_INPUT_ASSET = 0;
 export const SWAP_FEE_COLLECT_BASE_ONLY = 1;
 export const SWAP_FEE_COLLECT_QUOTE_ONLY = 2;
 export const MAX_LAUNCH_MARKET_FEE_PERIODS = 64;
-export const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS = 7_500;
-export const MAX_INSURANCE_DRAW_PER_DAY_BPS = 5_000;
 export const MIN_JUNIOR_INCOME_SHARE_BPS = 1_000;
 export const MAX_JUNIOR_INCOME_SHARE_BPS = 9_000;
-export const MIN_JUNIOR_EXIT_REQUEST_FEE_BPS = 1;
-export const MAX_JUNIOR_EXIT_REQUEST_FEE_BPS = 50;
-export const MIN_LIQUIDATION_FEE_BPS = 25;
-export const MAX_LIQUIDATION_FEE_BPS = 300;
 /** Governed parameter families, and the length of a market's revision list. */
-export const PARAMETER_FAMILY_COUNT = 9;
-/** A proposal changes one to nine families, each at most once. */
+export const PARAMETER_FAMILY_COUNT = 8;
+export const JUNIOR_EXIT_REQUEST_FEE_BPS = 50;
+export const LIQUIDATION_FEE_BPS = 300;
+/** A proposal changes one to eight families, each at most once. */
 export const MAX_PARAMETER_UPDATES_PER_PROPOSAL = PARAMETER_FAMILY_COUNT;
-export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V4";
+export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V5";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const PROPOSAL_DIGEST_DOMAIN = new TextEncoder().encode(PARAMETER_PROPOSAL_DIGEST_DOMAIN);
@@ -165,17 +161,14 @@ export type ParameterUpdate =
       adjustmentStepNad: BN;
       minAdjustmentIntervalSlots: BN;
     }
-  | { kind: "insuranceDrawCaps"; principalCoverageBps: number; perDayBps: number }
   | { kind: "oracle"; policy: OraclePolicy }
   | {
       kind: "tranche";
       juniorIncomeShareBps: number;
-      requestFeeBps: number;
-      liquidationFeeBps: number;
     };
 
 export type ParameterFamilyName = ParameterUpdate["kind"];
-export type ParameterFamilyCode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type ParameterFamilyCode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export interface ProposalMetadataV1 {
   version: number;
@@ -239,7 +232,7 @@ export interface UploadProposalMetadataInput extends ProposalDescriptionFetchOpt
 export type GovernanceActionInput = { kind: "parameters" } | { kind: "appointManager"; manager: AddressLike; expectedEpoch: GovernanceIntegerLike };
 export type ProposalOriginInput = { kind: "lp" } | { kind: "manager"; epoch: GovernanceIntegerLike; policyVersion: GovernanceIntegerLike };
 export interface RevisionCondition { family: ParameterFamilyCode; revision: GovernanceIntegerLike }
-const FAMILY_NAMES = ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "insurance", "oracle", "tranche"] as const;
+const FAMILY_NAMES = ["fee", "concentration", "irm", "emaHalfLives", "dailyBorrowLimit", "centerController", "oracle", "tranche"] as const;
 
 export function canonicalGovernanceUpdates(updates: readonly ParameterUpdate[], action: GovernanceActionInput = {kind: "parameters"}): ParameterUpdate[] {
   if (action.kind === "parameters") return canonicalParameterUpdates(updates);
@@ -654,28 +647,12 @@ export function centerControllerParameterUpdate(input: {
   };
 }
 
-/** Insurance loss-concentration caps; they may only tighten the protocol ceilings. */
-export function insuranceDrawCapsParameterUpdate(input: {
-  principalCoverageBps: number;
-  perDayBps: number;
-}): ParameterUpdate {
-  assertBps(input.principalCoverageBps, "principalCoverageBps", MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS);
-  assertBps(input.perDayBps, "perDayBps", MAX_INSURANCE_DRAW_PER_DAY_BPS);
-  return {
-    kind: "insuranceDrawCaps",
-    principalCoverageBps: input.principalCoverageBps,
-    perDayBps: input.perDayBps,
-  };
-}
-
 export function oracleParameterUpdate(input: OraclePolicyInput): ParameterUpdate {
   return { kind: "oracle", policy: oraclePolicy(input) };
 }
 
 export function trancheParameterUpdate(input: {
   juniorIncomeShareBps: number;
-  requestFeeBps: number;
-  liquidationFeeBps: number;
 }): ParameterUpdate {
   assertBps(
     input.juniorIncomeShareBps,
@@ -683,19 +660,10 @@ export function trancheParameterUpdate(input: {
     MAX_JUNIOR_INCOME_SHARE_BPS,
     MIN_JUNIOR_INCOME_SHARE_BPS
   );
-  assertBps(
-    input.requestFeeBps,
-    "requestFeeBps",
-    MAX_JUNIOR_EXIT_REQUEST_FEE_BPS,
-    MIN_JUNIOR_EXIT_REQUEST_FEE_BPS
-  );
-  assertBps(
-    input.liquidationFeeBps,
-    "liquidationFeeBps",
-    MAX_LIQUIDATION_FEE_BPS,
-    MIN_LIQUIDATION_FEE_BPS
-  );
-  return { kind: "tranche", ...input };
+  for (const key of Object.keys(input)) {
+    if (key !== "kind" && key !== "juniorIncomeShareBps") throw new Error(`Unknown tranche update field: ${key}`);
+  }
+  return { kind: "tranche", juniorIncomeShareBps: input.juniorIncomeShareBps };
 }
 
 export const parameterUpdate = {
@@ -706,7 +674,6 @@ export const parameterUpdate = {
   emaHalfLives: emaHalfLivesParameterUpdate,
   dailyBorrowLimit: dailyBorrowLimitParameterUpdate,
   centerController: centerControllerParameterUpdate,
-  insuranceDrawCaps: insuranceDrawCapsParameterUpdate,
   tranche: trancheParameterUpdate,
 } as const;
 
@@ -733,9 +700,6 @@ export function assertParameterUpdate(update: ParameterUpdate): void {
     case "oracle":
       oraclePolicy(update.policy);
       return;
-    case "insuranceDrawCaps":
-      insuranceDrawCapsParameterUpdate(update);
-      return;
     case "tranche":
       trancheParameterUpdate(update);
       return;
@@ -756,12 +720,10 @@ export function parameterFamilyCode(update: ParameterUpdate): ParameterFamilyCod
       return 4;
     case "centerController":
       return 5;
-    case "insuranceDrawCaps":
-      return 6;
     case "oracle":
-      return 7;
+      return 6;
     case "tranche":
-      return 8;
+      return 7;
   }
 }
 
@@ -840,16 +802,10 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
       };
     case "oracle":
       return { oracle: { 0: update.policy } };
-    case "insuranceDrawCaps":
-      return {
-        insuranceDrawCaps: { principalCoverageBps: update.principalCoverageBps, perDayBps: update.perDayBps },
-      };
     case "tranche":
       return {
         tranche: {
           juniorIncomeShareBps: update.juniorIncomeShareBps,
-          requestFeeBps: update.requestFeeBps,
-          liquidationFeeBps: update.liquidationFeeBps,
         },
       };
   }
@@ -903,13 +859,6 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
       minAdjustmentIntervalSlots: integerField(fields, "minAdjustmentIntervalSlots"),
     });
   }
-  if (update.insuranceDrawCaps !== undefined) {
-    const fields = objectValue(update.insuranceDrawCaps, "insurance draw-caps update");
-    return insuranceDrawCapsParameterUpdate({
-      principalCoverageBps: numberField(fields, "principalCoverageBps"),
-      perDayBps: numberField(fields, "perDayBps"),
-    });
-  }
   if (update.oracle !== undefined) {
     return oracleParameterUpdate(tupleField(update.oracle, "oracle") as OraclePolicyInput);
   }
@@ -917,8 +866,6 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
     const fields = objectValue(update.tranche, "tranche update");
     return trancheParameterUpdate({
       juniorIncomeShareBps: numberField(fields, "juniorIncomeShareBps"),
-      requestFeeBps: numberField(fields, "requestFeeBps"),
-      liquidationFeeBps: numberField(fields, "liquidationFeeBps"),
     });
   }
   throw new Error("unknown market parameter update variant");
@@ -1163,7 +1110,7 @@ export interface DecodedExecutionCommitment extends DecodedParameterProposalForD
 export async function computeDecodedExecutionDigest(programId: AddressLike, proposal: DecodedExecutionCommitment): Promise<Uint8Array> {
   assertFamilyRevisionCount(proposal.familyRevisions);
   const intent = await computeDecodedParameterProposalDigest(programId, proposal);
-  return sha256(concatBytes(new TextEncoder().encode("DUSK_PARAMETER_EXECUTION_V2"), intent,
+  return sha256(concatBytes(new TextEncoder().encode("DUSK_PARAMETER_EXECUTION_V3"), intent,
     ...proposal.familyRevisions.map((revision,index) => encodeU64(revision, `familyRevisions[${index}]`)),
     encodeU64(proposal.queuedSupport, "queuedSupport"), encodeU64(proposal.queuedEligibleSrlp, "queuedEligibleSrlp"),
     encodeI64(proposal.queuedAt), encodeI64(proposal.executeAfter), encodeI64(proposal.executionDeadline)));
@@ -1378,15 +1325,11 @@ function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
         encodeU64(update.minAdjustmentIntervalSlots, "minAdjustmentIntervalSlots")
       );
     case "oracle":
-      return concatBytes(Uint8Array.of(7), encodeOraclePolicy(update.policy));
-    case "insuranceDrawCaps":
-      return concatBytes(Uint8Array.of(6), encodeU16(update.principalCoverageBps), encodeU16(update.perDayBps));
+      return concatBytes(Uint8Array.of(6), encodeOraclePolicy(update.policy));
     case "tranche":
       return concatBytes(
-        Uint8Array.of(8),
-        encodeU16(update.juniorIncomeShareBps),
-        encodeU16(update.requestFeeBps),
-        encodeU16(update.liquidationFeeBps)
+        Uint8Array.of(7),
+        encodeU16(update.juniorIncomeShareBps)
       );
   }
 }

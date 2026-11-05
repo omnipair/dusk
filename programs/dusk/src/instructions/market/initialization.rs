@@ -186,28 +186,6 @@ pub struct InitializeMarket<'info> {
         bump
     )]
     pub quote_collateral_vault: UncheckedAccount<'info>,
-    /// CHECK: Junior insurance vault PDA for the base asset.
-    #[account(
-        mut,
-        seeds = [
-            INSURANCE_SEED_PREFIX,
-            market.key().as_ref(),
-            base_mint.key().as_ref(),
-        ],
-        bump
-    )]
-    pub base_insurance_vault: UncheckedAccount<'info>,
-    /// CHECK: Junior insurance vault PDA for the quote asset.
-    #[account(
-        mut,
-        seeds = [
-            INSURANCE_SEED_PREFIX,
-            market.key().as_ref(),
-            quote_mint.key().as_ref(),
-        ],
-        bump
-    )]
-    pub quote_insurance_vault: UncheckedAccount<'info>,
     /// CHECK: Non-compounding interest vault PDA for the base asset.
     #[account(
         mut,
@@ -305,10 +283,8 @@ impl<'info> InitializeMarket<'info> {
         let quote_hlp_mint = ctx.accounts.quote_hlp_mint.key();
         let base_collateral_vault = ctx.accounts.base_collateral_vault.key();
         let quote_collateral_vault = ctx.accounts.quote_collateral_vault.key();
-        let base_insurance_vault = ctx.accounts.base_insurance_vault.key();
-        let quote_insurance_vault = ctx.accounts.quote_insurance_vault.key();
 
-        // Create reserve, collateral, insurance, and interest vaults for both assets.
+        // Create reserve, collateral, and interest vaults for both assets.
         let base_token_program = token_program_for_mint(
             &ctx.accounts.base_mint,
             &ctx.accounts.token_program,
@@ -358,26 +334,6 @@ impl<'info> InitializeMarket<'info> {
             &quote_token_program,
             MARKET_COLLATERAL_VAULT_SEED_PREFIX,
             ctx.bumps.quote_collateral_vault,
-        )?;
-        create_vault_token_account(
-            &ctx.accounts.market,
-            &ctx.accounts.payer,
-            &ctx.accounts.base_insurance_vault,
-            &ctx.accounts.base_mint,
-            &ctx.accounts.system_program,
-            &base_token_program,
-            INSURANCE_SEED_PREFIX,
-            ctx.bumps.base_insurance_vault,
-        )?;
-        create_vault_token_account(
-            &ctx.accounts.market,
-            &ctx.accounts.payer,
-            &ctx.accounts.quote_insurance_vault,
-            &ctx.accounts.quote_mint,
-            &ctx.accounts.system_program,
-            &quote_token_program,
-            INSURANCE_SEED_PREFIX,
-            ctx.bumps.quote_insurance_vault,
         )?;
         create_vault_token_account(
             &ctx.accounts.market,
@@ -453,8 +409,6 @@ impl<'info> InitializeMarket<'info> {
             args.config,
             base_hlp_srlp_vault,
             quote_hlp_srlp_vault,
-            base_insurance_vault,
-            quote_insurance_vault,
             args.params_hash,
             payer_key,
             args.bootstrap_price_nad,
@@ -520,8 +474,6 @@ impl<'info> InitializeMarket<'info> {
             srlp_mint,
             base_collateral_vault,
             quote_collateral_vault,
-            base_insurance_vault,
-            quote_insurance_vault,
             base_hlp_mint,
             quote_hlp_mint,
             target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,

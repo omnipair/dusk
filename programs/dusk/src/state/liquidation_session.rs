@@ -56,8 +56,6 @@ pub struct LiquidationSession {
     pub original_principal: u128,
     pub borrow_index: u128,
     pub payment_balance_before: u64,
-    pub insurance_balance_at_quote: u64,
-    pub insurance_target_at_quote: u64,
     /// Minimum final debt-token credit when the paired Dusk AMM funds settle.
     /// External settlement routes bind their own output and leave this zero.
     pub min_buyer_credit: u64,

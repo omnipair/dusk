@@ -43,11 +43,8 @@ fn every_family_update() -> Vec<MarketParameterUpdate> {
             adjustment_step_nad: 0,
             min_adjustment_interval_slots: 0,
         },
-        MarketParameterUpdate::InsuranceDrawCaps {
-            principal_coverage_bps: 0,
-            per_day_bps: 0,
-        },
         MarketParameterUpdate::Oracle(crate::state::OraclePolicy::default()),
+        MarketParameterUpdate::Tranche { junior_income_share_bps: 4_500 },
     ]
 }
 
@@ -122,12 +119,9 @@ fn intent_binds_nonce_updates_conditions_and_metadata_without_starting_revisions
     let borrow_limit = MarketParameterUpdate::DailyBorrowLimit {
         max_daily_borrow_bps: 1_000,
     };
-    let caps = MarketParameterUpdate::InsuranceDrawCaps {
-        principal_coverage_bps: 100,
-        per_day_bps: 200,
-    };
+    let caps = MarketParameterUpdate::Tranche { junior_income_share_bps: 4_500 };
     let updates = vec![borrow_limit.clone(), caps.clone()];
-    let base_revisions = revisions([0, 0, 0, 0, 9, 0, 3, 0, 0]);
+    let base_revisions = revisions([0, 0, 0, 0, 9, 0, 0, 0]);
     let digest = |nonce, family_revisions: &[u64; PARAMETER_FAMILY_COUNT], updates: &[MarketParameterUpdate], metadata: &ProposalMetadataV1| {
         parameter_proposal_digest(program, market, proposer, nonce, 0, family_revisions, updates, metadata).unwrap()
     };
@@ -135,9 +129,9 @@ fn intent_binds_nonce_updates_conditions_and_metadata_without_starting_revisions
     assert_ne!(expected, parameter_proposal_digest(program, market, proposer, 4, 1, &base_revisions, &updates, &metadata()).unwrap());
 
     assert_ne!(expected, digest(5, &base_revisions, &updates, &metadata()));
-    assert_eq!(expected, digest(4, &revisions([0, 0, 0, 0, 10, 0, 3, 0, 0]), &updates, &metadata()));
+    assert_eq!(expected, digest(4, &revisions([0, 0, 0, 0, 10, 0, 0, 0]), &updates, &metadata()));
     assert_ne!(expected, proposal_intent_digest(program, market, proposer, 4, 0, ProposalOrigin::Lp, GovernanceAction::Parameters, &[FamilyRevisionCondition {family: ParameterFamily::DailyBorrowLimit, revision: 9}], &updates, &metadata()).unwrap());
-    assert_eq!(expected, digest(4, &revisions([0, 0, 0, 0, 9, 0, 4, 0, 0]), &updates, &metadata()));
+    assert_eq!(expected, digest(4, &revisions([0, 0, 0, 0, 9, 0, 0, 0]), &updates, &metadata()));
     assert_ne!(expected, digest(4, &base_revisions, &[borrow_limit], &metadata()));
     assert_ne!(expected, digest(4, &base_revisions, &[caps.clone()], &metadata()));
     assert_ne!(
@@ -200,7 +194,7 @@ fn update_set_names_each_family_once_in_ascending_order() {
 
 #[test]
 fn only_updated_families_carry_a_revision() {
-    let market_revisions = revisions([1, 2, 3, 4, 5, 6, 7, 0, 0]);
+    let market_revisions = revisions([1, 2, 3, 4, 5, 6, 0, 0]);
     let updates = vec![
         MarketParameterUpdate::Concentration {
             peak_amplification_nad: 1,
@@ -215,7 +209,7 @@ fn only_updated_families_carry_a_revision() {
     ];
     assert_eq!(
         updated_family_revisions(&updates, &market_revisions),
-        revisions([0, 2, 0, 0, 0, 6, 0, 0, 0])
+        revisions([0, 2, 0, 0, 0, 6, 0, 0])
     );
 }
 
@@ -265,7 +259,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
             proposer,
             nonce,
             0,
-            &revisions([0, 0, 0, 0, 3, 0, 0, 0, 0]),
+            &revisions([0, 0, 0, 0, 3, 0, 0, 0]),
             vec![MarketParameterUpdate::DailyBorrowLimit {
                 max_daily_borrow_bps: 1_000,
             }],
@@ -281,7 +275,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
     proposal.junior_generation = 1;
     assert!(proposal.assert_account(market, proposal_key).is_err());
     proposal.junior_generation = 0;
-    assert_eq!(proposal.family_revisions, revisions([0, 0, 0, 0, 3, 0, 0, 0, 0]));
+    assert_eq!(proposal.family_revisions, revisions([0, 0, 0, 0, 3, 0, 0, 0]));
 
     let created = proposal.updates.clone();
     proposal.updates[0] = MarketParameterUpdate::DailyBorrowLimit {
@@ -293,10 +287,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
     );
 
     proposal.updates = created.clone();
-    proposal.updates.push(MarketParameterUpdate::InsuranceDrawCaps {
-        principal_coverage_bps: 100,
-        per_day_bps: 200,
-    });
+    proposal.updates.push(MarketParameterUpdate::Tranche { junior_income_share_bps: 4_500 });
     assert_eq!(
         proposal.assert_account(market, proposal_key).unwrap_err(),
         anchor_lang::prelude::error!(ErrorCode::InvalidProposalDigest)
@@ -309,7 +300,7 @@ fn account_digest_rejects_any_post_creation_action_or_metadata_mutation() {
     proposal.assert_account(market, proposal_key).unwrap();
     proposal.total_locked = 6_000;
     assert!(proposal.queue_if_supported(10_000, &TrancheCapital::default(), 2).unwrap());
-    proposal.seal_execution(&revisions([0, 0, 0, 0, 3, 0, 0, 0, 0])).unwrap();
+    proposal.seal_execution(&revisions([0, 0, 0, 0, 3, 0, 0, 0])).unwrap();
     proposal.family_revisions[4] = 4;
     assert_eq!(
         proposal.assert_account(market, proposal_key).unwrap_err(),
@@ -348,7 +339,7 @@ fn collection_keeps_targets_then_queue_freezes_all_configuration_revisions() {
                 min_adjustment_interval_slots: 1,
             },
         ],
-        family_revisions: revisions([0, 2, 0, 0, 0, 6, 0, 0, 0]),
+        family_revisions: revisions([0, 2, 0, 0, 0, 6, 0, 0]),
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,
@@ -365,19 +356,19 @@ fn collection_keeps_targets_then_queue_freezes_all_configuration_revisions() {
     };
 
     // Families the proposal does not touch may move freely.
-    let untouched_moved = revisions([9, 2, 9, 9, 9, 6, 9, 0, 0]);
+    let untouched_moved = revisions([9, 2, 9, 9, 9, 6, 0, 0]);
     assert!(proposal.revisions_current(&untouched_moved));
     assert!(!proposal.mark_stale_if_revision_changed(&untouched_moved));
     assert_eq!(proposal.status, ParameterProposalStatus::Collecting);
 
     let starting = proposal.family_revisions;
-    let moved_while_collecting = revisions([0, 2, 0, 0, 0, 7, 0, 0, 0]);
+    let moved_while_collecting = revisions([0, 2, 0, 0, 0, 7, 0, 0]);
     assert!(proposal.revisions_current(&moved_while_collecting));
     proposal.total_locked = 1_001;
     assert!(proposal.queue_if_supported(2_000, &TrancheCapital::default(), 2).unwrap());
     proposal.seal_execution(&starting).unwrap();
-    assert!(!proposal.revisions_current(&revisions([0, 2, 9, 9, 9, 6, 9, 0, 0])));
-    let center_moved = revisions([0, 2, 0, 0, 0, 7, 0, 0, 0]);
+    assert!(!proposal.revisions_current(&revisions([0, 2, 9, 9, 9, 6, 0, 0])));
+    let center_moved = revisions([0, 2, 0, 0, 0, 7, 0, 0]);
     assert!(!proposal.revisions_current(&center_moved));
     assert!(proposal.mark_stale_if_revision_changed(&center_moved));
     assert_eq!(proposal.status, ParameterProposalStatus::Stale);
@@ -425,7 +416,7 @@ fn queue_snapshots_support_then_expiry_makes_support_unlockable() {
         updates: vec![MarketParameterUpdate::DailyBorrowLimit {
             max_daily_borrow_bps: 1_000,
         }],
-        family_revisions: revisions([0, 0, 0, 0, 7, 0, 0, 0, 0]),
+        family_revisions: revisions([0, 0, 0, 0, 7, 0, 0, 0]),
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,
@@ -447,7 +438,7 @@ fn queue_snapshots_support_then_expiry_makes_support_unlockable() {
     assert_eq!(proposal.queued_eligible_srlp, 100);
     assert!(proposal.mark_expired_if_past_deadline(proposal.execution_deadline + 1));
     assert_eq!(proposal.status, ParameterProposalStatus::Expired);
-    assert!(!proposal.mark_stale_if_revision_changed(&revisions([0, 0, 0, 0, 8, 0, 0, 0, 0])));
+    assert!(!proposal.mark_stale_if_revision_changed(&revisions([0, 0, 0, 0, 8, 0, 0, 0])));
 }
 
 #[test]
@@ -552,7 +543,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     };
 
     assert_eq!(proposal.try_to_vec().unwrap().len(), ParameterProposal::INIT_SPACE);
-    assert_eq!(ParameterProposal::INIT_SPACE, 2_520);
+    assert_eq!(ParameterProposal::INIT_SPACE, 2_313);
     // A finished proposal keeps only its tombstone discriminator.
     assert_eq!(
         crate::account::get_size_with_discriminator::<crate::state::ParameterProposalTombstone>(),
@@ -571,7 +562,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
         initial_support: u64::MAX,
     };
     let instruction_data = crate::instruction::CreateParameterProposal { args }.data();
-    assert_eq!(instruction_data.len(), 782);
+    assert_eq!(instruction_data.len(), 780);
 
     let account_metas = crate::accounts::CreateParameterProposal {
         proposer,
@@ -600,7 +591,7 @@ fn governance_account_and_max_create_transaction_sizes_are_exact() {
     assert_eq!(message.header.num_required_signatures, 1);
     assert_eq!(message.account_keys.len(), 15);
     let message_size = bincode::serialize(&message).unwrap().len();
-    assert_eq!(message_size, 1_318);
+    assert_eq!(message_size, 1_316);
     // The maximal eight-family payload uses the standard v0 lookup-table
     // path. Ordinary smaller proposals remain usable as legacy transactions.
     assert!(1 + 64 + message_size > 1_232);
@@ -627,7 +618,7 @@ fn lifecycle_boundaries_keep_support_frozen_through_the_deadline() {
         conditions: Vec::new(),
         execution_digest: [0; 32],
         updates: vec![MarketParameterUpdate::Irm(IrmConfig::default())],
-        family_revisions: revisions([0, 0, 5, 0, 0, 0, 0, 0, 0]),
+        family_revisions: revisions([0, 0, 5, 0, 0, 0, 0, 0]),
         metadata: metadata(),
         digest: [0; 32],
         status: ParameterProposalStatus::Collecting,

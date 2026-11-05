@@ -9,7 +9,7 @@ import { DuskHlpLiquidations } from "../dist/hlp-liquidation-client.js";
 test("a holder can close a terminal hLP vault and burn receipts atomically", async () => {
   const keys = Array.from({ length: 13 }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(i + 1)).publicKey);
   const [programId, market, owner, baseMint, quoteMint, baseReserve, quoteReserve,
-    baseInterest, quoteInterest, baseHlpMint, quoteHlpMint, srlpMint, insurance] = keys;
+    baseInterest, quoteInterest, baseHlpMint, quoteHlpMint, srlpMint, routeProgram] = keys;
   const program = new anchor.Program({ ...IDL, address: programId.toBase58() }, {
     connection: { getAccountInfo: async () => ({ owner: TOKEN_PROGRAM_ID }) },
     wallet: { publicKey: owner }, publicKey: owner,
@@ -19,7 +19,6 @@ test("a holder can close a terminal hLP vault and burn receipts atomically", asy
     baseSide: { assetMint: baseMint, reserveVault: baseReserve, interestVault: baseInterest, hlpMint: baseHlpMint },
     quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, interestVault: quoteInterest, hlpMint: quoteHlpMint },
     baseHlpVault: { srlpVault: baseReserve }, quoteHlpVault: { srlpVault: quoteReserve },
-    insurance: { baseVault: insurance, quoteVault: insurance },
   });
   const client = new DuskHlpLiquidations(program);
   assert.equal(await client.isFrozen({ market, targetAsset: "base" }), true);
@@ -41,7 +40,7 @@ test("a holder can close a terminal hLP vault and burn receipts atomically", asy
 
   client.preview = async () => ({ full: false, payment: new anchor.BN(100),
     collateralDebit: new anchor.BN(120), collateralCredit: new anchor.BN(120) });
-  const route = new TransactionInstruction({ programId: insurance, keys: [], data: Buffer.alloc(0) });
+  const route = new TransactionInstruction({ programId: routeProgram, keys: [], data: Buffer.alloc(0) });
   const flash = await client.buildFlash({ market, targetAsset: "base", buyer: owner,
     exit: holderExit, settleRemainingAccounts: [], route: () => [route] });
   assert.equal(flash.instructions[flash.beginIndex], flash.beginInstruction);

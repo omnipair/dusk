@@ -1,5 +1,7 @@
 # Omnipair Dusk whitepapers
 
+> **2026-11-05 policy update:** standalone insurance was removed. Current losses flow through junior then senior; junior exit requests/renewals cost 50 bps and liquidations cost 300 bps. The retained papers, numerical results, and scripts below describe their pinned historical engines, not the current waterfall. See [current policy](../docs/CREDIT_LOSS_WATERFALL.md).
+
 **2026-11-04 terminology update:** the current sources and both rebuilt PDFs use
 **srLP** for the senior receipt. The underlying research snapshot, calculations
 and historical `previous/` bundle retain their original scope. See

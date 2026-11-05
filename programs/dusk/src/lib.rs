@@ -159,14 +159,6 @@ pub mod dusk {
         SetMarketReduceOnly::handle_set(ctx, args)
     }
 
-    pub fn fortify_market<'info>(
-        ctx: Context<'_, '_, '_, 'info, FortifyMarket<'info>>,
-        args: FortifyMarketArgs,
-    ) -> Result<()> {
-        ctx.accounts.validate(&args)?;
-        FortifyMarket::handle_fortify(ctx, args)
-    }
-
     // Direct-srLP parameter governance instructions
     pub fn create_parameter_proposal<'info>(
         ctx: Context<'_, '_, '_, 'info, CreateParameterProposal<'info>>,
@@ -385,7 +377,7 @@ pub mod dusk {
     /// Permissionlessly closes an hLP whose current-slot symmetric-EMA backing
     /// cannot cover funding debt. Native recovery uses EMA price, smoothed depth,
     /// concentration and configured fees. Recovery protects principal first;
-    /// insurance covers only principal loss and unpaid interest is canceled.
+    /// junior absorbs principal loss before senior; unpaid interest is canceled.
     /// Realized funding interest is cash-limited and funds the bounded caller
     /// reward. Existing funded holder claims remain claimable after cleanup.
     pub fn close_insolvent_hlp<'info>(

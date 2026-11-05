@@ -6,7 +6,7 @@ use crate::{
         INTEREST_INITIAL_RATE_AT_TARGET_NAD, INTEREST_MAX_RATE_AT_TARGET_NAD, INTEREST_MIN_RATE_AT_TARGET_NAD,
         MARKET_LAYOUT_VERSION, MS_PER_YEAR, NAD, TARGET_MS_PER_SLOT,
     },
-    state::{Debt, HlpVault, Insurance, MarketConfig, MarketSide, Reserves, Risk},
+    state::{Debt, HlpVault, MarketConfig, MarketSide, Reserves, Risk},
 };
 
 fn slots_for_ms(ms: u64) -> u64 {
@@ -55,12 +55,11 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         base_hlp_vault: HlpVault::default(),
         quote_hlp_vault: HlpVault::default(),
         risk: Risk::default(),
-        insurance: Insurance::default(),
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_srlp: 0,
         governance_locked_junior: 0,
-        parameter_revisions: [0; 9],
+        parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,

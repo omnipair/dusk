@@ -44,8 +44,6 @@ impl BenchmarkMarket {
             crate::transitions::amm::LendingSwapSettlement {
                 position: &mut pos,
                 debt_asset: plan.debt_asset,
-                insurance_spent: plan.insurance_draw_debit,
-                insurance_credit: plan.insurance_draw_debit,
                 collateral_consumed: plan.collateral_consumed,
                 caller_bounty: plan.caller_bounty,
             },
@@ -95,10 +93,8 @@ impl BenchmarkMarket {
             0,
         )?;
         let debt_cash = cash.side_mut(plan.debt_asset);
-        debt_cash.reserve_vault_credit += plan.insurance_draw_debit;
         debt_cash.reserve_vault_debit += public_interest + internal.owner_residual;
         debt_cash.interest_vault_credit += public_interest;
-        debt_cash.insurance_vault_debit += plan.insurance_draw_debit;
         debt_cash.recipient_credit += internal.owner_residual;
         let collateral_cash = cash.side_mut(plan.debt_asset.opposite());
         collateral_cash.reserve_vault_credit += plan.collateral_reserve_credit;

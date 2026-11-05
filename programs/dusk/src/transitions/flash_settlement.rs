@@ -49,8 +49,6 @@ impl Market {
         asset: MarketAsset,
         quote: FlashLiquidationQuote,
         debt_fee: LeverageCollateralFee,
-        insurance_balance: u64,
-        insurance_target: u64,
     ) -> Result<FlashAmmSettlementTerms> {
         let allocation = self.liquidation_debt_allocation(position, asset, quote.debt_shares_to_burn)?;
         let budget = quote
@@ -64,22 +62,16 @@ impl Market {
             require_gte!(quote.repayment, allocation.debt, ErrorCode::InvalidLiquidationSession);
             allocation.debt
         };
-        let fee = LiquidationFeeAllocation::quote(
-            repayment,
-            (budget - repayment).min(quote.fee.total),
-            insurance_balance,
-            insurance_target,
-            self.tranche_policy.liquidation_fee_bps,
-        );
+        let fee = LiquidationFeeAllocation::quote(repayment, (budget - repayment).min(quote.fee.total));
         let owner_surplus = budget
             .checked_sub(repayment)
             .and_then(|v| v.checked_sub(fee.total))
             .ok_or(ErrorCode::BrokenInvariant)?;
-        let insurance_fee_debit = debt_fee.effective_gross_for_credit(fee.insurance)?;
-        let revenue_fee_debit = debt_fee.effective_gross_for_credit(fee.lp + fee.protocol)?;
+        let junior_fee_debit = debt_fee.effective_gross_for_credit(fee.junior)?;
+        let revenue_fee_debit = debt_fee.effective_gross_for_credit(fee.protocol)?;
         let owner_debit = debt_fee.effective_gross_for_credit(owner_surplus)?;
         let obligation = repayment
-            .checked_add(insurance_fee_debit)
+            .checked_add(junior_fee_debit)
             .and_then(|v| v.checked_add(revenue_fee_debit))
             .and_then(|v| v.checked_add(owner_debit))
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -150,9 +142,9 @@ impl Market {
     }
 
     /// Apply a measured external recovery after the physical repayment and
-    /// insurance transfers have succeeded. Token handlers separately move paid
+    /// debt transfers have succeeded. Token handlers separately move paid
     /// interest and fees into their custody accounts. No unpaid interest earns
-    /// a fee, referral entitlement, or insurance credit.
+    /// a fee or referral entitlement.
     pub(crate) fn settle_flash_recovery(
         &mut self,
         position: &mut LiquidationPositionMut<'_>,
@@ -160,8 +152,6 @@ impl Market {
         allocation: LiquidationDebtAllocation,
         collateral_debit: u64,
         sale_recovery: u64,
-        insurance_debit: u64,
-        insurance_credit: u64,
         full: bool,
         slot: u64,
     ) -> Result<LiquidationLossAllocation> {
@@ -183,30 +173,10 @@ impl Market {
                 ErrorCode::BrokenInvariant
             );
             require_gte!(sale_recovery, allocation.debt, ErrorCode::InsufficientAmount);
-            require_eq!(insurance_debit, 0, ErrorCode::BrokenInvariant);
-            require_eq!(insurance_credit, 0, ErrorCode::BrokenInvariant);
         }
-        require_gte!(insurance_debit, insurance_credit, ErrorCode::BrokenInvariant);
         let debt_principal = allocation.principal.min(allocation.debt);
-        let loss = LiquidationLossAllocation::quote_with_coverage(
-            debt_principal,
-            allocation.debt,
-            sale_recovery,
-            insurance_credit,
-            self.insurance.principal_coverage_bps,
-        )?;
-        require_eq!(
-            loss.insurance_credit,
-            insurance_credit,
-            ErrorCode::InsuranceDrawExceeded
-        );
-        if insurance_debit > 0 {
-            self.insurance.consume_draw(asset, insurance_debit, slot)?;
-        }
-        let principal_credit = loss
-            .principal_repaid
-            .checked_add(insurance_credit)
-            .ok_or(ErrorCode::ReserveOverflow)?;
+        let loss = LiquidationLossAllocation::quote(debt_principal, allocation.debt, sale_recovery)?;
+        let principal_credit = loss.principal_repaid;
         let live_debit = allocation
             .debt
             .checked_sub(principal_credit)

@@ -34,15 +34,6 @@ impl SwapCashFloors {
     pub(crate) fn available_amounts(self, base: u64, quote: u64) -> bool {
         base >= self.base && quote >= self.quote
     }
-
-    pub(crate) fn available_with_credit(self, market: &Market, asset: MarketAsset, credit: u64) -> bool {
-        u128::from(market.base_side.reserves.cash_reserve)
-            + u128::from(if asset == MarketAsset::Base { credit } else { 0 })
-            >= u128::from(self.base)
-            && u128::from(market.quote_side.reserves.cash_reserve)
-                + u128::from(if asset == MarketAsset::Quote { credit } else { 0 })
-                >= u128::from(self.quote)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,8 +62,6 @@ pub(crate) enum SwapCashPolicy {
         debt_asset: MarketAsset,
         debt_shares: u128,
         debt_principal: u128,
-        /// Measured debt-reserve credit from the insurance vault.
-        insurance_credit: u64,
     },
     /// Exact debt clearance bound to one ordinary or emergency liquidation.
     /// Principal repaid by this swap stays in the debt reserve as an internal
@@ -85,7 +74,6 @@ pub(crate) enum SwapCashPolicy {
         principal_removed: u64,
         debt_reduced: u64,
         repayment: u64,
-        insurance_credit: u64,
     },
 }
 

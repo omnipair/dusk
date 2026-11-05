@@ -1,5 +1,10 @@
 # Emergency liquidation policy and calibration contract
 
+> Historical design/evidence: the standalone insurance fund and its coverage,
+> draw, target, and donation rules were removed on 5 November 2026. Earlier
+> results below retain their original assumptions and are not validation of
+> the current policy. See the [current junior-first waterfall](CREDIT_LOSS_WATERFALL.md).
+
 **Current disposition, 2026-10-17:** #287652 is closed after the EMA-price/
 smoothed-depth implementation and explicit user acceptance of residual inventory/
 arbitrage risk. See the [current evidence and acceptance record](calibration/EMA_SETTLEMENT_CLOSEOUT.md).

@@ -21,135 +21,16 @@ import {
   projectDuskVirtualBook,
   projectDuskVirtualBookCurve,
   virtualCurvePoint,
-  RISK_RATE_DEFAULTS,
 } from "../dist/index.js";
 const BN = Reflect.get(anchor, "BN") ?? Reflect.get(anchor, "default").BN;
 const fixture = JSON.parse(
-  readFileSync(new URL("./fixtures/virtual-book-batch-devnet-20260920.json", import.meta.url))
+  readFileSync(new URL("./fixtures/virtual-book-batch-layout11.json", import.meta.url))
 );
-// This saved account predates the two fractional borrow-index carries in Debt.
-// Add zero-valued carries at the fixed fixture's Debt offset for current IDL
-// decoding; the network response and its original observations stay the same.
-const savedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
-assert.equal(savedMarketBytes.length, 2917);
-const borrowIndexEnd = 1623;
-fixture.result.value.accounts[0].data[0] = Buffer.concat([
-  savedMarketBytes.subarray(0, borrowIndexEnd),
-  Buffer.alloc(32),
-  savedMarketBytes.subarray(borrowIndexEnd),
-]).toString("base64");
-// The immutable network capture also predates leverage exposure counters.
-const carriedMarketBytes = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
-const debtEnd = borrowIndexEnd + 32 + 128;
-const exposureMarketBytes = Buffer.concat([
-  carriedMarketBytes.subarray(0, debtEnd), Buffer.alloc(16), carriedMarketBytes.subarray(debtEnd),
-]);
-// Layout 3 adds a 32-byte advance ledger at the start of each Fees struct.
-// These offsets refer to this historical fixture after its Debt adaptations.
-const baseFeesOffset = 250;
-const quoteFeesOffset = 755;
-const currentMarketBytes = Buffer.concat([
-  exposureMarketBytes.subarray(0, baseFeesOffset), Buffer.alloc(32),
-  exposureMarketBytes.subarray(baseFeesOffset, quoteFeesOffset), Buffer.alloc(32),
-  exposureMarketBytes.subarray(quoteFeesOffset),
-]);
-currentMarketBytes[8] = 3;
-// Adapt the immutable layout-3 fixture through its explicit old schema. This
-// is test data conversion, not a production account migration.
-const fixtureProgram = new Dusk({ connection: new Connection("http://localhost:8899"), programId: fixture.programId }).program;
-assert.equal(
-  MARKET_LAYOUT_VERSION,
-  Number(IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION").value),
-  "SDK market layout version must match the generated program IDL"
-);
-const oldIdl = structuredClone(fixtureProgram.idl);
-for (const type of oldIdl.types) if (type.type.fields) type.type.fields = type.type.fields.filter(f =>
-  ![
-    "flashReceivable", "flashCollateralDebit", "oracle",
-    "frozenHlpMask", "frozenBaseVaultBaseOffsetNad", "frozenBaseVaultQuoteOffsetNad",
-    "frozenQuoteVaultBaseOffsetNad", "frozenQuoteVaultQuoteOffsetNad",
-    "baseRateFractionE18", "quoteRateFractionE18",
-    "tranches", "income", "juniorExitConfig", "juniorMint", "junior",
-    "tranchePolicy", "governanceLockedJunior",
-  ].includes(f.name) && !(type.name === "insuranceDrawWindow" && f.name === "initialized"));
-oldIdl.types.find(type => type.name === "riskRateConfig").type.fields = [
-  { name: "targetUtilizationBps", type: "u16" },
-  { name: "curveSteepnessNad", type: "u64" },
-  { name: "adjustmentSpeedPerYear", type: "u64" },
-];
-const BorshAccountsCoder = Reflect.get(anchor, "BorshAccountsCoder") ?? Reflect.get(anchor, "default").BorshAccountsCoder;
-oldIdl.types.find(t => t.name === "market").type.fields.find(f => f.name === "parameterRevisions").type.array[1] = 7;
-const oldAccount = new BorshAccountsCoder(oldIdl).decode("market", currentMarketBytes);
-oldAccount.version = MARKET_LAYOUT_VERSION;
-// Added account fields have no historical exposure in this immutable capture.
-// Keep the original quote inputs and observations; this is not a replay of
-// the new controller or evidence about tranche economics.
-const zero = type => {
-  if (type === "bool") return false;
-  if (type === "pubkey") return PublicKey.default;
-  if (typeof type === "string") return /^(u|i)(64|128|256)$/.test(type) ? new BN(0) : 0;
-  if (type.array) return Array.from({ length: type.array[1] }, () => zero(type.array[0]));
-  if (type.option) return null;
-  if (type.defined) return Object.fromEntries(fixtureProgram.idl.types.find(t => t.name === type.defined.name).type.fields.map(f => [f.name, zero(f.type)]));
-  throw new Error("Unsupported fixture field type");
-};
-for (const [field, type] of [["tranches", "trancheCapital"], ["income", "marketIncomeBooks"], ["juniorExitConfig", "juniorExitConfig"], ["tranchePolicy", "tranchePolicy"]]) {
-  oldAccount[field] = zero({ defined: { name: type } });
-}
-oldAccount.juniorMint = PublicKey.default;
-oldAccount.governanceLockedJunior = new BN(0);
-oldAccount.baseSide.fees.junior = zero({ defined: { name: "trancheIncome" } });
-oldAccount.quoteSide.fees.junior = zero({ defined: { name: "trancheIncome" } });
-oldAccount.debt.baseRateFractionE18 = new BN(0);
-oldAccount.debt.quoteRateFractionE18 = new BN(0);
-oldAccount.config.irm = Object.fromEntries(Object.entries(RISK_RATE_DEFAULTS).map(([key, value]) => [key, key === "borrowUtilizationLimitBps" ? value : new BN(value)]));
-oldAccount.parameterRevisions.push(new BN(0), new BN(0));
-oldAccount.baseSide.reserves.flashReceivable = new BN(0);
-oldAccount.quoteSide.reserves.flashReceivable = new BN(0);
-oldAccount.baseHlpVault.flashCollateralDebit = new BN(0);
-oldAccount.quoteHlpVault.flashCollateralDebit = new BN(0);
-oldAccount.amm.frozenHlpMask = 0;
-oldAccount.amm.frozenBaseVaultBaseOffsetNad = new BN(0);
-oldAccount.amm.frozenBaseVaultQuoteOffsetNad = new BN(0);
-oldAccount.amm.frozenQuoteVaultBaseOffsetNad = new BN(0);
-oldAccount.amm.frozenQuoteVaultQuoteOffsetNad = new BN(0);
-// Slot zero is a valid window start in the current layout. The historical
-// capture predates the explicit initialization flags, so add them after decode.
-for (const window of [oldAccount.insurance.baseDrawWindow, oldAccount.insurance.quoteDrawWindow]) {
-  window.initialized = false;
-}
-oldAccount.oracle = {
-  policy: { format: 0, provider: PublicKey.default, baseAccount: PublicKey.default, quoteAccount: PublicKey.default,
-    baseFeedId: Array(32).fill(0), quoteFeedId: Array(32).fill(0), lambdaBps: 0, adjustmentCapNad: new BN(0),
-    maxAgeSeconds: 0, maxAgeSlots: new BN(0), maxConfidenceBps: 0, maxPublishSkewSeconds: 0 },
-  lastObservation: { priceNad: new BN(0), confidenceNad: new BN(0), publishTime: new BN(0), postedSlot: new BN(0),
-    sequence: new BN(0), hash: Array(32).fill(0), sourceTimes: [new BN(0),new BN(0)], sourceSlots: [new BN(0),new BN(0)] },
-  revision: new BN(0), recognizedTailLiquidity: new BN(0), recognizedOrdinarySupply: new BN(0), runtime: {},
-};
-// Keep the historical bytes separate from the current account body's capacity.
-// The combined oracle and tranche layout is now larger than the old fixture by
-// more than 1 KiB, so use an explicit test-only scratch buffer for re-encoding.
-const body = Buffer.alloc(8_192);
-const entry = fixtureProgram.coder.accounts.accountLayouts.get("market");
-const size = entry.layout.encode(oldAccount, body);
-fixture.result.value.accounts[0].data[0] = Buffer.concat([currentMarketBytes.subarray(0, 8), body.subarray(0, size)]).toString("base64");
+// The derived fixture is already encoded with the current account/return schema.
+// Its original network capture remains a separate provenance artifact.
+assert.equal(MARKET_LAYOUT_VERSION, Number(IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION").value));
 const slot = fixture.result.context.slot;
 const prefix = `Program return: ${fixture.programId} `;
-// The saved devnet snapshot predates the two trailing output-fee fields.
-// Its mint has no transfer fee, so adapt only the return bytes used by this
-// SDK fixture: zero fee and the existing vault debit as recipient credit.
-const currentPreviewBytes = (encoded) => {
-  const old = Buffer.from(encoded, "base64");
-  const added = Buffer.alloc(16);
-  added.writeBigUInt64LE(old.readBigUInt64LE(27), 8);
-  return Buffer.concat([old, added]).toString("base64");
-};
-fixture.result.value.logs = fixture.result.value.logs.map((line) =>
-  line.startsWith(prefix) ? prefix + currentPreviewBytes(line.slice(prefix.length)) : line
-);
-fixture.result.value.returnData.data[0] = currentPreviewBytes(
-  fixture.result.value.returnData.data[0]
-);
 const previews = fixture.result.value.logs
   .filter((line) => line.startsWith(prefix))
   .map((line) => decodePreviewSwapReturnData([line.slice(prefix.length), "base64"]));
@@ -439,7 +320,6 @@ test("curve caps output cash and rejects incompatible math or reserve state", ()
   assert.throws(() => projectDuskVirtualBookCurve(bad), /reserves/);
   assert.throws(() => projectDuskVirtualBookCurve(curve(), 0), /grouping/);
 });
-
 
 test("CPMM samples current reserves after accumulated rounding changes the cached invariant", () => {
   const snapshot = curve();

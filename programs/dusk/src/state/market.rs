@@ -494,50 +494,6 @@ pub struct DailyBorrowBucket {
     pub decay_remainder_ms: u64,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace, PartialEq, Eq)]
-pub struct InsuranceDrawWindow {
-    /// `start_slot` may legitimately be zero in a test or newly started bank;
-    /// keep initialization separate rather than using a sentinel slot.
-    pub initialized: bool,
-    /// Start of the nominal 24-hour window, measured in consensus slots.
-    pub start_slot: u64,
-    /// Available insurance at the start of the window, before any draws.
-    pub opening_available: u64,
-    /// Net token credits received after the window opened.
-    pub credited: u64,
-    /// Gross token amount debited by insurance draws in this window.
-    pub drawn: u64,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, PartialEq, Eq)]
-pub struct Insurance {
-    pub base_vault: Pubkey,
-    pub quote_vault: Pubkey,
-    pub base_available: u64,
-    pub quote_available: u64,
-    pub base_draw_window: InsuranceDrawWindow,
-    pub quote_draw_window: InsuranceDrawWindow,
-    /// Maximum share of a borrower/leverage principal shortfall covered by
-    /// insurance. hLP funding claims use their own eligible-loss definition.
-    pub principal_coverage_bps: u16,
-    pub per_day_draw_bps: u16,
-}
-
-impl Default for Insurance {
-    fn default() -> Self {
-        Self {
-            base_vault: Pubkey::default(),
-            quote_vault: Pubkey::default(),
-            base_available: 0,
-            quote_available: 0,
-            base_draw_window: InsuranceDrawWindow::default(),
-            quote_draw_window: InsuranceDrawWindow::default(),
-            principal_coverage_bps: crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS,
-            per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
-        }
-    }
-}
-
 /// Token amounts stored in reserves, positions, and shares are raw atoms.
 /// Internal curve quantities, risk depths, hLP NAV/exposure, and normalized
 /// debt/collateral values use `max(9, base_side.asset_decimals,
@@ -564,7 +520,6 @@ pub struct Market {
     pub base_hlp_vault: HlpVault,
     pub quote_hlp_vault: HlpVault,
     pub risk: Risk,
-    pub insurance: Insurance,
     pub params_hash: [u8; 32],
     /// One-shot signer allowed to provide the first fully-backed Base/Quote
     /// seed. It is cleared permanently once srLP supply becomes nonzero.
@@ -578,7 +533,7 @@ pub struct Market {
     pub governance_locked_junior: u64,
     /// Independent monotone revisions for fee, concentration, IRM, EMA,
     /// daily-borrow-limit, and center-controller parameter families.
-    pub parameter_revisions: [u64; 9],
+    pub parameter_revisions: [u64; crate::state::PARAMETER_FAMILY_COUNT],
     /// Latest trader-visible marginal price committed by a curve mutation.
     pub last_marginal_observation_nad: u64,
     /// Monotone revision for executable-curve mutations.
@@ -622,7 +577,6 @@ impl Market {
         reload_field(&mut self.base_hlp_vault, &mut cursor)?;
         reload_field(&mut self.quote_hlp_vault, &mut cursor)?;
         reload_field(&mut self.risk, &mut cursor)?;
-        reload_field(&mut self.insurance, &mut cursor)?;
         reload_field(&mut self.params_hash, &mut cursor)?;
         reload_field(&mut self.initial_liquidity_authority, &mut cursor)?;
         reload_field(&mut self.governance_locked_srlp, &mut cursor)?;

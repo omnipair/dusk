@@ -5,10 +5,7 @@ impl GovernanceControl {
     pub fn initialize_baseline(&mut self, market: &Market) {
         if !self.baseline_initialized {
             self.baseline_config = market.config;
-            self.baseline_insurance_principal_coverage_bps = market.insurance.principal_coverage_bps;
-            self.baseline_insurance_per_day_bps = market.insurance.per_day_draw_bps;
             self.baseline_tranche_policy = market.tranche_policy;
-            self.baseline_junior_request_fee_bps = market.junior_exit_config.request_fee_bps;
             self.baseline_initialized = true;
         }
     }
@@ -52,23 +49,12 @@ impl GovernanceControl {
                 self.baseline_config.amm.adjustment_step_nad = *adjustment_step_nad;
                 self.baseline_config.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
             }
-            MarketParameterUpdate::InsuranceDrawCaps {
-                principal_coverage_bps,
-                per_day_bps,
-            } => {
-                self.baseline_insurance_principal_coverage_bps = *principal_coverage_bps;
-                self.baseline_insurance_per_day_bps = *per_day_bps;
-            }
             MarketParameterUpdate::Tranche {
                 junior_income_share_bps,
-                request_fee_bps,
-                liquidation_fee_bps,
             } => {
                 self.baseline_tranche_policy = TranchePolicy {
                     junior_income_share_bps: *junior_income_share_bps,
-                    liquidation_fee_bps: *liquidation_fee_bps,
                 };
-                self.baseline_junior_request_fee_bps = *request_fee_bps;
             }
             MarketParameterUpdate::Oracle(_) => {}
         }
@@ -281,45 +267,14 @@ impl GovernanceControl {
                         ErrorCode::ManagerPolicyExceeded
                     );
                 }
-                MarketParameterUpdate::InsuranceDrawCaps {
-                    principal_coverage_bps,
-                    per_day_bps,
-                } => {
-                    absolute_update(
-                        u64::from(*principal_coverage_bps),
-                        u64::from(market.insurance.principal_coverage_bps),
-                        u64::from(self.baseline_insurance_principal_coverage_bps),
-                        500,
-                    )?;
-                    absolute_update(
-                        u64::from(*per_day_bps),
-                        u64::from(market.insurance.per_day_draw_bps),
-                        u64::from(self.baseline_insurance_per_day_bps),
-                        500,
-                    )?;
-                }
                 MarketParameterUpdate::Tranche {
                     junior_income_share_bps,
-                    request_fee_bps,
-                    liquidation_fee_bps,
                 } => {
                     absolute_update(
                         u64::from(*junior_income_share_bps),
                         u64::from(market.tranche_policy.junior_income_share_bps),
                         u64::from(self.baseline_tranche_policy.junior_income_share_bps),
                         1_000,
-                    )?;
-                    absolute_update(
-                        u64::from(*request_fee_bps),
-                        u64::from(market.junior_exit_config.request_fee_bps),
-                        u64::from(self.baseline_junior_request_fee_bps),
-                        5,
-                    )?;
-                    absolute_update(
-                        u64::from(*liquidation_fee_bps),
-                        u64::from(market.tranche_policy.liquidation_fee_bps),
-                        u64::from(self.baseline_tranche_policy.liquidation_fee_bps),
-                        25,
                     )?;
                 }
                 MarketParameterUpdate::Oracle(_) => return err!(ErrorCode::ManagerPolicyExceeded),

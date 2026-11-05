@@ -332,12 +332,6 @@ pub enum ErrorCode {
     #[msg("Position is not liquidatable")]
     PositionNotLiquidatable,
 
-    #[msg("Insurance coverage is insufficient")]
-    InsufficientInsurance,
-
-    #[msg("Required insurance draw exceeds caller cap")]
-    InsuranceDrawExceeded,
-
     #[msg("Socialized liquidation loss exceeds caller cap")]
     LiquidationSocializationExceeded,
 
@@ -413,7 +407,7 @@ pub enum ErrorCode {
     #[msg("Asset mint has an active freeze authority")]
     FreezableAssetMint,
 
-    #[msg("Parameter updates must name one to seven families, each once, in ascending family order")]
+    #[msg("Parameter updates must name one to eight families, each once, in ascending family order")]
     ParameterUpdatesNotCanonical,
 
     #[msg("Parameter proposal does not match the digest the supporter reviewed")]

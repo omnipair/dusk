@@ -44,22 +44,7 @@ fn sol_usdc_market(hlp_dollars: u64) -> Market {
     };
     let mut market = Market::default();
     market
-        .initialize(
-            Pubkey::new_unique(),
-            side(9),
-            side(6),
-            config,
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            [0; 32],
-            Pubkey::new_unique(),
-            200 * NAD,
-            0,
-            START_SLOT,
-            255,
-        )
+        .initialize(Pubkey::new_unique(), side(9), side(6), config, Pubkey::new_unique(), Pubkey::new_unique(), [0; 32], Pubkey::new_unique(), 200 * NAD, 0, START_SLOT, 255)
         .unwrap();
     let ordinary_dollars = 1_000_000 - 2 * hlp_dollars;
     market

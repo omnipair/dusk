@@ -401,7 +401,7 @@ pub(crate) fn apply_concentrated_hlp_recovery(
 
 /// Identity-bound terminal settlement for an hLP whose indexed funding debt
 /// has consumed all of its marked collateral. The vault's srLP ownership is
-/// retired first; insurance covers only principal loss and unpaid funding
+/// retired first; junior absorbs principal loss before senior and unpaid funding
 /// interest is canceled. Available cash limits realized funding interest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HlpTerminalWaterfallPlan {
@@ -415,9 +415,6 @@ pub(crate) struct HlpTerminalWaterfallPlan {
     expected_borrowed_hlp_live: u64,
     debt: u64,
     reference_recovery_in_borrowed: u64,
-    insurance_credit: u64,
-    insurance_request: u64,
-    insurance_draw_slot: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -426,17 +423,12 @@ pub(crate) struct HlpTerminalWaterfallReceipt {
     pub srlp_burn_amount: u64,
     pub debt_closed: u64,
     pub interest_paid: u64,
-    pub insurance_drawn: u64,
     pub socialized_loss: u64,
     pub interest_canceled: u64,
     pub remaining_hlp_supply: u64,
 }
 
 impl HlpTerminalWaterfallPlan {
-    pub(crate) fn insurance_request(self) -> u64 {
-        self.insurance_request
-    }
-
     pub(crate) fn target_asset(self) -> MarketAsset {
         self.target_asset
     }
@@ -446,13 +438,7 @@ impl HlpTerminalWaterfallPlan {
         self.reference_recovery_in_borrowed
     }
 
-    pub(crate) fn consume(
-        self,
-        market: &mut Market,
-        insurance_spent: u64,
-        insurance_credit: u64,
-        max_socialized_loss: u64,
-    ) -> Result<HlpTerminalWaterfallReceipt> {
+    pub(crate) fn consume(self, market: &mut Market, max_socialized_loss: u64) -> Result<HlpTerminalWaterfallReceipt> {
         require_eq!(
             market.curve_revision,
             self.expected_curve_revision,
@@ -490,16 +476,11 @@ impl HlpTerminalWaterfallPlan {
             ErrorCode::BrokenInvariant
         );
         let remaining_hlp_supply = vault.hlp_supply;
-        require_eq!(insurance_spent, self.insurance_request, ErrorCode::BrokenInvariant);
-        require_gte!(insurance_spent, insurance_credit, ErrorCode::BrokenInvariant);
 
-        require_eq!(insurance_credit, self.insurance_credit, ErrorCode::BrokenInvariant);
-        let mut loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote_with_coverage(
+        let mut loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote(
             self.expected_debt_principal.min(self.debt),
             self.debt,
             self.reference_recovery_in_borrowed,
-            insurance_credit,
-            market.insurance.principal_coverage_bps,
         )?;
         let socialized_loss = loss.principal_written_off;
         require_gte!(
@@ -508,26 +489,12 @@ impl HlpTerminalWaterfallPlan {
             ErrorCode::LiquidationSocializationExceeded
         );
         let borrowed_asset = self.target_asset.opposite();
-        let cash = market
-            .side(borrowed_asset)
-            .reserves
-            .cash_reserve
-            .checked_add(insurance_credit)
-            .ok_or(ErrorCode::ReserveOverflow)?;
+        let cash = market.side(borrowed_asset).reserves.cash_reserve;
         let interest_paid = loss.interest_paid.min(cash);
         loss.interest_canceled = loss
             .interest_canceled
             .checked_add(loss.interest_paid - interest_paid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-
-        if insurance_spent > 0 {
-            market
-                .insurance
-                .consume_draw(borrowed_asset, insurance_spent, self.insurance_draw_slot)?;
-        }
-        if insurance_credit > 0 {
-            market.side_mut(borrowed_asset).credit_reserve(insurance_credit, true)?;
-        }
 
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             market.capitalize_hlp_receivable(self.target_asset, asset, 1, 1)?;
@@ -579,7 +546,6 @@ impl HlpTerminalWaterfallPlan {
             srlp_burn_amount: self.expected_srlp_shares,
             debt_closed: self.debt,
             interest_paid,
-            insurance_drawn: insurance_credit,
             socialized_loss,
             interest_canceled: loss.interest_canceled,
             remaining_hlp_supply,
@@ -635,8 +601,6 @@ impl Market {
     pub(crate) fn prepare_terminal_hlp_waterfall(
         &mut self,
         target_asset: MarketAsset,
-        max_insurance_draw: u64,
-        debt_fee: crate::transitions::LeverageCollateralFee,
         current_slot: u64,
         current_unix_timestamp: i64,
         protocol_fee_bps: u16,
@@ -684,17 +648,6 @@ impl Market {
         let reference_recovery_in_borrowed = borrowed_claim
             .checked_add(reference_swap_output)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let insurance_available = self.insurance.draw_capacity(borrowed_asset, current_slot)?;
-        let loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote_with_coverage(
-            vault.debt_principal.min(debt),
-            debt,
-            reference_recovery_in_borrowed,
-            debt_fee.unwind_credit(insurance_available)?,
-            self.insurance.principal_coverage_bps,
-        )?;
-        // The caller can reject state drift, but cannot omit available coverage.
-        let insurance_request = debt_fee.effective_gross_for_credit(loss.insurance_credit)?;
-        require_gte!(max_insurance_draw, insurance_request, ErrorCode::InsuranceDrawExceeded);
         Ok(HlpTerminalWaterfallPlan {
             target_asset,
             expected_curve_revision: self.curve_revision,
@@ -706,9 +659,6 @@ impl Market {
             expected_borrowed_hlp_live: vault.hlp_live_reserve(borrowed_asset),
             debt,
             reference_recovery_in_borrowed,
-            insurance_credit: loss.insurance_credit,
-            insurance_request,
-            insurance_draw_slot: current_slot,
         })
     }
 }

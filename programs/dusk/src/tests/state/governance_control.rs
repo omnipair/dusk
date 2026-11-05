@@ -6,8 +6,7 @@ fn control() -> GovernanceControl {
     GovernanceControl {
         market: Pubkey::new_unique(), manager: Pubkey::new_unique(), manager_epoch: 1,
         baseline_initialized: true, baseline_config: MarketConfig::default(),
-        baseline_insurance_principal_coverage_bps: 0, baseline_insurance_per_day_bps: 0,
-        baseline_tranche_policy: Default::default(), baseline_junior_request_fee_bps: 0,
+        baseline_tranche_policy: Default::default(),
         pending: None, has_manager_announcement: false, last_manager_announcement: 0, bump: 1,
     }
 }

@@ -4013,102 +4013,6 @@
       }
     },
     {
-      "name": "Insurance",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "base_vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "quote_vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "base_available",
-            "type": "u64"
-          },
-          {
-            "name": "quote_available",
-            "type": "u64"
-          },
-          {
-            "name": "base_draw_window",
-            "type": {
-              "defined": {
-                "name": "InsuranceDrawWindow"
-              }
-            }
-          },
-          {
-            "name": "quote_draw_window",
-            "type": {
-              "defined": {
-                "name": "InsuranceDrawWindow"
-              }
-            }
-          },
-          {
-            "name": "principal_coverage_bps",
-            "docs": [
-              "Maximum share of a borrower/leverage principal shortfall covered by",
-              "insurance. hLP funding claims use their own eligible-loss definition."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "per_day_draw_bps",
-            "type": "u16"
-          }
-        ]
-      }
-    },
-    {
-      "name": "InsuranceDrawWindow",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "initialized",
-            "docs": [
-              "`start_slot` may legitimately be zero in a test or newly started bank;",
-              "keep initialization separate rather than using a sentinel slot."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "start_slot",
-            "docs": [
-              "Start of the nominal 24-hour window, measured in consensus slots."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "opening_available",
-            "docs": [
-              "Available insurance at the start of the window, before any draws."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "credited",
-            "docs": [
-              "Net token credits received after the window opened."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "drawn",
-            "docs": [
-              "Gross token amount debited by insurance draws in this window."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "JuniorExitConfig",
       "type": {
         "kind": "struct",
@@ -4124,10 +4028,6 @@
           {
             "name": "exercise_window_slots",
             "type": "u64"
-          },
-          {
-            "name": "request_fee_bps",
-            "type": "u16"
           }
         ]
       }
@@ -4673,14 +4573,6 @@
             }
           },
           {
-            "name": "insurance",
-            "type": {
-              "defined": {
-                "name": "Insurance"
-              }
-            }
-          },
-          {
             "name": "params_hash",
             "type": {
               "array": [
@@ -4723,7 +4615,7 @@
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -5949,18 +5841,14 @@
     {
       "name": "TranchePolicy",
       "docs": [
-        "Governed tranche economics. Exit timing remains protocol-defined; only its",
-        "request/renewal fee is changed through the tranche parameter family."
+        "Governed junior income allocation. Exit timing and the request/renewal and",
+        "liquidation fees remain fixed by the protocol."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "junior_income_share_bps",
-            "type": "u16"
-          },
-          {
-            "name": "liquidation_fee_bps",
             "type": "u16"
           }
         ]

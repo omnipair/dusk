@@ -36,7 +36,6 @@ pub struct HlpFlashSession {
     pub market: Pubkey,
     pub buyer: Pubkey,
     pub quote: HlpFlashQuote,
-    pub max_insurance_draw: u64,
     pub max_socialized_loss: u64,
     pub payment_balance_before: u64,
     pub hlp_supply: u64,
@@ -51,7 +50,6 @@ pub struct BeginHlpFlashArgs {
     pub target_asset: u8,
     pub max_payment: u64,
     pub allow_full: bool,
-    pub max_insurance_draw: u64,
     pub max_socialized_loss: u64,
     pub max_collateral_debit: u64,
     pub min_collateral_credit: u64,
@@ -78,7 +76,6 @@ pub struct HlpFlashSettled {
     pub quote_hlp_srlp_burned: u64,
     pub funding_interest_paid: [u64; 2],
     pub loss: LiquidationLossAllocation,
-    pub insurance_debit: u64,
     pub surplus_credit: u64,
 }
 
@@ -99,8 +96,6 @@ pub struct HlpFlashAccounts<'info> {
     pub buyer_collateral_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub buyer_refund_account: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub insurance_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
     pub borrowed_token_program: Interface<'info, TokenInterface>,
@@ -126,18 +121,7 @@ impl HlpFlashAccounts<'_> {
         )?;
         require_keys_eq!(self.target_reserve.owner, self.market.key(), ErrorCode::InvalidVault);
         require_keys_eq!(self.borrowed_reserve.owner, self.market.key(), ErrorCode::InvalidVault);
-        let insurance = if target.opposite() == MarketAsset::Base {
-            self.market.insurance.base_vault
-        } else {
-            self.market.insurance.quote_vault
-        };
-        require_keys_eq!(self.insurance_vault.key(), insurance, ErrorCode::InvalidVault);
-        require_keys_eq!(self.insurance_vault.owner, self.market.key(), ErrorCode::InvalidVault);
-        require_keys_eq!(
-            self.insurance_vault.mint,
-            self.borrowed_mint.key(),
-            ErrorCode::InvalidMint
-        );
+
         require_keys_eq!(
             self.borrowed_token_program.key(),
             *self.borrowed_mint.to_account_info().owner,
@@ -248,7 +232,6 @@ impl<'info> BeginHlpFlash<'info> {
             market: a.market.key(),
             buyer: a.buyer.key(),
             quote,
-            max_insurance_draw: args.max_insurance_draw,
             max_socialized_loss: args.max_socialized_loss,
             payment_balance_before: ctx.accounts.repayment_vault.amount,
             hlp_supply,
@@ -360,7 +343,6 @@ impl<'info> SettleHlpFlash<'info> {
             a.market.settle_terminal_hlp_flash(
                 q,
                 leverage_collateral_fee(&a.borrowed_mint, clock.epoch)?,
-                session.max_insurance_draw,
                 session.max_socialized_loss,
                 clock.slot,
             )?
@@ -373,26 +355,6 @@ impl<'info> SettleHlpFlash<'info> {
             }
         };
         let (base, quote) = (terminal.base, terminal.quote);
-        if terminal.insurance_debit > 0 {
-            let before = a.borrowed_reserve.amount;
-            transfer_checked_with_remaining_accounts(
-                a.market.to_account_info(),
-                a.insurance_vault.to_account_info(),
-                a.borrowed_reserve.to_account_info(),
-                a.borrowed_mint.to_account_info(),
-                a.borrowed_token_program.to_account_info(),
-                terminal.insurance_debit,
-                a.borrowed_mint.decimals,
-                &[&generate_market_seeds!(a.market)[..]],
-                ctx.remaining_accounts,
-            )?;
-            a.borrowed_reserve.reload()?;
-            require_eq!(
-                token_account_credit(before, &a.borrowed_reserve)?,
-                terminal.loss.insurance_credit,
-                ErrorCode::BrokenInvariant
-            );
-        }
         if terminal.surplus_debit > 0 {
             let index = if target == MarketAsset::Base { 4 } else { 3 };
             let interest = &ctx.remaining_accounts[index];
@@ -463,7 +425,6 @@ impl<'info> SettleHlpFlash<'info> {
                 quote_hlp_srlp_burned: quote.srlp_burn_amount,
                 funding_interest_paid: [base.interest_paid, quote.interest_paid],
                 loss: terminal.loss,
-                insurance_debit: terminal.insurance_debit,
                 surplus_credit: terminal.surplus_credit,
             },
             ctx.accounts.event_authority.to_account_info(),

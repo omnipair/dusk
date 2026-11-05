@@ -30,8 +30,6 @@ pub struct MarketCreated {
     pub srlp_mint: Pubkey,
     pub base_collateral_vault: Pubkey,
     pub quote_collateral_vault: Pubkey,
-    pub base_insurance_vault: Pubkey,
-    pub quote_insurance_vault: Pubkey,
     pub base_hlp_mint: Pubkey,
     pub quote_hlp_mint: Pubkey,
     pub target_hlp_leverage_bps: u16,
@@ -66,20 +64,6 @@ pub struct MarketHealthUpdated {
     pub effective_quote_debt_nad: u128,
     pub base_debt_health_bps: u64,
     pub quote_debt_health_bps: u64,
-    pub metadata: MarketEventMetadata,
-}
-
-#[event]
-pub struct InsuranceDonated {
-    pub market: Pubkey,
-    pub donor: Pubkey,
-    /// `0` for Base and `1` for Quote.
-    pub asset: u8,
-    /// Gross amount requested from the donor's token account.
-    pub requested_amount: u64,
-    /// Net amount received after any Token-2022 transfer fee.
-    pub credited_amount: u64,
-    pub available_after: u64,
     pub metadata: MarketEventMetadata,
 }
 
@@ -774,7 +758,6 @@ pub struct LeveragePositionLiquidated {
     pub debt_asset_mint: Pubkey,
     pub collateral_asset_mint: Pubkey,
     pub debt_repaid: u64,
-    pub insurance_drawn: u64,
     pub socialized_loss: u64,
     pub interest_paid: u64,
     pub principal_written_off: u64,
@@ -881,7 +864,6 @@ pub struct BorrowPositionLiquidated {
     pub collateral_to_liquidator: u64,
     /// Net collateral credited to the liquidator after any transfer fee.
     pub collateral_credit: u64,
-    pub insurance_drawn: u64,
     pub socialized_loss: u64,
     pub remaining_debt: u128,
     /// The position's state after the liquidation.
@@ -970,8 +952,7 @@ pub struct HlpTerminalLiquidated {
     pub interest_paid: u64,
     /// Borrowed-asset amount credited to the caller after transfer fees.
     pub caller_bounty: u64,
-    pub insurance_drawn: u64,
-    /// Principal loss after insurance. Unpaid interest is reported separately.
+    /// Residual funded principal loss. Unpaid interest is reported separately.
     pub socialized_loss: u64,
     pub interest_canceled: u64,
     /// Existing holder tokens remain burnable for zero principal while their
@@ -992,7 +973,7 @@ pub struct ParameterProposalCreated {
     pub junior_generation: u64,
     /// Each updated family's revision at creation; untouched families read
     /// zero. The family of every update is its variant.
-    pub family_revisions: [u64; 9],
+    pub family_revisions: [u64; crate::state::PARAMETER_FAMILY_COUNT],
     pub digest: [u8; 32],
     pub sponsorship_floor: u64,
     pub initial_support: u64,
@@ -1017,7 +998,7 @@ pub struct ParameterProposalQueued {
     pub proposal: Pubkey,
     pub clock: crate::state::ProposalClock,
     pub execution_digest: [u8; 32],
-    pub family_revisions: [u64; 9],
+    pub family_revisions: [u64; crate::state::PARAMETER_FAMILY_COUNT],
     pub total_locked: u64,
     pub eligible_supply: u64,
     pub queued_at: i64,
@@ -1032,7 +1013,7 @@ pub struct ParameterProposalExecuted {
     /// Family codes of every update applied, ascending.
     pub families: Vec<u8>,
     /// The market's revision of every family after execution.
-    pub new_family_revisions: [u64; 9],
+    pub new_family_revisions: [u64; crate::state::PARAMETER_FAMILY_COUNT],
     pub executed_at: i64,
 }
 

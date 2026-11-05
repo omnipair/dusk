@@ -78,7 +78,7 @@ export function lpTokenNaming(params: LpTokenNamingParams): LpTokenNaming {
       symbol: `${symbolPrefix}${a}/${b}`,
       description: junior
         ? `Dusk jrLP for the ${market} market: productive first-loss liquidity with junior income and a notice period before conversion to srLP.`
-        : `Dusk srLP for the ${market} market: a senior share of pooled ${base} and ${quote} liquidity, protected by available insurance and junior capital against covered credit losses.`,
+        : `Dusk srLP for the ${market} market: a senior share of pooled ${base} and ${quote} liquidity, protected by junior capital against covered credit losses.`,
     };
   }
 

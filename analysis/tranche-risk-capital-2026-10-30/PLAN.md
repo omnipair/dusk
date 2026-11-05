@@ -22,7 +22,7 @@ holdings through leverage or hLP. Protection covers ordinary loans, leverage and
 hLP funding, subject to consolidated accounting of internal claims and debt.
 
 Both tranches retain underlying LP inventory exposure. Junior absorbs covered
-credit losses before senior, after available insurance. This does not protect
+credit losses before senior. This does not protect
 senior against all token price changes, impermanent loss or unlimited bad debt.
 
 ## Accepted economic rules
@@ -34,8 +34,10 @@ borrow interest, leverage/hLP funding interest and swap fees 50/50** between sen
 and junior. This supersedes earlier notes allocating swap fees pro rata.
 
 Route the liquidation amount currently used to refill insurance **100% to junior**.
-The liquidator's execution reward and protocol cut stay unchanged. Other existing
-insurance funding and draw rules stay unchanged unless separately approved.
+The liquidator's execution reward and protocol cut stay unchanged. The standalone
+insurance fund, its vaults, draw/coverage caps, target taper, and donation entrypoint
+are removed. Junior request/renewal fees are fixed at 50 bps and liquidation fees
+at 300 bps; these amounts are no longer parameters.
 Referral amounts already contained in protocol allocations must not be deducted
 from LP revenue again.
 
@@ -52,7 +54,7 @@ earned it. The seed can be wiped out; old worthless junior receipts must not acq
 claims on recapitalized principal or later income.
 
 New borrowing remains allowed when junior is zero, subject to cash admission.
-Available insurance and then senior bear losses in that state. There is no junior
+Senior bears residual funded credit losses directly in that state. There is no junior
 launch gate.
 
 ### Losses and ownership
@@ -61,11 +63,10 @@ Recover collateral, applicable borrower equity and internal collateral claims
 first. Then apply the residual covered loss to:
 
 ```
-available protocol insurance -> jrLP -> yLP
+jrLP until exhausted -> srLP for the remainder
 ```
 
-Insurance is funded, asset-specific coverage under the applicable draw limit, not
-the nominal reserve balance in an unavailable token. Junior is one shared value
+There is no separate coverage vault or daily draw limit in this waterfall. Junior is one shared value
 budget across both debt books. Never count its full value twice.
 
 Convert yLP to jrLP by burning the source claim and minting the destination at

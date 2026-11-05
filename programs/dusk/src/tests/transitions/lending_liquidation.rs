@@ -1,10 +1,10 @@
 use super::*;
 use crate::{
     constants::{
-        BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS, LIQUIDATION_BACKSTOP_CALLER_BPS, MARKET_LAYOUT_VERSION,
+        BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS, MARKET_LAYOUT_VERSION,
         NAD,
     },
-    state::{Debt, HlpVault, Insurance, MarketConfig, MarketSide, Reserves, Risk},
+    state::{Debt, HlpVault, MarketConfig, MarketSide, Reserves, Risk},
 };
 use proptest::prelude::*;
 
@@ -78,12 +78,11 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
         base_hlp_vault: HlpVault::default(),
         quote_hlp_vault: HlpVault::default(),
         risk: Risk::default(),
-        insurance: Insurance::default(),
         params_hash: [9; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_srlp: 0,
         governance_locked_junior: 0,
-        parameter_revisions: [0; 9],
+        parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -95,7 +94,6 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     market.refresh_risk().unwrap();
     let borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-
 
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
@@ -162,7 +160,6 @@ fn market_with_cash_backed_debt(
     let collateral_amount = u64::try_from(current_debt).unwrap().checked_mul(2).unwrap();
     let mut borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-
 
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
@@ -251,12 +248,11 @@ fn market_with_cash_backed_debt(
         base_hlp_vault: HlpVault::default(),
         quote_hlp_vault: HlpVault::default(),
         risk: Risk::default(),
-        insurance: Insurance::default(),
         params_hash: [7; 32],
         initial_liquidity_authority: Pubkey::default(),
         governance_locked_srlp: 0,
         governance_locked_junior: 0,
-        parameter_revisions: [0; 9],
+        parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -273,7 +269,7 @@ fn market_with_cash_backed_debt(
 fn liquidation_terms_for_debt(debt: u128) -> LiquidationTerms {
     LiquidationTerms {
         liquidation_incentive_bps: 0,
-        insurance_funding_bps: 0,
+        junior_fee_bps: 0,
         total_penalty_bps: 0,
         max_repay_amount: u64::try_from(debt).unwrap(),
     }
@@ -291,10 +287,10 @@ fn reserve_pair(market: &Market, asset: MarketAsset) -> (u64, u64) {
     (side.reserves.live_reserve, side.reserves.cash_reserve)
 }
 
-fn expected_insurance_funding_bps(liquidation_incentive_bps: u16, liquidation_health_floor_bps: u64) -> u16 {
+fn expected_junior_fee_bps(liquidation_incentive_bps: u16, liquidation_health_floor_bps: u64) -> u16 {
     let max_total_penalty = liquidation_health_floor_bps.saturating_sub(BPS_DENOMINATOR as u64 + 1);
     let remaining_penalty_room = max_total_penalty.saturating_sub(liquidation_incentive_bps as u64);
-    LIQUIDATION_INSURANCE_FUNDING_BPS.min(u16::try_from(remaining_penalty_room).unwrap_or(u16::MAX))
+    LIQUIDATION_FEE_BPS.min(u16::try_from(remaining_penalty_room).unwrap_or(u16::MAX))
 }
 
 #[test]
@@ -356,15 +352,7 @@ proptest! {
             debt_per_collateral_price_nad: NAD,
         };
 
-        let receipt = Liquidation::new_with_pricing(
-            debt_asset,
-            repay_credit,
-            0,
-            0,
-            0,
-            liquidation_terms_for_debt(debt_before),
-            pricing,
-        )
+        let receipt = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, liquidation_terms_for_debt(debt_before), pricing)
         .apply(&mut market, &mut borrow_position)
         .unwrap();
 
@@ -381,7 +369,6 @@ proptest! {
         let (live_after, cash_after) = reserve_pair(&market, debt_asset);
 
         prop_assert_eq!(receipt.socialized_loss, 0);
-        prop_assert_eq!(receipt.insurance_drawn, 0);
         prop_assert_eq!(live_after, live_before - live_debit);
         prop_assert_eq!(cash_after, cash_before + principal_credit);
         prop_assert!(repay_credit <= max_repay_credit);
@@ -410,15 +397,7 @@ fn partial_liquidation_charges_the_aggregate_delta_without_rounding_writeoff() {
         debt_per_collateral_price_nad: NAD,
     };
 
-    let receipt = Liquidation::new_with_pricing(
-        debt_asset,
-        repay_credit,
-        0,
-        0,
-        0,
-        liquidation_terms_for_debt(debt_before),
-        pricing,
-    )
+    let receipt = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, liquidation_terms_for_debt(debt_before), pricing)
     .apply(&mut market, &mut borrow_position)
     .unwrap();
 
@@ -461,17 +440,9 @@ fn partial_liquidation_uses_aggregate_debt_delta_with_multiple_positions() {
         .fixed_repayment_for_max(&borrow_position, debt_asset, 25_000_004)
         .unwrap()
         .cash_repaid;
-    Liquidation::new_with_pricing(
-        debt_asset,
-        repay_credit,
-        0,
-        0,
-        0,
-        liquidation_terms_for_debt(debt_before),
-        LiquidationPricing::ReferencePrice {
+    Liquidation::new_with_pricing(debt_asset, repay_credit, 0, liquidation_terms_for_debt(debt_before), LiquidationPricing::ReferencePrice {
             debt_per_collateral_price_nad: NAD,
-        },
-    )
+        })
     .apply(&mut market, &mut borrow_position)
     .unwrap();
 
@@ -489,7 +460,7 @@ fn partial_liquidation_recalculates_contribution_and_stored_cf() {
         debt_per_collateral_price_nad: NAD,
     };
 
-    let receipt = Liquidation::new_with_pricing(debt_asset, 20, 0, 0, 0, liquidation_terms_for_debt(100), pricing)
+    let receipt = Liquidation::new_with_pricing(debt_asset, 20, 0, liquidation_terms_for_debt(100), pricing)
         .apply(&mut market, &mut borrow_position)
         .unwrap();
 
@@ -500,48 +471,6 @@ fn partial_liquidation_recalculates_contribution_and_stored_cf() {
         market.debt.global_health_base_contribution_for_quote_debt,
         borrow_position.global_health_base_contribution_for_quote_debt
     );
-}
-
-#[test]
-fn insurance_credit_liquidation_closes_debt_without_breaking_virtual_reserve_invariant() {
-    let debt_asset = MarketAsset::Quote;
-    let (mut market, mut borrow_position) =
-        market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 500);
-    let debt_before = position_debt_after(&market, &borrow_position, debt_asset);
-    let debt_before_u64 = u64::try_from(debt_before).unwrap();
-    let repay_credit = debt_before_u64 / 2;
-    let insurance_credit = debt_before_u64 - repay_credit;
-    // A single liquidation may use at most 20% of available insurance.
-    market.insurance.quote_available = insurance_credit * 5;
-    let (live_before, cash_before) = reserve_pair(&market, debt_asset);
-    let pricing = LiquidationPricing::ReferencePrice {
-        debt_per_collateral_price_nad: NAD,
-    };
-
-    let receipt = Liquidation::new_with_pricing(
-        debt_asset,
-        repay_credit,
-        insurance_credit,
-        insurance_credit,
-        0,
-        liquidation_terms_for_debt(debt_before),
-        pricing,
-    )
-    .apply(&mut market, &mut borrow_position)
-    .unwrap();
-
-    let principal_credit = (repay_credit + insurance_credit)
-        .checked_sub(receipt.interest_paid)
-        .unwrap();
-    assert_eq!(receipt.insurance_drawn, insurance_credit);
-    assert_eq!(receipt.socialized_loss, 0);
-    assert_eq!(receipt.remaining_debt, 0);
-    assert_eq!(
-        market.quote_side.reserves.live_reserve,
-        live_before - (debt_before_u64 - principal_credit)
-    );
-    assert_eq!(market.quote_side.reserves.cash_reserve, cash_before + principal_credit);
-    market.assert_market_invariants().unwrap();
 }
 
 #[test]
@@ -561,15 +490,7 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
         debt_per_collateral_price_nad: NAD,
     };
 
-    let receipt = Liquidation::new_with_pricing(
-        debt_asset,
-        repay_credit,
-        0,
-        0,
-        max_socialized_loss,
-        liquidation_terms_for_debt(debt_before),
-        pricing,
-    )
+    let receipt = Liquidation::new_with_pricing(debt_asset, repay_credit, max_socialized_loss, liquidation_terms_for_debt(debt_before), pricing)
     .apply(&mut market, &mut borrow_position)
     .unwrap();
 
@@ -586,55 +507,6 @@ fn collateral_exhausted_liquidation_socializes_loss_without_breaking_virtual_res
 }
 
 #[test]
-fn internal_floor_uses_insurance_then_socializes_and_closes_without_caller_cap() {
-    let debt_asset = MarketAsset::Quote;
-    let (mut market, mut borrow_position) =
-        market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 500);
-    let full_repayment = market
-        .fixed_repayment_for_max(&borrow_position, debt_asset, u64::MAX)
-        .unwrap()
-        .cash_repaid;
-    let collateral_consumed = borrow_position.base_collateral;
-    let caller_bounty = u64::try_from(
-        (collateral_consumed as u128) * LIQUIDATION_BACKSTOP_CALLER_BPS as u128 / BPS_DENOMINATOR as u128,
-    )
-    .unwrap();
-    let swap_output = full_repayment / 2;
-    let insurance_credit = full_repayment / 10;
-    market.insurance.quote_available = insurance_credit * 5;
-    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD, NAD);
-
-    let receipt = market
-        .settle_internal_liquidation(
-            &mut borrow_position,
-            debt_asset,
-            swap_output,
-            insurance_credit,
-            insurance_credit,
-            collateral_consumed,
-            caller_bounty,
-            123,
-        )
-        .unwrap();
-
-    assert_eq!(market.insurance.quote_draw_window.start_slot, 123);
-    assert_eq!(receipt.liquidation.repaid_amount, swap_output);
-    assert_eq!(receipt.liquidation.insurance_drawn, insurance_credit);
-    assert_eq!(
-        receipt.liquidation.socialized_loss,
-        full_repayment - swap_output - insurance_credit
-    );
-    assert_eq!(receipt.liquidation.collateral_to_liquidator, caller_bounty);
-    assert_eq!(receipt.owner_residual, 0);
-    assert_eq!(borrow_position.base_collateral, 0);
-    assert_eq!(borrow_position.fixed_quote_shares, 0);
-    assert_eq!(market.debt.fixed_quote_shares, 0);
-    assert_eq!(borrow_position.quote_liquidation_cf_bps, 0);
-    assert_eq!(borrow_position.global_health_base_contribution_for_quote_debt, 0);
-    assert!(!borrow_position.has_active_liquidation_auction());
-}
-
-#[test]
 fn internal_floor_returns_solvent_swap_residual_to_owner() {
     let debt_asset = MarketAsset::Quote;
     let (mut market, mut borrow_position) = market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 0);
@@ -645,30 +517,13 @@ fn internal_floor_returns_solvent_swap_residual_to_owner() {
     let collateral_consumed = borrow_position.base_collateral;
 
     let receipt = market
-        .settle_internal_liquidation(
-            &mut borrow_position,
-            debt_asset,
-            full_repayment + 123,
-            0,
-            0,
-            collateral_consumed,
-            0,
-            123,
-        )
+        .settle_internal_liquidation(&mut borrow_position, debt_asset, full_repayment + 123, collateral_consumed, 0)
         .unwrap();
 
     assert_eq!(receipt.owner_residual, 123);
     assert_eq!(receipt.liquidation.repaid_amount, full_repayment);
-    assert_eq!(receipt.liquidation.insurance_drawn, 0);
     assert_eq!(receipt.liquidation.socialized_loss, 0);
     assert_eq!(receipt.liquidation.remaining_debt, 0);
-}
-
-#[test]
-fn insurance_funding_preserves_room_to_restore_health() {
-    assert_eq!(expected_insurance_funding_bps(100, 11_000), 200);
-    assert_eq!(expected_insurance_funding_bps(500, 11_000), 200);
-    assert_eq!(expected_insurance_funding_bps(200, 10_250), 49);
 }
 
 #[test]
@@ -1009,17 +864,18 @@ fn max_repay_caps_liquidation_to_restore_target_health() {
     let (market, borrow_position) = liquidatable_quote_debt_position();
     let target_health_bps = liquidation_health_floor_bps(borrow_position.quote_liquidation_cf_bps);
     let incentive_bps = liquidation_max_incentive_bps(10_900, target_health_bps);
-    let insurance_bps = expected_insurance_funding_bps(incentive_bps, target_health_bps);
+    let junior_fee_bps = expected_junior_fee_bps(incentive_bps, target_health_bps);
     let cap = max_repay_to_restore_health_with_pricing(
         &market,
         &borrow_position,
         MarketAsset::Quote,
-        incentive_bps + insurance_bps,
+        incentive_bps + junior_fee_bps,
         LiquidationPricing::PessimisticReserves,
     )
     .unwrap();
 
-    assert_eq!(cap, 82);
+    // The fixed 3% fee is included in the collateral penalty.
+    assert_eq!(cap, 90);
 }
 
 #[test]
@@ -1089,12 +945,12 @@ fn liquidation_rejects_repay_above_restore_cap() {
     let (mut market, mut borrow_position) = liquidatable_quote_debt_position();
     let target_health_bps = liquidation_health_floor_bps(borrow_position.quote_liquidation_cf_bps);
     let incentive_bps = liquidation_max_incentive_bps(10_900, target_health_bps);
-    let insurance_bps = expected_insurance_funding_bps(incentive_bps, target_health_bps);
+    let junior_fee_bps = expected_junior_fee_bps(incentive_bps, target_health_bps);
     let cap = max_repay_to_restore_health_with_pricing(
         &market,
         &borrow_position,
         MarketAsset::Quote,
-        incentive_bps + insurance_bps,
+        incentive_bps + junior_fee_bps,
         LiquidationPricing::PessimisticReserves,
     )
     .unwrap();
@@ -1106,9 +962,58 @@ fn liquidation_rejects_repay_above_restore_cap() {
             LiquidationPricing::PessimisticReserves,
         )
         .unwrap();
-    let err = Liquidation::new(MarketAsset::Quote, cap + 1, 0, 0, 0, terms)
+    let err = Liquidation::new(MarketAsset::Quote, cap + 1, 0, terms)
         .apply(&mut market, &mut borrow_position)
         .unwrap_err();
 
     assert_eq!(err, anchor_lang::prelude::error!(ErrorCode::LiquidationRepayTooLarge));
+}
+
+#[test]
+fn internal_floor_writes_off_unrecovered_debt_and_closes_every_obligation() {
+    let debt_asset = MarketAsset::Quote;
+    let (mut market, mut borrow_position) =
+        market_with_cash_backed_debt(debt_asset, 2_000_000, 2_000_000, 100_000, 500);
+    let full_repayment = market
+        .fixed_repayment_for_max(&borrow_position, debt_asset, u64::MAX)
+        .unwrap()
+        .cash_repaid;
+    let collateral_consumed = borrow_position.base_collateral;
+    let caller_bounty = u64::try_from(
+        (collateral_consumed as u128) * crate::constants::LIQUIDATION_BACKSTOP_CALLER_BPS as u128 / BPS_DENOMINATOR as u128,
+    )
+    .unwrap();
+    let swap_output = full_repayment / 2;
+    borrow_position.start_liquidation_auction(MarketAsset::Quote, 1, NAD, NAD);
+
+    let receipt = market
+        .settle_internal_liquidation(
+            &mut borrow_position,
+            debt_asset,
+            swap_output,
+            collateral_consumed,
+            caller_bounty,
+        )
+        .unwrap();
+
+    assert_eq!(receipt.liquidation.repaid_amount, swap_output);
+    assert_eq!(
+        receipt.liquidation.socialized_loss,
+        full_repayment - swap_output
+    );
+    assert_eq!(receipt.liquidation.collateral_to_liquidator, caller_bounty);
+    assert_eq!(receipt.owner_residual, 0);
+    assert_eq!(borrow_position.base_collateral, 0);
+    assert_eq!(borrow_position.fixed_quote_shares, 0);
+    assert_eq!(market.debt.fixed_quote_shares, 0);
+    assert_eq!(borrow_position.quote_liquidation_cf_bps, 0);
+    assert_eq!(borrow_position.global_health_base_contribution_for_quote_debt, 0);
+    assert!(!borrow_position.has_active_liquidation_auction());
+}
+
+#[test]
+fn junior_liquidation_fee_preserves_room_to_restore_health() {
+    assert_eq!(expected_junior_fee_bps(100, 11_000), 300);
+    assert_eq!(expected_junior_fee_bps(500, 11_000), 300);
+    assert_eq!(expected_junior_fee_bps(200, 10_250), 49);
 }

@@ -196,7 +196,7 @@ impl TrancheCapital {
         Ok(reserve_shares)
     }
 
-    /// Apply only the funded loss left after insurance. Values use one shared
+    /// Apply the residual funded credit loss to junior, then senior. Values use one shared
     /// market numeraire; applying a base loss consumes the same junior budget
     /// subsequently available to quote losses. Unpaid interest is excluded.
     pub fn absorb_loss(

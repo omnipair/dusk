@@ -1,4 +1,6 @@
 <p align="center">
+
+Current loss and fee specification: [junior-first credit loss waterfall](docs/CREDIT_LOSS_WATERFALL.md).
   <img src="assets/omnipair-dusk-hero.png" alt="Omnipair V2 (Dusk)" width="100%" />
 </p>
 
@@ -27,7 +29,7 @@ Dusk keeps that core Omnipair GAMM idea and rebuilds it around a market-native a
 - **Isolated leverage**: traders can open market-local leverage positions that borrow one side, swap through the GAMM, hold the opposite side as collateral, delegate TP/SL close execution, and liquidate through the same reserve accounting.
 - **Permissioned referral revenue sharing**: Futarchy-listed referrers can bind to new borrow or leverage debt and earn a configured share of the DAO's realized interest revenue without changing borrower debt or rates.
 - **Cached risk books**: risk checks roll EMA values from cached observations so settlement does not depend on a same-instruction manipulated spot.
-- **Permissionless atomic liquidation**: buyers receive collateral and owe a fixed net payment in the same transaction. Useful partial fills come first, with a 0.5–5% discount based only on current health, without a registration transaction. At critical EMA health, partial-first internal AMM recovery uses a caller reward capped at 1%, principal-only insurance and residual LP loss absorption; there is no mandatory auction wait.
+- **Permissionless atomic liquidation**: buyers receive collateral and owe a fixed net payment in the same transaction. Useful partial fills come first, with a 0.5–5% discount based only on current health, without a registration transaction. At critical EMA health, partial-first internal AMM recovery uses a caller reward capped at 1%, junior-first credit-loss absorption; there is no mandatory auction wait.
 
 ## How It Works
 
@@ -177,7 +179,7 @@ because neither hLP is eligible for that source. A material unconverged or cap-b
 worsening swap fails closed. Every positive funding transition also keeps
 aggregate indexed hLP debt within the borrowed asset's current cash. If passive
 funding growth exhausts the vault, `close_insolvent_hlp` retires its srLP,
-applies caller-bounded insurance and socialization, and pays a bounded caller
+applies caller-bounded junior/senior loss allocation, and pays a bounded caller
 bounty from recovered funding interest before crediting the remaining interest
 to ordinary srLP.
 
@@ -186,7 +188,7 @@ automatic hedge, retaining its shares, funded reserve and indexed debt as an
 explicit claim. Spot swaps continue on the remaining executable curve and the
 other hLP vault keeps its hedge. A frozen vault cannot make an ordinary exit
 that would leave its deficit with the remaining holders. Its permissionless
-terminal close uses the existing insurance and principal writeoff waterfall,
+terminal close uses the junior-first principal writeoff waterfall,
 with eligibility determined by its current-slot linear symmetric-EMA value. Native terminal
 recovery values the target claim through the same symmetric-EMA,
 `curve_depth_ema_nad`, configured-concentration and full-fee reference curve as
@@ -222,7 +224,7 @@ Dusk is designed around market-local risk accounting:
   checkpoint frequency; repayments and exits do not refund flow capacity, and
   the bucket is not an exact trailing-window sum. Changes in conservative
   market depth may resize the bps-derived absolute limit.
-- The borrow admission floor, shared borrow-flow limits, insurance, and LP
+- The borrow admission floor, shared borrow-flow limits, junior backing, and LP
   socialization bound how losses move through the system.
 
 ## Instruction Surface
@@ -234,7 +236,6 @@ initialize_market
 initialize_yield_accounts
 initialize_lp_transfer_hook
 set_market_reduce_only
-fortify_market
 create_parameter_proposal
 support_parameter_proposal
 queue_parameter_proposal
@@ -313,7 +314,7 @@ and examples are in [the governance guide](packages/dusk-sdk/README.md#reusable-
 
 Market parameters are deliberately split into seven typed proposal families:
 fees, concentration shape, IRM, EMA half-lives, the daily
-borrow limit, the center controller, and insurance draw caps. A proposal snapshots that family's revision, so execution becomes
+borrow limit, the center controller, oracle policy, and junior income allocation. A proposal snapshots that family's revision, so execution becomes
 stale if another proposal changes the same family first. Execution is blocked
 at 80% utilization, while repayments, liquidations, collateral additions, and
 cash-available LP exits remain live. Fee parameters are bounded to a combined
@@ -400,7 +401,7 @@ Other invariants:
 - srLP principal reserves exclude reserve-custodied swap-fee liabilities and interest-vault balances.
 - Physical reserve custody is at least `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory`. Protocol transitions conserve the accounted amount exactly; unsolicited donations remain non-executable. Interest liabilities are separately backed by the interest vault.
 - Synthetic hLP live reserve is not directly withdrawable cash; swaps, withdrawals, debt repayment, and interest realization are still constrained by cash reserves.
-- Every hLP funding increase must keep aggregate indexed funding debt within current borrowed-asset cash. Terminal exhausted-vault recovery is separate and permissionless through `close_insolvent_hlp`, with caller-supplied insurance and socialized-loss bounds.
+- Every hLP funding increase must keep aggregate indexed funding debt within current borrowed-asset cash. Terminal exhausted-vault recovery is separate and permissionless through `close_insolvent_hlp`, with a caller-supplied socialized-loss bound.
 - Dusk does not enforce `R_hLP_live[i] <= D_hLP_funding[i]` per asset; hLP live depth is a balanced GAMM coordinate, not a standalone per-asset liability.
 - hLP debt shares stay matched to aggregate hLP vault funding debt.
 - hLP operations never use srLP-denominated debt.

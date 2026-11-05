@@ -30,7 +30,6 @@ import {
   deriveMarketCollateralVaultAddress,
   deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
-  deriveInsuranceAddress,
   deriveTokenMetadataAddress,
   TOKEN_METADATA_PROGRAM_ID,
   deriveReferralAccrualAddress,
@@ -83,19 +82,6 @@ export interface DuskBuildOptions {
 export interface SwapBuildOptions extends DuskBuildOptions {
   accounts: DuskAccounts;
   market: AddressLike;
-}
-
-export interface FortifyMarketParams {
-  donor: AddressLike;
-  market: AddressLike;
-  asset: "base" | "quote";
-  assetMint: AddressLike;
-  /** Gross donation in raw token atoms; transfer fees reduce insurance credit. */
-  amount: GovernanceIntegerLike;
-  /** Defaults to the donor's ATA for the asset's token program. */
-  donorAssetAccount?: AddressLike;
-  /** Supply the mint owner to avoid an RPC read when building the instruction. */
-  assetTokenProgram?: AddressLike;
 }
 
 export type ReferredActionName = "borrow" | "openLeverage";
@@ -918,8 +904,6 @@ export class DuskWrite {
           quoteReserveVault: deriveMarketReserveVaultAddress(market, quoteMint)[0],
           baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint)[0],
           quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint)[0],
-          baseInsuranceVault: deriveInsuranceAddress(market, baseMint)[0],
-          quoteInsuranceVault: deriveInsuranceAddress(market, quoteMint)[0],
           baseInterestVault: deriveMarketInterestVaultAddress(market, baseMint)[0],
           quoteInterestVault: deriveMarketInterestVaultAddress(market, quoteMint)[0],
           teamTreasury: address(params.teamTreasury),
@@ -938,46 +922,6 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeMarketInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeMarketInstruction(params));
-  }
-
-  /**
-   * Donate to a market's insurance vault without receiving an LP claim.
-   * Does not fetch the market, so it can follow initialization in the same
-   * transaction. The program validates the selected side, mint and donor account.
-   */
-  async fortifyMarketInstruction(params: FortifyMarketParams): Promise<TransactionInstruction> {
-    if (params.asset !== "base" && params.asset !== "quote") {
-      throw new Error('asset must be "base" or "quote"');
-    }
-    const amount = governanceIntegerBN(params.amount, "amount");
-    if (amount.isZero()) throw new Error("amount must be positive");
-    const donor = address(params.donor);
-    const market = address(params.market);
-    const assetMint = address(params.assetMint);
-    const assetTokenProgram = params.assetTokenProgram
-      ? address(params.assetTokenProgram)
-      : await tokenProgramForMint(this.program.provider.connection, assetMint);
-    if (!assetTokenProgram.equals(TOKEN_PROGRAM_ID) && !assetTokenProgram.equals(TOKEN_2022_PROGRAM_ID)) {
-      throw new Error("assetTokenProgram must be SPL Token or Token-2022");
-    }
-    const donorAssetAccount = params.donorAssetAccount
-      ? address(params.donorAssetAccount)
-      : getAssociatedTokenAddressSync(assetMint, donor, true, assetTokenProgram);
-    return this.instruction("fortifyMarket", { asset: params.asset === "base" ? 0 : 1, amount }, {
-      accounts: {
-        market,
-        donor,
-        assetMint,
-        donorAssetAccount,
-        insuranceVault: deriveInsuranceAddress(market, assetMint, this.program.programId)[0],
-        tokenProgram: TOKEN_PROGRAM_ID,
-        token2022Program: TOKEN_2022_PROGRAM_ID,
-      },
-    });
-  }
-
-  async fortifyMarketTransaction(params: FortifyMarketParams): Promise<Transaction> {
-    return new Transaction().add(await this.fortifyMarketInstruction(params));
   }
 
   /** Burn-lock initial direct-srLP support and create one immutable proposal over one or more families. */

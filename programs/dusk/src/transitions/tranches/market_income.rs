@@ -237,7 +237,7 @@ impl Market {
     }
 
     /// Remove both paid and written-off receivables. Only the paid portion
-    /// permits a later cash credit; insurance-funded principal is not yield.
+    /// permits a later cash credit; principal recovery is not yield.
     pub fn clear_income_receivable(
         &mut self,
         asset: MarketAsset,

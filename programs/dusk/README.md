@@ -1,5 +1,7 @@
 # Omnipair V2 (Dusk)
 
+Current loss and fee specification: [junior-first credit loss waterfall](../../docs/CREDIT_LOSS_WATERFALL.md).
+
 Dusk is the standalone market program for Omnipair V2. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-srLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
 See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md) for current named-path
@@ -34,7 +36,7 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 
 Dusk exposes the current market instruction set:
 
-- `initialize_market` (including all three LP metadata records), `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`, `fortify_market`
+- `initialize_market` (including all three LP metadata records), `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`
 - `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
 - `set_yield_recipient`, `set_harvest_authority`, `harvest`
@@ -82,9 +84,9 @@ proposal, and the rest of its rent returns to the proposer.
 `support_parameter_proposal` also carries the digest the supporter reviewed
 and fails with `ProposalDigestMismatch` if it does not match.
 
-A proposal changes one or more of seven families: the complete fee profile,
+A proposal changes one or more of eight families: the complete fee profile,
 concentration shape, IRM, the four EMA half-lives, the daily borrow limit, the
-center controller, and insurance draw caps. It names each family at most once, in ascending family order, so a
+center controller, oracle policy, and junior income allocation. It names each family at most once, in ascending family order, so a
 set of updates has exactly one encoding and one digest. Every family must be a
 real change within its own bounds, and the configuration they produce together
 must be valid. One sponsorship and one vote cover the whole set, and it
@@ -97,8 +99,7 @@ proposal on any of those families goes stale instead of silently combining
 with it; proposals on other families are unaffected. Execution first
 checkpoints old interest/EMA/risk state and rejects at 80% utilization. Every
 family then closes its elapsed windows under the old values (the daily borrow
-buckets refill at the old rate, the insurance draw windows open under the old
-caps) before any value moves, and the curve and controller side effects run
+buckets refill at the old rate) before any value moves, and the curve and controller side effects run
 once against the final configuration.
 `ParameterProposalCreated` carries the typed updates, their family revisions
 and the proposal metadata exactly as stored, so indexers can reconstruct a
@@ -236,7 +237,7 @@ asset within that asset's current cash. This prevents repeated deposits or
 automatic rebalances from reusing the same cash headroom, but it is only an
 admission bound. If passive funding growth exhausts an hLP vault anyway,
 `close_insolvent_hlp` is the permissionless terminal close: the caller supplies
-insurance and socialized-loss limits, recovered funding interest pays a bounded
+socialized-loss limits, recovered funding interest pays a bounded
 caller bounty first, and the transaction reverts if those limits are exceeded.
 
 ## Isolated Leverage
@@ -285,7 +286,7 @@ bounds decide whether the resulting market quote is acceptable.
 
 One-times `peak_amplification` with zero widths is exact CPMM. Concentrated markets expose three product controls: peak amplification, core half-width, and fade width. Dusk derives a nonzero full-range CPMM tail plus a nested core and shoulder from those values. Quotes use at most five closed-form segments and four precomputed boundary crossings. Fees, EMA half-life, adjustment threshold, and recenter cadence remain separate controller settings. A trade is hedged and committed at its quoted endpoint before its observation can schedule a later, protected center move. Dusk never consults an external oracle.
 
-hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. A live-basis srLP burn still realizes accrued-but-unpaid interest, and positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal exhausted-hLP recovery is handled separately by `close_insolvent_hlp` with caller-supplied insurance and socialized-loss bounds.
+hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. A live-basis srLP burn still realizes accrued-but-unpaid interest, and positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal exhausted-hLP recovery is handled separately by `close_insolvent_hlp` with a caller-supplied socialized-loss bound.
 
 ## PDA Map
 
@@ -301,7 +302,6 @@ hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and fund
 | Yield account | `yield`, `market`, `owner`, `lp_mint`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
 | Parameter proposal | `parameter_proposal`, `market`, `proposer`, little-endian `nonce` | `deriveParameterProposalAddress` |
 | Proposal support | `proposal_support`, `proposal`, `supporter` | `deriveProposalSupportAddress` |
-| Insurance vault | `insurance`, `market`, `asset_mint` | `deriveInsuranceAddress` |
 | Leverage position | `leverage_position_v2`, `market`, `position_id` | `deriveLeveragePositionAddress` |
 | Leverage delegation | `leverage_delegation_v2`, `leverage_position` | derive from seed tuple |
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
@@ -315,7 +315,7 @@ Referral accruals are market-specific liabilities. Their backing remains in the 
 
 Indexers should consume Dusk events from the standalone Dusk IDL:
 
-- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`, `InsuranceDonated`
+- `MarketCreated`, `MarketReduceOnlyUpdated`, `MarketHealthUpdated`
 - `LiquidityAdded`, `LiquidityRemoved`, `LpTransferred`
 - `YieldRecipientUpdated`, `HarvestAuthorityUpdated`, `YieldClaimed`
 - `SwapExecuted`
@@ -406,7 +406,7 @@ different.
 - Referral binding never changes requested principal, debt, interest, health, or liquidation terms; accruals are carved only from realized protocol interest revenue.
 - Referral-interest claims are bounded by realized protocol revenue and pay only the partner's current designated recipient.
 - Risk books update EMA values from cached pre-transition observations and store current observations for the next refresh.
-- Atomic flash liquidation has no auction wait. A fixed net payment releases collateral for a caller-chosen route, with useful partial fills and a bounded incentive. At critical EMA health, the internal emergency path first seeks a restorative partial settlement and can close the position under the documented fallback rule. Full closures use principal-only capped insurance and socialize uncovered principal; unpaid interest is canceled.
+- Atomic flash liquidation has no auction wait. A fixed net payment releases collateral for a caller-chosen route, with useful partial fills and a bounded incentive. At critical EMA health, the internal emergency path first seeks a restorative partial settlement and can close the position under the documented fallback rule. Full closures use junior-first principal-loss allocation and charge senior for the remainder; unpaid interest is canceled.
 
 ## Verification
 
@@ -446,7 +446,6 @@ Checked integer bounds still apply: extreme decimal differences or quantities
 that exceed the math representation return an arithmetic error. There is no
 fixed mint-decimal cap. Equal-precision mints need no decimal multiplication,
 even above 18 decimals.
-
 
 ## Token-2022 asset extensions
 

@@ -27,17 +27,15 @@ fn audit_open(m: &mut Market, side: MarketAsset, spend: u64, wallet_bps: u16, f:
 
 #[derive(Default)]
 struct AuditTotals { opened: u64, entry_debt: u64, flash: u64, emergency: u64, full: u64,
-    repayment: u64, insurance: u64, writeoff: u64, canceled: u64, rewards: u64, fees: u64,
+    repayment: u64,  writeoff: u64, canceled: u64, rewards: u64, fees: u64,
     eligible: u64, eligible_debt: u64, remaining: u64, failed: u64, admitted_error: String, path_error: String }
 
-fn publish_audit_fee(m: &mut Market, side: MarketAsset, fee: LiquidationFeeAllocation, interest: u64, slot: u64) -> Result<()> {
+fn publish_audit_fee(m: &mut Market, side: MarketAsset, fee: LiquidationFeeAllocation, interest: u64, _slot: u64) -> Result<()> {
     let native = m.side(side).fees.junior.initialized;
-    if fee.insurance > 0 {
-        if native { m.side_mut(side).record_junior_liquidation_credit(fee.insurance)?; }
-        else { m.insurance.credit(side, fee.insurance, slot)?; }
+    if fee.junior > 0 {
+        if native { m.side_mut(side).record_junior_liquidation_credit(fee.junior)?; }
     }
-    let supply = m.base_side.shares.srlp_supply;
-    m.side_mut(side).record_liquidation_fee_credit(fee.lp, fee.protocol, ProtocolAuctionSplit::default(), supply)?;
+    m.side_mut(side).record_liquidation_protocol_credit(fee.protocol, ProtocolAuctionSplit::default())?;
     let (fresh, frozen) = m.side_mut(side).fees.public_interest_advance.take_payment(interest)?;
     if native {
         m.record_receivable_income_credit(side, false, fresh + frozen, frozen, ProtocolAuctionSplit::default(), 0)?;
@@ -81,35 +79,31 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
             let allocation = trial.liquidation_debt_allocation(&Ref::Leverage(&next), side, q.debt_shares_to_burn)?;
             let budget = q.repayment + q.fee.total + q.owner_surplus;
             let repaid = if full { budget.min(allocation.debt) } else { allocation.debt };
-            let fee = LiquidationFeeAllocation::quote(repaid, (budget-repaid).min(q.fee.total), trial.insurance.available(side), trial.liquidation_insurance_target(side)?, trial.tranche_policy.liquidation_fee_bps);
-            let cap = if full { f.unwind_credit(trial.insurance.draw_capacity(side,slot)?)? } else { 0 };
-            let loss = LiquidationLossAllocation::quote_with_coverage(allocation.principal.min(allocation.debt), allocation.debt,
-                repaid, cap, trial.insurance.principal_coverage_bps)?;
+            let fee = LiquidationFeeAllocation::quote(repaid, (budget-repaid).min(q.fee.total));
+            let loss = LiquidationLossAllocation::quote(allocation.principal.min(allocation.debt), allocation.debt, repaid)?;
             let profit;
             if external_profitable {
-                trial.settle_flash_recovery(&mut Mut::Leverage(&mut next), side, allocation, q.collateral_debit, repaid, f.effective_gross_for_credit(loss.insurance_credit)?, loss.insurance_credit, full, slot)?;
+                trial.settle_flash_recovery(&mut Mut::Leverage(&mut next), side, allocation, q.collateral_debit, repaid, full, slot)?;
                 profit=revenue-required;
             } else {
                 let credit=f.unwind_credit(q.collateral_credit)?;
                 let mut swap=match (SwapRequest {current_slot:slot,current_unix_timestamp:now,asset_in:side.opposite(),reserve_credit:credit,protocol_fee_bps:0})
                     .prepare_with_cash_policy(&mut trial,SwapCashPolicy::LiquidationQuote) {Ok(s)=>s,Err(_)=>continue};
                 let owner=budget-repaid-fee.total;
-                let obligation=repaid+f.effective_gross_for_credit(fee.insurance)?+f.effective_gross_for_credit(fee.lp+fee.protocol)?+f.effective_gross_for_credit(owner)?;
+                let obligation=repaid+f.effective_gross_for_credit(fee.junior)?+f.effective_gross_for_credit(0u64+fee.protocol)?+f.effective_gross_for_credit(owner)?;
                 if swap.quote.amount_out<obligation {continue;}
                 profit=f.unwind_credit(swap.quote.amount_out-obligation)?;
                 if profit<50 {continue;}
                 let policy=SwapCashPolicy::SettleLiquidation {debt_asset:side,isolated:true,full,shares:allocation.shares,
-                    principal_removed:allocation.principal,debt_reduced:allocation.debt,repayment:repaid,insurance_credit:loss.insurance_credit};
+                    principal_removed:allocation.principal,debt_reduced:allocation.debt,repayment:repaid,};
                 if swap.bind_liquidation(&trial,policy).is_err(){continue;}
                 let credit=full_fee_credit(&swap.leverage_quote());
                 swap.apply(&mut trial,policy,credit,slot,0,ProtocolAuctionSplit::default(),None)?;
-                if loss.insurance_credit>0 {trial.insurance.consume_draw(side,f.effective_gross_for_credit(loss.insurance_credit)?,slot)?;}
                 trial.apply_liquidation_position(&mut Mut::Leverage(&mut next),side,allocation,q.collateral_debit,full)?;
                 trial.reconcile_liquidation_position(&mut Mut::Leverage(&mut next), side, allocation.remaining_debt)?;
             }
             publish_audit_fee(&mut trial, side, fee, loss.interest_paid, slot)?;
             trial.assert_market_invariants()?;
-            t.flash += 1; t.full += u64::from(full); t.repayment += repaid; t.insurance += loss.insurance_credit;
             t.writeoff += loss.principal_written_off; t.canceled += loss.interest_canceled; t.rewards += profit; t.fees += fee.total;
             *m=trial; *p=next; return Ok(true);
         }
@@ -128,7 +122,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
             trial.apply_emergency_liquidation(&mut Mut::Leverage(&mut next), side, &mut prepared, slot, 0, ProtocolAuctionSplit::default())?;
             publish_audit_fee(&mut trial,side,q.fee,q.loss.interest_paid,slot)?;
             trial.assert_market_invariants()?;
-            t.emergency+=1;t.full+=u64::from(full);t.repayment+=q.repayment;t.insurance+=q.loss.insurance_credit;
+            t.emergency+=1;t.full+=u64::from(full);t.repayment+=q.repayment;
             t.writeoff+=q.loss.principal_written_off;t.canceled+=q.loss.interest_canceled;t.rewards+=q.reward_credit;t.fees+=q.fee.total;
             *m=trial;*p=next;return Ok(true);
         }
@@ -138,7 +132,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
 
 #[test]
 fn final_economic_policy_paths() {
-    println!("FINAL_ECON,amp,hlp,side,fee_bps,wallet_bps,pieces,path,external,withdrawal,opened,entry_debt,flash,emergency,full,repaid,insurance,writeoff,canceled,rewards,fees,remaining,eligible,eligible_debt,failed,entry_error,path_error");
+    println!("FINAL_ECON,amp,hlp,side,fee_bps,wallet_bps,pieces,path,external,withdrawal,opened,entry_debt,flash,emergency,full,repaid,writeoff,canceled,rewards,fees,remaining,eligible,eligible_debt,failed,entry_error,path_error");
     let mut count=0;
     for amp in [1,4,10] { for hlp in [false,true] { for side in [MarketAsset::Base,MarketAsset::Quote] {
     for fee_bps in [0,50] { for wallet_bps in [2_000,5_000] { for pieces in [1,3] {
@@ -202,7 +196,7 @@ fn final_economic_policy_paths() {
         }
         assert_eq!(t.failed, 0, "accepted settlement failed: amp={amp}, hlp={hlp}, side={side:?}, fee={fee_bps}, path={path}: {}", t.path_error);
         assert!(!t.path_error.starts_with("invariant:"), "{}", t.path_error);
-        println!("FINAL_ECON,{amp},{hlp},{},{fee_bps},{wallet_bps},{pieces},{path},{external},{withdrawal},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",side.code(),t.opened,t.entry_debt,t.flash,t.emergency,t.full,t.repayment,t.insurance,t.writeoff,t.canceled,t.rewards,t.fees,t.remaining,t.eligible,t.eligible_debt,t.failed,t.admitted_error,t.path_error);
+        println!("FINAL_ECON,{amp},{hlp},{},{fee_bps},{wallet_bps},{pieces},{path},{external},{withdrawal},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", side.code(), t.opened, t.entry_debt, t.flash, t.emergency, t.full, t.repayment, t.writeoff, t.canceled, t.rewards, t.fees, t.remaining, t.eligible, t.eligible_debt, t.failed, t.admitted_error, t.path_error);
         count+=1;
     }}}}}}}}
     assert_eq!(count,576);

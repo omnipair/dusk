@@ -11,7 +11,6 @@ pub(super) struct Fill {
 #[derive(Default)]
 pub(super) struct Paid {
     pub repaid: u64,
-    pub insurance: u64,
     pub loss: u64,
     pub owner: u64,
     pub reward: u64,
@@ -66,8 +65,10 @@ pub(super) fn choose_fill(
         };
         let sold_value = reference_credit(market, asset, sold);
         let payment = (u128::from(sold_value) * u128::from(10_000 - discount)).div_ceil(10_000) as u64;
-        let contribution = payment * policy.insurance_bps / 10_000;
-        let repay = payment - contribution;
+        let repay = ((u128::from(payment) + 1) * 10_000 - 1)
+            / (10_000 + u128::from(crate::constants::LIQUIDATION_FEE_BPS));
+        let repay = u64::try_from(repay).ok()?;
+        let contribution = payment - repay;
         if repay == 0 || repay >= debt || output < payment + policy.keeper_cost {
             continue;
         }
@@ -107,13 +108,13 @@ pub(super) fn choose_fill(
             sold,
             output,
             payment,
-            contribution: payment.saturating_sub(debt).min(debt * policy.insurance_bps / 10_000),
+            contribution: payment.saturating_sub(debt).min(debt * u64::from(crate::constants::LIQUIDATION_FEE_BPS) / 10_000),
             reward: 0,
         });
     }
     let reward = (u128::from(output) * u128::from(severity) * u128::from(policy.max_reward_bps) / 100_000_000) as u64;
     let payment = output - reward;
-    let contribution = payment.saturating_sub(debt).min(debt * policy.insurance_bps / 10_000);
+    let contribution = payment.saturating_sub(debt).min(debt * u64::from(crate::constants::LIQUIDATION_FEE_BPS) / 10_000);
     if reward >= policy.keeper_cost
         && cushion > 0
         && payment >= debt
@@ -172,29 +173,12 @@ pub(super) fn settle(
         contribution: fill.contribution,
         ..Paid::default()
     };
-    if fill.contribution > 0 {
-        trial.insurance.credit(debt_asset, fill.contribution, slot)?;
-    }
     if fill.kind > 0 && next.debt_shares > 0 {
         // All sold collateral has left in this atomic model step. Keep its
         // original field until the native zero-credit terminal adapter clears
         // it, so require_open and final write-off see the original obligation.
-        let remaining = next.debt_amount(&trial.debt)?;
-        let insurance = trial.insurance.draw_capacity(debt_asset, slot)?.min(remaining);
-        let result = trial.liquidate_leverage_position(
-            &mut next,
-            None,
-            0,
-            LeverageSwapFeeCredit::default(),
-            LeverageInsuranceDraw {
-                spent: insurance,
-                credit: insurance,
-            },
-            0,
-            ProtocolAuctionSplit::default(),
-            slot,
-        )?;
-        paid.insurance = result.insurance_drawn;
+        let result = trial.liquidate_leverage_position(&mut next, None, 0, LeverageSwapFeeCredit::default(), 0, ProtocolAuctionSplit::default(), slot)?;
+
         paid.loss = result.principal_written_off;
     } else {
         next.collateral_amount -= fill.sold;
@@ -205,9 +189,11 @@ pub(super) fn settle(
         require_eq!(next.collateral_amount, 0, ErrorCode::BrokenInvariant);
     }
     if fill.kind == 2 {
-        require_eq!(paid.insurance, 0, ErrorCode::BrokenInvariant);
         require_eq!(paid.loss, 0, ErrorCode::BrokenInvariant);
     }
+    let protocol = fill.contribution / 5;
+    trial.side_mut(debt_asset).record_liquidation_protocol_credit(protocol, ProtocolAuctionSplit::default())?;
+    trial.side_mut(debt_asset).record_junior_liquidation_credit(fill.contribution - protocol)?;
     trial.assert_market_invariants()?;
     require_eq!(trial.base_hlp_vault.residual_exposure, 0, ErrorCode::BrokenInvariant);
     require_eq!(trial.quote_hlp_vault.residual_exposure, 0, ErrorCode::BrokenInvariant);

@@ -36,7 +36,7 @@ fn cmp_hlp_fees(v: &HlpVault, asset: MarketAsset) -> f64 {
 }
 // Mark principal with one common external price, not the manipulated spot.
 // Fees are added once, assigned by the native hLP yield indexes.
-fn cmp_nav(m: &Market, debt: MarketAsset, mark: u64) -> Result<[f64; 7]> {
+fn cmp_nav(m: &Market, debt: MarketAsset, mark: u64) -> Result<[f64; 6]> {
     let mut t = m.clone();
     t.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;
     t.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
@@ -103,7 +103,6 @@ fn cmp_nav(m: &Market, debt: MarketAsset, mark: u64) -> Result<[f64; 7]> {
         quote as f64 / NAD as f64 * qv + hqf,
         protocol,
         retained,
-        cmp_value(t.insurance.available(debt), debt, debt, mark),
         backing,
     ])
 }
@@ -216,7 +215,7 @@ fn cmp_v1_inventory(
         principal_removed: a.principal,
         debt_reduced: a.debt,
         repayment: a.debt,
-        insurance_credit: 0,
+
     };
     // Hypothetical inventory exchange: cancel receivable, receive collateral.
     // Native ledger kernel ensures no fictional debt-token cash is introduced.
@@ -231,7 +230,7 @@ fn cmp_v1_inventory(
 }
 #[test]
 fn audit_ema_inventory_economic_comparison() {
-    println!("EMA_CMP,amp,hlp,side,size,equity_bps,mark,tokenfee,withdrawal,front,method,status,repaid,remaining_debt,remaining_coll,reward_value,front_cost,front_output,backrun_profit,attack_profit,srlp,base_hlp,quote_hlp,protocol,protected,insurance,eligible_after,emergency_before,improves,residual_mark_gap,residual_route_gap,insurance_draw,writeoff,liq_fees,liq_full,backing,mm_bps");
+    println!("EMA_CMP,amp,hlp,side,size,equity_bps,mark,tokenfee,withdrawal,front,method,status,repaid,remaining_debt,remaining_coll,reward_value,front_cost,front_output,backrun_profit,attack_profit,srlp,base_hlp,quote_hlp,protocol,protected,eligible_after,emergency_before,improves,residual_mark_gap,residual_route_gap,writeoff,liq_fees,liq_full,backing,mm_bps");
     let mut constructed = 0;
     let mut skipped = 0;
     let mut rows = 0;
@@ -276,10 +275,7 @@ fn audit_ema_inventory_economic_comparison() {
                                             .and_then(|_| m.finalize_amm_transition_and_observe_risk(2))
                                         {
                                             skipped += 1;
-                                            println!(
-                                                "EMA_SKIP,{case:?},{size},{eq},{mark},{tbps},withdraw:{}",
-                                                error_name(e)
-                                            );
+                                            println!("EMA_SKIP,{case:?},{size},{eq},{mark},{tbps},withdraw:{}", error_name(e));
                                             continue;
                                         }
                                     }
@@ -298,10 +294,7 @@ fn audit_ema_inventory_economic_comparison() {
                                             match cmp_trade(&m, debt.opposite(), front * CALIBRATION_UNIT, fee) {
                                                 Ok(x) => x,
                                                 Err(e) => {
-                                                    println!(
-                                                        "EMA_FRONT_SKIP,{case:?},{size},{eq},{mark},{tbps},{front},{}",
-                                                        error_name(e)
-                                                    );
+                                                    println!("EMA_FRONT_SKIP,{case:?},{size},{eq},{mark},{tbps},{front},{}", error_name(e));
                                                     continue;
                                                 }
                                             }
@@ -388,7 +381,7 @@ fn audit_ema_inventory_economic_comparison() {
                                             .max(0.0);
                                             let mut liquidation_venue = v_after.clone();
                                             // Conservative external realization scenario: custody->wallet->venue,
-                                            // venue output->wallet->debt vault; no additional insurance assumption.
+                                            // venue output->wallet->debt vault; no outside coverage assumption.
                                             let residual_receipt = fee
                                                 .unwind_credit(
                                                     liquidation_venue
@@ -398,10 +391,7 @@ fn audit_ema_inventory_economic_comparison() {
                                                 .unwrap();
                                             let residual_route_gap =
                                                 h.debt.saturating_sub(residual_receipt) as f64 / 1000.0;
-                                            println!("EMA_CMP,{amp},{hlp},{},{size},{eq},{mark},{tbps},{withdrawal},{front},{method},{status},{},{},{},{reward:.9},{front_cost:.9},{:.9},{backprofit:.9},{profit:.9},{:.9},{:.9},{:.9},{:.9},{:.9},{:.9},{},{},{},{residual_mark_gap:.9},{residual_route_gap:.9},{},{},{},{},{:.9},{}",
-                    debt.code(),repaid as f64/1000.0,h.debt as f64/1000.0,next.collateral_amount as f64/1000.0,front_out as f64/1000.0,
-                    nav[0],nav[1],nav[2],nav[3],nav[4],nav[5],h.eligible().unwrap(),health.emergency_allowed().unwrap(),improves,
-                    totals.insurance as f64/1000.0,totals.writeoff as f64/1000.0,totals.fees as f64/1000.0,totals.full,nav[6],health.maintenance_bps);
+                                            println!("EMA_CMP,{amp},{hlp},{},{size},{eq},{mark},{tbps},{withdrawal},{front},{method},{status},{},{},{},{reward:.9},{front_cost:.9},{:.9},{backprofit:.9},{profit:.9},{:.9},{:.9},{:.9},{:.9},{:.9},{},{},{},{residual_mark_gap:.9},{residual_route_gap:.9},{},{},{},{:.9},{}", debt.code(), repaid as f64/1000.0, h.debt as f64/1000.0, next.collateral_amount as f64/1000.0, front_out as f64/1000.0, nav[0], nav[1], nav[2], nav[3], nav[4], h.eligible().unwrap(), health.emergency_allowed().unwrap(), improves, totals.writeoff as f64/1000.0, totals.fees as f64/1000.0, totals.full, nav[5], health.maintenance_bps);
                                             rows += 1;
                                         }
                                     }
@@ -473,25 +463,8 @@ fn cmp_current_candidate(
                 } else {
                     allocation.debt
                 };
-                let fee = LiquidationFeeAllocation::quote(
-                    repaid,
-                    (budget - repaid).min(q.fee.total),
-                    trial.insurance.available(side),
-                    trial.liquidation_insurance_target(side)?,
-                    trial.tranche_policy.liquidation_fee_bps,
-                );
-                let cap = if full {
-                    f.unwind_credit(trial.insurance.draw_capacity(side, slot)?)?
-                } else {
-                    0
-                };
-                let loss = LiquidationLossAllocation::quote_with_coverage(
-                    allocation.principal.min(allocation.debt),
-                    allocation.debt,
-                    repaid,
-                    cap,
-                    trial.insurance.principal_coverage_bps,
-                )?;
+                let fee = LiquidationFeeAllocation::quote(repaid, (budget - repaid).min(q.fee.total));
+                let loss = LiquidationLossAllocation::quote(allocation.principal.min(allocation.debt), allocation.debt, repaid)?;
                 let profit;
                 let mut eligibility = HlpYieldEligibility {
                     srlp_supply: trial.base_side.shares.srlp_supply,
@@ -499,7 +472,7 @@ fn cmp_current_candidate(
                     quote_hlp_srlp_shares: trial.quote_hlp_vault.srlp_shares,
                 };
                 if external_profitable {
-                    trial.settle_flash_recovery(&mut Mut::Leverage(&mut next), side, allocation, q.collateral_debit, repaid, f.effective_gross_for_credit(loss.insurance_credit)?, loss.insurance_credit, full, slot)?;
+                    trial.settle_flash_recovery(&mut Mut::Leverage(&mut next), side, allocation, q.collateral_debit, repaid, full, slot)?;
                     profit = revenue - required;
                 } else {
                     let credit = f.unwind_credit(q.collateral_credit)?;
@@ -518,8 +491,8 @@ fn cmp_current_candidate(
                     eligibility = swap.interest_eligibility;
                     let owner = budget - repaid - fee.total;
                     let obligation = repaid
-                        + f.effective_gross_for_credit(fee.insurance)?
-                        + f.effective_gross_for_credit(fee.lp + fee.protocol)?
+                        + f.effective_gross_for_credit(fee.junior)?
+                        + f.effective_gross_for_credit(fee.protocol)?
                         + f.effective_gross_for_credit(owner)?;
                     if swap.quote.amount_out < obligation {
                         continue;
@@ -536,7 +509,7 @@ fn cmp_current_candidate(
                         principal_removed: allocation.principal,
                         debt_reduced: allocation.debt,
                         repayment: repaid,
-                        insurance_credit: loss.insurance_credit,
+
                     };
                     if swap.bind_liquidation(&trial, policy).is_err() {
                         continue;
@@ -551,14 +524,7 @@ fn cmp_current_candidate(
                         ProtocolAuctionSplit::default(),
                         None,
                     )?;
-                    if loss.insurance_credit > 0 {
-                        trial.insurance.consume_draw(
-                            side,
-                            f.effective_gross_for_credit(loss.insurance_credit)?,
-                            slot,
-                        )?;
-                    }
-                    trial.apply_liquidation_position(
+                                        trial.apply_liquidation_position(
                         &mut Mut::Leverage(&mut next),
                         side,
                         allocation,
@@ -572,7 +538,6 @@ fn cmp_current_candidate(
                 t.flash += 1;
                 t.full += u64::from(full);
                 t.repayment += repaid;
-                t.insurance += loss.insurance_credit;
                 t.writeoff += loss.principal_written_off;
                 t.canceled += loss.interest_canceled;
                 t.rewards += profit;
@@ -633,7 +598,6 @@ fn cmp_current_candidate(
             t.emergency += 1;
             t.full += u64::from(full);
             t.repayment += q.repayment;
-            t.insurance += q.loss.insurance_credit;
             t.writeoff += q.loss.principal_written_off;
             t.canceled += q.loss.interest_canceled;
             t.rewards += q.reward_credit;
@@ -650,18 +614,11 @@ fn cmp_publish_fee(
     m: &mut Market,
     side: MarketAsset,
     fee: LiquidationFeeAllocation,
-    slot: u64,
+    _slot: u64,
     e: HlpYieldEligibility,
 ) -> Result<()> {
-    if fee.insurance > 0 {
-        m.insurance.credit(side, fee.insurance, slot)?;
-    }
-    m.side_mut(side).record_liquidation_fee_credit(
-        fee.lp,
-        fee.protocol,
-        ProtocolAuctionSplit::default(),
-        e.srlp_supply,
-    )?;
+    m.side_mut(side).record_junior_liquidation_credit(fee.junior)?;
+    m.side_mut(side).record_liquidation_protocol_credit(fee.protocol, ProtocolAuctionSplit::default())?;
     m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, e.base_hlp_srlp_shares)?;
     m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, e.quote_hlp_srlp_shares)?;
     Ok(())

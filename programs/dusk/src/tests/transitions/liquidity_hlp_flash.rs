@@ -114,14 +114,7 @@ fn terminal_hlp_native_recovery_uses_ema_price_smoothed_depth_and_fees() {
             let expected = recovery(&market, target, actual_target_claim, actual_borrowed_claim);
             let plan = market
                 .clone()
-                .prepare_terminal_hlp_waterfall(
-                    target,
-                    u64::MAX,
-                    LeverageCollateralFee::default(),
-                    1,
-                    0,
-                    2_000,
-                )
+                .prepare_terminal_hlp_waterfall(target, 1, 0, 2_000)
                 .unwrap();
             assert_eq!(plan.reference_recovery(), expected);
         }
@@ -173,7 +166,7 @@ fn terminal_hlp_eligibility_refreshes_ema_to_the_current_slot() {
     assert!(refreshed > debt);
     let fee = LeverageCollateralFee::default();
     assert!(market
-        .prepare_terminal_hlp_waterfall(target, u64::MAX, fee, 100_000, 0, 0)
+        .prepare_terminal_hlp_waterfall(target, 100_000, 0, 0)
         .is_err());
     assert!(!market.quote_hlp_flash_recovery(target, fee, fee).unwrap().full);
 }
@@ -248,52 +241,6 @@ fn flash_recovery_preserves_other_holders_and_restores_hedge() {
 }
 
 #[test]
-fn terminal_flash_closes_debt_and_uses_insurance_only_for_principal() {
-    for amp in [1, 4, 10] {
-        for target in [MarketAsset::Base, MarketAsset::Quote] {
-            for principal_loss in [false, true] {
-                let mut m = market_for_flash(amp, target, 15_000);
-                if principal_loss {
-                    // Model an existing pooled principal writeoff, which has
-                    // already reduced both asset claims without returning cash.
-                    for asset in [MarketAsset::Base, MarketAsset::Quote] {
-                        m.side_mut(asset).reserves.cash_reserve -= 800_000_000_000;
-                        m.side_mut(asset).reserves.live_reserve -= 800_000_000_000;
-                    }
-                    m.rebase_concentrated_curve_after_terminal_hlp_loss().unwrap();
-                }
-                m.insurance.principal_coverage_bps = 7_500;
-                m.insurance.per_day_draw_bps = 5_000;
-                m.insurance.credit(target.opposite(), 10_000_000_000, 1).unwrap();
-                let fee = LeverageCollateralFee::default();
-                let q = m.quote_hlp_flash_recovery(target, fee, fee).unwrap();
-                assert!(q.full);
-                let v = if target == MarketAsset::Base { m.base_hlp_vault } else { m.quote_hlp_vault };
-                let borrowed = target.opposite();
-                let debt = Debt::shares_to_debt(v.debt_shares, m.debt.borrow_index(borrowed)).unwrap() as u64;
-                let expected = LiquidationLossAllocation::quote_with_coverage(v.debt_principal, debt,
-                    q.borrowed_claim + q.reserve_credit, 5_000_000_000, 7_500).unwrap();
-                m.begin_hlp_flash_recovery(q).unwrap();
-                let r = m.settle_terminal_hlp_flash(q, fee, u64::MAX, u64::MAX, 1)
-                    .unwrap_or_else(|e| panic!("amp={amp} target={target:?} loss={principal_loss}: {e}"));
-                assert_eq!(r.loss, expected);
-                assert_eq!(r.insurance_debit, expected.insurance_credit);
-                assert_eq!(r.loss.principal_repaid + r.loss.insurance_credit + r.loss.principal_written_off, v.debt_principal);
-                assert_eq!(r.loss.interest_paid + r.loss.interest_canceled, debt - v.debt_principal);
-                if !principal_loss { assert_eq!(r.insurance_debit, 0); }
-                let closed = if target == MarketAsset::Base { m.base_hlp_vault } else { m.quote_hlp_vault };
-                assert_eq!(closed.hlp_supply, v.hlp_supply);
-                assert_eq!(closed.srlp_shares, 0);
-                assert_eq!(closed.debt_shares, 0);
-                assert_eq!(closed.flash_collateral_debit, 0);
-                assert_eq!(m.side(target).reserves.flash_receivable, 0);
-                m.assert_market_invariants().unwrap();
-            }
-        }
-    }
-}
-
-#[test]
 fn terminal_flash_composes_with_same_market_swap() {
     use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
 
@@ -314,13 +261,7 @@ fn terminal_flash_composes_with_same_market_swap() {
             )
             .unwrap())
             .unwrap();
-            let expected_loss = LiquidationLossAllocation::quote_with_coverage(
-                vault.debt_principal,
-                debt,
-                quote.borrowed_claim + quote.reserve_credit,
-                0,
-                market.insurance.principal_coverage_bps,
-            )
+            let expected_loss = LiquidationLossAllocation::quote(vault.debt_principal, debt, quote.borrowed_claim + quote.reserve_credit)
             .unwrap();
             market.begin_hlp_flash_recovery(quote).unwrap();
             assert!(market.hlp_frozen(target));
@@ -353,7 +294,7 @@ fn terminal_flash_composes_with_same_market_swap() {
             .unwrap();
 
             let settlement = market
-                .settle_terminal_hlp_flash(quote, fee, u64::MAX, u64::MAX, 1)
+                .settle_terminal_hlp_flash(quote, fee, u64::MAX, 1)
                 .unwrap_or_else(|error| panic!("amp={amp} target={target:?}: {error}"));
             assert_eq!(settlement.loss, expected_loss);
             assert_eq!(market.side(target).reserves.flash_receivable, 0);
@@ -373,7 +314,7 @@ fn terminal_flash_clears_frozen_vault_before_receipt_exit() {
     assert!(quote.full);
     let receipt_supply = market.base_hlp_vault.hlp_supply;
     market.begin_hlp_flash_recovery(quote).unwrap();
-    market.settle_terminal_hlp_flash(quote, fee, u64::MAX, u64::MAX, 2).unwrap();
+    market.settle_terminal_hlp_flash(quote, fee, u64::MAX, 2).unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 0);
     let exit = market.withdraw_single_sided(MarketAsset::Base, receipt_supply).unwrap();
     assert_eq!(exit.target_amount_out, 0);
@@ -652,5 +593,47 @@ fn cash_constrained_swap_carries_both_hlp_funding_liabilities() {
             assert_eq!(due, due_before[i]);
         }
         market.assert_market_invariants().unwrap();
+    }
+}
+
+#[test]
+fn terminal_flash_closes_principal_loss_and_unpaid_interest_without_external_coverage() {
+    for amp in [1, 4, 10] {
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            for principal_loss in [false, true] {
+                let mut m = market_for_flash(amp, target, 15_000);
+                if principal_loss {
+                    // Model an existing pooled principal writeoff, which has
+                    // already reduced both asset claims without returning cash.
+                    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+                        m.side_mut(asset).reserves.cash_reserve -= 800_000_000_000;
+                        m.side_mut(asset).reserves.live_reserve -= 800_000_000_000;
+                    }
+                    m.rebase_concentrated_curve_after_terminal_hlp_loss().unwrap();
+                }
+                let fee = LeverageCollateralFee::default();
+                let q = m.quote_hlp_flash_recovery(target, fee, fee).unwrap();
+                assert!(q.full);
+                let v = if target == MarketAsset::Base { m.base_hlp_vault } else { m.quote_hlp_vault };
+                let borrowed = target.opposite();
+                let debt = Debt::shares_to_debt(v.debt_shares, m.debt.borrow_index(borrowed)).unwrap() as u64;
+                let expected = LiquidationLossAllocation::quote(v.debt_principal, debt,
+                    q.borrowed_claim + q.reserve_credit).unwrap();
+                m.begin_hlp_flash_recovery(q).unwrap();
+                let r = m.settle_terminal_hlp_flash(q, fee, u64::MAX, 1)
+                    .unwrap_or_else(|e| panic!("amp={amp} target={target:?} loss={principal_loss}: {e}"));
+                assert_eq!(r.loss, expected);
+                assert_eq!(r.loss.principal_repaid + r.loss.principal_written_off, v.debt_principal);
+                if !principal_loss { assert_eq!(r.loss.principal_written_off, 0); }
+                assert_eq!(r.loss.interest_paid + r.loss.interest_canceled, debt - v.debt_principal);
+                let closed = if target == MarketAsset::Base { m.base_hlp_vault } else { m.quote_hlp_vault };
+                assert_eq!(closed.hlp_supply, v.hlp_supply);
+                assert_eq!(closed.srlp_shares, 0);
+                assert_eq!(closed.debt_shares, 0);
+                assert_eq!(closed.flash_collateral_debit, 0);
+                assert_eq!(m.side(target).reserves.flash_receivable, 0);
+                m.assert_market_invariants().unwrap();
+            }
+        }
     }
 }

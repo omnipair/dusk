@@ -487,7 +487,6 @@ const acceptedOneUseHelpers = new Map([
     new Set([
       "prepare_concentrated_hlp_transition",
       "apply_concentrated_hlp_recovery",
-      "insurance_request",
       "target_asset",
       "prepare_terminal_hlp_waterfall",
       "prepare_concentrated_hlp_transition_at_current_state",

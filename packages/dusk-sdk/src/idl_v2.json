@@ -468,10 +468,6 @@
               "writable": true
             },
             {
-              "name": "insurance_vault",
-              "writable": true
-            },
-            {
               "name": "buyer_collateral_account",
               "writable": true
             },
@@ -716,10 +712,6 @@
             },
             {
               "name": "buyer_refund_account",
-              "writable": true
-            },
-            {
-              "name": "insurance_vault",
               "writable": true
             },
             {
@@ -1592,7 +1584,7 @@
         "Permissionlessly closes an hLP whose current-slot symmetric-EMA backing",
         "cannot cover funding debt. Native recovery uses EMA price, smoothed depth,",
         "concentration and configured fees. Recovery protects principal first;",
-        "insurance covers only principal loss and unpaid interest is canceled.",
+        "junior absorbs principal loss before senior; unpaid interest is canceled.",
         "Realized funding interest is cash-limited and funds the bounded caller",
         "reward. Existing funded holder claims remain claimable after cleanup."
       ],
@@ -1628,10 +1620,6 @@
         },
         {
           "name": "borrowed_interest_vault",
-          "writable": true
-        },
-        {
-          "name": "insurance_vault",
           "writable": true
         },
         {
@@ -4366,10 +4354,6 @@
               "writable": true
             },
             {
-              "name": "insurance_vault",
-              "writable": true
-            },
-            {
               "name": "buyer_collateral_account",
               "writable": true
             },
@@ -4733,124 +4717,6 @@
           "name": "ParameterProposalStatus"
         }
       }
-    },
-    {
-      "name": "fortify_market",
-      "discriminator": [
-        76,
-        16,
-        126,
-        53,
-        167,
-        6,
-        213,
-        2
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "donor",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "asset_mint"
-        },
-        {
-          "name": "donor_asset_account",
-          "writable": true
-        },
-        {
-          "name": "insurance_vault",
-          "writable": true
-        },
-        {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token_2022_program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "FortifyMarketArgs"
-            }
-          }
-        }
-      ]
     },
     {
       "name": "fund_interest",
@@ -6407,66 +6273,6 @@
                   114,
                   97,
                   108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "quote_mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "base_insurance_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  115,
-                  117,
-                  114,
-                  97,
-                  110,
-                  99,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "base_mint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "quote_insurance_vault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  105,
-                  110,
-                  115,
-                  117,
-                  114,
-                  97,
-                  110,
-                  99,
-                  101
                 ]
               },
               {
@@ -10558,10 +10364,6 @@
               "writable": true
             },
             {
-              "name": "insurance_vault",
-              "writable": true
-            },
-            {
               "name": "buyer_collateral_account",
               "writable": true
             },
@@ -10765,10 +10567,6 @@
             },
             {
               "name": "buyer_refund_account",
-              "writable": true
-            },
-            {
-              "name": "insurance_vault",
               "writable": true
             },
             {
@@ -14071,19 +13869,6 @@
       ]
     },
     {
-      "name": "InsuranceDonated",
-      "discriminator": [
-        238,
-        155,
-        254,
-        172,
-        251,
-        224,
-        236,
-        18
-      ]
-    },
-    {
       "name": "JuniorCohortInitialized",
       "discriminator": [
         18,
@@ -15209,246 +14994,236 @@
     },
     {
       "code": 6110,
-      "name": "InsufficientInsurance",
-      "msg": "Insurance coverage is insufficient"
-    },
-    {
-      "code": 6111,
-      "name": "InsuranceDrawExceeded",
-      "msg": "Required insurance draw exceeds caller cap"
-    },
-    {
-      "code": 6112,
       "name": "LiquidationSocializationExceeded",
       "msg": "Socialized liquidation loss exceeds caller cap"
     },
     {
-      "code": 6113,
+      "code": 6111,
       "name": "InvalidClaimMint",
       "msg": "Claim mint must not charge transfer fees"
     },
     {
-      "code": 6114,
+      "code": 6112,
       "name": "UnbackedFeeLiability",
       "msg": "Fee liability is not backed by its custody balance"
     },
     {
-      "code": 6115,
+      "code": 6113,
       "name": "InvalidMarketFeeAuthority",
       "msg": "Invalid market fee authority"
     },
     {
-      "code": 6116,
+      "code": 6114,
       "name": "InvalidInitialLiquidityAuthority",
       "msg": "Invalid initial liquidity authority"
     },
     {
-      "code": 6117,
+      "code": 6115,
       "name": "LaunchRateLimitSplitTransaction",
       "msg": "Launch rate limiter permits only one top-level market action per transaction"
     },
     {
-      "code": 6118,
+      "code": 6116,
       "name": "MarketReduceOnly",
       "msg": "Market is reduce-only"
     },
     {
-      "code": 6119,
+      "code": 6117,
       "name": "MarketNotStarted",
       "msg": "Market has not started"
     },
     {
-      "code": 6120,
+      "code": 6118,
       "name": "MarketMathOverflow",
       "msg": "Market math overflow"
     },
     {
-      "code": 6121,
+      "code": 6119,
       "name": "DailyLimitExceeded",
       "msg": "Daily liquidity limit exceeded"
     },
     {
-      "code": 6122,
+      "code": 6120,
       "name": "InstructionNotLive",
       "msg": "Instruction is intentionally not live yet"
     },
     {
-      "code": 6123,
+      "code": 6121,
       "name": "LiquidationRepayTooLarge",
       "msg": "Liquidation repay amount exceeds partial liquidation cap"
     },
     {
-      "code": 6124,
+      "code": 6122,
       "name": "LeverageMultiplierTooHigh",
       "msg": "Leverage multiplier exceeds circuit breaker"
     },
     {
-      "code": 6125,
+      "code": 6123,
       "name": "LeverageInitialMarginTooLow",
       "msg": "Leverage position does not have enough initial margin"
     },
     {
-      "code": 6126,
+      "code": 6124,
       "name": "LeverageUnwindImpactTooHigh",
       "msg": "Leverage unwind impact exceeds limit"
     },
     {
-      "code": 6127,
+      "code": 6125,
       "name": "LeveragePositionNotLiquidatable",
       "msg": "Leverage position is not liquidatable"
     },
     {
-      "code": 6128,
+      "code": 6126,
       "name": "InvalidSigner",
       "msg": "Invalid signer"
     },
     {
-      "code": 6129,
+      "code": 6127,
       "name": "InvalidLeveragePosition",
       "msg": "Invalid leverage position"
     },
     {
-      "code": 6130,
+      "code": 6128,
       "name": "InvalidLeverageDelegation",
       "msg": "Invalid leverage delegation"
     },
     {
-      "code": 6131,
+      "code": 6129,
       "name": "InvalidReferralInterestShareBps",
       "msg": "Referral interest share exceeds the protocol hard cap"
     },
     {
-      "code": 6132,
+      "code": 6130,
       "name": "InvalidReferralPartner",
       "msg": "Invalid referral partner"
     },
     {
-      "code": 6133,
+      "code": 6131,
       "name": "ReferralPartnerNotActive",
       "msg": "Referral partner is not active"
     },
     {
-      "code": 6134,
+      "code": 6132,
       "name": "InvalidReferralAccrual",
       "msg": "Invalid referral accrual account"
     },
     {
-      "code": 6135,
+      "code": 6133,
       "name": "InvalidLeverageCollateralMint",
       "msg": "Leverage collateral transfer fee must be immutable with no pending change"
     },
     {
-      "code": 6136,
+      "code": 6134,
       "name": "FreezableAssetMint",
       "msg": "Asset mint has an active freeze authority"
     },
     {
-      "code": 6137,
+      "code": 6135,
       "name": "ParameterUpdatesNotCanonical",
-      "msg": "Parameter updates must name one to seven families, each once, in ascending family order"
+      "msg": "Parameter updates must name one to eight families, each once, in ascending family order"
     },
     {
-      "code": 6138,
+      "code": 6136,
       "name": "ProposalDigestMismatch",
       "msg": "Parameter proposal does not match the digest the supporter reviewed"
     },
     {
-      "code": 6139,
+      "code": 6137,
       "name": "ReservedLiquidationClock",
       "msg": "Reserved retired liquidation clock error"
     },
     {
-      "code": 6140,
+      "code": 6138,
       "name": "LiquidationSessionActive",
       "msg": "Position has an active liquidation session"
     },
     {
-      "code": 6141,
+      "code": 6139,
       "name": "InvalidLiquidationSession",
       "msg": "Invalid atomic liquidation session or instruction pairing"
     },
     {
-      "code": 6142,
+      "code": 6140,
       "name": "LiquidationDoesNotImproveHealth",
       "msg": "Partial liquidation does not improve health after costs"
     },
     {
-      "code": 6143,
+      "code": 6141,
       "name": "IncomeEpochNeedsRollover",
       "msg": "Archive and roll the income epoch before issuing new receivables"
     },
     {
-      "code": 6144,
+      "code": 6142,
       "name": "IncomeHistoryRequired",
       "msg": "Prepare this holder's income history before changing its balance"
     },
     {
-      "code": 6145,
+      "code": 6143,
       "name": "OracleAccountMissing",
       "msg": "The market's configured oracle account was not supplied"
     },
     {
-      "code": 6146,
+      "code": 6144,
       "name": "OracleAuthenticationFailed",
       "msg": "Oracle account owner, identity or verification failed"
     },
     {
-      "code": 6147,
+      "code": 6145,
       "name": "OracleInvalidObservation",
       "msg": "Oracle report is invalid, future-dated, halted or too uncertain"
     },
     {
-      "code": 6148,
+      "code": 6146,
       "name": "OracleStale",
       "msg": "Oracle source observation is stale"
     },
     {
-      "code": 6149,
+      "code": 6147,
       "name": "OracleReplay",
       "msg": "Oracle sequence or source observation regressed"
     },
     {
-      "code": 6150,
+      "code": 6148,
       "name": "ManagerEpochMismatch",
       "msg": "The manager authority or epoch is no longer current"
     },
     {
-      "code": 6151,
+      "code": 6149,
       "name": "InvalidManager",
       "msg": "The elected manager is required"
     },
     {
-      "code": 6152,
+      "code": 6150,
       "name": "ManagerPolicyExceeded",
       "msg": "The change exceeds the fixed manager policy"
     },
     {
-      "code": 6153,
+      "code": 6151,
       "name": "PendingBundleExists",
       "msg": "A bundle is already pending in this market"
     },
     {
-      "code": 6154,
+      "code": 6152,
       "name": "GovernanceCapacityExceeded",
       "msg": "The bounded governance pending capacity is full"
     },
     {
-      "code": 6155,
+      "code": 6153,
       "name": "RecoveryVoteLocked",
       "msg": "Governance ownership is still encumbered by a recovery ballot"
     },
     {
-      "code": 6156,
+      "code": 6154,
       "name": "RecoveryBallotInactive",
       "msg": "The recovery ballot or its target is no longer active"
     },
     {
-      "code": 6157,
+      "code": 6155,
       "name": "ManagerAnnouncementCooldown",
       "msg": "Wait three days between manager announcements for this market"
     },
     {
-      "code": 6158,
+      "code": 6156,
       "name": "LaunchSettingsImmutable",
       "msg": "Launch-only settings are immutable after the market starts"
     }
@@ -15936,10 +15711,6 @@
           {
             "name": "allow_full",
             "type": "bool"
-          },
-          {
-            "name": "max_insurance_draw",
-            "type": "u64"
           },
           {
             "name": "max_socialized_loss",
@@ -16472,10 +16243,6 @@
             "type": "u64"
           },
           {
-            "name": "insurance_drawn",
-            "type": "u64"
-          },
-          {
             "name": "socialized_loss",
             "type": "u64"
           },
@@ -16680,10 +16447,6 @@
           {
             "name": "target_asset",
             "type": "u8"
-          },
-          {
-            "name": "max_insurance_draw",
-            "type": "u64"
           },
           {
             "name": "max_socialized_loss",
@@ -17432,7 +17195,7 @@
             }
           },
           {
-            "name": "insurance_fee_debit",
+            "name": "junior_fee_debit",
             "type": "u64"
           },
           {
@@ -17445,10 +17208,6 @@
           },
           {
             "name": "owner_credit",
-            "type": "u64"
-          },
-          {
-            "name": "insurance_debit",
             "type": "u64"
           },
           {
@@ -18040,22 +17799,6 @@
       }
     },
     {
-      "name": "FortifyMarketArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "asset",
-            "type": "u8"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "FundInterestArgs",
       "type": {
         "kind": "struct",
@@ -18436,24 +18179,12 @@
             }
           },
           {
-            "name": "baseline_insurance_principal_coverage_bps",
-            "type": "u16"
-          },
-          {
-            "name": "baseline_insurance_per_day_bps",
-            "type": "u16"
-          },
-          {
             "name": "baseline_tranche_policy",
             "type": {
               "defined": {
                 "name": "TranchePolicy"
               }
             }
-          },
-          {
-            "name": "baseline_junior_request_fee_bps",
-            "type": "u16"
           },
           {
             "name": "pending",
@@ -18919,10 +18650,6 @@
             }
           },
           {
-            "name": "max_insurance_draw",
-            "type": "u64"
-          },
-          {
             "name": "max_socialized_loss",
             "type": "u64"
           },
@@ -19011,10 +18738,6 @@
                 "name": "LiquidationLossAllocation"
               }
             }
-          },
-          {
-            "name": "insurance_debit",
-            "type": "u64"
           },
           {
             "name": "surplus_credit",
@@ -19347,13 +19070,9 @@
             "type": "u64"
           },
           {
-            "name": "insurance_drawn",
-            "type": "u64"
-          },
-          {
             "name": "socialized_loss",
             "docs": [
-              "Principal loss after insurance. Unpaid interest is reported separately."
+              "Residual funded principal loss. Unpaid interest is reported separately."
             ],
             "type": "u64"
           },
@@ -19929,151 +19648,6 @@
       }
     },
     {
-      "name": "Insurance",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "base_vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "quote_vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "base_available",
-            "type": "u64"
-          },
-          {
-            "name": "quote_available",
-            "type": "u64"
-          },
-          {
-            "name": "base_draw_window",
-            "type": {
-              "defined": {
-                "name": "InsuranceDrawWindow"
-              }
-            }
-          },
-          {
-            "name": "quote_draw_window",
-            "type": {
-              "defined": {
-                "name": "InsuranceDrawWindow"
-              }
-            }
-          },
-          {
-            "name": "principal_coverage_bps",
-            "docs": [
-              "Maximum share of a borrower/leverage principal shortfall covered by",
-              "insurance. hLP funding claims use their own eligible-loss definition."
-            ],
-            "type": "u16"
-          },
-          {
-            "name": "per_day_draw_bps",
-            "type": "u16"
-          }
-        ]
-      }
-    },
-    {
-      "name": "InsuranceDonated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "donor",
-            "type": "pubkey"
-          },
-          {
-            "name": "asset",
-            "docs": [
-              "`0` for Base and `1` for Quote."
-            ],
-            "type": "u8"
-          },
-          {
-            "name": "requested_amount",
-            "docs": [
-              "Gross amount requested from the donor's token account."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "credited_amount",
-            "docs": [
-              "Net amount received after any Token-2022 transfer fee."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "available_after",
-            "type": "u64"
-          },
-          {
-            "name": "metadata",
-            "type": {
-              "defined": {
-                "name": "MarketEventMetadata"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "InsuranceDrawWindow",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "initialized",
-            "docs": [
-              "`start_slot` may legitimately be zero in a test or newly started bank;",
-              "keep initialization separate rather than using a sentinel slot."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "start_slot",
-            "docs": [
-              "Start of the nominal 24-hour window, measured in consensus slots."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "opening_available",
-            "docs": [
-              "Available insurance at the start of the window, before any draws."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "credited",
-            "docs": [
-              "Net token credits received after the window opened."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "drawn",
-            "docs": [
-              "Gross token amount debited by insurance draws in this window."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "JuniorCohort",
       "type": {
         "kind": "struct",
@@ -20203,10 +19777,6 @@
           {
             "name": "exercise_window_slots",
             "type": "u64"
-          },
-          {
-            "name": "request_fee_bps",
-            "type": "u16"
           }
         ]
       }
@@ -20622,10 +20192,6 @@
             "type": "u64"
           },
           {
-            "name": "insurance_drawn",
-            "type": "u64"
-          },
-          {
             "name": "socialized_loss",
             "type": "u64"
           },
@@ -21029,11 +20595,7 @@
             "type": "u64"
           },
           {
-            "name": "insurance",
-            "type": "u64"
-          },
-          {
-            "name": "lp",
+            "name": "junior",
             "type": "u64"
           }
         ]
@@ -21067,7 +20629,7 @@
       "name": "LiquidationLossAllocation",
       "docs": [
         "A completed debt leg. `sale_recovery` is net of the caller reward and actual",
-        "transfer costs. Insurance never pays unpaid borrower/leverage interest."
+        "transfer costs. Unpaid borrower/leverage interest is canceled."
       ],
       "type": {
         "kind": "struct",
@@ -21078,10 +20640,6 @@
           },
           {
             "name": "interest_paid",
-            "type": "u64"
-          },
-          {
-            "name": "insurance_credit",
             "type": "u64"
           },
           {
@@ -21242,14 +20800,6 @@
           },
           {
             "name": "payment_balance_before",
-            "type": "u64"
-          },
-          {
-            "name": "insurance_balance_at_quote",
-            "type": "u64"
-          },
-          {
-            "name": "insurance_target_at_quote",
             "type": "u64"
           },
           {
@@ -21598,14 +21148,6 @@
             }
           },
           {
-            "name": "insurance",
-            "type": {
-              "defined": {
-                "name": "Insurance"
-              }
-            }
-          },
-          {
             "name": "params_hash",
             "type": {
               "array": [
@@ -21648,7 +21190,7 @@
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -21947,14 +21489,6 @@
           },
           {
             "name": "quote_collateral_vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "base_insurance_vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "quote_insurance_vault",
             "type": "pubkey"
           },
           {
@@ -22426,19 +21960,6 @@
             ]
           },
           {
-            "name": "InsuranceDrawCaps",
-            "fields": [
-              {
-                "name": "principal_coverage_bps",
-                "type": "u16"
-              },
-              {
-                "name": "per_day_bps",
-                "type": "u16"
-              }
-            ]
-          },
-          {
             "name": "Oracle",
             "fields": [
               {
@@ -22453,14 +21974,6 @@
             "fields": [
               {
                 "name": "junior_income_share_bps",
-                "type": "u16"
-              },
-              {
-                "name": "request_fee_bps",
-                "type": "u16"
-              },
-              {
-                "name": "liquidation_fee_bps",
                 "type": "u16"
               }
             ]
@@ -22930,9 +22443,6 @@
             "name": "CenterController"
           },
           {
-            "name": "Insurance"
-          },
-          {
             "name": "Oracle"
           },
           {
@@ -23018,7 +22528,7 @@
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -23185,7 +22695,7 @@
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -23262,7 +22772,7 @@
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -23304,7 +22814,7 @@
             "type": {
               "array": [
                 "u64",
-                9
+                8
               ]
             }
           },
@@ -26237,18 +25747,14 @@
     {
       "name": "TranchePolicy",
       "docs": [
-        "Governed tranche economics. Exit timing remains protocol-defined; only its",
-        "request/renewal fee is changed through the tranche parameter family."
+        "Governed junior income allocation. Exit timing and the request/renewal and",
+        "liquidation fees remain fixed by the protocol."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "junior_income_share_bps",
-            "type": "u16"
-          },
-          {
-            "name": "liquidation_fee_bps",
             "type": "u16"
           }
         ]
@@ -26847,11 +26353,6 @@
       "value": "5000"
     },
     {
-      "name": "DEFAULT_LIQUIDATION_FEE_BPS",
-      "type": "u16",
-      "value": "100"
-    },
-    {
       "name": "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS",
       "docs": [
         "Initial DAO share of base swap fees and paid interest, and the protocol",
@@ -26880,9 +26381,9 @@
       "value": "50"
     },
     {
-      "name": "INSURANCE_SEED_PREFIX",
-      "type": "bytes",
-      "value": "[105, 110, 115, 117, 114, 97, 110, 99, 101]"
+      "name": "JUNIOR_EXIT_FEE_BPS",
+      "type": "u16",
+      "value": "50"
     },
     {
       "name": "JUNIOR_MAX_NOTICE_SLOTS",
@@ -26938,24 +26439,19 @@
       "value": "5000"
     },
     {
+      "name": "LIQUIDATION_FEE_BPS",
+      "type": "u16",
+      "value": "300"
+    },
+    {
       "name": "LIQUIDATION_INCENTIVE_BPS",
       "type": "u16",
       "value": "100"
     },
     {
-      "name": "LIQUIDATION_INSURANCE_FUNDING_BPS",
-      "type": "u16",
-      "value": "200"
-    },
-    {
       "name": "LIQUIDATION_MAX_INCENTIVE_BPS",
       "type": "u16",
       "value": "500"
-    },
-    {
-      "name": "LIQUIDATION_PENALTY_BPS",
-      "type": "u16",
-      "value": "300"
     },
     {
       "name": "LTV_BUFFER_BPS",
@@ -27007,12 +26503,11 @@
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 6 keeps an explicit insurance-window initialization flag while",
-        "economic checkpoints use slots. Earlier development layouts must not",
-        "decode as this structure."
+        "Layout 11 removes standalone coverage vaults and their draw windows.",
+        "Credit losses are allocated directly to junior and then senior capital."
       ],
       "type": "u8",
-      "value": "10"
+      "value": "11"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",
@@ -27030,34 +26525,9 @@
       "value": "8500"
     },
     {
-      "name": "MAX_INSURANCE_DRAW_PER_DAY_BPS",
-      "type": "u16",
-      "value": "5000"
-    },
-    {
-      "name": "MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS",
-      "docs": [
-        "Absolute protocol ceilings for insurance-vault loss concentration. Market",
-        "governance may lower either limit, including to zero, but may never raise",
-        "them above these values."
-      ],
-      "type": "u16",
-      "value": "7500"
-    },
-    {
-      "name": "MAX_JUNIOR_EXIT_FEE_BPS",
-      "type": "u16",
-      "value": "50"
-    },
-    {
       "name": "MAX_JUNIOR_INCOME_SHARE_BPS",
       "type": "u16",
       "value": "9000"
-    },
-    {
-      "name": "MAX_LIQUIDATION_FEE_BPS",
-      "type": "u16",
-      "value": "300"
     },
     {
       "name": "MAX_PARAMETER_FEE_BPS",
@@ -27079,19 +26549,9 @@
       "value": "[109, 101, 116, 97, 100, 97, 116, 97]"
     },
     {
-      "name": "MIN_JUNIOR_EXIT_FEE_BPS",
-      "type": "u16",
-      "value": "1"
-    },
-    {
       "name": "MIN_JUNIOR_INCOME_SHARE_BPS",
       "type": "u16",
       "value": "1000"
-    },
-    {
-      "name": "MIN_LIQUIDATION_FEE_BPS",
-      "type": "u16",
-      "value": "25"
     },
     {
       "name": "NAD",

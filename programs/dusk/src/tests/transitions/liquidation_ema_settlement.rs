@@ -58,10 +58,19 @@ fn ema_emergency_concentration_hlp_fees_and_real_cash_settle_without_virtual_res
         let token_fee = LeverageCollateralFee::new(Some(TransferFee {
             epoch: 0.into(), maximum_fee: 300_u64.into(), transfer_fee_basis_points: 50_u16.into(),
         }));
-        m.insurance.credit(asset, 100_000, 1).unwrap();
-        let sold = if full { p.collateral_amount } else { 50_000 };
-        let mut prepared = m.prepare_emergency_liquidation(&Ref::Leverage(&p), asset, sold, full,
-            token_fee, token_fee, token_fee, 120, 1, 2_000).unwrap();
+        let partial = if full { None } else {
+            (1..1_000).find_map(|step| {
+                let sold = step * 1_000;
+                m.clone().prepare_emergency_liquidation(&Ref::Leverage(&p), asset, sold, false,
+                    token_fee, token_fee, token_fee, 120, 1, 2_000).ok().map(|plan| (sold, plan))
+            })
+        };
+        let (sold, mut prepared) = match partial {
+            Some((sold, _)) => (sold, m.prepare_emergency_liquidation(&Ref::Leverage(&p), asset, sold, false,
+                token_fee, token_fee, token_fee, 120, 1, 2_000).unwrap()),
+            None => (p.collateral_amount, m.prepare_emergency_liquidation(&Ref::Leverage(&p), asset, p.collateral_amount, true,
+                token_fee, token_fee, token_fee, 120, 1, 2_000).unwrap()),
+        };
         let q = prepared.quote;
         let fee = prepared.swap.as_ref().unwrap().quote.fee;
         let cash = [m.base_side.reserves.cash_reserve, m.quote_side.reserves.cash_reserve];
@@ -72,8 +81,8 @@ fn ema_emergency_concentration_hlp_fees_and_real_cash_settle_without_virtual_res
         assert_eq!(finalized.lifecycle.socialized_principal_loss, q.loss.principal_written_off);
         let fee_on_input = fee.fee_asset == asset.opposite().code();
         let debt_output_fee = if fee_on_input { 0 } else { fee.claimable_fee_debit + fee.retained_surcharge };
-        let expected_debt_cash = cash[asset.code() as usize] + q.loss.insurance_credit
-            - q.reward_debit - q.owner_debit - q.insurance_fee_debit - q.revenue_fee_debit
+        let expected_debt_cash = cash[asset.code() as usize]
+            - q.reward_debit - q.owner_debit - q.junior_fee_debit - q.revenue_fee_debit
             - q.loss.interest_paid - debt_output_fee;
         assert_eq!(m.side(asset).reserves.cash_reserve, expected_debt_cash);
         let collateral_fee = if fee_on_input { fee.claimable_fee_debit + fee.retained_surcharge } else { 0 };
@@ -164,7 +173,7 @@ fn ema_emergency_pays_accrued_hlp_funding_from_real_cash_and_cancels_unpaid_loan
         assert_eq!(q.loss.interest_paid, 0);
         let output_fee = if f.fee_asset == asset.code() { f.claimable_fee_debit + f.retained_surcharge } else {0};
         assert_eq!(m.side(asset).reserves.cash_reserve,
-            before + held_protocol - q.reward_debit - q.owner_debit - q.insurance_fee_debit - q.revenue_fee_debit - output_fee - funding);
+            before + held_protocol - q.reward_debit - q.owner_debit - q.junior_fee_debit - q.revenue_fee_debit - output_fee - funding);
         assert_eq!(p.debt_shares, 0);
         m.assert_market_invariants().unwrap();
         assert_eq!(m.side_mut(asset).fees.public_interest_advance.take_payment(0).unwrap(), (0, 0));

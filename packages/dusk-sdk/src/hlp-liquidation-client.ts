@@ -34,7 +34,6 @@ export interface HlpFlashParams extends HlpRecoveryParams {
   maxPayment?: GovernanceIntegerLike;
   maxCollateralDebit?: GovernanceIntegerLike;
   minCollateralCredit?: GovernanceIntegerLike;
-  maxInsuranceDraw?: GovernanceIntegerLike;
   maxSocializedLoss?: GovernanceIntegerLike;
   prefixInstructions?: readonly TransactionInstruction[];
   settleRemainingAccounts?: readonly AccountMeta[];
@@ -52,7 +51,6 @@ export interface HlpRecoveryExit {
 
 export interface HlpNativeCloseAndExitParams extends HlpRecoveryParams {
   exit: HlpRecoveryExit;
-  maxInsuranceDraw?: GovernanceIntegerLike;
   maxSocializedLoss?: GovernanceIntegerLike;
   minCallerBountyOut?: GovernanceIntegerLike;
   closeRemainingAccounts?: readonly AccountMeta[];
@@ -112,7 +110,7 @@ export class DuskHlpLiquidations {
     return built;
   }
 
-  /** One signed transaction: permissionless native insurance/writeoff close,
+  /** One signed transaction: permissionless native junior/senior loss close,
    * then the holder burns receipts. Eligibility uses current-slot symmetric
    * EMA health; native recovery uses EMA price, smoothed depth, concentration,
    * and the configured fee schedule. The receipt burn pays zero principal. */
@@ -125,14 +123,12 @@ export class DuskHlpLiquidations {
     const targetVault = r.target === 0 ? r.state.baseHlpVault : r.state.quoteHlpVault;
     const close = await this.write.instruction("closeInsolventHlp", {
       targetAsset: r.target,
-      maxInsuranceDraw: governanceIntegerBN(params.maxInsuranceDraw ?? 0xffffffffffffffffn, "maxInsuranceDraw"),
       maxSocializedLoss: governanceIntegerBN(params.maxSocializedLoss ?? 0xffffffffffffffffn, "maxSocializedLoss"),
       minCallerBountyOut: governanceIntegerBN(params.minCallerBountyOut ?? 0, "minCallerBountyOut"),
     }, { accounts: {
       market: r.market, futarchyAuthority: r.futarchyAuthority, caller,
       borrowedMint: r.debt.assetMint, borrowedReserveVault: r.debt.reserveVault,
       borrowedInterestVault: r.debt.interestVault,
-      insuranceVault: r.target === 0 ? r.state.insurance.quoteVault : r.state.insurance.baseVault,
       callerBountyAccount, srlpMint: r.state.srlpMint, targetHlpSrlpVault: targetVault.srlpVault,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
     }, remainingAccounts: params.closeRemainingAccounts ? [...params.closeRemainingAccounts] : undefined });
@@ -175,7 +171,6 @@ export class DuskHlpLiquidations {
     const accounts = { market: r.market, futarchyAuthority: r.futarchyAuthority, buyer, targetMint: r.collateral.assetMint,
       borrowedMint: r.debt.assetMint, targetReserve: r.collateral.reserveVault, borrowedReserve: r.debt.reserveVault,
       buyerCollateralAccount, buyerRefundAccount: buyerDebtAccount,
-      insuranceVault: r.target === 0 ? r.state.insurance.quoteVault : r.state.insurance.baseVault,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, borrowedTokenProgram: debtTokenProgram };
     const common = { accounts, session, repaymentVault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY };
     const begin = await this.write.instruction("beginHlpFlash", {
@@ -183,7 +178,6 @@ export class DuskHlpLiquidations {
       maxPayment: governanceIntegerBN(params.maxPayment ?? BigInt(quote.payment.toString()), "maxPayment"),
       maxCollateralDebit: governanceIntegerBN(params.maxCollateralDebit ?? BigInt(quote.collateralDebit.toString()), "maxCollateralDebit"),
       minCollateralCredit: governanceIntegerBN(params.minCollateralCredit ?? BigInt(quote.collateralCredit.toString()), "minCollateralCredit"),
-      maxInsuranceDraw: governanceIntegerBN(params.maxInsuranceDraw ?? 0xffffffffffffffffn, "maxInsuranceDraw"),
       maxSocializedLoss: governanceIntegerBN(params.maxSocializedLoss ?? 0xffffffffffffffffn, "maxSocializedLoss"), settleIndex,
     }, { accounts: { ...common, systemProgram: SystemProgram.programId } });
     const settle = await this.write.instruction("settleHlpFlash", [], { accounts: common,
