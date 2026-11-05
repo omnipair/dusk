@@ -7,7 +7,7 @@ use anchor_lang::{prelude::*, solana_program::hash::hashv};
 
 pub const OPERATOR_PROPOSAL_SEED: &[u8] = b"operator_change";
 #[constant]
-pub const OPERATOR_POLICY_VERSION: u64 = 1;
+pub const OPERATOR_POLICY_VERSION: u64 = 2;
 #[constant]
 pub const OPERATOR_NOTICE_SLOTS: u64 = JUNIOR_MAX_NOTICE_SLOTS + MS_PER_DAY / TARGET_MS_PER_SLOT;
 #[constant]
@@ -20,11 +20,15 @@ pub const MAX_OPERATOR_INTEREST_SHARE_BPS: u16 = 5_000;
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct OperatorState {
     pub authority: Pubkey,
+    /// Optional parameter delegate; operator ownership and revenue stay with authority.
+    pub manager: Pubkey,
     pub epoch: u64,
     pub revenue_epoch: u64,
     /// Monotone across authority transfers; a closed proposal PDA cannot be reused.
     pub next_nonce: u64,
     pub pending: Pubkey,
+    /// Prevents a manager from replacing an operator-authored bundle.
+    pub pending_author: Pubkey,
     pub revenue_recipient: Pubkey,
     pub interest_share_bps: u16,
 }
@@ -36,11 +40,6 @@ impl OperatorState {
             revenue_recipient: deployer,
             ..Self::default()
         }
-    }
-    pub fn assert_authority(&self, authority: Pubkey) -> Result<()> {
-        require!(authority != Pubkey::default(), ErrorCode::InvalidOperator);
-        require_keys_eq!(authority, self.authority, ErrorCode::InvalidOperator);
-        Ok(())
     }
 }
 
@@ -55,6 +54,8 @@ pub struct OperatorProposal {
     #[max_len(7)]
     pub updates: Vec<MarketParameterUpdate>,
     pub next_operator: Option<Pubkey>,
+    /// Some(zero) clears the manager; None leaves it unchanged.
+    pub next_manager: Option<Pubkey>,
     pub revenue_recipient: Option<Pubkey>,
     pub interest_share_bps: Option<u16>,
     pub metadata: ProposalMetadataV1,
@@ -77,7 +78,7 @@ impl OperatorProposal {
             self.nonce,
             self.policy_version,
             &self.updates,
-            self.next_operator,
+            (self.next_operator, self.next_manager),
             self.revenue_recipient,
             self.interest_share_bps,
             &self.metadata,
@@ -88,12 +89,15 @@ impl OperatorProposal {
             self.rent_refund,
         )
             .try_to_vec()?;
-        Ok(hashv(&[b"DUSK_OPERATOR_CHANGE_V1", crate::ID.as_ref(), &payload]).to_bytes())
+        Ok(hashv(&[b"DUSK_OPERATOR_CHANGE_V2", crate::ID.as_ref(), &payload]).to_bytes())
     }
     pub fn current(&self, market: &crate::state::Market, key: Pubkey) -> bool {
         !self.executed
             && market.operator.pending == key
-            && market.operator.authority == self.operator
+            && market.operator.authority != Pubkey::default()
+            && (market.operator.authority == self.operator || market.operator.manager == self.operator)
+            && self.operator != Pubkey::default()
+            && market.operator.pending_author == self.operator
             && market.operator.epoch == self.epoch
             && self.policy_version == OPERATOR_POLICY_VERSION
             && market.parameter_revisions == self.family_revisions

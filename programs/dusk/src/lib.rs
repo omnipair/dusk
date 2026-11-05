@@ -33,7 +33,7 @@ security_txt! {
     policy: "https://omnipair.fi/security"
 }
 
-declare_id!("5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ");
+declare_id!("B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2");
 
 #[program]
 pub mod dusk {
@@ -159,7 +159,7 @@ pub mod dusk {
         SetMarketReduceOnly::handle_set(ctx, args)
     }
 
-    /// Announce one operator-authorized atomic change. LP balances grant no authority.
+    /// Announce one atomic change. An optional manager may propose parameters only; LP balances grant no authority.
     pub fn announce_operator_change(
         ctx: Context<AnnounceOperatorChange>,
         args: AnnounceOperatorChangeArgs,
@@ -172,9 +172,14 @@ pub mod dusk {
         ExecuteOperatorChange::handle(ctx)
     }
 
-    /// The current operator may cancel; obsolete proposals can be closed by anyone.
+    /// The operator may cancel any bundle; a manager may cancel its own. Anyone may close obsolete proposals.
     pub fn resolve_operator_change(ctx: Context<ResolveOperatorChange>, cancel: bool) -> Result<()> {
         ResolveOperatorChange::handle(ctx, cancel)
+    }
+
+    /// Immediately revoke the optional manager and its pending change, preserving owner announcements.
+    pub fn remove_market_manager(ctx: Context<RemoveMarketManager>) -> Result<()> {
+        RemoveMarketManager::handle(ctx)
     }
 
     /// Prepare a recipient archive with a separate funded payer.

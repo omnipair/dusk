@@ -9,7 +9,7 @@ import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 type InstructionId = string;
 
 const DUSK_PROGRAM_ID = new PublicKey(
-  "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ"
+  "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2"
 );
 
 export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
@@ -145,6 +145,7 @@ const DUSK_INSTRUCTIONS = [
   "burnRetiredHlpReceipt",
   "setMarketReduceOnly",
   "announceOperatorChange",
+  "removeMarketManager",
   "executeOperatorChange",
   "resolveOperatorChange",
   "initializeOperatorRevenue",

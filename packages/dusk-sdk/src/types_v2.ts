@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/dusk.json`.
  */
 export type Dusk = {
-  "address": "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ",
+  "address": "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
   "metadata": {
     "name": "dusk",
     "version": "2.0.0",
@@ -390,7 +390,7 @@ export type Dusk = {
     {
       "name": "announceOperatorChange",
       "docs": [
-        "Announce one operator-authorized atomic change. LP balances grant no authority."
+        "Announce one atomic change. An optional manager may propose parameters only; LP balances grant no authority."
       ],
       "discriminator": [
         119,
@@ -4937,38 +4937,38 @@ export type Dusk = {
               {
                 "kind": "const",
                 "value": [
-                  62,
-                  254,
-                  159,
-                  172,
-                  61,
-                  59,
-                  124,
-                  201,
-                  115,
-                  229,
-                  84,
-                  36,
-                  73,
-                  157,
+                  149,
+                  85,
+                  8,
+                  217,
+                  28,
+                  142,
+                  169,
+                  126,
+                  1,
+                  29,
+                  45,
+                  101,
+                  92,
+                  107,
+                  111,
+                  210,
+                  219,
+                  143,
+                  100,
+                  221,
+                  244,
+                  217,
+                  179,
                   150,
-                  203,
-                  228,
-                  237,
-                  222,
-                  36,
-                  247,
-                  148,
-                  181,
-                  131,
-                  155,
-                  204,
-                  63,
-                  226,
-                  166,
-                  7,
-                  231,
-                  51
+                  56,
+                  112,
+                  244,
+                  227,
+                  242,
+                  127,
+                  252,
+                  219
                 ]
               }
             ],
@@ -7800,6 +7800,98 @@ export type Dusk = {
       ]
     },
     {
+      "name": "removeMarketManager",
+      "docs": [
+        "Immediately revoke the optional manager and its pending change, preserving owner announcements."
+      ],
+      "discriminator": [
+        241,
+        96,
+        2,
+        41,
+        224,
+        50,
+        155,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "repay",
       "discriminator": [
         234,
@@ -8240,7 +8332,7 @@ export type Dusk = {
     {
       "name": "resolveOperatorChange",
       "docs": [
-        "The current operator may cancel; obsolete proposals can be closed by anyone."
+        "The operator may cancel any bundle; a manager may cancel its own. Anyone may close obsolete proposals."
       ],
       "discriminator": [
         173,
@@ -11891,6 +11983,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "managerChanged",
+      "discriminator": [
+        142,
+        97,
+        175,
+        220,
+        73,
+        27,
+        252,
+        56
+      ]
+    },
+    {
       "name": "marketCollateralDeposited",
       "discriminator": [
         41,
@@ -13440,6 +13545,12 @@ export type Dusk = {
           },
           {
             "name": "nextOperator",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "nextManager",
             "type": {
               "option": "pubkey"
             }
@@ -18466,6 +18577,22 @@ export type Dusk = {
       }
     },
     {
+      "name": "managerChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "manager",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "market",
       "docs": [
         "Token amounts stored in reserves, positions, and shares are raw atoms.",
@@ -19740,6 +19867,12 @@ export type Dusk = {
             }
           },
           {
+            "name": "nextManager",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
             "name": "revenueRecipient",
             "type": {
               "option": "pubkey"
@@ -19848,6 +19981,15 @@ export type Dusk = {
           },
           {
             "name": "nextOperator",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "nextManager",
+            "docs": [
+              "Some(zero) clears the manager; None leaves it unchanged."
+            ],
             "type": {
               "option": "pubkey"
             }
@@ -20004,6 +20146,13 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
+            "name": "manager",
+            "docs": [
+              "Optional parameter delegate; operator ownership and revenue stay with authority."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "epoch",
             "type": "u64"
           },
@@ -20020,6 +20169,13 @@ export type Dusk = {
           },
           {
             "name": "pending",
+            "type": "pubkey"
+          },
+          {
+            "name": "pendingAuthor",
+            "docs": [
+              "Prevents a manager from replacing an operator-authored bundle."
+            ],
             "type": "pubkey"
           },
           {
@@ -23360,7 +23516,7 @@ export type Dusk = {
         "Aggregate virtual reserves use u128; physical token amounts remain u64."
       ],
       "type": "u8",
-      "value": "12"
+      "value": "13"
     },
     {
       "name": "marketReserveVaultSeedPrefix",
@@ -23461,7 +23617,7 @@ export type Dusk = {
     {
       "name": "operatorPolicyVersion",
       "type": "u64",
-      "value": "1"
+      "value": "2"
     },
     {
       "name": "parameterExecutionMaxUtilizationBps",

@@ -387,7 +387,7 @@ proptest! {
 
 #[cfg(feature = "benchmark")]
 fn captured_vob_market() -> Market {
-    let bytes = include_bytes!("../fixtures/vob-market-layout12.bin");
+    let bytes = include_bytes!("../fixtures/vob-market-layout13.bin");
     Market::try_deserialize(&mut bytes.as_slice()).unwrap()
 }
 

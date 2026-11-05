@@ -19,6 +19,8 @@ export interface AnnounceOperatorChangeParams {
   market: AddressLike;
   updates?: readonly ParameterUpdate[];
   nextOperator?: AddressLike;
+  /** Optional parameter delegate. The default public key clears it. */
+  nextManager?: AddressLike;
   revenueRecipient?: AddressLike;
   interestShareBps?: number;
   metadata: ProposalMetadataV1;
@@ -46,8 +48,11 @@ export class DuskOperator {
   }
   async announce(params: AnnounceOperatorChangeParams) {
     assertProposalMetadata(params.metadata);
+    if (params.nextOperator !== undefined && params.nextManager !== undefined) {
+      throw new Error("an operator transfer clears the manager; appoint a manager separately");
+    }
     const updates = params.updates?.length ? canonicalParameterUpdates(params.updates) : [];
-    if (!updates.length && params.nextOperator === undefined && params.revenueRecipient === undefined && params.interestShareBps === undefined) {
+    if (!updates.length && params.nextOperator === undefined && params.nextManager === undefined && params.revenueRecipient === undefined && params.interestShareBps === undefined) {
       throw new Error("an operator bundle must change at least one setting");
     }
     if (params.interestShareBps !== undefined && (!Number.isInteger(params.interestShareBps) || params.interestShareBps < 0 || params.interestShareBps > 5_000)) {
@@ -60,6 +65,7 @@ export class DuskOperator {
     const instruction = await this.write.instruction("announceOperatorChange", {
       nonce, expectedEpoch: integerBN(params.expectedEpoch ?? state.operator.epoch, "expectedEpoch"),
       updates: updates.map(anchorParameterUpdate), nextOperator: params.nextOperator === undefined ? null : address(params.nextOperator),
+      nextManager: params.nextManager === undefined ? null : address(params.nextManager),
       revenueRecipient: params.revenueRecipient === undefined ? null : address(params.revenueRecipient),
       interestShareBps: params.interestShareBps ?? null, metadata: params.metadata,
     }, { accounts: {payer: address(params.payer), operator: address(params.operator), market, proposal, systemProgram: SystemProgram.programId} });
@@ -91,6 +97,11 @@ export class DuskOperator {
     transaction.instructions.unshift(...setupInstructions);
     if (!state.oracle?.policy.lambdaBps) transaction.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}));
     return { instruction, setupInstructions, transaction };
+  }
+  async removeManager(params: {market: AddressLike; operator: AddressLike}) {
+    const instruction = await this.write.instruction("removeMarketManager", undefined,
+      {accounts: {market: address(params.market), operator: address(params.operator)}});
+    return {instruction, transaction: new Transaction().add(instruction)};
   }
   async initializeRevenueInstruction(params:{market:AddressLike;payer:AddressLike}) {
     const state=await this.market(params.market);
@@ -151,7 +162,7 @@ export class DuskOperator {
   async verifyDigest(proposal: OperatorProposal): Promise<boolean> {
     if (proposal.policyVersion.toString() !== OPERATOR_POLICY_VERSION.toString()) return false;
     const bytes = await this.program.coder.accounts.encode("operatorProposal", proposal);
-    const domain = Buffer.from("DUSK_OPERATOR_CHANGE_V1");
+    const domain = Buffer.from("DUSK_OPERATOR_CHANGE_V2");
     const digest = await sha256(Buffer.concat([domain, this.program.programId.toBuffer(), bytes.subarray(8, bytes.length - 34)]));
     return digest.every((value, index) => value === proposal.digest[index]);
   }

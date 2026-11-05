@@ -1,6 +1,6 @@
 # Market operator
 
-Dusk has one operator per market, initially the deployer. LP receipts provide
+Dusk has one operator per market, initially the deployer, and an optional manager. LP receipts provide
 ownership and income claims, with no core voting power. Supplying liquidity
 cannot replace the operator. A wallet or an external program's signer PDA can
 hold authority. Token voting, futarchy, token issuance and revenue distribution
@@ -9,13 +9,16 @@ may be implemented by that peripheral program.
 ## Announcements and execution
 
 One pending atomic bundle may contain at most one update per parameter family,
-plus authority, revenue recipient and operator interest-share changes. Every
+plus operator, manager, revenue recipient and operator interest-share changes.
+Only the operator can change these authorities or revenue terms; its manager
+may announce updates to the seven parameter families under the same policy. Every
 bundle receives the full `OPERATOR_NOTICE_SLOTS`: maximum junior notice plus
 one nominal day (4,752,000 slots at 200ms/slot). Execution is permissionless
 after maturity and before its seven-day execution window expires. Wall-clock
 elapsed time depends on actual slot cadence.
 
-The operator may replace or cancel its announcement. Replacement invalidates
+The operator may replace or cancel any announcement. A manager may replace
+or cancel only its own bundle, never an operator-authored pending change. Replacement invalidates
 the old pending pointer and starts a fresh full notice. There is no monthly
 movement budget or announcement cooldown. Pending changes do not escrow LP
 tokens or prevent exits. Obsolete, executed and expired proposal accounts may
@@ -27,9 +30,17 @@ execution dates. Nonces continue across transfers and closed accounts. An
 execution checks these commitments and current protocol validity again. A
 bundle either executes completely or leaves the market unchanged.
 
-A nonzero successor must sign to accept. A separate funded payer can prepare
+A nonzero successor must sign to accept. Every ownership transfer clears the
+manager, with no retain or replacement option in that bundle. The successor
+may appoint a manager through a new full-notice announcement.
+
+The operator can immediately remove a manager. This invalidates that manager's
+pending bundle; the original payer can recover its rent through permissionless
+cleanup. An operator-authored pending bundle is preserved. Removal does not
+reset nonces or undo already executed settings. Appointing or replacing a
+manager still receives full notice. A separate funded payer can prepare
 accounts for a PDA operator. Setting authority to zero permanently renounces
-core control; there is no LP election or program-owner recovery route. Revenue
+core control and disables any manager; there is no LP election or program-owner recovery route. Revenue
 recipient is separate from authority. A nonzero authority transfer defaults
 the future recipient to the successor unless the bundle explicitly chooses
 another recipient. Renunciation preserves the existing recipient unless an

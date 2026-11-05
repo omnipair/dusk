@@ -37,3 +37,12 @@
       Also run `yarn check:build-identity` to verify a fresh workspace preserves program IDs.
   12. `npm run check:dusk-sdk`
   13. `DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending`
+
+# Publishing the SDK
+
+- `.github/workflows/publish-sdk.yaml` publishes `@omnipair/dusk-sdk`; never run `npm publish` by hand. The commands are in `scripts/v2/README.md` under "Publishing the SDK".
+- Deploy first, then merge. Deploy the programs the branch changes with `yarn v2:deploy-devnet` and `yarn v2:deploy-leverage-delegate-devnet`; each uploads its program's IDL from the same build through `scripts/v2/upload_idl.sh`. A program deployed any other way needs `scripts/v2/upload_idl.sh target/idl/<program>.json` before the merge. The merge to `main` then publishes the version in `packages/dusk-sdk/package.json` when it is not on npm yet and every `packages/dusk-sdk/src/idl_*.json` matches its program's IDL account on the version's cluster.
+- Give every change to the package a new version: `<x.y.z>-next.<yyyymmdd>` for devnet (dist-tag `next`; `-devnet.<n>` publishes under `devnet`) and `<x.y.z>` for mainnet (`latest`). npm never takes a version twice, so a merge that keeps a published version publishes nothing.
+- A merge whose IDLs do not match the cluster publishes nothing and leaves a warning on its `publish-sdk` run. Once the deployment is live, re-run that run with `gh run rerun <run-id> --repo omnipair/dusk`.
+- The check compares IDLs only. Deploy a program change that keeps the IDLs before merging it; otherwise the merge publishes a package for code the cluster does not run.
+- After a merge, read the `publish-sdk` run summary and `npm view @omnipair/dusk-sdk dist-tags`. A new version can return 404 for a minute or two after its publish job succeeds.

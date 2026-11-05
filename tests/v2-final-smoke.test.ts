@@ -115,9 +115,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
-const DUSK_PROGRAM_ID = new PublicKey("5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ");
+const DUSK_PROGRAM_ID = new PublicKey("B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2");
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
-  "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi"
+  "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY"
 );
 const OPERATOR_ADAPTER_PROGRAM_ID = new PublicKey("AJZgAHa6yfsoLbJk3jzqj6dPcnei5Pb7heRMGWrZu1fQ");
 const REFERRAL_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
@@ -11012,7 +11012,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     operatorAtSlot((await operator.proposal(expiring.proposal)).deadlineSlot.addn(1));
     await send(await operator.resolve({market: f.market, proposal: expiring.proposal}));
     expect(await operator.pending(f.market)).to.equal(null);
-    expect(sdkProgram.idl.instructions.some(ix=>/governance|parameterProposal|manager|recoveryBallot/i.test(ix.name))).to.equal(false);
+    expect(sdkProgram.idl.instructions.some(ix=>/governance|parameterProposal|recoveryBallot/i.test(ix.name))).to.equal(false);
   });
 
   it("requires operator signatures regardless of LP balance and accepts authority transfers explicitly", async function () {
@@ -11074,6 +11074,95 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await send({transaction:new Transaction().add(forward(cancelled.instruction))});
     const cancel=await operator.cancel({market:f.market,proposal:cancelled.proposal,operator:actor});
     await send({transaction:new Transaction().add(forward(cancel.instruction))});
+  });
+
+  it("delegates settings to an optional manager while reserving ownership, revenue and proposal priority", async function () {
+    const {f, operator, owner, metadata, send, fee} = await operatorFixture(250);
+    const manager = Keypair.generate(), outsider = Keypair.generate();
+    await connection.requestAirdrop(manager.publicKey, LAMPORTS_PER_SOL);
+    expect((await operator.market(f.market)).operator.manager.equals(SystemProgram.programId)).to.equal(true);
+    const appointment = await operator.announce({market:f.market,payer:owner,operator:owner,metadata,nextManager:manager.publicKey});
+    await send(appointment);
+    const rejects = async (action:()=>Promise<{transaction:Transaction}>, signer=manager, expected="InvalidOperator") => {
+      let error:unknown;
+      try {await send(await action(),[signer]);} catch(e){error=e;}
+      expect(String(error)).to.include(expected);
+    };
+    await rejects(()=>operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,updates:[fee(45)]}));
+    operatorAtSlot((await operator.proposal(appointment.proposal)).executeAfterSlot);
+    await send(await operator.execute({market:f.market,proposal:appointment.proposal}));
+    expect((await operator.market(f.market)).operator.manager.equals(manager.publicKey)).to.equal(true);
+    for(const protectedFields of [{nextOperator:outsider.publicKey},{nextManager:outsider.publicKey},{revenueRecipient:outsider.publicKey},{interestShareBps:1}]) {
+      await rejects(()=>operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,...protectedFields}));
+    }
+    const managed = await operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,updates:[fee(45)]});
+    await send(managed,[manager]);
+    expect((await operator.market(f.market)).operator.pendingAuthor.equals(manager.publicKey)).to.equal(true);
+    operatorAtSlot((await operator.proposal(managed.proposal)).executeAfterSlot);
+    await send(await operator.execute({market:f.market,proposal:managed.proposal}));
+    expect((await operator.market(f.market)).config.swapFeeBps).to.equal(45);
+    expect((await operator.market(f.market)).operator.revenueRecipient.equals(owner)).to.equal(true);
+    const own = await operator.announce({market:f.market,payer:owner,operator:owner,metadata,updates:[fee(55)]});
+    await send(own);
+    await rejects(()=>operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,updates:[fee(65)]}),manager,"OperatorChangePending");
+    await rejects(()=>operator.cancel({market:f.market,proposal:own.proposal,operator:manager.publicKey}));
+    const replacement = await operator.announce({market:f.market,payer:owner,operator:owner,metadata,nextManager:SystemProgram.programId});
+    await send(replacement);
+    operatorAtSlot((await operator.proposal(replacement.proposal)).executeAfterSlot);
+    await send(await operator.execute({market:f.market,proposal:replacement.proposal}));
+    expect((await operator.market(f.market)).operator.manager.equals(SystemProgram.programId)).to.equal(true);
+    await rejects(()=>operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,updates:[fee(65)]}));
+  });
+
+  it("revokes managers immediately, preserves operator bundles, and clears the delegate on every ownership handoff", async function () {
+    const {f, operator, owner, metadata, send, fee} = await operatorFixture(249);
+    const manager=Keypair.generate(), successor=Keypair.generate();
+    await connection.requestAirdrop(manager.publicKey,LAMPORTS_PER_SOL);
+    const appoint=async(nextManager:PublicKey)=>{
+      const bundle=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,nextManager});
+      await send(bundle);operatorAtSlot((await operator.proposal(bundle.proposal)).executeAfterSlot);
+      await send(await operator.execute({market:f.market,proposal:bundle.proposal}));
+    };
+    await appoint(manager.publicKey);
+    const managed=await operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,updates:[fee(40)]});
+    await send(managed,[manager]);
+    let error:unknown;
+    try{await send(await operator.removeManager({market:f.market,operator:manager.publicKey}),[manager]);}catch(e){error=e;}
+    expect(String(error)).to.include("InvalidOperator");
+    await send(await operator.removeManager({market:f.market,operator:owner}));
+    trackV2Instruction("removeMarketManager",this.test?.title);
+    let state=await operator.market(f.market);
+    expect(state.operator.manager.equals(SystemProgram.programId)).to.equal(true);
+    expect(await operator.pending(f.market)).to.equal(null);
+    operatorAtSlot((await operator.proposal(managed.proposal)).executeAfterSlot);
+    error=undefined;
+    try{await send(await operator.execute({market:f.market,proposal:managed.proposal}));}catch(e){error=e;}
+    expect(String(error)).to.include("OperatorProposalStale");
+    await send(await operator.resolve({market:f.market,proposal:managed.proposal}));
+    await appoint(manager.publicKey);
+    const ownerBundle=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,updates:[fee(60)]});
+    await send(ownerBundle);
+    await send(await operator.removeManager({market:f.market,operator:owner}));
+    expect((await operator.pending(f.market))!.address.equals(ownerBundle.proposal)).to.equal(true);
+    operatorAtSlot((await operator.proposal(ownerBundle.proposal)).executeAfterSlot);
+    await send(await operator.execute({market:f.market,proposal:ownerBundle.proposal}));
+    expect((await operator.market(f.market)).config.swapFeeBps).to.equal(60);
+    // A self-delegate still authors as operator; clearing it preserves its bundle.
+    await appoint(owner);
+    const self=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,updates:[fee(65)]});
+    await send(self);await send(await operator.removeManager({market:f.market,operator:owner}));
+    expect((await operator.pending(f.market))!.address.equals(self.proposal)).to.equal(true);
+    await send(await operator.cancel({market:f.market,proposal:self.proposal,operator:owner}));
+    await appoint(manager.publicKey);
+    const handoff=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,nextOperator:successor.publicKey});
+    await send(handoff);operatorAtSlot((await operator.proposal(handoff.proposal)).executeAfterSlot);
+    await send(await operator.execute({market:f.market,proposal:handoff.proposal,acceptingOperator:successor.publicKey}),[successor]);
+    state=await operator.market(f.market);
+    expect(state.operator.authority.equals(successor.publicKey)).to.equal(true);
+    expect(state.operator.manager.equals(SystemProgram.programId)).to.equal(true);
+    error=undefined;
+    try{await send(await operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,updates:[fee(70)]}),[manager]);}catch(e){error=e;}
+    expect(String(error)).to.include("InvalidOperator");
   });
 
   it("preserves collected operator cash across handoff and assigns later collections to the successor", async function () {

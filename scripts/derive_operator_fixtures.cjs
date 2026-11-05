@@ -34,8 +34,10 @@ function encode(data) {
   // in this synthetic input. Preserve the complete srLP reserve-share supply.
   if(!old.governance_locked_junior.isZero())throw Error('fixture has locked junior ownership');
   const market=adapt(old,{defined:{name:'Market'}});
-  market.version=12;
-  market.operator={authority:fixtureOperator,epoch:new BN(0),revenue_epoch:new BN(0),next_nonce:new BN(0),pending:zeroKey,
+  market.version=13;
+  market.bump=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),market.base_side.asset_mint.toBuffer(),
+    market.quote_side.asset_mint.toBuffer(),Buffer.from(market.params_hash)],new PublicKey(newIdl.address))[1];
+  market.operator={authority:fixtureOperator,manager:zeroKey,epoch:new BN(0),revenue_epoch:new BN(0),next_nonce:new BN(0),pending:zeroKey,pending_author:zeroKey,
     revenue_recipient:fixtureOperator,interest_share_bps:0};
   market.config.amm.adjustment_step_nad=old.config.amm.adjustment_step_nad.isZero()?new BN(1_000_000):old.config.amm.adjustment_step_nad;
   market.parameter_revisions=old.parameter_revisions.filter((_,i)=>i!==6);
@@ -44,7 +46,7 @@ function encode(data) {
   return Buffer.concat([newCoder.accountDiscriminator('Market'),body.subarray(0,size)]);
 }
 for(const name of ['hlp-entry','vob-market']) {
-  const target=`programs/dusk/src/tests/fixtures/${name}-layout12.bin`;
+  const target=`programs/dusk/src/tests/fixtures/${name}-layout13.bin`;
   const data=encode(original(`programs/dusk/src/tests/fixtures/${name}-layout11.bin`));
   writeFileSync(target,data);
   process.stdout.write(`${target} ${createHash('sha256').update(data).digest('hex')}\n`);
@@ -58,8 +60,17 @@ function preview(data) {
   return newTypes.encode('SwapPreview',adapt(decoded,{defined:{name:'SwapPreview'}})).toString('base64');
 }
 const prefix=`Program return: ${batch.programId} `;
-batch.result.value.logs=batch.result.value.logs.map(line=>line.startsWith(prefix)?prefix+preview(line.slice(prefix.length)):line);
+const nextProgram=newIdl.address;
+batch.result.value.logs=batch.result.value.logs.map(line=>line.startsWith(prefix)?`Program return: ${nextProgram} `+preview(line.slice(prefix.length)):line.replaceAll(batch.programId,nextProgram));
 batch.result.value.returnData.data[0]=preview(batch.result.value.returnData.data[0]);
+for (const account of batch.result.value.accounts) {
+  if (account.owner===batch.programId) account.owner=nextProgram;
+}
+const adaptedMarket=newCoder.decode('Market',Buffer.from(batch.result.value.accounts[0].data[0],'base64'));
+batch.market=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedMarket.base_side.asset_mint.toBuffer(),
+  adaptedMarket.quote_side.asset_mint.toBuffer(),Buffer.from(adaptedMarket.params_hash)],new PublicKey(nextProgram))[0].toBase58();
+batch.programId=nextProgram;
+batch.result.value.returnData.programId=nextProgram;
 batch.derivedFrom=`layout-11 regression fixture at ${predecessor}`;
-batch.schemaAdaptation='Layout 12: operator-only authority; no LP locks; fixed APR floor/no economic cap; adaptive centering/ramp state; u128 virtual reserves and return coordinates. Existing financial state is preserved; the synthetic operator has no network authority.';
-writeFileSync('packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout12.json',JSON.stringify(batch,null,2)+'\n');
+batch.schemaAdaptation='Layout 13: operator-only authority; no LP locks; fixed APR floor/no economic cap; adaptive centering/ramp state; u128 virtual reserves and return coordinates. Existing financial state is preserved; the synthetic operator has no network authority.';
+writeFileSync('packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout13.json',JSON.stringify(batch,null,2)+'\n');

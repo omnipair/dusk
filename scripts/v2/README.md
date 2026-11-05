@@ -7,9 +7,9 @@ Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by d
 ```bash
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export DUSK_PROGRAM_ID=5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ
+export DUSK_PROGRAM_ID=B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2
 export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/dusk-program-keypair.json
-export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi
+export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY
 export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/leverage-delegate-tranches-program-keypair.json
 export DUSK_FAUCET_PROGRAM_ID=EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz
 export DUSK_FAUCET_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/faucet-program-keypair.json
@@ -37,8 +37,8 @@ Use `yarn v2:build-devnet` so the artifact is built with `--arch v0`. Before
 changing binary formats, update the test runtime and validate the resulting
 deployment binaries through the complete release suite.
 
-The deploy commands use `ANCHOR_WALLET` as fee payer and upgrade authority, so
-the same funded deployer can later upgrade or close the programs. Do not deploy
+The deploy commands use `ANCHOR_WALLET` as fee payer, upgrade authority and IDL
+authority, so the same funded deployer can later upgrade or close the programs. Do not deploy
 with `--final`: a finalized program cannot be closed. `DUSK_PROGRAM_KEYPAIR` may
 point to the source-declared Dusk keypair when doing a first deployment;
 `DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR` serves the same purpose for the
@@ -76,3 +76,61 @@ Useful knobs:
 - `DUSK_SMOKE_HLP_DEPOSIT=0` skips the default smoke-test hLP deposit.
 - `DUSK_SMOKE_HLP_DEPOSIT_AMOUNT=10` controls the smoke-test base hLP deposit amount.
 - `DUSK_SMOKE_SWAP=0` fetches state without sending the smoke swap.
+
+## Publishing the SDK
+
+A merge to `main` publishes `@omnipair/dusk-sdk` once its version is deployed,
+so deploy first, then merge. Deploy the programs the branch changes with the
+commands above, then merge the pull request that sets the new version in
+`packages/dusk-sdk/package.json`. `yarn v2:deploy-devnet` and
+`yarn v2:deploy-leverage-delegate-devnet` upload each program's IDL from the
+same build right after deploying it, through `scripts/v2/upload_idl.sh`. The
+script upgrades the program's IDL account, or creates it for a program deployed
+to a new ID, and stops when `ANCHOR_WALLET` is not the account's authority. A
+program deployed any other way needs the script before the merge, run from the
+checkout that was deployed:
+
+```bash
+scripts/v2/upload_idl.sh target/idl/dusk.json
+scripts/v2/upload_idl.sh target/idl/leverage_delegate.json
+```
+
+The merge starts `.github/workflows/publish-sdk.yaml`. It
+publishes the version when it is not on npm yet and every IDL the package ships
+matches the IDL account on the cluster. `-next.<n>` and `-devnet.<n>` versions
+describe devnet and publish under the `next` and `devnet` dist-tags; a stable
+version describes mainnet and becomes `latest`. npm never takes a version twice,
+so a change to the package needs a new version, and a merge that keeps a
+published version publishes nothing.
+
+The check compares IDLs only. A program change that keeps the IDLs passes it
+whether or not it is deployed, so deploy such a change before merging it.
+
+A merge that lands before its deployment publishes nothing and leaves a warning
+on its `publish-sdk` run. Once the deployment is live, re-run that run:
+
+```bash
+gh run list --repo omnipair/dusk --workflow publish-sdk.yaml --branch main --limit 5
+gh run rerun <run-id> --repo omnipair/dusk
+```
+
+An organization owner can instead tag the deployed commit once it is on `main`.
+The tag push runs the same checks, and fails instead of warning when the IDLs
+differ:
+
+```bash
+VERSION="$(node -p "require('./packages/dusk-sdk/package.json').version")"
+git tag -a "dusk-sdk-v$VERSION" -m "@omnipair/dusk-sdk $VERSION"
+git push origin "dusk-sdk-v$VERSION"
+```
+
+The workflow logs in to npm through the package's trusted publisher (repository
+`omnipair/dusk`, workflow `publish-sdk.yaml`, environment `npm`). A manual run
+with `dry_run` checks a tag without publishing it: it runs the same build and
+IDL checks and logs in to npm, so a broken trusted publisher fails the dry run.
+npm does not check which branch a run comes from, so only runs from `main` or a
+`dusk-sdk-v*` tag can use the `npm` environment (Settings, Environments). The
+publish job of a run dispatched from another branch, a dry run included, is
+rejected before it starts. A tag push runs the workflow file of the tagged
+commit, so only organization owners can create, move or delete `dusk-sdk-v*`
+tags (ruleset `protect-sdk-release-tags`).

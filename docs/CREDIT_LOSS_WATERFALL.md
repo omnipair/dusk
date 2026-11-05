@@ -10,7 +10,7 @@ own accounting.
 There is no standalone insurance fund, insurance token vault, coverage percentage,
 daily draw budget, funding target/taper, or donation/fortify instruction. Market
 creation and liquidation builders do not derive or accept insurance accounts.
-The market account uses layout 12; the parameter ABI has seven families and no
+The market account uses layout 13; the parameter ABI has seven families and no
 insurance update variant.
 
 Junior exit requests and renewals charge a fixed **50 bps** in receipt units.

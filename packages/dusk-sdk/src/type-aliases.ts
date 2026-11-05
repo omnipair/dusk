@@ -83,6 +83,7 @@ type DuskEventTypes = [
   TypeNamed<"operatorRevenueClaimed">,
   TypeNamed<"protocolInterestMarkupCheckpointed">,
   TypeNamed<"operatorChanged">,
+  TypeNamed<"managerChanged">,
   TypeNamed<"operatorChangeAnnounced">,
   TypeNamed<"operatorChangeResolved">,
   TypeNamed<"juniorCohortInitialized">,
@@ -287,6 +288,7 @@ export type TrancheConverted = IdlTypes<DuskEventIdl>["trancheConverted"];
 
 export type OperatorProposal = IdlTypes<DuskAccountIdl>["operatorProposal"];
 export type OperatorState = IdlTypes<DuskAccountIdl>["operatorState"];
+export type ManagerChanged = IdlTypes<DuskEventIdl>["managerChanged"];
 export type OperatorChanged = IdlTypes<DuskEventIdl>["operatorChanged"];
 export type OperatorChangeAnnounced = IdlTypes<DuskEventIdl>["operatorChangeAnnounced"];
 export type OperatorChangeResolved = IdlTypes<DuskEventIdl>["operatorChangeResolved"];

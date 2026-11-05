@@ -214,7 +214,7 @@ assert.throws(
 
 // Exact on-chain mutable surface: authority is independent of token balances.
 for(const name of ["governance","governance-client","management"])assert.equal(existsSync(new URL(`../dist/${name}.js`,import.meta.url)),false,`retired ${name} output must not ship`);
-assert(!IDL.instructions.some(ix=>/governance|parameter_proposal|manager|recovery_ballot/i.test(ix.name)));
+assert(!IDL.instructions.some(ix=>/governance|parameter_proposal|recovery_ballot/i.test(ix.name)));
 assert(!IDL.types.some(type=>/Governance|RecoveryBallot|ProposalSupport|ParameterProposal/.test(type.name)));
 const configType=IDL.types.find(type=>type.name==="RiskRateConfig");
 assert.deepEqual(configType.type.fields.map(field=>field.name),[
@@ -230,17 +230,18 @@ assert.throws(()=>irmParameterUpdate({...validIrm,borrowUtilizationLimitBps:8_00
 assert.throws(()=>concentrationParameterUpdate({peakAmplificationNad:NAD,coreHalfWidthBps:0,fadeWidthBps:0,rampDurationSlots:431_999}));
 assert.throws(()=>centerControllerParameterUpdate({adjustmentStepNad:0}));
 
-const operatorState={authority:keys[0],epoch:new anchor.BN(7),nextNonce:new anchor.BN(9),pending:PublicKey.default,
+const operatorState={authority:keys[0],manager:PublicKey.default,pendingAuthor:PublicKey.default,epoch:new anchor.BN(7),nextNonce:new anchor.BN(9),pending:PublicKey.default,
   revenueRecipient:keys[0],interestShareBps:0};
 program.account.market.fetch=async()=>({operator:operatorState});
 const client=new DuskOperator(program);
 const announced=await client.announce({market:keys[1],payer:keys[0],operator:keys[7],metadata:verifiedMetadata,
-  updates:canonical,nextOperator:keys[8],revenueRecipient:keys[9],interestShareBps:5_000});
+  updates:canonical,nextManager:keys[6],revenueRecipient:keys[9],interestShareBps:5_000});
 assert(announced.proposal.equals(deriveOperatorProposalAddress(keys[1],9,program.programId)[0]));
 const decoded=program.coder.instruction.decode(announced.instruction.data);
 assert.equal(decoded.name,"announceOperatorChange");
 assert.equal(decoded.data.args.expectedEpoch.toString(),"7");
 assert.equal(decoded.data.args.updates.length,7);
+assert(decoded.data.args.nextManager.equals(keys[6]));
 assert(announced.instruction.keys.some(meta=>meta.pubkey.equals(keys[0])&&meta.isSigner));
 assert(announced.instruction.keys.some(meta=>meta.pubkey.equals(keys[7])&&meta.isSigner));
 await assert.rejects(()=>client.announce({market:keys[1],payer:keys[0],operator:keys[0],metadata:verifiedMetadata}),/at least/);
@@ -249,3 +250,7 @@ const lookupTable=new AddressLookupTableAccount({key:keys[8],state:{deactivation
   lastExtendedSlotStartIndex:0,authority:keys[0],addresses:announced.instruction.keys.filter(meta=>!meta.isSigner).map(meta=>meta.pubkey)}});
 const versioned=operatorChangeV0Transaction({payer:keys[0],recentBlockhash:keys[9].toBase58(),proposalInstruction:announced.instruction,lookupTables:[lookupTable]});
 assert(versioned.serialize().length<=1_232);
+
+await assert.rejects(()=>client.announce({market:keys[1],payer:keys[0],operator:keys[0],metadata:verifiedMetadata,nextOperator:keys[8],nextManager:keys[6]}),/clears the manager/);
+const removal=await client.removeManager({market:keys[1],operator:keys[0]});
+assert.equal(program.coder.instruction.decode(removal.instruction.data).name,"removeMarketManager");

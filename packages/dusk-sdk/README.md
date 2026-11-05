@@ -275,10 +275,17 @@ clears the debt leg but leaves position rent to the existing owner cleanup path.
 ## Install
 
 ```bash
-npm install @omnipair/dusk-sdk
+npm install @omnipair/dusk-sdk@next
 # or
-yarn add @omnipair/dusk-sdk
+yarn add @omnipair/dusk-sdk@next
 ```
+
+A version reaches npm once the programs it describes are deployed. Its dist-tag
+names the deployment: `next` and `devnet` follow devnet, and `latest` moves only
+with mainnet releases, so until the first one it still points at the early
+2.0.2 build. Pin an exact version, such as `2.16.0-next.20261102`, to match one
+deployment's program interface. Maintainers publish by tagging the deployed
+commit, as described in [Publishing the SDK](../../scripts/v2/README.md#publishing-the-sdk).
 
 ## Dusk Client
 
@@ -1081,3 +1088,12 @@ balances do not count as productive junior coverage until reinvested.
 Rate defaults are exported as `RISK_RATE_DEFAULTS`; the market configuration and
 creation helpers can override initial terms; the operator can tune future dynamics after notice. `riskCoverageSignalNad` uses one junior
 capital budget across both debt assets, with each asset's own utilization.
+
+The operator can appoint a parameter manager using a timed announcement with
+`nextManager`. Managers cannot change ownership, manager appointments, revenue
+recipients or the operator interest share, and cannot replace an operator's
+pending announcement. `dusk.operator.removeManager({market, operator})` revokes
+the manager immediately and invalidates its pending bundle. Operator-authored
+bundles are preserved. Every ownership transfer clears the manager; it cannot
+be retained or replaced in the handoff bundle. The successor appoints a manager
+through a separate full-notice announcement.

@@ -7,6 +7,7 @@ pub struct AnnounceOperatorChangeArgs {
     pub expected_epoch: u64,
     pub updates: Vec<MarketParameterUpdate>,
     pub next_operator: Option<Pubkey>,
+    pub next_manager: Option<Pubkey>,
     pub revenue_recipient: Option<Pubkey>,
     pub interest_share_bps: Option<u16>,
     pub metadata: ProposalMetadataV1,
@@ -17,6 +18,11 @@ pub struct OperatorChanged {
     pub market: Pubkey,
     pub operator: Pubkey,
     pub epoch: u64,
+}
+#[event]
+pub struct ManagerChanged {
+    pub market: Pubkey,
+    pub manager: Pubkey,
 }
 #[event]
 pub struct OperatorChangeAnnounced {
@@ -31,6 +37,7 @@ pub struct OperatorChangeAnnounced {
     pub policy_version: u64,
     pub updates: Vec<MarketParameterUpdate>,
     pub next_operator: Option<Pubkey>,
+    pub next_manager: Option<Pubkey>,
     pub revenue_recipient: Option<Pubkey>,
     pub interest_share_bps: Option<u16>,
     pub metadata: ProposalMetadataV1,
@@ -61,7 +68,28 @@ impl AnnounceOperatorChange<'_> {
     pub fn handle(ctx: Context<Self>, args: AnnounceOperatorChangeArgs) -> Result<()> {
         let market = &mut ctx.accounts.market;
         market.assert_current_version()?;
-        market.operator.assert_authority(ctx.accounts.operator.key())?;
+        let author = ctx.accounts.operator.key();
+        let owner = author != Pubkey::default() && author == market.operator.authority;
+        require!(
+            owner
+                || (market.operator.authority != Pubkey::default()
+                    && author != Pubkey::default()
+                    && author == market.operator.manager),
+            ErrorCode::InvalidOperator
+        );
+        if !owner {
+            require!(
+                args.next_operator.is_none()
+                    && args.next_manager.is_none()
+                    && args.revenue_recipient.is_none()
+                    && args.interest_share_bps.is_none(),
+                ErrorCode::InvalidOperator
+            );
+            require!(
+                market.operator.pending == Pubkey::default() || market.operator.pending_author == author,
+                ErrorCode::OperatorChangePending
+            );
+        }
         require_eq!(
             args.expected_epoch,
             market.operator.epoch,
@@ -71,6 +99,7 @@ impl AnnounceOperatorChange<'_> {
         require!(
             !args.updates.is_empty()
                 || args.next_operator.is_some()
+                || args.next_manager.is_some()
                 || args.revenue_recipient.is_some()
                 || args.interest_share_bps.is_some(),
             ErrorCode::ParameterUpdateNotMeaningful
@@ -84,6 +113,12 @@ impl AnnounceOperatorChange<'_> {
         if let Some(recipient) = args.revenue_recipient {
             require!(recipient != Pubkey::default(), ErrorCode::InvalidOperator);
         }
+        // Every ownership handoff clears the delegate. A new owner appoints
+        // a manager in a separate fully announced bundle.
+        require!(
+            args.next_operator.is_none() || args.next_manager.is_none(),
+            ErrorCode::InvalidArgument
+        );
         args.metadata.validate()?;
         let clock = Clock::get()?;
         market.assert_launch_settings_unchanged_after_start(&args.updates, clock.unix_timestamp)?;
@@ -96,6 +131,7 @@ impl AnnounceOperatorChange<'_> {
         proposal.policy_version = OPERATOR_POLICY_VERSION;
         proposal.updates = args.updates;
         proposal.next_operator = args.next_operator;
+        proposal.next_manager = args.next_manager;
         proposal.revenue_recipient = args.revenue_recipient;
         proposal.interest_share_bps = args.interest_share_bps;
         proposal.metadata = args.metadata;
@@ -115,6 +151,7 @@ impl AnnounceOperatorChange<'_> {
         proposal.digest = proposal.intent_digest()?;
         // Replacing a bundle invalidates the previous one and restarts all notice.
         market.operator.pending = proposal.key();
+        market.operator.pending_author = author;
         market.operator.next_nonce = market
             .operator
             .next_nonce
@@ -132,6 +169,7 @@ impl AnnounceOperatorChange<'_> {
             policy_version: proposal.policy_version,
             updates: proposal.updates.clone(),
             next_operator: proposal.next_operator,
+            next_manager: proposal.next_manager,
             revenue_recipient: proposal.revenue_recipient,
             interest_share_bps: proposal.interest_share_bps,
             metadata: proposal.metadata.clone(),
@@ -164,6 +202,10 @@ impl ExecuteOperatorChange<'_> {
         market.assert_current_version()?;
         proposal.assert_ready(market, proposal.key(), clock.slot)?;
         market.validate_operator_updates(&proposal.updates)?;
+        require!(
+            proposal.next_operator.is_none() || proposal.next_manager.is_none(),
+            ErrorCode::InvalidArgument
+        );
         if let Some(next) = proposal.next_operator {
             if next != Pubkey::default() {
                 let accepting = ctx
@@ -259,7 +301,22 @@ impl ExecuteOperatorChange<'_> {
                 epoch: market.operator.epoch
             });
         }
+        if proposal.next_operator.is_some() && market.operator.manager != Pubkey::default() {
+            market.operator.manager = Pubkey::default();
+            emit_cpi!(ManagerChanged {
+                market: market.key(),
+                manager: Pubkey::default()
+            });
+        }
+        if let Some(manager) = proposal.next_manager {
+            market.operator.manager = manager;
+            emit_cpi!(ManagerChanged {
+                market: market.key(),
+                manager
+            });
+        }
         market.operator.pending = Pubkey::default();
+        market.operator.pending_author = Pubkey::default();
         proposal.executed = true;
         emit_cpi!(OperatorChangeResolved {
             market: market.key(),
@@ -288,9 +345,14 @@ impl ResolveOperatorChange<'_> {
         let proposal = &ctx.accounts.proposal;
         let current = proposal.current(market, proposal.key());
         if cancel {
-            market
-                .operator
-                .assert_authority(ctx.accounts.operator.as_ref().ok_or(ErrorCode::InvalidOperator)?.key())?;
+            let signer = ctx.accounts.operator.as_ref().ok_or(ErrorCode::InvalidOperator)?.key();
+            require!(
+                signer != Pubkey::default()
+                    && market.operator.authority != Pubkey::default()
+                    && (signer == market.operator.authority
+                        || (signer == market.operator.manager && signer == proposal.operator)),
+                ErrorCode::InvalidOperator
+            );
         }
         require!(
             cancel || !current || Clock::get()?.slot > proposal.deadline_slot,
@@ -298,11 +360,56 @@ impl ResolveOperatorChange<'_> {
         );
         if market.operator.pending == proposal.key() {
             market.operator.pending = Pubkey::default();
+            market.operator.pending_author = Pubkey::default();
         }
         emit_cpi!(OperatorChangeResolved {
             market: market.key(),
             proposal: proposal.key(),
             executed: proposal.executed
+        });
+        Ok(())
+    }
+}
+
+#[event_cpi]
+#[derive(Accounts)]
+pub struct RemoveMarketManager<'info> {
+    pub operator: Signer<'info>,
+    #[account(mut, seeds=[MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump=market.bump)]
+    pub market: Box<Account<'info, Market>>,
+}
+
+impl RemoveMarketManager<'_> {
+    pub fn handle(ctx: Context<Self>) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+        market.assert_current_version()?;
+        require!(
+            market.operator.authority != Pubkey::default(),
+            ErrorCode::InvalidOperator
+        );
+        require_keys_eq!(
+            ctx.accounts.operator.key(),
+            market.operator.authority,
+            ErrorCode::InvalidOperator
+        );
+        let manager = market.operator.manager;
+        require!(manager != Pubkey::default(), ErrorCode::ParameterUpdateNotMeaningful);
+        // A self-delegate's announcements are operator-authored. Removing
+        // that redundant role must not cancel the owner's pending bundle.
+        if manager != market.operator.authority && market.operator.pending_author == manager {
+            let proposal = market.operator.pending;
+            market.operator.pending = Pubkey::default();
+            market.operator.pending_author = Pubkey::default();
+            emit_cpi!(OperatorChangeResolved {
+                market: market.key(),
+                proposal,
+                executed: false
+            });
+        }
+        market.operator.manager = Pubkey::default();
+        emit_cpi!(ManagerChanged {
+            market: market.key(),
+            manager: Pubkey::default()
         });
         Ok(())
     }

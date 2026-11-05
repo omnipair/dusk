@@ -6,7 +6,7 @@ export const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS = Number(
   IDL.constants.find(({ name }) => name === "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS")!.value
 );
 
-const DEFAULT_PROGRAM_ID = "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ";
+const DEFAULT_PROGRAM_ID = "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
 function getProgramIdFromEnv(fallback: string): string {
@@ -676,7 +676,7 @@ export function deriveIncomeEpochAddress(market: PublicKey, bookIndex: number, e
 
 
 
-export const OPERATOR_POLICY_VERSION = 1;
+export const OPERATOR_POLICY_VERSION = 2;
 export const OPERATOR_PENDING_LIMIT = 1;
 export const JUNIOR_MAX_NOTICE_SLOTS = 4_320_000;
 export const OPERATOR_NOTICE_SLOTS = 4_752_000;
