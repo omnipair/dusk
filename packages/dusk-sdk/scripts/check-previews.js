@@ -216,6 +216,21 @@ test("order fees use 10 bps, round up, and reject non-u64 values", async () => {
     getAssociatedTokenAddressSync(programId, payer, true, TOKEN_2022_PROGRAM_ID).toBase58());
 });
 
+test("leverage trigger prices normalize token decimals and retain checked arithmetic", async () => {
+  const { calculateLeverageCloseoutPrice } = await import("../dist/delegate.js");
+  for (const [debtDecimals, collateralDecimals] of [[6, 9], [9, 6], [6, 6], [18, 0], [0, 18]]) {
+    assert.equal(calculateLeverageCloseoutPrice(2n * 10n ** BigInt(debtDecimals),
+      10n ** BigInt(collateralDecimals), debtDecimals, collateralDecimals), 2_000_000_000n);
+  }
+  assert.equal(calculateLeverageCloseoutPrice(1, 3, 6, 6), 333_333_333n);
+  assert.equal(calculateLeverageCloseoutPrice(0, 1, 6, 6), 0n);
+  assert.throws(() => calculateLeverageCloseoutPrice(1, 0, 6, 6));
+  assert.throws(() => calculateLeverageCloseoutPrice(1, 1, 0, 255), /u128/);
+  assert.throws(() => calculateLeverageCloseoutPrice(1, 1, 255, 0), /u128/);
+  assert.throws(() => calculateLeverageCloseoutPrice(0xffffffffffffffffn, 1, 6, 6));
+  assert.throws(() => calculateLeverageCloseoutPrice(1, 1, -1, 6));
+});
+
 test("hLP capacity helper binds all mints and preserves native status, ceilings and slot", async () => {
   const { createDuskProgram } = await import("../dist/program.js");
   const { deriveFutarchyAuthorityAddress } = await import("../dist/constants.js");

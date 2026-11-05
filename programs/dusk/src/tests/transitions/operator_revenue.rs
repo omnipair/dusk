@@ -101,7 +101,7 @@ proptest::proptest! {
 proptest::proptest! {
     #[test]
     fn mixed_advances_repayments_defaults_and_fee_changes_preserve_lp_budgets(
-        steps in proptest::collection::vec((0_u8..4, 1_u16..10_000, 0_u16..10_001, 0_u16..5_001), 1..100)
+        steps in proptest::collection::vec((0_u8..5, 1_u16..10_000, 0_u16..10_001, 0_u16..5_001), 1..100)
     ) {
         let mut fees=InterestRevenueBook::default();
         let mut advance=crate::state::PublicInterestAdvance::default();
@@ -117,18 +117,87 @@ proptest::proptest! {
             } else {
                 let old=fees.gross_unpaid;
                 let removed=(amount as u64).min(old);
-                let paid=if kind==2 {removed} else {0};
+                let paid=match kind {2=>removed,4=>removed/2,_=>0};
                 let remaining=old-removed;
+                let old_lp=old-fees.unpaid_fees().unwrap()-(advance.outstanding_gross-advance.revenue_escrow);
                 advance.clear(old as u128,remaining as u128,paid).unwrap();
                 let fee_paid=fees.synchronize(remaining,paid,markup,share).unwrap();
                 let transferred=paid-advance.repayment_credit_pending+advance.revenue_release_pending;
                 proptest::prop_assert!(transferred>=fee_paid,"cash budget {} below fees {}",transferred,fee_paid);
+                let new_lp=remaining-fees.unpaid_fees().unwrap()-(advance.outstanding_gross-advance.revenue_escrow);
+                proptest::prop_assert!(transferred-fee_paid<=old_lp-new_lp);
                 let (fee_cash,_)=fees.quote_cash(transferred,transferred).unwrap();
                 fees.collect(fee_cash).unwrap();
                 advance.take_payment(paid).unwrap();
             }
             proptest::prop_assert!(fees.unpaid_fees().unwrap()+advance.outstanding_gross-advance.revenue_escrow<=fees.gross_unpaid);
+            proptest::prop_assert!(advance.revenue_escrow<=fees.unpaid_fees().unwrap());
         }
+    }
+}
+
+#[test]
+fn partial_advance_clearance_keeps_fee_cash_and_remaining_lp_claims_backed() {
+    for paid in 0..=3 {
+        let mut fees = InterestRevenueBook::default();
+        fees.synchronize(5, 0, 0, 4_000).unwrap();
+        let mut advance = crate::state::PublicInterestAdvance::default();
+        advance.fund(5, 4, 1).unwrap();
+        let cleared = advance.clear(5, 2, paid).unwrap();
+        let fee_paid = fees.synchronize(2, paid, 0, 4_000).unwrap();
+        let (fresh, escrow) = advance.take_payment(paid).unwrap();
+        let cash = fresh + escrow;
+        assert!(cash >= fee_paid);
+        assert_eq!(cash - fee_paid, 0);
+        assert_eq!(cleared.repaid + cleared.canceled + advance.outstanding_gross, 4);
+        assert_eq!(cleared.revenue_returned + escrow + advance.revenue_escrow, 1);
+        assert_eq!(fees.quote_cash(cash, cash).unwrap().0, fee_paid);
+        fees.collect(fee_paid).unwrap();
+        assert_eq!(fees.gross_unpaid - fees.unpaid_fees().unwrap(), 1);
+        assert_eq!(advance.outstanding_gross - advance.revenue_escrow, 1);
+        advance.clear(2, 0, 2).unwrap();
+        let fee_paid = fees.synchronize(0, 2, 0, 4_000).unwrap();
+        let (fresh, escrow) = advance.take_payment(2).unwrap();
+        assert_eq!(fresh + escrow, fee_paid);
+        assert_eq!(advance, crate::state::PublicInterestAdvance::default());
+    }
+}
+
+proptest::proptest! {
+    #[test]
+    fn partial_paid_defaults_partition_cash_within_the_removed_lp_claim(
+        gross in 1_u64..1_000_000,
+        fee_seed in 0_u64..1_000_000,
+        escrow_seed in 0_u64..1_000_000,
+        lp_seed in 0_u64..1_000_000,
+        removal_seed in 0_u64..1_000_000,
+        payment_seed in 0_u64..1_000_000,
+    ) {
+        let fee = fee_seed % (gross + 1);
+        let escrow = escrow_seed % (fee + 1);
+        let advanced_lp = lp_seed % (gross - fee + 1);
+        let removed = removal_seed % (gross + 1);
+        let paid = payment_seed % (removed + 1);
+        let mut book = InterestRevenueBook {
+            gross_unpaid: gross, protocol_unpaid: fee, ..InterestRevenueBook::default()
+        };
+        let mut advance = crate::state::PublicInterestAdvance {
+            outstanding_gross: advanced_lp + escrow, revenue_escrow: escrow,
+            ..crate::state::PublicInterestAdvance::default()
+        };
+        let clearance = advance.clear(gross as u128, (gross - removed) as u128, paid).unwrap();
+        let paid_fee = book.synchronize(gross - removed, paid, 0, 0).unwrap();
+        let (fresh, released) = advance.take_payment(paid).unwrap();
+        let remaining_lp = gross - removed - book.unpaid_fees().unwrap();
+        let remaining_advance = advance.outstanding_gross - advance.revenue_escrow;
+        proptest::prop_assert!(remaining_advance <= remaining_lp);
+        proptest::prop_assert!(advance.revenue_escrow <= book.unpaid_fees().unwrap());
+        let cash = fresh + released;
+        proptest::prop_assert!(paid_fee <= cash);
+        let cleared_lp = gross - fee - advanced_lp - (remaining_lp - remaining_advance);
+        proptest::prop_assert!(cash - paid_fee <= cleared_lp);
+        proptest::prop_assert_eq!(advance.outstanding_gross + clearance.repaid + clearance.canceled, advanced_lp + escrow);
+        proptest::prop_assert_eq!(advance.revenue_escrow + released + clearance.revenue_returned, escrow);
     }
 }
 

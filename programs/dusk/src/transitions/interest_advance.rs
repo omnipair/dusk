@@ -67,26 +67,25 @@ impl PublicInterestAdvance {
             u64::try_from(mul_div_u128(u128::from(amount), part, total)?)
                 .map_err(|_| ErrorCode::MarketMathOverflow.into())
         };
-        // Round the remaining advance down. Rounding the cleared advance
-        // down could leave one advanced LP atom plus a retained fee atom
-        // against only one remaining gross atom after a partial repayment.
-        let advanced_removed = u64::try_from(mul_div_ceil_u128(
-            self.outstanding_gross as u128,
+        // Clear the LP-funded and frozen-fee portions separately. Remaining
+        // LP advances round down, like the remaining LP receivable; remaining
+        // escrow rounds up, like unpaid fees. Rounding gross advances first
+        // can recycle one fee atom to reserves and leave collection unfunded.
+        let lp_removed = u64::try_from(mul_div_ceil_u128(
+            (self.outstanding_gross - self.revenue_escrow) as u128,
             removed,
             unpaid_before,
         )?)
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let paid = proportional(advanced_removed, u128::from(interest_paid).min(removed), removed)?;
-        let protocol_removed = proportional(
-            self.revenue_escrow,
-            u128::from(advanced_removed),
-            u128::from(self.outstanding_gross),
-        )?;
-        let protocol_paid = if advanced_removed == 0 {
-            0
-        } else {
-            proportional(protocol_removed, u128::from(paid), u128::from(advanced_removed))?
-        };
+        let protocol_removed = proportional(self.revenue_escrow, removed, unpaid_before)?;
+        let advanced_removed = lp_removed + protocol_removed;
+        let paid_part = u128::from(interest_paid).min(removed);
+        let protocol_paid = proportional(protocol_removed, paid_part, removed)?;
+        // Fees round paid amounts down; round recycled LP cash up so the
+        // remainder cannot pay more than the unfunded LP claim being cleared.
+        let lp_paid = u64::try_from(mul_div_ceil_u128(lp_removed as u128, paid_part, removed)?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let paid = lp_paid + protocol_paid;
         self.outstanding_gross -= advanced_removed;
         self.revenue_escrow -= protocol_removed;
         self.repayment_credit_pending = self
