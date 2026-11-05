@@ -37,8 +37,8 @@ Use `yarn v2:build-devnet` so the artifact is built with `--arch v0`. Before
 changing binary formats, update the test runtime and validate the resulting
 deployment binaries through the complete release suite.
 
-The deploy commands use `ANCHOR_WALLET` as fee payer and upgrade authority, so
-the same funded deployer can later upgrade or close the programs. Do not deploy
+The deploy commands use `ANCHOR_WALLET` as fee payer, upgrade authority and IDL
+authority, so the same funded deployer can later upgrade or close the programs. Do not deploy
 with `--final`: a finalized program cannot be closed. `DUSK_PROGRAM_KEYPAIR` may
 point to the source-declared Dusk keypair when doing a first deployment;
 `DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR` serves the same purpose for the
@@ -80,18 +80,22 @@ Useful knobs:
 ## Publishing the SDK
 
 A merge to `main` publishes `@omnipair/dusk-sdk` once its version is deployed,
-so deploy first, then merge. Deploy the programs the branch changes, upload
-their IDLs from the same build, then merge the pull request that sets the new
-version in `packages/dusk-sdk/package.json`. The deploy commands above do not
-upload the IDLs. From the checkout that was deployed:
+so deploy first, then merge. Deploy the programs the branch changes with the
+commands above, then merge the pull request that sets the new version in
+`packages/dusk-sdk/package.json`. `yarn v2:deploy-devnet` and
+`yarn v2:deploy-leverage-delegate-devnet` upload each program's IDL from the
+same build right after deploying it, through `scripts/v2/upload_idl.sh`. The
+script upgrades the program's IDL account, or creates it for a program deployed
+to a new ID, and stops when `ANCHOR_WALLET` is not the account's authority. A
+program deployed any other way needs the script before the merge, run from the
+checkout that was deployed:
 
 ```bash
-anchor idl upgrade --filepath target/idl/dusk.json --provider.cluster devnet --provider.wallet "${ANCHOR_WALLET:-deployer-keypair.json}" "$DUSK_PROGRAM_ID"
-anchor idl upgrade --filepath target/idl/leverage_delegate.json --provider.cluster devnet --provider.wallet "${ANCHOR_WALLET:-deployer-keypair.json}" "$DUSK_LEVERAGE_DELEGATE_PROGRAM_ID"
+scripts/v2/upload_idl.sh target/idl/dusk.json
+scripts/v2/upload_idl.sh target/idl/leverage_delegate.json
 ```
 
-A program deployed to a new ID takes `anchor idl init` instead of
-`anchor idl upgrade`. The merge starts `.github/workflows/publish-sdk.yaml`. It
+The merge starts `.github/workflows/publish-sdk.yaml`. It
 publishes the version when it is not on npm yet and every IDL the package ships
 matches the IDL account on the cluster. `-next.<n>` and `-devnet.<n>` versions
 describe devnet and publish under the `next` and `devnet` dist-tags; a stable

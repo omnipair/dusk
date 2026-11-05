@@ -305,7 +305,9 @@ jobs:
                   const sections = [...new Set([...Object.keys(shipped), ...Object.keys(deployed)])].filter(
                     (key) => canonicalJson(shipped[key]) !== canonicalJson(deployed[key])
                   );
-                  const hint = merge ? "" : " Upgrade the IDL from the deployed build, or tag the commit that was deployed.";
+                  const hint = merge
+                    ? ""
+                    : " Upload the IDL of the deployed build with scripts/v2/upload_idl.sh, or tag the commit that was deployed.";
                   console.log(
                     `::${level}::${file} differs from the ${CLUSTER} IDL of ${programId.toBase58()} in: ${sections.join(", ")}.${hint}`
                   );
