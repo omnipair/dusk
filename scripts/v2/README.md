@@ -106,4 +106,6 @@ IDL checks and logs in to npm, so a broken trusted publisher fails the dry run.
 npm does not check which branch a run comes from, so only runs from `main` or a
 `dusk-sdk-v*` tag can use the `npm` environment (Settings, Environments). The
 publish job of a run dispatched from another branch, a dry run included, is
-rejected before it starts.
+rejected before it starts. A tag push runs the workflow file of the tagged
+commit, so only organization owners can create, move or delete `dusk-sdk-v*`
+tags (ruleset `protect-sdk-release-tags`).
