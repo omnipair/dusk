@@ -1,22 +1,29 @@
 name: publish-sdk
 
-# Publishes @omnipair/dusk-sdk when a deployment goes live, never on merge.
+# Publishes @omnipair/dusk-sdk once the version on main is deployed.
 #
-# Once the programs and their Anchor IDLs are live on a cluster, a
-# `dusk-sdk-v<version>` tag on the deployed main commit starts this workflow.
-# It builds the package from that commit and publishes only when every IDL the
-# package ships matches the IDL account on the cluster the version describes:
+# Deploy first, then merge. A merge to main that touches the package publishes
+# the version in packages/dusk-sdk/package.json when that version is not on npm
+# yet and every IDL the package ships matches the IDL account on the cluster
+# the version describes:
 #
 #   <x.y.z>-next.<n>     devnet deployment    dist-tag next
 #   <x.y.z>-devnet.<n>   devnet deployment    dist-tag devnet
 #   <x.y.z>              mainnet deployment   dist-tag latest
 #
-# A manual run takes an existing tag: it publishes versions tagged on commits
-# that predate this workflow, or checks a tag without publishing (dry_run). A
-# dry run also logs in to npm the way a real run does, so a broken trusted
-# publisher fails the dry run instead of the release. Tag pushes attest the
-# tagged commit in the npm provenance; a manual run attests the commit the
-# workflow ran from.
+# A merge that keeps a published version publishes nothing. A merge whose IDLs
+# do not match the cluster yet publishes nothing and leaves a warning; once the
+# deployment is live, re-running that run publishes it. The check covers the
+# interface only: a program change that keeps the IDLs passes it whether or not
+# it is deployed.
+#
+# A `dusk-sdk-v<version>` tag on a deployed main commit also publishes it, and
+# fails instead of warning when the IDLs differ. A manual run takes an existing
+# tag: it publishes versions tagged on commits that predate this workflow, or
+# checks a tag without publishing (dry_run). A dry run also logs in to npm the
+# way a real run does, so a broken trusted publisher fails the dry run instead
+# of the release. Merges and tag pushes attest their own commit in the npm
+# provenance; a manual run attests the commit the workflow ran from.
 #
 # Authentication is npm trusted publishing (OIDC) for this file and the `npm`
 # environment. An NPM_TOKEN secret, when present, is the fallback. npm does not
@@ -28,8 +35,14 @@ name: publish-sdk
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "dusk-sdk-v*"
+    # GitHub applies path filters to branch pushes only; every tag push runs.
+    paths:
+      - "packages/dusk-sdk/**"
+      - ".github/workflows/publish-sdk.yaml"
   workflow_dispatch:
     inputs:
       tag:
@@ -43,10 +56,6 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: publish-sdk
-  cancel-in-progress: false
 
 defaults:
   run:
@@ -64,23 +73,38 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      # Empty for a merge to main, which takes its version from the manifest.
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_type == 'tag' && github.ref_name || '' }}
+      MERGE: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
     outputs:
       version: ${{ steps.channel.outputs.version }}
       dist_tag: ${{ steps.channel.outputs.dist_tag }}
       published: ${{ steps.registry.outputs.published }}
+      deployed: ${{ steps.idl.outputs.deployed }}
       tarball: ${{ steps.pack.outputs.tarball }}
     steps:
+      - name: Checkout the commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG && format('refs/tags/{0}', env.TAG) || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Resolve version and channel
         id: channel
         run: |
-          case "$TAG" in
-            "$TAG_PREFIX"*) VERSION="${TAG#"$TAG_PREFIX"}" ;;
-            *)
-              echo "::error::$TAG is not a ${TAG_PREFIX}<version> tag."
-              exit 1
-              ;;
-          esac
+          if [ -n "$TAG" ]; then
+            case "$TAG" in
+              "$TAG_PREFIX"*) VERSION="${TAG#"$TAG_PREFIX"}" ;;
+              *)
+                echo "::error::$TAG is not a ${TAG_PREFIX}<version> tag."
+                exit 1
+                ;;
+            esac
+          else
+            VERSION="$(node -p 'require(process.argv[1]).version' "./$PACKAGE_DIR/package.json")"
+          fi
           SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
           if ! [[ "$VERSION" =~ $SEMVER ]]; then
             echo "::error::$VERSION is not a semver version."
@@ -106,15 +130,7 @@ jobs:
             echo "cluster=$CLUSTER"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Checkout tagged commit
-        uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ env.TAG }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Check tag, package and main
-        id: source
+      - name: Check the source
         env:
           VERSION: ${{ steps.channel.outputs.version }}
           DIST_TAG: ${{ steps.channel.outputs.dist_tag }}
@@ -123,43 +139,91 @@ jobs:
           git fetch --quiet --no-tags origin +refs/heads/main:refs/remotes/origin/main
           COMMIT="$(git rev-parse HEAD)"
           if ! git merge-base --is-ancestor "$COMMIT" refs/remotes/origin/main; then
-            echo "::error::$TAG points at $COMMIT, which is not on main. Tag the deployed commit once it has merged."
+            if [ -n "$TAG" ]; then
+              echo "::error::$TAG points at $COMMIT, which is not on main. Tag the deployed commit once it has merged."
+            else
+              echo "::error::$COMMIT is no longer on main."
+            fi
             exit 1
           fi
           MANIFEST="$PACKAGE_DIR/package.json"
           ID="$(node -p 'const m = require(process.argv[1]); `${m.name}@${m.version}`' "./$MANIFEST")"
           if [ "$ID" != "$PACKAGE_NAME@$VERSION" ]; then
-            echo "::error::$TAG expects $PACKAGE_NAME@$VERSION, but $MANIFEST at $COMMIT declares $ID."
+            echo "::error::${TAG:-This run} expects $PACKAGE_NAME@$VERSION, but $MANIFEST at $COMMIT declares $ID."
             exit 1
+          fi
+          SOURCE="merge to main"
+          if [ -n "$TAG" ]; then
+            SOURCE="\`$TAG\`"
           fi
           {
             echo "### $PACKAGE_NAME@$VERSION"
             echo ""
-            echo "| Tag | Commit | Cluster | dist-tag |"
+            echo "| Source | Commit | Cluster | dist-tag |"
             echo "| --- | --- | --- | --- |"
-            echo "| \`$TAG\` | \`$COMMIT\` | $CLUSTER | \`$DIST_TAG\` |"
+            echo "| $SOURCE | \`$COMMIT\` | $CLUSTER | \`$DIST_TAG\` |"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check the registry
+        id: registry
+        env:
+          VERSION: ${{ steps.channel.outputs.version }}
+          CLUSTER: ${{ steps.channel.outputs.cluster }}
+        run: |
+          # A merge that keeps a published version has nothing to build.
+          BUILD=true
+          if OUTPUT="$(npm view "$PACKAGE_NAME@$VERSION" version 2>&1)"; then
+            PUBLISHED=true
+            STATUS="$PACKAGE_NAME@$VERSION is already on npm"
+            NEXT="nothing to publish."
+            if [ "$MERGE" = "true" ]; then
+              BUILD=false
+              NEXT="this merge publishes nothing. A change to the package needs a new version in $PACKAGE_DIR/package.json."
+            fi
+          elif grep -q E404 <<< "$OUTPUT"; then
+            PUBLISHED=false
+            STATUS="Not on npm yet"
+            NEXT="it publishes if every IDL it ships matches $CLUSTER."
+          else
+            echo "$OUTPUT"
+            echo "::error::Could not read $PACKAGE_NAME@$VERSION from the npm registry."
+            exit 1
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            NEXT="dry run, so the publish job only tests the npm login."
+          fi
+          {
+            echo "published=$PUBLISHED"
+            echo "build=$BUILD"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::$STATUS; $NEXT"
+          echo "$STATUS; $NEXT" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Setup Node.js
+        if: steps.registry.outputs.build == 'true'
         uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: yarn
 
       - name: Install JavaScript dependencies
+        if: steps.registry.outputs.build == 'true'
         run: yarn install --frozen-lockfile
 
       # The package's build script first copies an Anchor build from target/
       # into src/. A release ships the committed src/, which CI checks against
       # a clean Anchor build and the next step checks against the cluster.
       - name: Build from the committed interface
+        if: steps.registry.outputs.build == 'true'
         working-directory: ${{ env.PACKAGE_DIR }}
         run: |
           rm -rf dist
           npx --no-install tsc
 
       - name: Match the deployed IDLs
+        id: idl
+        if: steps.registry.outputs.build == 'true'
         working-directory: ${{ env.PACKAGE_DIR }}
         env:
           CLUSTER: ${{ steps.channel.outputs.cluster }}
@@ -202,12 +266,18 @@ jobs:
           }
 
           (async () => {
-            const { CLUSTER, RPC_URL, GITHUB_STEP_SUMMARY } = process.env;
+            const { CLUSTER, RPC_URL, MERGE, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY } = process.env;
+            // A merge can land before its deployment, so it warns where a tag fails.
+            const merge = MERGE === "true";
+            const level = merge ? "warning" : "error";
             const connection = new Connection(RPC_URL, "confirmed");
             const files = readdirSync("src").filter((name) => /^idl_.+\.json$/.test(name)).sort();
+            if (files.length === 0) {
+              console.log("::error::src/ holds no idl_*.json to check.");
+              process.exit(1);
+            }
             const rows = [];
-            let failed = files.length === 0;
-            if (failed) console.log("::error::src/ holds no idl_*.json to check.");
+            let allMatch = true;
 
             for (const file of files) {
               const shipped = JSON.parse(readFileSync(`src/${file}`, "utf8"));
@@ -222,7 +292,7 @@ jobs:
               if (!account) {
                 verdict = "no IDL account";
                 console.log(
-                  `::error::${file}: program ${programId.toBase58()} has no Anchor IDL account on ${CLUSTER} (${idlAddress.toBase58()}).`
+                  `::${level}::${file}: program ${programId.toBase58()} has no Anchor IDL account on ${CLUSTER} (${idlAddress.toBase58()}).`
                 );
               } else {
                 const length = account.data.readUInt32LE(IDL_LENGTH_OFFSET);
@@ -235,66 +305,47 @@ jobs:
                   const sections = [...new Set([...Object.keys(shipped), ...Object.keys(deployed)])].filter(
                     (key) => canonicalJson(shipped[key]) !== canonicalJson(deployed[key])
                   );
+                  const hint = merge
+                    ? ""
+                    : " Upload the IDL of the deployed build with scripts/v2/upload_idl.sh, or tag the commit that was deployed.";
                   console.log(
-                    `::error::${file} differs from the ${CLUSTER} IDL of ${programId.toBase58()} in: ${sections.join(", ")}. Upgrade the IDL from the deployed build, or tag the commit that was deployed.`
+                    `::${level}::${file} differs from the ${CLUSTER} IDL of ${programId.toBase58()} in: ${sections.join(", ")}.${hint}`
                   );
                 }
               }
 
-              if (verdict !== "match") failed = true;
+              if (verdict !== "match") allMatch = false;
               console.log(`${file} ${programId.toBase58()} ${CLUSTER}: ${verdict} (shipped ${shippedHash}, deployed ${deployedHash})`);
               rows.push(
                 `| \`${file}\` | \`${programId.toBase58()}\` | \`${idlAddress.toBase58()}\` | \`${shippedHash.slice(0, 12)}\` | \`${deployedHash.slice(0, 12)}\` | ${verdict} |`
               );
             }
 
-            if (GITHUB_STEP_SUMMARY && rows.length > 0) {
-              appendFileSync(
-                GITHUB_STEP_SUMMARY,
-                [
-                  `Canonical IDL SHA-256 against ${CLUSTER}:`,
-                  "",
-                  "| IDL | Program | IDL account | Shipped | Deployed | Result |",
-                  "| --- | --- | --- | --- | --- | --- |",
-                  ...rows,
-                  "",
-                ].join("\n") + "\n"
-              );
+            const summary = [
+              `Canonical IDL SHA-256 against ${CLUSTER}:`,
+              "",
+              "| IDL | Program | IDL account | Shipped | Deployed | Result |",
+              "| --- | --- | --- | --- | --- | --- |",
+              ...rows,
+              "",
+            ];
+            if (!allMatch && merge) {
+              const message = `This merge does not match the ${CLUSTER} deployment yet, so it publishes nothing. Once its programs and IDLs are live, re-run this run to publish it.`;
+              console.log(`::warning::${message}`);
+              summary.push(message, "");
             }
-            if (failed) process.exit(1);
+            if (GITHUB_STEP_SUMMARY) appendFileSync(GITHUB_STEP_SUMMARY, summary.join("\n") + "\n");
+            if (GITHUB_OUTPUT) appendFileSync(GITHUB_OUTPUT, `deployed=${allMatch}\n`);
+            if (!allMatch && !merge) process.exit(1);
           })().catch((error) => {
             console.log(`::error::${String(error && error.message).replace(/https?:\/\/\S+/g, "<rpc-url>")}`);
             process.exit(1);
           });
           NODE
 
-      - name: Check the registry
-        id: registry
-        env:
-          VERSION: ${{ steps.channel.outputs.version }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-        run: |
-          if OUTPUT="$(npm view "$PACKAGE_NAME@$VERSION" version 2>&1)"; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            STATUS="$PACKAGE_NAME@$VERSION is already on npm"
-            NEXT="nothing to publish."
-          elif grep -q E404 <<< "$OUTPUT"; then
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            STATUS="Not on npm yet"
-            NEXT="the publish job runs next."
-          else
-            echo "$OUTPUT"
-            echo "::error::Could not read $PACKAGE_NAME@$VERSION from the npm registry."
-            exit 1
-          fi
-          if [ "$DRY_RUN" = "true" ]; then
-            NEXT="dry run, so the publish job only tests the npm login."
-          fi
-          echo "::notice::$STATUS; $NEXT"
-          echo "$STATUS; $NEXT" >> "$GITHUB_STEP_SUMMARY"
-
       - name: Pack
         id: pack
+        if: steps.idl.outputs.deployed == 'true'
         working-directory: ${{ env.PACKAGE_DIR }}
         run: |
           DESTINATION="$RUNNER_TEMP/package"
@@ -304,6 +355,7 @@ jobs:
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
 
       - name: Upload tarball
+        if: steps.idl.outputs.deployed == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dusk-sdk-tarball
@@ -315,7 +367,12 @@ jobs:
     name: Publish to npm
     needs: build
     # A dry run comes here even for a version already on npm, to test the login.
-    if: needs.build.outputs.published == 'false' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    if: (needs.build.outputs.published == 'false' && needs.build.outputs.deployed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    # Two runs for one version (a merge and a tag, or a re-run) wait for each
+    # other instead of racing to publish it.
+    concurrency:
+      group: publish-sdk-${{ needs.build.outputs.version }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: npm
@@ -352,6 +409,12 @@ jobs:
           if [ "$ID" != "$PACKAGE_NAME@$VERSION" ]; then
             echo "::error::$TARBALL holds $ID, expected $PACKAGE_NAME@$VERSION."
             exit 1
+          fi
+          # Another run for this version may have published it while this one waited.
+          if [ "$DRY_RUN" != "true" ] && npm view "$PACKAGE_NAME@$VERSION" version > /dev/null 2>&1; then
+            echo "::notice::$PACKAGE_NAME@$VERSION is already on npm; nothing to publish."
+            echo "\`$PACKAGE_NAME@$VERSION\` was already on npm; nothing was published." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           LOGS="$RUNNER_TEMP/npm-logs"
           ARGS=(publish "$TARBALL" --tag "$DIST_TAG" --access public --provenance --logs-dir "$LOGS")
