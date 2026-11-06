@@ -83,6 +83,9 @@ impl<'info> FundJuniorSeed<'info> {
 pub struct CompoundJuniorSeed<'info> {
     #[account(mut, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
     pub market: Box<Account<'info, Market>>,
+    #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
+    pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,
+
     #[account(address = market.junior_mint)]
     pub junior_mint: Box<InterfaceAccount<'info, Mint>>,
 }
@@ -103,6 +106,7 @@ impl CompoundJuniorSeed<'_> {
             market,
             Clock::get()?.slot,
             ctx.accounts.event_authority.to_account_info(),
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         market.reconcile_junior_receipts(ctx.accounts.junior_mint.supply)?;
         let receipt = market.compound_junior_seed()?;

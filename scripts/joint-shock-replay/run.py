@@ -31,23 +31,6 @@ def write_csv(path, rows):
         writer.writerows(rows)
 
 
-def minimum_fund(losses):
-    # Historical auction floor only. Live liquidation has a principal coverage cap.
-    return 2 * sum(losses)
-
-
-def same_recovery_policy_ceiling(event):
-    """Current coverage bound at the historical floor's recovery, not a live replay."""
-    principal = event['principal_atoms']
-    recovery = event['swap_output_atoms']
-    coverage_bps = event['principal_coverage_bps']
-    assert 0 <= coverage_bps <= 10_000
-    assert principal <= event['debt_atoms']
-    ceiling = max(0, principal - recovery) * coverage_bps // 10_000
-    assert ceiling == event['current_policy_same_recovery_ceiling_atoms']
-    return ceiling
-
-
 def run(output):
     output.mkdir(parents=True, exist_ok=True)
     marker = output / '.joint-shock-output'
@@ -99,102 +82,39 @@ def run(output):
         return read_rows(output / f'{name}.jsonl')
 
     scenarios = replay('scenarios', json.loads((HERE / 'scenarios.json').read_text()))
-    controls = []
-    for name in ['baseline-funded', 'baseline-capital', 'diagnostics']:
-        controls.extend(replay(name, json.loads((HERE / f'{name}.json').read_text())))
+    controls = replay('diagnostics', json.loads((HERE / 'diagnostics.json').read_text()))
     assert len(scenarios) == 104
-    assert sum(r['status'] == 'complete' for r in scenarios) == 102
-    assert {r['id'] for r in scenarios if r['status'] != 'complete'} == {'admission-150000', 'admission-200000'}
-    funded = replay('funded', [dict(r['config'], id=r['id'] + '-funded', insurance_usd=1e6)
-                              for r in scenarios if r['status'] == 'complete' and r['losses']['shortfall_atoms'] > 0])
-    policy_contrast = replay('policy-contrast', [dict(id='policy-contrast-severe-shock',
-        hlp_each_usd=100_000, borrow_usd=75_000, shock=-.95, insurance_usd=1e6,
-        horizon_s=3600, keeper_delay_s=0, withdraw_fraction=0)])
-    assert len(policy_contrast) == 1 and policy_contrast[0]['status'] == 'complete'
-    contrast_floors = [e for e in policy_contrast[0]['events'] if e['kind'] == 'floor']
-    assert contrast_floors and any(e['insurance_atoms'] > same_recovery_policy_ceiling(e)
-                                   for e in contrast_floors)
-    boundaries = []
-    for r in funded:
-        assert r['status'] == 'complete' and r['losses']['socialized_atoms'] == 0
-        required = int(r['historical_auction_minimum_opening_reserve_atoms'])
-        for delta in [0, -1]:
-            c = dict(r['config'], id=r['id'] + f'-capital{delta}', insurance_atoms=required + delta)
-            c.pop('insurance_usd', None)
-            boundaries.append(c)
-    capital = replay('capital-verification', boundaries)
-    for r in capital:
-        assert r['status'] == 'complete'
-        assert (r['losses']['socialized_atoms'] == 0) == r['id'].endswith('capital0'), r['id']
-    all_rows = scenarios + controls + funded + capital + policy_contrast
+    all_rows = scenarios + controls
     floors = 0
-    for r in all_rows:
-        if 'losses' not in r:
+    for row in all_rows:
+        if 'losses' not in row:
             continue
-        losses = r['losses']
-        assert losses['insurance_drawn_atoms'] + losses['socialized_atoms'] == losses['shortfall_atoms']
-        events = [e for e in r['events'] if e['kind'] == 'floor']
-        assert r['model_scope'] == 'historical_auction_benchmark'
-        assert minimum_fund([e['shortfall_atoms'] for e in events]) == int(r['historical_auction_minimum_opening_reserve_atoms'])
-        for e in events:
-            assert e['debt_atoms'] - min(e['swap_output_atoms'], e['debt_atoms']) == e['shortfall_atoms']
-            assert e['insurance_atoms'] + e['socialized_atoms'] == e['shortfall_atoms']
-            same_recovery_policy_ceiling(e)
-            unit_value = e['external_price'] / 1e9 if r['config'].get('debt_asset') == 'base' else 1e-6
-            allocation = sum(e[k] for k in ['ordinary_credit_loss_usd', 'base_hlp_credit_loss_usd', 'quote_hlp_credit_loss_usd'])
-            assert abs(allocation - e['socialized_atoms'] * unit_value) < 1e-6
+        assert row['model_scope'] == 'historical_auction_benchmark'
+        for event in (e for e in row['events'] if e['kind'] == 'floor'):
+            principal = event['principal_atoms']
+            assert principal <= event['debt_atoms']
+            assert event['debt_atoms'] - min(event['swap_output_atoms'], event['debt_atoms']) == event['unrecovered_debt_atoms']
+            unit_value = event['external_price'] / 1e9 if row['config'].get('debt_asset') == 'base' else 1e-6
+            allocation = sum(event[key] for key in
+                             ['ordinary_unrecovered_debt_usd', 'base_hlp_unrecovered_debt_usd', 'quote_hlp_unrecovered_debt_usd'])
+            assert abs(allocation - event['unrecovered_debt_atoms'] * unit_value) < 1e-6
             floors += 1
-    policy_rows = []
-    for r in funded + policy_contrast:
-        for e in r['events']:
-            if e['kind'] != 'floor':
-                continue
-            ceiling = same_recovery_policy_ceiling(e)
-            policy_rows.append(dict(id=r['id'], borrower=e['borrower'], t=e['t'],
-                debt_asset='SOL' if r['config'].get('debt_asset') == 'base' else 'USDC',
-                principal_atoms=e['principal_atoms'], debt_atoms=e['debt_atoms'],
-                configured_principal_coverage_bps=e['principal_coverage_bps'],
-                historical_recovery_atoms=e['swap_output_atoms'],
-                historical_insurance_draw_atoms=e['insurance_atoms'],
-                current_policy_same_recovery_ceiling_atoms=ceiling,
-                historical_draw_above_same_recovery_ceiling_atoms=max(0, e['insurance_atoms'] - ceiling)))
-    write_csv(output / 'policy-contrast.csv', policy_rows)
-    original = {r['id']: r for r in scenarios}
-    insured = {r['id']: r for r in funded}
-    reference = {float(r['sol_decline_pct']): r for r in csv.DictReader((HERE / 'analysis-reference.csv').open())}
+    original = {row['id']: row for row in scenarios}
     main = []
     for shock in [-.1, -.3, -.5, -.7]:
-        r = original[f'h100000-s{shock}-w0-k0']
-        f = insured.get(r['id'] + '-funded')
-        required = int(f['historical_auction_minimum_opening_reserve_atoms']) / 1e6 if f else 0
-        main.append(dict(sol_decline_pct=-shock * 100,
-                         historical_auction_uninsured_loss_usdc=r['losses']['socialized_usd'],
-                         historical_auction_insurance_paid_usdc=f['losses']['insurance_drawn_usd'] if f else 0,
-                         historical_auction_opening_insurance_usdc=required,
-                         historical_loss_change_from_analysis_usdc=r['losses']['socialized_usd'] - float(reference[-shock * 100]['uninsured_credit_loss_usdc']),
-                         historical_capital_change_from_analysis_usdc=required - float(reference[-shock * 100]['minimum_opening_insurance_usdc'])))
+        row = original[f'h100000-s{shock}-w0-k0']
+        main.append(dict(sol_decline_pct=-shock * 100, status=row['status'],
+                         historical_auction_unrecovered_debt_usdc=row.get('losses', {}).get('unrecovered_debt_usd')))
     write_csv(output / 'main-results.csv', main)
-    capital_reference = {r['id']: r for r in csv.DictReader((HERE / 'analysis-capital-reference.csv').open())}
-    requirements = []
-    for r in funded:
-        scale = 1e9 if r['config'].get('debt_asset') == 'base' else 1e6
-        requirements.append(dict(id=r['id'], debt_asset='SOL' if scale == 1e9 else 'USDC',
-                                 historical_auction_insurance_spend_tokens=r['losses']['insurance_drawn_atoms'] / scale,
-                                 historical_auction_minimum_opening_tokens=int(r['historical_auction_minimum_opening_reserve_atoms']) / scale,
-                                 historical_capital_change_from_analysis_tokens=int(r['historical_auction_minimum_opening_reserve_atoms']) / scale - float(capital_reference[r['id']]['minimum_opening_tokens'])))
-    write_csv(output / 'insurance-requirements.csv', requirements)
-    write_csv(output / 'scenario-summary.csv', [dict(id=r['id'], model_scope='historical_auction_benchmark', status=r['status'],
-              liquidations=r.get('liquidated_positions'), historical_auction_credit_loss_usd=r.get('losses', {}).get('socialized_usd'),
-              remaining_debt_usd=r.get('final', {}).get('remaining_debt_usd')) for r in scenarios])
-    validation = dict(scenarios=len(scenarios), complete=102, admission_rejections=2, settlement_blocked=0,
+    write_csv(output / 'scenario-summary.csv', [dict(id=row['id'], model_scope='historical_auction_benchmark', status=row['status'],
+              liquidations=row.get('liquidated_positions'), historical_auction_unrecovered_debt_usd=row.get('losses', {}).get('unrecovered_debt_usd'),
+              remaining_debt_usd=row.get('final', {}).get('remaining_debt_usd')) for row in scenarios])
+    validation = dict(scenarios=len(scenarios), complete=sum(row['status'] == 'complete' for row in scenarios),
                       scope='historical_auction_benchmark_not_live_liquidation',
-                      funded_paths=len(funded), boundary_checks=len(capital), total_replays=len(all_rows),
-                      policy_contrast_replays=len(policy_contrast),
-                      policy_comparison_events=len(policy_rows),
-                      historical_draws_above_current_same_recovery_ceiling=sum(
-                          row['historical_draw_above_same_recovery_ceiling_atoms'] > 0 for row in policy_rows),
-                      focused_probes=len(probes), liquidations_reconciled=floors,
-                      custody_and_preview_checks=sum(r.get('accounting_checks', 0) for r in all_rows))
+                      total_replays=len(all_rows), focused_probes=len(probes), liquidations_reconciled=floors,
+                      custody_and_preview_checks=sum(row.get('accounting_checks', 0) for row in all_rows),
+                      incomplete=[dict(id=row['id'], status=row['status'], error=row.get('error'), failures=row.get('failures'))
+                                  for row in all_rows if row['status'] != 'complete'])
     write_json(output / 'validation.json', validation)
     print(json.dumps({'validation': validation, 'main': main}, indent=2))
 

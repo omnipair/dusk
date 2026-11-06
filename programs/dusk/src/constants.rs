@@ -34,10 +34,6 @@ pub const LIQUIDATION_CLOSE_FACTOR_BPS: u16 = 5_000;
 pub const LIQUIDATION_INCENTIVE_BPS: u16 = 100;
 #[constant]
 pub const LIQUIDATION_MAX_INCENTIVE_BPS: u16 = 500;
-#[constant]
-pub const LIQUIDATION_INSURANCE_FUNDING_BPS: u16 = 200;
-#[constant]
-pub const LIQUIDATION_PENALTY_BPS: u16 = 300;
 /// V1-style keeper reward paid from collateral consumed by the permissionless
 /// lending-auction floor. This is deliberately independent from the dynamic
 /// incentive used by externally funded auction bids.
@@ -51,14 +47,6 @@ pub const HLP_TERMINAL_CALLER_BPS: u16 = LIQUIDATION_BACKSTOP_CALLER_BPS;
 /// unwind becomes executable.
 #[constant]
 pub const LIQUIDATION_AUCTION_DURATION_SECONDS: i64 = 5 * 60;
-/// Absolute protocol ceilings for insurance-vault loss concentration. Market
-/// governance may lower either limit, including to zero, but may never raise
-/// them above these values.
-#[constant]
-pub const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS: u16 = 7_500;
-#[constant]
-pub const MAX_INSURANCE_DRAW_PER_DAY_BPS: u16 = 5_000;
-pub const INSURANCE_DRAW_WINDOW_SLOTS: u64 = MS_PER_DAY / TARGET_MS_PER_SLOT;
 #[constant]
 pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 /// Economic timers use a deterministic nominal slot cadence instead of the
@@ -67,21 +55,8 @@ pub const MARKET_CREATION_FEE_LAMPORTS: u64 = 200_000_000; // 0.2 SOL
 /// if the cluster's scheduled slot duration changes again.
 #[constant]
 pub const TARGET_MS_PER_SLOT: u64 = 200;
-/// Direct-srLP parameter governance thresholds and wall-clock lifecycle.
-#[constant]
-pub const PARAMETER_PROPOSAL_SPONSOR_BPS: u16 = 100; // 1%
-#[constant]
-pub const PARAMETER_PROPOSAL_SUPPORT_BPS: u16 = 5_000; // strict >50%
-#[constant]
-pub const PARAMETER_PROPOSAL_TIMELOCK_SECONDS: i64 = 7 * 24 * 60 * 60;
-/// Tranche holders can need the full maximum exit notice before changing the
-/// economics they underwrite.
-#[constant]
-pub const TRANCHE_PARAMETER_TIMELOCK_SECONDS: i64 = 10 * 24 * 60 * 60;
-#[constant]
-pub const PARAMETER_PROPOSAL_EXECUTION_WINDOW_SECONDS: i64 = 7 * 24 * 60 * 60;
 /// A proposal changes one to this many families, at most one update each.
-pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 9;
+pub const MAX_PARAMETER_UPDATES_PER_PROPOSAL: usize = 7;
 #[constant]
 pub const PARAMETER_EXECUTION_MAX_UTILIZATION_BPS: u64 = 8_000;
 
@@ -92,15 +67,9 @@ pub const MIN_JUNIOR_INCOME_SHARE_BPS: u16 = 1_000;
 #[constant]
 pub const MAX_JUNIOR_INCOME_SHARE_BPS: u16 = 9_000;
 #[constant]
-pub const MIN_JUNIOR_EXIT_FEE_BPS: u16 = 1;
+pub const JUNIOR_EXIT_FEE_BPS: u16 = 50;
 #[constant]
-pub const MAX_JUNIOR_EXIT_FEE_BPS: u16 = 50;
-#[constant]
-pub const DEFAULT_LIQUIDATION_FEE_BPS: u16 = 100;
-#[constant]
-pub const MIN_LIQUIDATION_FEE_BPS: u16 = 25;
-#[constant]
-pub const MAX_LIQUIDATION_FEE_BPS: u16 = 300;
+pub const LIQUIDATION_FEE_BPS: u16 = 300;
 
 pub const PROPOSAL_METADATA_VERSION: u8 = 1;
 pub const MAX_PROPOSAL_TITLE_BYTES: usize = 96;
@@ -159,10 +128,6 @@ pub const MARKET_INTEREST_VAULT_SEED_PREFIX: &[u8] = b"market_interest";
 pub const BORROW_POSITION_SEED_PREFIX: &[u8] = b"borrow_position_v2";
 #[constant]
 pub const YIELD_ACCOUNT_SEED_PREFIX: &[u8] = b"yield";
-#[constant]
-pub const PARAMETER_PROPOSAL_SEED_PREFIX: &[u8] = b"parameter_proposal";
-#[constant]
-pub const PROPOSAL_SUPPORT_SEED_PREFIX: &[u8] = b"proposal_support";
 pub const TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX: &[u8] = b"extra-account-metas";
 #[constant]
 // Stable PDA namespace; the srLP rename does not move existing vaults.
@@ -170,8 +135,6 @@ pub const HLP_SRLP_VAULT_SEED_PREFIX: &[u8] = b"hlp_ylp_vault";
 pub const HLP_COHORT_SEED_PREFIX: &[u8] = b"hlp_cohort";
 #[constant]
 pub const METADATA_SEED_PREFIX: &[u8] = b"metadata";
-#[constant]
-pub const INSURANCE_SEED_PREFIX: &[u8] = b"insurance";
 #[constant]
 pub const LEVERAGE_POSITION_SEED_PREFIX: &[u8] = b"leverage_position_v2";
 #[constant]
@@ -182,15 +145,15 @@ pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// Serialized `Market` account layout discriminator.
 ///
-/// Layout 6 keeps an explicit insurance-window initialization flag while
-/// economic checkpoints use slots. Earlier development layouts must not
-/// decode as this structure.
+/// Layout 12 replaces core LP governance with operator authority and removes
+/// configurable interest-rate floors/ceilings and redundant centering inputs.
+/// Aggregate virtual reserves use u128; physical token amounts remain u64.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 10;
+pub const MARKET_LAYOUT_VERSION: u8 = 13;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");
 
-/// Reusable owner governance balance and per-proposal allocation.
-pub const GOVERNANCE_BALANCE_SEED_PREFIX: &[u8] = b"governance_balance";
-pub const GOVERNANCE_SUPPORT_SEED_PREFIX: &[u8] = b"governance_support";
+/// Maximum junior notice; operator changes wait this plus one protocol day.
+#[constant]
+pub const JUNIOR_MAX_NOTICE_SLOTS: u64 = 10 * MS_PER_DAY / TARGET_MS_PER_SLOT;

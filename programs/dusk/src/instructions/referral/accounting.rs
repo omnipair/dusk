@@ -136,6 +136,7 @@ pub fn accrue_referral_interest_with_protocol<'info>(
     interest_paid: u64,
     interest_vault_credit: u64,
     protocol_interest_revenue: u64,
+    available_fee_custody: u64,
 ) -> Result<ReferralInterestAccrualReceipt> {
     futarchy_authority.validate_referral_interest_share_cap()?;
     if expected_referral_partner == Pubkey::default() {
@@ -145,10 +146,11 @@ pub fn accrue_referral_interest_with_protocol<'info>(
             ErrorCode::InvalidReferralPartner
         );
         return Ok(ReferralInterestAccrualReceipt {
-            quote: ReferralInterestQuote::with_protocol_revenue(
+            quote: ReferralInterestQuote::with_funded_protocol_revenue(
                 interest_paid,
                 interest_vault_credit,
                 protocol_interest_revenue,
+                available_fee_custody,
                 None,
             )?,
             ..ReferralInterestAccrualReceipt::default()
@@ -164,10 +166,11 @@ pub fn accrue_referral_interest_with_protocol<'info>(
     );
     validate_partner_and_accrual(partner, accrual, market, asset_mint.key())?;
 
-    let quote = ReferralInterestQuote::with_protocol_revenue(
+    let quote = ReferralInterestQuote::with_funded_protocol_revenue(
         interest_paid,
         interest_vault_credit,
         protocol_interest_revenue,
+        available_fee_custody,
         Some(interest_share_bps),
     )?;
     if quote.referral_amount > 0 {

@@ -97,6 +97,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
                     self.dusk_program.to_account_info(),
                     dusk::cpi::accounts::DonateCollateral {
                         market: self.market.to_account_info(),
+                        futarchy_authority: self.futarchy_authority.to_account_info(),
                         owner: self.keeper.to_account_info(),
                         asset_mint: mint,
                         collateral_vault: self.payment_vault.to_account_info(),

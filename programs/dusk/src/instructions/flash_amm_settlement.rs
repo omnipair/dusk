@@ -36,14 +36,7 @@ impl Market {
         slot: u64,
         protocol_fee_bps: u16,
     ) -> Result<FlashAmmLiquidationQuote> {
-        let terms = self.flash_amm_settlement_terms(
-            position,
-            asset,
-            quote,
-            debt_fee,
-            self.insurance.available(asset),
-            self.liquidation_insurance_target(asset)?,
-        )?;
+        let terms = self.flash_amm_settlement_terms(position, asset, quote, debt_fee)?;
         let collateral_credit = collateral_fee.unwind_credit(quote.collateral_credit)?;
         require_gt!(collateral_credit, 0, ErrorCode::InsufficientAmount);
         let swap = SwapRequest {
@@ -77,7 +70,6 @@ pub(super) fn settle_with_amm<'info>(
     fee: LiquidationFeeAllocation,
     owner_surplus: u64,
     obligation: u64,
-    insurance_debit: u64,
     loss: LiquidationLossAllocation,
     clock: Clock,
 ) -> Result<()> {
@@ -107,13 +99,13 @@ pub(super) fn settle_with_amm<'info>(
         leverage_collateral_fee(&a.collateral_mint, clock.epoch)?.unwind_credit(q.collateral_credit)?;
     require_gt!(collateral_credit, 0, ErrorCode::InsufficientAmount);
     let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
-    let insurance_fee_debit = debt_fee.effective_gross_for_credit(fee.insurance)?;
-    let revenue_fee_debit = debt_fee.effective_gross_for_credit(fee.lp + fee.protocol)?;
+    let junior_fee_debit = debt_fee.effective_gross_for_credit(fee.junior)?;
+    let revenue_fee_debit = debt_fee.effective_gross_for_credit(fee.protocol)?;
     let owner_debit = debt_fee.effective_gross_for_credit(owner_surplus)?;
     require_eq!(
         obligation,
         repayment
-            .checked_add(insurance_fee_debit)
+            .checked_add(junior_fee_debit)
             .and_then(|v| v.checked_add(revenue_fee_debit))
             .and_then(|v| v.checked_add(owner_debit))
             .ok_or(ErrorCode::MarketMathOverflow)?,
@@ -139,7 +131,6 @@ pub(super) fn settle_with_amm<'info>(
         principal_removed: allocation.principal,
         debt_reduced: allocation.debt,
         repayment,
-        insurance_credit: loss.insurance_credit,
     };
     swap.bind_liquidation(&a.market, policy)?;
     let swap_quote = swap.leverage_quote();
@@ -169,29 +160,6 @@ pub(super) fn settle_with_amm<'info>(
         collateral_credit,
         ErrorCode::BrokenInvariant
     );
-    if insurance_debit > 0 {
-        let before = a.reserve_vault.amount;
-        transfer_checked_with_remaining_accounts(
-            a.market.to_account_info(),
-            a.insurance_vault.to_account_info(),
-            a.reserve_vault.to_account_info(),
-            a.debt_mint.to_account_info(),
-            a.debt_token_program.to_account_info(),
-            insurance_debit,
-            a.debt_mint.decimals,
-            &[&generate_market_seeds!(a.market)[..]],
-            hooks,
-        )?;
-        a.reserve_vault.reload()?;
-        require_eq!(
-            a.reserve_vault
-                .amount
-                .checked_sub(before)
-                .ok_or(ErrorCode::BrokenInvariant)?,
-            loss.insurance_credit,
-            ErrorCode::BrokenInvariant
-        );
-    }
     let finalized = swap.apply(
         &mut a.market,
         policy,
@@ -201,9 +169,6 @@ pub(super) fn settle_with_amm<'info>(
         a.futarchy_authority.protocol_auction_split,
         None,
     )?;
-    if insurance_debit > 0 {
-        a.market.insurance.consume_draw(asset, insurance_debit, clock.slot)?;
-    }
     {
         let mut position = match (&mut a.borrow_position, &mut a.leverage_position) {
             (Some(p), None) => LiquidationPositionMut::Borrow(p),
@@ -235,12 +200,8 @@ pub(super) fn settle_with_amm<'info>(
     for (destination, debit, credit) in [
         (a.buyer_refund_account.to_account_info(), buyer_debit, buyer_credit),
         (a.owner_debt_account.to_account_info(), owner_debit, owner_surplus),
-        (a.interest_vault.to_account_info(), insurance_fee_debit, fee.insurance),
-        (
-            a.interest_vault.to_account_info(),
-            revenue_fee_debit,
-            fee.lp + fee.protocol,
-        ),
+        (a.interest_vault.to_account_info(), junior_fee_debit, fee.junior),
+        (a.interest_vault.to_account_info(), revenue_fee_debit, fee.protocol),
     ] {
         if debit == 0 {
             continue;
@@ -265,17 +226,12 @@ pub(super) fn settle_with_amm<'info>(
             ErrorCode::BrokenInvariant
         );
     }
-    if fee.insurance > 0 {
-        a.market
-            .side_mut(asset)
-            .record_junior_liquidation_credit(fee.insurance)?;
+    if fee.junior > 0 {
+        a.market.side_mut(asset).record_junior_liquidation_credit(fee.junior)?;
     }
-    a.market.side_mut(asset).record_liquidation_fee_credit(
-        fee.lp,
-        fee.protocol,
-        a.futarchy_authority.protocol_auction_split,
-        eligibility.srlp_supply,
-    )?;
+    a.market
+        .side_mut(asset)
+        .record_liquidation_protocol_credit(fee.protocol, a.futarchy_authority.protocol_auction_split)?;
     a.interest_vault.reload()?;
     let referral_receipt = record_leverage_interest(
         &mut a.market,
@@ -328,14 +284,8 @@ pub(super) fn settle_with_amm<'info>(
     }
     a.reserve_vault.reload()?;
     collateral_reserve.reload()?;
-    a.insurance_vault.reload()?;
     require_reserve_custody(a.reserve_vault.amount, a.market.side(asset))?;
     require_reserve_custody(collateral_reserve.amount, a.market.side(asset.opposite()))?;
-    require_gte!(
-        a.insurance_vault.amount,
-        a.market.insurance.available(asset),
-        ErrorCode::UnbackedFeeLiability
-    );
     require_gte!(
         a.interest_vault.amount,
         a.market.side(asset).fees.interest_vault_balance,

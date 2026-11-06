@@ -63,7 +63,7 @@ These are monitoring helpers, not substitutes for on-chain position previews.
    signature, or observation/timer transaction alone is not successful cleanup.
 5. Alert on failed scans, final-notice backlog, repeated route/economic failures,
    signer/confirmation failure, or activation with exposed debt still remaining.
-   Never bypass liquidation health, reward limits or insurance limits to clear
+   Never bypass liquidation health, reward limits or tranche loss accounting to clear
    the alert. Epochs, rather than an assumed number of wall-clock hours, define
    the notice window.
 
@@ -83,8 +83,9 @@ A fee authority can schedule and cancel a change after an early liquidation.
 Borrowers of mutable-fee assets bear the resulting liquidation-penalty risk.
 A fee can activate before cleanup because of unavailable/unprofitable routes,
 insufficient keeper coverage, congestion or confirmation delays. At that point,
-zero-credit settlement follows principal-first recovery, principal-only bounded
-insurance, unpaid-interest cancellation and remaining principal write-off.
+zero-credit settlement follows principal-first recovery, unpaid-interest
+cancellation, and junior-first allocation of the remaining funded loss before
+senior bears any excess.
 These rules account for a loss; they do not prevent the issuer from causing it.
 
 Market-wide health applies a conservative fee rate to aggregate contributions.

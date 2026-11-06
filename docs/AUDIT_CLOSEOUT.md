@@ -1,5 +1,13 @@
 # PR #45 closeout
 
+> Core LP voting and elected management in this historical record have also
+> been replaced by the [current operator model](MARKET_OPERATOR.md).
+
+> Historical design/evidence: the standalone insurance fund and its coverage,
+> draw, target, and donation rules were removed on 5 November 2026. Earlier
+> results below retain their original assumptions and are not validation of
+> the current policy. See the [current junior-first waterfall](CREDIT_LOSS_WATERFALL.md).
+
 **2026-10-24 merge review:** source changes for all seven verified external-model
 findings, including hLP full-value accounting and recovery, are integrated in
 #45. The expanded hLP surface still requires final adversarial and economic

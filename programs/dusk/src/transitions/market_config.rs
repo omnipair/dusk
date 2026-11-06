@@ -10,7 +10,7 @@ impl FeeProfile {
             self.volatility_fee_share_cap_bps,
         )?;
         // Validate both derived runtime rates when admitting a profile. The
-        // swap solver recomputes them from the live path, while governance
+        // swap solver recomputes them from the live path, while operator admission
         // must reject any profile whose configured extrema are not safely
         // representable.
         fee_share_cap_to_marginal_rate_nad(self.divergence_fee_share_cap_bps)?;
@@ -131,12 +131,12 @@ impl FeeProfile {
 
 #[cfg(test)]
 mod config_tests {
-    include!("../tests/transitions/governance_config.rs");
+    include!("../tests/transitions/market_config.rs");
 }
 
 #[cfg(test)]
 mod market_tests {
-    include!("../tests/transitions/governance_market.rs");
+    include!("../tests/transitions/market_parameters.rs");
 }
 
 impl MarketConfig {
@@ -180,30 +180,34 @@ impl MarketConfig {
     pub fn apply_fee_profile(&mut self, profile: FeeProfile) -> Result<()> {
         profile.validate()?;
         let mut next = *self;
-        next.swap_fee_bps = profile.base_fee_bps;
-        next.divergence_fee_share_cap_bps = profile.divergence_fee_share_cap_bps;
-        next.volatility_fee_share_cap_bps = profile.volatility_fee_share_cap_bps;
-        next.amm.divergence_fee_coefficient_nad = profile.divergence_fee_coefficient_nad;
-        next.amm.volatility_fee_coefficient_nad = profile.volatility_fee_coefficient_nad;
-        next.amm.volatility_half_life_ms = profile.volatility_half_life_ms;
-        next.amm.volatility_shock_cap_nad = profile.volatility_shock_cap_nad;
-        next.amm.volatility_cap_nad = profile.volatility_accumulator_cap_nad;
-        next.amm.swap_fee_collect_mode = profile.swap_fee_collect_mode;
-        next.amm.compounding_fee_bps = profile.compounding_fee_bps;
-        next.amm.launch_fee_start_bps = profile.launch_fee_start_bps;
-        next.amm.launch_fee_duration_seconds = profile.launch_fee_duration_seconds;
-        next.amm.launch_fee_decay_mode = profile.launch_fee_decay_mode;
-        next.amm.launch_market_price_step_bps = profile.launch_market_price_step_bps;
-        next.amm.launch_market_number_of_periods = profile.launch_market_number_of_periods;
-        next.amm.launch_market_reduction_factor_bps = profile.launch_market_reduction_factor_bps;
-        next.amm.launch_rate_limit_asset = profile.launch_rate_limit_asset;
-        next.amm.launch_rate_limit_reference_nad = profile.launch_rate_limit_reference_nad;
-        next.amm.launch_rate_limit_increment_bps = profile.launch_rate_limit_increment_bps;
-        next.amm.launch_rate_limit_max_fee_bps = profile.launch_rate_limit_max_fee_bps;
-        next.amm.launch_rate_limit_duration_seconds = profile.launch_rate_limit_duration_seconds;
+        next.copy_fee_profile_fields(profile);
         next.validate()?;
         *self = next;
         Ok(())
+    }
+
+    pub(crate) fn copy_fee_profile_fields(&mut self, profile: FeeProfile) {
+        self.swap_fee_bps = profile.base_fee_bps;
+        self.divergence_fee_share_cap_bps = profile.divergence_fee_share_cap_bps;
+        self.volatility_fee_share_cap_bps = profile.volatility_fee_share_cap_bps;
+        self.amm.divergence_fee_coefficient_nad = profile.divergence_fee_coefficient_nad;
+        self.amm.volatility_fee_coefficient_nad = profile.volatility_fee_coefficient_nad;
+        self.amm.volatility_half_life_ms = profile.volatility_half_life_ms;
+        self.amm.volatility_shock_cap_nad = profile.volatility_shock_cap_nad;
+        self.amm.volatility_cap_nad = profile.volatility_accumulator_cap_nad;
+        self.amm.swap_fee_collect_mode = profile.swap_fee_collect_mode;
+        self.amm.compounding_fee_bps = profile.compounding_fee_bps;
+        self.amm.launch_fee_start_bps = profile.launch_fee_start_bps;
+        self.amm.launch_fee_duration_seconds = profile.launch_fee_duration_seconds;
+        self.amm.launch_fee_decay_mode = profile.launch_fee_decay_mode;
+        self.amm.launch_market_price_step_bps = profile.launch_market_price_step_bps;
+        self.amm.launch_market_number_of_periods = profile.launch_market_number_of_periods;
+        self.amm.launch_market_reduction_factor_bps = profile.launch_market_reduction_factor_bps;
+        self.amm.launch_rate_limit_asset = profile.launch_rate_limit_asset;
+        self.amm.launch_rate_limit_reference_nad = profile.launch_rate_limit_reference_nad;
+        self.amm.launch_rate_limit_increment_bps = profile.launch_rate_limit_increment_bps;
+        self.amm.launch_rate_limit_max_fee_bps = profile.launch_rate_limit_max_fee_bps;
+        self.amm.launch_rate_limit_duration_seconds = profile.launch_rate_limit_duration_seconds;
     }
 
     /// Effective base fee for one swap. Launch protection is a bounded,
@@ -435,6 +439,10 @@ impl MarketConfig {
         );
         self.irm.validate()?;
         self.amm.validate()?;
+        require!(
+            self.amm.concentrated_curve_parameters()?.is_cpmm() || self.amm.adjustment_step_nad > 0,
+            ErrorCode::InvalidMarketConfig
+        );
         Ok(())
     }
 }
@@ -453,8 +461,6 @@ impl Market {
         config: MarketConfig,
         base_hlp_srlp_vault: Pubkey,
         quote_hlp_srlp_vault: Pubkey,
-        base_insurance_vault: Pubkey,
-        quote_insurance_vault: Pubkey,
         params_hash: [u8; 32],
         initial_liquidity_authority: Pubkey,
         bootstrap_price_nad: u64,
@@ -512,18 +518,10 @@ impl Market {
             last_snapshot_slot: current_slot,
             ..Risk::default()
         };
-        self.insurance = Insurance {
-            base_vault: base_insurance_vault,
-            quote_vault: quote_insurance_vault,
-            principal_coverage_bps: crate::constants::MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS,
-            per_day_draw_bps: crate::constants::MAX_INSURANCE_DRAW_PER_DAY_BPS,
-            ..Insurance::default()
-        };
         self.params_hash = params_hash;
         self.initial_liquidity_authority = initial_liquidity_authority;
-        self.governance_locked_srlp = 0;
-        self.governance_locked_junior = 0;
-        self.parameter_revisions = [0; 9];
+        self.operator = OperatorState::new(initial_liquidity_authority);
+        self.parameter_revisions = [0; crate::state::PARAMETER_FAMILY_COUNT];
         self.last_marginal_observation_nad = 0;
         self.curve_revision = 0;
         self.risk_revision = 0;
@@ -578,8 +576,66 @@ impl Market {
         Ok(())
     }
 
+    pub fn assert_launch_settings_unchanged_after_start(
+        &self,
+        updates: &[MarketParameterUpdate],
+        now: i64,
+    ) -> Result<()> {
+        if now < self.config.start_time {
+            return Ok(());
+        }
+        let old = self.config.fee_profile();
+        for update in updates {
+            if let MarketParameterUpdate::Fee(next) = update {
+                require!(
+                    old.launch_fee_start_bps == next.launch_fee_start_bps
+                        && old.launch_fee_duration_seconds == next.launch_fee_duration_seconds
+                        && old.launch_fee_decay_mode == next.launch_fee_decay_mode
+                        && old.launch_market_price_step_bps == next.launch_market_price_step_bps
+                        && old.launch_market_number_of_periods == next.launch_market_number_of_periods
+                        && old.launch_market_reduction_factor_bps == next.launch_market_reduction_factor_bps
+                        && old.launch_rate_limit_asset == next.launch_rate_limit_asset
+                        && old.launch_rate_limit_reference_nad == next.launch_rate_limit_reference_nad
+                        && old.launch_rate_limit_increment_bps == next.launch_rate_limit_increment_bps
+                        && old.launch_rate_limit_max_fee_bps == next.launch_rate_limit_max_fee_bps
+                        && old.launch_rate_limit_duration_seconds == next.launch_rate_limit_duration_seconds,
+                    ErrorCode::LaunchSettingsImmutable
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub fn current_parameter_update(&self, family: ParameterFamily) -> MarketParameterUpdate {
+        match family {
+            ParameterFamily::Fee => MarketParameterUpdate::Fee(self.config.fee_profile()),
+            ParameterFamily::Concentration => MarketParameterUpdate::Concentration {
+                peak_amplification_nad: self.config.amm.peak_amplification_nad,
+                core_half_width_bps: self.config.amm.core_half_width_bps,
+                fade_width_bps: self.config.amm.fade_width_bps,
+                ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
+            },
+            ParameterFamily::Irm => MarketParameterUpdate::Irm(self.config.irm.into()),
+            ParameterFamily::EmaHalfLives => MarketParameterUpdate::EmaHalfLives {
+                price_ms: self.config.ema_half_life_ms,
+                directional_price_ms: self.config.directional_ema_half_life_ms,
+                curve_depth_ms: self.config.curve_depth_ema_half_life_ms,
+                center_price_ms: self.config.amm.center_ema_half_life_ms,
+            },
+            ParameterFamily::DailyBorrowLimit => MarketParameterUpdate::DailyBorrowLimit {
+                max_daily_borrow_bps: self.config.max_daily_borrow_bps,
+            },
+            ParameterFamily::CenterController => MarketParameterUpdate::CenterController {
+                adjustment_step_nad: self.config.amm.adjustment_step_nad,
+            },
+            ParameterFamily::Tranche => MarketParameterUpdate::Tranche {
+                junior_income_share_bps: self.tranche_policy.junior_income_share_bps,
+            },
+        }
+    }
+
     /// Validate a proposal's updates without permitting unrelated
-    /// configuration fields to move with them: one to nine, at most one per
+    /// configuration fields to move with them: one to seven, at most one per
     /// family in ascending family order, each a real change within its own
     /// family's bounds, and the configuration they produce together valid as
     /// a whole. Returns that configuration.
@@ -588,10 +644,6 @@ impl Market {
         let mut next = self.config;
         for update in updates {
             match update {
-                MarketParameterUpdate::Oracle(policy) => {
-                    policy.validate()?;
-                    require!(*policy != self.oracle.policy, ErrorCode::ParameterUpdateNotMeaningful);
-                }
                 MarketParameterUpdate::Fee(profile) => {
                     require!(
                         self.config.fee_profile() != *profile,
@@ -603,6 +655,7 @@ impl Market {
                     peak_amplification_nad,
                     core_half_width_bps,
                     fade_width_bps,
+                    ramp_duration_slots,
                 } => {
                     let target = ConcentratedCurveParameters {
                         peak_amplification_nad: *peak_amplification_nad,
@@ -610,16 +663,21 @@ impl Market {
                         fade_width_bps: *fade_width_bps,
                     };
                     target.validate(MAX_AMM_AMPLIFICATION_NAD)?;
+                    ConcentrationRamp::validate_target(
+                        self.config.amm.concentrated_curve_parameters()?,
+                        target,
+                        *ramp_duration_slots,
+                    )?;
                     require!(
-                        self.config.amm.concentrated_curve_parameters()? != target,
+                        self.config.amm.concentrated_curve_parameters()? != target
+                            || self.amm.concentration_ramp.active,
                         ErrorCode::ParameterUpdateNotMeaningful
                     );
                     next.amm.set_concentrated_curve_parameters(target)?;
                 }
                 MarketParameterUpdate::Irm(irm) => {
-                    irm.validate()?;
-                    require!(self.config.irm != *irm, ErrorCode::ParameterUpdateNotMeaningful);
-                    next.irm = *irm;
+                    next.irm = irm.apply(self.config.irm)?;
+                    require!(self.config.irm != next.irm, ErrorCode::ParameterUpdateNotMeaningful);
                 }
                 MarketParameterUpdate::EmaHalfLives {
                     price_ms,
@@ -657,55 +715,22 @@ impl Market {
                     );
                     next.max_daily_borrow_bps = *max_daily_borrow_bps;
                 }
-                MarketParameterUpdate::CenterController {
-                    adjustment_threshold_nad,
-                    adjustment_step_nad,
-                    min_adjustment_interval_slots,
-                } => {
-                    // The tuple's own rules are checked with the whole
-                    // configuration below.
+                MarketParameterUpdate::CenterController { adjustment_step_nad } => {
                     require!(
-                        self.config.amm.adjustment_threshold_nad != *adjustment_threshold_nad
-                            || self.config.amm.adjustment_step_nad != *adjustment_step_nad
-                            || self.config.amm.min_adjustment_interval_slots != *min_adjustment_interval_slots,
+                        self.config.amm.adjustment_step_nad != *adjustment_step_nad,
                         ErrorCode::ParameterUpdateNotMeaningful
                     );
-                    next.amm.adjustment_threshold_nad = *adjustment_threshold_nad;
+                    require!(*adjustment_step_nad > 0, ErrorCode::InvalidMarketConfig);
                     next.amm.adjustment_step_nad = *adjustment_step_nad;
-                    next.amm.min_adjustment_interval_slots = *min_adjustment_interval_slots;
-                }
-                MarketParameterUpdate::InsuranceDrawCaps {
-                    principal_coverage_bps,
-                    per_day_bps,
-                } => {
-                    require!(
-                        *principal_coverage_bps <= MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS
-                            && *per_day_bps <= MAX_INSURANCE_DRAW_PER_DAY_BPS,
-                        ErrorCode::InvalidParameterUpdate
-                    );
-                    require!(
-                        self.insurance.principal_coverage_bps != *principal_coverage_bps
-                            || self.insurance.per_day_draw_bps != *per_day_bps,
-                        ErrorCode::ParameterUpdateNotMeaningful
-                    );
                 }
                 MarketParameterUpdate::Tranche {
                     junior_income_share_bps,
-                    request_fee_bps,
-                    liquidation_fee_bps,
                 } => {
                     let policy = crate::state::TranchePolicy {
                         junior_income_share_bps: *junior_income_share_bps,
-                        liquidation_fee_bps: *liquidation_fee_bps,
                     };
                     policy.validate()?;
-                    let mut exit = self.junior_exit_config;
-                    exit.request_fee_bps = *request_fee_bps;
-                    exit.validate()?;
-                    require!(
-                        self.tranche_policy != policy || self.junior_exit_config.request_fee_bps != *request_fee_bps,
-                        ErrorCode::ParameterUpdateNotMeaningful
-                    );
+                    require!(self.tranche_policy != policy, ErrorCode::ParameterUpdateNotMeaningful);
                 }
             }
         }
@@ -714,72 +739,40 @@ impl Market {
     }
 
     /// Checkpoint all elapsed state under the old parameters, apply every
-    /// family as one atomic change, enforce admission for non-oracle-only
-    /// changes, and then advance the revision of each family that changed.
+    /// family as one atomic change, enforce market health and available liquidity, and then advance the revision of each family that changed.
     /// Any failure leaves the market untouched.
+    #[cfg(test)]
     pub fn execute_parameter_updates(&mut self, updates: &[MarketParameterUpdate], current_slot: u64) -> Result<()> {
-        self.execute_parameter_updates_inner(updates, current_slot, None)
+        self.execute_parameter_updates_inner(updates, current_slot)
     }
 
-    /// Validate the newly selected source in the execution transaction. A
-    /// timelocked replacement may recover a dead source without requiring
-    /// that dead source to publish again. Elapsed interest still uses old rates.
+    /// Authenticate the immutable creation-time oracle policy, then checkpoint
+    /// the previous parameters before applying a timelocked operator bundle.
     pub(crate) fn execute_parameter_updates_authenticated(
         &mut self,
         updates: &[MarketParameterUpdate],
         clock: &Clock,
         accounts: &[AccountInfo],
     ) -> Result<()> {
-        let next = updates.iter().find_map(|update| match update {
-            MarketParameterUpdate::Oracle(policy) => Some(*policy),
-            _ => None,
-        });
-        if let Some(policy) = next {
-            policy.validate()?;
-            let same_source = policy.same_source(self.oracle.policy);
-            let observation = if policy.lambda_bps == 0 {
-                if same_source {
-                    self.oracle.last_observation
-                } else {
-                    OracleObservation::default()
-                }
-            } else {
-                let observed = policy.read(accounts, clock, self.base_side.asset_mint, self.quote_side.asset_mint)?;
-                if same_source {
-                    observed.assert_not_before(self.oracle.last_observation, policy.format)?;
-                }
-                observed
-            };
-            self.execute_parameter_updates_inner(updates, clock.slot, Some((policy, observation)))
-        } else {
-            self.bind_oracle(accounts, clock)?;
-            self.execute_parameter_updates_inner(updates, clock.slot, None)
-        }
+        self.assert_launch_settings_unchanged_after_start(updates, clock.unix_timestamp)?;
+        self.bind_oracle(accounts, clock)?;
+        self.execute_parameter_updates_inner(updates, clock.slot)
     }
 
     #[inline(never)]
-    fn execute_parameter_updates_inner(
-        &mut self,
-        updates: &[MarketParameterUpdate],
-        current_slot: u64,
-        next_oracle: Option<(OraclePolicy, OracleObservation)>,
-    ) -> Result<()> {
+    fn execute_parameter_updates_inner(&mut self, updates: &[MarketParameterUpdate], current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
         let next_config = self.validate_parameter_updates(updates)?;
-        let oracle_only = MarketParameterUpdate::is_oracle_only(updates);
-        let changes_oracle = updates.iter().any(|u| matches!(u, MarketParameterUpdate::Oracle(_)));
-        require!(
-            changes_oracle == next_oracle.is_some(),
-            ErrorCode::OracleAuthenticationFailed
-        );
         let previous_oracle = self.oracle.clone();
         let previous_config = self.config;
         let previous_base_side = self.base_side.clone();
         let previous_quote_side = self.quote_side.clone();
         let previous_amm = self.amm.clone();
         let previous_debt = self.debt;
+        let previous_base_hlp_vault = self.base_hlp_vault;
+        let previous_quote_hlp_vault = self.quote_hlp_vault;
+        let previous_income = self.income.clone();
         let previous_risk = self.risk;
-        let previous_insurance = self.insurance;
         let previous_tranche_policy = self.tranche_policy;
         let previous_junior_exit_config = self.junior_exit_config;
         let previous_revisions = self.parameter_revisions;
@@ -789,11 +782,6 @@ impl Market {
         let previous_last_update_slot = self.last_update_slot;
 
         let apply_result = (|| {
-            let prior_oracle_mark = if changes_oracle {
-                self.remembered_oracle_mark()?
-            } else {
-                None
-            };
             // No elapsed interest, EMA decay, or risk integration may be
             // retroactively evaluated under the newly selected parameters.
             self.accrue_interest_to_slot(current_slot)?;
@@ -801,12 +789,8 @@ impl Market {
                 self.amm
                     .observe_slot_from_validated_config(&previous_config.amm, current_slot)?;
             }
-            if !changes_oracle {
-                self.refresh_risk_at_slot(current_slot)?;
-            }
-            if !oracle_only {
-                self.assert_parameter_execution_utilization()?;
-            }
+            self.refresh_risk_at_slot(current_slot)?;
+            self.assert_parameter_execution_utilization()?;
 
             // Every family closes its elapsed windows under the old values
             // before any value moves, so one family's change never reaches
@@ -826,53 +810,39 @@ impl Market {
                             .daily_borrow_bucket
                             .decay_to_slot(quote_limit, current_slot)?;
                     }
-                    MarketParameterUpdate::InsuranceDrawCaps {
-                        principal_coverage_bps,
-                        per_day_bps,
-                    } => {
-                        // Open/checkpoint the current window under the old policy.
-                        // Lowering a cap can therefore only reduce future capacity;
-                        // it never retroactively restores already-spent allowance.
-                        self.insurance.checkpoint_draw_window(MarketAsset::Base, current_slot)?;
-                        self.insurance
-                            .checkpoint_draw_window(MarketAsset::Quote, current_slot)?;
-                        self.insurance.principal_coverage_bps = *principal_coverage_bps;
-                        self.insurance.per_day_draw_bps = *per_day_bps;
-                    }
                     MarketParameterUpdate::Tranche {
                         junior_income_share_bps,
-                        request_fee_bps,
-                        liquidation_fee_bps,
                     } => {
                         self.tranche_policy = crate::state::TranchePolicy {
                             junior_income_share_bps: *junior_income_share_bps,
-                            liquidation_fee_bps: *liquidation_fee_bps,
                         };
                         self.base_side.fees.junior.income_share_bps = *junior_income_share_bps;
                         self.quote_side.fees.junior.income_share_bps = *junior_income_share_bps;
-                        self.junior_exit_config.request_fee_bps = *request_fee_bps;
                     }
                     _ => {}
                 }
             }
 
             self.config = next_config;
-            if let Some((policy, observation)) = next_oracle {
-                self.oracle.policy = policy;
-                self.oracle.last_observation = observation;
-                self.oracle.revision = self
-                    .oracle
-                    .revision
-                    .checked_add(1)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-                self.oracle.runtime = if policy.lambda_bps == 0 {
-                    RuntimePricing::default()
-                } else {
-                    RuntimePricing::bind(policy, observation)
+            if let Some(duration) = updates.iter().find_map(|update| match update {
+                MarketParameterUpdate::Concentration {
+                    ramp_duration_slots, ..
+                } => Some(*ramp_duration_slots),
+                _ => None,
+            }) {
+                self.amm.concentration_ramp = ConcentrationRamp {
+                    active: true,
+                    start: previous_config.amm.concentrated_curve_parameters()?,
+                    target: next_config.amm.concentrated_curve_parameters()?,
+                    start_slot: current_slot,
+                    end_slot: current_slot
+                        .checked_add(duration)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                    last_attempt_slot: current_slot,
                 };
-                self.checkpoint_oracle_risk_depth()?;
-                self.amm.invalidate_deferred_controller_target();
-                self.advance_curve_revision()?;
+                self.config
+                    .amm
+                    .set_concentrated_curve_parameters(previous_config.amm.concentrated_curve_parameters()?)?;
             }
 
             // Side effects read the final configuration, so a curve shape and
@@ -886,14 +856,7 @@ impl Market {
                         }
                     }
                     MarketParameterUpdate::Concentration { .. } => {
-                        if self.config.amm.concentrated_curve_parameters()?.is_cpmm()
-                            || self.config.amm.adjustment_step_nad == 0
-                        {
-                            self.release_protected_recenter_reserves()?;
-                        }
-                        if self.amm.initialized {
-                            self.apply_concentrated_curve_parameter_update(current_slot)?;
-                        }
+                        self.amm.invalidate_deferred_controller_target();
                     }
                     MarketParameterUpdate::CenterController { .. } => {
                         if self.config.amm.adjustment_step_nad == 0
@@ -910,17 +873,9 @@ impl Market {
             }
 
             self.finalize_amm_transition(current_slot)?;
-            if let Some(before) = prior_oracle_mark {
-                let after = self
-                    .current_concentrated_spot_price_nad()?
-                    .ok_or(ErrorCode::BrokenInvariant)?;
-                self.amm
-                    .checkpoint_trade(&self.config.amm, before, after, current_slot)?;
-            }
+
             self.refresh_risk_at_slot(current_slot)?;
-            if !oracle_only {
-                self.assert_market_health()?;
-            }
+            self.assert_market_health()?;
             for update in updates {
                 let family_index = update.family().code() as usize;
                 self.parameter_revisions[family_index] = self.parameter_revisions[family_index]
@@ -937,8 +892,10 @@ impl Market {
             self.quote_side = previous_quote_side;
             self.amm = previous_amm;
             self.debt = previous_debt;
+            self.base_hlp_vault = previous_base_hlp_vault;
+            self.quote_hlp_vault = previous_quote_hlp_vault;
+            self.income = previous_income;
             self.risk = previous_risk;
-            self.insurance = previous_insurance;
             self.tranche_policy = previous_tranche_policy;
             self.junior_exit_config = previous_junior_exit_config;
             self.parameter_revisions = previous_revisions;

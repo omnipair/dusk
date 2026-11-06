@@ -41,8 +41,8 @@ yarn test-litesvm:no-build --grep "initializes a final srLP/hLP market"
 - hLP single-sided deposit/withdraw with aggregate vault-owned srLP, funding debt
   settlement, reserve-backing conservation, and predictive CPMM/concentrated
   swap settlement.
-- The 58-instruction coverage registry includes liquidity-gate opening, hLP
-  rescue and terminal close, insurance funding, and hLP order-trigger previews.
+- The instruction coverage registry includes liquidity-gate opening, hLP
+  rescue and terminal close, junior-first loss allocation, and hLP order-trigger previews.
 
 The smoke coverage report is maintained in
 `tests/utils/instruction-coverage.ts`. It tracks whether each Dusk instruction

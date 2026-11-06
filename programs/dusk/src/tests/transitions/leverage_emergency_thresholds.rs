@@ -107,7 +107,6 @@ fn quote_sale(
             debt_asset: position.debt_asset()?,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
-            insurance_credit: 0,
         },
     )?;
     Ok((trial, prepared))
@@ -217,7 +216,7 @@ fn emergency(market: &Market, position: &LeveragePosition, slot: u64, scenario: 
     })
 }
 
-// Observe actual native full-sale quotes before insurance at the first eligible
+// Observe actual native full-sale quotes before the tranche waterfall at the first eligible
 // and emergency-permitted observations. A quote is neither execution permission
 // nor proof of future recovery. Logging must not mutate either live account.
 fn report_headroom(
@@ -256,30 +255,7 @@ fn report_headroom(
             }
             Err(_) => (0, 0, 0, 0, false),
         };
-    println!(
-        "EMERGENCY_HEADROOM,{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
-        scenario.critical,
-        case.amp,
-        case.controller,
-        case.hlp,
-        case.debt_asset.code(),
-        case.pieces,
-        case.path,
-        case.withdrawal,
-        scenario.fee_bps,
-        scenario.emergency_first,
-        position_index,
-        stage,
-        step,
-        h,
-        mm,
-        debt,
-        reference,
-        output,
-        reward,
-        contribution,
-        format_args!("{net},{quote_ok}")
-    );
+    println!("EMERGENCY_HEADROOM,{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", scenario.critical, case.amp, case.controller, case.hlp, case.debt_asset.code(), case.pieces, case.path, case.withdrawal, scenario.fee_bps, scenario.emergency_first, position_index, stage, step, h, mm, debt, reference, output, reward, contribution, format_args!("{net},{quote_ok}"));
 }
 
 fn settle_netted(
@@ -332,26 +308,10 @@ fn settle_netted(
         ..Paid::default()
     };
     if paid.contribution > 0 {
-        trial.insurance.credit(debt_asset, paid.contribution, slot)?;
+        trial.side_mut(debt_asset).record_junior_liquidation_credit(paid.contribution)?;
     }
     if fill.kind > 0 && next.debt_shares > 0 {
-        let remaining = next.debt_amount(&trial.debt)?;
-        let spent = trial
-            .insurance
-            .draw_capacity(debt_asset, slot)?
-            .min(fee.effective_gross_for_credit(remaining)?);
-        let credit = fee.unwind_credit(spent)?;
-        let receipt = trial.liquidate_leverage_position(
-            &mut next,
-            None,
-            0,
-            LeverageSwapFeeCredit::default(),
-            LeverageInsuranceDraw { spent, credit },
-            0,
-            ProtocolAuctionSplit::default(),
-            slot,
-        )?;
-        paid.insurance = receipt.insurance_drawn;
+        let receipt = trial.liquidate_leverage_position(&mut next, None, 0, LeverageSwapFeeCredit::default(), 0, ProtocolAuctionSplit::default(), slot)?;
         paid.loss = receipt.principal_written_off;
     } else {
         trial.reduce_leverage_collateral(&mut next, fill.sold)?;
@@ -491,7 +451,6 @@ fn run(scenario: Scenario) -> Outcome {
                         o.totals.flash += u64::from(fill.kind == 1);
                         o.totals.emergency += u64::from(fill.kind == 3);
                         o.totals.repaid += paid.repaid;
-                        o.totals.insurance += paid.insurance;
                         o.totals.loss += paid.loss;
                         o.totals.owner += paid.owner;
                         o.totals.reward += paid.reward;
@@ -553,7 +512,7 @@ fn run(scenario: Scenario) -> Outcome {
     }
     assert_eq!(
         o.totals.original_debt,
-        o.totals.repaid + o.totals.insurance + o.totals.loss + o.totals.remaining
+        o.totals.repaid + o.totals.loss + o.totals.remaining
     );
     o
 }
@@ -562,7 +521,7 @@ fn run(scenario: Scenario) -> Outcome {
 fn native_emergency_threshold_comparison() {
     let full = std::env::var_os("DUSK_EMERGENCY_THRESHOLD_SWEEP").is_some();
     println!("EMERGENCY_HEADROOM,critical_bps,amplification,controller,hlp,debt_side,pieces,path,withdrawal_bps,transfer_fee_bps,emergency_first,position_index,stage,step,health_bps,mm_bps,debt,reference_value,output,reward,contribution,net_recovery,quote_ok");
-    println!("EMERGENCY_THRESHOLD,critical_bps,amplification,controller,hlp,debt_side,pieces,path,withdrawal_bps,transfer_fee_bps,emergency_first,opened,original_debt,partial,flash,emergency,repaid,insurance,loss,owner,reward,contribution,buyer_profit,debt_transfer_cost,sold_reference,survivor_equity,remaining,eligible,eligible_debt,first_emergency_step,first_emergency_health,first_emergency_mm,emergency_with_partial,cash_rejections,eligible_above_emergency,eligible_above_emergency_debt,largest_eligible_debt,residual_shortfall,residual_quote_failures,blocked");
+    println!("EMERGENCY_THRESHOLD,critical_bps,amplification,controller,hlp,debt_side,pieces,path,withdrawal_bps,transfer_fee_bps,emergency_first,opened,original_debt,partial,flash,emergency,repaid,loss,owner,reward,contribution,buyer_profit,debt_transfer_cost,sold_reference,survivor_equity,remaining,eligible,eligible_debt,first_emergency_step,first_emergency_health,first_emergency_mm,emergency_with_partial,cash_rejections,eligible_above_emergency,eligible_above_emergency_debt,largest_eligible_debt,residual_shortfall,residual_quote_failures,blocked");
     let mut count = 0;
     for critical in [7500, 6667, 5000] {
         for amp in [1, 4, 10] {
@@ -604,7 +563,7 @@ fn native_emergency_threshold_comparison() {
                                         };
                                         let o = run(scenario);
                                         let t = o.totals;
-                                        println!("EMERGENCY_THRESHOLD,{critical},{amp},{controller},{hlp},{},{pieces},{path},{withdrawal},{fee_bps},{emergency_first},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",debt_asset.code(),t.opened,t.original_debt,t.partial,t.flash,t.emergency,t.repaid,t.insurance,t.loss,t.owner,t.reward,t.contribution,o.buyer_profit,o.transfer_cost,o.sold_reference,o.survivor_equity,t.remaining,t.eligible,t.eligible_debt,o.first_emergency_step,o.first_emergency_health,o.first_emergency_mm,o.emergency_with_partial,o.cash_rejections,o.eligible_above_emergency,o.eligible_above_emergency_debt,o.largest_eligible_debt,o.residual_shortfall,o.residual_quote_failures,t.blocked);
+                                        println!("EMERGENCY_THRESHOLD,{critical},{amp},{controller},{hlp},{},{pieces},{path},{withdrawal},{fee_bps},{emergency_first},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", debt_asset.code(), t.opened, t.original_debt, t.partial, t.flash, t.emergency, t.repaid, t.loss, t.owner, t.reward, t.contribution, o.buyer_profit, o.transfer_cost, o.sold_reference, o.survivor_equity, t.remaining, t.eligible, t.eligible_debt, o.first_emergency_step, o.first_emergency_health, o.first_emergency_mm, o.emergency_with_partial, o.cash_rejections, o.eligible_above_emergency, o.eligible_above_emergency_debt, o.largest_eligible_debt, o.residual_shortfall, o.residual_quote_failures, t.blocked);
                                         count += 1;
                                     }
                                 }

@@ -5,7 +5,7 @@ import { SystemProgram } from "@solana/web3.js";
 import type { LeverageDelegate } from "./types_delegate.js";
 import { type LeverageDelegateProgram, LEVERAGE_DELEGATE_PROGRAM_ID } from "./delegate.js";
 import { DUSK_PROGRAM_ID, deriveEventAuthorityAddress } from "./constants.js";
-import { governanceIntegerBN } from "./governance.js";
+import { integerBN } from "./parameters.js";
 import { DuskWrite, type RawAmount } from "./write.js";
 import { createDuskProgram } from "./program.js";
 import { oracleReadAccounts } from "./oracle.js";
@@ -15,7 +15,7 @@ export const PROTECTION_ACTION = { borrowRepay: 0, borrowCollateral: 1, leverage
 export function deriveProtectionOrderAddress(owner: PublicKey, orderId: RawAmount,
   programId = LEVERAGE_DELEGATE_PROGRAM_ID): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("protection_order"), owner.toBuffer(),
-    governanceIntegerBN(orderId, "orderId").toArrayLike(Buffer, "le", 8)], programId);
+    integerBN(orderId, "orderId").toArrayLike(Buffer, "le", 8)], programId);
 }
 
 type MethodAccounts<T extends keyof LeverageDelegateProgram["methods"]> =
@@ -56,14 +56,14 @@ export class DuskProtectionOrders {
     const order = deriveProtectionOrderAddress(new PublicKey(accounts.owner), params.orderId, this.program.programId)[0];
     const args: CreateArgs = {
       ...params,
-      orderId: governanceIntegerBN(params.orderId, "orderId"),
-      lpAmount: governanceIntegerBN(params.lpAmount, "lpAmount"),
-      maxLpPerExecution: governanceIntegerBN(params.maxLpPerExecution, "maxLpPerExecution"),
-      maxPaymentPerExecution: governanceIntegerBN(params.maxPaymentPerExecution, "maxPaymentPerExecution"),
-      minPaymentPerLpNad: governanceIntegerBN(params.minPaymentPerLpNad, "minPaymentPerLpNad"),
-      triggerHealthBps: governanceIntegerBN(params.triggerHealthBps, "triggerHealthBps"),
-      targetHealthBps: governanceIntegerBN(params.targetHealthBps, "targetHealthBps"),
-      expiresAt: governanceIntegerBN(params.expiresAt, "expiresAt"),
+      orderId: integerBN(params.orderId, "orderId"),
+      lpAmount: integerBN(params.lpAmount, "lpAmount"),
+      maxLpPerExecution: integerBN(params.maxLpPerExecution, "maxLpPerExecution"),
+      maxPaymentPerExecution: integerBN(params.maxPaymentPerExecution, "maxPaymentPerExecution"),
+      minPaymentPerLpNad: integerBN(params.minPaymentPerLpNad, "minPaymentPerLpNad"),
+      triggerHealthBps: integerBN(params.triggerHealthBps, "triggerHealthBps"),
+      targetHealthBps: integerBN(params.targetHealthBps, "targetHealthBps"),
+      expiresAt: integerBN(params.expiresAt, "expiresAt"),
     };
     return this.program.methods.createProtectionOrder(args).accountsStrict({ ...accounts, order,
       duskProgram: DUSK_PROGRAM_ID, duskEventAuthority: deriveEventAuthorityAddress()[0],
@@ -77,7 +77,7 @@ export class DuskProtectionOrders {
   }
 
   async fundInstruction(lpAmount: RawAmount, accounts: ManageAccounts, remainingAccounts: AccountMeta[] = []) {
-    return this.program.methods.fundProtectionOrder({ lpAmount: governanceIntegerBN(lpAmount, "lpAmount") })
+    return this.program.methods.fundProtectionOrder({ lpAmount: integerBN(lpAmount, "lpAmount") })
       .accountsStrict({ ...accounts, token2022Program: TOKEN_2022_PROGRAM_ID }).remainingAccounts(remainingAccounts).instruction();
   }
 
@@ -103,8 +103,8 @@ export class DuskProtectionOrders {
       remainingAccounts[i]?.pubkey.equals(meta.pubkey) && remainingAccounts[i]?.isWritable === meta.isWritable);
     const completeRemaining = hasPrefix ? remainingAccounts : [...prefix, ...remainingAccounts];
     const remaining = await this.oracleAccounts(new PublicKey(accounts.market), completeRemaining);
-    return this.program.methods.executeProtectionOrder({ lpAmount: governanceIntegerBN(params.lpAmount, "lpAmount"),
-      paymentAmount: governanceIntegerBN(params.paymentAmount, "paymentAmount") })
+    return this.program.methods.executeProtectionOrder({ lpAmount: integerBN(params.lpAmount, "lpAmount"),
+      paymentAmount: integerBN(params.paymentAmount, "paymentAmount") })
       .accountsStrict({ ...accounts, duskProgram: DUSK_PROGRAM_ID, duskEventAuthority: deriveEventAuthorityAddress()[0],
         tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID })
       .remainingAccounts(remaining).instruction();

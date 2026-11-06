@@ -1,5 +1,7 @@
 # Implementation sources for the whitepapers
 
+> **2026-11-05 policy update:** standalone insurance was removed. Current losses flow through junior then senior; junior exit requests/renewals cost 50 bps and liquidations cost 300 bps. The retained papers, numerical results, and scripts below describe their pinned historical engines, not the current waterfall. See [current policy](../docs/CREDIT_LOSS_WATERFALL.md).
+
 Reviewed source: integration candidate of PR #45 at `04941f19` and PR #52 at `2f46e0e7`, October 23, 2026. This is a code snapshot, not a deployment claim. Paths below are relative to the repository root. The separate numerical replay is pinned to earlier #45 source `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`.
 
 | Paper claim | Implementation source and semantic anchor |
@@ -30,7 +32,6 @@ Reviewed source: integration candidate of PR #45 at `04941f19` and PR #52 at `2f
 | Atomic LP metadata creation | `programs/dusk/src/instructions/market/initialization.rs` |
 | Stored margin terms, aggregate entry charge and position actions | `programs/dusk/src/transitions/leverage_margins.rs`; `programs/dusk/src/state/leverage_position.rs`; `docs/STORED_LEVERAGE_MARGINS.md`, `docs/LEVERAGE_POSITION_ACTIONS.md` |
 | Seven governance families | `programs/dusk/src/state/parameter_proposal.rs`: `ParameterFamily`, `MarketParameterUpdate` |
-
 
 ## Derivations and numerical evidence
 

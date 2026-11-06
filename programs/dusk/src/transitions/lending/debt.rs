@@ -188,6 +188,11 @@ impl Debt {
             .checked_add(shares)
             .ok_or(ErrorCode::DebtShareMathOverflow)?;
         let next_principal = principal.checked_add(amount).ok_or(ErrorCode::DebtMathOverflow)?;
+        require_gte!(
+            u64::MAX as u128,
+            Self::shares_to_debt(next_aggregate_shares, borrow_index_nad)?,
+            ErrorCode::DebtMathOverflow
+        );
         *aggregate_shares = next_aggregate_shares;
         *principal = next_principal;
         Ok(shares)
@@ -404,7 +409,7 @@ impl DebtReceipt {
     pub(crate) fn from_market(
         market: &Market,
         borrow_position: &BorrowPosition,
-        debt_delta: i64,
+        debt_delta: i128,
         cash_repaid: u64,
         interest_paid: u64,
         health: &MarketHealth,
@@ -459,7 +464,7 @@ pub struct DebtWriteoff {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DebtReceipt {
-    pub debt_delta: i64,
+    pub debt_delta: i128,
     pub cash_repaid: u64,
     pub interest_paid: u64,
     pub fixed_base_debt: u128,

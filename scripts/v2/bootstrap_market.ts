@@ -152,8 +152,7 @@ async function main() {
         quoteReserveVault: addresses.quoteReserveVault,
         baseCollateralVault: addresses.baseCollateralVault,
         quoteCollateralVault: addresses.quoteCollateralVault,
-        baseInsuranceVault: addresses.baseInsuranceVault,
-        quoteInsuranceVault: addresses.quoteInsuranceVault,
+
         baseInterestVault: addresses.baseInterestVault,
         quoteInterestVault: addresses.quoteInterestVault,
         teamTreasury,
@@ -194,8 +193,7 @@ async function main() {
     quoteReserveVault: addresses.quoteReserveVault.toBase58(),
     baseCollateralVault: addresses.baseCollateralVault.toBase58(),
     quoteCollateralVault: addresses.quoteCollateralVault.toBase58(),
-    baseInsuranceVault: addresses.baseInsuranceVault.toBase58(),
-    quoteInsuranceVault: addresses.quoteInsuranceVault.toBase58(),
+
     baseInterestVault: addresses.baseInterestVault.toBase58(),
     quoteInterestVault: addresses.quoteInterestVault.toBase58(),
     baseHlpSrlpVault: baseHlpSrlpVault.toBase58(),
@@ -215,7 +213,7 @@ async function main() {
     leverageDelegate: {
       programId: duskEnv(
         "LEVERAGE_DELEGATE_PROGRAM_ID",
-        "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi"
+        "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY"
       ),
       upgradeAuthority: payer.publicKey.toBase58(),
     },

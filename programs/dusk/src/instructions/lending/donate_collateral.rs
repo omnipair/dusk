@@ -37,6 +37,8 @@ pub struct DonateCollateral<'info> {
         bump = market.bump
     )]
     pub market: Box<Account<'info, Market>>,
+    #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
+    pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,
 
     #[account(mut)]
     pub owner: Signer<'info>,

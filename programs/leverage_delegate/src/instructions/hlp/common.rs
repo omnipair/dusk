@@ -141,6 +141,7 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
     dusk_program: AccountInfo<'info>,
     event_authority: AccountInfo<'info>,
     market: AccountInfo<'info>,
+    futarchy_authority: AccountInfo<'info>,
     owner: AccountInfo<'info>,
     asset_mint: AccountInfo<'info>,
     lp_mint: AccountInfo<'info>,
@@ -162,6 +163,7 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
             dusk_program.clone(),
             dusk::cpi::accounts::Harvest {
                 market,
+                futarchy_authority,
                 caller: owner.clone(),
                 owner,
                 asset_mint,

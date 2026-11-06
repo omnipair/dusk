@@ -2,15 +2,14 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{BPS_DENOMINATOR, DEFAULT_LIQUIDATION_FEE_BPS, DEFAULT_PROTOCOL_REVENUE_SHARE_BPS},
+    constants::{BPS_DENOMINATOR, DEFAULT_PROTOCOL_REVENUE_SHARE_BPS},
     errors::ErrorCode,
 };
 
 pub const LIQUIDATION_MINIMUM_DISCOUNT_BPS: u16 = 50;
 pub const LIQUIDATION_RECOVERY_BUFFER_BPS: u16 = 200;
-pub const LIQUIDATION_FEE_BPS: u16 = DEFAULT_LIQUIDATION_FEE_BPS;
+pub use crate::constants::LIQUIDATION_FEE_BPS;
 pub const LIQUIDATION_PROTOCOL_SHARE_BPS: u16 = DEFAULT_PROTOCOL_REVENUE_SHARE_BPS;
-pub const PRINCIPAL_LOSS_COVERAGE_BPS: u16 = 7_500;
 
 /// Linear symmetric-EMA collateral value and actual indexed debt, both in debt
 /// token atoms. Execution prices never determine reference eligibility.
@@ -126,95 +125,49 @@ pub struct LiquidationRates {
 pub struct LiquidationFeeAllocation {
     pub total: u64,
     pub protocol: u64,
-    pub insurance: u64,
-    pub lp: u64,
+    pub junior: u64,
 }
 
 impl LiquidationFeeAllocation {
-    pub fn quote(
-        net_repayment: u64,
-        surplus_cap: u64,
-        insurance_balance: u64,
-        target: u64,
-        liquidation_fee_bps: u16,
-    ) -> Self {
-        let total = (u128::from(net_repayment) * u128::from(liquidation_fee_bps) / u128::from(BPS_DENOMINATOR))
+    /// A fixed 3% charge, bounded by recovered surplus. The protocol share is
+    /// allocated first; all underwriting revenue belongs to junior capital.
+    pub fn quote(net_repayment: u64, surplus_cap: u64) -> Self {
+        let total = (u128::from(net_repayment) * u128::from(LIQUIDATION_FEE_BPS) / u128::from(BPS_DENOMINATOR))
             .min(u128::from(surplus_cap)) as u64;
         let protocol =
             (u128::from(total) * u128::from(LIQUIDATION_PROTOCOL_SHARE_BPS) / u128::from(BPS_DENOMINATOR)) as u64;
-        let designated = total - protocol;
-        let shortfall = target.saturating_sub(insurance_balance);
-        let insurance = if target == 0 || shortfall == 0 {
-            0
-        } else if u128::from(insurance_balance) * 4 <= u128::from(target) * 3 {
-            designated.min(shortfall)
-        } else {
-            ((u128::from(designated) * 4 * u128::from(shortfall) / u128::from(target)) as u64).min(shortfall)
-        };
         Self {
             total,
             protocol,
-            insurance,
-            lp: designated - insurance,
+            junior: total - protocol,
         }
     }
 }
 
-pub fn liquidation_insurance_target(principal: u128, hlp_indexed_debt: u128) -> Result<u64> {
-    let target = principal
-        .div_ceil(20)
-        .checked_add(hlp_indexed_debt.div_ceil(15))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(target).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
 /// A completed debt leg. `sale_recovery` is net of the caller reward and actual
-/// transfer costs. Insurance never pays unpaid borrower/leverage interest.
+/// transfer costs. Unpaid borrower/leverage interest is canceled.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct LiquidationLossAllocation {
     pub principal_repaid: u64,
     pub interest_paid: u64,
-    pub insurance_credit: u64,
     pub principal_written_off: u64,
     pub interest_canceled: u64,
     pub surplus: u64,
 }
 
 impl LiquidationLossAllocation {
-    pub fn quote(principal: u64, debt: u64, sale_recovery: u64, insurance_net_capacity: u64) -> Result<Self> {
-        Self::quote_with_coverage(
-            principal,
-            debt,
-            sale_recovery,
-            insurance_net_capacity,
-            PRINCIPAL_LOSS_COVERAGE_BPS,
-        )
-    }
-
-    pub fn quote_with_coverage(
-        principal: u64,
-        debt: u64,
-        sale_recovery: u64,
-        insurance_net_capacity: u64,
-        coverage_bps: u16,
-    ) -> Result<Self> {
+    /// Recovery pays principal first. The remaining funded credit loss is
+    /// allocated to junior and then senior by the market tranche ledger.
+    /// Unpaid borrower interest is canceled, never converted to principal loss.
+    pub fn quote(principal: u64, debt: u64, sale_recovery: u64) -> Result<Self> {
         require_gte!(debt, principal, ErrorCode::BrokenInvariant);
-        require_gte!(
-            PRINCIPAL_LOSS_COVERAGE_BPS,
-            coverage_bps,
-            ErrorCode::InvalidMarketConfig
-        );
         let principal_repaid = principal.min(sale_recovery);
-        let principal_gap = principal - principal_repaid;
-        let insurance_credit =
-            ((u128::from(principal_gap) * u128::from(coverage_bps) / 10_000) as u64).min(insurance_net_capacity);
         let interest = debt - principal;
         let interest_paid = interest.min(sale_recovery.saturating_sub(principal));
         Ok(Self {
             principal_repaid,
             interest_paid,
-            insurance_credit,
-            principal_written_off: principal_gap - insurance_credit,
+            principal_written_off: principal - principal_repaid,
             interest_canceled: interest - interest_paid,
             surplus: sale_recovery.saturating_sub(debt),
         })
@@ -354,74 +307,41 @@ mod tests {
     }
 
     #[test]
-    fn fee_taper_conserves_every_atom_and_never_distributes_existing_insurance() {
+    fn fixed_liquidation_fee_funds_junior_and_conserves_recovered_surplus() {
         for repayment in [0, 99, 100, 499, 500, u64::MAX] {
-            let fee = LiquidationFeeAllocation::quote(repayment, u64::MAX, 0, 0, LIQUIDATION_FEE_BPS);
-            assert_eq!(fee.protocol, fee.total / 5);
-            assert_eq!(fee.protocol + fee.insurance + fee.lp, fee.total);
+            for surplus in [0, 1, 55, u64::MAX] {
+                let fee = LiquidationFeeAllocation::quote(repayment, surplus);
+                assert!(fee.total <= surplus);
+                assert_eq!(
+                    fee.total,
+                    ((u128::from(repayment) * 300 / 10_000).min(u128::from(surplus))) as u64
+                );
+                assert_eq!(fee.protocol, fee.total / 5);
+                assert_eq!(fee.protocol + fee.junior, fee.total);
+            }
         }
-        for (balance, insurance, lp) in [
-            (0, 800, 0),
-            (7_500, 800, 0),
-            (8_750, 400, 400),
-            (10_000, 0, 800),
-            (20_000, 0, 800),
-        ] {
-            assert_eq!(
-                LiquidationFeeAllocation::quote(100_000, u64::MAX, balance, 10_000, LIQUIDATION_FEE_BPS),
-                LiquidationFeeAllocation {
-                    total: 1_000,
-                    protocol: 200,
-                    insurance,
-                    lp
-                }
-            );
-        }
-        let capped = LiquidationFeeAllocation::quote(100_000, 55, 0, 1_000, LIQUIDATION_FEE_BPS);
         assert_eq!(
-            (capped.total, capped.protocol, capped.insurance, capped.lp),
-            (55, 11, 44, 0)
-        );
-        for target in [0, 1, 7, u64::MAX] {
-            let f = LiquidationFeeAllocation::quote(u64::MAX, u64::MAX, target / 2, target, LIQUIDATION_FEE_BPS);
-            assert_eq!(f.protocol + f.insurance + f.lp, f.total);
-            assert!(f.insurance <= target - target / 2);
-        }
-        assert_eq!(liquidation_insurance_target(100_000, 30_000).unwrap(), 7_000);
-        assert_eq!(liquidation_insurance_target(1, 1).unwrap(), 2);
-    }
-
-    #[test]
-    fn governed_liquidation_fee_scales_the_existing_protocol_and_coverage_split() {
-        for (bps, total) in [(25, 250), (100, 1_000), (300, 3_000)] {
-            let fee = LiquidationFeeAllocation::quote(100_000, u64::MAX, 0, 10_000, bps);
-            assert_eq!(fee.total, total);
-            assert_eq!(fee.protocol, total / 5);
-            assert_eq!(fee.insurance, total - fee.protocol);
-            assert_eq!(fee.lp, 0);
-        }
-    }
-
-    #[test]
-    fn principal_first_waterfall_cancels_interest_and_caps_coverage() {
-        let loss = LiquidationLossAllocation::quote(900, 950, 850, 1_000).unwrap();
-        assert_eq!(
-            loss,
-            LiquidationLossAllocation {
-                principal_repaid: 850,
-                insurance_credit: 37,
-                principal_written_off: 13,
-                interest_canceled: 50,
-                ..LiquidationLossAllocation::default()
+            LiquidationFeeAllocation::quote(100_000, u64::MAX),
+            LiquidationFeeAllocation {
+                total: 3_000,
+                protocol: 600,
+                junior: 2_400
             }
         );
-        let partial_interest = LiquidationLossAllocation::quote(900, 950, 920, 1_000).unwrap();
-        assert_eq!(partial_interest.insurance_credit, 0);
+    }
+
+    #[test]
+    fn recovery_pays_principal_and_does_not_socialize_unpaid_interest() {
+        let loss = LiquidationLossAllocation::quote(900, 950, 850).unwrap();
+        assert_eq!(loss.principal_repaid, 850);
+        assert_eq!(loss.principal_written_off, 50);
+        assert_eq!(loss.interest_paid, 0);
+        assert_eq!(loss.interest_canceled, 50);
+        let partial_interest = LiquidationLossAllocation::quote(900, 950, 920).unwrap();
+        assert_eq!(partial_interest.principal_written_off, 0);
         assert_eq!(partial_interest.interest_paid, 20);
         assert_eq!(partial_interest.interest_canceled, 30);
-        let limited = LiquidationLossAllocation::quote(900, 950, 850, 10).unwrap();
-        assert_eq!((limited.insurance_credit, limited.principal_written_off), (10, 40));
-        let solvent = LiquidationLossAllocation::quote(900, 950, 1_000, 0).unwrap();
+        let solvent = LiquidationLossAllocation::quote(900, 950, 1_000).unwrap();
         assert_eq!(
             (solvent.principal_repaid, solvent.interest_paid, solvent.surplus),
             (900, 50, 50)

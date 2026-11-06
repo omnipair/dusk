@@ -1,5 +1,5 @@
 use crate::{
-    constants::NAD,
+    constants::{BPS_DENOMINATOR, LIQUIDATION_FEE_BPS, NAD},
     errors::ErrorCode,
     math::mul_div_u128,
     state::*,
@@ -89,6 +89,9 @@ impl Market {
         // is <= R; remaining value rounding loses at least x-1. Therefore no
         // improvement is possible once x*(D*10_100-V*(10_000-min_discount))
         // >= D*10_100+V*9_900. Division keeps all products within u128.
+        // This deliberately optimistic 1% fee envelope remains an upper bound
+        // on repayment under the fixed 3% charge; rejecting even this envelope
+        // cannot exclude a real useful partial. Exact interval quotes use 3%.
         // Eligibility transfer-fee caps and changing MM need the interval proof.
         let flash_no_improvement_from = if flat_maintenance.is_some() && eligibility_fee.haircut_bps() == 0 {
             let debt = u128::from(before.debt);
@@ -134,7 +137,7 @@ impl Market {
         // function. Every segment's output is <= input * its starting slope;
         // the cached maximum includes canonical crossing dust. Fees only
         // reduce output. Round every coefficient up and cover input-fee,
-        // reward and 1% charge rounding with a constant. A position's debt
+        // reward and fixed-charge rounding with a constant. A position's debt
         // reduction can exceed the aggregate reduction by at most one atom.
         // The resulting linear function reaches its maximum at an endpoint.
         // This is an impossibility certificate, never an approximate quote.
@@ -171,7 +174,7 @@ impl Market {
                 repayment_rate = ceil(
                     repayment_rate,
                     10_000,
-                    10_000 + u128::from(self.tranche_policy.liquidation_fee_bps),
+                    10_000 + u128::from(crate::transitions::liquidation_policy::LIQUIDATION_FEE_BPS),
                 )?;
                 let rounding = ceil(raw_price, 1, u128::from(NAD))?
                     .checked_add(4)
@@ -274,9 +277,13 @@ impl Market {
                 } else {
                     amm_bound
                 };
-                // Every partial must fund R + floor(R / 100). This is the exact
-                // largest R satisfying that inequality; transfer costs only lower it.
-                let repay_bound = |budget: u64| ((u128::from(budget) * 100 + 99) / 101) as u64;
+                // R + floor(R * fee / BPS) must fit the budget. Taking the
+                // inverse with the strict upper edge preserves all atom phases;
+                // transfer costs can only reduce the achievable repayment.
+                let repay_bound = |budget: u64| {
+                    ((u128::from(BPS_DENOMINATOR) * (u128::from(budget) + 1) - 1)
+                        / (u128::from(BPS_DENOMINATOR) + u128::from(LIQUIDATION_FEE_BPS))) as u64
+                };
                 (repay_bound(flash_bound), repay_bound(amm_bound))
             };
             let (flash_budget, amm_budget) = budget;

@@ -8,10 +8,13 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::{SwapExecuted, SwapOrigin},
+    events::{HlpRebalanced, SwapExecuted, SwapOrigin},
     generate_market_seeds,
     state::{FutarchyAuthority, Market, MarketAsset},
-    token::{get_transfer_fee_for_epoch, token_burn, token_mint_to, transfer_checked_with_remaining_accounts},
+    token::{
+        get_transfer_fee_for_epoch, invoke_signed_reusing_instruction,
+        transfer_checked_with_remaining_accounts_and_instruction,
+    },
     transitions::HlpRebalanceReceipt,
 };
 
@@ -181,6 +184,7 @@ impl<'info> Swap<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         let mut prepared = SwapRequest {
             current_slot,
@@ -245,12 +249,19 @@ impl<'info> Swap<'info> {
         require_reserve_custody(base_projected, &ctx.accounts.market.base_side)?;
         require_reserve_custody(quote_projected, &ctx.accounts.market.quote_side)?;
 
+        let mut event_instruction = anchor_lang::solana_program::instruction::Instruction {
+            program_id: crate::ID,
+            accounts: Vec::with_capacity(4),
+            data: Vec::with_capacity(std::mem::size_of::<SwapExecuted>() + 16),
+        };
+
         let asset_in_token_program = token_program_for_mint(
             &ctx.accounts.asset_in_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_checked_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts_and_instruction(
+            &mut event_instruction,
             ctx.accounts.trader.to_account_info(),
             ctx.accounts.trader_asset_in_account.to_account_info(),
             ctx.accounts.reserve_in_vault.to_account_info(),
@@ -271,6 +282,7 @@ impl<'info> Swap<'info> {
             QUOTE_INTEREST_VAULT_INDEX,
             h_lp_accounts,
             interest_eligibility,
+            &mut event_instruction,
         )?;
         apply_single_hlp_rebalance_token_changes(
             &mut ctx,
@@ -279,6 +291,7 @@ impl<'info> Swap<'info> {
             BASE_INTEREST_VAULT_INDEX,
             h_lp_accounts,
             interest_eligibility,
+            &mut event_instruction,
         )?;
 
         let asset_out_token_program = token_program_for_mint(
@@ -286,7 +299,8 @@ impl<'info> Swap<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        transfer_checked_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts_and_instruction(
+            &mut event_instruction,
             ctx.accounts.market.to_account_info(),
             ctx.accounts.reserve_out_vault.to_account_info(),
             ctx.accounts.trader_asset_out_account.to_account_info(),
@@ -307,27 +321,35 @@ impl<'info> Swap<'info> {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(asset_out_credit, args.min_asset_out, ErrorCode::SlippageExceeded);
 
-        // Keep the ordinary no-hLP swap path below its hard compute ceiling.
-        if ctx.accounts.market.base_hlp_vault.hlp_supply > 0 || ctx.accounts.market.quote_hlp_vault.hlp_supply > 0 {
-            crate::instructions::accounting::emit_hlp_rebalanced(
-                &ctx.accounts.market,
-                base_rebalance,
-                quote_rebalance,
-                current_slot,
+        // Reuse one event buffer: Solana's bump allocator does not reclaim
+        // the temporary vectors produced by consecutive emit_cpi! calls.
+        if let Some(event) = HlpRebalanced::from_receipts(
+            market_key,
+            &ctx.accounts.market,
+            base_rebalance,
+            quote_rebalance,
+            current_slot,
+        )? {
+            crate::instructions::accounting::emit_cpi_event_with_instruction(
+                &event,
                 ctx.accounts.event_authority.to_account_info(),
+                &mut event_instruction,
             )?;
         }
-
-        emit_cpi!(SwapExecuted::from_amm(
-            market_key,
-            trader_key,
-            trader_key,
-            None,
-            SwapOrigin::Spot,
-            current_slot,
-            quote,
-            &ctx.accounts.market,
-        )?);
+        crate::instructions::accounting::emit_cpi_event_with_instruction(
+            &SwapExecuted::from_amm(
+                market_key,
+                trader_key,
+                trader_key,
+                None,
+                SwapOrigin::Spot,
+                current_slot,
+                quote,
+                &ctx.accounts.market,
+            )?,
+            ctx.accounts.event_authority.to_account_info(),
+            &mut event_instruction,
+        )?;
 
         Ok(())
     }
@@ -340,6 +362,7 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
     interest_vault_index: usize,
     accounts: HlpSwapAccountLayout,
     interest_eligibility: crate::transitions::HlpYieldEligibility,
+    event_instruction: &mut anchor_lang::solana_program::instruction::Instruction,
 ) -> Result<()> {
     if !rebalance_executes_token_changes(receipt) {
         return Ok(());
@@ -358,23 +381,33 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
     let market_seeds = generate_market_seeds!(ctx.accounts.market);
     let signer_seeds = [&market_seeds[..]];
 
-    if receipt.srlp_mint_amount > 0 {
-        token_mint_to(
-            ctx.accounts.market.to_account_info(),
-            ctx.accounts.token_2022_program.to_account_info(),
-            srlp_mint.clone(),
-            srlp_vault.clone(),
-            receipt.srlp_mint_amount,
-            &signer_seeds,
-        )?;
-    }
-    if receipt.srlp_burn_amount > 0 {
-        token_burn(
-            ctx.accounts.market.to_account_info(),
-            ctx.accounts.token_2022_program.to_account_info(),
-            srlp_mint.clone(),
-            srlp_vault.clone(),
-            receipt.srlp_burn_amount,
+    // MintTo and Burn have the same three account roles and nine-byte wire
+    // format. Reuse the swap's CPI vectors instead of abandoning two fresh
+    // instruction buffers on Solana's bump heap for each vault.
+    let (tag, amount, first, second) = if receipt.srlp_mint_amount > 0 {
+        (7, receipt.srlp_mint_amount, srlp_mint, srlp_vault)
+    } else {
+        (8, receipt.srlp_burn_amount, srlp_vault, srlp_mint)
+    };
+    if amount > 0 {
+        event_instruction.program_id = ctx.accounts.token_2022_program.key();
+        event_instruction.accounts.clear();
+        event_instruction.accounts.extend([
+            AccountMeta::new(first.key(), false),
+            AccountMeta::new(second.key(), false),
+            AccountMeta::new_readonly(ctx.accounts.market.key(), true),
+        ]);
+        event_instruction.data.clear();
+        event_instruction.data.push(tag);
+        event_instruction.data.extend_from_slice(&amount.to_le_bytes());
+        invoke_signed_reusing_instruction(
+            event_instruction,
+            &[
+                first.clone(),
+                second.clone(),
+                ctx.accounts.market.to_account_info(),
+                ctx.accounts.token_2022_program.to_account_info(),
+            ],
             &signer_seeds,
         )?;
     }
@@ -406,7 +439,8 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
                 ctx.accounts.asset_out_mint.decimals,
             )
         };
-        transfer_checked_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts_and_instruction(
+            event_instruction,
             ctx.accounts.market.to_account_info(),
             reserve_vault,
             interest_vault.clone(),
@@ -418,19 +452,23 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
             accounts.hook_accounts(ctx.remaining_accounts),
         )?;
         let interest_vault_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
-        crate::instructions::accounting::emit_interest_paid(
+        crate::instructions::accounting::emit_interest_paid_with_instruction(
             &ctx.accounts.market,
             borrowed_asset,
             crate::events::DebtSource::Hlp,
             None,
-            crate::state::ReferralInterestQuote::new(
+            crate::state::ReferralInterestQuote::with_protocol_revenue(
                 receipt.interest_paid,
                 interest_vault_credit,
-                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+                ctx.accounts
+                    .market
+                    .quote_interest_revenue_credit(borrowed_asset, true, interest_vault_credit)?
+                    .protocol,
                 None,
             )?,
             0,
             ctx.accounts.event_authority.to_account_info(),
+            event_instruction,
         )?;
         record_inline_hlp_interest_credit(
             &mut ctx.accounts.market,

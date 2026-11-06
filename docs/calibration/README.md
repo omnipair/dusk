@@ -1,5 +1,7 @@
 # Preliminary native leverage calibration
 
+> **2026-11-05 policy update:** standalone insurance was removed. Current losses flow through junior then senior; junior exit requests/renewals cost 50 bps and liquidations cost 300 bps. The retained papers, numerical results, and scripts below describe their pinned historical engines, not the current waterfall. See [current policy](../CREDIT_LOSS_WATERFALL.md).
+
 **Current disposition, 2026-10-17:** #287652 is closed after the EMA-price/
 smoothed-depth implementation and explicit user acceptance of residual inventory/
 arbitrage risk. See the [current evidence and acceptance record](EMA_SETTLEMENT_CLOSEOUT.md).

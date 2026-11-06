@@ -167,7 +167,6 @@ fn indexer_receipts_remain_compact() {
         collateral_seized: 2,
         collateral_to_liquidator: 3,
         collateral_credit: 4,
-        insurance_drawn: 5,
         socialized_loss: 6,
         remaining_debt: 7,
         base_collateral: 8,
@@ -182,24 +181,24 @@ fn indexer_receipts_remain_compact() {
         closed: false,
     };
 
-    // 232 bytes of execution receipt, the 104-byte post-swap market state,
+    // 232 bytes of execution receipt, the 120-byte post-swap market state,
     // and the eight-byte executable start price.
     assert_eq!(side.try_to_vec().unwrap().len(), 48);
-    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 344);
-    assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 98);
+    assert_eq!(SwapExecuted::DISCRIMINATOR.len() + swap.try_to_vec().unwrap().len(), 360);
+    assert_eq!(leverage_swap.try_to_vec().unwrap().len(), 114);
     assert_eq!(
         LiquidityAdded::DISCRIMINATOR.len() + liquidity_added.try_to_vec().unwrap().len(),
-        192
+        208
     );
     assert_eq!(
         LiquidityRemoved::DISCRIMINATOR.len() + liquidity_removed.try_to_vec().unwrap().len(),
-        208
+        224
     );
-    assert_eq!(HlpOpened::DISCRIMINATOR.len() + opened.try_to_vec().unwrap().len(), 137);
-    assert_eq!(HlpClosed::DISCRIMINATOR.len() + closed.try_to_vec().unwrap().len(), 145);
+    assert_eq!(HlpOpened::DISCRIMINATOR.len() + opened.try_to_vec().unwrap().len(), 153);
+    assert_eq!(HlpClosed::DISCRIMINATOR.len() + closed.try_to_vec().unwrap().len(), 161);
     assert_eq!(
         BorrowPositionLiquidated::DISCRIMINATOR.len() + liquidated.try_to_vec().unwrap().len(),
-        271
+        263
     );
 }
 

@@ -13,10 +13,8 @@ export const LIQUIDATION_POLICY = Object.freeze({
   maximumEmergencyRewardBps: 100,
   emergencyMaintenanceFractionBps: 7_000,
   recoveryBufferBps: 200,
-  solventFeeBps: 100,
+  solventFeeBps: 300,
   protocolFeeShareBps: DEFAULT_PROTOCOL_REVENUE_SHARE_BPS,
-  maximumPrincipalCoverageBps: 7_500,
-  maximumDailyInsuranceDrawBps: 5_000,
 });
 
 export interface LiquidationHealthInput {
@@ -67,37 +65,21 @@ export function liquidationIncentives(input: LiquidationHealthInput) {
   };
 }
 
-/** P excludes hLP funding. H is current indexed hLP debt, including interest. */
-export function liquidationInsuranceTarget(principal: bigint, hlpIndexedDebt: bigint): bigint {
-  for (const [name, value] of Object.entries({ principal, hlpIndexedDebt })) {
-    if (typeof value !== "bigint" || value < 0n || value > (1n << 128n) - 1n) throw new RangeError(`${name} must be an unsigned u128 bigint`);
-  }
-  const target = ceilDiv(principal, 20n) + ceilDiv(hlpIndexedDebt, 15n);
-  amount(target, "target");
-  return target;
-}
-
 /** Net fee atoms. Physical transfer-fee gross-ups are additional, separate costs. */
-export function liquidationFeeAllocation(netDebtRepaid: bigint, insuranceBalance: bigint, target: bigint, surplusCap = U64_MAX) {
-  for (const [name, value] of Object.entries({ netDebtRepaid, insuranceBalance, target, surplusCap })) amount(value, name);
-  const total = min(netDebtRepaid / 100n, surplusCap);
+export function liquidationFeeAllocation(netDebtRepaid: bigint, surplusCap = U64_MAX) {
+  for (const [name, value] of Object.entries({ netDebtRepaid, surplusCap })) amount(value, name);
+  const total = min(netDebtRepaid * 300n / BPS, surplusCap);
   const protocol = total * BigInt(LIQUIDATION_POLICY.protocolFeeShareBps) / BPS;
-  const designated = total - protocol;
-  const shortfall = max(0n, target - insuranceBalance);
-  const insurance = target === 0n || shortfall === 0n ? 0n
-    : insuranceBalance * 4n <= target * 3n ? min(designated, shortfall)
-    : min(designated * 4n * shortfall / target, shortfall);
-  return { total, protocol, insurance, lp: designated - insurance };
+  return { total, protocol, junior: total - protocol };
 }
 
-export function liquidationLossAllocation(principal: bigint, debt: bigint, recovery: bigint, insuranceNetCapacity: bigint, coverageBps = 7_500) {
-  for (const [name, value] of Object.entries({ principal, debt, recovery, insuranceNetCapacity })) amount(value, name);
-  if (principal > debt || !Number.isSafeInteger(coverageBps) || coverageBps < 0 || coverageBps > 7_500) throw new RangeError("Invalid principal or insurance coverage");
+export function liquidationLossAllocation(principal: bigint, debt: bigint, recovery: bigint) {
+  for (const [name, value] of Object.entries({ principal, debt, recovery })) amount(value, name);
+  if (principal > debt) throw new RangeError("Principal exceeds debt");
   const principalRepaid = min(principal, recovery);
-  const gap = principal - principalRepaid;
-  const insuranceCredit = min(gap * BigInt(coverageBps) / BPS, insuranceNetCapacity);
   const interestPaid = min(debt - principal, max(0n, recovery - principal));
-  return { principalRepaid, interestPaid, insuranceCredit, principalWrittenOff: gap - insuranceCredit, interestCanceled: debt - principal - interestPaid, surplus: max(0n, recovery - debt) };
+  return { principalRepaid, interestPaid, principalWrittenOff: principal - principalRepaid,
+    interestCanceled: debt - principal - interestPaid, surplus: max(0n, recovery - debt) };
 }
 
 export function deriveLiquidationSessionAddress(position: PublicKey, programId = DUSK_PROGRAM_ID): [PublicKey, number] {

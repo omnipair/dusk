@@ -180,15 +180,14 @@ quote instead offers the entire target-token claim. The full path requires
 explicit keeper opt-in. The flash quote freezes the target claim, borrowed-token
 claim, and fixed payment. Terminal settlement revalidates EMA insolvency, while
 same-market swaps may compose without repricing the session's loss allocation.
-The full transaction still reverts if any bound payment, cash, insurance, or
+The full transaction still reverts if any bound payment, cash or
 reserve invariant fails.
 
-Both native terminal closure and flash terminal closure protect principal
-first, draw principal-only insurance under the existing 75% coverage / 50% daily
-budget, and report principal writeoff separately from canceled interest. A
-caller cap may reject drift but cannot elect to skip available coverage.
+Both native terminal closure and flash terminal closure allocate the remaining
+funded principal loss to junior first, then senior. There is no outside coverage
+vault or draw budget. The caller can cap the total socialized principal loss.
 Funding interest is realized only to the extent that cash can pay it; the rest
-is canceled when the cohort closes. Insurance does not cash-fund that interest.
+is canceled when the cohort closes and does not become principal loss.
 Native closure retains seized inventory in the pool; flash closure physically
 releases the quoted target tokens. Historical funded claims remain untouched.
 Any flash surplus becomes funded yield of the retired cohort, whose receipts
@@ -209,22 +208,50 @@ not guarantee external liquidity, profitability, or successful inclusion.
 The complete audit item's review status is recorded in
 [the remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md).
 
-## Frozen fee split and cash advances (2026-10-19 follow-up)
+## Finite numerical representation
 
-Approved policy: the LP/protocol split is fixed when reserve cash funds the
-interest. A later protocol-rate change applies only to the unfunded part.
-The native ledger, public funding instruction and SDK implement this cutoff.
-The holder harvest pays funded claims; the SDK composes funding first. External
-hLP flash recovery follows the vault-wide lifecycle above.
+Virtual reserves and intermediate indexed-debt arithmetic use u128. Physical
+SPL custody and individual debt settlement amounts remain u64; signed receipt
+deltas use i128 so the full unsigned token range can be reported. New borrowing
+must preserve these domains and the capacity of existing income books.
 
-Each asset tracks gross advanced interest and frozen protocol escrow. The
-LP part is transferred to interest custody and credited by its measured net
-receipt. The protocol part stays in reserve custody, excluded from executable
-cash and LP value, until the corresponding interest is repaid. Repayment
-recycles the advance into executable cash; only fresh interest and released
-protocol escrow transfer to interest custody. The new fee rate applies only
-to the fresh net credit. Referral revenue is allocated from actual protocol
-credit when repayment occurs.
+At an extreme accrual boundary the market limits the shared index before
+issuing any additional debt or fee/LP receivable. Excess interest is forgone,
+not deferred, and the accrual slot still advances. Existing obligations are
+never independently clipped. Current APR continues evolving, and future
+interest can resume when all dependent books have room. Exhausted income-unit
+denominations retain the existing permissionless archive/roll path after
+settlement. The index resets only when every public and hLP debt share on that
+asset has been extinguished; historical income claims are retained.
+
+## Interest fees and cash advances
+
+Base borrower interest is split between LPs and the operator. The operator's
+share is 0–50%; it receives no swap revenue. The global protocol interest fee
+is a markup added on top of base interest, controlled by FutarchyAuthority.
+With $100 base interest, a 30% operator share and 20% protocol markup,
+borrowers owe $120: $70 LP income, $30 operator revenue and $20 protocol revenue.
+
+Rates are frozen as interest accrues. Each market checkpoints elapsed debt at
+its cached markup, then adopts the latest global markup for future accrual.
+An operator-share edit also accrues the previous interval before installing
+its new share. No later rate change re-prices the earlier fee book. Repayments
+and defaults are pooled within each asset/source receivable book.
+
+Operator entitlement follows collection: the recipient at payment receives
+the fee, including payment of previously accrued interest. On a handoff,
+already collected whole-atom cash is sealed for the outgoing recipient;
+unpaid fee amounts and sub-atom rounding carry follow the new recipient. Claims
+are backed by measured interest-vault cash and pay the recipient's canonical
+ATA. Claims never call an external governance program.
+
+Each asset tracks gross advanced interest and aggregate protocol/operator
+revenue escrow. Only LP income is advanced into interest custody; fees remain
+unpaid until borrower cash arrives. Frozen fee escrow stays in reserve custody,
+excluded from executable cash and LP value. Repayment recycles the advance;
+only fresh interest and released fee escrow transfer to interest custody.
+Measured Token-2022 credit is divided between the LP and fee books. Referral
+revenue comes only from the collected protocol allocation.
 
 Let `U` be gross public unpaid interest, `A` the outstanding gross advance,
 `R` the live reserve, and `C` available cash. Funding `a` records:
@@ -239,9 +266,9 @@ curve' = R' - (U - A') = R - (U - A)
 Thus funding alone does not change executable curve reserves. Borrower debt
 is unchanged. A clearance removes its proportional advance and frozen fee;
 the final clearance drains integer remainders. Paid advances replenish cash.
-Canceled advances return the held protocol portion to cash. The LP portion
+Canceled advances return the held fee portion to cash. The LP portion
 already paid is a real loss if the borrower defaults; it is not paid again,
-and principal-only insurance does not cover canceled interest.
+and junior-first principal loss allocation does not cover canceled interest.
 
 The repayment kernel applies the debit and recycled credit together. A
 valid internal repayment must not fail because it tries to collect cash for
@@ -251,7 +278,7 @@ native liquidation accounting.
 
 SDK functions `quoteInterestAdvanceAmounts` and `allocateRepaidInterest`
 provide integer accounting amounts, including the effective Token-2022 fee
-and a frozen/current-rate split. Use the simulated `previewFunding` for hLP feasibility and `buildHarvest`
+and the historical fee-book split. Use the simulated `previewFunding` for hLP feasibility and `buildHarvest`
 for transaction composition.
 
 ### Historical gross-income rehedge diagnostic
@@ -315,7 +342,6 @@ Market layout version 4 includes the two per-asset advance ledgers, temporary
 flash receivables, and per-vault recovery locks; all four SDK
 IDL/type files are regenerated with the source change. This is a development
 interface change, not a deployed migration.
-
 
 ## Harvest and flash validation (2026-10-20)
 

@@ -11,7 +11,7 @@ pub use errors::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi");
+declare_id!("B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY");
 
 #[program]
 pub mod leverage_delegate {

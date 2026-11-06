@@ -91,14 +91,26 @@ fn irm_defaults_and_inclusive_bounds_validate() {
     assert_eq!(config.upper_signal_nad, NAD / 16);
     assert_eq!(config.half_life_ms, 14 * MS_PER_DAY);
     assert_eq!(config.initial_apr_nad, 4 * NAD / 100);
-    assert_eq!(config.minimum_apr_nad, 2 * NAD / 100);
-    assert_eq!(config.maximum_apr_nad, 0);
-    for half in [3_600_000, 30 * MS_PER_DAY] {
-        IrmConfig { half_life_ms: half, ..config }.validate().unwrap();
+    for half in [MS_PER_DAY / 2, 30 * MS_PER_DAY] {
+        IrmConfig {
+            half_life_ms: half,
+            ..config
+        }
+        .validate()
+        .unwrap();
     }
-    assert!(IrmConfig { lower_signal_nad: 0, ..config }.validate().is_err());
-    assert!(IrmConfig { half_life_ms: 30 * MS_PER_DAY + 1, ..config }.validate().is_err());
-    assert!(IrmConfig { maximum_apr_nad: 1, ..config }.validate().is_err());
+    assert!(IrmConfig {
+        lower_signal_nad: 0,
+        ..config
+    }
+    .validate()
+    .is_err());
+    assert!(IrmConfig {
+        half_life_ms: 30 * MS_PER_DAY + 1,
+        ..config
+    }
+    .validate()
+    .is_err());
 }
 
 #[test]
@@ -227,27 +239,13 @@ fn launch_buy_size_limiter_composes_with_time_scheduler_and_only_charges_buys() 
     // reference units and therefore adds two increments.
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(
-                MarketAsset::Quote,
-                100 * NAD as u128,
-                1_000,
-                NAD,
-                NAD,
-                0,
-            )
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 100 * NAD as u128, 1_000, NAD, NAD, 0,)
             .unwrap(),
         500
     );
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(
-                MarketAsset::Quote,
-                250 * NAD as u128,
-                1_000,
-                NAD,
-                NAD,
-                0,
-            )
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_000, NAD, NAD, 0,)
             .unwrap(),
         700
     );
@@ -263,27 +261,13 @@ fn launch_buy_size_limiter_composes_with_time_scheduler_and_only_charges_buys() 
     // The time premium has ended, while the size limiter remains active.
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(
-                MarketAsset::Quote,
-                250 * NAD as u128,
-                1_050,
-                NAD,
-                NAD,
-                0,
-            )
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_050, NAD, NAD, 0,)
             .unwrap(),
         230
     );
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(
-                MarketAsset::Quote,
-                250 * NAD as u128,
-                1_100,
-                NAD,
-                NAD,
-                0,
-            )
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Quote, 250 * NAD as u128, 1_100, NAD, NAD, 0,)
             .unwrap(),
         30
     );
@@ -329,40 +313,19 @@ fn launch_market_cap_fee_scheduler_uses_bound_price_and_imported_progress() {
     );
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(
-                MarketAsset::Base,
-                NAD as u128,
-                1_000,
-                NAD + NAD / 10,
-                NAD,
-                0,
-            )
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Base, NAD as u128, 1_000, NAD + NAD / 10, NAD, 0,)
             .unwrap(),
         800
     );
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(
-                MarketAsset::Base,
-                NAD as u128,
-                1_000,
-                NAD + NAD / 10,
-                NAD,
-                2,
-            )
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Base, NAD as u128, 1_000, NAD + NAD / 10, NAD, 2,)
             .unwrap(),
         400
     );
     assert_eq!(
         config
-            .effective_base_fee_bps_for_swap_at(
-                MarketAsset::Base,
-                NAD as u128,
-                2_000,
-                NAD + NAD / 10,
-                NAD,
-                2,
-            )
+            .effective_base_fee_bps_for_swap_at(MarketAsset::Base, NAD as u128, 2_000, NAD + NAD / 10, NAD, 2,)
             .unwrap(),
         config.swap_fee_bps
     );

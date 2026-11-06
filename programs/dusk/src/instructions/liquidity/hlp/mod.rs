@@ -113,7 +113,15 @@ pub(crate) fn record_hlp_interest_credit(
 ) -> Result<()> {
     if actual_interest_credit == 0 {
         if market.side(borrowed_asset).fees.junior.initialized {
-            market.collect_income_receivable(borrowed_asset, true, 0)?;
+            let quote = market.quote_interest_revenue_credit(borrowed_asset, true, 0)?;
+            market.record_receivable_income_credit(
+                borrowed_asset,
+                true,
+                0,
+                quote.protocol,
+                protocol_auction_split,
+                0,
+            )?;
         }
         return Ok(());
     }
@@ -148,7 +156,9 @@ pub(crate) fn record_hlp_interest_credit(
     market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
 
     if tranche_income {
-        let (protocol, _) = crate::transitions::revenue::split_revenue(actual_interest_credit, protocol_fee_bps)?;
+        let protocol = market
+            .quote_interest_revenue_credit(borrowed_asset, true, actual_interest_credit)?
+            .protocol;
         market.record_receivable_income_credit(
             borrowed_asset,
             true,

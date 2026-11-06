@@ -129,7 +129,7 @@ currency off-chain with explicit pricing and reporting-period conventions.
 Liquidation auction start/fill/backstop and the old full leverage liquidation
 entrypoint are removed. `FlashLiquidationBegun` records the fixed economic obligation, and
 `FlashLiquidationSettled` the actual debt reduction, fee split, owner surplus,
-principal/insurance loss allocation and remaining debt/collateral. Internal
+principal loss allocation to junior and senior and remaining debt/collateral. Internal
 emergency execution reports `EmergencyLiquidationSettled` with the complete
 quote and the remaining position. Fetch the position after settlement if your
 index needs exact debt shares, retained margin obligations or the other debt leg.
@@ -137,7 +137,7 @@ index needs exact debt shares, retained margin obligations or the other debt leg
 Only routes that execute in Dusk emit `SwapExecuted`. External liquidation
 payment is not Dusk swap volume. Collected interest still emits
 `BorrowInterestPaid` and applicable `ReferralInterestAccrued`. Canceled unpaid
-interest earns neither fees nor referral claims. The 1% liquidation contribution
+interest earns neither fees nor referral claims. The fixed 3% liquidation charge
 is reported separately in the liquidation event; do not count it twice as
 interest or swap revenue.
 
@@ -231,7 +231,7 @@ A direct Token-2022 burn bypasses the hook and emits no Dusk event.
 
 The liquidation redesign changes persistent Market, BorrowPosition and
 LeveragePosition layouts and adds LiquidationSession. It also changes
-MarketConfig, insurance governance fields and borrowing preview return data.
+MarketConfig, tranche fields and borrowing preview return data.
 Regenerate clients from the vendored Dusk and leverage-delegate IDLs together.
 This development revision has no production-account migration contract.
 

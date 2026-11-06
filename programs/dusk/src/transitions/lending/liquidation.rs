@@ -27,8 +27,6 @@ fn liquidation_max_incentive_bps(health_bps: u64, min_health_bps: u64) -> u16 {
 pub struct Liquidation {
     pub debt_asset: MarketAsset,
     pub repay_credit: u64,
-    pub insurance_spent: u64,
-    pub insurance_credit: u64,
     pub max_socialized_loss: u64,
     pub terms: LiquidationTerms,
     pub pricing: LiquidationPricing,
@@ -46,7 +44,7 @@ pub enum LiquidationPricing {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LiquidationTerms {
     pub liquidation_incentive_bps: u16,
-    pub insurance_funding_bps: u16,
+    pub junior_fee_bps: u16,
     pub total_penalty_bps: u16,
     pub max_repay_amount: u64,
 }
@@ -57,14 +55,13 @@ pub struct LiquidationReceipt {
     pub interest_paid: u64,
     pub collateral_seized: u64,
     pub collateral_to_liquidator: u64,
-    pub insurance_funded: u64,
-    pub insurance_drawn: u64,
+    pub junior_fee_funded: u64,
     pub socialized_loss: u64,
     pub remaining_debt: u128,
     pub remaining_global_health_contribution: u64,
     pub remaining_liquidation_cf_bps: u16,
     pub liquidation_incentive_bps: u16,
-    pub insurance_funding_bps: u16,
+    pub junior_fee_bps: u16,
     pub max_repay_amount: u64,
 }
 
@@ -82,19 +79,10 @@ struct LiquidationDebtClearance {
 
 impl Liquidation {
     #[cfg(test)]
-    pub fn new(
-        debt_asset: MarketAsset,
-        repay_credit: u64,
-        insurance_spent: u64,
-        insurance_credit: u64,
-        max_socialized_loss: u64,
-        terms: LiquidationTerms,
-    ) -> Self {
+    pub fn new(debt_asset: MarketAsset, repay_credit: u64, max_socialized_loss: u64, terms: LiquidationTerms) -> Self {
         Self {
             debt_asset,
             repay_credit,
-            insurance_spent,
-            insurance_credit,
             max_socialized_loss,
             terms,
             pricing: LiquidationPricing::PessimisticReserves,
@@ -107,8 +95,6 @@ impl Liquidation {
     pub fn new_with_pricing(
         debt_asset: MarketAsset,
         repay_credit: u64,
-        insurance_spent: u64,
-        insurance_credit: u64,
         max_socialized_loss: u64,
         terms: LiquidationTerms,
         pricing: LiquidationPricing,
@@ -116,8 +102,6 @@ impl Liquidation {
         Self {
             debt_asset,
             repay_credit,
-            insurance_spent,
-            insurance_credit,
             max_socialized_loss,
             terms,
             pricing,
@@ -156,10 +140,10 @@ impl Liquidation {
             let fee = self.collateral_fee.ok_or(ErrorCode::BrokenInvariant)?;
             let liquidator_gross = fee.effective_gross_for_credit(liquidator_collateral_quote)?;
             require_gte!(collateral_before, liquidator_gross, ErrorCode::LiquidationRepayTooLarge);
-            let insurance_net = total_collateral_quote.saturating_sub(liquidator_collateral_quote);
-            let insurance_gross = fee.effective_gross_for_credit(insurance_net)?;
+            let junior_net = total_collateral_quote.saturating_sub(liquidator_collateral_quote);
+            let junior_gross = fee.effective_gross_for_credit(junior_net)?;
             let seized = liquidator_gross
-                .checked_add(insurance_gross)
+                .checked_add(junior_gross)
                 .ok_or(ErrorCode::MarketMathOverflow)?
                 .min(collateral_before);
             (seized, liquidator_gross)
@@ -167,25 +151,16 @@ impl Liquidation {
             let seized = total_collateral_quote.min(collateral_before);
             (seized, liquidator_collateral_quote.min(seized))
         };
-        let insurance_funded = collateral_seized
+        let junior_fee_funded = collateral_seized
             .checked_sub(collateral_to_liquidator)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let collateral_exhausted = collateral_seized == collateral_before;
-        let repay_plus_insurance = (self.repay_credit as u128)
-            .checked_add(self.insurance_credit as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        require_gte!(debt_before, repay_plus_insurance, ErrorCode::InsufficientDebt);
-        let cap_remaining = self
-            .terms
-            .max_repay_amount
-            .checked_sub(self.repay_credit)
-            .ok_or(ErrorCode::LiquidationRepayTooLarge)?;
+        let cash_repayment = self.repay_credit as u128;
         require_gte!(
-            cap_remaining,
-            self.insurance_credit,
+            self.terms.max_repay_amount,
+            self.repay_credit,
             ErrorCode::LiquidationRepayTooLarge
         );
-
         let debt_clearance = {
             let (shares_before, position_debt_before, borrow_index_nad) = match self.debt_asset {
                 MarketAsset::Base => (
@@ -214,7 +189,7 @@ impl Liquidation {
                     u64::MAX,
                 )?
             } else {
-                let cash_repaid = u64::try_from(repay_plus_insurance).map_err(|_| ErrorCode::MarketMathOverflow)?;
+                let cash_repaid = u64::try_from(cash_repayment).map_err(|_| ErrorCode::MarketMathOverflow)?;
                 let quote = Debt::repayment_for_max(
                     shares_before,
                     match self.debt_asset {
@@ -232,7 +207,7 @@ impl Liquidation {
                 aggregate_debt_reduction: repayment.cash_repaid,
             }
         };
-        let cash_repaid = u64::try_from(repay_plus_insurance).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let cash_repaid = u64::try_from(cash_repayment).map_err(|_| ErrorCode::MarketMathOverflow)?;
         require_gte!(
             debt_clearance.aggregate_debt_reduction,
             cash_repaid,
@@ -305,16 +280,14 @@ impl Liquidation {
             live_debit,
             principal_credit,
         )?;
-        let insurance_slot = market.last_update_slot;
-        if self.insurance_spent > 0 {
+        if junior_fee_funded > 0 {
             market
-                .insurance
-                .consume_draw(self.debt_asset, self.insurance_spent, insurance_slot)?;
-        }
-        if insurance_funded > 0 {
-            market
-                .insurance
-                .credit(self.debt_asset.opposite(), insurance_funded, insurance_slot)?;
+                .side_mut(self.debt_asset.opposite())
+                .record_junior_liquidation_credit(
+                    self.collateral_fee
+                        .unwrap_or_default()
+                        .unwind_credit(junior_fee_funded)?,
+                )?;
         }
 
         market.refresh_risk()?;
@@ -379,14 +352,13 @@ impl Liquidation {
             interest_paid,
             collateral_seized,
             collateral_to_liquidator,
-            insurance_funded,
-            insurance_drawn: self.insurance_credit,
+            junior_fee_funded,
             socialized_loss,
             remaining_debt: position_debt(market, borrow_position, self.debt_asset)?,
             remaining_global_health_contribution: borrow_position.global_health_contribution(self.debt_asset),
             remaining_liquidation_cf_bps: borrow_position.liquidation_cf_bps(self.debt_asset),
             liquidation_incentive_bps: self.terms.liquidation_incentive_bps,
-            insurance_funding_bps: self.terms.insurance_funding_bps,
+            junior_fee_bps: self.terms.junior_fee_bps,
             max_repay_amount: self.terms.max_repay_amount,
         })
     }
@@ -512,11 +484,7 @@ fn collateral_amount_for_debt_value_with_pricing(
     match pricing {
         LiquidationPricing::PessimisticReserves => {
             let risk = market.current_risk()?;
-            require_gte!(
-                LIQUIDATION_PENALTY_BPS,
-                LIQUIDATION_INCENTIVE_BPS,
-                ErrorCode::InvalidMarketConfig
-            );
+            require_gte!(penalty_bps, LIQUIDATION_INCENTIVE_BPS, ErrorCode::InvalidMarketConfig);
             let debt_with_penalty = ceil_div(
                 (debt_amount as u128)
                     .checked_mul((BPS_DENOMINATOR + penalty_bps) as u128)
@@ -648,10 +616,9 @@ impl Market {
         let liquidation_incentive_bps = shortfall.max(LIQUIDATION_INCENTIVE_BPS as u64).min(max_for_config) as u16;
         let max_total_penalty = liquidation_health_floor_bps.saturating_sub(BPS_DENOMINATOR as u64 + 1);
         let remaining_penalty_room = max_total_penalty.saturating_sub(liquidation_incentive_bps as u64);
-        let insurance_funding_bps =
-            LIQUIDATION_INSURANCE_FUNDING_BPS.min(u16::try_from(remaining_penalty_room).unwrap_or(u16::MAX));
+        let junior_fee_bps = LIQUIDATION_FEE_BPS.min(u16::try_from(remaining_penalty_room).unwrap_or(u16::MAX));
         let total_penalty_bps = liquidation_incentive_bps
-            .checked_add(insurance_funding_bps)
+            .checked_add(junior_fee_bps)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let max_repay_amount = {
             let debt_before = position_debt(self, borrow_position, debt_asset)?;
@@ -724,7 +691,7 @@ impl Market {
         };
         Ok(LiquidationTerms {
             liquidation_incentive_bps,
-            insurance_funding_bps,
+            junior_fee_bps,
             total_penalty_bps,
             max_repay_amount,
         })
@@ -735,22 +702,12 @@ impl Market {
         borrow_position: &mut BorrowPosition,
         debt_asset: MarketAsset,
         repay_credit: u64,
-        insurance_spent: u64,
-        insurance_credit: u64,
         max_socialized_loss: u64,
         terms: LiquidationTerms,
         pricing: LiquidationPricing,
     ) -> Result<LiquidationReceipt> {
-        Liquidation::new_with_pricing(
-            debt_asset,
-            repay_credit,
-            insurance_spent,
-            insurance_credit,
-            max_socialized_loss,
-            terms,
-            pricing,
-        )
-        .apply(self, borrow_position)
+        Liquidation::new_with_pricing(debt_asset, repay_credit, max_socialized_loss, terms, pricing)
+            .apply(self, borrow_position)
     }
 
     pub fn settle_liquidation_with_fee(
@@ -762,12 +719,12 @@ impl Market {
         pricing: LiquidationPricing,
         collateral_fee: LeverageCollateralFee,
     ) -> Result<LiquidationReceipt> {
-        let mut liquidation = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, 0, 0, terms, pricing);
+        let mut liquidation = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, terms, pricing);
         liquidation.collateral_fee = Some(collateral_fee);
         liquidation.apply(self, borrow_position)
     }
 
-    /// Auction reference prices net bidder and insurance receipts. Each
+    /// Auction reference prices net bidder and junior receipts. Each
     /// transfer is grossed up independently under the effective mint fee.
     pub fn settle_auction_liquidation_with_fees(
         &mut self,
@@ -779,7 +736,7 @@ impl Market {
         effective_fee: LeverageCollateralFee,
         eligibility_fee: LeverageCollateralFee,
     ) -> Result<LiquidationReceipt> {
-        let mut liquidation = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, 0, 0, terms, pricing);
+        let mut liquidation = Liquidation::new_with_pricing(debt_asset, repay_credit, 0, terms, pricing);
         liquidation.collateral_fee = Some(effective_fee);
         liquidation.auction_eligibility_fee = Some(eligibility_fee);
         liquidation.exact_net_auction_pricing = true;
@@ -788,23 +745,19 @@ impl Market {
 
     /// Closes a lending position after its external auction expires. The AMM
     /// leg has already debited `swap_output` from executable reserves; this
-    /// step applies that output to fixed debt, consumes protocol insurance,
+    /// step applies that output to fixed debt, charges junior before senior,
     /// and writes off any remaining debt without a caller-selected veto. The
-    /// explicit slot keeps insurance accounting independent of risk observations.
+    /// interest and principal use their separate settlement ledgers.
     pub fn settle_internal_liquidation(
         &mut self,
         borrow_position: &mut BorrowPosition,
         debt_asset: MarketAsset,
         swap_output: u64,
-        insurance_spent: u64,
-        insurance_credit: u64,
         collateral_consumed: u64,
         caller_bounty: u64,
-        current_slot: u64,
     ) -> Result<InternalLiquidationReceipt> {
         borrow_position.require_idle()?;
         let unpaid_before = self.public_unpaid_interest(debt_asset)?;
-        require_gte!(insurance_spent, insurance_credit, ErrorCode::BrokenInvariant);
         let collateral_before = position_collateral(borrow_position, debt_asset);
         require_eq!(collateral_consumed, collateral_before, ErrorCode::BrokenInvariant);
         require_gte!(collateral_consumed, caller_bounty, ErrorCode::BrokenInvariant);
@@ -832,14 +785,7 @@ impl Market {
         let owner_residual = swap_output
             .checked_sub(repay_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let remaining_after_swap = full_repayment
-            .cash_repaid
-            .checked_sub(repay_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        require_gte!(remaining_after_swap, insurance_credit, ErrorCode::InsufficientDebt);
-        let cash_repaid = repay_credit
-            .checked_add(insurance_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let cash_repaid = repay_credit;
         let socialized_loss = full_repayment
             .cash_repaid
             .checked_sub(cash_repaid)
@@ -877,9 +823,6 @@ impl Market {
             .checked_sub(principal_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.settle_public_debt_reserves(debt_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
-        if insurance_spent > 0 {
-            self.insurance.consume_draw(debt_asset, insurance_spent, current_slot)?;
-        }
         borrow_position.set_liquidation_cf_bps(debt_asset, 0);
         borrow_position.clear_referral_binding(debt_asset);
         self.reconcile_global_health_contribution(borrow_position, debt_asset, 0)?;
@@ -891,14 +834,13 @@ impl Market {
                 interest_paid,
                 collateral_seized: collateral_consumed,
                 collateral_to_liquidator: caller_bounty,
-                insurance_funded: 0,
-                insurance_drawn: insurance_credit,
+                junior_fee_funded: 0,
                 socialized_loss,
                 remaining_debt: 0,
                 remaining_global_health_contribution: 0,
                 remaining_liquidation_cf_bps: 0,
                 liquidation_incentive_bps: LIQUIDATION_BACKSTOP_CALLER_BPS,
-                insurance_funding_bps: 0,
+                junior_fee_bps: 0,
                 max_repay_amount: full_repayment.cash_repaid,
             },
             owner_residual,

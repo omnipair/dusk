@@ -35,10 +35,16 @@ pub(crate) fn emit_cpi_event_with_instruction<'info, E: Event>(
 ) -> Result<()> {
     instruction.program_id = crate::ID;
     instruction.accounts.clear();
+    instruction.accounts.reserve_exact(1);
     instruction
         .accounts
         .push(AccountMeta::new_readonly(authority.key(), true));
     instruction.data.clear();
+    // Fixed accounting events fit in their in-memory size plus tags. This
+    // hint avoids abandoned growth buffers on SBF; variable data can still grow.
+    instruction
+        .data
+        .reserve_exact(std::mem::size_of::<E>() + 8 + E::DISCRIMINATOR.len());
     instruction.data.extend_from_slice(anchor_lang::event::EVENT_IX_TAG_LE);
     instruction.data.extend_from_slice(E::DISCRIMINATOR);
     event.serialize(&mut instruction.data)?;
@@ -135,9 +141,30 @@ pub(crate) fn accrue_market_interest<'info>(
     market: &mut Account<'info, Market>,
     current_slot: u64,
     event_authority: AccountInfo<'info>,
+    protocol_markup_bps: u16,
 ) -> Result<()> {
     let key = market.key();
-    accrue_market_interest_data(market, key, current_slot, event_authority)
+    accrue_market_interest_data(market, key, current_slot, event_authority.clone())?;
+    // Elapsed debt and fee ownership close under the previous global setting.
+    // The new authority value applies only to this market's future intervals.
+    require!(
+        protocol_markup_bps <= crate::constants::BPS_DENOMINATOR,
+        crate::errors::ErrorCode::InvalidInterestFeeBps
+    );
+    if market.protocol_interest_markup_bps != protocol_markup_bps {
+        let previous_bps = market.protocol_interest_markup_bps;
+        market.protocol_interest_markup_bps = protocol_markup_bps;
+        emit_accounting_event(
+            &crate::events::ProtocolInterestMarkupCheckpointed {
+                market: key,
+                previous_bps,
+                markup_bps: protocol_markup_bps,
+                slot: current_slot,
+            },
+            event_authority,
+        )?;
+    }
+    Ok(())
 }
 
 pub(crate) fn accrue_market_interest_data<'info>(
@@ -152,9 +179,14 @@ pub(crate) fn accrue_market_interest_data<'info>(
         return market.accrue_interest_to_slot(current_slot);
     }
     let signals = market.tranche_coverage_signals()?;
+    let mut instruction = Instruction {
+        program_id: crate::ID,
+        accounts: Vec::with_capacity(1),
+        data: Vec::with_capacity(std::mem::size_of::<BorrowInterestAccrued>() + 16),
+    };
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
         if let Some(receipt) = accrue_side::<true>(market, asset, current_slot, signals[asset.code() as usize])? {
-            emit_accounting_event(
+            emit_cpi_event_with_instruction(
                 &BorrowInterestAccrued {
                     market: market_key,
                     asset_mint: market.side(asset).asset_mint,
@@ -168,6 +200,7 @@ pub(crate) fn accrue_market_interest_data<'info>(
                     hlp_interest: receipt.hlp_interest,
                 },
                 event_authority.clone(),
+                &mut instruction,
             )?;
         }
     }

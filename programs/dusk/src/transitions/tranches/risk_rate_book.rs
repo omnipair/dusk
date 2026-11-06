@@ -84,7 +84,7 @@ impl RiskRateBook {
         Ok(results)
     }
 
-    /// The governance handler authenticates approval before calling this.
+    /// The operator handler authenticates the timelocked bundle before calling this.
     /// Accrue under the old model, then install the new parameters prospectively.
     /// Changing the creation default never resets an existing market's APR.
     pub fn replace_config(
@@ -94,6 +94,11 @@ impl RiskRateBook {
         current_slot: u64,
     ) -> Result<[RateAccrual; 2]> {
         config.validate()?;
+        require_eq!(
+            config.initial_apr_nad,
+            self.config.initial_apr_nad,
+            ErrorCode::OperatorFieldForbidden
+        );
         let results = self.accrue(signals_nad, current_slot)?;
         self.config = config;
         Ok(results)

@@ -4,11 +4,11 @@ use std::{cell::OnceCell, io, rc::Rc};
 
 static EMPTY_INCOME_BYTES: [u8; MarketIncomeBooks::INIT_SPACE] = [0; MarketIncomeBooks::INIT_SPACE];
 
-/// Fixed-layout income data is decoded only by operations that use it. Ordinary
-/// swaps preserve these bytes without paying to decode every historical claim.
+/// Untouched income has a zero-allocation default. Nonzero income is decoded
+/// once and shared by scratch markets; quotes copy it only when they mutate it.
+/// This avoids retaining both an encoded and decoded book on the SBF heap.
 #[derive(Clone, Debug, Default)]
 pub struct LazyIncomeBooks {
-    encoded: Option<Rc<Vec<u8>>>,
     decoded: OnceCell<Rc<MarketIncomeBooks>>,
 }
 
@@ -22,10 +22,21 @@ impl LazyIncomeBooks {
         }
         let (bytes, rest) = input.split_at(Self::INIT_SPACE);
         if let Some(books) = self.decoded.get_mut() {
-            *Rc::make_mut(books) = MarketIncomeBooks::try_from_slice(bytes)?;
-            self.encoded = None;
-        } else if let Some(encoded) = self.encoded.as_mut() {
-            Rc::make_mut(encoded).copy_from_slice(bytes);
+            let target = Rc::make_mut(books);
+            let input = &mut &bytes[..];
+            // Reuse the existing nested boxes. Re-decoding the whole struct
+            // allocates every book again on SBF's non-reclaiming heap.
+            for book in &mut target.books {
+                **book = AnchorDeserialize::deserialize(input)?;
+            }
+            for book in &mut target.revenue {
+                **book = AnchorDeserialize::deserialize(input)?;
+            }
+            target.pending = AnchorDeserialize::deserialize(input)?;
+            target.seed = AnchorDeserialize::deserialize(input)?;
+            target.hlp = AnchorDeserialize::deserialize(input)?;
+            target.junior_end = AnchorDeserialize::deserialize(input)?;
+            target.split_carry_bps = AnchorDeserialize::deserialize(input)?;
         } else {
             *self = Self::deserialize(&mut &bytes[..])?;
         }
@@ -35,11 +46,7 @@ impl LazyIncomeBooks {
 
     pub fn get(&self) -> Result<&MarketIncomeBooks> {
         if self.decoded.get().is_none() {
-            let books = match &self.encoded {
-                Some(bytes) => MarketIncomeBooks::try_from_slice(bytes)
-                    .map_err(|_| error!(crate::errors::ErrorCode::BrokenInvariant))?,
-                None => MarketIncomeBooks::default(),
-            };
+            let books = MarketIncomeBooks::default();
             self.decoded
                 .set(Rc::new(books))
                 .map_err(|_| error!(crate::errors::ErrorCode::BrokenInvariant))?;
@@ -52,7 +59,6 @@ impl LazyIncomeBooks {
 
     pub fn get_mut(&mut self) -> Result<&mut MarketIncomeBooks> {
         self.get()?;
-        self.encoded = None;
         self.decoded
             .get_mut()
             .map(Rc::make_mut)
@@ -75,8 +81,7 @@ impl AnchorDeserialize for LazyIncomeBooks {
             Ok(Self::default())
         } else {
             Ok(Self {
-                encoded: Some(Rc::new(bytes.to_vec())),
-                decoded: OnceCell::new(),
+                decoded: OnceCell::from(Rc::new(MarketIncomeBooks::try_from_slice(bytes)?)),
             })
         }
     }
@@ -91,9 +96,7 @@ impl AnchorDeserialize for LazyIncomeBooks {
 
 impl AnchorSerialize for LazyIncomeBooks {
     fn serialize<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        if let Some(bytes) = &self.encoded {
-            writer.write_all(bytes)
-        } else if let Some(books) = self.decoded.get() {
+        if let Some(books) = self.decoded.get() {
             books.serialize(writer)
         } else {
             // Every default field has an all-zero fixed Borsh encoding. Avoid
@@ -132,7 +135,7 @@ mod tests {
         let bytes = expected.try_to_vec().unwrap();
         assert_eq!(bytes.len(), LazyIncomeBooks::INIT_SPACE);
         let mut lazy = LazyIncomeBooks::try_from_slice(&bytes).unwrap();
-        assert!(lazy.decoded.get().is_none());
+        assert!(lazy.decoded.get().is_some());
         assert_eq!(lazy.try_to_vec().unwrap(), bytes);
         assert_eq!(lazy.get().unwrap().pending, expected.pending);
         assert_eq!(lazy.try_to_vec().unwrap(), bytes);

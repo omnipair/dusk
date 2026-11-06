@@ -1,7 +1,4 @@
-use crate::{
-    errors::ErrorCode,
-    math::{mul_div_ceil_u128, mul_div_u128},
-};
+use crate::{errors::ErrorCode, math::mul_div_u128};
 use anchor_lang::prelude::*;
 use uint::construct_uint;
 
@@ -65,31 +62,44 @@ impl IncomeReceivableBook {
     /// A drained or numerically exhausted epoch must be archived and rolled
     /// before issuing more units; old ownership is never silently reset.
     pub fn issue(&mut self, allocations: [(u64, u64); 4]) -> Result<[u64; 4]> {
+        let (next, assigned) = self
+            .project_issue(allocations)?
+            .ok_or(ErrorCode::IncomeEpochNeedsRollover)?;
+        *self = next;
+        Ok(assigned)
+    }
+
+    pub(crate) fn project_issue(&self, allocations: [(u64, u64); 4]) -> Result<Option<(Self, [u64; 4])>> {
         let amount = allocations.iter().try_fold(0_u64, |sum, (amount, _)| {
             sum.checked_add(*amount).ok_or(ErrorCode::MarketMathOverflow)
         })?;
         if amount == 0 {
-            return Ok([0; 4]);
+            return Ok(Some((self.clone(), [0; 4])));
         }
-        require!(self.unpaid > 0 || self.units == 0, ErrorCode::IncomeEpochNeedsRollover);
+        if self.unpaid == 0 && self.units != 0 {
+            return Ok(None);
+        }
+        // u64 factors have a full product and ceil addition which fit u128.
         let issued = if self.units == 0 {
             amount as u128
         } else {
-            mul_div_ceil_u128(amount as u128, self.units as u128, self.unpaid as u128)?
+            (amount as u128 * self.units as u128).div_ceil(self.unpaid as u128)
         };
-        let issued = u64::try_from(issued).map_err(|_| ErrorCode::IncomeEpochNeedsRollover)?;
+        let Ok(issued) = u64::try_from(issued) else {
+            return Ok(None);
+        };
+        let (Some(units), Some(unpaid)) = (self.units.checked_add(issued), self.unpaid.checked_add(amount)) else {
+            return Ok(None);
+        };
         let mut next = self.clone();
-        next.units = next
-            .units
-            .checked_add(issued)
-            .ok_or(ErrorCode::IncomeEpochNeedsRollover)?;
-        next.unpaid = next.unpaid.checked_add(amount).ok_or(ErrorCode::MarketMathOverflow)?;
+        next.units = units;
+        next.unpaid = unpaid;
         let mut assigned = [0_u64; 4];
         let mut cumulative_amount = 0_u128;
         let mut cumulative_units = 0_u128;
         for (i, (gross, supply)) in allocations.into_iter().enumerate() {
             cumulative_amount += gross as u128;
-            let cumulative = mul_div_u128(issued as u128, cumulative_amount, amount as u128)?;
+            let cumulative = issued as u128 * cumulative_amount / amount as u128;
             let lane_units = cumulative - cumulative_units;
             cumulative_units = cumulative;
             assigned[i] = lane_units as u64;
@@ -97,23 +107,19 @@ impl IncomeReceivableBook {
                 continue;
             }
             require!(supply > 0, ErrorCode::SupplyUnderflow);
-            let delta = mul_div_u128(lane_units, Q64, supply as u128)?;
+            let delta = lane_units * Q64 / supply as u128;
             let lane = &mut next.growth[i];
-            lane.units_q64 = lane
-                .units_q64
-                .checked_add(delta)
-                .ok_or(ErrorCode::IncomeEpochNeedsRollover)?;
-            let weighted = U256(lane.weighted_paid_q128)
-                .checked_add(
-                    U256::from(delta)
-                        .checked_mul(U256::from(next.paid_per_unit_q64))
-                        .ok_or(ErrorCode::IncomeEpochNeedsRollover)?,
-                )
-                .ok_or(ErrorCode::IncomeEpochNeedsRollover)?;
+            let Some(growth) = lane.units_q64.checked_add(delta) else {
+                return Ok(None);
+            };
+            let weighted_delta = U256::from(delta) * U256::from(next.paid_per_unit_q64);
+            let Some(weighted) = U256(lane.weighted_paid_q128).checked_add(weighted_delta) else {
+                return Ok(None);
+            };
+            lane.units_q64 = growth;
             lane.weighted_paid_q128 = weighted.0;
         }
-        *self = next;
-        Ok(assigned)
+        Ok(Some((next, assigned)))
     }
 
     /// Remove paid and canceled gross receivables, then allocate only measured

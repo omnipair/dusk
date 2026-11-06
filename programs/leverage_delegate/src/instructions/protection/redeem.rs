@@ -16,6 +16,7 @@ impl<'info> ExecuteProtectionOrder<'info> {
                     self.dusk_program.to_account_info(),
                     dusk::cpi::accounts::RemoveLiquidity {
                         market: self.market.to_account_info(),
+                        futarchy_authority: self.futarchy_authority.to_account_info(),
                         owner: self.order.to_account_info(),
                         base_mint: self.base_mint.to_account_info(),
                         quote_mint: self.quote_mint.to_account_info(),
@@ -79,50 +80,91 @@ impl<'info> ExecuteProtectionOrder<'info> {
             } else {
                 remaining
             };
-            dusk::cpi::withdraw_single_sided(
-                CpiContext::new_with_signer(
-                    self.dusk_program.to_account_info(),
-                    dusk::cpi::accounts::WithdrawSingleSided {
-                        market: self.market.to_account_info(),
-                        futarchy_authority: self.futarchy_authority.to_account_info(),
-                        owner: self.order.to_account_info(),
-                        base_mint: self.base_mint.to_account_info(),
-                        quote_mint: self.quote_mint.to_account_info(),
-                        srlp_mint: self.srlp_mint.to_account_info(),
-                        target_hlp_mint: self.lp_mint.to_account_info(),
-                        base_reserve_vault: self.base_reserve_vault.to_account_info(),
-                        quote_reserve_vault: self.quote_reserve_vault.to_account_info(),
-                        borrowed_interest_vault: self
-                            .borrowed_interest_vault
-                            .as_ref()
-                            .ok_or(LeverageDelegateError::InvalidOrder)?
-                            .to_account_info(),
-                        owner_target_account: if payment_asset == MarketAsset::Base {
-                            self.custody_base_account.to_account_info()
-                        } else {
-                            self.custody_quote_account.to_account_info()
-                        },
-                        owner_hlp_account: self.custody_lp_account.to_account_info(),
-                        hlp_srlp_account: self
-                            .hlp_srlp_account
-                            .as_ref()
-                            .ok_or(LeverageDelegateError::InvalidOrder)?
-                            .to_account_info(),
-                        base_yield_account: self.base_yield_account.to_account_info(),
-                        quote_yield_account: self.quote_yield_account.to_account_info(),
-                        token_program: self.token_program.to_account_info(),
-                        token_2022_program: self.token_2022_program.to_account_info(),
-                        event_authority: self.dusk_event_authority.to_account_info(),
-                        program: self.dusk_program.to_account_info(),
-                    },
-                    signer,
-                )
-                .with_remaining_accounts(remaining.to_vec()),
-                dusk::instructions::WithdrawSingleSidedArgs {
-                    hlp_amount: lp_amount,
-                    min_target_amount_out: min_payment_out,
+            use anchor_lang::{
+                solana_program::{
+                    instruction::{AccountMeta, Instruction},
+                    program::invoke_signed,
                 },
-            )
+                InstructionData,
+            };
+            let accounts = dusk::cpi::accounts::WithdrawSingleSided {
+                market: self.market.to_account_info(),
+                futarchy_authority: self.futarchy_authority.to_account_info(),
+                owner: self.order.to_account_info(),
+                base_mint: self.base_mint.to_account_info(),
+                quote_mint: self.quote_mint.to_account_info(),
+                srlp_mint: self.srlp_mint.to_account_info(),
+                target_hlp_mint: self.lp_mint.to_account_info(),
+                base_reserve_vault: self.base_reserve_vault.to_account_info(),
+                quote_reserve_vault: self.quote_reserve_vault.to_account_info(),
+                borrowed_interest_vault: self
+                    .borrowed_interest_vault
+                    .as_ref()
+                    .ok_or(LeverageDelegateError::InvalidOrder)?
+                    .to_account_info(),
+                owner_target_account: if payment_asset == MarketAsset::Base {
+                    self.custody_base_account.to_account_info()
+                } else {
+                    self.custody_quote_account.to_account_info()
+                },
+                owner_hlp_account: self.custody_lp_account.to_account_info(),
+                hlp_srlp_account: self
+                    .hlp_srlp_account
+                    .as_ref()
+                    .ok_or(LeverageDelegateError::InvalidOrder)?
+                    .to_account_info(),
+                base_yield_account: self.base_yield_account.to_account_info(),
+                quote_yield_account: self.quote_yield_account.to_account_info(),
+                token_program: self.token_program.to_account_info(),
+                token_2022_program: self.token_2022_program.to_account_info(),
+                event_authority: self.dusk_event_authority.to_account_info(),
+                program: self.dusk_program.to_account_info(),
+            };
+            // Keep one exact-sized CPI buffer. Anchor's generated adapter builds
+            // a temporary Vec per fixed account, which exhausts composite routes.
+            let fixed = [
+                accounts.market.clone(),
+                accounts.futarchy_authority.clone(),
+                accounts.owner.clone(),
+                accounts.base_mint.clone(),
+                accounts.quote_mint.clone(),
+                accounts.srlp_mint.clone(),
+                accounts.target_hlp_mint.clone(),
+                accounts.base_reserve_vault.clone(),
+                accounts.quote_reserve_vault.clone(),
+                accounts.borrowed_interest_vault.clone(),
+                accounts.owner_target_account.clone(),
+                accounts.owner_hlp_account.clone(),
+                accounts.hlp_srlp_account.clone(),
+                accounts.base_yield_account.clone(),
+                accounts.quote_yield_account.clone(),
+                accounts.token_program.clone(),
+                accounts.token_2022_program.clone(),
+                accounts.event_authority.clone(),
+                accounts.program.clone(),
+            ];
+            let mut infos = Vec::with_capacity(fixed.len() + remaining.len());
+            infos.extend(fixed);
+            infos.extend_from_slice(remaining);
+            let mut metas = accounts.to_account_metas(None);
+            metas.reserve_exact(remaining.len());
+            metas.extend(remaining.iter().map(|info| AccountMeta {
+                pubkey: info.key(),
+                is_signer: info.is_signer,
+                is_writable: info.is_writable,
+            }));
+            let instruction = Instruction {
+                program_id: dusk::ID,
+                accounts: metas,
+                data: dusk::instruction::WithdrawSingleSided {
+                    args: dusk::instructions::WithdrawSingleSidedArgs {
+                        hlp_amount: lp_amount,
+                        min_target_amount_out: min_payment_out,
+                    },
+                }
+                .data(),
+            };
+            invoke_signed(&instruction, &infos, signer).map_err(Into::into)
         }
     }
 }

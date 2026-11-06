@@ -55,7 +55,7 @@ mainnet launch or upgrade.
 - Re-check hLP cash-funded interest, pay-and-carry swaps, frozen-vault swap
   liveness, solvent external flash recovery and both terminal paths. Native
   `close_insolvent_hlp` and full hLP flash settlement must honor caller-supplied
-  insurance/socialized-loss bounds, protect principal first and cancel unpaid
+  socialized-loss bounds, protect principal first and cancel unpaid
   funding interest. A retired receipt must remain burnable without requiring
   the other hLP vault to recover first.
 - Reconcile reserve custody as executable cash + swap-fee custody + both
@@ -84,13 +84,13 @@ mainnet launch or upgrade.
   fee/quote matrix tests use that same launch domain.
 - Confirm vanilla srLP withdrawal remains constrained by cash availability,
   user slippage bounds, pro-rata burn math, and reserve/share invariants.
-- Re-check liquidation accounting for collateral seizure, insurance draw, and
+- Re-check liquidation accounting for collateral seizure, junior-first loss allocation, and
   LP socialization.
 - Confirm the flash/emergency policy in `docs/FLASH_LIQUIDATION_CONTRACT.md`:
   borrowing and leverage use symmetric-EMA eligibility, atomic collateral
   release and fixed net payment; useful partial fills remain available. Check
   the two-minute incentive ramp, 70%-of-maintenance emergency boundary,
-  EMA/smoothed-depth internal settlement, principal-only insurance, unpaid
+  EMA/smoothed-depth internal settlement, junior-first principal loss allocation, unpaid
   interest cancellation and socialization. Include Token-2022 fee notice and
   both hLP flash and native terminal paths.
 - Re-check fee liabilities: srLP, hLP, protocol, and unallocated carry-forward
@@ -177,7 +177,7 @@ typecheck gates.
 - Market PDA derivation uses `deriveMarketAddress`.
 - Indexers consume Dusk events from the standalone Dusk IDL.
 - App routing points Dusk market flows at the Dusk program ID.
-- Analytics track srLP, hLP, debt, insurance, and fee state as Dusk market
+- Analytics track srLP, hLP, debt, tranche, and fee state as Dusk market
   metrics.
 
 ## 6. Mainnet Deployment

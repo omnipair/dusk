@@ -35,6 +35,7 @@ macro_rules! market_update_and_validate {
                 &mut self.market,
                 Clock::get()?.slot,
                 self.event_authority.to_account_info(),
+                self.futarchy_authority.revenue_share.interest_bps,
             )?;
             self.market.update_for_debt_reduction()?;
             self.validate(args)
@@ -46,6 +47,7 @@ macro_rules! market_update_and_validate {
                 &mut self.market,
                 Clock::get()?.slot,
                 self.event_authority.to_account_info(),
+                self.futarchy_authority.revenue_share.interest_bps,
             )?;
             self.market.update()?;
             self.validate(args)
@@ -57,6 +59,7 @@ macro_rules! market_update_and_validate {
                 &mut self.market,
                 Clock::get()?.slot,
                 self.event_authority.to_account_info(),
+                self.futarchy_authority.revenue_share.interest_bps,
             )?;
             self.market.update()?;
             self.validate()
@@ -255,8 +258,8 @@ pub(crate) fn require_reserve_custody(vault_balance: u64, market_side: &MarketSi
         .reserves
         .cash_reserve
         .checked_add(market_side.fees.swap_fee_custody_balance)
-        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.protocol_escrow))
-        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.protocol_release_pending))
+        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.revenue_escrow))
+        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.revenue_release_pending))
         .and_then(|value| value.checked_add(hlp_backing_inventory))
         .and_then(|value| value.checked_add(market_side.reserves.protected_recenter_reserve))
         .ok_or(ErrorCode::MarketMathOverflow)?;

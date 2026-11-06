@@ -34,9 +34,11 @@ pub struct InitializeMarketArgs {
     /// First in the wire payload so account validation reads only the PDA seed.
     pub params_hash: [u8; 32],
     pub config: MarketConfig,
+    /// Operator share of base interest; protocol markup is global and additive.
+    pub operator_interest_share_bps: u16,
     /// Initial oracle policy, installed atomically with the market. None uses
     /// native pricing. First liquidity authenticates a current report when
-    /// the selected weight is positive; later policy changes use governance.
+    /// the selected weight is positive. Oracle sources/policy are creation-only.
     pub oracle: Option<OraclePolicy>,
     /// Optional final bootstrap price imported by a permissionless launch
     /// adapter. Zero binds the reference to the first fully-backed seed.
@@ -181,28 +183,6 @@ pub struct InitializeMarket<'info> {
         bump
     )]
     pub quote_collateral_vault: UncheckedAccount<'info>,
-    /// CHECK: Junior insurance vault PDA for the base asset.
-    #[account(
-        mut,
-        seeds = [
-            INSURANCE_SEED_PREFIX,
-            market.key().as_ref(),
-            base_mint.key().as_ref(),
-        ],
-        bump
-    )]
-    pub base_insurance_vault: UncheckedAccount<'info>,
-    /// CHECK: Junior insurance vault PDA for the quote asset.
-    #[account(
-        mut,
-        seeds = [
-            INSURANCE_SEED_PREFIX,
-            market.key().as_ref(),
-            quote_mint.key().as_ref(),
-        ],
-        bump
-    )]
-    pub quote_insurance_vault: UncheckedAccount<'info>,
     /// CHECK: Non-compounding interest vault PDA for the base asset.
     #[account(
         mut,
@@ -277,6 +257,10 @@ impl<'info> InitializeMarket<'info> {
         validate_lp_metadata_args(&args.quote_hlp_metadata)?;
 
         args.config.validate()?;
+        require!(
+            args.operator_interest_share_bps <= crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS,
+            ErrorCode::OperatorPolicyExceeded
+        );
         args.oracle.unwrap_or_default().validate()?;
         require!(
             args.oracle.unwrap_or_default().lambda_bps == 0 || args.bootstrap_price_nad == 0,
@@ -300,10 +284,8 @@ impl<'info> InitializeMarket<'info> {
         let quote_hlp_mint = ctx.accounts.quote_hlp_mint.key();
         let base_collateral_vault = ctx.accounts.base_collateral_vault.key();
         let quote_collateral_vault = ctx.accounts.quote_collateral_vault.key();
-        let base_insurance_vault = ctx.accounts.base_insurance_vault.key();
-        let quote_insurance_vault = ctx.accounts.quote_insurance_vault.key();
 
-        // Create reserve, collateral, insurance, and interest vaults for both assets.
+        // Create reserve, collateral, and interest vaults for both assets.
         let base_token_program = token_program_for_mint(
             &ctx.accounts.base_mint,
             &ctx.accounts.token_program,
@@ -353,26 +335,6 @@ impl<'info> InitializeMarket<'info> {
             &quote_token_program,
             MARKET_COLLATERAL_VAULT_SEED_PREFIX,
             ctx.bumps.quote_collateral_vault,
-        )?;
-        create_vault_token_account(
-            &ctx.accounts.market,
-            &ctx.accounts.payer,
-            &ctx.accounts.base_insurance_vault,
-            &ctx.accounts.base_mint,
-            &ctx.accounts.system_program,
-            &base_token_program,
-            INSURANCE_SEED_PREFIX,
-            ctx.bumps.base_insurance_vault,
-        )?;
-        create_vault_token_account(
-            &ctx.accounts.market,
-            &ctx.accounts.payer,
-            &ctx.accounts.quote_insurance_vault,
-            &ctx.accounts.quote_mint,
-            &ctx.accounts.system_program,
-            &quote_token_program,
-            INSURANCE_SEED_PREFIX,
-            ctx.bumps.quote_insurance_vault,
         )?;
         create_vault_token_account(
             &ctx.accounts.market,
@@ -448,8 +410,6 @@ impl<'info> InitializeMarket<'info> {
             args.config,
             base_hlp_srlp_vault,
             quote_hlp_srlp_vault,
-            base_insurance_vault,
-            quote_insurance_vault,
             args.params_hash,
             payer_key,
             args.bootstrap_price_nad,
@@ -458,6 +418,13 @@ impl<'info> InitializeMarket<'info> {
             ctx.bumps.market,
         )?;
         ctx.accounts.market.oracle.policy = args.oracle.unwrap_or_default();
+        ctx.accounts.market.operator.interest_share_bps = args.operator_interest_share_bps;
+        ctx.accounts.market.protocol_interest_markup_bps = ctx.accounts.futarchy_authority.revenue_share.interest_bps;
+        emit_cpi!(crate::instructions::OperatorChanged {
+            market: market_key,
+            operator: payer_key,
+            epoch: 0,
+        });
 
         // Either all three LP metadata accounts exist with the market or none
         // of them do. No caller can assign branding after the first LP mint.
@@ -503,13 +470,15 @@ impl<'info> InitializeMarket<'info> {
             srlp_mint,
             base_collateral_vault,
             quote_collateral_vault,
-            base_insurance_vault,
-            quote_insurance_vault,
             base_hlp_mint,
             quote_hlp_mint,
             target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,
             swap_fee_bps: args.config.swap_fee_bps,
             config: args.config,
+            operator: payer_key,
+            operator_revenue_recipient: payer_key,
+            operator_interest_share_bps: args.operator_interest_share_bps,
+            protocol_interest_markup_bps: ctx.accounts.market.protocol_interest_markup_bps,
             oracle: ctx.accounts.market.oracle.policy,
             params_hash: args.params_hash,
             initial_liquidity_authority: payer_key,

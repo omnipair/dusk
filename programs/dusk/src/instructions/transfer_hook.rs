@@ -16,9 +16,8 @@ use crate::{
     state::{HlpCohort, Market, YieldAccount, YieldTokenKind},
 };
 
-/// Accounts of the legacy layout; newer mints append the event authority and
-/// the Dusk program.
-const TRANSFER_HOOK_ACCOUNT_COUNT: usize = 12;
+/// Token callback plus market, yield, event and global-fee accounts.
+const TRANSFER_HOOK_ACCOUNT_COUNT: usize = 15;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TokenAccountSnapshot {
     owner: Pubkey,
@@ -100,15 +99,37 @@ pub fn handle_transfer_hook<'info>(
         mutate_program_owned_account::<Market, _, _>(&accounts[5], ErrorCode::InvalidMarket, |market| {
             require_keys_eq!(*accounts[6].key, market.base_side.asset_mint, ErrorCode::InvalidMint);
             require_keys_eq!(*accounts[7].key, market.quote_side.asset_mint, ErrorCode::InvalidMint);
-            if let Some(event_authority) = accounts.get(12) {
-                crate::instructions::accounting::accrue_market_interest_data(
-                    market,
-                    market_key,
-                    Clock::get()?.slot,
+            let event_authority = &accounts[12];
+            require_keys_eq!(*accounts[13].key, *program_id, ErrorCode::InvalidArgument);
+            crate::instructions::accounting::accrue_market_interest_data(
+                market,
+                market_key,
+                Clock::get()?.slot,
+                event_authority.clone(),
+            )?;
+            let global = &accounts[14];
+            let global_key =
+                Pubkey::find_program_address(&[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX], program_id).0;
+            require_keys_eq!(global.key(), global_key, ErrorCode::InvalidArgument);
+            require_keys_eq!(*global.owner, *program_id, ErrorCode::InvalidArgument);
+            let data = global.try_borrow_data()?;
+            let authority = crate::state::FutarchyAuthority::try_deserialize(&mut data.as_ref())?;
+            require!(
+                authority.revenue_share.interest_bps <= crate::constants::BPS_DENOMINATOR,
+                ErrorCode::InvalidInterestFeeBps
+            );
+            if market.protocol_interest_markup_bps != authority.revenue_share.interest_bps {
+                let previous_bps = market.protocol_interest_markup_bps;
+                market.protocol_interest_markup_bps = authority.revenue_share.interest_bps;
+                emit_accounting_event(
+                    &crate::events::ProtocolInterestMarkupCheckpointed {
+                        market: market_key,
+                        previous_bps,
+                        markup_bps: market.protocol_interest_markup_bps,
+                        slot: Clock::get()?.slot,
+                    },
                     event_authority.clone(),
                 )?;
-            } else {
-                market.accrue_interest_to_slot(Clock::get()?.slot)?;
             }
             let contexts = match current_yield_contexts(market, lp_mint)? {
                 Some(contexts) => contexts,
@@ -118,7 +139,7 @@ pub fn handle_transfer_hook<'info>(
             let quote = contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
             let ends = if base.token_kind == YieldTokenKind::Junior && lp_mint != market.junior_mint {
                 crate::state::JuniorCohort::from_remaining(
-                    accounts.get(14).ok_or(ErrorCode::InvalidLpMintKey)?,
+                    accounts.get(15).ok_or(ErrorCode::InvalidLpMintKey)?,
                     market_key,
                     lp_mint,
                 )?
@@ -151,22 +172,17 @@ pub fn handle_transfer_hook<'info>(
             Ok((base, quote))
         })?;
 
-    // Mints initialized with the event accounts publish a receipt; legacy
-    // mints transfer exactly as before, without one.
-    if let [event_authority, program, ..] = &accounts[TRANSFER_HOOK_ACCOUNT_COUNT..] {
-        require_keys_eq!(*program.key, *program_id, ErrorCode::InvalidArgument);
-        emit_accounting_event(
-            &LpTransferred {
-                market: market_key,
-                lp_mint,
-                token_kind: base_context.token_kind.code(),
-                source_owner,
-                destination_owner,
-                amount,
-            },
-            event_authority.clone(),
-        )?;
-    }
+    emit_accounting_event(
+        &LpTransferred {
+            market: market_key,
+            lp_mint,
+            token_kind: base_context.token_kind.code(),
+            source_owner,
+            destination_owner,
+            amount,
+        },
+        accounts[12].clone(),
+    )?;
     Ok(())
 }
 
@@ -177,7 +193,7 @@ fn retired_hlp_yield_contexts(
     lp_mint: Pubkey,
     accounts: &[AccountInfo],
 ) -> Result<YieldContexts> {
-    let cohort_info = accounts.get(14).ok_or(ErrorCode::InvalidArgument)?;
+    let cohort_info = accounts.get(15).ok_or(ErrorCode::InvalidArgument)?;
     let junior_key =
         Pubkey::find_program_address(&[b"junior_cohort", market_key.as_ref(), lp_mint.as_ref()], &crate::ID).0;
     if *cohort_info.key == junior_key {

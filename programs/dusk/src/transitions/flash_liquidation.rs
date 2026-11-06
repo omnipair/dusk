@@ -104,25 +104,6 @@ impl Market {
         })
     }
 
-    pub fn liquidation_insurance_target(&self, asset: MarketAsset) -> Result<u64> {
-        let principal = match asset {
-            MarketAsset::Base => {
-                u128::from(self.debt.fixed_base_principal) + u128::from(self.debt.isolated_base_principal)
-            }
-            MarketAsset::Quote => {
-                u128::from(self.debt.fixed_quote_principal) + u128::from(self.debt.isolated_quote_principal)
-            }
-        };
-        let funding = match asset {
-            MarketAsset::Base => &self.quote_hlp_vault,
-            MarketAsset::Quote => &self.base_hlp_vault,
-        };
-        liquidation_insurance_target(
-            principal,
-            Debt::shares_to_debt(funding.debt_shares, self.debt.borrow_index(asset))?,
-        )
-    }
-
     pub(crate) fn quote_flash_liquidation(
         &self,
         position: &LiquidationPositionRef<'_>,
@@ -140,8 +121,6 @@ impl Market {
         require!(health_before.eligible()?, ErrorCode::PositionNotLiquidatable);
         let mut rates = health_before.rates()?;
         let available = position.collateral(asset);
-        let target = self.liquidation_insurance_target(asset)?;
-        let balance = self.insurance.available(asset);
         let full_debt = position.bounded_repayment(self, asset, u64::MAX)?;
         let (collateral_debit, collateral_credit, repayment, fee, owner_surplus, debt_shares_to_burn, remaining_debt) =
             if full {
@@ -170,13 +149,7 @@ impl Market {
                 .map_err(|_| ErrorCode::MarketMathOverflow)?;
                 let repayment = purchase.min(full_debt.cash_repaid);
                 let surplus = purchase.saturating_sub(repayment);
-                let fee = LiquidationFeeAllocation::quote(
-                    repayment,
-                    surplus,
-                    balance,
-                    target,
-                    self.tranche_policy.liquidation_fee_bps,
-                );
+                let fee = LiquidationFeeAllocation::quote(repayment, surplus);
                 (
                     available,
                     credit,
@@ -197,13 +170,7 @@ impl Market {
                     .ok_or(ErrorCode::InsufficientDebt)?;
                 let repay =
                     position.bounded_share_repayment(self, asset, requested.shares_to_burn.min(maximum_burn))?;
-                let fee = LiquidationFeeAllocation::quote(
-                    repay.cash_repaid,
-                    u64::MAX,
-                    balance,
-                    target,
-                    self.tranche_policy.liquidation_fee_bps,
-                );
+                let fee = LiquidationFeeAllocation::quote(repay.cash_repaid, u64::MAX);
                 // Search the finite discount domain from high to low. Each
                 // interval combines its best remaining value and lowest MM;
                 // if even that state cannot improve, every discount in it fails.
@@ -309,7 +276,7 @@ impl Market {
         // matters for capped transfer fees: splitting one transfer into two
         // may cost more than the reduction in the original transfer.
         let owner_bound = owner_surplus.checked_add(2).ok_or(ErrorCode::MarketMathOverflow)?;
-        for net in [repayment, fee.insurance, fee.lp + fee.protocol, owner_bound] {
+        for net in [repayment, fee.junior, fee.protocol, owner_bound] {
             if net > 0 {
                 payment = payment
                     .checked_add(debt_fee.effective_gross_for_credit(net)?)
@@ -351,7 +318,7 @@ impl Market {
             let debit = self.flash_collateral_debit_at_price(
                 asset,
                 repayment.cash_repaid,
-                repayment.cash_repaid / 100,
+                LiquidationFeeAllocation::quote(repayment.cash_repaid, u64::MAX).total,
                 discount,
                 collateral_fee,
                 price,

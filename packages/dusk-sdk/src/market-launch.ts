@@ -77,7 +77,7 @@ export function marketCreationV0Transaction(params: {
 
 /** Prepare addresses for a maximum-size parameter proposal. Submit the
  * create/extend instructions and wait one slot before using the table. */
-export function parameterProposalLookupTablePlan(params: {
+export function operatorChangeLookupTablePlan(params: {
   payer: PublicKey;
   recentSlot: number;
   proposalInstruction: TransactionInstruction;
@@ -86,9 +86,9 @@ export function parameterProposalLookupTablePlan(params: {
     initializeMarketInstruction: params.proposalInstruction});
 }
 
-/** All eight parameter families plus maximum metadata need address lookup
+/** Maximum parameter bundles plus metadata may need address lookup
  * tables. The wire-size check includes signatures and compute instructions. */
-export function parameterProposalV0Transaction(params: {
+export function operatorChangeV0Transaction(params: {
   payer: PublicKey;
   recentBlockhash: string;
   proposalInstruction: TransactionInstruction;

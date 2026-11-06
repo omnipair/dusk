@@ -1,39 +1,28 @@
-import { oraclePolicy, encodeOraclePolicy, type OraclePolicy, type OraclePolicyInput } from "./oracle.js";
 import * as anchorNamespace from "@coral-xyz/anchor";
 import { type BN } from "@coral-xyz/anchor";
 
-import { address, type AddressLike } from "./address.js";
 import {
-  GOVERNANCE_BPS_DENOMINATOR,
   MAX_PROPOSAL_DESCRIPTION_BYTES,
   MAX_PROPOSAL_DESCRIPTION_URI_BYTES,
   MAX_PROPOSAL_TITLE_BYTES,
-  PARAMETER_PROPOSAL_SPONSOR_BPS,
-  PARAMETER_PROPOSAL_SUPPORT_BPS,
   PROPOSAL_METADATA_VERSION,
 } from "./constants.js";
 import { sha256 } from "./hash.js";
 
-export type GovernanceIntegerLike = bigint | number | string | BN | { toString(): string };
+import type { IntegerLike } from "./referral.js";
+export type { IntegerLike } from "./referral.js";
+const BPS_DENOMINATOR = 10_000;
 
 export const NAD = 1_000_000_000n;
 export const MIN_PARAMETER_HALF_LIFE_MS = 60_000n;
 export const MAX_PARAMETER_HALF_LIFE_MS = 12n * 60n * 60n * 1_000n;
 export const MAX_PARAMETER_FEE_BPS = 5_000;
-export const MIN_IRM_TARGET_UTILIZATION_BPS = 6_000;
-export const MAX_IRM_TARGET_UTILIZATION_BPS = 7_500;
-export const MIN_IRM_CURVE_STEEPNESS_NAD = 2n * NAD;
-export const MAX_IRM_CURVE_STEEPNESS_NAD = 8n * NAD;
-export const MIN_IRM_ADJUSTMENT_SPEED_PER_YEAR = 1n;
-export const MAX_IRM_ADJUSTMENT_SPEED_PER_YEAR = 50n;
 export const MAX_CONCENTRATION_AMPLIFICATION_NAD = 2_000n * NAD;
 export const MAX_FEE_COEFFICIENT_NAD = 100n * NAD;
 export const MAX_VOLATILITY_ACCUMULATOR_NAD = 10n * NAD;
 export const MAX_DAILY_BORROW_BPS = 3_000;
 export const MIN_CENTER_ADJUSTMENT_NAD = NAD / 1_000_000n;
 export const MAX_CENTER_ADJUSTMENT_NAD = NAD / 10n;
-// One nominal day of scheduled 200 ms slots, matching the program cap.
-export const MAX_CENTER_ADJUSTMENT_INTERVAL_SLOTS = 432_000n;
 export const MAX_LAUNCH_FEE_DURATION_SECONDS = 30n * 24n * 60n * 60n;
 export const LAUNCH_FEE_DECAY_DISABLED = 0;
 export const LAUNCH_FEE_DECAY_LINEAR = 1;
@@ -45,22 +34,16 @@ export const SWAP_FEE_COLLECT_INPUT_ASSET = 0;
 export const SWAP_FEE_COLLECT_BASE_ONLY = 1;
 export const SWAP_FEE_COLLECT_QUOTE_ONLY = 2;
 export const MAX_LAUNCH_MARKET_FEE_PERIODS = 64;
-export const MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS = 7_500;
-export const MAX_INSURANCE_DRAW_PER_DAY_BPS = 5_000;
 export const MIN_JUNIOR_INCOME_SHARE_BPS = 1_000;
 export const MAX_JUNIOR_INCOME_SHARE_BPS = 9_000;
-export const MIN_JUNIOR_EXIT_REQUEST_FEE_BPS = 1;
-export const MAX_JUNIOR_EXIT_REQUEST_FEE_BPS = 50;
-export const MIN_LIQUIDATION_FEE_BPS = 25;
-export const MAX_LIQUIDATION_FEE_BPS = 300;
-/** Governed parameter families, and the length of a market's revision list. */
-export const PARAMETER_FAMILY_COUNT = 9;
-/** A proposal changes one to nine families, each at most once. */
+/** Operator parameter families, and the length of a market's revision list. */
+export const PARAMETER_FAMILY_COUNT = 7;
+export const JUNIOR_EXIT_REQUEST_FEE_BPS = 50;
+export const LIQUIDATION_FEE_BPS = 300;
+/** A proposal changes one to seven families, each at most once. */
 export const MAX_PARAMETER_UPDATES_PER_PROPOSAL = PARAMETER_FAMILY_COUNT;
-export const PARAMETER_PROPOSAL_DIGEST_DOMAIN = "DUSK_PARAMETER_PROPOSAL_V2";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
-const PROPOSAL_DIGEST_DOMAIN = new TextEncoder().encode(PARAMETER_PROPOSAL_DIGEST_DOMAIN);
 
 // `@coral-xyz/anchor` ships both a CommonJS and an ESM build, and they disagree
 // about how `BN` is reachable: bundlers resolve the ESM build, which has no
@@ -77,25 +60,25 @@ export interface FeeProfileInput {
   baseFeeBps: number;
   divergenceFeeShareCapBps: number;
   volatilityFeeShareCapBps: number;
-  divergenceFeeCoefficientNad: GovernanceIntegerLike;
-  volatilityFeeCoefficientNad: GovernanceIntegerLike;
-  volatilityHalfLifeMs: GovernanceIntegerLike;
-  volatilityShockCapNad: GovernanceIntegerLike;
-  volatilityAccumulatorCapNad: GovernanceIntegerLike;
+  divergenceFeeCoefficientNad: IntegerLike;
+  volatilityFeeCoefficientNad: IntegerLike;
+  volatilityHalfLifeMs: IntegerLike;
+  volatilityShockCapNad: IntegerLike;
+  volatilityAccumulatorCapNad: IntegerLike;
   swapFeeCollectMode?: number;
   /** LP-owned swap-fee share compounded into reserve principal, in bps. */
   compoundingFeeBps?: number;
   launchFeeStartBps?: number;
-  launchFeeDurationSeconds?: GovernanceIntegerLike;
+  launchFeeDurationSeconds?: IntegerLike;
   launchFeeDecayMode?: number;
   launchMarketPriceStepBps?: number;
   launchMarketNumberOfPeriods?: number;
   launchMarketReductionFactorBps?: number;
   launchRateLimitAsset?: number;
-  launchRateLimitReferenceNad?: GovernanceIntegerLike;
+  launchRateLimitReferenceNad?: IntegerLike;
   launchRateLimitIncrementBps?: number;
   launchRateLimitMaxFeeBps?: number;
-  launchRateLimitDurationSeconds?: GovernanceIntegerLike;
+  launchRateLimitDurationSeconds?: IntegerLike;
 }
 
 export interface FeeProfile {
@@ -122,23 +105,17 @@ export interface FeeProfile {
   launchRateLimitDurationSeconds: BN;
 }
 
-export interface IrmConfigInput {
-  lowerSignalNad: GovernanceIntegerLike;
-  upperSignalNad: GovernanceIntegerLike;
-  halfLifeMs: GovernanceIntegerLike;
-  initialAprNad: GovernanceIntegerLike;
-  minimumAprNad: GovernanceIntegerLike;
-  maximumAprNad: GovernanceIntegerLike;
+export interface IrmUpdateInput {
+  lowerSignalNad: IntegerLike;
+  upperSignalNad: IntegerLike;
+  halfLifeMs: IntegerLike;
   borrowUtilizationLimitBps: number;
 }
 
-export interface IrmConfig {
+export interface IrmUpdate {
   lowerSignalNad: BN;
   upperSignalNad: BN;
   halfLifeMs: BN;
-  initialAprNad: BN;
-  minimumAprNad: BN;
-  maximumAprNad: BN;
   borrowUtilizationLimitBps: number;
 }
 
@@ -149,8 +126,9 @@ export type ParameterUpdate =
       peakAmplificationNad: BN;
       coreHalfWidthBps: number;
       fadeWidthBps: number;
+      rampDurationSlots: BN;
     }
-  | { kind: "irm"; config: IrmConfig }
+  | { kind: "irm"; config: IrmUpdate }
   | {
       kind: "emaHalfLives";
       priceMs: BN;
@@ -161,21 +139,15 @@ export type ParameterUpdate =
   | { kind: "dailyBorrowLimit"; maxDailyBorrowBps: number }
   | {
       kind: "centerController";
-      adjustmentThresholdNad: BN;
       adjustmentStepNad: BN;
-      minAdjustmentIntervalSlots: BN;
     }
-  | { kind: "insuranceDrawCaps"; principalCoverageBps: number; perDayBps: number }
-  | { kind: "oracle"; policy: OraclePolicy }
   | {
       kind: "tranche";
       juniorIncomeShareBps: number;
-      requestFeeBps: number;
-      liquidationFeeBps: number;
     };
 
 export type ParameterFamilyName = ParameterUpdate["kind"];
-export type ParameterFamilyCode = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type ParameterFamilyCode = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface ProposalMetadataV1 {
   version: number;
@@ -236,33 +208,6 @@ export interface UploadProposalMetadataInput extends ProposalDescriptionFetchOpt
   upload: ProposalDescriptionUploader;
 }
 
-export interface ParameterProposalDigestInput {
-  programId: AddressLike;
-  market: AddressLike;
-  proposer: AddressLike;
-  nonce: GovernanceIntegerLike;
-  /**
-   * One revision per family, as the proposal stores them: an updated family's
-   * market revision at creation, zero for every family left alone. Build it
-   * with `updatedFamilyRevisions`.
-   */
-  familyRevisions: readonly GovernanceIntegerLike[];
-  /** One to seven updates, at most one per family, in any order. */
-  updates: readonly ParameterUpdate[];
-  metadata: ProposalMetadataV1;
-}
-
-export interface DecodedParameterProposalForDigest {
-  market: AddressLike;
-  proposer: AddressLike;
-  nonce: GovernanceIntegerLike;
-  familyRevisions: readonly GovernanceIntegerLike[];
-  updates: readonly unknown[];
-  metadata: ProposalMetadataV1;
-  digest?: Uint8Array | number[];
-}
-
-/** Normalize and validate the complete mutable fee family. */
 export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
   assertBps(input.baseFeeBps, "baseFeeBps", MAX_PARAMETER_FEE_BPS);
   assertBps(
@@ -347,7 +292,7 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
   assertBps(
     compoundingFeeBps,
     "compoundingFeeBps",
-    GOVERNANCE_BPS_DENOMINATOR
+    BPS_DENOMINATOR
   );
 
   const launchFeeStartBps = input.launchFeeStartBps ?? 0;
@@ -368,7 +313,7 @@ export function feeParameterUpdate(input: FeeProfileInput): ParameterUpdate {
     launchMarketNumberOfPeriods > 0 &&
     launchMarketNumberOfPeriods <= MAX_LAUNCH_MARKET_FEE_PERIODS &&
     launchMarketReductionFactorBps > 0 &&
-    launchMarketReductionFactorBps < GOVERNANCE_BPS_DENOMINATOR;
+    launchMarketReductionFactorBps < BPS_DENOMINATOR;
   const launchFeeDisabled =
     launchFeeStartBps === 0 &&
     launchFeeDurationSeconds === 0n &&
@@ -504,10 +449,13 @@ export function standardLaunchFeeParameterUpdate(
 
 /** Build an atomic, protected concentration update. */
 export function concentrationParameterUpdate(input: {
-  peakAmplificationNad: GovernanceIntegerLike;
+  peakAmplificationNad: IntegerLike;
   coreHalfWidthBps: number;
   fadeWidthBps: number;
+  rampDurationSlots?: IntegerLike;
 }): ParameterUpdate {
+  const rampDurationSlots = toU64BigInt(input.rampDurationSlots ?? 432_000n, "rampDurationSlots");
+  if (rampDurationSlots < 432_000n) throw new Error("concentration ramps require at least one protocol day");
   const peakAmplificationNad = toU64BigInt(input.peakAmplificationNad, "peakAmplificationNad");
   assertBps(input.coreHalfWidthBps, "coreHalfWidthBps", 0xffff);
   assertBps(input.fadeWidthBps, "fadeWidthBps", 0xffff);
@@ -532,40 +480,34 @@ export function concentrationParameterUpdate(input: {
     peakAmplificationNad: toBN(peakAmplificationNad),
     coreHalfWidthBps: input.coreHalfWidthBps,
     fadeWidthBps: input.fadeWidthBps,
+    rampDurationSlots: toBN(rampDurationSlots),
   };
 }
 
-export function irmParameterUpdate(input: IrmConfigInput): ParameterUpdate {
-  assertBps(input.borrowUtilizationLimitBps, "borrowUtilizationLimitBps", 10_000, 1);
+export const MINIMUM_BORROW_APR_NAD = NAD / 100n;
+export const MIN_BORROW_HALF_LIFE_MS = 43_200_000n;
+export const MAX_BORROW_HALF_LIFE_MS = 30n * 86_400_000n;
+export function irmParameterUpdate(input: IrmUpdateInput): ParameterUpdate {
+  assertBps(input.borrowUtilizationLimitBps, "borrowUtilizationLimitBps", 8_000, 1);
   const lowerSignalNad = toU64BigInt(input.lowerSignalNad, "lowerSignalNad");
   const upperSignalNad = toU64BigInt(input.upperSignalNad, "upperSignalNad");
   const halfLifeMs = toU64BigInt(input.halfLifeMs, "halfLifeMs");
-  const initialAprNad = toU64BigInt(input.initialAprNad, "initialAprNad");
-  const minimumAprNad = toU64BigInt(input.minimumAprNad, "minimumAprNad");
-  const maximumAprNad = toU64BigInt(input.maximumAprNad, "maximumAprNad");
   if (lowerSignalNad === 0n || upperSignalNad <= lowerSignalNad) throw new Error("Invalid coverage target band");
-  assertRange(halfLifeMs, 3_600_000n, 30n * 86_400_000n, "halfLifeMs");
-  if (initialAprNad === 0n || minimumAprNad > initialAprNad || (maximumAprNad !== 0n && maximumAprNad < initialAprNad)) {
-    throw new Error("Invalid initial APR, floor, or ceiling");
+  assertRange(halfLifeMs, MIN_BORROW_HALF_LIFE_MS, MAX_BORROW_HALF_LIFE_MS, "halfLifeMs");
+  for (const field of Object.keys(input)) {
+    if (!["lowerSignalNad", "upperSignalNad", "halfLifeMs", "borrowUtilizationLimitBps"].includes(field)) throw new Error(`Unknown IRM update field: ${field}`);
   }
-  return { kind: "irm", config: {
-    lowerSignalNad: toBN(lowerSignalNad),
-    upperSignalNad: toBN(upperSignalNad),
-    halfLifeMs: toBN(halfLifeMs),
-    initialAprNad: toBN(initialAprNad),
-    minimumAprNad: toBN(minimumAprNad),
-    maximumAprNad: toBN(maximumAprNad),
-    borrowUtilizationLimitBps: input.borrowUtilizationLimitBps,
-  } };
+  return { kind: "irm", config: { lowerSignalNad: toBN(lowerSignalNad), upperSignalNad: toBN(upperSignalNad),
+    halfLifeMs: toBN(halfLifeMs), borrowUtilizationLimitBps: input.borrowUtilizationLimitBps } };
 }
 
 export function emaHalfLivesParameterUpdate(input: {
-  priceMs: GovernanceIntegerLike;
-  directionalPriceMs: GovernanceIntegerLike;
-  curveDepthMs: GovernanceIntegerLike;
-  centerPriceMs: GovernanceIntegerLike;
+  priceMs: IntegerLike;
+  directionalPriceMs: IntegerLike;
+  curveDepthMs: IntegerLike;
+  centerPriceMs: IntegerLike;
 }): ParameterUpdate {
-  const normalize = (value: GovernanceIntegerLike, label: string) =>
+  const normalize = (value: IntegerLike, label: string) =>
     toBN(
       assertRange(
         toU64BigInt(value, label),
@@ -588,60 +530,14 @@ export function dailyBorrowLimitParameterUpdate(maxDailyBorrowBps: number): Para
   return { kind: "dailyBorrowLimit", maxDailyBorrowBps };
 }
 
-export function centerControllerParameterUpdate(input: {
-  adjustmentThresholdNad: GovernanceIntegerLike;
-  adjustmentStepNad: GovernanceIntegerLike;
-  minAdjustmentIntervalSlots: GovernanceIntegerLike;
-}): ParameterUpdate {
-  const adjustmentThresholdNad = toU64BigInt(input.adjustmentThresholdNad, "adjustmentThresholdNad");
-  const adjustmentStepNad = toU64BigInt(input.adjustmentStepNad, "adjustmentStepNad");
-  const minAdjustmentIntervalSlots = toU64BigInt(
-    input.minAdjustmentIntervalSlots,
-    "minAdjustmentIntervalSlots"
-  );
-  const disabled =
-    adjustmentThresholdNad === 0n && adjustmentStepNad === 0n && minAdjustmentIntervalSlots === 0n;
-  if (
-    !disabled &&
-    (adjustmentStepNad < MIN_CENTER_ADJUSTMENT_NAD ||
-      adjustmentStepNad > MAX_CENTER_ADJUSTMENT_NAD ||
-      adjustmentThresholdNad < adjustmentStepNad ||
-      adjustmentThresholdNad > MAX_CENTER_ADJUSTMENT_NAD ||
-      minAdjustmentIntervalSlots < 1n ||
-      minAdjustmentIntervalSlots > MAX_CENTER_ADJUSTMENT_INTERVAL_SLOTS)
-  ) {
-    throw new Error("invalid center-controller threshold, step, or interval");
-  }
-  return {
-    kind: "centerController",
-    adjustmentThresholdNad: toBN(adjustmentThresholdNad),
-    adjustmentStepNad: toBN(adjustmentStepNad),
-    minAdjustmentIntervalSlots: toBN(minAdjustmentIntervalSlots),
-  };
-}
-
-/** Insurance loss-concentration caps; they may only tighten the protocol ceilings. */
-export function insuranceDrawCapsParameterUpdate(input: {
-  principalCoverageBps: number;
-  perDayBps: number;
-}): ParameterUpdate {
-  assertBps(input.principalCoverageBps, "principalCoverageBps", MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS);
-  assertBps(input.perDayBps, "perDayBps", MAX_INSURANCE_DRAW_PER_DAY_BPS);
-  return {
-    kind: "insuranceDrawCaps",
-    principalCoverageBps: input.principalCoverageBps,
-    perDayBps: input.perDayBps,
-  };
-}
-
-export function oracleParameterUpdate(input: OraclePolicyInput): ParameterUpdate {
-  return { kind: "oracle", policy: oraclePolicy(input) };
+export function centerControllerParameterUpdate(input: { adjustmentStepNad: IntegerLike }): ParameterUpdate {
+  const step = toU64BigInt(input.adjustmentStepNad, "adjustmentStepNad");
+  assertRange(step, MIN_CENTER_ADJUSTMENT_NAD, MAX_CENTER_ADJUSTMENT_NAD, "adjustmentStepNad");
+  return { kind: "centerController", adjustmentStepNad: toBN(step) };
 }
 
 export function trancheParameterUpdate(input: {
   juniorIncomeShareBps: number;
-  requestFeeBps: number;
-  liquidationFeeBps: number;
 }): ParameterUpdate {
   assertBps(
     input.juniorIncomeShareBps,
@@ -649,30 +545,19 @@ export function trancheParameterUpdate(input: {
     MAX_JUNIOR_INCOME_SHARE_BPS,
     MIN_JUNIOR_INCOME_SHARE_BPS
   );
-  assertBps(
-    input.requestFeeBps,
-    "requestFeeBps",
-    MAX_JUNIOR_EXIT_REQUEST_FEE_BPS,
-    MIN_JUNIOR_EXIT_REQUEST_FEE_BPS
-  );
-  assertBps(
-    input.liquidationFeeBps,
-    "liquidationFeeBps",
-    MAX_LIQUIDATION_FEE_BPS,
-    MIN_LIQUIDATION_FEE_BPS
-  );
-  return { kind: "tranche", ...input };
+  for (const key of Object.keys(input)) {
+    if (key !== "kind" && key !== "juniorIncomeShareBps") throw new Error(`Unknown tranche update field: ${key}`);
+  }
+  return { kind: "tranche", juniorIncomeShareBps: input.juniorIncomeShareBps };
 }
 
 export const parameterUpdate = {
-  oracle: oracleParameterUpdate,
   fee: feeParameterUpdate,
   concentration: concentrationParameterUpdate,
   irm: irmParameterUpdate,
   emaHalfLives: emaHalfLivesParameterUpdate,
   dailyBorrowLimit: dailyBorrowLimitParameterUpdate,
   centerController: centerControllerParameterUpdate,
-  insuranceDrawCaps: insuranceDrawCapsParameterUpdate,
   tranche: trancheParameterUpdate,
 } as const;
 
@@ -696,12 +581,6 @@ export function assertParameterUpdate(update: ParameterUpdate): void {
     case "centerController":
       centerControllerParameterUpdate(update);
       return;
-    case "oracle":
-      oraclePolicy(update.policy);
-      return;
-    case "insuranceDrawCaps":
-      insuranceDrawCapsParameterUpdate(update);
-      return;
     case "tranche":
       trancheParameterUpdate(update);
       return;
@@ -722,17 +601,13 @@ export function parameterFamilyCode(update: ParameterUpdate): ParameterFamilyCod
       return 4;
     case "centerController":
       return 5;
-    case "insuranceDrawCaps":
-      return 6;
-    case "oracle":
-      return 7;
     case "tranche":
-      return 8;
+      return 6;
   }
 }
 
 /**
- * The one encoding a proposal accepts for a set of updates: one to eight,
+ * The one encoding a proposal accepts for a set of updates: one to seven,
  * each family at most once, in ascending family order. Throws on an empty
  * set or a repeated family.
  */
@@ -751,23 +626,6 @@ export function canonicalParameterUpdates(updates: readonly ParameterUpdate[]): 
   return sorted;
 }
 
-/**
- * The revisions a new proposal binds: each updated family's current market
- * revision, and zero for every family the proposal leaves alone.
- */
-export function updatedFamilyRevisions(
-  updates: readonly ParameterUpdate[],
-  marketRevisions: readonly GovernanceIntegerLike[]
-): bigint[] {
-  assertFamilyRevisionCount(marketRevisions);
-  const revisions = new Array<bigint>(PARAMETER_FAMILY_COUNT).fill(0n);
-  for (const update of canonicalParameterUpdates(updates)) {
-    const code = parameterFamilyCode(update);
-    revisions[code] = toU64BigInt(marketRevisions[code]!, `marketRevisions[${code}]`);
-  }
-  return revisions;
-}
-
 /** Convert the readable SDK union to Anchor's generated Rust-enum object. */
 export function anchorParameterUpdate(update: ParameterUpdate): Record<string, unknown> {
   assertParameterUpdate(update);
@@ -781,6 +639,7 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
           peakAmplificationNad: update.peakAmplificationNad,
           coreHalfWidthBps: update.coreHalfWidthBps,
           fadeWidthBps: update.fadeWidthBps,
+          rampDurationSlots: update.rampDurationSlots,
         },
       };
     case "irm":
@@ -799,23 +658,13 @@ export function anchorParameterUpdate(update: ParameterUpdate): Record<string, u
     case "centerController":
       return {
         centerController: {
-          adjustmentThresholdNad: update.adjustmentThresholdNad,
           adjustmentStepNad: update.adjustmentStepNad,
-          minAdjustmentIntervalSlots: update.minAdjustmentIntervalSlots,
         },
-      };
-    case "oracle":
-      return { oracle: { 0: update.policy } };
-    case "insuranceDrawCaps":
-      return {
-        insuranceDrawCaps: { principalCoverageBps: update.principalCoverageBps, perDayBps: update.perDayBps },
       };
     case "tranche":
       return {
         tranche: {
           juniorIncomeShareBps: update.juniorIncomeShareBps,
-          requestFeeBps: update.requestFeeBps,
-          liquidationFeeBps: update.liquidationFeeBps,
         },
       };
   }
@@ -834,6 +683,7 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
       peakAmplificationNad: integerField(fields, "peakAmplificationNad"),
       coreHalfWidthBps: numberField(fields, "coreHalfWidthBps"),
       fadeWidthBps: numberField(fields, "fadeWidthBps"),
+      rampDurationSlots: integerField(fields, "rampDurationSlots"),
     });
   }
   if (update.irm !== undefined) {
@@ -842,9 +692,6 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
       lowerSignalNad: integerField(config, "lowerSignalNad"),
       upperSignalNad: integerField(config, "upperSignalNad"),
       halfLifeMs: integerField(config, "halfLifeMs"),
-      initialAprNad: integerField(config, "initialAprNad"),
-      minimumAprNad: integerField(config, "minimumAprNad"),
-      maximumAprNad: integerField(config, "maximumAprNad"),
       borrowUtilizationLimitBps: numberField(config, "borrowUtilizationLimitBps"),
     });
   }
@@ -864,27 +711,13 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
   if (update.centerController !== undefined) {
     const fields = objectValue(update.centerController, "center-controller update");
     return centerControllerParameterUpdate({
-      adjustmentThresholdNad: integerField(fields, "adjustmentThresholdNad"),
       adjustmentStepNad: integerField(fields, "adjustmentStepNad"),
-      minAdjustmentIntervalSlots: integerField(fields, "minAdjustmentIntervalSlots"),
     });
-  }
-  if (update.insuranceDrawCaps !== undefined) {
-    const fields = objectValue(update.insuranceDrawCaps, "insurance draw-caps update");
-    return insuranceDrawCapsParameterUpdate({
-      principalCoverageBps: numberField(fields, "principalCoverageBps"),
-      perDayBps: numberField(fields, "perDayBps"),
-    });
-  }
-  if (update.oracle !== undefined) {
-    return oracleParameterUpdate(tupleField(update.oracle, "oracle") as OraclePolicyInput);
   }
   if (update.tranche !== undefined) {
     const fields = objectValue(update.tranche, "tranche update");
     return trancheParameterUpdate({
       juniorIncomeShareBps: numberField(fields, "juniorIncomeShareBps"),
-      requestFeeBps: numberField(fields, "requestFeeBps"),
-      liquidationFeeBps: numberField(fields, "liquidationFeeBps"),
     });
   }
   throw new Error("unknown market parameter update variant");
@@ -1045,106 +878,7 @@ export function resolveProposalDescriptionUri(
 }
 
 /** Reproduce the immutable on-chain proposal digest over canonical Borsh bytes. */
-export async function computeParameterProposalDigest(
-  input: ParameterProposalDigestInput
-): Promise<Uint8Array> {
-  assertProposalMetadata(input.metadata);
-  assertFamilyRevisionCount(input.familyRevisions);
-  const updates = canonicalParameterUpdates(input.updates);
-  return sha256(
-    concatBytes(
-      PROPOSAL_DIGEST_DOMAIN,
-      address(input.programId).toBytes(),
-      address(input.market).toBytes(),
-      address(input.proposer).toBytes(),
-      encodeU64(input.nonce, "nonce"),
-      ...input.familyRevisions.map((revision, family) =>
-        encodeU64(revision, `familyRevisions[${family}]`)
-      ),
-      encodeU32(updates.length),
-      ...updates.map(encodeParameterUpdate),
-      encodeProposalMetadata(input.metadata)
-    )
-  );
-}
-
-export async function verifyParameterProposalDigest(
-  expected: Uint8Array | number[],
-  input: ParameterProposalDigestInput
-): Promise<boolean> {
-  return equalBytes(await computeParameterProposalDigest(input), expected);
-}
-
-export function computeDecodedParameterProposalDigest(
-  programId: AddressLike,
-  proposal: DecodedParameterProposalForDigest
-): Promise<Uint8Array> {
-  return computeParameterProposalDigest({
-    programId,
-    market: proposal.market,
-    proposer: proposal.proposer,
-    nonce: proposal.nonce,
-    familyRevisions: proposal.familyRevisions,
-    updates: proposal.updates.map(parameterUpdateFromAnchor),
-    metadata: proposal.metadata,
-  });
-}
-
-export async function verifyDecodedParameterProposalDigest(
-  programId: AddressLike,
-  proposal: DecodedParameterProposalForDigest
-): Promise<boolean> {
-  if (!proposal.digest) throw new Error("decoded proposal is missing its digest");
-  return equalBytes(await computeDecodedParameterProposalDigest(programId, proposal), proposal.digest);
-}
-
-export function proposalSponsorshipFloor(eligibleSrlp: GovernanceIntegerLike): bigint {
-  const eligible = toU64BigInt(eligibleSrlp, "eligibleSrlp");
-  if (eligible === 0n) throw new Error("eligibleSrlp must be nonzero");
-  return (
-    eligible * BigInt(PARAMETER_PROPOSAL_SPONSOR_BPS) +
-    BigInt(GOVERNANCE_BPS_DENOMINATOR - 1)
-  ) / BigInt(GOVERNANCE_BPS_DENOMINATOR);
-}
-
-export function hasStrictProposalMajority(
-  lockedSupport: GovernanceIntegerLike,
-  eligibleSrlp: GovernanceIntegerLike
-): boolean {
-  const locked = toU64BigInt(lockedSupport, "lockedSupport");
-  const eligible = toU64BigInt(eligibleSrlp, "eligibleSrlp");
-  return (
-    locked * BigInt(GOVERNANCE_BPS_DENOMINATOR) >
-    eligible * BigInt(PARAMETER_PROPOSAL_SUPPORT_BPS)
-  );
-}
-
-export function minimumProposalQueueSupport(eligibleSrlp: GovernanceIntegerLike): bigint {
-  const eligible = toU64BigInt(eligibleSrlp, "eligibleSrlp");
-  if (eligible === 0n) throw new Error("eligibleSrlp must be nonzero");
-  return eligible / 2n + 1n;
-}
-
-export function eligibleDirectSrlp(input: {
-  mintSupply: GovernanceIntegerLike;
-  governanceLockedSrlp: GovernanceIntegerLike;
-  baseHlpSrlpVaultAmount: GovernanceIntegerLike;
-  quoteHlpSrlpVaultAmount: GovernanceIntegerLike;
-}): bigint {
-  const totalOwnership =
-    toU64BigInt(input.mintSupply, "mintSupply") +
-    toU64BigInt(input.governanceLockedSrlp, "governanceLockedSrlp");
-  if (totalOwnership > U64_MAX) throw new Error("total srLP ownership exceeded u64");
-  const afterBase =
-    totalOwnership - toU64BigInt(input.baseHlpSrlpVaultAmount, "baseHlpSrlpVaultAmount");
-  if (afterBase < 0n) throw new Error("base hLP srLP vault exceeds total srLP ownership");
-  const eligible =
-    afterBase - toU64BigInt(input.quoteHlpSrlpVaultAmount, "quoteHlpSrlpVaultAmount");
-  if (eligible < 0n) throw new Error("quote hLP srLP vault exceeds remaining srLP ownership");
-  return eligible;
-}
-
-export function governanceIntegerBN(value: GovernanceIntegerLike, label = "value"): BN {
+export function integerBN(value: IntegerLike, label = "value"): BN {
   return toBN(toU64BigInt(value, label));
 }
 
@@ -1176,7 +910,7 @@ function tupleField(value: unknown, label: string): unknown {
   return tuple["0"];
 }
 
-function integerField(value: Record<string, unknown>, field: string): GovernanceIntegerLike {
+function integerField(value: Record<string, unknown>, field: string): IntegerLike {
   const candidate = value[field];
   if (
     typeof candidate !== "bigint" &&
@@ -1186,7 +920,7 @@ function integerField(value: Record<string, unknown>, field: string): Governance
   ) {
     throw new Error(`${field} is missing or is not integer-like`);
   }
-  return candidate as GovernanceIntegerLike;
+  return candidate as IntegerLike;
 }
 
 function numberField(value: Record<string, unknown>, field: string): number {
@@ -1208,7 +942,7 @@ function assertRange(value: bigint, min: bigint, max: bigint, label: string): bi
   return value;
 }
 
-function toU64BigInt(value: GovernanceIntegerLike, label: string): bigint {
+function toU64BigInt(value: IntegerLike, label: string): bigint {
   if (typeof value === "number" && !Number.isSafeInteger(value)) {
     throw new Error(`${label} must be a safe integer when supplied as a number`);
   }
@@ -1226,143 +960,6 @@ function toU64BigInt(value: GovernanceIntegerLike, label: string): bigint {
 
 export function toBN(value: bigint): BN {
   return new AnchorBN(value.toString());
-}
-
-function encodeParameterUpdate(update: ParameterUpdate): Uint8Array {
-  assertParameterUpdate(update);
-  switch (update.kind) {
-    case "fee":
-      return concatBytes(
-        Uint8Array.of(0),
-        encodeU16(update.profile.baseFeeBps),
-        encodeU16(update.profile.divergenceFeeShareCapBps),
-        encodeU16(update.profile.volatilityFeeShareCapBps),
-        encodeU64(update.profile.divergenceFeeCoefficientNad, "divergenceFeeCoefficientNad"),
-        encodeU64(update.profile.volatilityFeeCoefficientNad, "volatilityFeeCoefficientNad"),
-        encodeU64(update.profile.volatilityHalfLifeMs, "volatilityHalfLifeMs"),
-        encodeU64(update.profile.volatilityShockCapNad, "volatilityShockCapNad"),
-        encodeU64(update.profile.volatilityAccumulatorCapNad, "volatilityAccumulatorCapNad"),
-        Uint8Array.of(update.profile.swapFeeCollectMode),
-        encodeU16(update.profile.compoundingFeeBps),
-        encodeU16(update.profile.launchFeeStartBps),
-        encodeU64(update.profile.launchFeeDurationSeconds, "launchFeeDurationSeconds"),
-        Uint8Array.of(update.profile.launchFeeDecayMode),
-        encodeU16(update.profile.launchMarketPriceStepBps),
-        encodeU16(update.profile.launchMarketNumberOfPeriods),
-        encodeU16(update.profile.launchMarketReductionFactorBps),
-        Uint8Array.of(update.profile.launchRateLimitAsset),
-        encodeU64(update.profile.launchRateLimitReferenceNad, "launchRateLimitReferenceNad"),
-        encodeU16(update.profile.launchRateLimitIncrementBps),
-        encodeU16(update.profile.launchRateLimitMaxFeeBps),
-        encodeU64(
-          update.profile.launchRateLimitDurationSeconds,
-          "launchRateLimitDurationSeconds"
-        )
-      );
-    case "concentration":
-      return concatBytes(
-        Uint8Array.of(1),
-        encodeU64(update.peakAmplificationNad, "peakAmplificationNad"),
-        encodeU16(update.coreHalfWidthBps),
-        encodeU16(update.fadeWidthBps)
-      );
-    case "irm":
-      return concatBytes(
-        Uint8Array.of(2),
-        encodeU64(update.config.lowerSignalNad, "lowerSignalNad"),
-        encodeU64(update.config.upperSignalNad, "upperSignalNad"),
-        encodeU64(update.config.halfLifeMs, "halfLifeMs"),
-        encodeU64(update.config.initialAprNad, "initialAprNad"),
-        encodeU64(update.config.minimumAprNad, "minimumAprNad"),
-        encodeU64(update.config.maximumAprNad, "maximumAprNad"),
-        encodeU16(update.config.borrowUtilizationLimitBps)
-      );
-    case "emaHalfLives":
-      return concatBytes(
-        Uint8Array.of(3),
-        encodeU64(update.priceMs, "priceMs"),
-        encodeU64(update.directionalPriceMs, "directionalPriceMs"),
-        encodeU64(update.curveDepthMs, "curveDepthMs"),
-        encodeU64(update.centerPriceMs, "centerPriceMs")
-      );
-    case "dailyBorrowLimit":
-      return concatBytes(Uint8Array.of(4), encodeU16(update.maxDailyBorrowBps));
-    case "centerController":
-      return concatBytes(
-        Uint8Array.of(5),
-        encodeU64(update.adjustmentThresholdNad, "adjustmentThresholdNad"),
-        encodeU64(update.adjustmentStepNad, "adjustmentStepNad"),
-        encodeU64(update.minAdjustmentIntervalSlots, "minAdjustmentIntervalSlots")
-      );
-    case "oracle":
-      return concatBytes(Uint8Array.of(7), encodeOraclePolicy(update.policy));
-    case "insuranceDrawCaps":
-      return concatBytes(Uint8Array.of(6), encodeU16(update.principalCoverageBps), encodeU16(update.perDayBps));
-    case "tranche":
-      return concatBytes(
-        Uint8Array.of(8),
-        encodeU16(update.juniorIncomeShareBps),
-        encodeU16(update.requestFeeBps),
-        encodeU16(update.liquidationFeeBps)
-      );
-  }
-}
-
-function assertFamilyRevisionCount(revisions: readonly GovernanceIntegerLike[]): void {
-  if (revisions.length !== PARAMETER_FAMILY_COUNT) {
-    throw new Error(`expected ${PARAMETER_FAMILY_COUNT} family revisions, got ${revisions.length}`);
-  }
-}
-
-function encodeProposalMetadata(metadata: ProposalMetadataV1): Uint8Array {
-  return concatBytes(
-    Uint8Array.of(metadata.version),
-    encodeBorshString(metadata.title),
-    encodeBorshString(metadata.descriptionUri),
-    Uint8Array.from(metadata.descriptionSha256),
-    encodeU32(metadata.descriptionLen)
-  );
-}
-
-function encodeBorshString(value: string): Uint8Array {
-  const bytes = new TextEncoder().encode(value);
-  return concatBytes(encodeU32(bytes.byteLength), bytes);
-}
-
-function encodeU16(value: number): Uint8Array {
-  if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
-    throw new Error("value must fit in u16");
-  }
-  const bytes = new Uint8Array(2);
-  new DataView(bytes.buffer).setUint16(0, value, true);
-  return bytes;
-}
-
-function encodeU32(value: number): Uint8Array {
-  if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new Error("value must fit in u32");
-  }
-  const bytes = new Uint8Array(4);
-  new DataView(bytes.buffer).setUint32(0, value, true);
-  return bytes;
-}
-
-function encodeU64(value: GovernanceIntegerLike, label: string): Uint8Array {
-  const normalized = toU64BigInt(value, label);
-  const bytes = new Uint8Array(8);
-  new DataView(bytes.buffer).setBigUint64(0, normalized, true);
-  return bytes;
-}
-
-function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
-  const total = parts.reduce((sum, part) => sum + part.byteLength, 0);
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    output.set(part, offset);
-    offset += part.byteLength;
-  }
-  return output;
 }
 
 function equalBytes(left: Uint8Array | readonly number[], right: Uint8Array | readonly number[]): boolean {

@@ -300,7 +300,7 @@ fn margin_calibration_partial_recovery_report() {
 // path, so rows compare counterfactual intervention times on the same history.
 #[test]
 fn margin_calibration_emergency_price_path_report() {
-    println!("EMERGENCY_CALIBRATION,amplification,debt_side,entry_spend,step_slots,threshold_bps,elapsed_slots,reference_value,debt,reference_health_bps,execution_health_bps,full_exit,proceeds_reward_25bps,loss_before_insurance");
+    println!("EMERGENCY_CALIBRATION,amplification,debt_side,entry_spend,step_slots,threshold_bps,elapsed_slots,reference_value,debt,reference_health_bps,execution_health_bps,full_exit,proceeds_reward_25bps,funded_credit_loss");
     let mut crossings = 0;
     for amplification in [1, 4] {
         for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {

@@ -16,8 +16,7 @@ pub const NORMALIZED_ORACLE_MAGIC: [u8; 8] = *b"DOPRV001";
 pub const PYTH_RECEIVER: Pubkey = pubkey!("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
 
 /// Creation selects an optional policy atomically; omission uses native pricing.
-/// Subsequent governance can change the policy within the same mathematical
-/// limits. Every native market supports later oracle activation.
+/// The policy, provider and feed identity are immutable after creation.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct OraclePolicy {
     pub format: u8,
@@ -34,15 +33,6 @@ pub struct OraclePolicy {
     pub max_publish_skew_seconds: u32,
 }
 impl OraclePolicy {
-    pub(crate) fn same_source(self, other: Self) -> bool {
-        self.format == other.format
-            && self.provider == other.provider
-            && self.base_account == other.base_account
-            && self.quote_account == other.quote_account
-            && self.base_feed_id == other.base_feed_id
-            && self.quote_feed_id == other.quote_feed_id
-    }
-
     pub fn validate(self) -> Result<()> {
         require!(self.lambda_bps < 10_000, ErrorCode::InvalidMarketConfig);
         if self == Self::default() {
@@ -475,6 +465,32 @@ impl RuntimePricing {
         if let Some(cached) = memo.borrow().as_ref() {
             if cached.parameters == parameters && cached.center == center && cached.policy == policy {
                 return Ok(cached.curve.clone());
+            }
+        }
+        // A ramp may inspect the starting, candidate and live shape in one
+        // invocation. Reuse buffers only when no quote holds this curve; an
+        // outstanding Rc keeps its original immutable geometry.
+        {
+            let mut slot = memo.borrow_mut();
+            if let Some(cached) = slot.as_mut() {
+                if let Some(curve) = std::rc::Rc::get_mut(&mut cached.curve) {
+                    if let Err(error) = curve.reconfigure(
+                        parameters,
+                        center,
+                        observation.price_nad,
+                        policy.lambda_bps,
+                        policy.adjustment_cap_nad,
+                    ) {
+                        // Never associate partially configured workspaces with
+                        // their previous key after a fallible update.
+                        *slot = None;
+                        return Err(error);
+                    }
+                    cached.parameters = parameters;
+                    cached.center = center;
+                    cached.policy = policy;
+                    return Ok(cached.curve.clone());
+                }
             }
         }
         let curve = std::rc::Rc::new(crate::math::op_gamm::BoundedOracleCurve::new(

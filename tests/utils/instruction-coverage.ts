@@ -9,7 +9,7 @@ import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 type InstructionId = string;
 
 const DUSK_PROGRAM_ID = new PublicKey(
-  "5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ"
+  "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2"
 );
 
 export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
@@ -66,25 +66,25 @@ export const ORDINARY_SWAP_COMPUTE_UNIT_LIMIT = 100_000n;
 const COMPUTE_SCENARIO_BASELINES: Partial<
   Record<SwapComputeScenario, ComputeScenarioBaseline>
 > = {
-  cpmm_same_slot: { measuredMaximum: 99_960n, ceiling: 104_958n },
-  cpmm_advanced_slot: { measuredMaximum: 133_287n, ceiling: 139_952n },
-  cpmm_active_debt: { measuredMaximum: 184_342n, ceiling: 193_560n },
-  concentrated_centered: { measuredMaximum: 190_677n, ceiling: 200_211n },
-  concentrated_transition: { measuredMaximum: 190_827n, ceiling: 200_369n },
-  concentrated_tail: { measuredMaximum: 188_509n, ceiling: 197_935n },
-  dynamic_fee_divergence_stress: { measuredMaximum: 293_203n, ceiling: 307_864n },
-  dynamic_fee_volatility_stress: { measuredMaximum: 144_982n, ceiling: 152_232n },
-  retained_surcharge: { measuredMaximum: 293_281n, ceiling: 307_946n },
-  controller_due_recenter: { measuredMaximum: 416_294n, ceiling: 437_109n },
-  concentrated_hlp_active: { measuredMaximum: 891_040n, ceiling: 935_592n },
-  concentrated_hlp_funding_interest: { measuredMaximum: 891_040n, ceiling: 935_592n },
-  joint_shock_hlp_same_slot: { measuredMaximum: 799_027n, ceiling: 838_979n },
-  joint_shock_hlp_one_day: { measuredMaximum: 954_270n, ceiling: 1_001_984n },
-  hlp_active: { measuredMaximum: 157_620n, ceiling: 165_501n },
-  token_2022_swap: { measuredMaximum: 113_555n, ceiling: 119_233n },
-  public_interest_hlp_cpmm: { measuredMaximum: 332_555n, ceiling: 349_183n },
-  public_interest_hlp_concentrated: { measuredMaximum: 950_601n, ceiling: 998_132n },
-  hlp_cash_carry: { measuredMaximum: 1_153_384n, ceiling: 1_211_054n },
+  cpmm_same_slot: { measuredMaximum: 85_153n, ceiling: 89_411n },
+  cpmm_advanced_slot: { measuredMaximum: 118_699n, ceiling: 124_634n },
+  cpmm_active_debt: { measuredMaximum: 175_909n, ceiling: 184_705n },
+  concentrated_centered: { measuredMaximum: 161_295n, ceiling: 169_360n },
+  concentrated_transition: { measuredMaximum: 160_136n, ceiling: 168_143n },
+  concentrated_tail: { measuredMaximum: 158_429n, ceiling: 166_351n },
+  dynamic_fee_divergence_stress: { measuredMaximum: 183_862n, ceiling: 193_056n },
+  dynamic_fee_volatility_stress: { measuredMaximum: 130_176n, ceiling: 136_685n },
+  retained_surcharge: { measuredMaximum: 261_514n, ceiling: 274_590n },
+  controller_due_recenter: { measuredMaximum: 327_406n, ceiling: 343_777n },
+  concentrated_hlp_active: { measuredMaximum: 596_366n, ceiling: 626_185n },
+  concentrated_hlp_funding_interest: { measuredMaximum: 596_366n, ceiling: 626_185n },
+  joint_shock_hlp_same_slot: { measuredMaximum: 546_057n, ceiling: 573_360n },
+  joint_shock_hlp_one_day: { measuredMaximum: 699_235n, ceiling: 734_197n },
+  hlp_active: { measuredMaximum: 134_057n, ceiling: 140_760n },
+  token_2022_swap: { measuredMaximum: 97_758n, ceiling: 102_646n },
+  public_interest_hlp_cpmm: { measuredMaximum: 268_825n, ceiling: 282_267n },
+  public_interest_hlp_concentrated: { measuredMaximum: 626_079n, ceiling: 657_383n },
+  hlp_cash_carry: { measuredMaximum: 739_216n, ceiling: 776_177n },
 };
 
 Object.entries(COMPUTE_SCENARIO_BASELINES).forEach(([scenario, baseline]) => {
@@ -126,7 +126,6 @@ const DUSK_INSTRUCTIONS = [
   "updateProtocolAuctionRecipients",
   "updateProtocolAuctionRoute",
   "setGlobalReduceOnly",
-  "fortifyMarket",
   "configureReferralPartner",
   "initializeReferralAccrual",
   "setReferralRecipient",
@@ -145,16 +144,12 @@ const DUSK_INSTRUCTIONS = [
   "rotateHlpCohort",
   "burnRetiredHlpReceipt",
   "setMarketReduceOnly",
-  "createParameterProposal",
-  "supportParameterProposal",
-  "queueParameterProposal",
-  "executeParameterProposal",
-  "withdrawParameterSupport",
-  "manageGovernanceBalance",
-  "setGovernanceDelegate",
-  "createGovernanceProposal",
-  "supportGovernanceProposal",
-  "withdrawGovernanceSupport",
+  "announceOperatorChange",
+  "removeMarketManager",
+  "executeOperatorChange",
+  "resolveOperatorChange",
+  "initializeOperatorRevenue",
+  "claimOperatorRevenue",
   "addLiquidity",
   "openLiquidityGates",
   "removeLiquidity",
@@ -561,7 +556,7 @@ export function getCoverageReport() {
     };
   }
   lastPrintedReportSignature = signature;
-  
+
   console.log("\n" + "═".repeat(70));
   console.log("📊 INSTRUCTION SMOKE COVERAGE REPORT");
   console.log("═".repeat(70));
@@ -575,13 +570,13 @@ export function getCoverageReport() {
   printCoverageSection("Dusk Instruction Smoke Coverage", ALL_INSTRUCTIONS);
   printComputeUnitReport();
   printComputeScenarioReport();
-  
+
   console.log("\n" + "═".repeat(70));
   console.log(
     `Aggregate Smoke Coverage: ${aggregate.percentage}% | Instructions Exercised: ${aggregate.covered}/${aggregate.total}`
   );
   console.log("═".repeat(70) + "\n");
-  
+
   return {
     covered: aggregate.covered,
     total: aggregate.total,

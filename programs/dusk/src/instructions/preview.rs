@@ -201,7 +201,7 @@ pub struct PreviewBorrowPositionCapacity<'info> {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PreviewSide {
-    pub live_reserve: u64,
+    pub live_reserve: u128,
     pub cash_reserve: u64,
     pub base_hlp_backing_inventory: u64,
     pub quote_hlp_backing_inventory: u64,
@@ -304,8 +304,8 @@ pub struct SwapPreview {
     pub amount_out: u64,
     /// Curve output before Dusk trading fees.
     pub gross_amount_out: u64,
-    pub reserve_in_live_reserve: u64,
-    pub reserve_out_live_reserve: u64,
+    pub reserve_in_live_reserve: u128,
+    pub reserve_out_live_reserve: u128,
     pub base_fee_debit: u64,
     pub divergence_surcharge_debit: u64,
     pub volatility_surcharge_debit: u64,

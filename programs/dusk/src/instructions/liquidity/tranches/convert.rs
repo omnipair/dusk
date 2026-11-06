@@ -37,6 +37,9 @@ pub struct ConvertTranche<'info> {
     pub owner: Signer<'info>,
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
+    #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
+    pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,
+
     #[account(mut, address = market.srlp_mint)]
     pub senior_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut, address = market.junior_mint)]
@@ -77,6 +80,7 @@ impl<'info> ConvertTranche<'info> {
             &mut a.market,
             slot,
             a.event_authority.to_account_info(),
+            a.futarchy_authority.revenue_share.interest_bps,
         )?;
         a.market.reconcile_junior_receipts(a.junior_mint.supply)?;
         a.market.checkpoint_junior_seed()?;

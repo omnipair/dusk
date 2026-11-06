@@ -32,9 +32,8 @@ target as the multiplier.
 - Price, directional-price, curve-depth, AMM-center, volatility and hLP funding
   averages retain millisecond-denominated half-life parameters, but their
   elapsed input is derived from slots.
-- The public borrow bucket refills over a nominal 86,400,000 ms day. The
-  insurance draw window opens again after 432,000 slots. Its explicit
-  `initialized` flag makes slot zero a valid start.
+- The public borrow bucket refills over a nominal 86,400,000 ms day. No separate coverage draw window remains; credit losses are allocated to
+  junior and then senior in the settlement itself.
 - Controller cooldowns and protocol auctions use slot-duration parameters.
   Their one-day cap/default is 432,000 slots. Reference freshness, observation
   ordering, token-epoch checks and flash begin/settle binding remain slot/epoch
@@ -59,7 +58,7 @@ does not silently alter those rules.
 ## Development interface and replay
 
 The #45 integration branch is undeployed. Its Market layout version remains 6,
-now with slot checkpoints and an explicit insurance-window initialization flag
+now with slot checkpoints and the junior/senior loss ledger
 rather than elapsed-timestamp checkpoints. Interest events report from/to
 slots. SDK interfaces and native replay inputs follow the slot-driven account
 and parameter shapes. Historical joint-shock replay results must be regenerated

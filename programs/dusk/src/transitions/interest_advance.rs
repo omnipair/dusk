@@ -3,7 +3,7 @@
 
 use crate::{
     errors::ErrorCode,
-    math::mul_div_u128,
+    math::{mul_div_ceil_u128, mul_div_u128},
     state::{Market, MarketAsset, PublicInterestAdvance},
 };
 use anchor_lang::prelude::*;
@@ -12,13 +12,13 @@ use anchor_lang::prelude::*;
 pub(crate) struct InterestAdvanceClearance {
     pub repaid: u64,
     pub canceled: u64,
-    pub protocol_returned: u64,
+    pub revenue_returned: u64,
 }
 
 impl PublicInterestAdvance {
     pub(crate) fn require_settled(self) -> Result<()> {
         require_eq!(self.repayment_credit_pending, 0, ErrorCode::BrokenInvariant);
-        require_eq!(self.protocol_release_pending, 0, ErrorCode::BrokenInvariant);
+        require_eq!(self.revenue_release_pending, 0, ErrorCode::BrokenInvariant);
         Ok(())
     }
 
@@ -31,8 +31,8 @@ impl PublicInterestAdvance {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require!(u128::from(outstanding) <= unpaid, ErrorCode::BrokenInvariant);
         self.outstanding_gross = outstanding;
-        self.protocol_escrow = self
-            .protocol_escrow
+        self.revenue_escrow = self
+            .revenue_escrow
             .checked_add(protocol)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         Ok(())
@@ -58,7 +58,7 @@ impl PublicInterestAdvance {
             u128::from(self.outstanding_gross) <= unpaid_before,
             ErrorCode::BrokenInvariant
         );
-        require_gte!(self.outstanding_gross, self.protocol_escrow, ErrorCode::BrokenInvariant);
+        require_gte!(self.outstanding_gross, self.revenue_escrow, ErrorCode::BrokenInvariant);
         let removed = unpaid_before.saturating_sub(unpaid_after);
         if self.outstanding_gross == 0 || removed == 0 {
             return Ok(InterestAdvanceClearance::default());
@@ -67,32 +67,39 @@ impl PublicInterestAdvance {
             u64::try_from(mul_div_u128(u128::from(amount), part, total)?)
                 .map_err(|_| ErrorCode::MarketMathOverflow.into())
         };
-        let advanced_removed = proportional(self.outstanding_gross, removed, unpaid_before)?;
-        let paid = proportional(advanced_removed, u128::from(interest_paid).min(removed), removed)?;
-        let protocol_removed = proportional(
-            self.protocol_escrow,
-            u128::from(advanced_removed),
-            u128::from(self.outstanding_gross),
-        )?;
-        let protocol_paid = if advanced_removed == 0 {
-            0
-        } else {
-            proportional(protocol_removed, u128::from(paid), u128::from(advanced_removed))?
-        };
+        // Clear the LP-funded and frozen-fee portions separately. Remaining
+        // LP advances round down, like the remaining LP receivable; remaining
+        // escrow rounds up, like unpaid fees. Rounding gross advances first
+        // can recycle one fee atom to reserves and leave collection unfunded.
+        let lp_removed = u64::try_from(mul_div_ceil_u128(
+            (self.outstanding_gross - self.revenue_escrow) as u128,
+            removed,
+            unpaid_before,
+        )?)
+        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let protocol_removed = proportional(self.revenue_escrow, removed, unpaid_before)?;
+        let advanced_removed = lp_removed + protocol_removed;
+        let paid_part = u128::from(interest_paid).min(removed);
+        let protocol_paid = proportional(protocol_removed, paid_part, removed)?;
+        // Fees round paid amounts down; round recycled LP cash up so the
+        // remainder cannot pay more than the unfunded LP claim being cleared.
+        let lp_paid = u64::try_from(mul_div_ceil_u128(lp_removed as u128, paid_part, removed)?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let paid = lp_paid + protocol_paid;
         self.outstanding_gross -= advanced_removed;
-        self.protocol_escrow -= protocol_removed;
+        self.revenue_escrow -= protocol_removed;
         self.repayment_credit_pending = self
             .repayment_credit_pending
             .checked_add(paid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.protocol_release_pending = self
-            .protocol_release_pending
+        self.revenue_release_pending = self
+            .revenue_release_pending
             .checked_add(protocol_paid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         Ok(InterestAdvanceClearance {
             repaid: paid,
             canceled: advanced_removed - paid,
-            protocol_returned: protocol_removed - protocol_paid,
+            revenue_returned: protocol_removed - protocol_paid,
         })
     }
 
@@ -102,13 +109,13 @@ impl PublicInterestAdvance {
         require_gte!(interest_paid, self.repayment_credit_pending, ErrorCode::BrokenInvariant);
         require_gte!(
             self.repayment_credit_pending,
-            self.protocol_release_pending,
+            self.revenue_release_pending,
             ErrorCode::BrokenInvariant
         );
         let fresh = interest_paid - self.repayment_credit_pending;
-        let frozen_protocol = self.protocol_release_pending;
+        let frozen_protocol = self.revenue_release_pending;
         self.repayment_credit_pending = 0;
-        self.protocol_release_pending = 0;
+        self.revenue_release_pending = 0;
         Ok((fresh, frozen_protocol))
     }
 }
@@ -145,16 +152,31 @@ impl Market {
                 .min(u128::from(side.reserves.cash_reserve)),
         )
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let (protocol, _) = crate::transitions::revenue::split_revenue(gross, protocol_bps)?;
-        side.fees.public_interest_advance.fund(unpaid, gross, protocol)?;
+        let fee = if self.side(asset).fees.junior.initialized {
+            let i = asset.code() as usize;
+            let fee_unpaid = self.income.get()?.revenue[i]
+                .unpaid_fees()?
+                .checked_sub(self.side(asset).fees.public_interest_advance.revenue_escrow)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            if unfunded == 0 {
+                0
+            } else {
+                u64::try_from(mul_div_u128(fee_unpaid as u128, gross as u128, unfunded)?)
+                    .map_err(|_| ErrorCode::MarketMathOverflow)?
+            }
+        } else {
+            crate::transitions::revenue::split_revenue(gross, protocol_bps)?.0
+        };
+        let side = self.side_mut(asset);
+        side.fees.public_interest_advance.fund(unpaid, gross, fee)?;
         side.reserves.cash_reserve -= gross;
         side.reserves.live_reserve = side
             .reserves
             .live_reserve
-            .checked_sub(gross)
+            .checked_sub(u128::from(gross))
             .ok_or(ErrorCode::ReserveUnderflow)?;
-        self.sync_income_receivable(asset, false, gross)?;
-        Ok((gross, gross - protocol))
+        self.sync_income_receivable(asset, false, gross - fee)?;
+        Ok((gross, gross - fee))
     }
 
     pub(crate) fn settle_public_debt_reserves(
@@ -173,7 +195,7 @@ impl Market {
             .clear(unpaid_before, unpaid_after, interest_paid)?;
         let restored = cleared
             .repaid
-            .checked_add(cleared.protocol_returned)
+            .checked_add(cleared.revenue_returned)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         side.reserves.cash_reserve = side
             .reserves
@@ -181,18 +203,16 @@ impl Market {
             .checked_add(cash_credit)
             .and_then(|v| v.checked_add(restored))
             .ok_or(ErrorCode::ReserveOverflow)?;
-        let live = u128::from(side.reserves.live_reserve) + u128::from(restored);
-        side.reserves.live_reserve = u64::try_from(
-            live.checked_sub(u128::from(live_debit))
-                .ok_or(ErrorCode::ReserveUnderflow)?,
-        )
-        .map_err(|_| ErrorCode::ReserveOverflow)?;
+        let live = side.reserves.live_reserve + u128::from(restored);
+        side.reserves.live_reserve = live
+            .checked_sub(u128::from(live_debit))
+            .ok_or(ErrorCode::ReserveUnderflow)?;
         let unpaid_removed = unpaid_before.saturating_sub(unpaid_after);
         let funded_debit = (live_debit as u128)
             .checked_add(cleared.canceled as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let unfunded_debit = unpaid_removed
-            .checked_add(cleared.protocol_returned as u128)
+            .checked_add(cleared.revenue_returned as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let funded_loss =
             u64::try_from(funded_debit.saturating_sub(unfunded_debit)).map_err(|_| ErrorCode::MarketMathOverflow)?;
@@ -214,7 +234,7 @@ mod tests {
         assert!(advance.clear(100, 101, 1).is_err());
         assert_eq!(advance, before);
         let cleared = advance.clear(100, 101, 0).unwrap();
-        assert_eq!((cleared.repaid, cleared.canceled, cleared.protocol_returned), (0, 0, 0));
+        assert_eq!((cleared.repaid, cleared.canceled, cleared.revenue_returned), (0, 0, 0));
         assert_eq!(advance, before);
         assert!(advance.clear(101, 103, 0).is_err());
         assert_eq!(advance, before);
@@ -233,7 +253,7 @@ mod tests {
         // A later 30% protocol rate changes only the next advance.
         a.fund(200, 100, 30).unwrap();
         let c = a.clear(200, 100, 100).unwrap();
-        assert_eq!((c.repaid, c.canceled, c.protocol_returned), (100, 0, 0));
+        assert_eq!((c.repaid, c.canceled, c.revenue_returned), (100, 0, 0));
         assert_eq!(a.take_payment(100).unwrap(), (0, 25));
         let c = a.clear(100, 0, 100).unwrap();
         assert_eq!(c.repaid, 100);
@@ -246,7 +266,7 @@ mod tests {
         let mut a = PublicInterestAdvance::default();
         a.fund(100, 80, 16).unwrap();
         let c = a.clear(100, 0, 25).unwrap();
-        assert_eq!((c.repaid, c.canceled, c.protocol_returned), (20, 60, 12));
+        assert_eq!((c.repaid, c.canceled, c.revenue_returned), (20, 60, 12));
         assert_eq!(a.take_payment(25).unwrap(), (5, 4));
         assert_eq!(a, PublicInterestAdvance::default());
     }
@@ -263,7 +283,7 @@ mod tests {
                     let paid = if before % 3 == 0 { 0 } else { 1 };
                     let c = a.clear(before, before - 1, paid).unwrap();
                     advanced += c.repaid + c.canceled;
-                    released += c.protocol_returned;
+                    released += c.revenue_returned;
                     let (fresh, frozen) = a.take_payment(paid).unwrap();
                     assert!(fresh <= paid);
                     released += frozen;

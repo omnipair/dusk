@@ -161,6 +161,7 @@ impl<'info> IncreaseLeverage<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
+            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         let margin_credit = if args.margin_amount > 0 {
             let before = ctx.accounts.debt_reserve_vault.amount;

@@ -9,11 +9,11 @@ import {
 
 import { address, type AddressLike } from "./address.js";
 import { deriveLeveragePositionAddress } from "./constants.js";
-import { toBN } from "./governance.js";
+import { toBN } from "./parameters.js";
 import DELEGATE_IDL from "./idl_delegate.js";
 import type { LeverageDelegate } from "./types_delegate.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { governanceIntegerBN } from "./governance.js";
+import { integerBN } from "./parameters.js";
 import type { RawAmount } from "./write.js";
 
 /** Hard-coded additional fee on successful built-in order execution. */
@@ -21,9 +21,30 @@ export const ORDER_PROTOCOL_FEE_BPS = 10n;
 
 /** Net protocol fee in raw units, rounded up. Token-2022 transfer fees are additional. */
 export function calculateOrderProtocolFee(executedValue: RawAmount): bigint {
-  const value = BigInt(governanceIntegerBN(executedValue, "executedValue").toString());
+  const value = BigInt(integerBN(executedValue, "executedValue").toString());
   if (value < 0n || value > 0xffffffffffffffffn) throw new RangeError("executedValue must fit u64");
   return (value * ORDER_PROTOCOL_FEE_BPS + 9_999n) / 10_000n;
+}
+
+/** Whole debt tokens per whole collateral token, scaled by 1e9, as the
+ * delegate compares TP/SL thresholds. Mirrors its checked u128 arithmetic. */
+export function calculateLeverageCloseoutPrice(value: RawAmount, collateral: RawAmount,
+  debtDecimals: number, collateralDecimals: number): bigint {
+  const output = BigInt(integerBN(value, "closeoutValue").toString());
+  const input = BigInt(integerBN(collateral, "collateralAmount").toString());
+  if (input === 0n) throw new RangeError("collateralAmount must be positive");
+  for (const decimals of [debtDecimals, collateralDecimals]) {
+    if (!Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) throw new RangeError("Invalid token decimals");
+  }
+  const difference = collateralDecimals - debtDecimals;
+  const scale = 10n ** BigInt(Math.abs(difference));
+  const factor = 1_000_000_000n * (difference >= 0 ? scale : 1n);
+  const numerator = output * factor;
+  const denominator = input * (difference < 0 ? scale : 1n);
+  const maximum = (1n << 128n) - 1n;
+  if (scale > maximum || factor > maximum || numerator > maximum || denominator > maximum)
+    throw new RangeError("Closeout price arithmetic exceeds u128");
+  return BigInt(integerBN(numerator / denominator, "closeoutPriceNad").toString());
 }
 
 /** Supply under `protocolFee` when executing any built-in order. Create this
@@ -35,7 +56,7 @@ export function orderProtocolFeeAccounts(treasury: PublicKey, mint: PublicKey,
 }
 
 export const LEVERAGE_DELEGATE_PROGRAM_ID = address(
-  "3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi"
+  "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY"
 );
 
 export type LeverageDelegateProgram = Program<LeverageDelegate>;
@@ -102,7 +123,7 @@ export interface CreateLeverageOrderParams {
   positionId: AddressLike;
   orderId: bigint | number | string;
   kind: LeverageOrderKind;
-  /** Trigger price in NAD; the order closes out when it is crossed. */
+  /** Whole debt tokens per whole collateral token, scaled by 1e9. */
   triggerCloseoutPriceNad: bigint | number | string;
   /** How much of the position to close, in basis points. */
   closeBps: number;

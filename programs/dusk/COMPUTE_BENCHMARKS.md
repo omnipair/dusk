@@ -13,8 +13,9 @@ current required set.
 
 ## Multi-family parameter proposals (2026-10-07)
 
-A parameter proposal now carries one to seven family updates, and its account
-is sized for seven. In one LiteSVM suite run the governance lifecycle's
+This retained measurement used seven families. The current ABI has eight,
+with no standalone insurance family, and maximum bundles use v0 lookup tables.
+The byte/CU figures below are historical telemetry for the dated binary. In one LiteSVM suite run the governance lifecycle's
 two-family proposal costs 134,901 CU to create and 80,420 CU to execute; on
 the preceding binary its single-family proposal cost 122,460 and 77,064 CU.
 Instructions the change does not touch, such as `repay`, moved by up to
@@ -193,7 +194,7 @@ It must consume **strictly less than 100,000 CU**.
 hLP entry is live. The concentrated path reconstructs hLP ownership and indexed
 debt algebraically so each active vault ends with zero opposite-asset exposure
 at canonical atom precision. If passive funding debt exhausts a vault,
-`close_insolvent_hlp` applies caller-bounded insurance and socialization and
+`close_insolvent_hlp` applies caller-bounded junior/senior loss allocation and
 pays its bounded caller bounty only from recovered funding interest.
 
 The benchmark keeps LiteSVM's default 32 KiB transaction heap. A larger heap

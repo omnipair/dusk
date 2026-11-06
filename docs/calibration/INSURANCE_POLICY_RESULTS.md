@@ -1,5 +1,10 @@
 # Insurance funding and spending sensitivity
 
+> Historical design/evidence: the standalone insurance fund and its coverage,
+> draw, target, and donation rules were removed on 5 November 2026. Earlier
+> results below retain their original assumptions and are not validation of
+> the current policy. See the [current junior-first waterfall](../CREDIT_LOSS_WATERFALL.md).
+
 > Historical calibration: assumptions and proposed settings below are superseded
 > by [the current liquidation decisions](../LIQUIDATION_DECISIONS.md). These saved
 > results do not validate the new combined runtime policy. Reproduce historical

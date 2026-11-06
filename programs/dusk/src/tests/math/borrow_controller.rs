@@ -18,18 +18,9 @@ fn market_defaults_and_explicit_zero_overrides() {
     assert_eq!(defaults, RiskRateConfig::default());
     assert_eq!(defaults.half_life_ms, 14 * crate::constants::MS_PER_DAY);
     assert_eq!(defaults.initial_apr_nad, 40_000_000);
-    assert_eq!(defaults.minimum_apr_nad, 20_000_000);
-    assert_eq!(defaults.maximum_apr_nad, 0);
+    assert_eq!(MINIMUM_BORROW_APR_NAD, 10_000_000);
     assert_eq!(defaults.lower_signal_nad, 50_000_000);
     assert_eq!(defaults.upper_signal_nad, 62_500_000);
-    let zero_floor = RiskRateOverrides {
-        minimum_apr_nad: Some(0),
-        maximum_apr_nad: Some(0),
-        ..Default::default()
-    }
-    .resolve()
-    .unwrap();
-    assert_eq!(zero_floor.minimum_apr_nad, 0);
     assert!(RiskRateOverrides {
         initial_apr_nad: Some(0),
         ..Default::default()
@@ -75,27 +66,29 @@ fn rates_double_hold_and_halve_with_inclusive_band() {
 }
 
 #[test]
-fn floor_and_optional_ceiling_integrate_time_after_crossing() {
-    let config = RiskRateConfig {
-        maximum_apr_nad: 80_000_000,
-        ..Default::default()
-    };
+fn fixed_floor_integrates_tail_and_upward_rate_has_no_economic_cap() {
+    let config = RiskRateConfig::default();
     let elapsed = 3 * config.half_life_ms;
     let up = accrue_risk_rate(&config, rate(0.04), Some(0), elapsed).unwrap();
     let down = accrue_risk_rate(&config, rate(0.04), Some(NAD as u128), elapsed).unwrap();
     let scale = NAD as f64 * config.half_life_ms as f64;
-    assert_eq!(up.end_apr_e18, rate(0.08));
-    assert_eq!(down.end_apr_e18, rate(0.02));
-    assert_close(
-        up.integrated_apr_nad_ms as f64 / scale,
-        0.04 / 2_f64.ln() + 2.0 * 0.08,
-        1e-15,
-    );
-    assert_close(
-        down.integrated_apr_nad_ms as f64 / scale,
-        0.02 / 2_f64.ln() + 2.0 * 0.02,
-        1e-15,
-    );
+    assert_eq!(up.end_apr_e18, rate(0.32));
+    assert_eq!(down.end_apr_e18, rate(0.01));
+    assert_close(up.integrated_apr_nad_ms as f64 / scale, 0.28 / 2_f64.ln(), 1e-15);
+    assert_close(down.integrated_apr_nad_ms as f64 / scale, 0.03 / 2_f64.ln() + 0.01, 1e-15);
+}
+
+#[test]
+fn initial_rate_and_half_life_cannot_bypass_fixed_policy() {
+    for apr in [0, MINIMUM_BORROW_APR_NAD - 1] {
+        assert!(RiskRateOverrides { initial_apr_nad: Some(apr), ..Default::default() }.resolve().is_err());
+    }
+    for half in [0, crate::constants::MS_PER_DAY / 2 - 1, 30 * crate::constants::MS_PER_DAY + 1] {
+        assert!(RiskRateOverrides { half_life_ms: Some(half), ..Default::default() }.resolve().is_err());
+    }
+    for half in [crate::constants::MS_PER_DAY / 2, 30 * crate::constants::MS_PER_DAY] {
+        assert!(RiskRateOverrides { half_life_ms: Some(half), ..Default::default() }.resolve().is_ok());
+    }
 }
 
 #[test]
@@ -124,17 +117,17 @@ fn senior_withdrawal_changes_liquidity_signal_without_inventing_coverage() {
 #[test]
 fn frequent_accrual_cannot_freeze_a_slow_rate() {
     let config = RiskRateConfig {
-        minimum_apr_nad: 0,
-        initial_apr_nad: 1,
+        initial_apr_nad: MINIMUM_BORROW_APR_NAD,
         half_life_ms: 30 * crate::constants::MS_PER_DAY,
         ..Default::default()
     };
-    let mut current = RATE_TO_NAD;
+    let initial = MINIMUM_BORROW_APR_NAD as u128 * RATE_TO_NAD;
+    let mut current = initial;
     for _ in 0..10_000 {
         current = accrue_risk_rate(&config, current, Some(0), 200).unwrap().end_apr_e18;
     }
-    let once = accrue_risk_rate(&config, RATE_TO_NAD, Some(0), 2_000_000).unwrap();
-    assert!(current > RATE_TO_NAD);
+    let once = accrue_risk_rate(&config, initial, Some(0), 2_000_000).unwrap();
+    assert!(current > initial);
     assert!(once.end_apr_e18.abs_diff(current) <= 10_001);
 }
 
@@ -159,8 +152,7 @@ fn zero_time_and_numeric_overflow_do_not_invent_elapsed_interest() {
 #[test]
 fn valid_uncapped_market_remains_accruable_after_seventy_three_half_lives() {
     let config = RiskRateConfig {
-        half_life_ms: 3_600_000,
-        maximum_apr_nad: 0,
+        half_life_ms: crate::constants::MS_PER_DAY / 2,
         ..RiskRateConfig::default()
     };
     config.validate().unwrap();
@@ -171,35 +163,31 @@ fn valid_uncapped_market_remains_accruable_after_seventy_three_half_lives() {
 }
 
 #[test]
-fn zero_minimum_remains_an_asymptotic_downward_bound() {
-    let config = RiskRateConfig {
-        minimum_apr_nad: 0,
-        ..RiskRateConfig::default()
-    };
-    config.validate().unwrap();
+fn every_market_has_the_same_nonzero_downward_floor() {
+    let config = RiskRateConfig::default();
     let accrued = accrue_risk_rate(&config, rate(0.04), Some(u64::MAX as u128), u64::MAX).unwrap();
-    assert_eq!(accrued.end_apr_e18, 0);
+    assert_eq!(accrued.end_apr_e18, rate(0.01));
     assert!(accrued.integrated_apr_nad_ms > 0);
 }
 
 proptest! {
     #[test]
     fn bounded_controller_matches_analytic_integral(
-        half in 3_600_000_u64..=30 * crate::constants::MS_PER_DAY,
+        half in crate::constants::MS_PER_DAY / 2..=30 * crate::constants::MS_PER_DAY,
         elapsed in 1_u64..=120 * crate::constants::MS_PER_DAY,
         start_bps in 200_u64..=20_000,
         rising in any::<bool>(),
     ) {
-        let config = RiskRateConfig { half_life_ms: half, maximum_apr_nad: 2 * NAD, ..Default::default() };
+        let config = RiskRateConfig { half_life_ms: half, ..Default::default() };
         let start = start_bps as f64 / 10_000.0;
-        let bound = if rising { 2.0 } else { 0.02 };
+        let bound = if rising { u64::MAX as f64 / NAD as f64 } else { 0.01 };
         let k = if rising { 1.0 } else { -1.0 } * 2_f64.ln() / half as f64;
         let crossing = (bound / start).ln() / k;
         let time = (elapsed as f64).min(crossing.max(0.0));
-        let end = start * (k * time).exp();
+        let end = if elapsed as f64 >= crossing.max(0.0) { bound } else { start * (k * time).exp() };
         let area = start * (k * time).exp_m1() / k + bound * (elapsed as f64 - time);
         let actual = accrue_risk_rate(&config, start_bps as u128 * RATE_SCALE / 10_000, Some(if rising { 0 } else { NAD as u128 }), elapsed).unwrap();
-        assert_close(actual.end_apr_e18 as f64 / RATE_SCALE as f64, end, 1e-7);
+        assert_close(actual.end_apr_e18 as f64 / RATE_SCALE as f64, end, 1e-7 + end * 1e-12);
         assert_close(actual.integrated_apr_nad_ms as f64 / NAD as f64, area, 1e-4 + area * 1e-12);
     }
 }

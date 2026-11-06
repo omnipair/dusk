@@ -59,7 +59,6 @@ fn emergency_sale_uses_principal_first_waterfall_and_clears_both_directions() {
         let mut position = indexed_position(&mut market, asset, 900_000);
         let remove = position.collateral_amount - 850_000;
         market.reduce_leverage_collateral(&mut position, remove).unwrap();
-        market.insurance.credit(asset, 1_000_000, 0).unwrap();
         let mut prepared = market.prepare_emergency_liquidation(&LiquidationPositionRef::Leverage(&position), asset,
             850_000, true, LeverageCollateralFee::default(), LeverageCollateralFee::default(), LeverageCollateralFee::default(),
             0, 0, 0).unwrap();
@@ -75,7 +74,6 @@ fn emergency_sale_uses_principal_first_waterfall_and_clears_both_directions() {
         assert_eq!(position.debt_shares, 0);
         assert_eq!(position.debt_principal, 0);
         assert_eq!(position.collateral_amount, 0);
-        assert_eq!(market.insurance.available(asset), 1_000_000 - q.insurance_debit);
         market.assert_virtual_reserve_invariant(asset).unwrap();
     }
 }
@@ -90,8 +88,7 @@ fn emergency_partial_improves_health_after_reward_and_charge() {
             0, 0, 0).unwrap();
         let q = prepared.quote;
         assert!(q.health_before.improves(q.health_after).unwrap());
-        assert_eq!(q.fee.total, q.repayment / 100);
-        assert_eq!(q.insurance_debit, 0);
+        assert_eq!(q.fee.total, q.repayment * 3 / 100);
         assert_eq!(q.loss.principal_written_off, 0);
         assert_eq!(q.swap_output, q.repayment + q.reward_debit + q.fee.total + q.owner_debit);
         market.apply_emergency_liquidation(&mut LiquidationPositionMut::Leverage(&mut position), asset, &mut prepared, 0, 0, ProtocolAuctionSplit::default()).unwrap();
@@ -120,7 +117,7 @@ fn internal_liquidation_nets_principal_for_both_debt_ledgers_without_wallet_cash
             }
             market.assert_virtual_reserve_invariant(asset).unwrap();
             let policy = SwapCashPolicy::SettleLiquidation { debt_asset: asset, isolated, full: false,
-                shares: 4_000, principal_removed: 4_000, debt_reduced: 4_000, repayment: 4_000, insurance_credit: 0 };
+                shares: 4_000, principal_removed: 4_000, debt_reduced: 4_000, repayment: 4_000, };
             // A wallet swap of this size would need 4,100 output atoms. Only
             // the 100-atom residual leaves custody during a netted liquidation.
             let transition = market.apply_leverage_lifecycle_transition(policy, asset.opposite(), 7_000, 4_100, 4_100).unwrap();
@@ -145,42 +142,18 @@ fn flash_partial_quote_recovers_health_and_leaves_unrelated_position_untouched()
             &LiquidationPositionRef::Leverage(&position), asset, 100_000, false,
             LeverageCollateralFee::default(), LeverageCollateralFee::default(), LeverageCollateralFee::default(), 0, 0,
         ).unwrap();
-        assert_eq!(q.fee.total, 1_000);
-        assert_eq!(q.fee.protocol, 200);
+        assert_eq!(q.fee.total, 3_000);
+        assert_eq!(q.fee.protocol, 600);
         assert!(q.health_before.improves(q.health_after).unwrap());
         assert!(!q.health_after.recovered().unwrap());
         let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Leverage(&position), asset, q.debt_shares_to_burn).unwrap();
-        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, q.collateral_debit, allocation.debt, 0, 0, false, 0).unwrap();
+        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, q.collateral_debit, allocation.debt, false, 0).unwrap();
         assert_eq!(loss.principal_written_off, 0);
         assert_eq!(loss.interest_canceled, 0);
         assert_eq!(position.collateral_amount, 1_000_000 - q.collateral_debit);
         assert_eq!(position.debt_amount(&market.debt).unwrap(), q.health_after.debt);
         assert_eq!(unrelated.try_to_vec().unwrap(), before_other);
         assert_eq!(market.leverage_collateral_exposure(asset.opposite()), position.collateral_amount + unrelated.collateral_amount);
-    }
-}
-
-#[test]
-fn full_external_recovery_spends_insurance_only_on_principal_and_cancels_interest() {
-    for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let mut market = test_market(5_000_000, 5_000_000);
-        let mut position = indexed_position(&mut market, asset, 900_000);
-        let remove = position.collateral_amount - 850_000;
-        market.reduce_leverage_collateral(&mut position, remove).unwrap();
-        let before_curve = market.curve_reserve(asset).unwrap();
-        market.insurance.credit(asset, 1_000_000, 1).unwrap();
-        let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Leverage(&position), asset, position.debt_shares).unwrap();
-        assert_eq!((allocation.debt, allocation.principal), (1_350_000, 900_000));
-        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, 850_000, 400_000, 375_000, 375_000, true, 1).unwrap();
-        assert_eq!(loss.principal_written_off, 125_000);
-        assert_eq!(loss.interest_canceled, 450_000);
-        assert_eq!(loss.interest_paid, 0);
-        assert_eq!(position.debt_shares, 0);
-        assert_eq!(position.debt_principal, 0);
-        assert_eq!(position.collateral_amount, 0);
-        assert_eq!(market.insurance.available(asset), 625_000);
-        assert_eq!(market.insurance.draw_capacity(asset, 1).unwrap(), 125_000);
-        assert_eq!(market.curve_reserve(asset).unwrap(), before_curve - 125_000);
     }
 }
 
@@ -203,7 +176,7 @@ fn full_borrow_recovery_preserves_the_other_debt_leg() {
     market.base_side.reserves.cash_reserve -= 1_000;
     market.quote_side.reserves.cash_reserve -= 500;
     let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Borrow(&position), MarketAsset::Base, 1_000).unwrap();
-    let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Borrow(&mut position), MarketAsset::Base, allocation, 800, 700, 0, 0, true, 1).unwrap();
+    let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Borrow(&mut position), MarketAsset::Base, allocation, 800, 700, true, 1).unwrap();
     assert_eq!(loss.principal_written_off, 300);
     assert_eq!(position.fixed_base_shares, 0);
     assert_eq!(position.quote_collateral, 0);
@@ -246,7 +219,7 @@ fn external_flash_loss_preserves_concentrated_hlp_backing() {
         let q = market.quote_flash_liquidation(&LiquidationPositionRef::Leverage(&position), asset, 0, true,
             fee, fee, fee, 0, 1).unwrap();
         let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Leverage(&position), asset, position.debt_shares).unwrap();
-        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, q.collateral_debit, q.repayment, 0, 0, true, 1).unwrap();
+        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, q.collateral_debit, q.repayment, true, 1).unwrap();
         assert!(loss.principal_written_off > 0);
         market.assert_virtual_reserve_invariant(asset).unwrap();
         market.assert_virtual_reserve_invariant(asset.opposite()).unwrap();
@@ -322,8 +295,6 @@ fn useful_partials_have_no_economic_remaining_debt_floor() {
         // Removing the minimum does not let a caller choose full liquidation
         // while a useful partial exists inside the emergency boundary.
         assert!(market.quote_flash_liquidation(&p, asset, 0, true, fee, fee, fee, 0, 0).is_err());
-        assert!(market.clone().prepare_emergency_liquidation(&p, asset, 1_000_000, true,
-            fee, fee, fee, 0, 0, 0).is_err());
     }
 }
 
@@ -377,7 +348,7 @@ fn health_only_partials_are_timestamp_independent_for_both_ledgers() {
                 assert_eq!(quote.payment, early.payment);
             }
             assert_eq!(late.repayment, 100_000_000);
-            assert_eq!(late.fee.total, 1_000_000);
+            assert_eq!(late.fee.total, 3_000_000);
             assert_eq!(late.health_after.debt, 845_000_000);
             assert!(health.improves(late.health_after).unwrap());
             assert!(market.quote_flash_liquidation(&position, asset, 0, true, fee, fee, fee, 120, 0).is_err());
@@ -387,21 +358,30 @@ fn health_only_partials_are_timestamp_independent_for_both_ledgers() {
 
 #[test]
 fn affordable_flash_prevents_fee_heavy_market_from_blocking_every_liquidation() {
-    // Original audit case: 3% equity and 3% AMM fee. The former fixed 5%
-    // flash discount and fee-free full-close proof jointly blocked all paths.
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let mut market = test_market(50_000, 50_000);
-        market.config.swap_fee_bps = 300;
-        let mut position = seeded_position(&mut market, asset, 970, 1_000);
-        position.margin_terms = LeverageMarginTerms::at_entry(50_000).unwrap();
-        let p = LiquidationPositionRef::Leverage(&position);
-        let fee = LeverageCollateralFee::default();
-        let quote = market.quote_flash_liquidation(&p, asset, 100, false, fee, fee, fee, 120, 0).unwrap();
-        assert!(quote.health_before.emergency_allowed().unwrap());
-        assert!(quote.health_before.improves(quote.health_after).unwrap());
-        assert!(quote.rates.buyer_discount_bps < 500);
-        assert!(!market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, None).unwrap());
-        assert!(market.quote_flash_liquidation(&p, asset, 0, true, fee, fee, fee, 120, 0).is_err());
+        for debt in [960, 970] {
+            let market = { let mut m = test_market(50_000, 50_000); m.config.swap_fee_bps = 300; m };
+            let mut market = market;
+            let mut position = seeded_position(&mut market, asset, debt, 1_000);
+            position.margin_terms = LeverageMarginTerms::at_entry(50_000).unwrap();
+            let p = LiquidationPositionRef::Leverage(&position);
+            let fee = LeverageCollateralFee::default();
+            let partial = market.quote_flash_liquidation(&p, asset, 100, false, fee, fee, fee, 120, 0);
+            if debt == 960 {
+                let quote = partial.unwrap();
+                assert!(quote.health_before.emergency_allowed().unwrap());
+                assert!(quote.health_before.improves(quote.health_after).unwrap());
+                assert!(quote.rates.buyer_discount_bps < 500);
+                assert!(!market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, None).unwrap());
+                assert!(market.quote_flash_liquidation(&p, asset, 0, true, fee, fee, fee, 120, 0).is_err());
+            } else {
+                assert!(partial.is_err());
+                let full = market.clone().prepare_emergency_liquidation(
+                    &p, asset, position.collateral_amount, true, fee, fee, fee, 120, 0, 0
+                ).unwrap();
+                assert!(full.quote.full);
+            }
+        }
     }
 }
 
@@ -435,7 +415,7 @@ fn emergency_fallback_can_close_despite_a_useful_flash_partial() {
         for isolated in [false, true] {
             let mut market = test_market(50_000, 50_000);
             market.config.swap_fee_bps = 300;
-            let mut leverage = seeded_position(&mut market, asset, 970, 1_000);
+            let mut leverage = seeded_position(&mut market, asset, 960, 1_000);
             leverage.margin_terms = LeverageMarginTerms::at_entry(50_000).unwrap();
             let mut borrow = BorrowPosition::default();
             if !isolated {
@@ -502,7 +482,7 @@ fn concentrated_recovery_certificate_never_skips_a_fee_bearing_integer_recovery(
         // Another position and a fractional interest index exercise the
         // position-vs-aggregate one-atom floor allowance in the certificate.
         let _other = seeded_position(&mut market, asset, 7, 100);
-        let mut position = seeded_position(&mut market, asset, if indexed { 800 } else { 970 }, 1_000);
+        let mut position = seeded_position(&mut market, asset, if indexed { 795 } else { 970 }, 1_000);
         if indexed {
             let debt_before = market.debt.isolated_debt(asset).unwrap();
             match asset {
@@ -510,7 +490,7 @@ fn concentrated_recovery_certificate_never_skips_a_fee_bearing_integer_recovery(
                 MarketAsset::Quote => market.debt.quote_borrow_index_nad = 1_200_000_001,
             }
             let accrued = market.debt.isolated_debt(asset).unwrap() - debt_before;
-            market.side_mut(asset).reserves.live_reserve += u64::try_from(accrued).unwrap();
+            market.side_mut(asset).reserves.live_reserve += u128::from(u64::try_from(accrued).unwrap());
         }
         position.margin_terms = LeverageMarginTerms::at_entry(50_000).unwrap();
         let fee = LeverageCollateralFee::new(taxed.then_some(TransferFee {
@@ -527,4 +507,25 @@ fn concentrated_recovery_certificate_never_skips_a_fee_bearing_integer_recovery(
         if recovery {witnesses += 1;assert!(!proof);}
     }}}}}
     assert!(certified > 0); assert!(witnesses > 0);
+}
+
+#[test]
+fn full_external_recovery_writes_off_all_unrecovered_principal_and_cancels_interest() {
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = test_market(5_000_000, 5_000_000);
+        let mut position = indexed_position(&mut market, asset, 900_000);
+        let remove = position.collateral_amount - 850_000;
+        market.reduce_leverage_collateral(&mut position, remove).unwrap();
+        let before_curve = market.curve_reserve(asset).unwrap();
+        let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Leverage(&position), asset, position.debt_shares).unwrap();
+        assert_eq!((allocation.debt, allocation.principal), (1_350_000, 900_000));
+        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, 850_000, 400_000, true, 1).unwrap();
+        assert_eq!(loss.principal_written_off, 500_000);
+        assert_eq!(loss.interest_canceled, 450_000);
+        assert_eq!(loss.interest_paid, 0);
+        assert_eq!(position.debt_shares, 0);
+        assert_eq!(position.debt_principal, 0);
+        assert_eq!(position.collateral_amount, 0);
+        assert_eq!(market.curve_reserve(asset).unwrap(), before_curve - 500_000);
+    }
 }

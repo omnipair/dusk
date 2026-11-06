@@ -79,8 +79,7 @@ export type StoredMarket = {
   quoteReserveVault: string;
   baseCollateralVault: string;
   quoteCollateralVault: string;
-  baseInsuranceVault: string;
-  quoteInsuranceVault: string;
+
   baseInterestVault: string;
   quoteInterestVault: string;
   baseHlpSrlpVault: string;
@@ -565,8 +564,6 @@ export function deriveMarketAddresses(params: {
     quoteReserveVault: derivePda(params.programId, Buffer.from("market_reserve"), market.toBuffer(), params.quoteMint.toBuffer()),
     baseCollateralVault: derivePda(params.programId, Buffer.from("market_collateral"), market.toBuffer(), params.baseMint.toBuffer()),
     quoteCollateralVault: derivePda(params.programId, Buffer.from("market_collateral"), market.toBuffer(), params.quoteMint.toBuffer()),
-    baseInsuranceVault: derivePda(params.programId, Buffer.from("insurance"), market.toBuffer(), params.baseMint.toBuffer()),
-    quoteInsuranceVault: derivePda(params.programId, Buffer.from("insurance"), market.toBuffer(), params.quoteMint.toBuffer()),
     baseInterestVault: derivePda(params.programId, Buffer.from("market_interest"), market.toBuffer(), params.baseMint.toBuffer()),
     quoteInterestVault: derivePda(params.programId, Buffer.from("market_interest"), market.toBuffer(), params.quoteMint.toBuffer()),
   };
@@ -737,8 +734,6 @@ export function defaultMarketConfig() {
       upperSignalNad: new anchor.BN(duskEnv("IRM_UPPER_SIGNAL_NAD", "62500000")),
       halfLifeMs: new anchor.BN(duskEnv("IRM_HALF_LIFE_MS", "1209600000")),
       initialAprNad: new anchor.BN(duskEnv("IRM_INITIAL_APR_NAD", "40000000")),
-      minimumAprNad: new anchor.BN(duskEnv("IRM_MINIMUM_APR_NAD", "20000000")),
-      maximumAprNad: new anchor.BN(duskEnv("IRM_MAXIMUM_APR_NAD", "0")),
       borrowUtilizationLimitBps: Number(duskEnv("IRM_BORROW_UTILIZATION_LIMIT_BPS", "8000")),
     },
     startTime: new anchor.BN(startTime),
@@ -752,9 +747,7 @@ export function defaultAmmConfig() {
     fadeWidthBps: Number(duskEnv("AMM_FADE_WIDTH_BPS", "0")),
     centerEmaHalfLifeMs: new anchor.BN(duskEnv("AMM_CENTER_EMA_HALF_LIFE_MS", "60000")),
     volatilityHalfLifeMs: new anchor.BN(duskEnv("AMM_VOLATILITY_HALF_LIFE_MS", "60000")),
-    adjustmentThresholdNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_THRESHOLD_NAD", "0")),
-    adjustmentStepNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_STEP_NAD", "0")),
-    minAdjustmentIntervalSlots: new anchor.BN(duskEnv("AMM_MIN_ADJUSTMENT_INTERVAL_SLOTS", "0")),
+    adjustmentStepNad: new anchor.BN(duskEnv("AMM_ADJUSTMENT_STEP_NAD", "1000000")),
     volatilityShockCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_SHOCK_CAP_NAD", "0")),
     volatilityCapNad: new anchor.BN(duskEnv("AMM_VOLATILITY_CAP_NAD", "0")),
     divergenceFeeCoefficientNad: new anchor.BN(duskEnv("AMM_DIVERGENCE_FEE_COEFFICIENT_NAD", "0")),

@@ -129,7 +129,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         ..MarketSide::default()
     };
     base_side.reserves = Reserves {
-        live_reserve: base_cash,
+        live_reserve: u128::from(base_cash),
         cash_reserve: base_cash,
         ..Reserves::default()
     };
@@ -139,7 +139,7 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         ..MarketSide::default()
     };
     quote_side.reserves = Reserves {
-        live_reserve: quote_cash,
+        live_reserve: u128::from(quote_cash),
         cash_reserve: quote_cash,
         ..Reserves::default()
     };
@@ -169,12 +169,12 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         base_hlp_vault: HlpVault::default(),
         quote_hlp_vault: HlpVault::default(),
         risk: Risk::default(),
-        insurance: Insurance::default(),
         params_hash: [0u8; 32],
         initial_liquidity_authority: Pubkey::default(),
-        governance_locked_srlp: 0,
-        governance_locked_junior: 0,
-        parameter_revisions: [0; 9],
+        operator: Default::default(),
+        protocol_interest_markup_bps: 0,
+
+        parameter_revisions: [0; crate::state::PARAMETER_FAMILY_COUNT],
         last_marginal_observation_nad: 0,
         curve_revision: 0,
         risk_revision: 0,
@@ -190,7 +190,6 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
 fn borrow_position_for_debt(debt_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
     let mut position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-
 
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
@@ -222,7 +221,7 @@ fn borrow_position_for_debt(debt_asset: MarketAsset, collateral_amount: u64) -> 
     position
 }
 
-fn reserve_pair(market: &Market, asset: MarketAsset) -> (u64, u64) {
+fn reserve_pair(market: &Market, asset: MarketAsset) -> (u128, u64) {
     let side = market.side(asset);
     (side.reserves.live_reserve, side.reserves.cash_reserve)
 }
@@ -245,7 +244,7 @@ fn add_accrued_cash_backed_interest_to_live_reserve(
     let accrued_interest = current_debt.checked_sub(principal as u128).unwrap();
     let accrued_interest = u64::try_from(accrued_interest).unwrap();
     let side = market.side_mut(asset);
-    side.reserves.live_reserve = side.reserves.live_reserve.checked_add(accrued_interest).unwrap();
+    side.reserves.live_reserve = side.reserves.live_reserve.checked_add(u128::from(accrued_interest)).unwrap();
     accrued_interest
 }
 
@@ -254,7 +253,6 @@ fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     let mut borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
-
 
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
@@ -293,42 +291,6 @@ fn borrow_preserves_virtual_reserve_as_cash_plus_debt() {
 }
 
 #[test]
-fn new_borrower_cannot_reclassify_older_borrowers_principal_or_insurance_loss() {
-    use crate::transitions::flash_liquidation::LiquidationPositionRef;
-    for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let mut market = invariant_market(1_000_000, 1_000_000);
-        let mut alice = borrow_position_for_debt(asset, 10_000);
-        market.borrow(&mut alice, asset, 1_000, 0, 0).unwrap();
-        let alice_shares = alice.debt_shares(asset);
-        set_borrow_index(&mut market, asset, (NAD as u128) * 11 / 10);
-        add_accrued_cash_backed_interest_to_live_reserve(&mut market, asset, alice_shares, 1_000);
-
-        let mut bob = borrow_position_for_debt(asset, 10_000);
-        market.borrow(&mut bob, asset, 1_100, 0, 0).unwrap();
-        let repayment = market.repay(&mut bob, asset, 1_100).unwrap();
-        assert_eq!(repayment.interest_paid, 0);
-        assert_eq!(bob.principal(asset), 0);
-        assert_eq!(alice.principal(asset), 1_000);
-        assert_eq!(market.public_unpaid_interest(asset).unwrap(), 100);
-        let allocation = market
-            .liquidation_debt_allocation(&LiquidationPositionRef::Borrow(&alice), asset, alice_shares)
-            .unwrap();
-        assert_eq!(allocation.debt, 1_100);
-        assert_eq!(allocation.principal, 1_000);
-        let loss = crate::LiquidationLossAllocation::quote_with_coverage(
-            allocation.principal,
-            allocation.debt,
-            900,
-            75,
-            7_500,
-        )
-        .unwrap();
-        assert_eq!(loss.principal_written_off, 25);
-        market.assert_virtual_reserve_invariant(asset).unwrap();
-    }
-}
-
-#[test]
 fn borrow_uses_net_collateral_exit_credit_for_mutable_transfer_fees() {
     let mut gross_market = invariant_market(1_000_000, 1_000_000);
     let mut gross_position = borrow_position_for_debt(MarketAsset::Base, 250_000);
@@ -359,11 +321,12 @@ fn borrow_uses_net_collateral_exit_credit_for_mutable_transfer_fees() {
 
 #[test]
 fn transfer_fee_discounts_health_contributions_stored_before_it() {
-    let fee = crate::transitions::LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
-        epoch: 0_u64.into(),
-        maximum_fee: u64::MAX.into(),
-        transfer_fee_basis_points: 7_500_u16.into(),
-    }));
+    let fee =
+        crate::transitions::LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
+            epoch: 0_u64.into(),
+            maximum_fee: u64::MAX.into(),
+            transfer_fee_basis_points: 7_500_u16.into(),
+        }));
     let seeded = || {
         let mut market = invariant_market(1_000_000, 1_000_000);
         market.config.borrow_market_health_floor_bps = 11_000;
@@ -448,7 +411,7 @@ proptest! {
         let debt_live_before = market.side(borrow_asset).reserves.live_reserve;
         let collateral_amount = market.side(collateral_asset).reserves.live_reserve / 2;
         let mut borrow_position =
-            borrow_position_for_debt(borrow_asset, collateral_amount.max(1));
+            borrow_position_for_debt(borrow_asset, collateral_amount.max(1).try_into().unwrap());
         let borrow_amount = debt_cash_before
             .checked_mul(borrow_bps)
             .unwrap()
@@ -502,7 +465,7 @@ proptest! {
         let debt_cash_before = market.side(repay_asset).reserves.cash_reserve;
         let collateral_amount = market.side(collateral_asset).reserves.live_reserve / 2;
         let mut borrow_position =
-            borrow_position_for_debt(repay_asset, collateral_amount.max(1));
+            borrow_position_for_debt(repay_asset, collateral_amount.max(1).try_into().unwrap());
         let borrow_amount = debt_cash_before
             .checked_mul(borrow_bps)
             .unwrap()
@@ -572,11 +535,11 @@ proptest! {
         let debt_reduction = receipt.debt_delta.unsigned_abs();
         let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
         let live_debit = aggregate_debt_reduction.checked_sub(principal_paid).unwrap();
-        prop_assert_eq!(live_after, live_before - live_debit);
+        prop_assert_eq!(live_after, live_before - u128::from(live_debit));
         prop_assert_eq!(cash_after, cash_before + principal_paid);
         prop_assert!(receipt.interest_paid <= repay_credit);
         prop_assert!(repay_credit <= max_repay_credit);
-        prop_assert!(debt_reduction.abs_diff(repay_credit) <= 1);
+        prop_assert!(debt_reduction.abs_diff(u128::from(repay_credit)) <= 1);
         prop_assert_eq!(aggregate_debt_reduction, repay_credit);
         market.assert_market_invariants().unwrap();
     }
@@ -615,7 +578,7 @@ fn partial_repay_charges_the_aggregate_delta_without_rounding_writeoff() {
     let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
     assert_eq!(receipt.cash_repaid, repay_credit);
     assert_eq!(aggregate_debt_reduction, repay_credit);
-    assert_eq!(live_after, live_before - (aggregate_debt_reduction - principal_paid));
+    assert_eq!(live_after, live_before - u128::from(aggregate_debt_reduction - principal_paid));
     assert_eq!(cash_after, cash_before + principal_paid);
     market.assert_market_invariants().unwrap();
 }
@@ -822,8 +785,14 @@ fn daily_borrow_bucket_uses_pessimistic_depth_at_current_spot_ratio() {
     market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
 
     let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk).unwrap();
-    assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 2_000).unwrap(), base_depth / 5);
-    assert_eq!(market.daily_limit_for_side(MarketAsset::Quote, 2_000).unwrap(), quote_depth / 5);
+    assert_eq!(
+        market.daily_limit_for_side(MarketAsset::Base, 2_000).unwrap(),
+        base_depth / 5
+    );
+    assert_eq!(
+        market.daily_limit_for_side(MarketAsset::Quote, 2_000).unwrap(),
+        quote_depth / 5
+    );
 }
 
 #[test]
@@ -832,14 +801,20 @@ fn daily_borrow_bucket_track_post_swap_reserve_ratio() {
     market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
     let amount_in = 250_000;
     let amount_out = crate::transitions::amm::cpmm_amount_out(1_000_000, 1_000_000, amount_in).unwrap();
-    market.base_side.reserves.live_reserve += amount_in;
-    market.quote_side.reserves.live_reserve -= amount_out;
+    market.base_side.reserves.live_reserve += u128::from(amount_in);
+    market.quote_side.reserves.live_reserve -= u128::from(amount_out);
 
     assert_eq!(market.base_side.reserves.live_reserve, 1_250_000);
     assert_eq!(market.quote_side.reserves.live_reserve, 800_000);
     let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk).unwrap();
-    assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 1_000).unwrap(), base_depth / 10);
-    assert_eq!(market.daily_limit_for_side(MarketAsset::Quote, 1_000).unwrap(), quote_depth / 10);
+    assert_eq!(
+        market.daily_limit_for_side(MarketAsset::Base, 1_000).unwrap(),
+        base_depth / 10
+    );
+    assert_eq!(
+        market.daily_limit_for_side(MarketAsset::Quote, 1_000).unwrap(),
+        quote_depth / 10
+    );
 }
 
 #[test]
@@ -847,11 +822,23 @@ fn daily_borrow_bucket_uses_live_depth_when_depth_ema_is_empty_or_above_spot() {
     let mut market = invariant_market(800_000, 1_200_000);
 
     assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 2_500).unwrap(), 200_000);
-    assert!(market.daily_limit_for_side(MarketAsset::Quote, 2_500).unwrap().abs_diff(300_000) <= 1);
+    assert!(
+        market
+            .daily_limit_for_side(MarketAsset::Quote, 2_500)
+            .unwrap()
+            .abs_diff(300_000)
+            <= 1
+    );
 
     market.risk.curve_depth_ema_nad = 2_000_000_u128 * NAD as u128;
     assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 2_500).unwrap(), 200_000);
-    assert!(market.daily_limit_for_side(MarketAsset::Quote, 2_500).unwrap().abs_diff(300_000) <= 1);
+    assert!(
+        market
+            .daily_limit_for_side(MarketAsset::Quote, 2_500)
+            .unwrap()
+            .abs_diff(300_000)
+            <= 1
+    );
 }
 
 #[test]
@@ -1033,11 +1020,22 @@ fn opposite_collateral_fee_blocks_borrow_below_global_health_floor() {
         maximum_fee: u64::MAX.into(),
         transfer_fee_basis_points: 7_500_u16.into(),
     }));
-    let fees = LendingCollateralFees { base: fee, ..Default::default() };
+    let fees = LendingCollateralFees {
+        base: fee,
+        ..Default::default()
+    };
     assert!(market.market_health().unwrap().quote_debt_health_bps >= 11_000);
-    assert!(market.market_health_from_risk_with_fees(&market.risk, fees).unwrap().quote_debt_health_bps < 11_000);
+    assert!(
+        market
+            .market_health_from_risk_with_fees(&market.risk, fees)
+            .unwrap()
+            .quote_debt_health_bps
+            < 11_000
+    );
     assert_eq!(
-        market.borrow_with_market_fees(&mut bob, MarketAsset::Base, 5_000, fees, 0, 0).unwrap_err(),
+        market
+            .borrow_with_market_fees(&mut bob, MarketAsset::Base, 5_000, fees, 0, 0)
+            .unwrap_err(),
         anchor_lang::prelude::error!(ErrorCode::InsufficientMarketHealth)
     );
     market.borrow(&mut bob, MarketAsset::Base, 5_000, 0, 0).unwrap();
@@ -1048,9 +1046,7 @@ fn withdrawal_uses_stored_terms_without_enforcing_global_floor() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.config.borrow_market_health_floor_bps = 11_000;
     let mut position = borrow_position_for_debt(MarketAsset::Base, 250_000);
-    market
-        .borrow(&mut position, MarketAsset::Base, 100_000, 0, 0)
-        .unwrap();
+    market.borrow(&mut position, MarketAsset::Base, 100_000, 0, 0).unwrap();
     let stored_cf = position.base_liquidation_cf_bps;
 
     market.debt.global_health_quote_contribution_for_base_debt = 100_000;
@@ -1069,9 +1065,7 @@ fn interest_growth_reduces_global_health_without_changing_stored_cf() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.config.borrow_market_health_floor_bps = 11_000;
     let mut position = borrow_position_for_debt(MarketAsset::Base, 300_000);
-    market
-        .borrow(&mut position, MarketAsset::Base, 100_000, 0, 0)
-        .unwrap();
+    market.borrow(&mut position, MarketAsset::Base, 100_000, 0, 0).unwrap();
     let stored_cf = position.base_liquidation_cf_bps;
     let contribution = position.global_health_quote_contribution_for_base_debt;
     let health_before = market.market_health().unwrap().base_debt_health_bps;
@@ -1092,9 +1086,7 @@ fn alice_exit_does_not_change_bob_terms_and_low_health_pauses_later_borrowing() 
     let mut alice = borrow_position_for_debt(MarketAsset::Base, 300_000);
 
     market.borrow(&mut bob, MarketAsset::Base, 20_000, 0, 0).unwrap();
-    market
-        .borrow(&mut alice, MarketAsset::Base, 100_000, 0, 0)
-        .unwrap();
+    market.borrow(&mut alice, MarketAsset::Base, 100_000, 0, 0).unwrap();
     let bob_cf = bob.base_liquidation_cf_bps;
 
     let aggregate_shares = market.debt.fixed_base_shares;
@@ -1218,7 +1210,6 @@ fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
     let mut borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
 
-
         owner: Pubkey::new_unique(),
         market: Pubkey::new_unique(),
         position_id: Pubkey::new_unique(),
@@ -1310,7 +1301,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         .unwrap();
     assert_eq!(market.config.fee_profile(), fee);
     assert_eq!(market.config.max_daily_borrow_bps, before_fee.max_daily_borrow_bps);
-    assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 0, 0, 0, 0, 0]);
 
     let irm = IrmConfig {
         lower_signal_nad: 60_000_000,
@@ -1319,11 +1310,11 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         ..IrmConfig::default()
     };
     market
-        .execute_parameter_updates(&[MarketParameterUpdate::Irm(irm)], 2)
+        .execute_parameter_updates(&[MarketParameterUpdate::Irm(irm.into())], 2)
         .unwrap();
     assert_eq!(market.config.irm, irm);
     assert_eq!(market.config.fee_profile(), fee);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 0, 0, 0, 0]);
 
     market
         .execute_parameter_updates(
@@ -1340,7 +1331,7 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
     assert_eq!(market.config.directional_ema_half_life_ms, 180_000);
     assert_eq!(market.config.curve_depth_ema_half_life_ms, 240_000);
     assert_eq!(market.config.amm.center_ema_half_life_ms, 300_000);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 0, 0, 0]);
 
     market
         .execute_parameter_updates(
@@ -1351,26 +1342,22 @@ fn typed_parameter_execution_changes_only_one_family_and_revision() {
         )
         .unwrap();
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 0, 0, 0, 0]);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 0, 0]);
 
     market
         .execute_parameter_updates(
             &[MarketParameterUpdate::CenterController {
-                adjustment_threshold_nad: NAD / 100,
-                adjustment_step_nad: NAD / 1_000,
-                min_adjustment_interval_slots: 100,
+                adjustment_step_nad: NAD / 500,
             }],
             5,
         )
         .unwrap();
-    assert_eq!(market.config.amm.adjustment_threshold_nad, NAD / 100);
-    assert_eq!(market.config.amm.adjustment_step_nad, NAD / 1_000);
-    assert_eq!(market.config.amm.min_adjustment_interval_slots, 100);
-    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 1, 0, 0, 0]);
+    assert_eq!(market.config.amm.adjustment_step_nad, NAD / 500);
+    assert_eq!(market.parameter_revisions, [1, 0, 1, 1, 1, 1, 0]);
 }
 
 #[test]
-fn fee_compounding_rate_is_governed_from_zero_through_one_hundred_percent() {
+fn fee_compounding_rate_is_configurable_from_zero_through_one_hundred_percent() {
     let config = invariant_market(1_000_000, 1_000_000).config;
     for compounding_fee_bps in [0, 4_000, BPS_DENOMINATOR] {
         let mut profile = config.fee_profile();
@@ -1390,84 +1377,97 @@ fn fee_compounding_rate_is_governed_from_zero_through_one_hundred_percent() {
 }
 
 #[test]
-fn concentration_execution_reconstructs_the_selected_shape() {
-    let mut market = invariant_market(1_000_000, 1_000_000);
+fn concentration_execution_schedules_guarded_intermediate_and_final_shapes() {
+    let mut market = controller_market(1_000_000, 1_000_000);
     market.finalize_amm_transition_and_observe_risk(1).unwrap();
+    let old_price = market.current_concentrated_spot_price_nad().unwrap();
+    let old_value = market.funded_reserve_value().unwrap();
     market
         .execute_parameter_updates(
             &[MarketParameterUpdate::Concentration {
                 peak_amplification_nad: 4 * NAD,
                 core_half_width_bps: 100,
                 fade_width_bps: 400,
+                ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
             }],
             2,
         )
         .unwrap();
-
+    assert_eq!(market.config.amm.peak_amplification_nad, NAD);
+    assert_eq!(market.amm.concentration_ramp.target.peak_amplification_nad, 4 * NAD);
+    assert!(market
+        .advance_concentration_ramp(2 + MIN_CONCENTRATION_RAMP_SLOTS / 2)
+        .unwrap());
+    assert_eq!(market.config.amm.peak_amplification_nad, 5 * NAD / 2);
+    assert!(market.amm.concentration_ramp.active);
+    let intermediate = market.try_to_vec().unwrap();
+    assert!(!market.advance_concentration_ramp(2 + MIN_CONCENTRATION_RAMP_SLOTS / 2).unwrap());
+    assert_eq!(market.try_to_vec().unwrap(), intermediate);
+    assert!(
+        market
+            .current_concentrated_spot_price_nad()
+            .unwrap()
+            .unwrap()
+            .abs_diff(old_price.unwrap())
+            <= 1
+    );
+    assert_eq!(market.funded_reserve_value().unwrap(), old_value);
+    assert_eq!(market.amm.spendable_protected_profit_nad(), 0);
+    assert!(market
+        .advance_concentration_ramp(2 + MIN_CONCENTRATION_RAMP_SLOTS)
+        .unwrap());
     assert_eq!(market.config.amm.peak_amplification_nad, 4 * NAD);
-    assert_eq!(market.config.amm.core_half_width_bps, 100);
-    assert_eq!(market.config.amm.fade_width_bps, 400);
-    assert_eq!(market.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
-    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0, 0, 0, 0]);
+    assert!(!market.amm.concentration_ramp.active);
+    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 0, 0]);
 }
 
 #[test]
-fn disabling_recenter_releases_retained_surcharge_to_lp_inventory() {
-    for disable_by_shape in [false, true] {
-        let mut market = invariant_market(1_000_000, 1_000_000);
-        market
-            .execute_parameter_updates(
-                &[MarketParameterUpdate::CenterController {
-                    adjustment_threshold_nad: NAD / 100,
-                    adjustment_step_nad: NAD / 1_000,
-                    min_adjustment_interval_slots: 1,
-                }],
-                1,
-            )
-            .unwrap();
-        market
-            .execute_parameter_updates(
-                &[MarketParameterUpdate::Concentration {
-                    peak_amplification_nad: 2 * NAD,
-                    core_half_width_bps: 100,
-                    fade_width_bps: 400,
-                }],
-                2,
-            )
-            .unwrap();
-        let protected = 1_000_000;
-        market.credit_protected_recenter_reserve(MarketAsset::Base, protected).unwrap();
-        market.credit_protected_recenter_reserve(MarketAsset::Quote, protected).unwrap();
-        let base_live_before = market.base_side.reserves.live_reserve;
-        let quote_live_before = market.quote_side.reserves.live_reserve;
-
-        let update = if disable_by_shape {
-            MarketParameterUpdate::Concentration {
-                peak_amplification_nad: NAD,
-                core_half_width_bps: 0,
-                fade_width_bps: 0,
-            }
-        } else {
-            MarketParameterUpdate::CenterController {
-                adjustment_threshold_nad: 0,
-                adjustment_step_nad: 0,
-                min_adjustment_interval_slots: 0,
-            }
-        };
-        market
-            .execute_parameter_updates(core::slice::from_ref(&update), 3)
-            .unwrap_or_else(|error| panic!("disable_by_shape={disable_by_shape}: {error:?}"));
-        assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
-        assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
-        assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
-        assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
-        market.assert_market_invariants().unwrap();
+fn returning_to_cpmm_releases_retained_principal_only_at_a_guarded_step() {
+    let mut market = controller_market(1_000_000, 1_000_000);
+    market.finalize_amm_transition_and_observe_risk(1).unwrap();
+    let update = |amp, core, fade| MarketParameterUpdate::Concentration {
+        peak_amplification_nad: amp,
+        core_half_width_bps: core,
+        fade_width_bps: fade,
+        ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
+    };
+    market
+        .execute_parameter_updates(&[update(2 * NAD, 100, 400)], 2)
+        .unwrap();
+    let end = 2 + MIN_CONCENTRATION_RAMP_SLOTS;
+    assert!(market.advance_concentration_ramp(end).unwrap());
+    let before = market.try_to_vec().unwrap();
+    assert!(market
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::CenterController { adjustment_step_nad: 0 }],
+            end + 1
+        )
+        .is_err());
+    assert_eq!(market.try_to_vec().unwrap(), before);
+    let protected = 1_000;
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        market.credit_protected_recenter_reserve(asset, protected).unwrap();
     }
+    let base = market.base_side.reserves.live_reserve;
+    let quote = market.quote_side.reserves.live_reserve;
+    market.execute_parameter_updates(&[update(NAD, 0, 0)], end + 1).unwrap();
+    assert_eq!(market.base_side.reserves.protected_recenter_reserve, protected);
+    assert!(market
+        .advance_concentration_ramp(end + 1 + MIN_CONCENTRATION_RAMP_SLOTS)
+        .unwrap());
+    assert_eq!(market.config.amm.peak_amplification_nad, NAD);
+    assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+    assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
+    assert_eq!(market.base_side.reserves.live_reserve, base + u128::from(protected));
+    assert_eq!(market.quote_side.reserves.live_reserve, quote + u128::from(protected));
+    assert_eq!(market.amm.spendable_protected_profit_nad(), 0);
+    market.assert_market_invariants().unwrap();
 }
 
 #[test]
-fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
+fn active_or_residual_hlp_allows_scheduling_and_guarded_concentration_steps() {
     let update = MarketParameterUpdate::Concentration {
+        ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
         peak_amplification_nad: 4 * NAD,
         core_half_width_bps: 100,
         fade_width_bps: 400,
@@ -1475,19 +1475,25 @@ fn active_or_residual_hlp_allows_an_atomic_concentration_update() {
 
     for mut market in [
         {
-            let mut active = invariant_market(1_000_000, 1_000_000);
+            let mut active = controller_market(1_000_000, 1_000_000);
             active.finalize_amm_transition_and_observe_risk(0).unwrap();
             active.base_hlp_vault.hlp_supply = 1;
             active
         },
         {
-            let mut residual = invariant_market(1_000_000, 1_000_000);
+            let mut residual = controller_market(1_000_000, 1_000_000);
             residual.finalize_amm_transition_and_observe_risk(0).unwrap();
             residual.quote_hlp_vault.residual_exposure = 1;
             residual
         },
     ] {
-        market.execute_parameter_updates(core::slice::from_ref(&update), 1).unwrap();
+        market
+            .execute_parameter_updates(core::slice::from_ref(&update), 1)
+            .unwrap();
+        assert_eq!(market.amm.concentrated_curve_cache.peak_amplification_nad, NAD);
+        assert!(market
+            .advance_concentration_ramp(1 + MIN_CONCENTRATION_RAMP_SLOTS)
+            .unwrap());
         assert_eq!(market.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
     }
 }
@@ -1549,13 +1555,12 @@ fn one_proposal_applies_every_family_and_advances_each_revision() {
         ..IrmConfig::default()
     };
     let updates = [
-        MarketParameterUpdate::Irm(irm),
+        MarketParameterUpdate::Irm(irm.into()),
         MarketParameterUpdate::DailyBorrowLimit {
             max_daily_borrow_bps: 3_000,
         },
-        MarketParameterUpdate::InsuranceDrawCaps {
-            principal_coverage_bps: 1_000,
-            per_day_bps: 3_000,
+        MarketParameterUpdate::Tranche {
+            junior_income_share_bps: 4_500,
         },
     ];
     let before = market.config;
@@ -1564,11 +1569,9 @@ fn one_proposal_applies_every_family_and_advances_each_revision() {
 
     assert_eq!(market.config.irm, irm);
     assert_eq!(market.config.max_daily_borrow_bps, 3_000);
-    assert_eq!(market.insurance.principal_coverage_bps, 1_000);
-    assert_eq!(market.insurance.per_day_draw_bps, 3_000);
     assert_eq!(market.config.fee_profile(), before.fee_profile());
     assert_eq!(market.config.amm, before.amm);
-    assert_eq!(market.parameter_revisions, [0, 0, 1, 0, 1, 0, 1, 0, 0]);
+    assert_eq!(market.parameter_revisions, [0, 0, 1, 0, 1, 0, 1]);
     market.assert_market_invariants().unwrap();
 }
 
@@ -1578,12 +1581,15 @@ fn update_sets_reject_repeated_unordered_or_unchanged_families() {
     let borrow_limit = |bps| MarketParameterUpdate::DailyBorrowLimit {
         max_daily_borrow_bps: bps,
     };
-    let irm = MarketParameterUpdate::Irm(IrmConfig {
-        lower_signal_nad: 60_000_000,
-        upper_signal_nad: 75_000_000,
-        half_life_ms: 12 * MS_PER_DAY,
-        ..IrmConfig::default()
-    });
+    let irm = MarketParameterUpdate::Irm(
+        IrmConfig {
+            lower_signal_nad: 60_000_000,
+            upper_signal_nad: 75_000_000,
+            half_life_ms: 12 * MS_PER_DAY,
+            ..IrmConfig::default()
+        }
+        .into(),
+    );
     let not_canonical = anchor_lang::prelude::error!(ErrorCode::ParameterUpdatesNotCanonical);
 
     assert_eq!(market.validate_parameter_updates(&[]).unwrap_err(), not_canonical);
@@ -1611,9 +1617,7 @@ fn update_sets_reject_repeated_unordered_or_unchanged_families() {
     assert!(market
         .validate_parameter_updates(&[irm.clone(), borrow_limit(MAX_DAILY_BORROW_BPS + 1)])
         .is_err());
-    market
-        .validate_parameter_updates(&[irm, borrow_limit(3_000)])
-        .unwrap();
+    market.validate_parameter_updates(&[irm, borrow_limit(3_000)]).unwrap();
 }
 
 #[test]
@@ -1630,9 +1634,8 @@ fn a_failing_multi_family_execution_leaves_every_family_untouched() {
                 MarketParameterUpdate::DailyBorrowLimit {
                     max_daily_borrow_bps: 1_000,
                 },
-                MarketParameterUpdate::InsuranceDrawCaps {
-                    principal_coverage_bps: 1_000,
-                    per_day_bps: 3_000,
+                MarketParameterUpdate::Tranche {
+                    junior_income_share_bps: 4_500,
                 },
             ],
             MS_PER_YEAR / TARGET_MS_PER_SLOT,
@@ -1644,13 +1647,31 @@ fn a_failing_multi_family_execution_leaves_every_family_untouched() {
 }
 
 #[test]
+fn failed_configuration_restores_live_hlp_funding_checkpoints() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.deposit_single_sided(MarketAsset::Base, 20_000, 0).unwrap();
+    market.deposit_single_sided(MarketAsset::Quote, 20_000, 0).unwrap();
+    let principal = market.base_side.reserves.cash_reserve * 9 / 10;
+    market.debt.fixed_base_principal = principal;
+    market.debt.fixed_base_shares = Debt::debt_to_shares(principal, market.debt.base_borrow_index_nad).unwrap();
+    market.base_side.reserves.cash_reserve -= principal;
+    let before = market.try_to_vec().unwrap();
+    let result = market.execute_parameter_updates(
+        &[MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps: 1_000 }],
+        100,
+    );
+    assert!(result.is_err());
+    assert_eq!(market.try_to_vec().unwrap(), before);
+}
+
+#[test]
 fn every_family_closes_its_windows_before_any_family_moves() {
     let half_day_slot = MS_PER_DAY / TARGET_MS_PER_SLOT / 2;
     let borrow_limit = MarketParameterUpdate::DailyBorrowLimit {
         max_daily_borrow_bps: 3_000,
     };
     let reshaped = || {
-        let mut market = invariant_market(1_000_000, 1_000_000);
+        let mut market = controller_market(1_000_000, 1_000_000);
         market.finalize_amm_transition_and_observe_risk(0).unwrap();
         market.base_side.daily_borrow_bucket.borrowed_bucket = 200_000;
         market.quote_side.daily_borrow_bucket.borrowed_bucket = 150_000;
@@ -1669,6 +1690,7 @@ fn every_family_closes_its_windows_before_any_family_moves() {
         .execute_parameter_updates(
             &[
                 MarketParameterUpdate::Concentration {
+                    ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
                     peak_amplification_nad: 4 * NAD,
                     core_half_width_bps: 100,
                     fade_width_bps: 400,
@@ -1680,25 +1702,28 @@ fn every_family_closes_its_windows_before_any_family_moves() {
         .unwrap();
 
     for (together, alone) in [
-        (together.base_side.daily_borrow_bucket, alone.base_side.daily_borrow_bucket),
-        (together.quote_side.daily_borrow_bucket, alone.quote_side.daily_borrow_bucket),
+        (
+            together.base_side.daily_borrow_bucket,
+            alone.base_side.daily_borrow_bucket,
+        ),
+        (
+            together.quote_side.daily_borrow_bucket,
+            alone.quote_side.daily_borrow_bucket,
+        ),
     ] {
         assert_eq!(together.try_to_vec().unwrap(), alone.try_to_vec().unwrap());
         assert!(together.borrowed_bucket > 0 && together.last_decay_slot == half_day_slot);
     }
+    assert_eq!(together.amm.concentrated_curve_cache.peak_amplification_nad, NAD);
+    assert!(together
+        .advance_concentration_ramp(half_day_slot + MIN_CONCENTRATION_RAMP_SLOTS)
+        .unwrap());
     assert_eq!(together.amm.concentrated_curve_cache.peak_amplification_nad, 4 * NAD);
-    assert_eq!(together.parameter_revisions, [0, 1, 0, 0, 1, 0, 0, 0, 0]);
+    assert_eq!(together.parameter_revisions, [0, 1, 0, 0, 1, 0, 0]);
 }
 
 #[test]
-fn curve_and_center_controller_settle_on_their_final_values_together() {
-    let controller_on = MarketParameterUpdate::CenterController {
-        adjustment_threshold_nad: NAD / 100,
-        adjustment_step_nad: NAD / 1_000,
-        min_adjustment_interval_slots: 1,
-    };
-
-    // Turning both on from a full-range curve in one proposal.
+fn curve_and_center_controller_validate_together_and_cannot_disable_centering() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market
         .execute_parameter_updates(
@@ -1707,119 +1732,35 @@ fn curve_and_center_controller_settle_on_their_final_values_together() {
                     peak_amplification_nad: 2 * NAD,
                     core_half_width_bps: 100,
                     fade_width_bps: 400,
-                },
-                controller_on.clone(),
-            ],
-            1,
-        )
-        .unwrap();
-    assert_eq!(market.config.amm.peak_amplification_nad, 2 * NAD);
-    assert_eq!(market.config.amm.adjustment_step_nad, NAD / 1_000);
-    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 1, 0, 0, 0]);
-    market.assert_market_invariants().unwrap();
-
-    // Reshaping the curve while switching the controller off releases the
-    // retained surcharge once, under the final values.
-    let protected = 1_000_000;
-    market.credit_protected_recenter_reserve(MarketAsset::Base, protected).unwrap();
-    market.credit_protected_recenter_reserve(MarketAsset::Quote, protected).unwrap();
-    let base_live_before = market.base_side.reserves.live_reserve;
-    let quote_live_before = market.quote_side.reserves.live_reserve;
-    market
-        .execute_parameter_updates(
-            &[
-                MarketParameterUpdate::Concentration {
-                    peak_amplification_nad: 3 * NAD,
-                    core_half_width_bps: 100,
-                    fade_width_bps: 400,
+                    ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
                 },
                 MarketParameterUpdate::CenterController {
-                    adjustment_threshold_nad: 0,
-                    adjustment_step_nad: 0,
-                    min_adjustment_interval_slots: 0,
+                    adjustment_step_nad: NAD / 500,
                 },
             ],
-            2,
+            1,
         )
         .unwrap();
-    assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
-    assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
-    assert_eq!(market.base_side.reserves.live_reserve, base_live_before + protected);
-    assert_eq!(market.quote_side.reserves.live_reserve, quote_live_before + protected);
-    assert_eq!(market.config.amm.peak_amplification_nad, 3 * NAD);
-    assert_eq!(market.config.amm.adjustment_step_nad, 0);
-    assert_eq!(market.parameter_revisions, [0, 2, 0, 0, 0, 2, 0, 0, 0]);
+    assert_eq!(market.config.amm.peak_amplification_nad, NAD);
+    assert_eq!(market.config.amm.adjustment_step_nad, NAD / 500);
+    assert!(market
+        .advance_concentration_ramp(1 + MIN_CONCENTRATION_RAMP_SLOTS)
+        .unwrap());
+    assert_eq!(market.config.amm.peak_amplification_nad, 2 * NAD);
+    assert_eq!(market.parameter_revisions, [0, 1, 0, 0, 0, 1, 0]);
+    let before = market.try_to_vec().unwrap();
+    assert!(market
+        .execute_parameter_updates(
+            &[MarketParameterUpdate::CenterController { adjustment_step_nad: 0 }],
+            2 + MIN_CONCENTRATION_RAMP_SLOTS
+        )
+        .is_err());
+    assert_eq!(market.try_to_vec().unwrap(), before);
     market.assert_market_invariants().unwrap();
 }
 
 #[test]
-fn insurance_draws_share_one_daily_budget_across_claims() {
-    let mut insurance = Insurance {
-        base_available: 1_000,
-        ..Insurance::default()
-    };
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 1).unwrap(), 500);
-    insurance.consume_draw(MarketAsset::Base, 200, 1).unwrap();
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 2).unwrap(), 300);
-    insurance.consume_draw(MarketAsset::Base, 160, 2).unwrap();
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 3).unwrap(), 140);
-    insurance.consume_draw(MarketAsset::Base, 128, 3).unwrap();
-
-    // Claims share the 50%-of-opening-backing daily ceiling.
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 4).unwrap(), 12);
-    insurance.consume_draw(MarketAsset::Base, 12, 4).unwrap();
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 5).unwrap(), 0);
-    assert_eq!(insurance.base_available, 500);
-
-    insurance.credit(MarketAsset::Base, 100, 6).unwrap();
-    assert_eq!(insurance.base_available, 600);
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 6).unwrap(), 50);
-
-    let next_window = 1 + INSURANCE_DRAW_WINDOW_SLOTS;
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, next_window).unwrap(), 300);
-}
-
-#[test]
-fn insurance_window_accepts_slot_zero_and_rejects_backwards_slots() {
-    let mut insurance = Insurance {
-        base_available: 1_000,
-        ..Insurance::default()
-    };
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 0).unwrap(), 500);
-    insurance.consume_draw(MarketAsset::Base, 100, 0).unwrap();
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, 1).unwrap(), 400);
-    assert_eq!(insurance.base_draw_window.start_slot, 0);
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, INSURANCE_DRAW_WINDOW_SLOTS - 1).unwrap(), 400);
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, INSURANCE_DRAW_WINDOW_SLOTS).unwrap(), 450);
-    assert_eq!(insurance.draw_capacity(MarketAsset::Base, INSURANCE_DRAW_WINDOW_SLOTS - 1).unwrap_err(),
-        error!(ErrorCode::InvalidArgument));
-}
-
-#[test]
-fn insurance_governance_can_only_tighten_below_protocol_ceilings() {
-    let mut market = invariant_market(1_000_000, 1_000_000);
-    let too_large = MarketParameterUpdate::InsuranceDrawCaps {
-        principal_coverage_bps: MAX_INSURANCE_PRINCIPAL_COVERAGE_BPS + 1,
-        per_day_bps: MAX_INSURANCE_DRAW_PER_DAY_BPS,
-    };
-    assert!(market.validate_parameter_updates(core::slice::from_ref(&too_large)).is_err());
-
-    market
-        .execute_parameter_updates(
-            &[MarketParameterUpdate::InsuranceDrawCaps {
-                principal_coverage_bps: 1_000,
-                per_day_bps: 3_000,
-            }],
-            1,
-        )
-        .unwrap();
-    assert_eq!(market.insurance.principal_coverage_bps, 1_000);
-    assert_eq!(market.insurance.per_day_draw_bps, 3_000);
-    assert_eq!(market.parameter_revisions, [0, 0, 0, 0, 0, 0, 1, 0, 0]);
-}
-
-#[test]
-fn tranche_governance_updates_all_three_bounded_economic_controls() {
+fn tranche_governance_changes_only_future_income_share() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     market.base_side.fees.junior.initialized = true;
     market.quote_side.fees.junior.initialized = true;
@@ -1827,8 +1768,6 @@ fn tranche_governance_updates_all_three_bounded_economic_controls() {
         .execute_parameter_updates(
             &[MarketParameterUpdate::Tranche {
                 junior_income_share_bps: 6_000,
-                request_fee_bps: 10,
-                liquidation_fee_bps: 150,
             }],
             1,
         )
@@ -1836,28 +1775,13 @@ fn tranche_governance_updates_all_three_bounded_economic_controls() {
     assert_eq!(market.tranche_policy.junior_income_share_bps, 6_000);
     assert_eq!(market.base_side.fees.junior.income_share_bps, 6_000);
     assert_eq!(market.quote_side.fees.junior.income_share_bps, 6_000);
-    assert_eq!(market.junior_exit_config.request_fee_bps, 10);
-    assert_eq!(market.tranche_policy.liquidation_fee_bps, 150);
-    assert_eq!(market.parameter_revisions, [0, 0, 0, 0, 0, 0, 0, 0, 1]);
-
-    for update in [
-        MarketParameterUpdate::Tranche {
-            junior_income_share_bps: 999,
-            request_fee_bps: 10,
-            liquidation_fee_bps: 150,
-        },
-        MarketParameterUpdate::Tranche {
-            junior_income_share_bps: 6_000,
-            request_fee_bps: 0,
-            liquidation_fee_bps: 150,
-        },
-        MarketParameterUpdate::Tranche {
-            junior_income_share_bps: 6_000,
-            request_fee_bps: 10,
-            liquidation_fee_bps: 301,
-        },
-    ] {
-        assert!(market.validate_parameter_updates(&[update]).is_err());
+    assert_eq!(market.parameter_revisions[ParameterFamily::Tranche.code() as usize], 1);
+    for share in [999, 9_001] {
+        assert!(market
+            .validate_parameter_updates(&[MarketParameterUpdate::Tranche {
+                junior_income_share_bps: share
+            }])
+            .is_err());
     }
 }
 
@@ -1894,16 +1818,21 @@ fn high_decimal_borrow_partial_repay_and_liquidation_preserve_dust_debt() {
         market.quote_side.asset_decimals = quote_decimals;
         let precision = base_decimals.max(quote_decimals);
         let normalized_reserve = 1_000_000_000_000_000_u64;
-        market.base_side.reserves.live_reserve = normalized_reserve / 10_u64.pow(u32::from(precision - base_decimals));
-        market.base_side.reserves.cash_reserve = market.base_side.reserves.live_reserve;
-        market.quote_side.reserves.live_reserve = normalized_reserve / 10_u64.pow(u32::from(precision - quote_decimals));
-        market.quote_side.reserves.cash_reserve = market.quote_side.reserves.live_reserve;
+        market.base_side.reserves.live_reserve = u128::from(normalized_reserve / 10_u64.pow(u32::from(precision - base_decimals)));
+        market.base_side.reserves.cash_reserve = market.base_side.reserves.live_reserve.try_into().unwrap();
+        market.quote_side.reserves.live_reserve =
+            u128::from(normalized_reserve / 10_u64.pow(u32::from(precision - quote_decimals)));
+        market.quote_side.reserves.cash_reserve = market.quote_side.reserves.live_reserve.try_into().unwrap();
         *market.amm = AmmState::default();
         market.risk = Risk::default();
         market.prepare_amm_for_swap(0).unwrap();
         market.refresh_risk().unwrap();
         assert_eq!(market.risk.cached_spot_base_price_nad, NAD);
-        let debt_asset = if base_decimals >= quote_decimals { MarketAsset::Base } else { MarketAsset::Quote };
+        let debt_asset = if base_decimals >= quote_decimals {
+            MarketAsset::Base
+        } else {
+            MarketAsset::Quote
+        };
         let collateral = market.side(debt_asset.opposite()).reserves.cash_reserve / 10;
         let mut position = borrow_position_for_debt(debt_asset, collateral);
         market.borrow(&mut position, debt_asset, 2_000_000_001, 0, 0).unwrap();
@@ -1917,10 +1846,14 @@ fn high_decimal_borrow_partial_repay_and_liquidation_preserve_dust_debt() {
         // An underwater remainder must remain visible to risk checks.
         position.base_collateral = 0;
         position.quote_collateral = 0;
-        assert!(market.is_position_liquidatable_with_risk(&position, debt_asset, &market.risk).unwrap());
+        assert!(market
+            .is_position_liquidatable_with_risk(&position, debt_asset, &market.risk)
+            .unwrap());
         market.repay(&mut position, debt_asset, 1).unwrap();
         assert_eq!(market.total_fixed_debt_nad(debt_asset).unwrap(), 0);
-        assert!(!market.is_position_liquidatable_with_risk(&position, debt_asset, &market.risk).unwrap());
+        assert!(!market
+            .is_position_liquidatable_with_risk(&position, debt_asset, &market.risk)
+            .unwrap());
     }
 }
 
@@ -1941,15 +1874,21 @@ fn high_decimal_launch_fee_buckets_keep_nine_decimal_config_units() {
         market.prepare_amm_for_swap(0).unwrap();
         let one_token = 10_u64.pow(u32::from(decimals));
         for (input, fee_bps) in [(one_token, 100_u64), (one_token + 1, 200)] {
-            let quote = market.preliminary_swap_inputs_for_state_at_time(
-                MarketAsset::Quote,
-                input,
-                0,
-                0,
-                crate::transitions::amm::DynamicFeePreState::default(),
-            ).unwrap();
+            let quote = market
+                .preliminary_swap_inputs_for_state_at_time(
+                    MarketAsset::Quote,
+                    input,
+                    0,
+                    0,
+                    crate::transitions::amm::DynamicFeePreState::default(),
+                )
+                .unwrap();
             let expected_fee = (u128::from(input) * u128::from(fee_bps) / u128::from(BPS_DENOMINATOR)) as u64;
-            assert_eq!(quote.amount_in_for_quote, input - expected_fee, "decimals={decimals}, input={input}");
+            assert_eq!(
+                quote.amount_in_for_quote,
+                input - expected_fee,
+                "decimals={decimals}, input={input}"
+            );
         }
     }
 }
@@ -1958,237 +1897,204 @@ fn high_decimal_launch_fee_buckets_keep_nine_decimal_config_units() {
 fn protection_health_uses_liquidation_terms_and_donations_preserve_them() {
     let mut market = invariant_market(1_000_000, 1_000_000);
     let mut position = borrow_position_for_debt(MarketAsset::Base, 250_000);
-    market.borrow(&mut position, MarketAsset::Base, 100_000, 8_000, 0).unwrap();
+    market
+        .borrow(&mut position, MarketAsset::Base, 100_000, 8_000, 0)
+        .unwrap();
     let cf = position.base_liquidation_cf_bps;
-    let before = market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap();
+    let before = market
+        .borrow_protection_health_bps(&position, MarketAsset::Base)
+        .unwrap();
     assert!(before > 10_000);
     let after_fee_increase = market
         .borrow_protection_health_bps_with_credit(&position, MarketAsset::Base, position.quote_collateral / 2)
         .unwrap();
     assert!(after_fee_increase < before);
     assert_eq!(
-        market.borrow_protection_health_bps_with_credit(&position, MarketAsset::Base, 0).unwrap(),
+        market
+            .borrow_protection_health_bps_with_credit(&position, MarketAsset::Base, 0)
+            .unwrap(),
         0
     );
-    market.deposit_collateral(&mut position, MarketAsset::Quote, 10_000).unwrap();
-    let after = market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap();
+    market
+        .deposit_collateral(&mut position, MarketAsset::Quote, 10_000)
+        .unwrap();
+    let after = market
+        .borrow_protection_health_bps(&position, MarketAsset::Base)
+        .unwrap();
     assert!(after > before);
     assert_eq!(position.base_liquidation_cf_bps, cf);
     market.repay(&mut position, MarketAsset::Base, 100_000).unwrap();
-    assert_eq!(market.borrow_protection_health_bps(&position, MarketAsset::Base).unwrap(), u64::MAX);
-}
-
-#[test]
-fn default_native_market_can_activate_and_reactivate_oracle_without_changing_claims() {
-    use crate::state::{OraclePolicy, NormalizedOracleV1, NORMALIZED_ORACLE_V1, NORMALIZED_ORACLE_MAGIC};
-    for with_hlp in [false, true] {
-        let mut market = invariant_market(1_000_000, 1_000_000);
-        assert_eq!(market.oracle.policy,OraclePolicy::default());
-        market.bind_oracle(&[],&Clock::default()).unwrap();
-        if with_hlp {
-            market.deposit_single_sided(MarketAsset::Base,20_000,0).unwrap();
-            market.deposit_single_sided(MarketAsset::Quote,20_000,0).unwrap();
-        }
-        let mut position = borrow_position_for_debt(MarketAsset::Quote,100_000);
-        market.borrow(&mut position,MarketAsset::Quote,10_000,0,0).unwrap();
-        let debt = market.debt.try_to_vec().unwrap();
-        let sides = (market.base_side.try_to_vec().unwrap(),market.quote_side.try_to_vec().unwrap());
-        let hlp = (market.base_hlp_vault.try_to_vec().unwrap(),market.quote_hlp_vault.try_to_vec().unwrap());
-        let provider = Pubkey::new_unique();
-        let key = Pubkey::new_unique();
-        let mut policy = OraclePolicy {format:NORMALIZED_ORACLE_V1,provider,base_account:key,
-            base_feed_id:[7;32],lambda_bps:2500,adjustment_cap_nad:2*NAD,max_age_seconds:30,
-            max_age_slots:20,max_confidence_bps:100,..Default::default()};
-        let feed = NormalizedOracleV1 {magic:NORMALIZED_ORACLE_MAGIC,feed_id:[7;32],
-            base_mint:market.base_side.asset_mint,quote_mint:market.quote_side.asset_mint,
-            price_nad:2*NAD,confidence_nad:0,publish_time:100,publish_slot:0,sequence:2,status:1};
-        let clock = Clock {slot:0,unix_timestamp:100,..Clock::default()};
-        let mut lamports = 1;
-        let mut bytes = feed.try_to_vec().unwrap();
-        let native_before=market.try_to_vec().unwrap();
-        assert!(market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],&clock,&[]).is_err());
-        assert_eq!(market.try_to_vec().unwrap(),native_before);
-        for (index,lambda) in [2500,9999,0,5000,0].into_iter().enumerate() {
-            policy.lambda_bps=lambda;
-            // A later proposal can also raise the active cap; there is no
-            // immutable creation-time ceiling tied to the original policy.
-            if index>=3 {policy.adjustment_cap_nad=3*NAD;}
-            let account = AccountInfo::new(&key,false,false,&mut lamports,&mut bytes,&provider,false,0);
-            let accounts=if lambda==0 {vec![]} else {vec![account]};
-            market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],&clock,&accounts).unwrap();
-            assert_eq!(market.oracle.revision,index as u64+1);
-            assert_eq!(market.parameter_revisions[7],index as u64+1);
-            assert_eq!(market.oracle.last_observation.sequence,2);
-            assert_eq!(market.debt.try_to_vec().unwrap(),debt);
-            assert_eq!((market.base_side.try_to_vec().unwrap(),market.quote_side.try_to_vec().unwrap()),sides);
-            assert_eq!((market.base_hlp_vault.try_to_vec().unwrap(),market.quote_hlp_vault.try_to_vec().unwrap()),hlp);
-            market.assert_market_invariants().unwrap();
-        }
-        // A weight/freshness edit must not authorize an older report from the
-        // same source, even after an intentional spell in native zero mode.
-        let before = market.try_to_vec().unwrap();
-        policy.lambda_bps=5000;
-        let mut old=feed; old.sequence=1;
-        bytes=old.try_to_vec().unwrap();
-        let account=AccountInfo::new(&key,false,false,&mut lamports,&mut bytes,&provider,false,0);
-        assert!(market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],&clock,&[account]).is_err());
-        assert_eq!(market.try_to_vec().unwrap(),before);
-        policy.lambda_bps=10_000;
-        assert!(market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],&clock,&[]).is_err());
-        assert_eq!(market.try_to_vec().unwrap(),before);
-    }
+    assert_eq!(
+        market
+            .borrow_protection_health_bps(&position, MarketAsset::Base)
+            .unwrap(),
+        u64::MAX
+    );
 }
 
 #[test]
 fn unavailable_oracle_allows_principal_and_interest_repayment_without_seizure() {
     use crate::state::{OraclePolicy, RuntimePricing};
-    for asset in [MarketAsset::Base,MarketAsset::Quote] {
-        for with_hlp in [false,true] {
-            let mut market=invariant_market(1_000_000,1_000_000);
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        for with_hlp in [false, true] {
+            let mut market = invariant_market(1_000_000, 1_000_000);
             if with_hlp {
-                market.deposit_single_sided(MarketAsset::Base,20_000,0).unwrap();
-                market.deposit_single_sided(MarketAsset::Quote,20_000,0).unwrap();
+                market.deposit_single_sided(MarketAsset::Base, 20_000, 0).unwrap();
+                market.deposit_single_sided(MarketAsset::Quote, 20_000, 0).unwrap();
             }
-            let mut position=borrow_position_for_debt(asset,100_000);
-            market.borrow(&mut position,asset,10_000,0,0).unwrap();
-            market.oracle.policy=OraclePolicy {lambda_bps:5000,adjustment_cap_nad:2*NAD,..Default::default()};
-            market.oracle.runtime=RuntimePricing::default();
-            let collateral=position.collateral(asset.opposite());
-            let risk=market.risk.try_to_vec().unwrap();
+            let mut position = borrow_position_for_debt(asset, 100_000);
+            market.borrow(&mut position, asset, 10_000, 0, 0).unwrap();
+            market.oracle.policy = OraclePolicy {
+                lambda_bps: 5000,
+                adjustment_cap_nad: 2 * NAD,
+                ..Default::default()
+            };
+            market.oracle.runtime = RuntimePricing::default();
+            let collateral = position.collateral(asset.opposite());
+            let risk = market.risk.try_to_vec().unwrap();
             market.accrue_interest_to_slot(1).unwrap();
             market.accrue_interest_to_slot(100_000_000).unwrap();
-            let debt=Debt::shares_to_debt(position.debt_shares(asset),market.debt.borrow_index(asset)).unwrap();
-            assert!(debt>10_000);
-            assert!(market.borrow(&mut position,asset,1,0,100_000_000).is_err());
+            let debt = Debt::shares_to_debt(position.debt_shares(asset), market.debt.borrow_index(asset)).unwrap();
+            assert!(debt > 10_000);
+            assert!(market.borrow(&mut position, asset, 1, 0, 100_000_000).is_err());
             // This zero-decimal fixture can accrue until one debt share costs
             // more than 100 raw units under the dynamic rate controller. Ask
             // the canonical preview for the exact aggregate-floor cash debit
             // that burns at least one share while remaining partial.
-            let one_share_ceiling=u64::try_from(market.debt.borrow_index(asset).div_ceil(NAD as u128)).unwrap();
-            let partial_repay=market.fixed_repayment_for_max(&position,asset,one_share_ceiling).unwrap().cash_repaid;
-            market.repay_with_finalization_and_fee(&mut position,asset,partial_repay,LeverageCollateralFee::default(),Some(100_000_000)).unwrap();
-            assert_eq!(position.collateral(asset.opposite()),collateral);
-            assert!(position.debt_shares(asset)>0);
-            assert_eq!(market.risk.try_to_vec().unwrap(),risk);
-            let remaining=u64::try_from(Debt::shares_to_debt(position.debt_shares(asset),market.debt.borrow_index(asset)).unwrap()).unwrap();
-            market.repay_with_finalization_and_fee(&mut position,asset,remaining,LeverageCollateralFee::default(),Some(100_000_000)).unwrap();
-            assert_eq!(position.debt_shares(asset),0);
-            assert_eq!(position.collateral(asset.opposite()),collateral);
+            let one_share_ceiling = u64::try_from(market.debt.borrow_index(asset).div_ceil(NAD as u128)).unwrap();
+            let partial_repay = market
+                .fixed_repayment_for_max(&position, asset, one_share_ceiling)
+                .unwrap()
+                .cash_repaid;
+            market
+                .repay_with_finalization_and_fee(
+                    &mut position,
+                    asset,
+                    partial_repay,
+                    LeverageCollateralFee::default(),
+                    Some(100_000_000),
+                )
+                .unwrap();
+            assert_eq!(position.collateral(asset.opposite()), collateral);
+            assert!(position.debt_shares(asset) > 0);
+            assert_eq!(market.risk.try_to_vec().unwrap(), risk);
+            let remaining = u64::try_from(
+                Debt::shares_to_debt(position.debt_shares(asset), market.debt.borrow_index(asset)).unwrap(),
+            )
+            .unwrap();
+            market
+                .repay_with_finalization_and_fee(
+                    &mut position,
+                    asset,
+                    remaining,
+                    LeverageCollateralFee::default(),
+                    Some(100_000_000),
+                )
+                .unwrap();
+            assert_eq!(position.debt_shares(asset), 0);
+            assert_eq!(position.collateral(asset.opposite()), collateral);
             market.assert_market_invariants().unwrap();
         }
     }
 }
 
 #[test]
-fn oracle_recovery_in_distress_preserves_debt_and_rejects_mixed_proposals() {
-    use crate::state::{NormalizedOracleV1, OraclePolicy, NORMALIZED_ORACLE_MAGIC, NORMALIZED_ORACLE_V1};
-    for debt_asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let mut market = invariant_market(1_000_000, 1_000_000);
-        let mut position = borrow_position_for_debt(debt_asset, 50_000);
-        market.borrow(&mut position, debt_asset, 10_000, 0, 0).unwrap();
-        let provider = Pubkey::new_unique();
-        let key = Pubkey::new_unique();
-        let policy = OraclePolicy {
-            format: NORMALIZED_ORACLE_V1, provider, base_account: key, base_feed_id: [7; 32],
-            lambda_bps: 9_000, adjustment_cap_nad: 20 * NAD, max_age_seconds: 30,
-            max_age_slots: 20, max_confidence_bps: 100, ..Default::default()
-        };
-        let mut feed = NormalizedOracleV1 {
-            magic: NORMALIZED_ORACLE_MAGIC, feed_id: [7; 32],
-            base_mint: market.base_side.asset_mint, quote_mint: market.quote_side.asset_mint,
-            price_nad: if debt_asset == MarketAsset::Quote { NAD / 10 } else { 10 * NAD },
-            publish_time: 100, sequence: 1, status: 1, ..Default::default()
-        };
-        let mut lamports = 1;
-        let mut bytes = feed.try_to_vec().unwrap();
-        let account = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &provider, false, 0);
-        market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)],
-            &Clock { unix_timestamp: 100, ..Default::default() }, &[account]).unwrap();
-        // Close the EMA window with a fresh old-provider report before outage.
-        let clock = Clock { slot: 1_000_000, unix_timestamp: 100_000, ..Default::default() };
-        feed.publish_slot = clock.slot;
-        feed.publish_time = clock.unix_timestamp;
-        feed.sequence += 1;
-        bytes = feed.try_to_vec().unwrap();
-        let account = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &provider, false, 0);
-        market.bind_oracle(&[account], &clock).unwrap();
-        market.accrue_interest_to_slot(clock.slot).unwrap();
-        market.refresh_risk_at_slot(clock.slot).unwrap();
-        assert!(market.assert_market_health().is_err());
-        let serialized = market.try_to_vec().unwrap();
-        let clock = Clock { slot: clock.slot + 21, unix_timestamp: clock.unix_timestamp + 50, ..clock };
-        let replacement_key = Pubkey::new_unique();
-        let replacement_provider = Pubkey::new_unique();
-        let replacement = OraclePolicy { provider: replacement_provider, base_account: replacement_key, ..policy };
-        let stale = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &provider, false, 0);
-        let mut unbound = Market::try_from_slice(&serialized).unwrap();
-        assert_eq!(unbound.bind_oracle(&[stale], &clock).unwrap_err(), error!(ErrorCode::OracleStale));
-
-        feed.publish_time = clock.unix_timestamp;
-        feed.publish_slot = clock.slot;
-        feed.sequence += 1;
-        for disable in [false, true] {
-            let mut recovered = Market::try_from_slice(&serialized).unwrap();
-            let next = if disable { OraclePolicy::default() } else { replacement };
-            let mut bytes = feed.try_to_vec().unwrap();
-            let account = AccountInfo::new(&replacement_key, false, false, &mut lamports, &mut bytes,
-                &replacement_provider, false, 0);
-            let accounts = if disable { vec![] } else { vec![account] };
-            let mixed = [MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps: 1_000 },
-                MarketParameterUpdate::Oracle(next)];
-            assert_eq!(recovered.execute_parameter_updates_authenticated(&mixed, &clock, &accounts).unwrap_err(),
-                error!(ErrorCode::InsufficientMarketHealth));
-            assert_eq!(recovered.try_to_vec().unwrap(), serialized);
-            if !disable {
-                assert!(recovered.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(next)],
-                    &clock, &[]).is_err());
-                assert_eq!(recovered.try_to_vec().unwrap(), serialized);
-            }
-            let debt_shares = position.debt_shares(debt_asset);
-            let reserves = (recovered.base_side.reserves, recovered.quote_side.reserves);
-            recovered.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(next)],
-                &clock, &accounts).unwrap();
-            assert_eq!(recovered.oracle.policy, next);
-            assert_eq!(recovered.oracle.revision, market.oracle.revision + 1);
-            assert_eq!(position.debt_shares(debt_asset), debt_shares);
-            assert_eq!(recovered.debt.fixed_base_shares, market.debt.fixed_base_shares);
-            assert_eq!(recovered.debt.fixed_quote_shares, market.debt.fixed_quote_shares);
-            assert_eq!(recovered.base_side.reserves.cash_reserve, reserves.0.cash_reserve);
-            assert_eq!(recovered.quote_side.reserves.cash_reserve, reserves.1.cash_reserve);
-            assert!(recovered.is_position_liquidatable(&position, debt_asset).unwrap());
-            recovered.assert_market_invariants().unwrap();
-        }
+fn launch_configuration_is_frozen_at_start_while_runtime_fees_remain_governable() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.start_time = 100;
+    let original = market.config.fee_profile();
+    let mut variants = vec![original; 11];
+    variants[0].launch_fee_start_bps = 50;
+    variants[1].launch_fee_duration_seconds = 86_400;
+    variants[2].launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    variants[3].launch_market_price_step_bps = 100;
+    variants[4].launch_market_number_of_periods = 2;
+    variants[5].launch_market_reduction_factor_bps = 100;
+    variants[6].launch_rate_limit_asset = LAUNCH_RATE_LIMIT_ASSET_BASE;
+    variants[7].launch_rate_limit_reference_nad = NAD;
+    variants[8].launch_rate_limit_increment_bps = 10;
+    variants[9].launch_rate_limit_max_fee_bps = 100;
+    variants[10].launch_rate_limit_duration_seconds = 86_400;
+    for variant in variants {
+        let updates = [MarketParameterUpdate::Fee(variant)];
+        assert!(market
+            .assert_launch_settings_unchanged_after_start(&updates, 99)
+            .is_ok());
+        assert!(market
+            .assert_launch_settings_unchanged_after_start(&updates, 100)
+            .is_err());
+        assert!(market
+            .assert_launch_settings_unchanged_after_start(&updates, 1_000_000)
+            .is_err());
     }
+    let mut runtime = original;
+    runtime.base_fee_bps = 100;
+    runtime.compounding_fee_bps = 10_000;
+    runtime.swap_fee_collect_mode = SWAP_FEE_COLLECT_QUOTE_ONLY;
+    assert!(market
+        .assert_launch_settings_unchanged_after_start(&[MarketParameterUpdate::Fee(runtime)], 100)
+        .is_ok());
 }
 
 #[test]
-fn oracle_only_policy_can_execute_at_the_utilization_guard_boundary() {
-    use crate::state::{NormalizedOracleV1, OraclePolicy, NORMALIZED_ORACLE_MAGIC, NORMALIZED_ORACLE_V1};
+fn queued_launch_change_cannot_cross_launch_boundary_at_execution() {
     let mut market = invariant_market(1_000_000, 1_000_000);
-    market.debt.fixed_base_shares = 800_000;
-    market.debt.fixed_base_principal = 800_000;
-    market.base_side.reserves.cash_reserve = 200_000;
-    assert_eq!(market.lending_utilization_bps(MarketAsset::Base).unwrap(), 8_000);
-    let provider = Pubkey::new_unique();
-    let key = Pubkey::new_unique();
-    let policy = OraclePolicy { format: NORMALIZED_ORACLE_V1, provider, base_account: key,
-        base_feed_id: [7; 32], lambda_bps: 5_000, adjustment_cap_nad: 2 * NAD,
-        max_age_seconds: 30, max_age_slots: 20, max_confidence_bps: 100, ..Default::default() };
-    let feed = NormalizedOracleV1 { magic: NORMALIZED_ORACLE_MAGIC, feed_id: [7; 32],
-        base_mint: market.base_side.asset_mint, quote_mint: market.quote_side.asset_mint,
-        price_nad: NAD, publish_time: 100, sequence: 1, status: 1, ..Default::default() };
-    let clock = Clock { unix_timestamp: 100, ..Default::default() };
-    let mut lamports = 1;
-    let mut bytes = feed.try_to_vec().unwrap();
-    let account = AccountInfo::new(&key, false, false, &mut lamports, &mut bytes, &provider, false, 0);
-    let mixed = [MarketParameterUpdate::DailyBorrowLimit { max_daily_borrow_bps: 1_000 },
-        MarketParameterUpdate::Oracle(policy)];
-    let before = market.try_to_vec().unwrap();
-    assert_eq!(market.execute_parameter_updates_authenticated(&mixed, &clock, &[account.clone()]).unwrap_err(),
-        error!(ErrorCode::UtilizationGuardExceeded));
-    assert_eq!(market.try_to_vec().unwrap(), before);
-    market.execute_parameter_updates_authenticated(&[MarketParameterUpdate::Oracle(policy)], &clock, &[account]).unwrap();
-    assert_eq!(market.debt.fixed_base_shares, 800_000);
-    assert_eq!(market.debt.fixed_base_principal, 800_000);
-    market.assert_market_invariants().unwrap();
+    market.config.start_time = 100;
+    let mut fee = market.config.fee_profile();
+    fee.launch_fee_start_bps = 50;
+    fee.launch_fee_duration_seconds = 86_400;
+    fee.launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    let updates = [MarketParameterUpdate::Fee(fee)];
+    market.validate_parameter_updates(&updates).unwrap();
+    market
+        .assert_launch_settings_unchanged_after_start(&updates, 99)
+        .unwrap();
+    let before_config = market.config;
+    let before_revisions = market.parameter_revisions;
+    let clock = Clock {
+        unix_timestamp: 100,
+        slot: 1,
+        ..Default::default()
+    };
+    let error = market
+        .execute_parameter_updates_authenticated(&updates, &clock, &[])
+        .unwrap_err();
+    assert_eq!(error, error!(ErrorCode::LaunchSettingsImmutable));
+    assert_eq!(market.config, before_config);
+    assert_eq!(market.parameter_revisions, before_revisions);
+}
+
+#[test]
+fn new_borrower_cannot_reclassify_older_borrowers_principal_or_tranche_loss() {
+    use crate::transitions::flash_liquidation::LiquidationPositionRef;
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = invariant_market(1_000_000, 1_000_000);
+        let mut alice = borrow_position_for_debt(asset, 10_000);
+        market.borrow(&mut alice, asset, 1_000, 0, 0).unwrap();
+        let alice_shares = alice.debt_shares(asset);
+        set_borrow_index(&mut market, asset, (NAD as u128) * 11 / 10);
+        add_accrued_cash_backed_interest_to_live_reserve(&mut market, asset, alice_shares, 1_000);
+
+        let mut bob = borrow_position_for_debt(asset, 10_000);
+        market.borrow(&mut bob, asset, 1_100, 0, 0).unwrap();
+        let repayment = market.repay(&mut bob, asset, 1_100).unwrap();
+        assert_eq!(repayment.interest_paid, 0);
+        assert_eq!(bob.principal(asset), 0);
+        assert_eq!(alice.principal(asset), 1_000);
+        assert_eq!(market.public_unpaid_interest(asset).unwrap(), 100);
+        let allocation = market
+            .liquidation_debt_allocation(&LiquidationPositionRef::Borrow(&alice), asset, alice_shares)
+            .unwrap();
+        assert_eq!(allocation.debt, 1_100);
+        assert_eq!(allocation.principal, 1_000);
+        let loss = crate::LiquidationLossAllocation::quote(allocation.principal, allocation.debt, 900).unwrap();
+        assert_eq!(loss.principal_written_off, 100);
+        market.assert_virtual_reserve_invariant(asset).unwrap();
+    }
+}
+
+fn controller_market(base_cash: u64, quote_cash: u64) -> Market {
+    let mut market = invariant_market(base_cash, quote_cash);
+    market.config.amm.adjustment_step_nad = NAD / 1_000;
+    market
 }

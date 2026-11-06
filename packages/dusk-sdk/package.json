@@ -1,7 +1,7 @@
 {
   "name": "@omnipair/dusk-sdk",
-  "version": "2.17.0-next.20261104-srlp.1",
-  "description": "Dusk SDK for Omnipair V2 program writes, RPC reads, parameter governance, previews, and indexer data",
+  "version": "2.18.0-next.20261106",
+  "description": "Dusk SDK for Omnipair V2 program writes, RPC reads, operator management, previews, and indexer data",
   "license": "MIT",
   "author": "Omnipair <security@omnipair.fi>",
   "repository": {
@@ -59,12 +59,12 @@
   "scripts": {
     "prepare-idl": "node scripts/prepare.js",
     "check-idl-current": "node scripts/check-idl-current.js",
-    "build": "npm run prepare-idl && tsc",
+    "build": "npm run prepare-idl && node scripts/clean-dist.js && tsc",
     "typecheck": "tsc --noEmit",
-    "test:governance": "npm run build && node scripts/check-governance.js",
-    "test:previews": "npm run build && node --test scripts/check-previews.js scripts/check-virtual-book.js scripts/check-lp-tokens.js scripts/check-leverage-margins.js scripts/check-leverage-funding.js scripts/check-leverage-actions.js scripts/check-insurance.js scripts/check-liquidation.js scripts/check-hlp-exit.js scripts/check-transfer-fees.js scripts/check-interest-accounting.js scripts/check-write-program-accounts.js scripts/check-tranches.js",
+    "test:previews": "npm run build && node --test scripts/check-previews.js scripts/check-operator.js scripts/check-virtual-book.js scripts/check-lp-tokens.js scripts/check-leverage-margins.js scripts/check-leverage-funding.js scripts/check-leverage-actions.js scripts/check-credit-waterfall.js scripts/check-liquidation.js scripts/check-hlp-exit.js scripts/check-transfer-fees.js scripts/check-interest-accounting.js scripts/check-write-program-accounts.js scripts/check-tranches.js",
     "clean": "rm -rf dist",
-    "prepublishOnly": "npm run clean && tsc"
+    "prepublishOnly": "npm run clean && tsc",
+    "test:operator": "npm run build && node scripts/check-operator.js"
   },
   "dependencies": {
     "@coral-xyz/anchor": ">=0.30.0",

@@ -2,6 +2,27 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum ErrorCode {
+    #[msg("Only the current market operator may authorize this action")]
+    InvalidOperator,
+    #[msg("Operator authority epoch changed")]
+    OperatorEpochMismatch,
+    #[msg("Operator nonce is not current")]
+    OperatorNonceMismatch,
+    #[msg("This field cannot be changed by an operator")]
+    OperatorFieldForbidden,
+    #[msg("Operator change exceeds the fixed protocol policy")]
+    OperatorPolicyExceeded,
+    #[msg("Operator bundle no longer matches the market")]
+    OperatorProposalStale,
+    #[msg("Operator change is still in its exit notice")]
+    OperatorNoticeNotReady,
+    #[msg("Operator execution window expired")]
+    OperatorProposalExpired,
+    #[msg("Operator change is still pending")]
+    OperatorChangePending,
+    #[msg("Prepare the previous recipient revenue archive before transferring future fees")]
+    OperatorRevenueArchiveRequired,
+
     #[msg("Invalid deployer")]
     InvalidDeployer,
 
@@ -28,39 +49,6 @@ pub enum ErrorCode {
 
     #[msg("Invalid parameter proposal description URI")]
     InvalidProposalUri,
-
-    #[msg("Parameter proposal digest does not match its immutable contents")]
-    InvalidProposalDigest,
-
-    #[msg("Invalid parameter proposal account")]
-    InvalidParameterProposal,
-
-    #[msg("Invalid parameter proposal support account")]
-    InvalidProposalSupport,
-
-    #[msg("Parameter proposal is not collecting support")]
-    ProposalNotCollecting,
-
-    #[msg("Parameter proposal is not queued")]
-    ProposalNotQueued,
-
-    #[msg("Queued proposal support is frozen")]
-    ProposalSupportFrozen,
-
-    #[msg("Proposal support is below the sponsorship floor")]
-    ProposalSponsorshipTooLow,
-
-    #[msg("Proposal does not have a strict majority of eligible srLP")]
-    ProposalSupportInsufficient,
-
-    #[msg("Parameter proposal timelock is not ready")]
-    ProposalTimelockNotReady,
-
-    #[msg("Parameter proposal execution window has expired")]
-    ProposalExecutionWindowExpired,
-
-    #[msg("Parameter proposal was invalidated by a same-family update")]
-    ProposalStale,
 
     #[msg("Parameter update would not change the active market parameters")]
     ParameterUpdateNotMeaningful,
@@ -332,12 +320,6 @@ pub enum ErrorCode {
     #[msg("Position is not liquidatable")]
     PositionNotLiquidatable,
 
-    #[msg("Insurance coverage is insufficient")]
-    InsufficientInsurance,
-
-    #[msg("Required insurance draw exceeds caller cap")]
-    InsuranceDrawExceeded,
-
     #[msg("Socialized liquidation loss exceeds caller cap")]
     LiquidationSocializationExceeded,
 
@@ -416,9 +398,6 @@ pub enum ErrorCode {
     #[msg("Parameter updates must name one to seven families, each once, in ascending family order")]
     ParameterUpdatesNotCanonical,
 
-    #[msg("Parameter proposal does not match the digest the supporter reviewed")]
-    ProposalDigestMismatch,
-
     #[msg("Reserved retired liquidation clock error")]
     ReservedLiquidationClock,
 
@@ -444,4 +423,6 @@ pub enum ErrorCode {
     OracleStale,
     #[msg("Oracle sequence or source observation regressed")]
     OracleReplay,
+    #[msg("Launch-only settings are immutable after the market starts")]
+    LaunchSettingsImmutable,
 }

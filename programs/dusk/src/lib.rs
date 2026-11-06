@@ -33,7 +33,7 @@ security_txt! {
     policy: "https://omnipair.fi/security"
 }
 
-declare_id!("5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ");
+declare_id!("B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2");
 
 #[program]
 pub mod dusk {
@@ -159,77 +159,39 @@ pub mod dusk {
         SetMarketReduceOnly::handle_set(ctx, args)
     }
 
-    pub fn fortify_market<'info>(
-        ctx: Context<'_, '_, '_, 'info, FortifyMarket<'info>>,
-        args: FortifyMarketArgs,
+    /// Announce one atomic change. An optional manager may propose parameters only; LP balances grant no authority.
+    pub fn announce_operator_change(
+        ctx: Context<AnnounceOperatorChange>,
+        args: AnnounceOperatorChangeArgs,
     ) -> Result<()> {
-        ctx.accounts.validate(&args)?;
-        FortifyMarket::handle_fortify(ctx, args)
+        AnnounceOperatorChange::handle(ctx, args)
     }
 
-    // Direct-srLP parameter governance instructions
-    pub fn create_parameter_proposal<'info>(
-        ctx: Context<'_, '_, '_, 'info, CreateParameterProposal<'info>>,
-        args: CreateParameterProposalArgs,
+    /// Permissionless execution after the full exit notice. A new authority accepts a handoff by signing.
+    pub fn execute_operator_change<'info>(ctx: Context<'_, '_, '_, 'info, ExecuteOperatorChange<'info>>) -> Result<()> {
+        ExecuteOperatorChange::handle(ctx)
+    }
+
+    /// The operator may cancel any bundle; a manager may cancel its own. Anyone may close obsolete proposals.
+    pub fn resolve_operator_change(ctx: Context<ResolveOperatorChange>, cancel: bool) -> Result<()> {
+        ResolveOperatorChange::handle(ctx, cancel)
+    }
+
+    /// Immediately revoke the optional manager and its pending change, preserving owner announcements.
+    pub fn remove_market_manager(ctx: Context<RemoveMarketManager>) -> Result<()> {
+        RemoveMarketManager::handle(ctx)
+    }
+
+    /// Prepare a recipient archive with a separate funded payer.
+    pub fn initialize_operator_revenue(ctx: Context<InitializeOperatorRevenue>) -> Result<()> {
+        InitializeOperatorRevenue::handle(ctx)
+    }
+    /// Permissionlessly pay earned interest fees to the immutable recipient ATA.
+    pub fn claim_operator_revenue<'info>(
+        ctx: Context<'_, '_, '_, 'info, ClaimOperatorRevenue<'info>>,
+        args: ClaimOperatorRevenueArgs,
     ) -> Result<()> {
-        CreateParameterProposal::handle_create(ctx, args)
-    }
-
-    pub fn support_parameter_proposal<'info>(
-        ctx: Context<'_, '_, '_, 'info, SupportParameterProposal<'info>>,
-        args: SupportParameterProposalArgs,
-    ) -> Result<()> {
-        SupportParameterProposal::handle_support(ctx, args)
-    }
-
-    pub fn queue_parameter_proposal(ctx: Context<QueueParameterProposal>) -> Result<()> {
-        QueueParameterProposal::handle_queue(ctx)
-    }
-
-    pub fn execute_parameter_proposal(ctx: Context<ExecuteParameterProposal>) -> Result<()> {
-        ExecuteParameterProposal::handle_execute(ctx)
-    }
-
-    pub fn withdraw_parameter_support<'info>(
-        ctx: Context<'_, '_, '_, 'info, WithdrawParameterSupport<'info>>,
-        args: WithdrawParameterSupportArgs,
-    ) -> Result<()> {
-        WithdrawParameterSupport::handle_withdraw(ctx, args)
-    }
-
-    pub fn manage_governance_balance<'info>(
-        ctx: Context<'_, '_, '_, 'info, ManageGovernanceBalance<'info>>,
-        action: GovernanceBalanceAction,
-    ) -> Result<()> {
-        ManageGovernanceBalance::handle(ctx, action)
-    }
-
-    pub fn set_governance_delegate<'info>(
-        ctx: Context<'_, '_, '_, 'info, SetGovernanceDelegate<'info>>,
-        delegate: Pubkey,
-    ) -> Result<()> {
-        SetGovernanceDelegate::handle(ctx, delegate)
-    }
-
-    pub fn create_governance_proposal<'info>(
-        ctx: Context<'_, '_, '_, 'info, CreateGovernanceProposal<'info>>,
-        args: CreateGovernanceProposalArgs,
-    ) -> Result<()> {
-        CreateGovernanceProposal::handle(ctx, args)
-    }
-
-    pub fn support_governance_proposal<'info>(
-        ctx: Context<'_, '_, '_, 'info, SupportGovernanceProposal<'info>>,
-        args: SupportGovernanceProposalArgs,
-    ) -> Result<()> {
-        SupportGovernanceProposal::handle(ctx, args)
-    }
-
-    pub fn withdraw_governance_support<'info>(
-        ctx: Context<'_, '_, '_, 'info, WithdrawGovernanceSupport<'info>>,
-        args: WithdrawParameterSupportArgs,
-    ) -> Result<()> {
-        WithdrawGovernanceSupport::handle(ctx, args)
+        ClaimOperatorRevenue::handle(ctx, args)
     }
 
     // Liquidity instructions
@@ -358,7 +320,7 @@ pub mod dusk {
     /// Permissionlessly closes an hLP whose current-slot symmetric-EMA backing
     /// cannot cover funding debt. Native recovery uses EMA price, smoothed depth,
     /// concentration and configured fees. Recovery protects principal first;
-    /// insurance covers only principal loss and unpaid interest is canceled.
+    /// junior absorbs principal loss before senior; unpaid interest is canceled.
     /// Realized funding interest is cash-limited and funds the bounded caller
     /// reward. Existing funded holder claims remain claimable after cleanup.
     pub fn close_insolvent_hlp<'info>(

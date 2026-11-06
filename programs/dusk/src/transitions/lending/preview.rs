@@ -66,7 +66,7 @@ pub(crate) struct PositionDebtSideQuote {
     pub liquidation_health_bps: u64,
     pub is_liquidatable: bool,
     pub liquidation_incentive_bps: u16,
-    pub insurance_funding_bps: u16,
+    pub junior_fee_bps: u16,
     pub total_penalty_bps: u16,
     pub max_repay_amount: u64,
 }
@@ -232,7 +232,7 @@ impl Market {
                 0
             } else {
                 let mut low = 0_u64;
-                let mut high = debt_side.reserves.live_reserve;
+                let mut high = debt_side.reserves.cash_reserve;
                 let search_steps = position_capacity_search_steps(high);
                 for _ in 0..search_steps {
                     if low >= high {
@@ -371,7 +371,7 @@ impl Market {
                 &risk,
             )?,
             liquidation_incentive_bps: terms.liquidation_incentive_bps,
-            insurance_funding_bps: terms.insurance_funding_bps,
+            junior_fee_bps: terms.junior_fee_bps,
             total_penalty_bps: terms.total_penalty_bps,
             max_repay_amount: terms.max_repay_amount,
         })

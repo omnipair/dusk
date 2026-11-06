@@ -61,8 +61,8 @@ validate accounts and settle the returned token/share receipts. The prepared
 plan is boxed to preserve SBF stack headroom and consumed once when applied.
 Borrow/repay/writeoff rules remain in the lending/leverage kernels, composed
 inside the shared swap before its final price observation. Internal settlement
-also clears fixed debt and insurance before that observation; insurance uses
-an explicit slot rather than depending on an intermediate risk update.
+also clears fixed debt and applies the funded credit loss to junior then
+senior before that observation.
 
 The existing lazy risk-refresh revision after spot/leverage swaps is preserved.
 Transaction failure still rolls back account writes; off-chain owned-state
@@ -148,15 +148,13 @@ without a dedicated keeper instruction.
 
 If passive funding consumes all marked hLP collateral before that recovery
 executes, `close_insolvent_hlp` closes the vault through a terminal
-waterfall. It first retires the vault-owned srLP position, then draws the
-borrowed-asset insurance vault. A bounded caller bounty is paid from recovered
-funding interest, the remaining payable interest is credited to ordinary srLP,
-and only the caller-capped remainder of accrued funding interest is socialized.
-A loss reaching original debt principal is rejected as a broken
-hedge/accounting invariant. Published hLP fee claims are not seized; the
-remaining hLP tokens are burnable for zero principal after closure. The
-terminal instruction has its own insurance/interest/srLP accounts, so ordinary
-swaps keep their existing account list.
+waterfall. It retires the vault-owned srLP position, recovers principal first,
+and allocates residual funded principal losses to junior then senior. Unpaid
+funding interest is canceled separately. A bounded caller bounty comes only
+from recovered funding interest. Published hLP fee claims remain claimable;
+remaining hLP tokens are burnable for zero principal after closure. The terminal
+instruction uses interest/reserve/srLP accounts, without a separate coverage
+vault. Ordinary swaps keep their existing account list.
 
 ## Accounting invariants
 
@@ -190,10 +188,11 @@ transaction. Useful partial fills precede full closure. At critical EMA
 health, the internal emergency path prices its AMM settlement from symmetric
 EMA and smoothed depth, then applies the configured concentration and full
 fees. It can perform a restorative partial settlement or, under the documented
-fallback conditions, a full closure. Principal-only capped insurance covers
-part of a full principal shortfall; uncovered principal is socialized and
-unpaid interest is canceled. See `docs/FLASH_LIQUIDATION_CONTRACT.md` for the
-instruction contract and emergency permission rules.
+fallback conditions, a full closure. Residual funded principal losses consume
+junior backing before senior; unpaid interest is canceled. The fixed liquidation
+charge is 300 bps, capped by recovered surplus. See
+[the current waterfall](../../docs/CREDIT_LOSS_WATERFALL.md) for loss and fee policy
+and [health-only permission rules](../../docs/HEALTH_ONLY_LIQUIDATION.md).
 
 Proportional srLP changes scale every liquidity tranche. A protected center
 change reconstructs the concentrated state through the same positive closed-form

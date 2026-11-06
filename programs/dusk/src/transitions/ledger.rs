@@ -7,129 +7,14 @@ use crate::transitions::{
 };
 use crate::{constants::*, errors::ErrorCode, math::*, state::*};
 
-impl Insurance {
-    pub const fn available(&self, asset: MarketAsset) -> u64 {
-        match asset {
-            MarketAsset::Base => self.base_available,
-            MarketAsset::Quote => self.quote_available,
-        }
-    }
-
-    fn available_mut(&mut self, asset: MarketAsset) -> &mut u64 {
-        match asset {
-            MarketAsset::Base => &mut self.base_available,
-            MarketAsset::Quote => &mut self.quote_available,
-        }
-    }
-
-    fn draw_window(&self, asset: MarketAsset) -> &InsuranceDrawWindow {
-        match asset {
-            MarketAsset::Base => &self.base_draw_window,
-            MarketAsset::Quote => &self.quote_draw_window,
-        }
-    }
-
-    fn draw_window_mut(&mut self, asset: MarketAsset) -> &mut InsuranceDrawWindow {
-        match asset {
-            MarketAsset::Base => &mut self.base_draw_window,
-            MarketAsset::Quote => &mut self.quote_draw_window,
-        }
-    }
-
-    pub(crate) fn checkpoint_draw_window(&mut self, asset: MarketAsset, current_slot: u64) -> Result<()> {
-        let available = self.available(asset);
-        let window = self.draw_window_mut(asset);
-        let elapsed_slots = if window.initialized {
-            current_slot
-                .checked_sub(window.start_slot)
-                .ok_or(ErrorCode::InvalidArgument)?
-        } else {
-            0
-        };
-        // The budget resets after a deterministic number of scheduled slots.
-        // Leader-selected Clock timestamps do not move the 24-hour boundary.
-        if !window.initialized || elapsed_slots >= crate::constants::INSURANCE_DRAW_WINDOW_SLOTS {
-            *window = InsuranceDrawWindow {
-                initialized: true,
-                start_slot: current_slot,
-                opening_available: available,
-                credited: 0,
-                drawn: 0,
-            };
-        }
-        Ok(())
-    }
-
-    pub fn draw_capacity(&mut self, asset: MarketAsset, current_slot: u64) -> Result<u64> {
-        use crate::constants::BPS_DENOMINATOR;
-
-        self.checkpoint_draw_window(asset, current_slot)?;
-        let available = self.available(asset);
-        let window = *self.draw_window(asset);
-        let daily_basis = window
-            .opening_available
-            .checked_add(window.credited)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let daily_limit = u64::try_from(
-            (daily_basis as u128)
-                .checked_mul(self.per_day_draw_bps as u128)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-                / BPS_DENOMINATOR as u128,
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let daily_remaining = daily_limit.saturating_sub(window.drawn);
-        Ok(available.min(daily_remaining))
-    }
-
-    pub fn credit(&mut self, asset: MarketAsset, actual_credit: u64, current_slot: u64) -> Result<()> {
-        require!(actual_credit > 0, ErrorCode::AmountZero);
-        self.checkpoint_draw_window(asset, current_slot)?;
-        let available = self.available_mut(asset);
-        *available = available
-            .checked_add(actual_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let window = self.draw_window_mut(asset);
-        window.credited = window
-            .credited
-            .checked_add(actual_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(())
-    }
-
-    pub fn reconcile_credit(&mut self, asset: MarketAsset, gross_credit: u64, actual_credit: u64) -> Result<()> {
-        require_gte!(gross_credit, actual_credit, ErrorCode::MarketMathOverflow);
-        let fee = gross_credit
-            .checked_sub(actual_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        if fee == 0 {
-            return Ok(());
-        }
-        let available = self.available_mut(asset);
-        *available = available.checked_sub(fee).ok_or(ErrorCode::MarketMathOverflow)?;
-        let window = self.draw_window_mut(asset);
-        window.credited = window.credited.checked_sub(fee).ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(())
-    }
-
-    pub fn consume_draw(&mut self, asset: MarketAsset, amount: u64, current_slot: u64) -> Result<()> {
-        let capacity = self.draw_capacity(asset, current_slot)?;
-        require_gte!(capacity, amount, ErrorCode::InsuranceDrawExceeded);
-        let available = self.available_mut(asset);
-        *available = available.checked_sub(amount).ok_or(ErrorCode::InsufficientInsurance)?;
-        let window = self.draw_window_mut(asset);
-        window.drawn = window.drawn.checked_add(amount).ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(())
-    }
-}
-
 impl ReserveShares {
-    pub fn shares_for_deposit(&self, reserve_before: u64, deposit_amount: u64) -> Result<u64> {
+    pub fn shares_for_deposit(&self, reserve_before: u128, deposit_amount: u64) -> Result<u64> {
         if self.srlp_supply == 0 || reserve_before == 0 {
             return Ok(deposit_amount);
         }
         let shares = (deposit_amount as u128)
             .checked_mul(self.srlp_supply as u128)
-            .and_then(|value| value.checked_div(reserve_before as u128))
+            .and_then(|value| value.checked_div(reserve_before))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         u64::try_from(shares).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
@@ -232,7 +117,7 @@ impl MarketAsset {
 }
 
 impl MarketSide {
-    /// Collected coverage allocation formerly routed to insurance. Existing
+    /// Collected junior underwriting revenue. Existing
     /// protocol and executor allocations have already been deducted.
     pub fn record_junior_liquidation_credit(&mut self, credit: u64) -> Result<()> {
         require!(self.fees.junior.initialized, ErrorCode::BrokenInvariant);
@@ -254,22 +139,17 @@ impl MarketSide {
         self.fees.assert_backed()
     }
 
-    /// Liquidation's protocol share is already selected before insurance is
-    /// funded. Distribute the remaining LP amount once, over ordinary srLP
-    /// ownership (including the srLP backing hLP), without another protocol cut.
-    pub(crate) fn record_liquidation_fee_credit(
+    /// Book the already-selected protocol share without another LP deduction.
+    pub(crate) fn record_liquidation_protocol_credit(
         &mut self,
-        lp: u64,
         protocol: u64,
         split: ProtocolAuctionSplit,
-        eligible_srlp_supply: u64,
     ) -> Result<()> {
-        let credit = lp.checked_add(protocol).ok_or(ErrorCode::FeeMathOverflow)?;
         let (fee, buyback) = split_protocol_auction_fee(protocol, &split)?;
         self.fees.interest_vault_balance = self
             .fees
             .interest_vault_balance
-            .checked_add(credit)
+            .checked_add(protocol)
             .ok_or(ErrorCode::FeeMathOverflow)?;
         self.fees.interest_protocol_fee_liability = self
             .fees
@@ -281,12 +161,6 @@ impl MarketSide {
             .interest_buyback_fee_liability
             .checked_add(buyback)
             .ok_or(ErrorCode::FeeMathOverflow)?;
-        self.fees.unallocated_interest_liability = self
-            .fees
-            .unallocated_interest_liability
-            .checked_add(lp)
-            .ok_or(ErrorCode::FeeMathOverflow)?;
-        self.carry_forward_interest_with_supply(eligible_srlp_supply)?;
         self.fees.assert_backed()
     }
 
@@ -302,7 +176,8 @@ impl MarketSide {
         if self.shares.srlp_supply == 0 {
             return Ok(0);
         }
-        (self.reserves.live_reserve as u128)
+        self.reserves
+            .live_reserve
             .checked_mul(crate::constants::NAD as u128)
             .and_then(|value| value.checked_div(self.shares.srlp_supply as u128))
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
@@ -312,7 +187,7 @@ impl MarketSide {
         self.reserves.live_reserve = self
             .reserves
             .live_reserve
-            .checked_add(amount)
+            .checked_add(u128::from(amount))
             .ok_or(ErrorCode::ReserveOverflow)?;
         if credit_cash {
             self.reserves.cash_reserve = self
@@ -328,7 +203,7 @@ impl MarketSide {
         self.reserves.live_reserve = self
             .reserves
             .live_reserve
-            .checked_sub(amount)
+            .checked_sub(u128::from(amount))
             .ok_or(ErrorCode::ReserveUnderflow)?;
         if debit_cash {
             self.reserves.cash_reserve = self
@@ -768,17 +643,6 @@ impl MarketSide {
 }
 
 impl Market {
-    pub fn credit_insurance_donation(
-        &mut self,
-        asset: MarketAsset,
-        actual_credit: u64,
-        current_slot: u64,
-    ) -> Result<()> {
-        self.insurance.credit(asset, actual_credit, current_slot)
-    }
-}
-
-impl Market {
     pub fn assert_market_invariants(&self) -> Result<()> {
         require_eq!(
             self.base_side.shares.srlp_supply,
@@ -867,7 +731,7 @@ impl Market {
             .and_then(|value| value.checked_add(hlp_live))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require_eq!(
-            side.reserves.live_reserve as u128,
+            side.reserves.live_reserve,
             expected_live_reserve,
             ErrorCode::BrokenInvariant
         );
@@ -884,8 +748,8 @@ pub struct SwapReceipt {
     pub base_fee_credit: u64,
     pub distributed_surcharge_credit: u64,
     pub fee_breakdown: SwapFeeBreakdown,
-    pub reserve_in_live_reserve: u64,
-    pub reserve_out_live_reserve: u64,
+    pub reserve_in_live_reserve: u128,
+    pub reserve_out_live_reserve: u128,
     pub fees: FeesReceipt,
 }
 

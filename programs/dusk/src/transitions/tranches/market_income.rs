@@ -19,6 +19,7 @@ pub struct IncomeExposureEnd {
 pub struct MarketIncomeBooks {
     /// base public, quote public, base hLP funding, quote hLP funding.
     pub books: [Box<IncomeReceivableBook>; 4],
+    pub revenue: [Box<crate::transitions::InterestRevenueBook>; 4],
     /// Gross settlement budget awaiting measured net custody credit.
     pub pending: [u64; 4],
     pub seed: [IncomeReceivableClaim; 4],
@@ -170,15 +171,13 @@ impl Market {
         Ok(())
     }
 
-    /// Freeze exposure before capital or vault share ownership changes. Each
-    /// hLP lane has one owner (the vault); ordinary senior and junior units
-    /// are distributed over their respective receipt supplies.
-    pub fn issue_income_receivable(&mut self, asset: MarketAsset, funding: bool, amount: u64) -> Result<()> {
-        if amount == 0 || !self.side(asset).fees.junior.initialized {
-            return Ok(());
-        }
+    fn income_receivable_allocations(
+        &self,
+        asset: MarketAsset,
+        funding: bool,
+        amount: u64,
+    ) -> Result<([(u64, u64); 4], u16)> {
         let i = asset.code() as usize + if funding { 2 } else { 0 };
-        require_eq!(self.income.get()?.pending[i], 0, ErrorCode::BrokenInvariant);
         let supply = self.base_side.shares.srlp_supply;
         let senior_supply = self.tranches.senior_reserve_shares(supply)?;
         let base_hlp = if funding { 0 } else { self.base_hlp_vault.srlp_shares };
@@ -199,8 +198,7 @@ impl Market {
             .and_then(|value| value.checked_add(u128::from(split_carry)))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let junior = u64::try_from(numerator / 10_000).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        self.income.get_mut()?.split_carry_bps[i] =
-            u16::try_from(numerator % 10_000).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let carry = u16::try_from(numerator % 10_000).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let senior = amount - junior;
         let bh = mul_div_u128(senior as u128, base_hlp as u128, senior_supply as u128)? as u64;
         let qh = mul_div_u128(senior as u128, quote_hlp as u128, senior_supply as u128)? as u64;
@@ -213,12 +211,97 @@ impl Market {
         } else {
             self.tranches.junior_receipt_supply
         };
-        self.income.get_mut()?.books[i].issue([
-            (senior - bh - qh, ordinary_supply),
-            (junior, jr_supply),
-            (bh, 1),
-            (qh, 1),
-        ])?;
+        Ok((
+            [
+                (senior - bh - qh, ordinary_supply),
+                (junior, jr_supply),
+                (bh, 1),
+                (qh, 1),
+            ],
+            carry,
+        ))
+    }
+
+    /// Check the same frozen fee and LP-unit issuance as settlement, without
+    /// mutating ownership. A numerical epoch limit pauses new interest rather
+    /// than blocking an existing borrower's repayment or writeoff.
+    #[inline(never)]
+    pub(crate) fn income_accrual_fits(&self, asset: MarketAsset, public: u64, funding: u64) -> Result<bool> {
+        // An hLP exit materializes funded srLP backing plus its historical
+        // coupon as raw atoms. Reserve enough range even if that vault owns
+        // the entire unfunded public coupon; do not pause an already owed claim.
+        let unfunded = public
+            .checked_sub(self.side(asset).fees.public_interest_advance.outstanding_gross)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        for vault in [&self.base_hlp_vault, &self.quote_hlp_vault] {
+            if vault.srlp_shares == 0 {
+                continue;
+            }
+            let funded = mul_div_u128(
+                self.curve_reserve(asset)? as u128,
+                vault.srlp_shares as u128,
+                self.base_side.shares.srlp_supply as u128,
+            )?;
+            if funded
+                .checked_add(unfunded as u128)
+                .is_none_or(|v| v > u64::MAX as u128)
+            {
+                return Ok(false);
+            }
+        }
+        if !self.side(asset).fees.junior.initialized {
+            return Ok(true);
+        }
+        for (offset, gross) in [(0, public), (2, funding)] {
+            let i = asset.code() as usize + offset;
+            let income = self.income.get()?;
+            let mut revenue = *income.revenue[i];
+            require_gte!(gross, revenue.gross_unpaid, ErrorCode::BrokenInvariant);
+            revenue.synchronize(
+                gross,
+                0,
+                self.protocol_interest_markup_bps,
+                self.operator.interest_share_bps,
+            )?;
+            let advanced = if offset == 0 {
+                let advance = self.side(asset).fees.public_interest_advance;
+                advance
+                    .outstanding_gross
+                    .checked_sub(advance.revenue_escrow)
+                    .ok_or(ErrorCode::BrokenInvariant)?
+            } else {
+                0
+            };
+            let expected = gross
+                .checked_sub(revenue.unpaid_fees()?)
+                .and_then(|v| v.checked_sub(advanced))
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            let book = &income.books[i];
+            let issued = expected.checked_sub(book.unpaid).ok_or(ErrorCode::BrokenInvariant)?;
+            if issued == 0 {
+                continue;
+            }
+            require_eq!(income.pending[i], 0, ErrorCode::BrokenInvariant);
+            let (allocations, _) = self.income_receivable_allocations(asset, offset != 0, issued)?;
+            if book.project_issue(allocations)?.is_none() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Freeze exposure before capital or vault share ownership changes. Each
+    /// hLP lane has one owner (the vault); ordinary senior and junior units
+    /// are distributed over their respective receipt supplies.
+    pub fn issue_income_receivable(&mut self, asset: MarketAsset, funding: bool, amount: u64) -> Result<()> {
+        if amount == 0 || !self.side(asset).fees.junior.initialized {
+            return Ok(());
+        }
+        let i = asset.code() as usize + if funding { 2 } else { 0 };
+        require_eq!(self.income.get()?.pending[i], 0, ErrorCode::BrokenInvariant);
+        let (allocations, carry) = self.income_receivable_allocations(asset, funding, amount)?;
+        self.income.get_mut()?.split_carry_bps[i] = carry;
+        self.income.get_mut()?.books[i].issue(allocations)?;
         // Vault receipt supply is exactly one. Accrued units remain vault
         // property across hLP entry/exit, valued in its existing NAV.
         if !funding {
@@ -237,7 +320,7 @@ impl Market {
     }
 
     /// Remove both paid and written-off receivables. Only the paid portion
-    /// permits a later cash credit; insurance-funded principal is not yield.
+    /// permits a later cash credit; principal recovery is not yield.
     pub fn clear_income_receivable(
         &mut self,
         asset: MarketAsset,
@@ -321,7 +404,7 @@ impl Market {
         if !self.side(asset).fees.junior.initialized {
             return Ok(());
         }
-        let expected = if funding {
+        let gross = if funding {
             let vault = if asset == MarketAsset::Base {
                 &self.quote_hlp_vault
             } else {
@@ -331,11 +414,49 @@ impl Market {
                 .saturating_sub(vault.debt_principal as u128)
         } else {
             self.public_unpaid_interest(asset)?
-                .checked_sub(self.side(asset).fees.public_interest_advance.outstanding_gross as u128)
+        };
+        let gross = u64::try_from(gross).map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let i = asset.code() as usize + if funding { 2 } else { 0 };
+        let advance = self.side(asset).fees.public_interest_advance;
+        let old_gross = self.income.get()?.revenue[i].gross_unpaid;
+        let paid = if gross < old_gross {
+            payable
+                .checked_add(if funding { 0 } else { advance.repayment_credit_pending })
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        } else {
+            0
+        };
+        let markup = self.protocol_interest_markup_bps;
+        let operator_share = self.operator.interest_share_bps;
+        let paid_fee = if gross == old_gross {
+            // Same-slot scratch quotes share immutable income snapshots. Do
+            // not clone every nested book merely to synchronize identical fees.
+            require_eq!(paid, 0, ErrorCode::BrokenInvariant);
+            0
+        } else {
+            self.income.get_mut()?.revenue[i].synchronize(gross, paid, markup, operator_share)?
+        };
+        let fee_unpaid = self.income.get()?.revenue[i].unpaid_fees()?;
+        let advanced_lp = if funding {
+            0
+        } else {
+            advance
+                .outstanding_gross
+                .checked_sub(advance.revenue_escrow)
                 .ok_or(ErrorCode::BrokenInvariant)?
         };
-        let expected = u64::try_from(expected).map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let i = asset.code() as usize + if funding { 2 } else { 0 };
+        let expected = gross
+            .checked_sub(fee_unpaid)
+            .and_then(|v| v.checked_sub(advanced_lp))
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let payable = if gross < old_gross {
+            payable
+                .checked_add(if funding { 0 } else { advance.revenue_release_pending })
+                .and_then(|v| v.checked_sub(paid_fee))
+                .ok_or(ErrorCode::BrokenInvariant)?
+        } else {
+            payable
+        };
         let previous = self.income.get()?.books[i].unpaid;
         if expected == previous {
             require_eq!(payable, 0, ErrorCode::BrokenInvariant);
@@ -349,6 +470,35 @@ impl Market {
         }
     }
 
+    /// Quote from frozen fee ownership, including previously funded fractional
+    /// carry. Current Futarchy or operator rates never re-price old interest.
+    pub(crate) fn quote_interest_revenue_credit(
+        &self,
+        asset: MarketAsset,
+        funding: bool,
+        credit: u64,
+    ) -> Result<crate::transitions::InterestRevenueCredit> {
+        let i = asset.code() as usize + if funding { 2 } else { 0 };
+        let income = self.income.get()?;
+        let total = income.pending[i]
+            .checked_add(income.revenue[i].pending_gross)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let (fee, protocol) = income.revenue[i].quote_cash(credit, total)?;
+        let available = self
+            .side(asset)
+            .fees
+            .revenue_interest_liability
+            .checked_add(fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require_gte!(available, protocol, ErrorCode::UnbackedFeeLiability);
+        Ok(crate::transitions::InterestRevenueCredit {
+            lp: credit - fee,
+            fee,
+            protocol,
+            available_fee_custody: available,
+        })
+    }
+
     pub(crate) fn record_receivable_income_credit(
         &mut self,
         asset: MarketAsset,
@@ -358,15 +508,26 @@ impl Market {
         split: crate::state::ProtocolAuctionSplit,
         referral: u64,
     ) -> Result<()> {
-        let lp = self
-            .side_mut(asset)
-            .record_interest_custody(credit, protocol, split, referral)?;
-        self.collect_income_receivable(asset, funding, lp)?;
+        let quote = self.quote_interest_revenue_credit(asset, funding, credit)?;
+        require_eq!(protocol, quote.protocol, ErrorCode::BrokenInvariant);
+        let i = asset.code() as usize + if funding { 2 } else { 0 };
+        let recorded = self.income.get_mut()?.revenue[i].collect(quote.fee)?;
+        require_eq!(recorded, protocol, ErrorCode::BrokenInvariant);
+        self.collect_income_receivable(asset, funding, quote.lp)?;
         let fees = &mut self.side_mut(asset).fees;
+        fees.interest_vault_balance = fees
+            .interest_vault_balance
+            .checked_add(credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         fees.interest_liability = fees
             .interest_liability
-            .checked_add(lp)
+            .checked_add(quote.lp)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        fees.revenue_interest_liability = quote
+            .available_fee_custody
+            .checked_sub(protocol)
+            .ok_or(ErrorCode::UnbackedFeeLiability)?;
+        fees.credit_protocol_interest_revenue(protocol, split, referral)?;
         fees.assert_backed()
     }
 }

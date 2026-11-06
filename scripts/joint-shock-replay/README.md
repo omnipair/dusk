@@ -1,82 +1,48 @@
 # Historical auction joint price, borrowing and hLP replay
 
-This is a **historical auction benchmark**, not a replay of the current
-emergency or flash liquidation instructions. Its insurance payouts and opening
-reserve numbers must not be used as live-policy capital requirements. Current
-liquidation covers at most the configured fraction of a *principal* shortfall
-(75% by default) and cancels unpaid interest; the historical floor can draw
-against all remaining debt, including interest.
-
-Run from the repository root:
+This host-native tool exercises historical auction helpers against the current
+source. It does not execute the deployed emergency or flash instructions, and
+its senior/hLP allocations do not validate the complete junior-to-senior
+waterfall. Use the native tranche tests and LiteSVM suite for that contract.
+The standalone coverage fund and funded/capital scenarios have been removed.
+See [the current credit-loss policy](../../docs/CREDIT_LOSS_WATERFALL.md).
 
 ```sh
 python3 scripts/joint-shock-replay/run.py
 ```
 
-Requires Python 3, Cargo and the repository's cached Rust dependencies. The
-script builds offline. It creates an isolated engine copy under
-`target/joint-shock-results`, compiles with the `benchmark` feature, and appends
-`stress_adapter.rs` to that copy only. Program files and scenario inputs are
-hashed in `engine-manifest.json`. No deployed program code is replaced.
+Requires Python 3, Cargo, and cached Rust dependencies. Builds offline into
+`target/joint-shock-build`, with an isolated engine copy and results under
+`target/joint-shock-results`. It adds `stress_adapter.rs` only to that copy and
+records source and scenario hashes in `engine-manifest.json`.
 
-The adapter calls the benchmark-only atomic `settle_backstop_swap` transition,
-applies existing hLP token-settlement helpers, and verifies both
-reserve-custody identities. It exists because the stock native benchmark floor
-wrapper rejects hLP token changes. The adapter assumes fee-free asset transfers;
-it does not change pricing, risk, admission, debt, reserve or insurance math.
+The adapter uses benchmark-only `settle_backstop_swap`, existing hLP settlement
+helpers, fee-free asset transfers, and reserve-custody checks. It does not
+substitute pricing, admission, debt, or reserve math.
 
-The 104 inputs are the unchanged October 10 SOL/USDC joint-shock set. Opening LP
-equity is $1m; assumed SOL is $200; concentration is 5x; each hLP targets 2x.
-Main borrowing is $75k USDC across ten loans at 65% initial collateral LTV, with
-hLP entered before borrowing. Other load cases use the native admission and flow
-limits and can add collateral to meet underwriting. The two rejected setup
-configurations are retained as rejections, not successful stress paths.
-Each position borrows once and makes no repayment before its floor, so the
-recorded origination principal is its principal at liquidation.
+The 104 October 10 SOL/USDC scenarios start with $1m LP equity, SOL at $200,
+5x concentration, and 2x hLP targets. Main borrowing is $75k USDC across ten
+loans. Positions borrow once, so origination principal equals remaining
+principal before liquidation. The clock advances every 30 seconds for an hour;
+external marks drive arbitrage rather than injected oracle data. Floors execute
+sequentially without outside bidders, including the fixed caller bounty.
+Withdrawals are attempted at second 60 with a smaller valid fill if necessary.
 
-The one-hour clock advances every 30 seconds. Arbitrage responds to the external
-mark; risk does not receive an injected oracle. There are no outside auction
-bidders; due floor liquidations execute sequentially before the next arbitrage
-tick. The native 0.5% bounty is included. Withdrawals are attempted at second 60,
-with a smaller valid fill if necessary. Main table rows omit withdrawals and
-additional keeper delay. See `native/src/main.rs` for exact fee, clock, admission
-and execution assumptions.
+The runner executes 32 custody probes, the scenario set, and diagnostic controls.
+It checks preview/execution equality, reserve custody, nominal debt-shortfall conservation,
+and event-level holder allocations. Results include JSONL traces,
+`scenario-summary.csv`, `main-results.csv`, `validation.json`, and build logs.
+The historical floor receipt reports unrecovered nominal debt, including canceled
+interest. Its holder attribution is not the current funded-principal loss waterfall.
+The retained driver does not perform income-epoch archival maintenance. Runs
+against the current income books can stop at that boundary and are recorded as
+incomplete; they must not be counted as successful economic paths. This is a
+historical diagnostic, not a current liquidation validation gate.
+Incomplete or rejected paths are recorded explicitly; counts are computed from
+this run rather than assumed from an older engine.
 
-The runner executes 32 focused probes, 104 scenarios, the previous 24 funded,
-capital and diagnostic controls, 66 fully funded loss paths, one severe-shock
-policy contrast, and 132 capital boundary replays. It validates
-preview/execution equality, native token custody, loss conservation and
-event-level holder allocations. Historical auction insurance is computed from
-the fully insured path, because injections change subsequent AMM execution,
-and verified at the exact integer boundary and one atom less.
-
-With event losses `L_i`, no insurance credits during the liquidation window,
-and all floors within one 24-hour draw window, the current 50% daily limit requires:
-
-```text
-historical auction opening reserve = 2 * sum(L_i)
-```
-
-Results include raw JSONL traces, `scenario-summary.csv`, `main-results.csv`,
-`insurance-requirements.csv`, `policy-contrast.csv`, `validation.json` and build
-logs. The severe-shock contrast checks that a historical draw can exceed the
-current 75%-of-principal-gap coverage ceiling. The native engine obtains that
-ceiling from Dusk's current `LiquidationLossAllocation::quote_with_coverage`
-function, and the runner independently checks the calculation. The contrast
-CSV compares each funded auction floor with that ceiling **using the auction's
-observed recovery**.
-It is a policy bound, not a simulated live liquidation: the live sale, caller
-reward, repayment and future AMM path can differ. A live-policy capital estimate
-requires a separate replay through the current emergency or flash liquidation
-path. The reference CSVs preserve the previous analysis candidate's numbers
-for explicit comparison.
-The current runtime reserves indexed funding interest at the start, whereas the
-older candidate adjusted the endpoint after quoting; newer proportional-claim
-rounding also differs. Small numerical changes are expected and reported rather
-than overwritten.
-
-This is a deterministic native economic replay. It does not replace the SVM
-suite or estimate scenario probabilities, expected shortfall, premiums, repeated
-shock capital, transfer-fee exposure, or a simultaneous two-sided borrowing book.
-The same configuration changes under a different engine can change outcomes;
-the source hashes identify the engine actually tested.
+`analysis-reference.csv` and `analysis-capital-reference.csv` are historical raw
+evidence from the removed coverage-fund design. They are not used by this runner
+and do not describe current funding requirements. This replay does not estimate
+scenario probabilities, repeated shocks, transfer-fee exposure, or simultaneous
+two-sided borrowing. Source hashes identify the actual engine tested.

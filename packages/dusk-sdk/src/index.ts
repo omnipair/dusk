@@ -13,7 +13,7 @@ export { Dusk } from "./dusk.js";
 export type { DuskOptions } from "./dusk.js";
 export * from "./delegate.js";
 export * from "./get.js";
-export * from "./governance.js";
+export * from "./parameters.js";
 export * from "./hash.js";
 export * from "./indexer.js";
 export * from "./lp-naming.js";
@@ -32,7 +32,7 @@ export * from "./write.js";
 export * from "./virtual-book/index.js";
 export * from "./protection.js";
 
-export * from "./governance-client.js";
+export * from "./operator-client.js";
 
 export * from "./transfer-fees.js";
 

@@ -3,7 +3,6 @@ pub(crate) mod amm_liquidation;
 mod amounts;
 pub(crate) mod flash_liquidation;
 pub(crate) mod flash_settlement;
-pub(crate) mod governance;
 pub(crate) mod interest_advance;
 pub(crate) mod ledger;
 pub(crate) mod lending;
@@ -12,6 +11,8 @@ mod leverage_margins;
 pub mod liquidation_policy;
 mod liquidation_sizing;
 pub(crate) mod liquidity;
+pub(crate) mod market_config;
+pub mod market_parameters;
 pub(crate) mod revenue;
 
 pub use amm::{AmmSwapQuote, HlpRecoveryBreakdown, RetentionTarget, SwapFeeBreakdown};
@@ -27,3 +28,11 @@ pub use liquidity::{AddLiquidityReceipt, HlpRebalanceReceipt, HlpYieldEligibilit
 
 pub(crate) mod oracle;
 pub mod tranches;
+
+pub(crate) mod operator_policy;
+
+mod curve_ramp;
+
+mod operator_revenue;
+pub use operator_revenue::InterestRevenueBook;
+pub(crate) use operator_revenue::InterestRevenueCredit;

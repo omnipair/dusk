@@ -29,11 +29,10 @@ pub struct EmergencyLiquidationQuote {
     pub reward_credit: u64,
     pub reward_debit: u64,
     pub fee: LiquidationFeeAllocation,
-    pub insurance_fee_debit: u64,
+    pub junior_fee_debit: u64,
     pub revenue_fee_debit: u64,
     pub owner_debit: u64,
     pub owner_credit: u64,
-    pub insurance_debit: u64,
     pub loss: LiquidationLossAllocation,
     pub health_before: LiquidationHealth,
     pub health_after: LiquidationHealth,
@@ -49,8 +48,8 @@ pub(crate) struct PreparedEmergencyLiquidation {
 
 fn fee_debits(fee: LiquidationFeeAllocation, token_fee: LeverageCollateralFee) -> Result<(u64, u64)> {
     Ok((
-        token_fee.effective_gross_for_credit(fee.insurance)?,
-        token_fee.effective_gross_for_credit(fee.lp + fee.protocol)?,
+        token_fee.effective_gross_for_credit(fee.junior)?,
+        token_fee.effective_gross_for_credit(fee.protocol)?,
     ))
 }
 
@@ -174,40 +173,22 @@ impl Market {
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
         let reward_debit = debt_fee.effective_gross_for_credit(reward_credit)?;
         let budget = output.checked_sub(reward_debit).ok_or(ErrorCode::InsufficientAmount)?;
-        let target = self.liquidation_insurance_target(asset)?;
-        let balance = self.insurance.available(asset);
         let (allocation, repayment, fee) = if full {
             let allocation = self.liquidation_debt_allocation(position, asset, position.shares(asset))?;
             let repayment = allocation.debt.min(budget);
             let surplus = budget - repayment;
-            let (mut low, mut high) = (0, (repayment / 100).min(surplus));
+            let (mut low, mut high) = (0, LiquidationFeeAllocation::quote(repayment, surplus).total);
             while low < high {
                 let cap = low + (high - low).div_ceil(2);
-                let fee = LiquidationFeeAllocation::quote(
-                    repayment,
-                    cap,
-                    balance,
-                    target,
-                    self.tranche_policy.liquidation_fee_bps,
-                );
-                let (insurance, revenue) = fee_debits(fee, debt_fee)?;
-                if u128::from(insurance) + u128::from(revenue) <= u128::from(surplus) {
+                let fee = LiquidationFeeAllocation::quote(repayment, cap);
+                let (junior, revenue) = fee_debits(fee, debt_fee)?;
+                if u128::from(junior) + u128::from(revenue) <= u128::from(surplus) {
                     low = cap;
                 } else {
                     high = cap - 1;
                 }
             }
-            (
-                allocation,
-                repayment,
-                LiquidationFeeAllocation::quote(
-                    repayment,
-                    low,
-                    balance,
-                    target,
-                    self.tranche_policy.liquidation_fee_bps,
-                ),
-            )
+            (allocation, repayment, LiquidationFeeAllocation::quote(repayment, low))
         } else {
             let (allocation, fee) = self.quote_emergency_partial_repayment(position, asset, budget, debt_fee)?;
             (allocation, allocation.debt, fee)
@@ -224,23 +205,12 @@ impl Market {
                 ErrorCode::LiquidationDoesNotImproveHealth
             );
         }
-        let net_capacity = if full {
-            debt_fee.unwind_credit(self.insurance.draw_capacity(asset, slot)?)?
-        } else {
-            0
-        };
-        let loss = LiquidationLossAllocation::quote_with_coverage(
-            allocation.principal.min(allocation.debt),
-            allocation.debt,
-            repayment,
-            net_capacity,
-            self.insurance.principal_coverage_bps,
-        )?;
-        let insurance_debit = debt_fee.effective_gross_for_credit(loss.insurance_credit)?;
-        let (insurance_fee_debit, revenue_fee_debit) = fee_debits(fee, debt_fee)?;
+        let loss =
+            LiquidationLossAllocation::quote(allocation.principal.min(allocation.debt), allocation.debt, repayment)?;
+        let (junior_fee_debit, revenue_fee_debit) = fee_debits(fee, debt_fee)?;
         let owner_debit = budget
             .checked_sub(repayment)
-            .and_then(|v| v.checked_sub(insurance_fee_debit))
+            .and_then(|v| v.checked_sub(junior_fee_debit))
             .and_then(|v| v.checked_sub(revenue_fee_debit))
             .ok_or(ErrorCode::BrokenInvariant)?;
         let policy = SwapCashPolicy::SettleLiquidation {
@@ -251,7 +221,6 @@ impl Market {
             principal_removed: allocation.principal,
             debt_reduced: allocation.debt,
             repayment,
-            insurance_credit: loss.insurance_credit,
         };
         if let Some(swap) = &mut swap {
             swap.bind_liquidation(self, policy)?;
@@ -269,11 +238,10 @@ impl Market {
             reward_credit,
             reward_debit,
             fee,
-            insurance_fee_debit,
+            junior_fee_debit,
             revenue_fee_debit,
             owner_debit,
             owner_credit: debt_fee.unwind_credit(owner_debit)?,
-            insurance_debit,
             loss,
             health_before,
             health_after,
@@ -297,8 +265,6 @@ impl Market {
         budget: u64,
         debt_fee: LeverageCollateralFee,
     ) -> Result<(LiquidationDebtAllocation, LiquidationFeeAllocation)> {
-        let target = self.liquidation_insurance_target(asset)?;
-        let balance = self.insurance.available(asset);
         let maximum = position
             .shares(asset)
             .checked_sub(1)
@@ -314,15 +280,9 @@ impl Market {
         while low < high {
             let shares = low + (high - low).div_ceil(2);
             let allocation = self.liquidation_debt_allocation(position, asset, shares)?;
-            let fee = LiquidationFeeAllocation::quote(
-                allocation.debt,
-                u64::MAX,
-                balance,
-                target,
-                self.tranche_policy.liquidation_fee_bps,
-            );
-            let (insurance, revenue) = fee_debits(fee, debt_fee)?;
-            if u128::from(allocation.debt) + u128::from(insurance) + u128::from(revenue) <= u128::from(budget) {
+            let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX);
+            let (junior, revenue) = fee_debits(fee, debt_fee)?;
+            if u128::from(allocation.debt) + u128::from(junior) + u128::from(revenue) <= u128::from(budget) {
                 low = shares;
             } else {
                 high = shares - 1;
@@ -330,13 +290,7 @@ impl Market {
         }
         require_gt!(low, 0, ErrorCode::InsufficientAmount);
         let allocation = self.liquidation_debt_allocation(position, asset, low)?;
-        let fee = LiquidationFeeAllocation::quote(
-            allocation.debt,
-            u64::MAX,
-            balance,
-            target,
-            self.tranche_policy.liquidation_fee_bps,
-        );
+        let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX);
         Ok((allocation, fee))
     }
 
@@ -361,25 +315,13 @@ impl Market {
                 swap.quote.fee.claimable_fee_debit,
             )?;
             let state = swap.apply(self, prepared.policy, fee_credit, slot, protocol_fee_bps, split, None)?;
-            if q.insurance_debit > 0 {
-                self.insurance.consume_draw(asset, q.insurance_debit, slot)?;
-            }
             self.apply_liquidation_position(position, asset, prepared.allocation, q.collateral_debit, q.full)?;
             self.reconcile_liquidation_position(position, asset, prepared.allocation.remaining_debt)?;
             Ok(Some(state))
         } else {
             require!(q.full && q.swap_output == 0, ErrorCode::BrokenInvariant);
-            let loss = self.settle_flash_recovery(
-                position,
-                asset,
-                prepared.allocation,
-                q.collateral_debit,
-                0,
-                q.insurance_debit,
-                q.loss.insurance_credit,
-                true,
-                slot,
-            )?;
+            let loss =
+                self.settle_flash_recovery(position, asset, prepared.allocation, q.collateral_debit, 0, true, slot)?;
             require!(loss == q.loss, ErrorCode::BrokenInvariant);
             Ok(None)
         }

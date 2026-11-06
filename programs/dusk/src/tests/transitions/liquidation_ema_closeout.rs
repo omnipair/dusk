@@ -10,7 +10,6 @@ fn custody_resources(m: &Market) -> [u128; 2] {
             + u128::from(s.fees.interest_vault_balance)
             + u128::from(s.reserves.total_hlp_backing_inventory().unwrap())
             + u128::from(s.reserves.protected_recenter_reserve)
-            + u128::from(m.insurance.available(a))
     })
 }
 
@@ -91,7 +90,7 @@ fn native_stress(m: &mut Market, asset: MarketAsset, target: u64, slot: u64) {
 
 #[test]
 fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
-    println!("EMA_NATIVE,amp,hlp,side,tokenfee,front,method,reference_price,reference_depth,output,repayment,writeoff,insurance,reward,front_cost,front_out,reverse_profit,profit,srlp,base_hlp,quote_hlp,protocol,protected,insurance_remaining,backing,remaining_debt,marked_custody");
+    println!("EMA_NATIVE,amp,hlp,side,tokenfee,front,method,reference_price,reference_depth,output,repayment,writeoff,reward,front_cost,front_out,reverse_profit,profit,srlp,base_hlp,quote_hlp,protocol,protected,backing,remaining_debt,marked_custody");
     let mut cases = 0;
     for amp in [1, 4, 10] {
         for hlp in [false, true] {
@@ -138,7 +137,6 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                             let mut output = 0;
                             let mut repayment = 0;
                             let mut writeoff = 0;
-                            let mut insurance = 0;
                             let mut reward = 0;
                             if liq {
                                 let mut prep = t
@@ -183,7 +181,6 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                                 output = q.swap_output;
                                 repayment = q.repayment;
                                 writeoff = q.loss.principal_written_off;
-                                insurance = q.loss.insurance_credit;
                                 reward = q.reward_credit;
                             }
                             let (end, _, reverse) = cmp_arb(&t, &venue, side, f).unwrap();
@@ -193,7 +190,7 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                             let physical_marked = physical[side.code() as usize] as f64 / 1000.0
                                 + physical[side.opposite().code() as usize] as f64 / 1000.0 * mark as f64 / NAD as f64;
                             let profit = (out as f64 - cost as f64 + reward as f64) / 1000.0 + reverse;
-                            println!("EMA_NATIVE,{amp},{hlp},{},{tbps},{front},{},{price},{depth},{output},{repayment},{writeoff},{insurance},{reward},{cost},{out},{reverse:.9},{profit:.9},{:.9},{:.9},{:.9},{:.9},{:.9},{:.9},{:.9},{},{physical_marked:.9}",side.code(),if liq{"emergency"}else{"control"},nav[0],nav[1],nav[2],nav[3],nav[4],nav[5],nav[6],next.debt_amount(&end.debt).unwrap());
+                            println!("EMA_NATIVE,{amp},{hlp},{},{tbps},{front},{},{price},{depth},{output},{repayment},{writeoff},{reward},{cost},{out},{reverse:.9},{profit:.9},{:.9},{:.9},{:.9},{:.9},{:.9},{:.9},{},{physical_marked:.9}", side.code(), if liq{"emergency"}else{"control"}, nav[0], nav[1], nav[2], nav[3], nav[4], nav[5], next.debt_amount(&end.debt).unwrap());
                         }
                     }
                     cases += 1;

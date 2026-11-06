@@ -41,8 +41,9 @@ and settlement resource deltas, but preceding trades can still improve profit
 from subsequent trading against the new real inventory. **Closed on 2026-10-17
 with explicit user acceptance of that residual inventory/arbitrage risk.** The
 V1 analogy describes the shared inventory mechanism, not identical profitability.
-Principal shortfalls still use bounded insurance and write-off; later trading
-losses receive no separate insurance draw. Zero loss/manipulation resistance is
+The current junior-first credit-loss policy supersedes the former standalone
+insurance design; see [the current waterfall](../../docs/CREDIT_LOSS_WATERFALL.md).
+Later trading losses do not constitute another outstanding debt claim. Zero loss/manipulation resistance is
 not claimed. A caller minimum is not a protocol economic guarantee.
 
 **#287160:** fee-aware admission, final-notice eligibility and keeper monitoring/

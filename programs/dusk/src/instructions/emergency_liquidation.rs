@@ -71,6 +71,7 @@ impl<'info> EmergencyLiquidation<'info> {
             &mut a.market,
             clock.slot,
             ctx.accounts.event_authority.to_account_info(),
+            a.futarchy_authority.revenue_share.interest_bps,
         )?;
         a.market.update()?;
         a.validate(asset)?;
@@ -163,29 +164,6 @@ impl<'info> EmergencyLiquidation<'info> {
             q.collateral_credit,
             ErrorCode::BrokenInvariant
         );
-        if q.insurance_debit > 0 {
-            let before = a.reserve_vault.amount;
-            transfer_checked_with_remaining_accounts(
-                a.market.to_account_info(),
-                a.insurance_vault.to_account_info(),
-                a.reserve_vault.to_account_info(),
-                a.debt_mint.to_account_info(),
-                a.debt_token_program.to_account_info(),
-                q.insurance_debit,
-                a.debt_mint.decimals,
-                &[&generate_market_seeds!(a.market)[..]],
-                hooks,
-            )?;
-            a.reserve_vault.reload()?;
-            require_eq!(
-                a.reserve_vault
-                    .amount
-                    .checked_sub(before)
-                    .ok_or(ErrorCode::BrokenInvariant)?,
-                q.loss.insurance_credit,
-                ErrorCode::BrokenInvariant
-            );
-        }
         let finalized = {
             let mut position = match (&mut a.borrow_position, &mut a.leverage_position) {
                 (Some(p), None) => LiquidationPositionMut::Borrow(p),
@@ -227,16 +205,8 @@ impl<'info> EmergencyLiquidation<'info> {
                 q.reward_credit,
             ),
             (a.owner_debt_account.to_account_info(), q.owner_debit, q.owner_credit),
-            (
-                a.interest_vault.to_account_info(),
-                q.insurance_fee_debit,
-                q.fee.insurance,
-            ),
-            (
-                a.interest_vault.to_account_info(),
-                q.revenue_fee_debit,
-                q.fee.lp + q.fee.protocol,
-            ),
+            (a.interest_vault.to_account_info(), q.junior_fee_debit, q.fee.junior),
+            (a.interest_vault.to_account_info(), q.revenue_fee_debit, q.fee.protocol),
         ] {
             if debit == 0 {
                 continue;
@@ -261,17 +231,14 @@ impl<'info> EmergencyLiquidation<'info> {
                 ErrorCode::BrokenInvariant
             );
         }
-        if q.fee.insurance > 0 {
+        if q.fee.junior > 0 {
             a.market
                 .side_mut(asset)
-                .record_junior_liquidation_credit(q.fee.insurance)?;
+                .record_junior_liquidation_credit(q.fee.junior)?;
         }
-        a.market.side_mut(asset).record_liquidation_fee_credit(
-            q.fee.lp,
-            q.fee.protocol,
-            a.futarchy_authority.protocol_auction_split,
-            eligibility.srlp_supply,
-        )?;
+        a.market
+            .side_mut(asset)
+            .record_liquidation_protocol_credit(q.fee.protocol, a.futarchy_authority.protocol_auction_split)?;
         a.interest_vault.reload()?;
         let referral_receipt = record_leverage_interest(
             &mut a.market,
@@ -304,18 +271,12 @@ impl<'info> EmergencyLiquidation<'info> {
             clock.slot,
         )?;
         a.reserve_vault.reload()?;
-        a.insurance_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;
         require_reserve_custody(a.reserve_vault.amount, a.market.side(asset))?;
         require_reserve_custody(
             ctx.accounts.collateral_reserve_vault.amount,
             a.market.side(asset.opposite()),
         )?;
-        require_gte!(
-            a.insurance_vault.amount,
-            a.market.insurance.available(asset),
-            ErrorCode::UnbackedFeeLiability
-        );
         require_gte!(
             a.interest_vault.amount,
             a.market.side(asset).fees.interest_vault_balance,

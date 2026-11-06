@@ -261,10 +261,12 @@ pub(crate) fn settle_inline_hlp_accounts<'info>(
             borrowed_asset,
             crate::events::DebtSource::Hlp,
             None,
-            crate::state::ReferralInterestQuote::new(
+            crate::state::ReferralInterestQuote::with_protocol_revenue(
                 receipt.interest_paid,
                 interest_credit,
-                futarchy_authority.revenue_share.interest_bps,
+                market
+                    .quote_interest_revenue_credit(borrowed_asset, true, interest_credit)?
+                    .protocol,
                 None,
             )?,
             0,
@@ -725,27 +727,8 @@ pub fn record_leverage_interest<'info>(
         interest_vault.reload()?;
     }
     let interest_vault_credit = token_account_credit(interest_vault_balance_before, interest_vault)?;
-    let frozen_protocol_credit = if transfer_gross == 0 {
-        0
-    } else {
-        u64::try_from(crate::math::mul_div_u128(
-            u128::from(interest_vault_credit),
-            u128::from(frozen_protocol_gross),
-            u128::from(transfer_gross),
-        )?)
-        .map_err(|_| ErrorCode::FeeMathOverflow)?
-    };
-    let fresh_credit = interest_vault_credit - frozen_protocol_credit;
-    let fresh_protocol = crate::state::ReferralInterestQuote::new(
-        fresh_gross,
-        fresh_credit,
-        futarchy_authority.revenue_share.interest_bps,
-        None,
-    )?
-    .protocol_interest_revenue;
-    let protocol_credit = fresh_protocol
-        .checked_add(frozen_protocol_credit)
-        .ok_or(ErrorCode::FeeMathOverflow)?;
+    let frozen = market.quote_interest_revenue_credit(debt_asset, false, interest_vault_credit)?;
+    let protocol_credit = frozen.protocol;
     let referral_receipt = crate::instructions::referral::accounting::accrue_referral_interest_with_protocol(
         expected_referral_partner,
         referral_interest_share_bps,
@@ -757,6 +740,7 @@ pub fn record_leverage_interest<'info>(
         interest_paid,
         interest_vault_credit,
         protocol_credit,
+        frozen.available_fee_custody,
     )?;
     // Historical public growth is protected before the new cash credit.
     market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, interest_eligibility.base_hlp_srlp_shares)?;
@@ -769,7 +753,7 @@ pub fn record_leverage_interest<'info>(
         futarchy_authority.protocol_auction_split,
         referral_receipt.quote.referral_amount,
     )?;
-    if market.has_active_hlp() && interest_vault_credit > protocol_credit && !market.oracle_price_unavailable() {
+    if market.has_active_hlp() && frozen.lp > 0 && !market.oracle_price_unavailable() {
         settle_new_public_hlp_income(
             market,
             futarchy_authority,

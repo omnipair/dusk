@@ -91,14 +91,14 @@ fn nested_region_from_branch(branch: ConcentratedCurveBranch) -> usize {
 /// mathematical interpretation must remain distinguishable.
 pub(crate) const CONCENTRATED_CURVE_MATH_REVISION: u8 = 1;
 
-/// Product-facing governance surface for the concentrated curve.
+/// Operator configuration surface for the concentrated curve.
 ///
 /// `peak_amplification_nad` is center liquidity depth relative to a CPMM with
 /// the same center reserves. `core_half_width_bps` keeps that complete depth
 /// active around the sticky center. `fade_width_bps` adds one deterministic
 /// half-depth shoulder before the nonzero full-range CPMM tail. One-times
 /// amplification with zero widths is exact CPMM.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ConcentratedCurveParameters {
     pub peak_amplification_nad: u64,
     pub core_half_width_bps: u16,
@@ -376,7 +376,7 @@ impl ConcentratedCurveParameters {
 
     /// Returns `(tail, concentrated)` shares of peak active liquidity. The
     /// concentrated share is derived so the configured peak amplification is
-    /// exact at the centered reserve point; it is never a governance input.
+    /// exact at the centered reserve point; it is never an operator input.
     pub(crate) fn liquidity_shares_nad(self) -> Result<(u128, u128)> {
         if self.is_cpmm() {
             return Ok((NAD as u128, 0));

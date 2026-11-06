@@ -6,7 +6,6 @@ pub(super) struct Policy {
     pub recovery_buffer_bps: u16,
     pub critical_fraction_bps: u64,
     pub max_reward_bps: u64,
-    pub insurance_bps: u64,
     pub keeper_cost: u64,
 }
 
@@ -18,7 +17,6 @@ impl Default for Policy {
             recovery_buffer_bps: 200,
             critical_fraction_bps: 5_000,
             max_reward_bps: 100,
-            insurance_bps: 20,
             keeper_cost: 50,
         }
     }
@@ -27,7 +25,7 @@ impl Default for Policy {
 #[test]
 fn native_parameter_comparison_report() {
     let full = std::env::var_os("DUSK_PARAMETER_SWEEP").is_some();
-    println!("NATIVE_PARAMETERS,variant,amplification,controller,hlp,pieces,path,wallet_bps,opened,original_debt,min_entry_health_bps,max_entry_requirement_bps,partial,flash,solvent,emergency,repaid,insurance,loss,owner,reward,contribution,remaining,eligible,eligible_debt,below_keeper_cost,failed_fills,blocked");
+    println!("NATIVE_PARAMETERS,variant,amplification,controller,hlp,pieces,path,wallet_bps,opened,original_debt,min_entry_health_bps,max_entry_requirement_bps,partial,flash,solvent,emergency,repaid,loss,owner,reward,contribution,remaining,eligible,eligible_debt,below_keeper_cost,failed_fills,blocked");
     let mut count = 0;
     for (name, policy) in [
         ("baseline", Policy::default()),
@@ -93,10 +91,7 @@ fn native_parameter_comparison_report() {
                                     "{name}/{case:?}: {}",
                                     t.blocked
                                 );
-                                println!("NATIVE_PARAMETERS,{name},{amp},{controller},{hlp},{pieces},{path},{wallet_bps},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
-                                t.opened,t.original_debt,t.min_entry_health,t.max_entry_requirement,t.partial,t.flash,t.solvent,t.emergency,
-                                t.repaid,t.insurance,t.loss,t.owner,t.reward,t.contribution,t.remaining,t.eligible,t.eligible_debt,
-                                t.eligible_below_keeper_cost,t.failed_fills,t.blocked);
+                                println!("NATIVE_PARAMETERS,{name},{amp},{controller},{hlp},{pieces},{path},{wallet_bps},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}", t.opened, t.original_debt, t.min_entry_health, t.max_entry_requirement, t.partial, t.flash, t.solvent, t.emergency, t.repaid, t.loss, t.owner, t.reward, t.contribution, t.remaining, t.eligible, t.eligible_debt, t.eligible_below_keeper_cost, t.failed_fills, t.blocked);
                                 count += 1;
                             }
                         }
@@ -130,14 +125,7 @@ fn native_cushion_residual_cost_diagnostic() {
                             cushion,
                             withdrawal,
                         });
-                        println!(
-                            "NATIVE_RESIDUAL,{amp},{hlp},{},{cushion},{withdrawal},{},{},{},{}",
-                            debt_asset.code(),
-                            t.remaining,
-                            t.eligible,
-                            t.eligible_debt,
-                            t.eligible_below_keeper_cost
-                        );
+                        println!("NATIVE_RESIDUAL,{amp},{hlp},{},{cushion},{withdrawal},{},{},{},{}", debt_asset.code(), t.remaining, t.eligible, t.eligible_debt, t.eligible_below_keeper_cost);
                         assert_eq!(t.failed_fills, 0);
                         assert_eq!(
                             t.eligible, t.eligible_below_keeper_cost,

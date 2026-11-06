@@ -116,6 +116,37 @@ impl BoundedOracleCurve {
         lambda_bps: u16,
         cap_nad: u64,
     ) -> Result<Self> {
+        let mut curve = Self {
+            center: 0,
+            parameters,
+            book_geometry: Default::default(),
+            lambda: I::ZERO,
+            log_reference: I::ZERO,
+            log_cap: I::ZERO,
+            layers: Vec::with_capacity(2),
+            bands: Vec::with_capacity(5),
+            breaks: Vec::with_capacity(6),
+            max_h: I::ZERO,
+            coordinates: std::cell::RefCell::new(Vec::with_capacity(16)),
+            prices: std::cell::RefCell::new(Vec::with_capacity(16)),
+            primitives: Default::default(),
+            integrals: Default::default(),
+            integration_scratch: Default::default(),
+        };
+        curve.reconfigure(parameters, center, reference, lambda_bps, cap_nad)?;
+        Ok(curve)
+    }
+
+    /// Reuse pure invocation-local workspaces after a shape/center edit. The
+    /// caller must discard the context if configuration fails halfway through.
+    pub(crate) fn reconfigure(
+        &mut self,
+        parameters: ConcentratedCurveParameters,
+        center: u64,
+        reference: u64,
+        lambda_bps: u16,
+        cap_nad: u64,
+    ) -> Result<()> {
         require!(
             center > 0 && reference > 0 && lambda_bps > 0 && lambda_bps < 10_000 && cap_nad > NAD,
             ErrorCode::InvalidMarketConfig
@@ -124,8 +155,14 @@ impl BoundedOracleCurve {
         let lambda = I::ratio(u128::from(lambda_bps), 10_000)?;
         let log_reference = I::ratio(reference as u128, center as u128)?.ln()?;
         let log_cap = I::ratio(cap_nad as u128, NAD as u128)?.ln()?;
-        let mut layers = Vec::with_capacity(2);
-        let mut breaks = Vec::with_capacity(6);
+        self.layers.clear();
+        self.breaks.clear();
+        self.bands.clear();
+        self.book_geometry.borrow_mut().clear();
+        self.coordinates.borrow_mut().clear();
+        self.prices.borrow_mut().clear();
+        self.primitives.borrow_mut().clear();
+        self.integrals.borrow_mut().clear();
         let mut max_h = I::integer(2)?;
         if !parameters.is_cpmm() {
             let (tail, concentrated) = parameters.liquidity_shares_nad()?;
@@ -143,41 +180,29 @@ impl BoundedOracleCurve {
                 let lower = I::UNIT.div(upper)?;
                 let log_lower = lower.ln()?;
                 let log_upper = upper.ln()?;
-                layers.push(Layer {
+                self.layers.push(Layer {
                     weight,
                     lower,
                     upper,
                     log_lower,
                     log_upper,
                 });
-                breaks.extend([log_lower, log_upper]);
+                self.breaks.extend([log_lower, log_upper]);
                 max_h = max_h.add(weight.scale(2)?)?;
             }
         }
         let reach = log_cap.div(lambda)?;
-        breaks.extend([
+        self.breaks.extend([
             log_reference.sub(reach)?.divide_integer(2)?,
             log_reference.add(reach)?.divide_integer(2)?,
         ]);
-        let mut curve = Self {
-            center,
-            parameters,
-            book_geometry: Default::default(),
-            lambda,
-            log_reference,
-            log_cap,
-            layers,
-            bands: Vec::with_capacity(5),
-            breaks,
-            max_h,
-            coordinates: std::cell::RefCell::new(Vec::with_capacity(16)),
-            prices: std::cell::RefCell::new(Vec::with_capacity(16)),
-            primitives: Default::default(),
-            integrals: Default::default(),
-            integration_scratch: Default::default(),
-        };
-        curve.build_bands()?;
-        Ok(curve)
+        self.center = center;
+        self.parameters = parameters;
+        self.lambda = lambda;
+        self.log_reference = log_reference;
+        self.log_cap = log_cap;
+        self.max_h = max_h;
+        self.build_bands()
     }
 
     /// Pure native geometry for a book point. Shape and center are immutable
@@ -235,11 +260,17 @@ impl BoundedOracleCurve {
         if self.layers.is_empty() {
             return Ok(());
         }
-        let mut cuts = vec![(I::integer(-32)?, I::ZERO)];
-        for layer in &self.layers {
-            cuts.extend([(layer.log_lower, layer.lower), (layer.log_upper, layer.upper)]);
+        // At most two native layers produce six endpoints. Keep this small
+        // workspace on the stack so reconfiguration does not abandon a vector.
+        let mut storage = [(I::ZERO, I::ZERO); 6];
+        let count = self.layers.len() * 2 + 2;
+        let cuts = &mut storage[..count];
+        cuts[0] = (I::integer(-32)?, I::ZERO);
+        for (index, layer) in self.layers.iter().enumerate() {
+            cuts[index * 2 + 1] = (layer.log_lower, layer.lower);
+            cuts[index * 2 + 2] = (layer.log_upper, layer.upper);
         }
-        cuts.push((I::integer(32)?, I::ZERO));
+        cuts[count - 1] = (I::integer(32)?, I::ZERO);
         cuts.sort_by_key(|v| v.0.lo);
         for (i, pair) in cuts.windows(2).enumerate() {
             let middle = pair[0].0.hi + (pair[1].0.lo - pair[0].0.hi) / 2;

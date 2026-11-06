@@ -65,23 +65,18 @@ pub(crate) struct FinalizedSwapState {
 pub(crate) struct LendingSwapSettlement<'a> {
     pub position: &'a mut crate::state::BorrowPosition,
     pub debt_asset: MarketAsset,
-    pub insurance_spent: u64,
-    pub insurance_credit: u64,
     pub collateral_consumed: u64,
     pub caller_bounty: u64,
 }
 
 impl LendingSwapSettlement<'_> {
-    fn apply(self, market: &mut Market, swap_output: u64, current_slot: u64) -> Result<InternalLiquidationReceipt> {
+    fn apply(self, market: &mut Market, swap_output: u64) -> Result<InternalLiquidationReceipt> {
         market.settle_internal_liquidation(
             self.position,
             self.debt_asset,
             swap_output,
-            self.insurance_spent,
-            self.insurance_credit,
             self.collateral_consumed,
             self.caller_bounty,
-            current_slot,
         )
     }
 }
@@ -96,7 +91,6 @@ impl PreparedSwap {
             debt_asset,
             principal_removed,
             repayment,
-            insurance_credit,
             shares,
             ..
         } = policy
@@ -134,7 +128,7 @@ impl PreparedSwap {
                     .as_ref()
                     .ok_or(ErrorCode::BrokenInvariant)?
                     .interest_cash_floors(self.quote.asset_in, cash_out)
-                    .available_with_credit(market, debt_asset, insurance_credit),
+                    .available(market),
                 ErrorCode::InsufficientLiquidity
             );
         }
@@ -201,7 +195,6 @@ impl PreparedSwap {
                         debt_asset: settlement.debt_asset,
                         debt_shares: 0,
                         debt_principal: 0,
-                        insurance_credit: 0,
                     },
                 ErrorCode::BrokenInvariant
             );
@@ -318,7 +311,7 @@ impl PreparedSwap {
         // Fixed-debt clearance can still change reserves after the AMM/hLP leg.
         // Observe the complete operation once, including that final change.
         let liquidation = lending
-            .map(|settlement| settlement.apply(market, quote.amount_out, current_slot))
+            .map(|settlement| settlement.apply(market, quote.amount_out))
             .transpose()?;
         let final_price_nad = if let Some(receipt) = liquidation {
             if receipt.liquidation.socialized_loss > 0 {
@@ -381,7 +374,6 @@ impl Market {
                 debt_asset: settlement.debt_asset,
                 debt_shares: 0,
                 debt_principal: 0,
-                insurance_credit: 0,
             };
             let credit = LeverageSwapFeeCredit::from_total_actual_credit(
                 &prepared.leverage_quote(),
@@ -399,7 +391,7 @@ impl Market {
             let receipt = finalized.liquidation.ok_or(ErrorCode::BrokenInvariant)?;
             Ok((Some(finalized), receipt))
         } else {
-            let receipt = settlement.apply(self, 0, current_slot)?;
+            let receipt = settlement.apply(self, 0)?;
             if receipt.liquidation.socialized_loss > 0 {
                 self.finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
             } else {
@@ -585,7 +577,6 @@ impl SwapRequest {
                     debt_asset,
                     principal_removed,
                     repayment,
-                    insurance_credit,
                     ..
                 } => {
                     require!(debt_asset == self.asset_in.opposite(), ErrorCode::BrokenInvariant);
@@ -595,7 +586,7 @@ impl SwapRequest {
                         .ok_or(ErrorCode::InsufficientAmount)?;
                     transition
                         .interest_cash_floors(self.asset_in, cash_out)
-                        .available_with_credit(market, debt_asset, insurance_credit)
+                        .available(market)
                 }
                 _ => transition
                     .interest_cash_floors(self.asset_in, concentrated.gross_amount_out)
