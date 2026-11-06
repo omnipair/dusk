@@ -42,7 +42,7 @@ impl InterestRevenueBook {
     pub fn unpaid_fees(&self) -> Result<u64> {
         self.protocol_unpaid
             .checked_add(self.operator_unpaid)
-            .ok_or(ErrorCode::MarketMathOverflow.into())
+            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
     /// Repayments/defaults clear proportional historical fees. A default records
     /// no payable cash; token transfers later supply their measured net credit.

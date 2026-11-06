@@ -228,3 +228,15 @@ fn a_payment_consumed_by_external_fees_clears_its_budget_without_earnings() {
     assert_eq!(pay(&mut book, 0, 120, 2_000, 3_000), (50, 20));
     assert_eq!(book.operator_claimable, 30);
 }
+
+
+#[test]
+fn unpaid_fee_total_keeps_checked_addition() {
+    let mut book = InterestRevenueBook { protocol_unpaid: 7, operator_unpaid: 9, ..Default::default() };
+    assert_eq!(book.unpaid_fees().unwrap(), 16);
+    book.protocol_unpaid = u64::MAX;
+    book.operator_unpaid = 0;
+    assert_eq!(book.unpaid_fees().unwrap(), u64::MAX);
+    book.operator_unpaid = 1;
+    assert!(book.unpaid_fees().is_err());
+}
