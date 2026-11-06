@@ -1097,3 +1097,17 @@ the manager immediately and invalidates its pending bundle. Operator-authored
 bundles are preserved. Every ownership transfer clears the manager; it cannot
 be retained or replaced in the handoff bundle. The successor appoints a manager
 through a separate full-notice announcement.
+
+### LP income projection
+
+`projectHolderIncome` projects funded interest belonging to a senior or junior
+receipt holder, including income retained after an exit. Supply the updated
+market's four income books, the decoded yield account, its wallet balance, and
+retired junior exposure ends when applicable. `readIncomeArchives` retrieves
+and authenticates the immutable historical denominations required by that
+projection, using the snapshot's minimum bank slot. Missing or excessive history
+raises `IncomeHistoryRequired`; it must not be displayed as zero income.
+
+These helpers never send a transaction. `dusk.tranches.prepareHolderIncome`
+prepares bounded checkpoint transactions when a holder needs to catch up before
+harvesting, transferring, or converting receipts.

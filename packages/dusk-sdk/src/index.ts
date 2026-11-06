@@ -37,6 +37,7 @@ export * from "./operator-client.js";
 export * from "./transfer-fees.js";
 
 export * from "./interest-accounting.js";
+export * from "./income-receivable.js";
 
 export * from "./yield-client.js";
 
