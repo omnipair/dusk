@@ -2454,6 +2454,45 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(ownerSrlp.amount).to.equal(140_280n);
   });
 
+  it("previews a funded two-hLP market across quiet intervals", async function () {
+    const snapshotPath = path.join(__dirname, "fixtures/market-preview");
+    const snapshot = JSON.parse(fs.readFileSync(path.join(snapshotPath, "snapshot.json"), "utf8"));
+    const data = fs.readFileSync(path.join(snapshotPath, "market.bin"));
+    expect(createHash("sha256").update(data).digest("hex")).to.equal(snapshot.sha256);
+    const market = new PublicKey(snapshot.market);
+    const budget = new ComputeBudget();
+    budget.computeUnitLimit = 1_400_000n;
+    const isolated = createLiteSvm(budget);
+    isolated.addProgramFromFile(DUSK_PROGRAM_ID, path.join(__dirname, "../target/deploy/dusk.so"));
+    isolated.airdrop(payer.publicKey, BigInt(LAMPORTS_PER_SOL));
+    const instruction = await program.methods.previewMarket().accounts({ market }).instruction();
+    for (const days of [0, 1, 30, 365, 3650]) {
+      isolated.setAccount(market, { owner: DUSK_PROGRAM_ID, executable: false, lamports: 1_000_000_000, data });
+      const clock = isolated.getClock();
+      clock.slot = BigInt(snapshot.sourceSlot) + BigInt(days) * 432_000n;
+      clock.unixTimestamp = BigInt(snapshot.unixTimestamp) + BigInt(days) * 86_400n;
+      isolated.setClock(clock);
+      isolated.expireBlockhash();
+      const transaction = new Transaction().add(
+        ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), instruction,
+      );
+      transaction.feePayer = payer.publicKey;
+      transaction.recentBlockhash = isolated.latestBlockhash();
+      transaction.sign(payer);
+      const result = isolated.sendTransaction(transaction) as any;
+      if (typeof result.err === "function") throw new Error(`Quiet interval ${days}: ${String(result.err())}\n${result.meta().logs().join("\n")}`);
+      const returned = result.returnData();
+      expect(new PublicKey(returned.programId()).equals(DUSK_PROGRAM_ID)).to.equal(true);
+      const preview = decodePreviewMarketReturnData(Buffer.from(returned.data()));
+      expect(preview.slot.toString()).to.equal(clock.slot.toString());
+      expect(BigInt(preview.base.borrowAprNad.toString()) >= 10_000_000n).to.equal(true);
+      expect(BigInt(preview.quote.borrowAprNad.toString()) >= 10_000_000n).to.equal(true);
+      recordTransactionComputeUnits(transaction, BigInt(result.computeUnitsConsumed()));
+    }
+    trackV2Instruction("previewMarket", this.test?.title);
+  });
+
   it("returns typed preview data for market state and swap quotes", async function () {
     const fixture = await addBalancedLiquidity(60);
 
