@@ -397,9 +397,18 @@ pub struct BenchmarkHlpOwnedCheckpoint {
     pub quote_yield_account: BenchmarkYieldAccountCheckpoint,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BenchmarkHlpFundingSettlement {
+    /// Exact reserve debits and measured interest-vault credits, by hLP target.
+    pub transfers: [BenchmarkTokenTransferOutcome; 2],
+    pub protocol_interest_fee_bps: u16,
+    pub protocol_auction_split: ProtocolAuctionSplit,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BenchmarkHlpEntryRequest {
     pub clock: BenchmarkClock,
+    pub funding: BenchmarkHlpFundingSettlement,
     /// Gross owner-token debit and exact reserve-vault credit.
     pub target_transfer: BenchmarkTokenTransferOutcome,
     pub min_hlp_amount: u64,
@@ -2566,7 +2575,6 @@ impl BenchmarkMarket {
             next_leverage.position.debt_asset()?,
             native.interest_paid,
             execution.interest_transfer.destination_credit,
-            prepared.request.policy.protocol_interest_fee_bps,
         )?;
         require_eq!(
             execution.interest_transfer.source_debit,
@@ -2715,10 +2723,9 @@ impl BenchmarkMarket {
     /// Finds the greatest net target-asset credit admitted by the native hLP
     /// entry path up to `maximum_target_reserve_credit`.
     ///
-    /// Borrow headroom is monotone in the same-ratio borrowed leg, so the
-    /// helper first locates its exact integer boundary. It then executes the
-    /// complete native entry, settlement, health, yield-account, and external
-    /// custody path on a fork. If a non-capacity guard rejects that boundary,
+    /// Probe canonical entry on forks, including indexed debt and both vaults,
+    /// rather than sizing against a separately rounded nominal borrow. Then
+    /// execute the complete settlement and external custody path on a fork. If a non-capacity guard rejects that boundary,
     /// the error is returned rather than approximating a smaller allocation.
     pub fn maximize_hlp_entry(
         &self,
@@ -2741,20 +2748,22 @@ impl BenchmarkMarket {
             clock,
             global_reduce_only,
         )?;
-        let borrowed_asset = external.target_asset.opposite();
         let mut low = 0_u64;
         let mut high = maximum_target_reserve_credit;
         while low < high {
             let midpoint = low + (high - low) / 2 + 1;
-            let borrowed_amount = hlp_borrowed_amount(&prepared, external.target_asset, midpoint)?;
-            let vault = hlp_vault(&prepared, external.target_asset);
-            let borrow_index_nad = prepared.debt.borrow_index(borrowed_asset);
-            let added_shares = Debt::debt_to_shares(borrowed_amount, borrow_index_nad)?;
-            let fits = if let Some(projected_shares) = vault.debt_shares.checked_add(added_shares) {
-                Debt::shares_to_debt(projected_shares, borrow_index_nad)?
-                    <= prepared.side(borrowed_asset).reserves.cash_reserve as u128
-            } else {
-                false
+            let mut candidate = clone_market(&prepared)?;
+            let fits = match candidate.deposit_single_sided(external.target_asset, midpoint, 1) {
+                Ok(_) => true,
+                Err(error)
+                    if error == error!(ErrorCode::InsufficientBorrowHeadroom)
+                        || error == error!(ErrorCode::InsufficientLiquidity)
+                        || error == error!(ErrorCode::SupplyOverflow)
+                        || error == error!(ErrorCode::ReserveOverflow) =>
+                {
+                    false
+                }
+                Err(error) => return Err(error),
             };
             if fits {
                 low = midpoint;
@@ -2762,16 +2771,13 @@ impl BenchmarkMarket {
                 high = midpoint - 1;
             }
         }
-        let target_reserve_credit = if low > 0 && hlp_borrowed_amount(&prepared, external.target_asset, low)? == 0 {
-            0
-        } else {
-            low
-        };
+        let target_reserve_credit = low;
         if target_reserve_credit == 0 {
             return Ok(None);
         }
 
         let request = BenchmarkHlpEntryRequest {
+            funding: BenchmarkHlpFundingSettlement::default(),
             clock,
             // This is a state-only probe. The caller supplies the historical
             // gross debit after receiving the selected net credit.
@@ -2783,7 +2789,10 @@ impl BenchmarkMarket {
             global_reduce_only,
         };
         let mut next_external = external.try_fork()?;
-        let (native, _) = apply_hlp_entry_after_prepare(&mut prepared, &mut next_external, request)?;
+        let mut next_counterpart =
+            BenchmarkHlpOwnedState::initialize(self, external.target_asset.opposite(), external.owner, external.owner)?;
+        let (native, _) =
+            apply_hlp_entry_after_prepare(&mut prepared, &mut next_external, &mut next_counterpart, request, true)?;
         validate_hlp_owned_state(&next_external, &prepared, self.require_market_key()?)?;
         Ok(Some(BenchmarkMaximumHlpEntry {
             clock,
@@ -2800,8 +2809,10 @@ impl BenchmarkMarket {
     pub fn execute_maximum_hlp_entry(
         &mut self,
         external: &mut BenchmarkHlpOwnedState,
+        counterpart: &mut BenchmarkHlpOwnedState,
         plan: BenchmarkMaximumHlpEntry,
         target_transfer: BenchmarkTokenTransferOutcome,
+        funding: BenchmarkHlpFundingSettlement,
         global_reduce_only: bool,
     ) -> Result<BenchmarkHlpExecution<BenchmarkHlpEntryReceipt>> {
         require!(plan.target_asset == external.target_asset, ErrorCode::InvalidMint);
@@ -2826,8 +2837,10 @@ impl BenchmarkMarket {
         require!(current_plan.native == plan.native, ErrorCode::BrokenInvariant);
         self.execute_hlp_entry(
             external,
+            counterpart,
             BenchmarkHlpEntryRequest {
                 clock: plan.clock,
+                funding,
                 target_transfer,
                 min_hlp_amount: plan.native.hlp_amount,
                 global_reduce_only,
@@ -2840,14 +2853,21 @@ impl BenchmarkMarket {
     pub fn execute_hlp_entry(
         &mut self,
         external: &mut BenchmarkHlpOwnedState,
+        counterpart: &mut BenchmarkHlpOwnedState,
         request: BenchmarkHlpEntryRequest,
     ) -> Result<BenchmarkHlpExecution<BenchmarkHlpEntryReceipt>> {
         self.require_monotonic_clock(request.clock)?;
         external.validate(self)?;
+        counterpart.validate(self)?;
+        require!(
+            counterpart.target_asset == external.target_asset.opposite(),
+            ErrorCode::InvalidMint
+        );
         let revenue_before = self.revenue_checkpoint();
         let market_key = self.require_market_key()?;
         let mut next_market = clone_market(&self.market)?;
         let mut next_external = external.try_fork()?;
+        let mut next_counterpart = counterpart.try_fork()?;
         prepare_hlp_entry_market(
             &mut next_market,
             next_external.target_asset,
@@ -2855,8 +2875,15 @@ impl BenchmarkMarket {
             request.clock,
             request.global_reduce_only,
         )?;
-        let (native, cash) = apply_hlp_entry_after_prepare(&mut next_market, &mut next_external, request)?;
+        let (native, cash) = apply_hlp_entry_after_prepare(
+            &mut next_market,
+            &mut next_external,
+            &mut next_counterpart,
+            request,
+            false,
+        )?;
         validate_hlp_owned_state(&next_external, &next_market, market_key)?;
+        validate_hlp_owned_state(&next_counterpart, &next_market, market_key)?;
         let receipt = BenchmarkHlpEntryReceipt {
             native,
             target_transfer: request.target_transfer,
@@ -2864,6 +2891,7 @@ impl BenchmarkMarket {
         let external_after = next_external.checkpoint();
         let market = self.commit_market_execution(next_market, request.clock, revenue_before, cash, receipt)?;
         *external = next_external;
+        *counterpart = next_counterpart;
         Ok(BenchmarkHlpExecution { market, external_after })
     }
 
@@ -3326,7 +3354,6 @@ impl BenchmarkMarket {
             request.debt_asset,
             receipt.interest_paid,
             request.interest_vault_credit,
-            request.protocol_interest_fee_bps,
         )?;
         let expected_referral = accrue_benchmark_referral_interest(
             referral_binding,
@@ -3611,7 +3638,6 @@ impl BenchmarkMarket {
             preview.plan.debt_asset,
             preview.native.interest_paid,
             request.interest_transfer.destination_credit,
-            request.protocol_interest_fee_bps,
         )?;
         require_eq!(
             request.interest_transfer.source_debit,
@@ -4140,7 +4166,6 @@ fn prepare_hlp_entry_market(
     if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
         market.advance_amm_clock(clock.slot)?;
         market.checkpoint_hlp_vaults()?;
-        market.assert_hlp_entry_available(target_asset)?;
         market.observe_current_risk(clock.slot)?;
     }
     Ok(())
@@ -4149,15 +4174,45 @@ fn prepare_hlp_entry_market(
 fn apply_hlp_entry_after_prepare(
     market: &mut Market,
     external: &mut BenchmarkHlpOwnedState,
+    counterpart: &mut BenchmarkHlpOwnedState,
     request: BenchmarkHlpEntryRequest,
+    preview_funding: bool,
 ) -> Result<(SingleSidedLiquidityReceipt, BenchmarkCashFlow)> {
     require!(request.target_transfer.source_debit > 0, ErrorCode::AmountZero);
     require!(request.target_transfer.destination_credit > 0, ErrorCode::AmountZero);
+    let eligibility = HlpYieldEligibility {
+        srlp_supply: market.base_side.shares.srlp_supply,
+        base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
+        quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
+    };
     let native = market.deposit_single_sided(
         external.target_asset,
         request.target_transfer.destination_credit,
         request.min_hlp_amount,
     )?;
+    let mut cash = BenchmarkCashFlow::default();
+    for owned in [&mut *external, counterpart] {
+        let t = owned.target_asset.code() as usize;
+        let receipt = native.rebalances[t];
+        let transfer = if preview_funding {
+            BenchmarkTokenTransferOutcome {
+                source_debit: receipt.interest_paid,
+                destination_credit: receipt.interest_paid,
+            }
+        } else {
+            request.funding.transfers[t]
+        };
+        apply_hlp_rebalance_settlement(
+            market,
+            owned,
+            receipt,
+            eligibility,
+            transfer,
+            request.funding.protocol_interest_fee_bps,
+            request.funding.protocol_auction_split,
+            &mut cash,
+        )?;
+    }
     market.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
 
     let (base_swap_growth, base_interest_growth) =
@@ -4174,10 +4229,6 @@ fn apply_hlp_entry_after_prepare(
         quote_swap_growth,
         quote_interest_growth,
     )?;
-    external.hlp_vault_srlp_balance = external
-        .hlp_vault_srlp_balance
-        .checked_add(native.srlp_amount)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
     external.hlp_mint_supply = external
         .hlp_mint_supply
         .checked_add(native.hlp_amount)
@@ -4187,7 +4238,6 @@ fn apply_hlp_entry_after_prepare(
         .checked_add(native.hlp_amount)
         .ok_or(ErrorCode::MarketMathOverflow)?;
 
-    let mut cash = BenchmarkCashFlow::default();
     cash.side_mut(external.target_asset).reserve_vault_credit = native.deposit_amount;
     Ok((native, cash))
 }
@@ -4210,22 +4260,6 @@ fn prepare_hlp_withdraw_market(
         market.refresh_risk_at_slot(clock.slot)?;
     }
     Ok(())
-}
-
-fn hlp_borrowed_amount(market: &Market, target_asset: MarketAsset, target_amount: u64) -> Result<u64> {
-    let target_reserve = market.curve_reserve(target_asset)?;
-    let opposite_reserve = market.curve_reserve(target_asset.opposite())?;
-    require!(
-        target_reserve > 0 && opposite_reserve > 0,
-        ErrorCode::InsufficientLiquidity
-    );
-    u64::try_from(
-        (target_amount as u128)
-            .checked_mul(opposite_reserve as u128)
-            .and_then(|value| value.checked_div(target_reserve as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-    )
-    .map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 fn hlp_vault(market: &Market, target_asset: MarketAsset) -> &crate::state::HlpVault {
@@ -4827,25 +4861,11 @@ fn benchmark_public_interest_payment(
     asset: MarketAsset,
     paid: u64,
     credit: u64,
-    protocol_bps: u16,
 ) -> Result<(u64, u64)> {
     let (fresh, frozen) = market.side_mut(asset).fees.public_interest_advance.take_payment(paid)?;
     let transfer = fresh.checked_add(frozen).ok_or(ErrorCode::FeeMathOverflow)?;
     require_gte!(transfer, credit, ErrorCode::FeeMathOverflow);
-    let frozen_credit = if transfer == 0 {
-        0
-    } else {
-        u64::try_from(crate::math::mul_div_u128(
-            credit as u128,
-            frozen as u128,
-            transfer as u128,
-        )?)
-        .map_err(|_| ErrorCode::FeeMathOverflow)?
-    };
-    let protocol = ReferralInterestQuote::new(fresh, credit - frozen_credit, protocol_bps, None)?
-        .protocol_interest_revenue
-        .checked_add(frozen_credit)
-        .ok_or(ErrorCode::FeeMathOverflow)?;
+    let protocol = market.quote_interest_revenue_credit(asset, false, credit)?.protocol;
     Ok((transfer, protocol))
 }
 
@@ -6311,6 +6331,7 @@ mod tests {
     #[test]
     fn position_wrappers_match_native_deposit_borrow_and_repay() {
         let (mut benchmark, market_key) = initialized_keyed_market();
+        benchmark.market.protocol_interest_markup_bps = 2_000;
         let owner = Pubkey::new_unique();
         let position_id = Pubkey::new_unique();
         let mut position = BenchmarkBorrowPosition::initialize(owner, market_key, position_id, 254).unwrap();
@@ -6411,10 +6432,14 @@ mod tests {
         let native_repay = native_market
             .repay(&mut native_position, MarketAsset::Base, repayment.cash_repaid)
             .unwrap();
-        let expected_referral = ReferralInterestQuote::new(
+        let protocol = native_market
+            .quote_interest_revenue_credit(MarketAsset::Base, false, native_repay.interest_paid)
+            .unwrap()
+            .protocol;
+        let expected_referral = ReferralInterestQuote::with_protocol_revenue(
             native_repay.interest_paid,
             native_repay.interest_paid,
-            2_000,
+            protocol,
             Some(5_000),
         )
         .unwrap()
@@ -6426,7 +6451,7 @@ mod tests {
                     MarketAsset::Base,
                     false,
                     native_repay.interest_paid,
-                    native_repay.interest_paid / 5,
+                    protocol,
                     ProtocolAuctionSplit::default(),
                     expected_referral,
                 )
@@ -6572,6 +6597,7 @@ mod tests {
         let mut expected_market = clone_market(benchmark.market()).unwrap();
         let mut expected_external = external.try_fork().unwrap();
         let request = BenchmarkHlpEntryRequest {
+            funding: BenchmarkHlpFundingSettlement::default(),
             clock: BenchmarkClock {
                 slot: 2,
                 unix_timestamp: 2,
@@ -6617,7 +6643,10 @@ mod tests {
         expected_external.holder_hlp_token_balance += expected_receipt.hlp_amount;
         validate_hlp_owned_state(&expected_external, &expected_market, market_key).unwrap();
 
-        let execution = benchmark.execute_hlp_entry(&mut external, request).unwrap();
+        let mut counterpart = BenchmarkHlpOwnedState::initialize(&benchmark, MarketAsset::Quote, owner, owner).unwrap();
+        let execution = benchmark
+            .execute_hlp_entry(&mut external, &mut counterpart, request)
+            .unwrap();
         assert_eq!(execution.market.receipt.native, expected_receipt);
         assert_eq!(execution.market.cash.base.reserve_vault_credit, 100_000);
         assert_eq!(market_bytes(benchmark.market()), market_bytes(&expected_market));
@@ -6629,6 +6658,7 @@ mod tests {
         let (mut benchmark, _) = initialized_keyed_market();
         let owner = Pubkey::new_unique();
         let mut external = BenchmarkHlpOwnedState::initialize(&benchmark, MarketAsset::Base, owner, owner).unwrap();
+        let mut counterpart = BenchmarkHlpOwnedState::initialize(&benchmark, MarketAsset::Quote, owner, owner).unwrap();
         let market_before = market_bytes(benchmark.market());
         let external_before = external.checkpoint();
         let clock_before = benchmark.clock();
@@ -6636,7 +6666,9 @@ mod tests {
         assert!(benchmark
             .execute_hlp_entry(
                 &mut external,
+                &mut counterpart,
                 BenchmarkHlpEntryRequest {
+                    funding: BenchmarkHlpFundingSettlement::default(),
                     clock: BenchmarkClock {
                         slot: 50_000,
                         unix_timestamp: 50_000,
@@ -6666,7 +6698,9 @@ mod tests {
         benchmark
             .execute_hlp_entry(
                 &mut base_external,
+                &mut quote_external,
                 BenchmarkHlpEntryRequest {
+                    funding: BenchmarkHlpFundingSettlement::default(),
                     clock: BenchmarkClock {
                         slot: 2,
                         unix_timestamp: 2,
@@ -6683,7 +6717,9 @@ mod tests {
         benchmark
             .execute_hlp_entry(
                 &mut quote_external,
+                &mut base_external,
                 BenchmarkHlpEntryRequest {
+                    funding: BenchmarkHlpFundingSettlement::default(),
                     clock: BenchmarkClock {
                         slot: 3,
                         unix_timestamp: 3,
@@ -6741,10 +6777,105 @@ mod tests {
     }
 
     #[test]
+    fn hlp_entry_settles_both_vaults_and_rolls_back_bad_funding_credit() {
+        let (mut benchmark, _) = initialized_keyed_market();
+        let owner = Pubkey::new_unique();
+        let mut base = BenchmarkHlpOwnedState::initialize(&benchmark, MarketAsset::Base, owner, owner).unwrap();
+        let mut quote = BenchmarkHlpOwnedState::initialize(&benchmark, MarketAsset::Quote, owner, owner).unwrap();
+        for target_base in [true, false] {
+            let (target, other) = if target_base {
+                (&mut base, &mut quote)
+            } else {
+                (&mut quote, &mut base)
+            };
+            benchmark
+                .execute_hlp_entry(
+                    target,
+                    other,
+                    BenchmarkHlpEntryRequest {
+                        clock: BenchmarkClock {
+                            slot: 2,
+                            unix_timestamp: 2,
+                        },
+                        funding: Default::default(),
+                        target_transfer: BenchmarkTokenTransferOutcome {
+                            source_debit: 100_000,
+                            destination_credit: 100_000,
+                        },
+                        min_hlp_amount: 1,
+                        global_reduce_only: false,
+                    },
+                )
+                .unwrap();
+        }
+        let clock = BenchmarkClock {
+            slot: 1_000_002,
+            unix_timestamp: 400_002,
+        };
+        let mut preview = clone_market(benchmark.market()).unwrap();
+        prepare_hlp_entry_market(&mut preview, MarketAsset::Base, base.hlp_mint_supply, clock, false).unwrap();
+        let native = preview.deposit_single_sided(MarketAsset::Base, 50_000, 1).unwrap();
+        assert!(native.rebalances.iter().all(|r| r.interest_paid > 0));
+        let funding = BenchmarkHlpFundingSettlement {
+            transfers: native.rebalances.map(|r| BenchmarkTokenTransferOutcome {
+                source_debit: r.interest_paid,
+                destination_credit: r.interest_paid,
+            }),
+            ..Default::default()
+        };
+        let request = BenchmarkHlpEntryRequest {
+            clock,
+            funding,
+            target_transfer: BenchmarkTokenTransferOutcome {
+                source_debit: 50_000,
+                destination_credit: 50_000,
+            },
+            min_hlp_amount: 1,
+            global_reduce_only: false,
+        };
+        let before = (
+            market_bytes(benchmark.market()),
+            base.checkpoint(),
+            quote.checkpoint(),
+            benchmark.clock(),
+        );
+        let mut wrong = request;
+        wrong.funding.transfers[1].destination_credit += 1;
+        assert!(benchmark.execute_hlp_entry(&mut base, &mut quote, wrong).is_err());
+        assert_eq!(
+            (
+                market_bytes(benchmark.market()),
+                base.checkpoint(),
+                quote.checkpoint(),
+                benchmark.clock()
+            ),
+            before
+        );
+        let result = benchmark.execute_hlp_entry(&mut base, &mut quote, request).unwrap();
+        assert_eq!(
+            result.market.cash.base.interest_vault_credit,
+            funding.transfers[1].destination_credit
+        );
+        assert_eq!(
+            result.market.cash.quote.interest_vault_credit,
+            funding.transfers[0].destination_credit
+        );
+        assert_eq!(
+            base.hlp_vault_srlp_balance,
+            benchmark.market().base_hlp_vault.srlp_shares
+        );
+        assert_eq!(
+            quote.hlp_vault_srlp_balance,
+            benchmark.market().quote_hlp_vault.srlp_shares
+        );
+    }
+
+    #[test]
     fn maximum_hlp_entry_and_pro_rata_withdrawal_exhaust_owned_state() {
         let (mut benchmark, _) = initialized_keyed_market();
         let owner = Pubkey::new_unique();
         let mut external = BenchmarkHlpOwnedState::initialize(&benchmark, MarketAsset::Base, owner, owner).unwrap();
+        let mut counterpart = BenchmarkHlpOwnedState::initialize(&benchmark, MarketAsset::Quote, owner, owner).unwrap();
         let entry_clock = BenchmarkClock {
             slot: 2,
             unix_timestamp: 2,
@@ -6757,11 +6888,13 @@ mod tests {
         let entry = benchmark
             .execute_maximum_hlp_entry(
                 &mut external,
+                &mut counterpart,
                 plan,
                 BenchmarkTokenTransferOutcome {
                     source_debit: 100_321,
                     destination_credit: plan.target_reserve_credit,
                 },
+                BenchmarkHlpFundingSettlement::default(),
                 false,
             )
             .unwrap();

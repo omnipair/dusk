@@ -80,7 +80,7 @@ const COMPUTE_SCENARIO_BASELINES: Partial<
   concentrated_hlp_funding_interest: { measuredMaximum: 596_366n, ceiling: 626_185n },
   joint_shock_hlp_same_slot: { measuredMaximum: 546_057n, ceiling: 573_360n },
   joint_shock_hlp_one_day: { measuredMaximum: 699_235n, ceiling: 734_197n },
-  hlp_active: { measuredMaximum: 134_057n, ceiling: 140_760n },
+  hlp_active: { measuredMaximum: 142_002n, ceiling: 149_103n },
   token_2022_swap: { measuredMaximum: 97_758n, ceiling: 102_646n },
   public_interest_hlp_cpmm: { measuredMaximum: 268_825n, ceiling: 282_267n },
   public_interest_hlp_concentrated: { measuredMaximum: 626_079n, ceiling: 657_383n },

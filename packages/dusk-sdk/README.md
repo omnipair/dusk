@@ -880,9 +880,21 @@ agreed fix.
 
 Use `dusk.get.previewHlpDepositCapacity({ market, baseMint, quoteMint, targetHlpMint })`
 to read the native entry status and gross/net funding ceilings. It accrues the
-market in a read-only simulation and prices the underlying srLP purchase and
-hedge using full live-reserve value, including public unpaid interest. These
+market in a read-only simulation and settles the existing hedge in memory
+before reporting remaining funding capacity. Deposits use the same canonical
+srLP ownership and indexed-debt reconstruction as swaps, settling both vaults
+atomically with the entry. Existing hLP shares are priced at their current
+NAV, including their independently owned unpaid public-interest claims. These
 receivables remain excluded from swap-pricing reserves.
+
+`dusk.write.depositSingleSided` supplies the canonical backing-vault and
+interest-vault settlement prefix, including on the first deposit. Pass
+`marketSnapshot` with the same coherent market snapshot used for the other
+accounts to avoid another market read. Its returned transaction includes a
+256 KiB heap and a 1.4M compute-unit limit for settlement. When composing a
+transaction with your own budget, use `setupInstructions` and `actionInstruction`
+instead. Low-level instruction builders must supply the settlement prefix
+themselves, before token-hook and oracle accounts.
 
 `Ready` and the capacity ceiling do not guarantee execution for every amount.
 Simulate the completed deposit transaction to check rounding, cash custody,

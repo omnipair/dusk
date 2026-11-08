@@ -181,14 +181,24 @@ test("hLP liquidity actions preserve a caller-supplied oracle policy", async () 
   writer.instruction = async (name, _args, options) => {
     assert.equal(name,"depositSingleSided");
     assert.deepEqual(options.oraclePolicy,policy());
+    assert.deepEqual(options.remainingAccounts.slice(0, 5).map(x => x.pubkey.toBase58()), [7, 13, 14, 15, 16].map(x => key(x).toBase58()));
     return action;
   };
-  client.account.market.fetch = async () => { throw new Error("explicit policy must avoid a market fetch"); };
+  client.account.market.fetch = async () => { throw new Error("explicit snapshot and policy must avoid a market fetch"); };
   const result = await writer.depositSingleSided({}, {
     payer:owner,owner,market,targetHlpMint:key(25),baseMint,quoteMint,
-    accounts:{},oraclePolicy:policy(),
+    accounts:{},oraclePolicy:policy(),marketSnapshot: {
+      srlpMint:key(7),
+      baseSide:{assetMint:baseMint,interestVault:key(15),reserveVault:key(17)},
+      quoteSide:{assetMint:quoteMint,interestVault:key(16),reserveVault:key(18)},
+      baseHlpVault:{srlpVault:key(13),hlpSupply:new anchor.BN(0),residualExposure:new anchor.BN(0)},
+      quoteHlpVault:{srlpVault:key(14),hlpSupply:new anchor.BN(0),residualExposure:new anchor.BN(0)},
+    },
   });
   assert.equal(result.actionInstruction,action);
+  assert.deepEqual(result.transaction.instructions.slice(0, 2).map(ix => ix.data[0]), [1, 2]);
+  assert.equal(result.transaction.instructions[0].data.readUInt32LE(1), 256 * 1024);
+  assert.equal(result.transaction.instructions[1].data.readUInt32LE(1), 1_400_000);
 });
 
 test("operator execution reads and budgets only the immutable market oracle", async () => {

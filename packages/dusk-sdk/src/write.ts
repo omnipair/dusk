@@ -8,6 +8,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
+  ComputeBudgetProgram,
   SystemProgram,
   SYSVAR_INSTRUCTIONS_PUBKEY,
   Transaction,
@@ -95,6 +96,7 @@ export interface HlpLiquidityBuildOptions extends DuskBuildOptions {
   targetHlpMint: AddressLike;
   baseMint: AddressLike;
   quoteMint: AddressLike;
+  marketSnapshot?: Market;
 }
 
 export interface HlpLiquidityBuild {
@@ -215,7 +217,8 @@ export class DuskWrite {
    */
   async hlpRemainingAccounts(
     marketAddress: AddressLike,
-    marketSnapshot?: Market
+    marketSnapshot?: Market,
+    required = false
   ): Promise<AccountMeta[]> {
     const market = address(marketAddress);
     const state = (marketSnapshot ?? await this.fetchMarketAccount(market)) as {
@@ -238,7 +241,7 @@ export class DuskWrite {
       BigInt(state.quoteHlpVault.hlpSupply.toString()) !== 0n ||
       BigInt(state.baseHlpVault.residualExposure.toString()) !== 0n ||
       BigInt(state.quoteHlpVault.residualExposure.toString()) !== 0n;
-    if (!hlpActive) return [];
+    if (!hlpActive && !required) return [];
     return [
       { pubkey: state.srlpMint, isSigner: false, isWritable: true },
       { pubkey: state.baseHlpVault.srlpVault, isSigner: false, isWritable: true },
@@ -889,7 +892,9 @@ export class DuskWrite {
         baseYieldAccount,
         quoteYieldAccount,
       },
-      remainingAccounts: options.remainingAccounts,
+      remainingAccounts: name === "depositSingleSided"
+        ? mergeAccountMetas(await this.hlpRemainingAccounts(market, options.marketSnapshot, true), options.remainingAccounts ?? [])
+        : options.remainingAccounts,
       oraclePolicy: options.oraclePolicy,
     });
     return {
@@ -897,7 +902,11 @@ export class DuskWrite {
       quoteYieldAccount,
       setupInstructions,
       actionInstruction,
-      transaction: new Transaction().add(...setupInstructions, actionInstruction),
+      transaction: new Transaction().add(
+        ComputeBudgetProgram.requestHeapFrame({bytes:256 * 1024}),
+        ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}),
+        ...setupInstructions, actionInstruction,
+      ),
     };
   }
 

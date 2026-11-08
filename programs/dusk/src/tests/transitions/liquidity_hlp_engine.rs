@@ -2,6 +2,125 @@ use super::*;
 use proptest::prelude::*;
 
 #[test]
+fn captured_hlp_entries_settle_funding_and_preserve_existing_claims() {
+    for (bytes, slot) in [
+        (include_bytes!("../fixtures/hlp-entry-layout13.bin").as_slice(), 500_291_305),
+        // Market 4iuoB4WsTEsv4gnwY6RZnwgaHWqYCAwCbaLswJjbwgSa,
+        // devnet slot 519889239: quote hLP needs accrued-funding settlement.
+        (include_bytes!("../fixtures/hlp-entry-funding-layout13.bin").as_slice(), 519_889_239),
+    ] {
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            for amount in [1_000_000, 10_000_000, 100_000_000] {
+                let mut market = Market::try_deserialize(&mut bytes.as_ref()).unwrap();
+                market.accrue_interest_to_slot(slot).unwrap();
+                market.advance_amm_clock(slot).unwrap();
+                market.checkpoint_hlp_vaults().unwrap();
+                let before = market.clone();
+                let prices = current_hlp_curve_prices(&before).unwrap();
+                let supply = match target {
+                    MarketAsset::Base => before.base_hlp_vault.hlp_supply,
+                    MarketAsset::Quote => before.quote_hlp_vault.hlp_supply,
+                };
+                let old_nav = hlp_share_nav_nad_with_prices(&before, target, prices).unwrap();
+                let ordinary_supply = before.base_side.shares.srlp_supply
+                    - before.base_hlp_vault.srlp_shares - before.quote_hlp_vault.srlp_shares;
+                let receipt = market.deposit_single_sided(target, amount, 1).unwrap();
+                assert!(receipt.hlp_amount > 0);
+                market.assert_hlp_entry_available(target).unwrap();
+                assert_eq!(ordinary_supply, market.base_side.shares.srlp_supply
+                    - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares);
+                if supply > 0 {
+                    let nav = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
+                    assert!(ratio_lte_full_width(old_nav, supply as u128, nav, receipt.hlp_supply as u128).unwrap(),
+                        "existing hLP share value must not be diluted: target={target:?}, amount={amount}");
+                }
+                // Each independently owned coupon stays with its old vault;
+                // depositing never pays for the new shares with old income.
+                for vault in [MarketAsset::Base, MarketAsset::Quote] {
+                    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+                        assert_eq!(market.hlp_unpaid_income(vault, asset).unwrap(), before.hlp_unpaid_income(vault, asset).unwrap());
+                    }
+                }
+                market.assert_market_invariants().unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn entry_cannot_rebalance_the_other_vault_during_its_flash_session() {
+    let mut market = Market::default();
+    market.add_liquidity(1_000_000, 1_000_000).unwrap();
+    market.debt.base_borrow_index_nad = NAD as u128;
+    market.debt.quote_borrow_index_nad = NAD as u128;
+    market.deposit_single_sided(MarketAsset::Base, 20_000, 1).unwrap();
+    market.base_hlp_vault.flash_collateral_debit = 1;
+    let before = market.try_to_vec().unwrap();
+    assert_eq!(market.deposit_single_sided(MarketAsset::Quote, 20_000, 1).unwrap_err(), error!(ErrorCode::LiquidationSessionActive));
+    assert_eq!(market.try_to_vec().unwrap(), before);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+    #[test]
+    fn canonical_entry_preserves_share_value_after_indexed_funding(
+        amount in 10_u64..1_000,
+        elapsed in 1_u64..648_000,
+        mixed_decimals in any::<bool>(),
+        concentrated in any::<bool>(),
+        target_base in any::<bool>(),
+    ) {
+        use crate::state::{AmmConfig, AmmState};
+        let target = if target_base { MarketAsset::Base } else { MarketAsset::Quote };
+        let mut market = Market::default();
+        market.base_side.asset_decimals = 6;
+        market.quote_side.asset_decimals = if mixed_decimals { 9 } else { 6 };
+        let base_unit = 1_000_000;
+        let quote_unit = 10_u64.pow(market.quote_side.asset_decimals.into());
+        market.debt.base_borrow_index_nad = NAD as u128;
+        market.debt.quote_borrow_index_nad = NAD as u128;
+        market.add_liquidity(1_000_000 * base_unit, 1_000_000 * quote_unit).unwrap();
+        market.deposit_single_sided(MarketAsset::Base, 50 * base_unit, 1).unwrap();
+        market.deposit_single_sided(MarketAsset::Quote, 50 * quote_unit, 1).unwrap();
+        if concentrated {
+            market.config.amm = AmmConfig {
+                peak_amplification_nad: 4 * NAD,
+                core_half_width_bps: 100,
+                fade_width_bps: 400,
+                center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
+                ..AmmConfig::default()
+            };
+            *market.amm = AmmState::default();
+            market.prepare_amm_for_swap(1).unwrap();
+        }
+        market.accrue_interest_to_slot(elapsed).unwrap();
+        let before = market.clone();
+        let prices = current_hlp_curve_prices(&before).unwrap();
+        let old_nav = hlp_share_nav_nad_with_prices(&before, target, prices).unwrap();
+        let old_supply = if target_base { before.base_hlp_vault.hlp_supply } else { before.quote_hlp_vault.hlp_supply };
+        let deposit = amount * 10_u64.pow(market.side(target).asset_decimals.into());
+        let receipt = market.deposit_single_sided(target, deposit, 1).unwrap();
+        let nav = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
+        prop_assert!(ratio_lte_full_width(old_nav, old_supply as u128, nav, receipt.hlp_supply as u128).unwrap());
+        let other = target.opposite();
+        let other_before = hlp_share_nav_nad_with_prices(&before, other, prices).unwrap();
+        let other_after = hlp_share_nav_nad_with_prices(&market, other, prices).unwrap();
+        let rounding_bound = market.normalize_amount(3, market.side(other).asset_decimals).unwrap();
+        prop_assert!(other_after.saturating_add(rounding_bound) >= other_before);
+        market.assert_hlp_entry_available(target).unwrap();
+        market.assert_market_invariants().unwrap();
+        let returned = market.quote_hlp_withdrawal(target, receipt.hlp_amount).unwrap();
+        // Canonical settlement already certifies at most three reserve atoms
+        // on each side. Mixed-decimal exits must use that same value bound,
+        // rather than pretending an opposite-mint atom is one target atom.
+        let rounding_value = asset_value_in_target_nad_with_prices(&market, prices, MarketAsset::Base, 3, target).unwrap()
+            + asset_value_in_target_nad_with_prices(&market, prices, MarketAsset::Quote, 3, target).unwrap();
+        let rounding_atoms = market.denormalize_amount_ceil(rounding_value, market.side(target).asset_decimals).unwrap();
+        prop_assert!(returned <= deposit + rounding_atoms, "entry/exit exceeds native atom reconciliation: deposited={}, returned={}, bound={}", deposit, returned, rounding_atoms);
+    }
+}
+
+#[test]
 fn senior_entry_and_cash_exit_exclude_separately_owned_unpaid_interest() {
     const UNIT: u64 = 1_000_000;
     let mut market = Market::default();
