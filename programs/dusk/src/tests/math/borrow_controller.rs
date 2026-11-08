@@ -5,6 +5,12 @@ use proptest::prelude::*;
 fn rate(apr: f64) -> u128 {
     (apr * RATE_SCALE as f64).round() as u128
 }
+fn input(signal_nad: Option<u128>, utilization_bps: u64) -> RiskRateInput {
+    RiskRateInput {
+        signal_nad,
+        utilization_bps,
+    }
+}
 fn assert_close(actual: f64, expected: f64, tolerance: f64) {
     assert!(
         (actual - expected).abs() <= tolerance,
@@ -21,6 +27,8 @@ fn market_defaults_and_explicit_zero_overrides() {
     assert_eq!(MINIMUM_BORROW_APR_NAD, 10_000_000);
     assert_eq!(defaults.lower_signal_nad, 50_000_000);
     assert_eq!(defaults.upper_signal_nad, 62_500_000);
+    assert_eq!(defaults.lower_utilization_bps, 7_500);
+    assert_eq!(defaults.upper_utilization_bps, 8_000);
     assert!(RiskRateOverrides {
         initial_apr_nad: Some(0),
         ..Default::default()
@@ -45,7 +53,7 @@ fn market_defaults_and_explicit_zero_overrides() {
 fn rates_double_hold_and_halve_with_inclusive_band() {
     let config = RiskRateConfig::default();
     let start = rate(0.04);
-    let up = accrue_risk_rate(&config, start, Some(0), config.half_life_ms).unwrap();
+    let up = accrue_risk_rate(&config, start, input(Some(0), 0), config.half_life_ms).unwrap();
     assert_eq!(up.end_apr_e18, rate(0.08));
     assert_close(
         up.integrated_apr_nad_ms as f64,
@@ -57,11 +65,11 @@ fn rates_double_hold_and_halve_with_inclusive_band() {
         Some(config.lower_signal_nad as u128),
         Some(config.upper_signal_nad as u128),
     ] {
-        let flat = accrue_risk_rate(&config, start, signal, config.half_life_ms).unwrap();
+        let flat = accrue_risk_rate(&config, start, input(signal, 7_750), config.half_life_ms).unwrap();
         assert_eq!(flat.end_apr_e18, start);
         assert_eq!(flat.integrated_apr_nad_ms, 40_000_000 * config.half_life_ms as u128);
     }
-    let down = accrue_risk_rate(&config, start, Some(NAD as u128), config.half_life_ms).unwrap();
+    let down = accrue_risk_rate(&config, start, input(Some(NAD as u128), 0), config.half_life_ms).unwrap();
     assert_eq!(down.end_apr_e18, rate(0.02));
 }
 
@@ -69,8 +77,8 @@ fn rates_double_hold_and_halve_with_inclusive_band() {
 fn fixed_floor_integrates_tail_and_upward_rate_has_no_economic_cap() {
     let config = RiskRateConfig::default();
     let elapsed = 3 * config.half_life_ms;
-    let up = accrue_risk_rate(&config, rate(0.04), Some(0), elapsed).unwrap();
-    let down = accrue_risk_rate(&config, rate(0.04), Some(NAD as u128), elapsed).unwrap();
+    let up = accrue_risk_rate(&config, rate(0.04), input(Some(0), 0), elapsed).unwrap();
+    let down = accrue_risk_rate(&config, rate(0.04), input(Some(NAD as u128), 0), elapsed).unwrap();
     let scale = NAD as f64 * config.half_life_ms as f64;
     assert_eq!(up.end_apr_e18, rate(0.32));
     assert_eq!(down.end_apr_e18, rate(0.01));
@@ -98,7 +106,7 @@ fn fourteen_and_thirty_day_half_lives_do_not_truncate_to_zero() {
             half_life_ms: days * crate::constants::MS_PER_DAY,
             ..Default::default()
         };
-        let result = accrue_risk_rate(&config, rate(0.04), Some(0), config.half_life_ms).unwrap();
+        let result = accrue_risk_rate(&config, rate(0.04), input(Some(0), 0), config.half_life_ms).unwrap();
         assert_eq!(result.end_apr_e18, rate(0.08));
     }
 }
@@ -124,9 +132,9 @@ fn frequent_accrual_cannot_freeze_a_slow_rate() {
     let initial = MINIMUM_BORROW_APR_NAD as u128 * RATE_TO_NAD;
     let mut current = initial;
     for _ in 0..10_000 {
-        current = accrue_risk_rate(&config, current, Some(0), 200).unwrap().end_apr_e18;
+        current = accrue_risk_rate(&config, current, input(Some(0), 0), 200).unwrap().end_apr_e18;
     }
-    let once = accrue_risk_rate(&config, initial, Some(0), 2_000_000).unwrap();
+    let once = accrue_risk_rate(&config, initial, input(Some(0), 0), 2_000_000).unwrap();
     assert!(current > initial);
     assert!(once.end_apr_e18.abs_diff(current) <= 10_001);
 }
@@ -134,7 +142,7 @@ fn frequent_accrual_cannot_freeze_a_slow_rate() {
 #[test]
 fn zero_time_and_numeric_overflow_do_not_invent_elapsed_interest() {
     let config = RiskRateConfig::default();
-    let same = accrue_risk_rate(&config, 1, Some(0), 0).unwrap();
+    let same = accrue_risk_rate(&config, 1, input(Some(0), 0), 0).unwrap();
     assert_eq!(
         same,
         RateAccrual {
@@ -142,9 +150,9 @@ fn zero_time_and_numeric_overflow_do_not_invent_elapsed_interest() {
             integrated_apr_nad_ms: 0
         }
     );
-    let clamped = accrue_risk_rate(&config, u128::MAX, Some(0), config.half_life_ms).unwrap();
+    let clamped = accrue_risk_rate(&config, u128::MAX, input(Some(0), 0), config.half_life_ms).unwrap();
     assert_eq!(clamped.end_apr_e18, u64::MAX as u128 * RATE_TO_NAD);
-    let stale = accrue_risk_rate(&config, rate(0.04), Some(0), u64::MAX).unwrap();
+    let stale = accrue_risk_rate(&config, rate(0.04), input(Some(0), 0), u64::MAX).unwrap();
     assert_eq!(stale.end_apr_e18, u64::MAX as u128 * RATE_TO_NAD);
     assert!(stale.integrated_apr_nad_ms > 0);
 }
@@ -157,7 +165,7 @@ fn valid_uncapped_market_remains_accruable_after_seventy_three_half_lives() {
     };
     config.validate().unwrap();
     let elapsed = 73 * config.half_life_ms;
-    let accrued = accrue_risk_rate(&config, rate(0.04), Some(0), elapsed).unwrap();
+    let accrued = accrue_risk_rate(&config, rate(0.04), input(Some(0), 0), elapsed).unwrap();
     assert_eq!(accrued.end_apr_e18, u64::MAX as u128 * RATE_TO_NAD);
     assert!(accrued.integrated_apr_nad_ms > 0);
 }
@@ -165,7 +173,13 @@ fn valid_uncapped_market_remains_accruable_after_seventy_three_half_lives() {
 #[test]
 fn every_market_has_the_same_nonzero_downward_floor() {
     let config = RiskRateConfig::default();
-    let accrued = accrue_risk_rate(&config, rate(0.04), Some(u64::MAX as u128), u64::MAX).unwrap();
+    let accrued = accrue_risk_rate(
+        &config,
+        rate(0.04),
+        input(Some(u64::MAX as u128), 0),
+        u64::MAX,
+    )
+    .unwrap();
     assert_eq!(accrued.end_apr_e18, rate(0.01));
     assert!(accrued.integrated_apr_nad_ms > 0);
 }
@@ -186,7 +200,13 @@ proptest! {
         let time = (elapsed as f64).min(crossing.max(0.0));
         let end = if elapsed as f64 >= crossing.max(0.0) { bound } else { start * (k * time).exp() };
         let area = start * (k * time).exp_m1() / k + bound * (elapsed as f64 - time);
-        let actual = accrue_risk_rate(&config, start_bps as u128 * RATE_SCALE / 10_000, Some(if rising { 0 } else { NAD as u128 }), elapsed).unwrap();
+        let actual = accrue_risk_rate(
+            &config,
+            start_bps as u128 * RATE_SCALE / 10_000,
+            input(Some(if rising { 0 } else { NAD as u128 }), 0),
+            elapsed,
+        )
+        .unwrap();
         assert_close(actual.end_apr_e18 as f64 / RATE_SCALE as f64, end, 1e-7 + end * 1e-12);
         assert_close(actual.integrated_apr_nad_ms as f64 / NAD as f64, area, 1e-4 + area * 1e-12);
     }
@@ -197,7 +217,7 @@ fn six_changes_separate_coverage_and_exit_liquidity() {
     // (junior, debt, cash, expected rate direction relative to the default band)
     // Initial pool: junior 200, senior 800, debt 800, cash 200; signal 5%.
     let cases = [
-        (300, 800, 200, -1), // senior -> junior, no cash moves
+        (300, 800, 200, 0),  // senior -> junior, but utilization is at its upper bound
         (100, 800, 200, 1),  // junior -> senior, no cash moves
         (200, 900, 100, 1),  // additional borrowing
         (200, 700, 300, -1), // repayment
@@ -208,25 +228,43 @@ fn six_changes_separate_coverage_and_exit_liquidity() {
     for (junior, debt, cash, direction) in cases {
         let utilization = crate::math::utilization_bps(debt, cash).unwrap();
         let signal = coverage_signal_nad(junior, debt, utilization).unwrap();
-        let result = accrue_risk_rate(&config, rate(0.04), signal, config.half_life_ms).unwrap();
+        let result = accrue_risk_rate(
+            &config,
+            rate(0.04),
+            input(signal, utilization),
+            config.half_life_ms,
+        )
+        .unwrap();
         assert_eq!(
             result.end_apr_e18.cmp(&rate(0.04)),
-            if direction > 0 {
-                std::cmp::Ordering::Greater
-            } else {
-                std::cmp::Ordering::Less
+            match direction {
+                1 => std::cmp::Ordering::Greater,
+                -1 => std::cmp::Ordering::Less,
+                _ => std::cmp::Ordering::Equal,
             }
         );
     }
 }
 
 #[test]
-fn borrowing_has_an_exact_cash_cap_and_no_junior_launch_gate() {
+fn independent_bands_resolve_conflicting_risk_and_demand_signals() {
     let config = RiskRateConfig::default();
-    assert!(check_new_borrow_liquidity(&config, 0, 1_000, 800, 800).is_ok());
-    assert!(check_new_borrow_liquidity(&config, 0, 1_000, 801, 801).is_err());
-    assert!(check_new_borrow_liquidity(&config, 800, 200, 1, 1).is_err());
-    assert!(check_new_borrow_liquidity(&config, 0, 1_000, 1_001, 1_001).is_err());
-    // An additional atom above 80% cannot hide in a utilization-bps floor.
-    assert!(check_new_borrow_liquidity(&config, 0, 1_000_000_000, 800_000_001, 800_000_001).is_err());
+    let start = rate(0.04);
+    let elapsed = config.half_life_ms;
+    let cases = [
+        (Some(0), 1_000, rate(0.08)),              // low coverage, low utilization
+        (Some(NAD as u128), 9_000, rate(0.08)),    // high coverage, high utilization
+        (Some(NAD as u128), 1_000, rate(0.02)),    // high coverage, low utilization
+        (Some(55_000_000), 7_750, start),          // both values inside their bands
+        (Some(NAD as u128), 8_000, start),         // upper utilization bound is inclusive
+        (Some(NAD as u128), 7_500, start),         // lower utilization bound is inclusive
+    ];
+    for (signal, utilization, expected) in cases {
+        assert_eq!(
+            accrue_risk_rate(&config, start, input(signal, utilization), elapsed)
+                .unwrap()
+                .end_apr_e18,
+            expected
+        );
+    }
 }

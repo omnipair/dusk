@@ -4,10 +4,10 @@ use proptest::prelude::*;
 #[test]
 fn captured_hlp_entries_settle_funding_and_preserve_existing_claims() {
     for (bytes, slot) in [
-        (include_bytes!("../fixtures/hlp-entry-layout13.bin").as_slice(), 500_291_305),
+        (include_bytes!("../fixtures/hlp-entry-layout14.bin").as_slice(), 500_291_305),
         // Market 4iuoB4WsTEsv4gnwY6RZnwgaHWqYCAwCbaLswJjbwgSa,
         // devnet slot 519889239: quote hLP needs accrued-funding settlement.
-        (include_bytes!("../fixtures/hlp-entry-funding-layout13.bin").as_slice(), 519_889_239),
+        (include_bytes!("../fixtures/hlp-entry-funding-layout14.bin").as_slice(), 519_889_239),
     ] {
         for target in [MarketAsset::Base, MarketAsset::Quote] {
             for amount in [1_000_000, 10_000_000, 100_000_000] {
@@ -506,7 +506,7 @@ proptest! {
 
 #[cfg(feature = "benchmark")]
 fn captured_vob_market() -> Market {
-    let bytes = include_bytes!("../fixtures/vob-market-layout13.bin");
+    let bytes = include_bytes!("../fixtures/vob-market-layout14.bin");
     Market::try_deserialize(&mut bytes.as_slice()).unwrap()
 }
 

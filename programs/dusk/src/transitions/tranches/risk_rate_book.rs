@@ -2,7 +2,7 @@ use crate::{
     constants::{MS_PER_YEAR, NAD},
     errors::ErrorCode,
     math::{
-        borrow_controller::{accrue_risk_rate, RateAccrual, RATE_SCALE},
+        borrow_controller::{accrue_risk_rate, RateAccrual, RiskRateInput, RATE_SCALE},
         mul_div_rem_u128, slots_to_ms,
     },
     state::RiskRateConfig,
@@ -60,7 +60,7 @@ impl RiskRateBook {
         })
     }
 
-    pub fn accrue(&mut self, signals_nad: [Option<u128>; 2], current_slot: u64) -> Result<[RateAccrual; 2]> {
+    pub fn accrue(&mut self, inputs: [RiskRateInput; 2], current_slot: u64) -> Result<[RateAccrual; 2]> {
         require!(current_slot >= self.last_accrual_slot, ErrorCode::InvalidArgument);
         let elapsed_ms = slots_to_ms(self.last_accrual_slot, current_slot).ok_or(ErrorCode::MarketMathOverflow)?;
         let mut next = *self;
@@ -69,8 +69,8 @@ impl RiskRateBook {
             integrated_apr_nad_ms: 0,
         }; 2];
         for i in 0..2 {
-            results[i] = accrue_risk_rate(&self.config, self.sides[i].apr_e18, signals_nad[i], elapsed_ms)?;
-            if signals_nad[i].is_some() {
+            results[i] = accrue_risk_rate(&self.config, self.sides[i].apr_e18, inputs[i], elapsed_ms)?;
+            if inputs[i].signal_nad.is_some() {
                 next.sides[i].apply(results[i])?;
             } else {
                 // No borrower owes interest in this interval. Preserve the
@@ -90,7 +90,7 @@ impl RiskRateBook {
     pub fn replace_config(
         &mut self,
         config: RiskRateConfig,
-        signals_nad: [Option<u128>; 2],
+        inputs: [RiskRateInput; 2],
         current_slot: u64,
     ) -> Result<[RateAccrual; 2]> {
         config.validate()?;
@@ -99,7 +99,7 @@ impl RiskRateBook {
             self.config.initial_apr_nad,
             ErrorCode::OperatorFieldForbidden
         );
-        let results = self.accrue(signals_nad, current_slot)?;
+        let results = self.accrue(inputs, current_slot)?;
         self.config = config;
         Ok(results)
     }

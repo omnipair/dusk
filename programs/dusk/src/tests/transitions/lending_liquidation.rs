@@ -1031,7 +1031,16 @@ fn numerically_saturated_interest_remains_liquidatable_with_full_loss_socializat
     position.global_health_base_contribution_for_quote_debt = 1;
     market.debt.global_health_base_contribution_for_quote_debt = 1;
     let slot = 60 * crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
-    crate::transitions::lending::accrue_side::<false>(&mut market, asset, slot, Some(0)).unwrap();
+    crate::transitions::lending::accrue_side::<false>(
+        &mut market,
+        asset,
+        slot,
+        crate::math::borrow_controller::RiskRateInput {
+            signal_nad: Some(0),
+            utilization_bps: 0,
+        },
+    )
+    .unwrap();
     let debt = position_debt_after(&market, &position, asset);
     assert!(debt > i64::MAX as u128 && debt <= u64::MAX as u128);
     let receipt = Liquidation::new_with_pricing(asset, 1, debt as u64 - 1,

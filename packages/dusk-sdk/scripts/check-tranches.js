@@ -29,10 +29,11 @@ test("creation defaults retain the approved half-life and explicit uncapped rate
   assert.equal(RISK_RATE_DEFAULTS.halfLifeMs, 1_209_600_000);
   assert.equal(RISK_RATE_DEFAULTS.lowerSignalNad, 50_000_000);
   assert.equal(RISK_RATE_DEFAULTS.upperSignalNad, 62_500_000);
+  assert.equal(RISK_RATE_DEFAULTS.lowerUtilizationBps, 7_500);
+  assert.equal(RISK_RATE_DEFAULTS.upperUtilizationBps, 8_000);
   assert.equal(RISK_RATE_DEFAULTS.initialAprNad, 40_000_000);
   assert.equal("minimumAprNad" in RISK_RATE_DEFAULTS, false);
   assert.equal("maximumAprNad" in RISK_RATE_DEFAULTS, false);
-  assert.equal(RISK_RATE_DEFAULTS.borrowUtilizationLimitBps, 8_000);
 });
 
 test("junior generations and archived income sources cannot share addresses", () => {

@@ -10,6 +10,13 @@ fn slots_for_ms(ms: u64) -> u64 {
     ms / TARGET_MS_PER_SLOT
 }
 
+fn rate_input(signal_nad: Option<u128>) -> crate::math::borrow_controller::RiskRateInput {
+    crate::math::borrow_controller::RiskRateInput {
+        signal_nad,
+        utilization_bps: 7_000,
+    }
+}
+
 fn test_market(base_cash: u64, quote_cash: u64) -> Market {
     let base_side = MarketSide {
         reserves: Reserves {
@@ -91,7 +98,7 @@ fn accrual_receipt_separates_credit_margin_and_hlp_at_the_shared_index() {
         &mut market,
         MarketAsset::Base,
         slots_for_ms(MS_PER_YEAR),
-        Some(50_000_000),
+        rate_input(Some(50_000_000)),
     )
     .unwrap()
     .unwrap();
@@ -103,7 +110,7 @@ fn accrual_receipt_separates_credit_margin_and_hlp_at_the_shared_index() {
     assert_eq!(receipt.from_slot, 0);
     assert_eq!(receipt.to_slot, slots_for_ms(MS_PER_YEAR));
     assert!(
-        accrue_side::<true>(&mut market, MarketAsset::Base, receipt.to_slot, Some(50_000_000))
+        accrue_side::<true>(&mut market, MarketAsset::Base, receipt.to_slot, rate_input(Some(50_000_000)))
             .unwrap()
             .is_none()
     );
@@ -119,9 +126,9 @@ fn short_checkpoints_preserve_fractional_borrow_interest() {
     // Two hundred 200 ms slots accrue enough at the minimum APR to advance
     // the integer index while exercising its fractional remainder.
     for slot in 1..=200 {
-        accrue_side::<false>(&mut frequent, MarketAsset::Base, slot, Some(50_000_000)).unwrap();
+        accrue_side::<false>(&mut frequent, MarketAsset::Base, slot, rate_input(Some(50_000_000))).unwrap();
     }
-    accrue_side::<false>(&mut single, MarketAsset::Base, 200, Some(50_000_000)).unwrap();
+    accrue_side::<false>(&mut single, MarketAsset::Base, 200, rate_input(Some(50_000_000))).unwrap();
 
     assert!(frequent.debt.base_borrow_index_nad > NAD as u128);
     assert_eq!(frequent.debt.base_borrow_index_nad, single.debt.base_borrow_index_nad);
@@ -141,7 +148,7 @@ fn accrual_receipts_preserve_each_buckets_rounding_boundary() {
         &mut market,
         MarketAsset::Base,
         slots_for_ms(MS_PER_YEAR),
-        Some(50_000_000),
+        rate_input(Some(50_000_000)),
     )
     .unwrap()
     .unwrap();
@@ -210,7 +217,7 @@ fn hlp_funding_interest_does_not_grow_virtual_reserve() {
         &mut market,
         MarketAsset::Quote,
         slots_for_ms(MS_PER_YEAR),
-        Some(50_000_000),
+        rate_input(Some(50_000_000)),
     )
     .unwrap();
 
@@ -237,7 +244,7 @@ fn cash_backed_interest_increases_virtual_reserve_with_debt() {
         &mut market,
         MarketAsset::Quote,
         slots_for_ms(MS_PER_YEAR),
-        Some(50_000_000),
+        rate_input(Some(50_000_000)),
     )
     .unwrap();
 
@@ -288,7 +295,10 @@ fn mixed_active_and_idle_sides_accrue_independently_with_shared_coverage_snapsho
     let integral = crate::math::borrow_controller::accrue_risk_rate(
         &market.config.irm,
         DEFAULT_BORROW_APR_NAD * NAD as u128,
-        Some(0),
+        crate::math::borrow_controller::RiskRateInput {
+            signal_nad: Some(0),
+            utilization_bps: 7_000,
+        },
         MS_PER_YEAR,
     )
     .unwrap();
@@ -349,7 +359,10 @@ fn long_slot_gap_charges_the_full_elapsed_interval() {
     let integral = crate::math::borrow_controller::accrue_risk_rate(
         &market.config.irm,
         DEFAULT_BORROW_APR_NAD * NAD as u128,
-        Some(0),
+        crate::math::borrow_controller::RiskRateInput {
+            signal_nad: Some(0),
+            utilization_bps: 7_000,
+        },
         2 * MS_PER_YEAR,
     )
     .unwrap();
@@ -381,7 +394,7 @@ fn protocol_markup_is_added_to_the_base_borrow_rate() {
         &mut market,
         MarketAsset::Base,
         slots_for_ms(MS_PER_YEAR),
-        Some(50_000_000),
+        rate_input(Some(50_000_000)),
     )
     .unwrap()
     .unwrap();
@@ -449,7 +462,7 @@ fn saturation_books_matching_lp_and_fee_receivables_without_inventing_cash() {
     market.protocol_interest_markup_bps = 10_000;
     market.operator.interest_share_bps = 5_000;
     let slot = slots_for_ms(60 * crate::constants::MS_PER_DAY);
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
     let books = market.income.get().unwrap();
     let revenue = *books.revenue[0];
     let unpaid_lp = books.books[0].unpaid;
@@ -459,7 +472,7 @@ fn saturation_books_matching_lp_and_fee_receivables_without_inventing_cash() {
     assert_eq!(revenue.operator_claimable, 0);
     assert_eq!(market.base_side.fees.interest_vault_balance, 0);
     let index = market.debt.base_borrow_index_nad;
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot + 100, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot + 100, rate_input(Some(0))).unwrap();
     assert_eq!(market.debt.base_borrow_index_nad, index);
     assert_eq!(*market.income.get().unwrap().revenue[0], revenue);
 }
@@ -473,7 +486,7 @@ fn fully_repaid_side_resets_the_index_without_changing_its_live_apr() {
     market.debt.base_borrow_index_nad = u64::MAX as u128 * NAD as u128;
     market.debt.base_borrow_index_remainder = 1;
     let apr = market.debt.base_borrow_apr_nad;
-    accrue_side::<false>(&mut market, MarketAsset::Base, 1, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, 1, rate_input(Some(0))).unwrap();
     assert_eq!(market.debt.base_borrow_index_nad, NAD as u128);
     assert_eq!(market.debt.base_borrow_apr_nad, apr);
     assert_eq!(Debt::debt_to_shares(1, market.debt.base_borrow_index_nad).unwrap(), 1);
@@ -489,7 +502,7 @@ fn final_numeric_limit_handles_a_demand_beyond_the_u128_index_range() {
     market.base_side.reserves.live_reserve = market.base_side.reserves.cash_reserve as u128
         + market.debt.fixed_base_debt().unwrap();
     let slot = slots_for_ms(1_000 * MS_PER_YEAR);
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
     assert_eq!(market.debt.fixed_base_debt().unwrap(), u64::MAX as u128);
     assert_eq!(market.debt.base_last_accrual_slot, slot);
     assert_eq!(market.debt.base_borrow_index_remainder, 0);
@@ -506,15 +519,15 @@ fn saturation_allows_partial_repayment_then_resumes_only_future_interest() {
         ..BorrowPosition::default()
     };
     let slot = slots_for_ms(60 * crate::constants::MS_PER_DAY);
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
     let prior_debt = market.debt.fixed_base_debt().unwrap();
     let repay = market.fixed_repayment_for_max(&position, MarketAsset::Base, u64::MAX / 3).unwrap();
     market.repay(&mut position, MarketAsset::Base, repay.cash_repaid).unwrap();
     let reduced_debt = market.debt.fixed_base_debt().unwrap();
     assert!(reduced_debt < prior_debt);
-    assert!(accrue_side::<true>(&mut market, MarketAsset::Base, slot, Some(0)).unwrap().is_none());
+    assert!(accrue_side::<true>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap().is_none());
     assert_eq!(market.debt.fixed_base_debt().unwrap(), reduced_debt);
-    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slot + 1, Some(0)).unwrap().unwrap();
+    let receipt = accrue_side::<true>(&mut market, MarketAsset::Base, slot + 1, rate_input(Some(0))).unwrap().unwrap();
     assert_eq!(receipt.from_slot, slot);
     assert!(receipt.credit_interest > 0);
     assert!(market.debt.fixed_base_debt().unwrap() <= u64::MAX as u128);
@@ -531,7 +544,7 @@ fn saturation_allows_full_repayment_across_the_signed_u64_boundary() {
         ..BorrowPosition::default()
     };
     let slot = slots_for_ms(60 * crate::constants::MS_PER_DAY);
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
     let debt = u64::try_from(position.fixed_base_debt(&market.debt).unwrap()).unwrap();
     assert!(debt > i64::MAX as u64);
     let receipt = market.repay(&mut position, MarketAsset::Base, debt).unwrap();
@@ -539,7 +552,7 @@ fn saturation_allows_full_repayment_across_the_signed_u64_boundary() {
     assert_eq!(position.fixed_base_shares, 0);
     assert_eq!(market.debt.fixed_base_principal, 0);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot + 1, None).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot + 1, rate_input(None)).unwrap();
     assert_eq!(market.debt.base_borrow_index_nad, NAD as u128);
 }
 
@@ -555,14 +568,14 @@ fn exhausted_income_unit_capacity_pauses_accrual_and_keeps_repayments_available(
         ..BorrowPosition::default()
     };
     let slot = slots_for_ms(60 * crate::constants::MS_PER_DAY);
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
     let pay = market.fixed_repayment_for_max(&position, MarketAsset::Base, u64::MAX / 2).unwrap();
     let receipt = market.repay(&mut position, MarketAsset::Base, pay.cash_repaid).unwrap();
     market.record_receivable_income_credit(MarketAsset::Base, false, receipt.interest_paid, 0,
         crate::state::ProtocolAuctionSplit::default(), 0).unwrap();
     let remaining_before = market.debt.fixed_base_debt().unwrap();
     let end = slot + slots_for_ms(crate::constants::MS_PER_DAY);
-    accrue_side::<false>(&mut market, MarketAsset::Base, end, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, end, rate_input(Some(0))).unwrap();
     let books = market.income.get().unwrap();
     assert!(books.books[0].units > u64::MAX - 2_000_000_000_000);
     assert_eq!(books.books[0].unpaid, books.revenue[0].gross_unpaid);
@@ -601,7 +614,7 @@ proptest::proptest! {
         market.operator.interest_share_bps = operator_share;
         let curve = market.curve_reserve(MarketAsset::Base).unwrap();
         let slot = slots_for_ms(days * crate::constants::MS_PER_DAY);
-        accrue_side::<false>(&mut market, MarketAsset::Base, slot, Some(0)).unwrap();
+        accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
         let public = market.public_unpaid_interest(MarketAsset::Base).unwrap();
         let funding = market.hlp_funding_debt(MarketAsset::Base).unwrap() - principal as u128;
         let income = market.income.get().unwrap();
@@ -622,7 +635,7 @@ fn saturated_interest_does_not_block_an_otherwise_cash_backed_lp_exit() {
     market.base_side.fees.junior.initialized = true;
     market.quote_side.fees.junior.initialized = true;
     let slot = slots_for_ms(60 * crate::constants::MS_PER_DAY);
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot, Some(0)).unwrap();
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
     let before = (*market.income.get().unwrap().books[0]).clone();
     let receipt = market.remove_liquidity(100_000_000_000).unwrap();
     assert_eq!(receipt.base_amount_out, 200_000_000_000);

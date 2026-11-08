@@ -23,6 +23,12 @@ pub struct RateAccrual {
     pub integrated_apr_nad_ms: u128,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RiskRateInput {
+    pub signal_nad: Option<u128>,
+    pub utilization_bps: u64,
+}
+
 /// One funded junior budget divided by consolidated debt, then discounted by
 /// this asset's idle fraction. Both value inputs must use the same numeraire.
 /// No debt returns None: the controller holds its current rate.
@@ -37,17 +43,23 @@ pub fn coverage_signal_nad(junior_value: u128, covered_debt_value: u128, utiliza
     Ok(Some(mul_div_u128(junior_value, idle_scale, covered_debt_value)?))
 }
 
-/// V1's exponential up/hold/down mechanism with reversed coverage direction.
-/// Integrates the changing APR over the complete elapsed interval, including
-/// any time spent at a configured floor/ceiling. No instantaneous utilization
-/// multiplier or truncated per-millisecond exponential coefficient is used.
+/// V1's exponential up/hold/down mechanism driven by independent inclusive
+/// risk-signal and utilization bands. Undercoverage or excess utilization
+/// raises the APR. The APR falls only when coverage is above its band and
+/// utilization is below its band; all other combinations hold. The changing
+/// APR is integrated over the complete elapsed interval, including time at the
+/// fixed floor. There is no instantaneous utilization multiplier.
 pub fn accrue_risk_rate(
     config: &RiskRateConfig,
     previous_apr_e18: u128,
-    signal_nad: Option<u128>,
+    input: RiskRateInput,
     elapsed_ms: u64,
 ) -> Result<RateAccrual> {
     config.validate()?;
+    require!(
+        input.utilization_bps <= BPS_DENOMINATOR as u64,
+        ErrorCode::InvalidArgument
+    );
     if elapsed_ms == 0 {
         return Ok(RateAccrual {
             end_apr_e18: previous_apr_e18,
@@ -58,9 +70,19 @@ pub fn accrue_risk_rate(
     let maximum = UNBOUNDED_NUMERIC_APR_NAD * RATE_TO_NAD;
     let start = previous_apr_e18.max(minimum);
     let start = if maximum == 0 { start } else { start.min(maximum) };
-    let direction = match signal_nad {
-        Some(value) if value < config.lower_signal_nad as u128 => 1,
-        Some(value) if value > config.upper_signal_nad as u128 => -1,
+    let direction = match input.signal_nad {
+        Some(value)
+            if value < config.lower_signal_nad as u128
+                || input.utilization_bps > config.upper_utilization_bps as u64 =>
+        {
+            1
+        }
+        Some(value)
+            if value > config.upper_signal_nad as u128
+                && input.utilization_bps < config.lower_utilization_bps as u64 =>
+        {
+            -1
+        }
         _ => 0,
     };
     if direction == 0 || start == 0 {
@@ -160,39 +182,6 @@ fn half_life_crossing_ms(high: u128, low: u128, half_life_ms: u64) -> Result<u64
     }
     let time = ((((whole as u128) << 32) + fraction) * half_life_ms as u128) >> 32;
     u64::try_from(time).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-/// Admission only: this must not gate repayment, cash-backed LP withdrawal or
-/// cashless tranche conversion. There is deliberately no junior-capital check.
-/// Values are atom amounts of one borrowed asset, including its hLP debt.
-pub fn check_new_borrow_liquidity(
-    config: &RiskRateConfig,
-    debt_before: u128,
-    cash_before: u64,
-    debt_increase: u128,
-    cash_outflow: u64,
-) -> Result<()> {
-    config.validate()?;
-    require!(cash_outflow <= cash_before, ErrorCode::InsufficientLiquidity);
-    let debt_after = debt_before
-        .checked_add(debt_increase)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let total_after = debt_after
-        .checked_add((cash_before - cash_outflow) as u128)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    if total_after == 0 {
-        return Ok(());
-    }
-    require!(
-        crate::math::ratio_lte_full_width(
-            debt_after,
-            total_after,
-            config.borrow_utilization_limit_bps as u128,
-            BPS_DENOMINATOR as u128
-        )?,
-        ErrorCode::InsufficientLiquidity
-    );
-    Ok(())
 }
 
 #[cfg(test)]

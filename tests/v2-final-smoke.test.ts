@@ -275,9 +275,10 @@ function marketConfig() {
     irm: {
       lowerSignalNad: new BN(50_000_000),
       upperSignalNad: new BN(62_500_000),
+      lowerUtilizationBps: 7_500,
+      upperUtilizationBps: 8_000,
       halfLifeMs: new BN(14 * 24 * 60 * 60 * 1000),
       initialAprNad: new BN(40_000_000),
-      borrowUtilizationLimitBps: 8_000,
     },
     startTime: new BN(0),
   };
