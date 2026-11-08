@@ -71,7 +71,7 @@ async function main() {
   const market = addresses.market;
   const marketAccount = await provider.connection.getAccountInfo(market, "confirmed");
   // Resolve tickers after canonical mint ordering; labels may be reversed.
-  // Do this before paying for accounts, so missing identities/uploads fail early.
+  // Validate identities and publishing configuration before paying for accounts.
   const [baseIdentity, quoteIdentity] = await Promise.all([
     readTokenMetadata(provider.connection, baseMint),
     readTokenMetadata(provider.connection, quoteMint),

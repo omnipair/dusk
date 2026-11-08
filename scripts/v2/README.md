@@ -24,7 +24,7 @@ npm run build --prefix packages/dusk-sdk
 yarn v2:create-mock-tokens
 yarn v2:initialize-mock-metadata
 yarn v2:mint-mock-tokens <tester-wallet>
-export PINATA_SIGNED_URL_ENDPOINT=https://beta.omnipair.fi/api/pinata/create-signed-url
+export LP_METADATA_ENDPOINT=https://beta.omnipair.fi/api/lp-metadata # optional devnet default
 yarn v2:bootstrap-market
 yarn v2:smoke-devnet
 ```
@@ -81,7 +81,7 @@ Useful knobs:
 Bootstrap resolves asset symbols from their canonical mint metadata after
 sorting the mints, then uses the SDK's `marketLpTokenNaming` for every LP name
 and symbol. It pins matching per-mint JSON/images before market initialization;
-set `PINATA_JWT` or `PINATA_SIGNED_URL_ENDPOINT` for a new market. If an asset has
+the default devnet `LP_METADATA_ENDPOINT` uses the app’s pair-metadata API. Override it for another app deployment, or set `PINATA_JWT` for standalone per-mint publishing. If an asset has
 no Metaplex ticker, supply `DUSK_BASE_SYMBOL` / `DUSK_QUOTE_SYMBOL` in canonical
 mint order. There are no generic Base/Quote LP name defaults.
 

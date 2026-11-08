@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { Connection, PublicKey } from "@solana/web3.js";
 
-import type { LpTokenNaming, MarketLpMintKind } from "../../packages/dusk-sdk/dist/index.js";
+import { assertLpTokenMetadata, type LpTokenNaming, type MarketLpMintKind } from "../../packages/dusk-sdk/dist/index.js";
 import { renderLpImages, type LpImageSources } from "./images.ts";
 import { fetchAssetLogo, fetchImage } from "./logos.ts";
 import { pinFile, pinJson, type PinataConfig } from "./pinata.ts";
@@ -78,6 +78,44 @@ export async function publishLpMetadata(
   if (params.mints.junior && !params.naming.junior) throw new Error("junior metadata requires junior naming");
   const outDir = params.outDir ?? join("target", "lp-metadata", params.market.toBase58());
   mkdirSync(outDir, { recursive: true });
+  if (params.pinata?.metadataEndpoint) {
+    const endpoint = params.pinata.metadataEndpoint;
+    const deadline = Date.now() + 90_000;
+    let body: { error?: string; uris?: Record<string, string>; naming?: Record<string, { name: string; symbol: string }> } | undefined;
+    while (Date.now() < deadline) {
+      const response = await fetch(endpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ network: params.network, base: params.baseMint.toBase58(), quote: params.quoteMint.toBase58() }),
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())), redirect: "error",
+      });
+      if (response.status === 409) {
+        const delay = Math.max(1_000, (Number(response.headers.get("retry-after")) || 2) * 1_000);
+        await response.body?.cancel();
+        await new Promise(resolve => setTimeout(resolve, Math.min(delay, Math.max(0, deadline - Date.now()))));
+        continue;
+      }
+      body = await response.json();
+      if (!response.ok) throw new Error(`LP metadata endpoint ${response.status}: ${body?.error ?? "metadata unavailable"}`);
+      break;
+    }
+    if (!body?.uris || !body.naming) throw new Error("LP metadata service returned incomplete metadata or is still busy");
+    const result = {} as Record<MarketLpMintKind, PublishedLpMetadata> & { junior?: PublishedLpMetadata };
+    // Validate every role before returning any URI to a market instruction.
+    for (const kind of Object.keys(params.mints) as LpKind[]) {
+      const expected = params.naming[kind]!, actual = body.naming[kind];
+      if (actual?.name !== expected.name || actual.symbol !== expected.symbol) throw new Error(`LP metadata ticker mismatch for ${kind}`);
+      const uri = body.uris[kind];
+      if (typeof uri !== "string") throw new Error(`LP metadata URI missing for ${kind}`);
+      assertLpTokenMetadata({ ...expected, uri });
+      const response = await fetch(uri, { signal: AbortSignal.timeout(20_000), redirect: "error" });
+      if (!response.ok) throw new Error(`LP metadata document unavailable for ${kind}: ${response.status}`);
+      const json = await response.json() as Record<string, unknown>;
+      if (json.name !== expected.name || json.symbol !== expected.symbol || typeof json.image !== "string") throw new Error(`LP metadata document mismatch for ${kind}`);
+      writeFileSync(join(outDir, `${kind}.json`), JSON.stringify(json, null, 2) + "\n");
+      result[kind] = { image: json.image, uri, json };
+    }
+    return result;
+  }
   const images = await renderLpImages(await resolveLogos(params));
   const result = {} as Record<MarketLpMintKind, PublishedLpMetadata> & { junior?: PublishedLpMetadata };
   for (const kind of Object.keys(params.mints) as LpKind[]) {

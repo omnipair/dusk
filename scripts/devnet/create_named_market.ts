@@ -11,10 +11,10 @@
  * market as a unit.
  *
  *   LABEL=named-1 VANITY_API_URL=https://vanity.omnipair.fi \
- *   PINATA_SIGNED_URL_ENDPOINT=http://localhost:3009/api/pinata/create-signed-url \
+ *   LP_METADATA_ENDPOINT=http://localhost:3009/api/lp-metadata \
  *   node scripts/devnet/create_named_market.ts
  *
- * `PINATA_JWT` works instead of the signed-URL endpoint. `LP_METADATA_DRY_RUN=1`
+ * `PINATA_JWT` enables standalone pinning instead of the pair API. `LP_METADATA_DRY_RUN=1`
  * renders and writes the metadata under target/lp-metadata without pinning or
  * naming anything on chain, and stops before touching the chain at all.
  */
