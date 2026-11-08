@@ -2219,7 +2219,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect((await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(20_000n);
     expect((await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(seniorBefore - 20_000n);
     const request = await tranches.convert({ market: f.market, owner: payer.publicKey,
-      action: { kind: "requestExit", additionalJunior: 10_000 } });
+      action: { kind: "requestExit", juniorAmount: 10_000 } });
     await connection.sendTransaction(request.transaction, [payer]);
     const queued = await sdkProgram.account.juniorExitAccount.fetch(request.exit);
     expect(queued.ticket.receipts.toString()).to.equal("9950");
@@ -2243,7 +2243,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(final.baseSide.reserves.cashReserve.toString()).to.equal(initial.baseSide.reserves.cashReserve.toString());
     expect(final.quoteSide.reserves.cashReserve.toString()).to.equal(initial.quoteSide.reserves.cashReserve.toString());
     const second = await tranches.convert({ market: f.market, owner: payer.publicKey,
-      action: { kind: "requestExit", additionalJunior: 1_000 } });
+      action: { kind: "requestExit", juniorAmount: 1_000 } });
     await connection.sendTransaction(second.transaction, [payer]);
     const secondQueue = await sdkProgram.account.juniorExitAccount.fetch(second.exit);
     svm.warpToSlot(BigInt(secondQueue.ticket.expiresAt.toString()));
@@ -2256,6 +2256,70 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const cancel = await tranches.convert({ market: f.market, owner: payer.publicKey, action: { kind: "cancelExit" } });
     await connection.sendTransaction(cancel.transaction, [payer]);
     expect((await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(9_995n);
+  });
+
+  it("cancels and replaces junior exits atomically during notice without releasing junior capital", async function () {
+    const f = await addBalancedLiquidity(248);
+    const sdkProgram = createDuskProgram({ provider: program.provider });
+    const tranches = new DuskTranches(sdkProgram);
+    const owner = payer.publicKey;
+    const init = await tranches.initialize({ market: f.market, payer: owner,
+      metadata: { name: "Base/Quote jrLP", symbol: "jrBA/QU", uri: "https://example.invalid/junior.json" } });
+    await connection.sendTransaction(init.transaction, [payer]);
+    await connection.sendTransaction((await tranches.convert({ market: f.market, owner,
+      action: { kind: "enter", seniorAmount: 20_000, minimumJunior: 20_000 } })).transaction, [payer]);
+    const ownerJunior = getAssociatedTokenAddressSync(init.juniorMint, owner, true, TOKEN_2022_PROGRAM_ID);
+    const seniorBefore = (await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    const request = await tranches.convert({ market: f.market, owner,
+      action: { kind: "requestExit", juniorAmount: 10_000 } });
+    await connection.sendTransaction(request.transaction, [payer]);
+    let queued = await sdkProgram.account.juniorExitAccount.fetch(request.exit);
+    for (const juniorAmount of [0, 1_000]) {
+      const overwrite = await tranches.convert({ market: f.market, owner,
+        action: { kind: "requestExit", juniorAmount } });
+      let rejected = false;
+      try { await connection.sendTransaction(overwrite.transaction, [payer]); } catch { rejected = true; }
+      expect(rejected).to.equal(true);
+      expect((await sdkProgram.account.juniorExitAccount.fetch(request.exit)).ticket).to.deep.equal(queued.ticket);
+    }
+    for (const juniorAmount of [15_000, 5_000]) {
+      const previousReady = BigInt(queued.ticket.readyAt.toString());
+      svm.warpToSlot(previousReady - 1n);
+      svm.expireBlockhash();
+      const cancel = await tranches.convert({ market: f.market, owner, action: { kind: "cancelExit" } });
+      const replace = await tranches.convert({ market: f.market, owner,
+        action: { kind: "requestExit", juniorAmount } });
+      await connection.sendTransaction(new Transaction().add(...cancel.instructions, ...replace.instructions), [payer]);
+      queued = await sdkProgram.account.juniorExitAccount.fetch(request.exit);
+      const current = await sdkProgram.account.market.fetch(f.market);
+      expect(BigInt(queued.ticket.readyAt.toString()) >= previousReady - 1n + BigInt(current.juniorExitConfig.minimumNoticeSlots.toString())).to.equal(true);
+      expect(queued.ticket.receipts.toNumber()).to.equal(juniorAmount - juniorAmount / 200);
+      expect(current.tranches.queuedReceipts.toString()).to.equal(queued.ticket.receipts.toString());
+      expect(current.tranches.juniorReserveShares.toString()).to.equal("20141");
+      expect((await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(seniorBefore);
+      for (const assetMint of [f.baseMint, f.quoteMint]) {
+        const holder = await sdkProgram.account.yieldAccount.fetch(deriveYieldAccountAddress(f.market, owner, init.juniorMint, assetMint, "junior")[0]);
+        expect(holder.escrowBalance.toString()).to.equal(queued.ticket.receipts.toString());
+      }
+      svm.warpToSlot(previousReady);
+      svm.expireBlockhash();
+      const premature = await tranches.convert({ market: f.market, owner, action: { kind: "convertExit", minimumSenior: 0 } });
+      let rejected = false;
+      try { await connection.sendTransaction(premature.transaction, [payer]); } catch { rejected = true; }
+      expect(rejected).to.equal(true);
+    }
+    const cancel = await tranches.convert({ market: f.market, owner, action: { kind: "cancelExit" } });
+    const invalid = await tranches.convert({ market: f.market, owner, action: { kind: "requestExit", juniorAmount: 100_000 } });
+    const juniorBefore = (await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    let rejected = false;
+    try { await connection.sendTransaction(new Transaction().add(...cancel.instructions, ...invalid.instructions), [payer]); } catch { rejected = true; }
+    expect(rejected).to.equal(true);
+    expect((await sdkProgram.account.juniorExitAccount.fetch(request.exit)).ticket).to.deep.equal(queued.ticket);
+    expect((await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(juniorBefore);
+    await connection.sendTransaction(cancel.transaction, [payer]);
+    expect((await sdkProgram.account.juniorExitAccount.fetch(request.exit)).ticket.receipts.isZero()).to.equal(true);
+    expect((await getAccount(connection as any, ownerJunior, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(19_850n);
+    expect((await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(seniorBefore);
   });
 
   it("funds and compounds the junior seed before any public junior depositor, preserving old senior income", async function () {
@@ -2340,7 +2404,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const owner = payer.publicKey;
     await swapBaseForQuote(f, [], 10_000, 1);
     const request = await tranches.convert({ market: f.market, owner: payer.publicKey,
-      action: { kind: "requestExit", additionalJunior: 8_000 } });
+      action: { kind: "requestExit", juniorAmount: 8_000 } });
     await connection.sendTransaction(request.transaction, [payer]);
     // Start this instruction test from the state after a funded credit loss.
     // The shared first-loss arithmetic is independently exercised in Rust;

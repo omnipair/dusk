@@ -1052,7 +1052,7 @@ const enter = await dusk.tranches.convert({
 });
 // Sign and submit enter.transaction. Amounts are raw token atoms.
 const request = await dusk.tranches.convert({
-  market, owner, action: { kind: "requestExit", additionalJunior: 500_000n },
+  market, owner, action: { kind: "requestExit", juniorAmount: 500_000n },
 });
 ```
 
@@ -1060,8 +1060,13 @@ Exit requests escrow receipts. They continue earning junior income and taking
 losses during notice and the exercise window. After notice, `convertExit` burns
 the escrowed jrLP and mints srLP at its current value. It does not withdraw cash.
 Read the returned `exit` account for its actual `readyAt` and `expiresAt` slots;
-the configured crowding rule determines the notice. An expired request must be
-renewed or canceled. Conversion can also be blocked by an unsettled insolvent
+the configured crowding rule determines the notice. Cancel at any time to return
+the queued claim to jrLP, without refunding the request fee or ending junior
+exposure. To change an exit amount or restart an expired request, cancel first
+and request a nonzero `juniorAmount` with a fresh full notice and request fee.
+An existing request cannot be increased or renewed in place. Cancellation and
+the new request can be instructions in one atomic transaction. Conversion can
+also be blocked by an unsettled insolvent
 liquidation. A failed transaction does not silently extend a window.
 
 Income earned before an ordinary LP transfers or converts remains with that

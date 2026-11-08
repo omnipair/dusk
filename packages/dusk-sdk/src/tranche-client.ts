@@ -10,7 +10,7 @@ import type { Dusk as DuskIdl } from "./types_v2.js";
 
 export type TrancheAction =
   | { kind: "enter"; seniorAmount: IntegerLike; minimumJunior: IntegerLike }
-  | { kind: "requestExit"; additionalJunior: IntegerLike }
+  | { kind: "requestExit"; juniorAmount: IntegerLike }
   | { kind: "convertExit"; minimumSenior: IntegerLike }
   | { kind: "cancelExit" };
 
@@ -166,7 +166,7 @@ export class DuskTranches {
     const action = params.action.kind === "enter"
       ? { enter: { seniorAmount: integerBN(params.action.seniorAmount, "seniorAmount"), minimumJunior: integerBN(params.action.minimumJunior, "minimumJunior") } }
       : params.action.kind === "requestExit"
-        ? { requestExit: { additionalJunior: integerBN(params.action.additionalJunior, "additionalJunior") } }
+        ? { requestExit: { juniorAmount: integerBN(params.action.juniorAmount, "juniorAmount") } }
         : params.action.kind === "convertExit"
           ? { convertExit: { minimumSenior: integerBN(params.action.minimumSenior, "minimumSenior") } }
           : { cancelExit: {} };

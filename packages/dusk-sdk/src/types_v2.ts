@@ -22670,7 +22670,7 @@ export type Dusk = {
             "name": "requestExit",
             "fields": [
               {
-                "name": "additionalJunior",
+                "name": "juniorAmount",
                 "type": "u64"
               }
             ]
@@ -22848,7 +22848,7 @@ export type Dusk = {
     {
       "name": "tranchePolicy",
       "docs": [
-        "Operator-configured junior income allocation. Exit timing and the request/renewal and",
+        "Operator-configured junior income allocation. Exit timing and the request and",
         "liquidation fees remain fixed by the protocol."
       ],
       "type": {

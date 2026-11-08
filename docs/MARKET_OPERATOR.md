@@ -62,7 +62,7 @@ explicit replacement is supplied.
 Oracle provider/feed and oracle policy are creation-only. Initial base APR is
 also creation-only. The controller has a fixed 1% base APR floor and no
 configurable economic ceiling. Its integer representation still has a finite
-numeric limit. No operator update changes the fixed 50bps junior request/renewal
+numeric limit. No operator update changes the fixed 50bps junior request
 fee, the 300bps liquidation fee, or junior exit timing. There is no standalone
 insurance vault, donation instruction, insurance cap or draw budget: funded
 losses pass through junior, then senior.

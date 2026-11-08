@@ -6109,7 +6109,7 @@ export type LeverageDelegate = {
     {
       "name": "tranchePolicy",
       "docs": [
-        "Operator-configured junior income allocation. Exit timing and the request/renewal and",
+        "Operator-configured junior income allocation. Exit timing and the request and",
         "liquidation fees remain fixed by the protocol."
       ],
       "type": {
