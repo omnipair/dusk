@@ -110,10 +110,17 @@ fn run(amp: u64, fee: u16, compound: u16, with_hlp: bool) -> Value {
     let mut b = BenchmarkHlpOwnedState::initialize(&m, MarketAsset::Base, owner, owner).unwrap();
     let mut q = BenchmarkHlpOwnedState::initialize(&m, MarketAsset::Quote, owner, owner).unwrap();
     if with_hlp {
-        for ext in [&mut b, &mut q] {
+        for target_base in [true, false] {
+            let (ext, counterpart) = if target_base {
+                (&mut b, &mut q)
+            } else {
+                (&mut q, &mut b)
+            };
             m.execute_hlp_entry(
                 ext,
+                counterpart,
                 BenchmarkHlpEntryRequest {
+                    funding: Default::default(),
                     clock,
                     target_transfer: BenchmarkTokenTransferOutcome {
                         source_debit: 50 * UNIT,

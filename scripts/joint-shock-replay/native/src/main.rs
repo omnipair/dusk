@@ -159,7 +159,9 @@ fn make(c: &Value) -> R<Sim> {
         market
             .execute_hlp_entry(
                 &mut base_hlp,
+                &mut quote_hlp,
                 BenchmarkHlpEntryRequest {
+                    funding: Default::default(),
                     clock: clock(1000),
                     target_transfer: transfer(atoms(h, MarketAsset::Base, P0)),
                     min_hlp_amount: 1,
@@ -170,7 +172,9 @@ fn make(c: &Value) -> R<Sim> {
         market
             .execute_hlp_entry(
                 &mut quote_hlp,
+                &mut base_hlp,
                 BenchmarkHlpEntryRequest {
+                    funding: Default::default(),
                     clock: clock(1000),
                     target_transfer: transfer(atoms(h, MarketAsset::Quote, P0)),
                     min_hlp_amount: 1,

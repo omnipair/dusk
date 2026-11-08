@@ -163,10 +163,20 @@ async function main() {
         eventAuthority,
         program: program.programId,
       })
-      .remainingAccounts(oracleReadAccounts(marketAccount.oracle.policy))
+      .remainingAccounts([
+        {pubkey:srlpMint,isWritable:true,isSigner:false},
+        {pubkey:new PublicKey(market.baseHlpSrlpVault),isWritable:true,isSigner:false},
+        {pubkey:new PublicKey(market.quoteHlpSrlpVault),isWritable:true,isSigner:false},
+        {pubkey:marketAccount.baseSide.interestVault,isWritable:true,isSigner:false},
+        {pubkey:marketAccount.quoteSide.interestVault,isWritable:true,isSigner:false},
+        ...oracleReadAccounts(marketAccount.oracle.policy),
+      ])
       .preInstructions([
         ...(marketAccount.oracle.policy.lambdaBps > 0 ? oracleComputeBudgetInstructions(marketAccount.oracle.policy)
-          : [anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 600_000 })]),
+          : [
+              anchor.web3.ComputeBudgetProgram.requestHeapFrame({ bytes: 256 * 1024 }),
+              anchor.web3.ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
+            ]),
         initializeYieldAccountsIx,
       ])
       .rpc();

@@ -35,9 +35,9 @@ fn native_preview_uses_full_value_hedge_and_quotes_both_funding_limits() {
     assert_eq!(status, HlpDepositStatus::Ready);
     assert!(limit > 0);
     market.assert_hlp_entry_available(MarketAsset::Base).unwrap();
-    // Ready reports current hedge/funding headroom. An amount-specific entry
-    // still enforces the native post-mint rounding bound.
-    assert_eq!(market.deposit_single_sided(MarketAsset::Base, 10_000_000, 1).unwrap_err(), error!(ErrorCode::HlpSettlementUnavailable));
+    let receipt = market.deposit_single_sided(MarketAsset::Base, 10_000_000, 1).unwrap();
+    assert!(receipt.hlp_amount > 0);
+    market.assert_hlp_entry_available(MarketAsset::Base).unwrap();
     let (mut market, clock) = snapshot();
     let (status, limit) = preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock).unwrap();
     assert_eq!(status, HlpDepositStatus::Ready);
@@ -52,6 +52,12 @@ fn native_preview_uses_full_value_hedge_and_quotes_both_funding_limits() {
     };
     assert!(fits(limit));
     assert!(!fits(limit + 1));
+    let mut at_limit = market.clone();
+    at_limit.deposit_single_sided(MarketAsset::Quote, limit, 1).unwrap();
+    let mut above_limit = market.clone();
+    // Canonical indexed-debt rounding can admit a neighboring target atom;
+    // a whole additional target token must exceed the cash funding bound.
+    assert!(above_limit.deposit_single_sided(MarketAsset::Quote, limit + 1_000_000, 1).is_err());
     // A real, ordinary-size USDC entry still passes the native transition.
     market.deposit_single_sided(MarketAsset::Quote, 1_000_000, 1).unwrap();
     market.finalize_amm_transition_and_observe_risk(clock.slot).unwrap();

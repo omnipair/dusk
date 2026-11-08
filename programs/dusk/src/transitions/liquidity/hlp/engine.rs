@@ -29,6 +29,7 @@ pub struct SingleSidedLiquidityReceipt {
     pub target_amount_out: u64,
     pub debt_repaid: u64,
     pub interest_paid: u64,
+    pub rebalances: [HlpRebalanceReceipt; 2],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1358,195 +1359,197 @@ impl Market {
     ) -> Result<SingleSidedLiquidityReceipt> {
         let market = self;
         market.require_hlp_flash_idle(target_asset)?;
+        market.require_hlp_flash_idle(target_asset.opposite())?;
         require!(!market.hlp_frozen(target_asset), ErrorCode::HlpSettlementUnavailable);
         require!(deposit_amount > 0, ErrorCode::AmountZero);
+        // Freeze all existing claims before changing either vault's ownership.
+        // The same canonical endpoint used by swaps settles accrued funding
+        // and matches indexed debt to the actual rounded srLP inventory.
         let pre_prices = current_hlp_curve_prices(market)?;
-        let pre_entry = current_hlp_entry_state_with_prices(market, target_asset, pre_prices)?;
-        let (hlp_supply_before, settlement_reference_before) = match target_asset {
-            MarketAsset::Base => (
-                market.base_hlp_vault.hlp_supply,
-                market.base_hlp_vault.cached_settlement_price_nad,
-            ),
-            MarketAsset::Quote => (
-                market.quote_hlp_vault.hlp_supply,
-                market.quote_hlp_vault.cached_settlement_price_nad,
-            ),
+        let mut before = [None, None];
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            if market.hlp_frozen(asset) {
+                continue;
+            }
+            let vault = if asset == MarketAsset::Base {
+                &market.base_hlp_vault
+            } else {
+                &market.quote_hlp_vault
+            };
+            if asset != target_asset && vault.hlp_supply == 0 && vault.srlp_shares == 0 && vault.debt_shares == 0 {
+                continue;
+            }
+            before[asset.code() as usize] = Some((
+                vault.hlp_supply,
+                vault.cached_settlement_price_nad,
+                current_hlp_entry_state_with_prices(market, asset, pre_prices)?,
+            ));
+        }
+        let supply_before = match target_asset {
+            MarketAsset::Base => market.base_hlp_vault.hlp_supply,
+            MarketAsset::Quote => market.quote_hlp_vault.hlp_supply,
         };
-        require!(
-            hlp_supply_before == 0 || pre_entry.disposition.admits_entry(),
-            ErrorCode::HlpSettlementUnavailable
-        );
-        // The purchase and its funding use the same full-value srLP ratio.
-        // Accrued public interest belongs to the existing shares. A curve-only
-        // funding leg would buy a different claim and leave a hedge residual.
-        let target_reserve = market.curve_reserve(target_asset)?;
-        let opposite_reserve = market.curve_reserve(target_asset.opposite())?;
-        require!(
-            target_reserve > 0 && opposite_reserve > 0,
-            ErrorCode::InsufficientLiquidity
-        );
-        let borrowed_amount = u64::try_from(
-            (deposit_amount as u128)
-                .checked_mul(opposite_reserve as u128)
-                .and_then(|value| value.checked_div(target_reserve as u128))
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        require!(borrowed_amount > 0, ErrorCode::InsufficientLiquidity);
-        let debt_shares = require_hlp_borrow_headroom(market, target_asset.opposite(), borrowed_amount)?;
-        checkpoint_hlp_yield_from_srlp(market, target_asset)?;
-
-        let (srlp_amount, hlp_amount, hlp_supply, post_prices) = match target_asset {
-            MarketAsset::Base => {
-                let hlp_supply_before = market.base_hlp_vault.hlp_supply;
-                // Price the existing shares at this transaction's mark. A
-                // cached controller NAV can predate an arbitrary swap, and
-                // srLP's accrued public-interest claim belongs to the old
-                // holders even before that interest is paid into cash.
-                let nav_before_nad = if hlp_supply_before == 0 {
-                    0
-                } else {
-                    hlp_share_nav_nad_with_prices(market, MarketAsset::Base, pre_prices)?
-                };
-                let srlp_amount = srlp_for_live_reserve_deposit(market, deposit_amount, borrowed_amount)?;
-                require!(srlp_amount > 0, ErrorCode::SlippageExceeded);
-                market.base_side.credit_reserve(deposit_amount, true)?;
-                market.quote_side.credit_reserve(borrowed_amount, false)?;
-                market
-                    .base_hlp_vault
-                    .credit_hlp_live_reserve(MarketAsset::Quote, borrowed_amount)?;
-                market.base_side.shares.mint(srlp_amount)?;
-                market.quote_side.shares.mint(srlp_amount)?;
-                market.base_hlp_vault.add_debt_shares(debt_shares)?;
-                market.base_hlp_vault.add_debt_principal(borrowed_amount)?;
-                market.base_hlp_vault.credit_srlp(srlp_amount)?;
-                let current_prices = current_hlp_curve_prices(market)?;
-                let current_nav_nad = hlp_share_nav_nad_with_prices(market, MarketAsset::Base, pre_prices)?;
-                let hlp_amount = if hlp_supply_before == 0 {
-                    deposit_amount
-                } else {
-                    let delta_nav_nad = current_nav_nad
-                        .checked_sub(nav_before_nad)
-                        .ok_or(ErrorCode::MarketMathOverflow)?;
-                    hlp_shares_for_delta_nav(delta_nav_nad, nav_before_nad, hlp_supply_before)?
-                };
-                market.base_hlp_vault.mint_hlp(hlp_amount)?;
-                (
-                    srlp_amount,
-                    hlp_amount,
-                    market.base_hlp_vault.hlp_supply,
-                    current_prices,
-                )
+        let nav_before = hlp_share_nav_nad_with_prices(market, target_asset, pre_prices)?;
+        checkpoint_hlp_yield_from_srlp(market, MarketAsset::Base)?;
+        checkpoint_hlp_yield_from_srlp(market, MarketAsset::Quote)?;
+        let mut end = market.integrated_curve_state_nad()?;
+        let value = market.normalize_amount(deposit_amount as u128, market.side(target_asset).asset_decimals)?;
+        let equity = match target_asset {
+            MarketAsset::Base => &mut end.base_hlp_equity,
+            MarketAsset::Quote => &mut end.quote_hlp_equity,
+        };
+        *equity = equity.checked_add(value).ok_or(ErrorCode::MarketMathOverflow)?;
+        market.side_mut(target_asset).credit_reserve(deposit_amount, true)?;
+        let transition = prepare_concentrated_hlp_transition_from_end(market, end, false, true, 0, 0)?;
+        let principal_before = [
+            market.quote_hlp_vault.debt_principal,
+            market.base_hlp_vault.debt_principal,
+        ];
+        let (base_rebalance, quote_rebalance) = transition.consume(market)?;
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let principal_after = match asset {
+                MarketAsset::Base => market.quote_hlp_vault.debt_principal,
+                MarketAsset::Quote => market.base_hlp_vault.debt_principal,
+            };
+            let funding = u64::try_from(market.hlp_funding_debt(asset)?.saturating_sub(principal_after as u128))
+                .map_err(|_| ErrorCode::DebtMathOverflow)?;
+            let public =
+                u64::try_from(market.public_unpaid_interest(asset)?).map_err(|_| ErrorCode::DebtMathOverflow)?;
+            require!(
+                market.income_accrual_fits(asset, public, funding)?,
+                ErrorCode::IncomeEpochNeedsRollover
+            );
+            if principal_after > principal_before[asset.code() as usize] {
+                require_gte!(
+                    market.side(asset).reserves.cash_reserve as u128,
+                    market.hlp_funding_debt(asset)?,
+                    ErrorCode::InsufficientBorrowHeadroom
+                );
+                crate::math::borrow_controller::check_new_borrow_liquidity(
+                    &market.config.irm,
+                    market.covered_debt(asset)?,
+                    market.side(asset).reserves.cash_reserve,
+                    0,
+                    0,
+                )?;
             }
-            MarketAsset::Quote => {
-                let hlp_supply_before = market.quote_hlp_vault.hlp_supply;
-                let nav_before_nad = if hlp_supply_before == 0 {
-                    0
-                } else {
-                    hlp_share_nav_nad_with_prices(market, MarketAsset::Quote, pre_prices)?
-                };
-                let srlp_amount = srlp_for_live_reserve_deposit(market, borrowed_amount, deposit_amount)?;
-                require!(srlp_amount > 0, ErrorCode::SlippageExceeded);
-                market.base_side.credit_reserve(borrowed_amount, false)?;
-                market.quote_side.credit_reserve(deposit_amount, true)?;
-                market
-                    .quote_hlp_vault
-                    .credit_hlp_live_reserve(MarketAsset::Base, borrowed_amount)?;
-                market.base_side.shares.mint(srlp_amount)?;
-                market.quote_side.shares.mint(srlp_amount)?;
-                market.quote_hlp_vault.add_debt_shares(debt_shares)?;
-                market.quote_hlp_vault.add_debt_principal(borrowed_amount)?;
-                market.quote_hlp_vault.credit_srlp(srlp_amount)?;
-                let current_prices = current_hlp_curve_prices(market)?;
-                let current_nav_nad = hlp_share_nav_nad_with_prices(market, MarketAsset::Quote, pre_prices)?;
-                let hlp_amount = if hlp_supply_before == 0 {
-                    deposit_amount
-                } else {
-                    let delta_nav_nad = current_nav_nad
-                        .checked_sub(nav_before_nad)
-                        .ok_or(ErrorCode::MarketMathOverflow)?;
-                    hlp_shares_for_delta_nav(delta_nav_nad, nav_before_nad, hlp_supply_before)?
-                };
-                market.quote_hlp_vault.mint_hlp(hlp_amount)?;
-                (
-                    srlp_amount,
-                    hlp_amount,
-                    market.quote_hlp_vault.hlp_supply,
-                    current_prices,
-                )
+        }
+        // The first mint establishes token units. Later mints use actual
+        // economic NAV at the frozen pre-entry mark, including old coupons.
+        if supply_before == 0 {
+            match target_asset {
+                MarketAsset::Base => market.base_hlp_vault.mint_hlp(deposit_amount)?,
+                MarketAsset::Quote => market.quote_hlp_vault.mint_hlp(deposit_amount)?,
             }
+        }
+        let nav_after = hlp_share_nav_nad_with_prices(market, target_asset, pre_prices)?;
+        let hlp_amount = if supply_before == 0 {
+            deposit_amount
+        } else {
+            let delta = nav_after
+                .checked_sub(nav_before)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+                .min(value);
+            require!(delta > 0, ErrorCode::AmountZero);
+            require!(nav_before > 0, ErrorCode::MarketMathOverflow);
+            let amount = u64::try_from(mul_div_u128(delta, supply_before as u128, nav_before)?)
+                .map_err(|_| ErrorCode::MarketMathOverflow)?;
+            require!(amount > 0, ErrorCode::AmountZero);
+            match target_asset {
+                MarketAsset::Base => market.base_hlp_vault.mint_hlp(amount)?,
+                MarketAsset::Quote => market.quote_hlp_vault.mint_hlp(amount)?,
+            }
+            amount
         };
         require_gte!(hlp_amount, min_hlp_amount, ErrorCode::SlippageExceeded);
-        let post_entry = current_hlp_entry_state_with_prices(market, target_asset, post_prices)?;
-        require!(
-            post_entry.disposition.admits_entry(),
-            ErrorCode::HlpSettlementUnavailable
-        );
-        if hlp_supply_before > 0 {
-            match pre_entry.disposition {
-                HlpEntryDisposition::Settled => require!(
-                    post_entry.disposition == HlpEntryDisposition::Settled,
-                    ErrorCode::HlpSettlementUnavailable
-                ),
-                HlpEntryDisposition::ControllerGranularityLimited => {
+        let post_prices = current_hlp_curve_prices(market)?;
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let Some((old_supply, reference, pre_entry)) = before[asset.code() as usize] else {
+                continue;
+            };
+            let post_entry = current_hlp_entry_state_with_prices(market, asset, post_prices)?;
+            require!(
+                post_entry.disposition.admits_entry(),
+                ErrorCode::HlpSettlementUnavailable
+            );
+            let vault = if asset == MarketAsset::Base {
+                &market.base_hlp_vault
+            } else {
+                &market.quote_hlp_vault
+            };
+            let new_supply = vault.hlp_supply;
+            if old_supply > 0 {
+                if pre_entry.disposition == HlpEntryDisposition::ControllerGranularityLimited {
                     let pre_residual = pre_entry.residual_exposure.unsigned_abs();
                     let post_residual = post_entry.residual_exposure.unsigned_abs();
                     require!(
-                        post_entry.nav_nad > pre_entry.nav_nad && hlp_supply > hlp_supply_before,
-                        ErrorCode::HlpSettlementUnavailable
-                    );
-                    require!(post_residual <= pre_residual, ErrorCode::HlpSettlementUnavailable);
-                    require!(
-                        post_entry.residual_exposure == 0
-                            || post_entry.residual_exposure.is_negative() == pre_entry.residual_exposure.is_negative(),
-                        ErrorCode::HlpSettlementUnavailable
-                    );
-                    require!(
-                        ratio_lte_full_width(post_residual, post_entry.nav_nad, pre_residual, pre_entry.nav_nad,)?
+                        post_entry.nav_nad >= pre_entry.nav_nad
+                            && post_residual <= pre_residual
+                            && (post_entry.residual_exposure == 0
+                                || post_entry.residual_exposure.is_negative()
+                                    == pre_entry.residual_exposure.is_negative())
                             && ratio_lte_full_width(
                                 post_residual,
-                                hlp_supply as u128,
+                                post_entry.nav_nad,
                                 pre_residual,
-                                hlp_supply_before as u128,
+                                pre_entry.nav_nad,
+                            )?
+                            && ratio_lte_full_width(
+                                post_residual,
+                                new_supply as u128,
+                                pre_residual,
+                                old_supply as u128,
                             )?
                             && ratio_lte_full_width(
                                 pre_entry.nav_nad,
-                                hlp_supply_before as u128,
+                                old_supply as u128,
                                 post_entry.nav_nad,
-                                hlp_supply as u128,
+                                new_supply as u128,
                             )?,
                         ErrorCode::HlpSettlementUnavailable
                     );
+                } else {
+                    require!(
+                        post_entry.disposition == HlpEntryDisposition::Settled,
+                        ErrorCode::HlpSettlementUnavailable
+                    );
                 }
-                _ => return err!(ErrorCode::HlpSettlementUnavailable),
             }
+            let vault = if asset == MarketAsset::Base {
+                &mut market.base_hlp_vault
+            } else {
+                &mut market.quote_hlp_vault
+            };
+            vault.last_nav_nad = post_entry.nav_nad;
+            vault.residual_exposure = post_entry.residual_exposure;
+            vault.cached_settlement_price_nad = if old_supply == 0 || post_entry.residual_exposure == 0 {
+                post_prices.base_in_quote_nad()
+            } else {
+                reference
+            };
         }
-        let vault = match target_asset {
-            MarketAsset::Base => &mut market.base_hlp_vault,
-            MarketAsset::Quote => &mut market.quote_hlp_vault,
-        };
-        vault.last_nav_nad = post_entry.nav_nad;
-        vault.residual_exposure = post_entry.residual_exposure;
-        vault.cached_settlement_price_nad = if hlp_supply_before == 0 || post_entry.residual_exposure == 0 {
-            post_prices.base_in_quote_nad()
+        let hlp_supply = if target_asset == MarketAsset::Base {
+            market.base_hlp_vault.hlp_supply
         } else {
-            settlement_reference_before
+            market.quote_hlp_vault.hlp_supply
         };
+        let rebalances = [base_rebalance, quote_rebalance];
+        let own = rebalances[target_asset.code() as usize];
         let health = market.market_health()?;
         market.assert_market_health_snapshot(&health)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
         Ok(SingleSidedLiquidityReceipt {
             deposit_amount,
-            borrowed_amount,
-            srlp_amount,
+            borrowed_amount: (own.debt_delta + i128::from(own.interest_paid)).max(0) as u64,
+            srlp_amount: own.srlp_mint_amount,
             hlp_amount,
             hlp_supply,
-            target_amount_out: 0,
-            debt_repaid: 0,
-            interest_paid: 0,
+            rebalances,
+            ..SingleSidedLiquidityReceipt::default()
         })
     }
+
     /// Exact principal-only close quote for an hLP tranche. Separately
     /// claimable swap-fee and lending-interest yield is intentionally excluded
     /// from Stop Loss semantics and remains owned by the token holder.
@@ -2040,7 +2043,13 @@ pub(crate) fn current_hlp_entry_state_with_prices(
                 MarketAsset::Base => (amounts.target_leg_amount, amounts.borrowed_leg_amount),
                 MarketAsset::Quote => (amounts.borrowed_leg_amount, amounts.target_leg_amount),
             };
-            if srlp_for_live_reserve_deposit(market, base_leg, quote_leg)? == 0 {
+            let shares = market.srlp_for_deposit(
+                market.curve_reserve(MarketAsset::Base)?,
+                market.curve_reserve(MarketAsset::Quote)?,
+                base_leg,
+                quote_leg,
+            )?;
+            if shares == 0 {
                 break 'entry HlpEntryDisposition::ControllerGranularityLimited;
             }
             if market.hlp_funding_headroom(target_asset.opposite())? < amounts.debt_amount {
@@ -2612,14 +2621,6 @@ fn raw_amount_from_target_value_nad_with_prices(
     market.denormalize_amount_floor(amount_nad, market.side(asset).asset_decimals)
 }
 
-fn srlp_for_live_reserve_deposit(market: &Market, base_amount: u64, quote_amount: u64) -> Result<u64> {
-    require!(market.base_side.shares.srlp_supply > 0, ErrorCode::SupplyUnderflow);
-    let base_reserve = market.curve_reserve(MarketAsset::Base)?;
-    let quote_reserve = market.curve_reserve(MarketAsset::Quote)?;
-    require!(base_reserve > 0 && quote_reserve > 0, ErrorCode::InsufficientLiquidity);
-    market.srlp_for_deposit(base_reserve, quote_reserve, base_amount, quote_amount)
-}
-
 fn proportional_rebalance_amounts(
     market: &Market,
     target_asset: MarketAsset,
@@ -2686,48 +2687,6 @@ fn srlp_shares_for_live_reserve_amount(market: &Market, asset: MarketAsset, rese
         .shares_for_deposit(side.reserves.live_reserve, reserve_amount)
 }
 
-fn require_hlp_borrow_headroom(market: &Market, borrowed_asset: MarketAsset, amount: u64) -> Result<u128> {
-    let (current_shares, borrow_index_nad) = match borrowed_asset {
-        MarketAsset::Base => (market.quote_hlp_vault.debt_shares, market.debt.base_borrow_index_nad),
-        MarketAsset::Quote => (market.base_hlp_vault.debt_shares, market.debt.quote_borrow_index_nad),
-    };
-    let added_shares = Debt::debt_to_shares(amount, borrow_index_nad)?;
-    let projected_shares = current_shares
-        .checked_add(added_shares)
-        .ok_or(ErrorCode::DebtShareMathOverflow)?;
-    let projected_debt = Debt::shares_to_debt(projected_shares, borrow_index_nad)?;
-    require_gte!(
-        market.side(borrowed_asset).reserves.cash_reserve as u128,
-        projected_debt,
-        ErrorCode::InsufficientBorrowHeadroom
-    );
-    let principal = match borrowed_asset {
-        MarketAsset::Base => market.quote_hlp_vault.debt_principal,
-        MarketAsset::Quote => market.base_hlp_vault.debt_principal,
-    }
-    .checked_add(amount)
-    .ok_or(ErrorCode::DebtMathOverflow)?;
-    let public =
-        u64::try_from(market.public_unpaid_interest(borrowed_asset)?).map_err(|_| ErrorCode::DebtMathOverflow)?;
-    let funding =
-        u64::try_from(projected_debt.saturating_sub(principal as u128)).map_err(|_| ErrorCode::DebtMathOverflow)?;
-    require!(
-        market.income_accrual_fits(borrowed_asset, public, funding)?,
-        ErrorCode::IncomeEpochNeedsRollover
-    );
-    let old_debt = Debt::shares_to_debt(current_shares, borrow_index_nad)?;
-    crate::math::borrow_controller::check_new_borrow_liquidity(
-        &market.config.irm,
-        market.covered_debt(borrowed_asset)?,
-        market.side(borrowed_asset).reserves.cash_reserve,
-        projected_debt
-            .checked_sub(old_debt)
-            .ok_or(ErrorCode::DebtMathOverflow)?,
-        0,
-    )?;
-    Ok(added_shares)
-}
-
 fn proportional(amount: u64, numerator: u64, denominator: u64) -> Result<u64> {
     let value = (amount as u128)
         .checked_mul(numerator as u128)
@@ -2741,16 +2700,4 @@ fn proportional_u128(amount: u128, numerator: u64, denominator: u64) -> Result<u
         .checked_mul(numerator as u128)
         .and_then(|value| value.checked_div(denominator as u128))
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-}
-
-fn hlp_shares_for_delta_nav(delta_nav_nad: u128, nav_basis_nad: u128, hlp_supply: u64) -> Result<u64> {
-    require!(delta_nav_nad > 0, ErrorCode::AmountZero);
-    require!(nav_basis_nad > 0, ErrorCode::MarketMathOverflow);
-    let shares = delta_nav_nad
-        .checked_mul(hlp_supply as u128)
-        .and_then(|value| value.checked_div(nav_basis_nad))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let shares = u64::try_from(shares).map_err(|_| ErrorCode::MarketMathOverflow)?;
-    require!(shares > 0, ErrorCode::AmountZero);
-    Ok(shares)
 }

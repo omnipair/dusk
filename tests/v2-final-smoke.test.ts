@@ -1369,7 +1369,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         eventAuthority: eventAuthority(),
         program: DUSK_PROGRAM_ID,
       })
-      .remainingAccounts(oracleAccounts)
+      .remainingAccounts([...hlpSwapAccounts(fixture), ...oracleAccounts])
       .transaction();
     await connection.sendTransaction(tx, [payer]);
 
@@ -1437,7 +1437,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         eventAuthority: eventAuthority(),
         program: DUSK_PROGRAM_ID,
       })
-      .remainingAccounts(oracleAccounts)
+      .remainingAccounts([...hlpSwapAccounts(fixture), ...oracleAccounts])
       .transaction();
     await connection.sendTransaction(tx, [payer]);
 
@@ -3212,7 +3212,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(110_000);
-    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(220_000);
+    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(219_999);
     expect(decoded.base_hlp_vault.srlp_shares.toNumber()).to.equal(14_142);
     expect(decoded.base_hlp_vault.hlp_supply.toNumber()).to.equal(10_000);
     expect(decoded.base_hlp_vault.debt_shares.toNumber()).to.be.greaterThan(0);
@@ -3824,7 +3824,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
     expect(BigInt(closedEvent.srlpAmount.toString()) > 0n).to.equal(true);
     expect(BigInt(closedEvent.debtRepaid.toString()) > 0n).to.equal(true);
-    expect(ownerBaseAfterClose.amount).to.equal(ownerBaseBeforeOpen.amount - 2n);
+    expect(ownerBaseAfterClose.amount).to.equal(ownerBaseBeforeOpen.amount - 1n);
 
     const ownerHlp = await getAccount(
       connection as any,
@@ -3844,7 +3844,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
-    expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(100_002);
+    expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(100_001);
     expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_000);
     expect(decoded.base_side.shares.srlp_supply.toNumber()).to.equal(141_421);
     expect(decoded.quote_side.shares.srlp_supply.toNumber()).to.equal(141_421);
@@ -3915,13 +3915,13 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("withdrawSingleSided", this.test?.title);
 
     const ownerQuoteAfterClose = await getAccount(connection as any, fixture.ownerQuoteAccount);
-    expect(ownerQuoteAfterClose.amount).to.equal(ownerQuoteBeforeOpen.amount - 4n);
+    expect(ownerQuoteAfterClose.amount).to.equal(ownerQuoteBeforeOpen.amount - 1n);
 
     account = svm.getAccount(fixture.market);
     expect(account).to.not.equal(null);
     decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_side.reserves.live_reserve.toNumber()).to.equal(100_000);
-    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_004);
+    expect(decoded.quote_side.reserves.live_reserve.toNumber()).to.equal(200_001);
     expect(decoded.quote_hlp_vault.srlp_shares.toNumber()).to.equal(0);
     expect(decoded.quote_hlp_vault.hlp_supply.toNumber()).to.equal(0);
     expect(decoded.quote_hlp_vault.debt_shares.toNumber()).to.equal(0);
@@ -6202,7 +6202,16 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       "Market",
       Buffer.from(accountBefore!.data)
     ) as any;
-    stressed.debt.quote_borrow_index_nad = new BN("1125000000");
+    // Canonical entry rounds the initial debt down to match its srLP claim.
+    // Stress the actual funded claim past 9/8, rather than multiplying a
+    // nominal index and accidentally remaining one atom below the boundary.
+    const oppositeClaim = BigInt(stressed.quote_side.reserves.live_reserve.toString())
+      * BigInt(stressed.base_hlp_vault.srlp_shares.toString())
+      / BigInt(stressed.base_side.shares.srlp_supply.toString());
+    const debtShares = BigInt(stressed.base_hlp_vault.debt_shares.toString());
+    const criticalDebt = (oppositeClaim * 9n + 7n) / 8n;
+    const criticalIndex = ((criticalDebt + 1n) * 1_000_000_000n + debtShares - 1n) / debtShares;
+    stressed.debt.quote_borrow_index_nad = new BN(criticalIndex.toString());
     const marketLayout = (accountCoder as any).accountLayouts.get("Market");
     const marketBody = Buffer.alloc(accountBefore!.data.length - 8);
     const marketBodyLength = marketLayout.layout.encode(stressed, marketBody);
@@ -6695,7 +6704,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       baseYieldAccount: freshBaseYieldAccount, quoteYieldAccount: freshQuoteYieldAccount,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
       systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
-    }).transaction(), [payer]);
+    }).remainingAccounts(hlpSwapAccounts({...fixture, baseHlpSrlpVault: deriveHlpSrlpVaultAddress(fixture.market, freshMint, fixture.srlpMint)[0]})).transaction(), [payer]);
     expect((await getAccount(connection as any, freshOwnerAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount > 0n).to.equal(true);
     expect((await getAccount(connection as any, oldHedge.ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount)
       .to.equal(9_000_000n);

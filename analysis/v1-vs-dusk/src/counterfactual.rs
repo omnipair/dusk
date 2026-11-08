@@ -2150,17 +2150,19 @@ impl<'a> DuskCounterfactualMarketV1<'a> {
             HlpEntryOrderV1::QuoteThenBase => [MarketAsset::Quote, MarketAsset::Base],
         };
         for asset in ordered_assets {
-            let (gross, net, external, minted) = match asset {
+            let (gross, net, external, counterpart, minted) = match asset {
                 MarketAsset::Base => (
                     base_hlp_gross,
                     base_hlp_transfer.net_amount,
                     &mut base_hlp,
+                    &mut quote_hlp,
                     &mut base_hlp_minted,
                 ),
                 MarketAsset::Quote => (
                     quote_hlp_gross,
                     quote_hlp_transfer.net_amount,
                     &mut quote_hlp,
+                    &mut base_hlp,
                     &mut quote_hlp_minted,
                 ),
             };
@@ -2180,11 +2182,13 @@ impl<'a> DuskCounterfactualMarketV1<'a> {
             }
             let execution = market.execute_maximum_hlp_entry(
                 external,
+                counterpart,
                 plan,
                 BenchmarkTokenTransferOutcome {
                     source_debit: gross,
                     destination_credit: net,
                 },
+                Default::default(),
                 self.global_reduce_only,
             )?;
             *minted = execution.market.receipt.native.hlp_amount;

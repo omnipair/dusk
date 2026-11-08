@@ -9,7 +9,10 @@ use crate::{
     errors::ErrorCode,
     state::{FutarchyAuthority, Market, MarketAsset},
     token::get_transfer_fee_for_epoch,
-    transitions::liquidity::{current_hlp_curve_prices, current_hlp_entry_state_with_prices, HlpEntryDisposition},
+    transitions::liquidity::{
+        current_hlp_curve_prices, current_hlp_entry_state_with_prices,
+        prepare_concentrated_hlp_transition_at_current_state, HlpEntryDisposition,
+    },
 };
 
 /// Every account is read-only. Admission checks and interest accrual affect
@@ -143,6 +146,8 @@ fn preview_hlp_funding_limit(
     clock: &Clock,
 ) -> Result<(HlpDepositStatus, u64)> {
     market.assert_current_version()?;
+    market.require_hlp_flash_idle(target)?;
+    market.require_hlp_flash_idle(target.opposite())?;
     if clock.unix_timestamp < market.config.start_time {
         return Ok((HlpDepositStatus::NotStarted, 0));
     }
@@ -159,6 +164,12 @@ fn preview_hlp_funding_limit(
     if market.hlp_frozen(target) {
         return Ok((HlpDepositStatus::Frozen, 0));
     }
+    if market.side(target.opposite()).reserves.cash_reserve == 0 {
+        return Ok((HlpDepositStatus::NoFundingCapacity, 0));
+    }
+    // Entry settles the existing hedge atomically. Preview the same endpoint
+    // before classifying readiness and calculating the remaining cash budget.
+    prepare_concentrated_hlp_transition_at_current_state(market)?.consume(market)?;
     market.checkpoint_hlp_vaults()?;
     let prices = current_hlp_curve_prices(market)?;
     let entry = current_hlp_entry_state_with_prices(market, target, prices)?;

@@ -87,6 +87,12 @@ impl<'info> TryFrom<(&Market, &[AccountInfo<'info>])> for HlpSwapAccountLayout {
         if !market.has_active_hlp() {
             return Ok(Self { prefix_len: 0 });
         }
+        Self::require_prefix(market, accounts)
+    }
+}
+
+impl HlpSwapAccountLayout {
+    pub(crate) fn require_prefix(market: &Market, accounts: &[AccountInfo<'_>]) -> Result<Self> {
         require_gte!(
             accounts.len(),
             HLP_SWAP_ACCOUNT_PREFIX_LEN,

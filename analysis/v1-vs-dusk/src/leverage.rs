@@ -2044,6 +2044,8 @@ mod tests {
         let mut market = dusk_market();
         let mut external =
             BenchmarkHlpOwnedState::initialize(&market, MarketAsset::Base, OWNER, OWNER).unwrap();
+        let mut counterpart =
+            BenchmarkHlpOwnedState::initialize(&market, MarketAsset::Quote, OWNER, OWNER).unwrap();
         let plan: BenchmarkMaximumHlpEntry = market
             .maximize_hlp_entry(
                 &external,
@@ -2059,11 +2061,13 @@ mod tests {
         market
             .execute_maximum_hlp_entry(
                 &mut external,
+                &mut counterpart,
                 plan,
                 BenchmarkTokenTransferOutcome {
                     source_debit: plan.target_reserve_credit,
                     destination_credit: plan.target_reserve_credit,
                 },
+                Default::default(),
                 false,
             )
             .unwrap();

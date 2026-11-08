@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::instruction::Instruction;
 use anchor_spl::{
     token::Token,
     token_interface::{Mint, Token2022, TokenAccount},
@@ -11,12 +10,13 @@ use crate::{
     events::HlpOpened,
     generate_market_seeds,
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
-    token::{create_token_account, token_mint_to_with_instruction, transfer_checked_with_remaining_accounts},
+    token::{create_token_account, token_mint_to, transfer_checked_with_remaining_accounts},
 };
 
 use crate::instructions::accounts::{
     derive_hlp_srlp_vault_address, require_reserve_custody, require_supported_asset_mint, token_program_for_mint,
     validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
+    HlpSwapAccountLayout,
 };
 
 use super::{reconcile_live_hlp_supply, validate_hlp_authority_pdas, validate_hlp_yield_account_pda};
@@ -179,7 +179,6 @@ impl<'info> DepositSingleSided<'info> {
         if self.market.base_side.reserves.live_reserve > 0 && self.market.quote_side.reserves.live_reserve > 0 {
             self.market.advance_amm_clock(current_slot)?;
             self.market.checkpoint_hlp_vaults()?;
-            self.market.assert_hlp_entry_available(target_asset)?;
             self.market.observe_current_risk(current_slot)?;
         }
         Ok(())
@@ -212,6 +211,13 @@ impl<'info> DepositSingleSided<'info> {
             .accounts
             .market
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
+
+        let layout = HlpSwapAccountLayout::require_prefix(&ctx.accounts.market, ctx.remaining_accounts)?;
+        let eligibility = crate::transitions::HlpYieldEligibility {
+            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
+            base_hlp_srlp_shares: ctx.accounts.market.base_hlp_vault.srlp_shares,
+            quote_hlp_srlp_shares: ctx.accounts.market.quote_hlp_vault.srlp_shares,
+        };
 
         // Transfer the target asset and measure the reserve's net credit.
         let (target_reserve_vault, target_mint) = match target_asset {
@@ -248,7 +254,7 @@ impl<'info> DepositSingleSided<'info> {
                 MarketAsset::Quote => ctx.accounts.quote_mint.decimals,
             },
             &[],
-            ctx.remaining_accounts,
+            layout.hook_accounts(ctx.remaining_accounts),
         )?;
         match target_asset {
             MarketAsset::Base => ctx.accounts.base_reserve_vault.reload()?,
@@ -266,6 +272,37 @@ impl<'info> DepositSingleSided<'info> {
             .accounts
             .market
             .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
+        crate::instructions::leverage::settlement::settle_inline_hlp_accounts(
+            &mut ctx.accounts.market,
+            &ctx.accounts.futarchy_authority,
+            [
+                (
+                    ctx.accounts.base_mint.to_account_info(),
+                    ctx.accounts.base_reserve_vault.to_account_info(),
+                ),
+                (
+                    ctx.accounts.quote_mint.to_account_info(),
+                    ctx.accounts.quote_reserve_vault.to_account_info(),
+                ),
+            ],
+            &ctx.accounts.token_program,
+            &ctx.accounts.token_2022_program,
+            ctx.remaining_accounts,
+            layout,
+            receipt.rebalances[0],
+            receipt.rebalances[1],
+            eligibility,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
+        ctx.accounts.base_reserve_vault.reload()?;
+        ctx.accounts.quote_reserve_vault.reload()?;
+        crate::instructions::accounting::emit_hlp_rebalanced(
+            &ctx.accounts.market,
+            receipt.rebalances[0],
+            receipt.rebalances[1],
+            current_slot,
+            ctx.accounts.event_authority.to_account_info(),
+        )?;
         // Validation verified that no due concentrated controller
         // state would price this entry against a stale NAV. One final curve
         // evaluation now supplies curve-depth accounting and the exact risk observation
@@ -301,12 +338,8 @@ impl<'info> DepositSingleSided<'info> {
             quote_interest_growth,
         )?;
 
-        // Mint backing srLP into custody and hLP to the depositor.
-        let srlp_program = token_program_for_mint(
-            &ctx.accounts.srlp_mint,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-        )?;
+        // The settlement above reconciles both backing vaults; mint only
+        // the depositor's correctly priced hLP receipt here.
         let hlp_program = token_program_for_mint(
             &ctx.accounts.target_hlp_mint,
             &ctx.accounts.token_program,
@@ -314,22 +347,7 @@ impl<'info> DepositSingleSided<'info> {
         )?;
         let market_seeds = generate_market_seeds!(ctx.accounts.market);
         let signer_seeds = [&market_seeds[..]];
-        let mut mint_instruction = Instruction {
-            program_id: *srlp_program.key,
-            accounts: Vec::with_capacity(3),
-            data: Vec::with_capacity(9),
-        };
-        token_mint_to_with_instruction(
-            &mut mint_instruction,
-            ctx.accounts.market.to_account_info(),
-            srlp_program.clone(),
-            ctx.accounts.srlp_mint.to_account_info(),
-            ctx.accounts.hlp_srlp_account.to_account_info(),
-            receipt.srlp_amount,
-            &signer_seeds,
-        )?;
-        token_mint_to_with_instruction(
-            &mut mint_instruction,
+        token_mint_to(
             ctx.accounts.market.to_account_info(),
             hlp_program,
             ctx.accounts.target_hlp_mint.to_account_info(),

@@ -27,3 +27,13 @@ denominator. These are test-data conversions, not deployed-account migrations.
 |---|---|
 | `hlp-entry-layout13.bin` | `8ee06bbcb23cdc155ce2b398c3f5c236a23fa842ccbabcf0cdd1709fa578ac7f` |
 | `vob-market-layout13.bin` | `70a3fa70674f2c0242f6f62348764fa80b84bb4d3856c3d8b60f1e5b62399781` |
+
+## Indexed-funding hLP entry snapshot
+
+`hlp-entry-funding-layout13.bin` is the unchanged public Market account for
+`4iuoB4WsTEsv4gnwY6RZnwgaHWqYCAwCbaLswJjbwgSa`, captured on Solana devnet at slot
+519889239 after the November 2026 operator release. It includes the account
+discriminator and contains no wallet keys. The base vault is empty; the quote
+vault has nine hLP tokens and accrued funding that requires settlement. Tests
+accrue that exact slot and exercise both first and repeat deposits, coupon
+ownership, share-value protection and the post-entry hedge.

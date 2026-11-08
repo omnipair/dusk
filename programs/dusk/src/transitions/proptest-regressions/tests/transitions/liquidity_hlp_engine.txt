@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 68e2981ac200f10091b20f73874265871d7a07bc20e22143bef004f0d070edf0 # shrinks to reserve = 12110562752250798255, supply = 3395029795995294339, seed = 18405078819376771622, index = 2771187021162, quoted = None
+cc c7580253895e5f9f05cdd6dbea81a3abd5d672f47e626be390d919428d9a0255 # shrinks to amount = 10, elapsed = 203108, mixed_decimals = true, concentrated = false, target_base = false
