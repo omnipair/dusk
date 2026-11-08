@@ -136,7 +136,7 @@ fn drained_market_previews_locked_dust_without_reconstructing_a_trade_curve() {
 #[test]
 fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
     use crate::{
-        constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, TARGET_MS_PER_SLOT},
+        constants::{DEFAULT_BORROW_APR_NAD, TARGET_MS_PER_SLOT},
         transitions::{lending::accrue_side, liquidity::SwapCashPolicy},
     };
 
@@ -144,7 +144,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
     // Reuse that index in a liquid, fully hedged market after refinancing.
     let mut accrued = Market::default();
     accrued.debt.quote_borrow_index_nad = NAD as u128;
-    accrued.debt.quote_rate_at_target_nad = INTEREST_INITIAL_RATE_AT_TARGET_NAD;
+    accrued.debt.quote_borrow_apr_nad = DEFAULT_BORROW_APR_NAD;
     accrued.base_hlp_vault.debt_shares = 1_000;
     accrued.base_hlp_vault.quote_hlp_live_reserve = 1_000;
     accrued.quote_side.reserves.live_reserve = 1_000;

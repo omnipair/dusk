@@ -61,6 +61,32 @@ const unreliableDuskEventPatterns = [
   },
 ];
 
+const retiredBorrowControllerPatterns = [
+  /\brate_at_target_nad\b/,
+  /\brateAtTargetNad\b/,
+  /\bbase_rate_at_target_nad\b/,
+  /\bquote_rate_at_target_nad\b/,
+  /\bbaseRateAtTargetNad\b/,
+  /\bquoteRateAtTargetNad\b/,
+  /\bDEFAULT_IRM_TARGET_UTILIZATION_BPS\b/,
+  /\bDEFAULT_IRM_CURVE_STEEPNESS_NAD\b/,
+  /\bDEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR\b/,
+  /\bINTEREST_(?:MIN|MAX|INITIAL)_RATE_AT_TARGET_NAD\b/,
+  /\butilization_error_nad\b/,
+  /\binstantaneous_rate_apr_nad\b/,
+  /\badapt_rate_at_target_nad\b/,
+  /\baccrued_index_nad\b/,
+];
+
+function isCurrentBorrowControllerSurface(normalized) {
+  return (
+    normalized.startsWith("programs/dusk/src/") ||
+    normalized.startsWith("packages/dusk-sdk/src/") ||
+    normalized === "programs/dusk/README.md" ||
+    normalized === "docs/BORROW_RATE_CONTROLLER.md"
+  );
+}
+
 const failures = [];
 
 for (const file of trackedFiles) {
@@ -97,6 +123,15 @@ for (const file of trackedFiles) {
     for (const { label, pattern } of unreliableDuskEventPatterns) {
       if (pattern.test(text)) {
         failures.push(`${file}: contains ${label}`);
+        break;
+      }
+    }
+  }
+
+  if (isCurrentBorrowControllerSurface(normalized)) {
+    for (const pattern of retiredBorrowControllerPatterns) {
+      if (pattern.test(text)) {
+        failures.push(`${file}: contains retired utilization-target controller identifier ${pattern}`);
         break;
       }
     }

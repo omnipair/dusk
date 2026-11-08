@@ -14664,22 +14664,22 @@
             "type": "u128"
           },
           {
-            "name": "base_rate_at_target_nad",
+            "name": "base_borrow_apr_nad",
             "type": "u128"
           },
           {
-            "name": "quote_rate_at_target_nad",
+            "name": "quote_borrow_apr_nad",
             "type": "u128"
           },
           {
-            "name": "base_rate_fraction_e18",
+            "name": "base_borrow_apr_fraction_e18",
             "docs": [
               "Fractional NAD APR carried by the exponential controller (scale 1e9)."
             ],
             "type": "u64"
           },
           {
-            "name": "quote_rate_fraction_e18",
+            "name": "quote_borrow_apr_fraction_e18",
             "type": "u64"
           },
           {
@@ -20800,10 +20800,6 @@
           },
           {
             "name": "borrow_index_nad",
-            "type": "u128"
-          },
-          {
-            "name": "rate_at_target_nad",
             "type": "u128"
           },
           {

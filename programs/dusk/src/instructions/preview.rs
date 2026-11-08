@@ -212,7 +212,6 @@ pub struct PreviewSide {
     pub directional_price_ema_nad: u64,
     pub conservative_depth_nad: u128,
     pub borrow_index_nad: u128,
-    pub rate_at_target_nad: u128,
     pub borrow_apr_nad: u128,
     pub utilization_bps: u64,
     pub fixed_debt: u128,
@@ -932,9 +931,9 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
                 side.srlp_exchange_rate_nad()?
             },
             borrow_index_nad: market.debt.borrow_index(asset),
-            rate_at_target_nad: match asset {
-                MarketAsset::Base => market.debt.base_rate_at_target_nad,
-                MarketAsset::Quote => market.debt.quote_rate_at_target_nad,
+            borrow_apr_nad: match asset {
+                MarketAsset::Base => market.debt.base_borrow_apr_nad,
+                MarketAsset::Quote => market.debt.quote_borrow_apr_nad,
             },
             price_ema_nad,
             directional_price_ema_nad,
@@ -956,7 +955,6 @@ fn preview_side(market: &Market, asset: MarketAsset, slot: u64) -> Result<Previe
         directional_price_ema_nad,
         conservative_depth_nad: lending.conservative_depth_nad,
         borrow_index_nad: lending.borrow_index_nad,
-        rate_at_target_nad: lending.rate_at_target_nad,
         borrow_apr_nad: lending.borrow_apr_nad,
         utilization_bps: lending.utilization_bps,
         fixed_debt: lending.fixed_debt,

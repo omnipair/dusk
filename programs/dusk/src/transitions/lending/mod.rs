@@ -1073,17 +1073,17 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     current_slot: u64,
     signal_nad: Option<u128>,
 ) -> Result<Option<InterestAccrualReceipt>> {
-    let (index, rate_at_target, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
+    let (index, borrow_apr, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
         MarketAsset::Base => (
             market.debt.base_borrow_index_nad,
-            market.debt.base_rate_at_target_nad,
+            market.debt.base_borrow_apr_nad,
             market.debt.base_last_accrual_slot,
             market.debt.fixed_base_shares,
             market.debt.isolated_base_shares,
         ),
         MarketAsset::Quote => (
             market.debt.quote_borrow_index_nad,
-            market.debt.quote_rate_at_target_nad,
+            market.debt.quote_borrow_apr_nad,
             market.debt.quote_last_accrual_slot,
             market.debt.fixed_quote_shares,
             market.debt.isolated_quote_shares,
@@ -1102,16 +1102,16 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         market.sync_income_receivable(asset, true, 0)?;
     }
     if fixed_shares == 0 && isolated_shares == 0 && hlp_shares == 0 {
-        let next_rate_at_target = rate_at_target;
+        let next_borrow_apr = borrow_apr;
         match asset {
             MarketAsset::Base => {
-                market.debt.base_rate_at_target_nad = next_rate_at_target;
+                market.debt.base_borrow_apr_nad = next_borrow_apr;
                 market.debt.base_last_accrual_slot = current_slot;
                 market.debt.base_borrow_index_remainder = 0;
                 market.debt.base_borrow_index_nad = NAD as u128;
             }
             MarketAsset::Quote => {
-                market.debt.quote_rate_at_target_nad = next_rate_at_target;
+                market.debt.quote_borrow_apr_nad = next_borrow_apr;
                 market.debt.quote_last_accrual_slot = current_slot;
                 market.debt.quote_borrow_index_remainder = 0;
                 market.debt.quote_borrow_index_nad = NAD as u128;
@@ -1151,19 +1151,19 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     // Calculate utilization rates. hLP funding debt counts toward funding cost,
     // but only cash-backed debt accrual grows virtual reserves.
     let fraction = match asset {
-        MarketAsset::Base => market.debt.base_rate_fraction_e18,
-        MarketAsset::Quote => market.debt.quote_rate_fraction_e18,
+        MarketAsset::Base => market.debt.base_borrow_apr_fraction_e18,
+        MarketAsset::Quote => market.debt.quote_borrow_apr_fraction_e18,
     };
-    let previous_e18 = rate_at_target
+    let previous_e18 = borrow_apr
         .checked_mul(NAD as u128)
         .and_then(|value| value.checked_add(fraction as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let accrual =
         crate::math::borrow_controller::accrue_risk_rate(&market.config.irm, previous_e18, signal_nad, dt_ms)?;
-    let next_rate_at_target = accrual.end_apr_e18 / NAD as u128;
-    let next_rate_fraction = (accrual.end_apr_e18 % NAD as u128) as u64;
+    let next_borrow_apr = accrual.end_apr_e18 / NAD as u128;
+    let next_borrow_apr_fraction = (accrual.end_apr_e18 % NAD as u128) as u64;
     let rate = crate::math::mul_div_u128(
-        next_rate_at_target,
+        next_borrow_apr,
         BPS_DENOMINATOR as u128 + market.protocol_interest_markup_bps as u128,
         BPS_DENOMINATOR as u128,
     )?;
@@ -1204,15 +1204,15 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         MarketAsset::Base => {
             market.debt.base_borrow_index_nad = next_index;
             market.debt.base_borrow_index_remainder = next_remainder;
-            market.debt.base_rate_at_target_nad = next_rate_at_target;
-            market.debt.base_rate_fraction_e18 = next_rate_fraction;
+            market.debt.base_borrow_apr_nad = next_borrow_apr;
+            market.debt.base_borrow_apr_fraction_e18 = next_borrow_apr_fraction;
             market.debt.base_last_accrual_slot = current_slot;
         }
         MarketAsset::Quote => {
             market.debt.quote_borrow_index_nad = next_index;
             market.debt.quote_borrow_index_remainder = next_remainder;
-            market.debt.quote_rate_at_target_nad = next_rate_at_target;
-            market.debt.quote_rate_fraction_e18 = next_rate_fraction;
+            market.debt.quote_borrow_apr_nad = next_borrow_apr;
+            market.debt.quote_borrow_apr_fraction_e18 = next_borrow_apr_fraction;
             market.debt.quote_last_accrual_slot = current_slot;
         }
     }

@@ -1,8 +1,12 @@
 # Productive junior capital and autonomous risk pricing
 
-**Current specification:** [PLAN.md](PLAN.md) and [V1 controller configuration](v1-controller/README.md).
-The experiment below records earlier alternatives and assumptions. Include the
-research with the implementation PR; follow [the packaging and cleanup checklist](PR-CHECKLIST.md).
+> **Historical experiment.** The active implementation is specified in
+> [the repository borrow-rate controller document](../../docs/BORROW_RATE_CONTROLLER.md).
+> `PLAN.md`, `v1-controller/`, the simulations, and the results below preserve
+> the assumptions used during design; they are not current runtime documentation.
+
+The experiment below records earlier alternatives and assumptions. Its outputs
+remain reproducible evidence for the design process, not configuration guidance.
 
 **Provisional direction: price committed junior capital against covered exposure;
 do not use the junior fraction of total LP equity as the sole risk signal.**
@@ -183,9 +187,8 @@ and [step checks](results/step_sensitivity.csv) preserve adverse results too.
   impact-adjusted collateral value and liquidation check (around lines 207–227).
 - V2: `programs/dusk/src/transitions/lending/mod.rs`, linear collateral value
   in `is_position_liquidatable_with_risk` (around lines 414–442).
-- `programs/dusk/src/math/risk.rs`: utilization error, curve and adapting anchor.
-- `programs/dusk/src/state/market.rs`: 70% default target utilization, curve
-  steepness 4 and adaptation speed 20/year.
+- The then-current Dusk source used a 70% target-utilization controller. That
+  controller has since been removed; see the current specification linked above.
 - `programs/dusk/src/constants.rs` and `transitions/ledger.rs`: 20% per-event,
   50% per-day insurance limits and available-token accounting.
 

@@ -18,7 +18,6 @@ fn position_capacity_search_steps(high: u64) -> usize {
 pub(crate) struct LendingSidePreview {
     pub conservative_depth_nad: u128,
     pub borrow_index_nad: u128,
-    pub rate_at_target_nad: u128,
     pub borrow_apr_nad: u128,
     pub utilization_bps: u64,
     pub fixed_debt: u128,
@@ -80,9 +79,9 @@ impl Market {
             MarketAsset::Quote => self.normalize_amount(quote_depth as u128, side.asset_decimals)?,
         };
         let borrow_index_nad = self.debt.borrow_index(asset);
-        let rate_at_target_nad = match asset {
-            MarketAsset::Base => self.debt.base_rate_at_target_nad,
-            MarketAsset::Quote => self.debt.quote_rate_at_target_nad,
+        let borrow_apr_nad = match asset {
+            MarketAsset::Base => self.debt.base_borrow_apr_nad,
+            MarketAsset::Quote => self.debt.quote_borrow_apr_nad,
         };
         let fixed_debt = match asset {
             MarketAsset::Base => self.debt.fixed_base_debt()?,
@@ -99,7 +98,6 @@ impl Market {
             .and_then(|value| value.checked_add(hlp_funding_debt))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let utilization_bps = utilization_bps(total_debt, side.reserves.cash_reserve as u128)?;
-        let borrow_apr_nad = rate_at_target_nad;
         let daily_borrow_limit = self.daily_limit_for_side(asset, self.config.max_daily_borrow_bps)?;
         let daily_borrow_remaining = self
             .side(asset)
@@ -109,7 +107,6 @@ impl Market {
         Ok(LendingSidePreview {
             conservative_depth_nad,
             borrow_index_nad,
-            rate_at_target_nad,
             borrow_apr_nad,
             utilization_bps,
             fixed_debt,

@@ -70,7 +70,7 @@ use crate::transitions::liquidity::prepare_concentrated_hlp_transition_at_curren
 use crate::transitions::HlpYieldEligibility;
 use spl_token_2022::extension::transfer_fee::TransferFee;
 use crate::{
-    constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, NAD},
+    constants::{DEFAULT_BORROW_APR_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, NAD},
     state::{
         AmmConfig, AmmState, Debt, HlpVault, MarketConfig, MarketSide, ProtocolAuctionSplit, ReserveShares,
         Reserves, Risk,
@@ -123,8 +123,8 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
         debt: Debt {
             base_borrow_index_nad: NAD as u128,
             quote_borrow_index_nad: NAD as u128,
-            base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-            quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
+            base_borrow_apr_nad: DEFAULT_BORROW_APR_NAD,
+            quote_borrow_apr_nad: DEFAULT_BORROW_APR_NAD,
             ..Debt::default()
         },
         base_hlp_vault: HlpVault::default(),

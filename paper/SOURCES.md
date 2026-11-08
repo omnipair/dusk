@@ -1,5 +1,10 @@
 # Implementation sources for the whitepapers
 
+> **2026-11-08 borrow-controller update:** the controller rows below map the
+> October 23 snapshot, not the active program. See
+> [the current controller specification](../docs/BORROW_RATE_CONTROLLER.md) for
+> current source anchors and semantics.
+
 > **2026-11-05 policy update:** standalone insurance was removed. Current losses flow through junior then senior; junior exit requests/renewals cost 50 bps and liquidations cost 300 bps. The retained papers, numerical results, and scripts below describe their pinned historical engines, not the current waterfall. See [current policy](../docs/CREDIT_LOSS_WATERFALL.md).
 
 Reviewed source: integration candidate of PR #45 at `04941f19` and PR #52 at `2f46e0e7`, October 23, 2026. This is a code snapshot, not a deployment claim. Paths below are relative to the repository root. The separate numerical replay is pinned to earlier #45 source `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`.
@@ -21,8 +26,8 @@ Reviewed source: integration candidate of PR #45 at `04941f19` and PR #52 at `2f
 | Cash-funded interest, hLP harvest and carry on constrained swaps | `programs/dusk/src/transitions/liquidity/hlp/harvest.rs`; `programs/dusk/src/transitions/amm/swap.rs`; `programs/dusk/src/instructions/liquidity/fund_interest.rs` |
 | Atomic hLP flash recovery | `programs/dusk/src/instructions/hlp_flash.rs`; `programs/dusk/src/transitions/liquidity/hlp/flash.rs`; `packages/dusk-sdk/src/hlp-liquidation-client.ts` |
 | Public admission, stored factor, shadow risk curve, daily bucket | `programs/dusk/src/transitions/lending/mod.rs`; `programs/dusk/src/math/risk.rs`; `programs/dusk/src/state/market.rs`; lending borrow/withdraw handlers |
-| Index accrual before anchor update; all debt domains in utilization | `programs/dusk/src/transitions/lending/mod.rs`: `accrue_side`; `programs/dusk/src/math/risk.rs`: `utilization_bps`, `instantaneous_rate_apr_nad`, `adapt_rate_at_target_nad` |
-| Defaults and bounds | `programs/dusk/src/constants.rs`; `programs/dusk/src/state/market.rs`: `IrmConfig`, `DEFAULT_IRM_*`, `MAX_DAILY_BORROW_BPS` |
+| Historical index accrual before anchor update; all debt domains in utilization | October 23 snapshot of `programs/dusk/src/transitions/lending/mod.rs` and `programs/dusk/src/math/risk.rs`; these anchors no longer exist on current main |
+| Historical defaults and bounds | October 23 snapshot of `programs/dusk/src/constants.rs` and `programs/dusk/src/state/market.rs`; see the update notice above |
 | Flash liquidation, affordable discount, fees and emergency gating | `programs/dusk/src/instructions/flash_liquidation.rs`, `emergency_liquidation.rs`; `programs/dusk/src/transitions/liquidation_policy.rs` |
 | EMA-priced internal execution and smoothed depth | `programs/dusk/src/transitions/amm/liquidation.rs`; `docs/calibration/EMA_SETTLEMENT_CLOSEOUT.md` |
 | Isolated margin, entry limits, cash settlement and closeout health | `programs/dusk/src/transitions/leverage.rs`; `programs/dusk/src/instructions/leverage/` |
