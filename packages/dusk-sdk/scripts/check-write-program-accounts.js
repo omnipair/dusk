@@ -9,6 +9,7 @@ import { marketCreationLookupTablePlan, marketCreationV0Transaction } from "../d
 import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
 import { defaultMarketLaunchConfig } from "../dist/market-bootstrap.js";
+import { deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID } from "../dist/constants.js";
 
 const key = (byte) => new PublicKey(new Uint8Array(32).fill(byte));
 const owner = key(1);
@@ -36,6 +37,24 @@ program.account.market.fetch = async () => ({
 });
 program.account.operatorProposal.fetch=async()=>({revenueRecipient:null,nextOperator:null});
 const write = new DuskWrite(program);
+
+test("LP metadata correction pins the canonical PDA and makes no financial account writable", async () => {
+  const lpMint = key(35), metadata = { name: "USDC hLP", symbol: "hUSDC", uri: "https://example.test/usdc.json" };
+  const ix = await write.updateLpMetadataInstruction({ market, operator: owner, lpMint, metadata });
+  const decoded = program.coder.instruction.decode(ix.data);
+  assert.equal(decoded.name, "updateLpMetadata");
+  assert.deepEqual(decoded.data.args, metadata);
+  const spec = program.idl.instructions.find(row => row.name === decoded.name);
+  const accounts = Object.fromEntries(spec.accounts.map((account, i) => [account.name, ix.keys[i]]));
+  assert.equal(accounts.operator.pubkey.toBase58(), owner.toBase58());
+  assert.equal(accounts.operator.isSigner, true);
+  assert.equal(accounts.market.isWritable, false);
+  assert.equal(accounts.lpMint.isWritable, false);
+  assert.equal(accounts.tokenMetadataProgram.pubkey.toBase58(), TOKEN_METADATA_PROGRAM_ID.toBase58());
+  assert.equal(accounts.tokenMetadata.pubkey.toBase58(), deriveTokenMetadataAddress(lpMint)[0].toBase58());
+  assert.deepEqual(ix.keys.filter(key => key.isWritable).map(key => key.pubkey.toBase58()), [accounts.tokenMetadata.pubkey.toBase58()]);
+  assert.throws(() => write.updateLpMetadataInstruction({ market, operator: owner, lpMint, metadata: { ...metadata, symbol: "x".repeat(11) } }), /10 bytes/);
+});
 
 function creationParams(oracle) {
   const metadata={name:"Omnipair Base hLP",symbol:"hLP",uri:"https://omnipair.fi/metadata/dusk/base-hlp.json"};

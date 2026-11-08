@@ -92,6 +92,9 @@ jobs:
       - name: Check Dusk SDK package
         run: npm run check:dusk-sdk
 
+      - name: Test LP metadata upload client
+        run: yarn test:lp-metadata
+
       - name: Upload LiteSVM artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -18,6 +18,7 @@ import {
 } from "@solana/web3.js";
 
 import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
+import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
 import { type MarketLaunchConfig } from "./market-bootstrap.js";
 import type { Market } from "./type-aliases.js";
 import {
@@ -819,6 +820,23 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeMarketInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeMarketInstruction(params));
+  }
+
+  /** Update a current LP mint's cosmetic metadata, signed by the market operator.
+   * Does not change authority, token supply, balances, or financial settings. */
+  updateLpMetadataInstruction(params: {
+    market: AddressLike;
+    operator: AddressLike;
+    lpMint: AddressLike;
+    metadata: LpTokenMetadataInput;
+  }): Promise<TransactionInstruction> {
+    assertLpTokenMetadata(params.metadata);
+    const lpMint = address(params.lpMint);
+    return this.instruction("updateLpMetadata", params.metadata, { accounts: {
+      operator: address(params.operator), market: address(params.market), lpMint,
+      tokenMetadata: deriveTokenMetadataAddress(lpMint)[0],
+      tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+    } });
   }
 
   async hlpLiquidityAction(
