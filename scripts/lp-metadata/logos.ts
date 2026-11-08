@@ -30,6 +30,7 @@ export function deriveTokenMetadataAddress(mint: PublicKey): PublicKey {
 function readBorshString(data: Buffer, offset: number): [string, number] {
   const length = data.readUInt32LE(offset);
   const start = offset + 4;
+  if (start + length > data.length) throw new Error("truncated metadata string");
   const raw = data.subarray(start, start + length).toString("utf8");
   return [raw.replace(/\0+$/g, "").trim(), start + length];
 }
@@ -37,7 +38,9 @@ function readBorshString(data: Buffer, offset: number): [string, number] {
 /** Name, symbol and URI from the Metaplex metadata account, or nulls. */
 export async function readTokenMetadata(connection: Connection, mint: PublicKey): Promise<TokenIdentity> {
   const account = await connection.getAccountInfo(deriveTokenMetadataAddress(mint), "confirmed");
-  if (!account || account.data.length < 1 + 32 + 32 + 4) {
+  if (!account || !account.owner.equals(TOKEN_METADATA_PROGRAM_ID)
+    || account.data.length < 1 + 32 + 32 + 4 || account.data[0] !== 4
+    || !account.data.subarray(33, 65).equals(mint.toBuffer())) {
     return { mint, name: null, symbol: null, uri: null };
   }
   try {

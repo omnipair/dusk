@@ -22,10 +22,10 @@ key, transfer-hook validation accounts for all three mints (Token-2022 refuses
 to move a hooked token without one), names from the SDK's `lpTokenNaming`, and
 per-mint images and JSON pinned to IPFS before the atomic `initialize_market`
 transaction. The script prepares a v0 address lookup table first, then creates
-the market and all three immutable Metaplex records together. It needs `VANITY_API_URL` (defaults to
-https://vanity.omnipair.fi) and either `PINATA_JWT` or
-`PINATA_SIGNED_URL_ENDPOINT` (a running webapp's
-`/api/pinata/create-signed-url`, which keeps the key out of the shell).
+the market and all three Metaplex records together. It needs `VANITY_API_URL` (defaults to
+https://vanity.omnipair.fi). By default it uses beta’s constrained
+`/api/lp-metadata` pair API. Override `LP_METADATA_ENDPOINT` for another app
+deployment, or set `PINATA_JWT` for standalone per-mint publishing.
 `LP_METADATA_DRY_RUN=1` grinds, renders and writes everything under
 `target/lp-metadata/<market>` without touching the chain or Pinata.
 `scripts/lp-metadata/render_preview.ts` renders the three images for any pair

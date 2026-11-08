@@ -24,6 +24,7 @@ npm run build --prefix packages/dusk-sdk
 yarn v2:create-mock-tokens
 yarn v2:initialize-mock-metadata
 yarn v2:mint-mock-tokens <tester-wallet>
+export LP_METADATA_ENDPOINT=https://beta.omnipair.fi/api/lp-metadata # optional devnet default
 yarn v2:bootstrap-market
 yarn v2:smoke-devnet
 ```
@@ -76,6 +77,34 @@ Useful knobs:
 - `DUSK_SMOKE_HLP_DEPOSIT=0` skips the default smoke-test hLP deposit.
 - `DUSK_SMOKE_HLP_DEPOSIT_AMOUNT=10` controls the smoke-test base hLP deposit amount.
 - `DUSK_SMOKE_SWAP=0` fetches state without sending the smoke swap.
+
+Bootstrap resolves asset symbols from their canonical mint metadata after
+sorting the mints, then uses the SDK's `marketLpTokenNaming` for every LP name
+and symbol. It pins matching per-mint JSON/images before market initialization;
+the default devnet `LP_METADATA_ENDPOINT` uses the app’s pair-metadata API. Override it for another app deployment, or set `PINATA_JWT` for standalone per-mint publishing. If an asset has
+no Metaplex ticker, supply `DUSK_BASE_SYMBOL` / `DUSK_QUOTE_SYMBOL` in canonical
+mint order. There are no generic Base/Quote LP name defaults.
+
+### Correct existing LP metadata
+
+`update_lp_metadata` lets the current market operator correct only the name,
+symbol and URI of an active srLP, hLP or jrLP mint. Managers and unrelated
+signers cannot use it. It preserves the market PDA as update authority and all
+royalty/creator/collection/use settings. It does not recreate any market or mint
+or change balances, shares, authorities, economic settings or accrued income.
+Cosmetic corrections do not use the economic-change timelock.
+
+```bash
+# Inspect first; ANCHOR_WALLET must be the operator for each affected market.
+yarn v2:update-lp-metadata
+# Optional: DUSK_MARKETS=<market>,<market> limits the existing-market scan.
+DUSK_APPLY=1 yarn v2:update-lp-metadata
+```
+
+The repair skips mints whose names/symbols already match the asset tickers,
+pins per-mint metadata for the corrections, checks every required operator
+before sending, and verifies each metadata account after confirmation. Wallets
+may retain cached labels until they refresh their token metadata.
 
 ## Publishing the SDK
 
