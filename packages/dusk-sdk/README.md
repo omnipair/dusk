@@ -738,20 +738,27 @@ const srlp = await createHookedLpMintWithSeedInstructions({
 
 const naming = marketLpTokenNaming({ baseSymbol: "META", quoteSymbol: "USDC" });
 // naming.srlp      -> { name: "META/USDC srLP", symbol: "srME/US", description }
-// naming.baseHlp  -> { name: "hMETA",         symbol: "hMETA.USDC", description }
-// naming.quoteHlp -> { name: "hUSDC",         symbol: "hUSDC.META", description }
+// naming.baseHlp  -> { name: "META hLP",      symbol: "hMETA", description }
+// naming.quoteHlp -> { name: "USDC hLP",      symbol: "hUSDC", description }
 ```
 
 `grindLpMintSeed` asks the vanity server for a seed with `owner` set to
 Token-2022 and re-derives the address locally before returning it; a server
-that ground the wrong suffix or owner is rejected. Names are written once by
-`initialize_market` and cannot be changed afterwards, so use `lpTokenNaming`
-rather than ad-hoc strings. Pass the three names, symbols, and URIs through
+that ground the wrong suffix or owner is rejected. Use `lpTokenNaming` for
+creation and corrections rather than ad-hoc strings. Pass names, symbols and URIs through
 `initializeMarketInstruction`; `marketCreationLookupTablePlan` and
 `marketCreationV0Transaction` build the v0 transaction once the lookup table is
 active. The metadata JSON and images that
 the URIs point to are produced by `scripts/lp-metadata/` in the dusk
 repository.
+
+The current operator can correct an active srLP, hLP or jrLP mint without
+recreating a pool. `dusk.write.updateLpMetadataInstruction({ market, operator,
+lpMint, metadata: { name, symbol, uri } })` validates the strings and derives
+the canonical Metaplex account. Only that metadata account is writable; the
+market and mint remain read-only. The operation preserves update authority,
+royalties, creators, collections, uses and mutability. Managers cannot sign it,
+and cosmetic corrections do not use the economic-change timelock.
 
 ## ESM Compatibility
 

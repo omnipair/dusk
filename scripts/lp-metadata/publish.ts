@@ -1,5 +1,5 @@
 /**
- * Name, image and pin the metadata for a market's three LP mints.
+ * Name, image and pin the metadata for a market's LP mints.
  *
  * The mint addresses and market PDA are known before market creation; the
  * returned URIs go into the atomic `initialize_market` instruction. Everything
@@ -7,11 +7,11 @@
  * so the result can be inspected before or after it is pinned.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { Connection, PublicKey } from "@solana/web3.js";
 
 import type { LpTokenNaming, MarketLpMintKind } from "../../packages/dusk-sdk/dist/index.js";
-import { MARKET_LP_MINT_KINDS } from "../../packages/dusk-sdk/dist/index.js";
 import { renderLpImages, type LpImageSources } from "./images.ts";
 import { fetchAssetLogo, fetchImage } from "./logos.ts";
 import { pinFile, pinJson, type PinataConfig } from "./pinata.ts";
@@ -24,8 +24,8 @@ export interface PublishLpMetadataParams {
   quoteMint: PublicKey;
   baseSymbol: string;
   quoteSymbol: string;
-  mints: Record<MarketLpMintKind, PublicKey>;
-  naming: Record<MarketLpMintKind, LpTokenNaming>;
+  mints: Record<MarketLpMintKind, PublicKey> & { junior?: PublicKey };
+  naming: Record<MarketLpMintKind, LpTokenNaming> & { junior?: LpTokenNaming };
   /** Omit to render and write files without pinning anything. */
   pinata?: PinataConfig;
   /** Override logo sources, e.g. for devnet mocks whose metadata has no image. */
@@ -39,7 +39,8 @@ export interface PublishedLpMetadata {
   json: Record<string, unknown>;
 }
 
-const KIND_LABEL: Record<MarketLpMintKind, string> = { srlp: "srLP", baseHlp: "hLP", quoteHlp: "hLP" };
+type LpKind = MarketLpMintKind | "junior";
+const KIND_LABEL: Record<LpKind, string> = { srlp: "srLP", baseHlp: "hLP", quoteHlp: "hLP", junior: "jrLP" };
 
 export async function resolveLogos(params: PublishLpMetadataParams): Promise<LpImageSources> {
   const [baseLogo, quoteLogo] = await Promise.all([
@@ -49,8 +50,8 @@ export async function resolveLogos(params: PublishLpMetadataParams): Promise<LpI
   return { baseLogo, quoteLogo, baseSymbol: params.baseSymbol, quoteSymbol: params.quoteSymbol };
 }
 
-function metadataJson(params: PublishLpMetadataParams, kind: MarketLpMintKind, image: string): Record<string, unknown> {
-  const naming = params.naming[kind];
+function metadataJson(params: PublishLpMetadataParams, kind: LpKind, image: string): Record<string, unknown> {
+  const naming = params.naming[kind]!;
   const side = kind === "baseHlp" ? "base" : kind === "quoteHlp" ? "quote" : "both";
   return {
     name: naming.name,
@@ -73,27 +74,30 @@ function metadataJson(params: PublishLpMetadataParams, kind: MarketLpMintKind, i
 
 export async function publishLpMetadata(
   params: PublishLpMetadataParams
-): Promise<Record<MarketLpMintKind, PublishedLpMetadata>> {
+): Promise<Record<MarketLpMintKind, PublishedLpMetadata> & { junior?: PublishedLpMetadata }> {
+  if (params.mints.junior && !params.naming.junior) throw new Error("junior metadata requires junior naming");
   const outDir = params.outDir ?? join("target", "lp-metadata", params.market.toBase58());
   mkdirSync(outDir, { recursive: true });
   const images = await renderLpImages(await resolveLogos(params));
-  const result = {} as Record<MarketLpMintKind, PublishedLpMetadata>;
-  for (const kind of MARKET_LP_MINT_KINDS) {
-    const mint = params.mints[kind].toBase58();
+  const result = {} as Record<MarketLpMintKind, PublishedLpMetadata> & { junior?: PublishedLpMetadata };
+  for (const kind of Object.keys(params.mints) as LpKind[]) {
+    const mint = params.mints[kind]!.toBase58();
+    const imageBytes = images[kind === "junior" ? "srlp" : kind];
     const keyvalues = {
       app: "dusk",
       network: params.network,
       market: params.market.toBase58(),
       mint,
       kind,
+      naming: createHash("sha256").update(JSON.stringify(params.naming[kind])).digest("hex"),
     };
-    writeFileSync(join(outDir, `${kind}.png`), images[kind]);
+    writeFileSync(join(outDir, `${kind}.png`), imageBytes);
     let image = `file://${join(process.cwd(), outDir, `${kind}.png`)}`;
     let uri = "";
     if (params.pinata) {
       const pinned = await pinFile(params.pinata, {
         name: `dusk-lp-${mint}.png`,
-        bytes: images[kind],
+        bytes: imageBytes,
         contentType: "image/png",
         keyvalues: { ...keyvalues, type: "lp-image" },
       });

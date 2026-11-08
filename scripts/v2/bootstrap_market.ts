@@ -9,7 +9,6 @@ import {
   SYSVAR_INSTRUCTIONS_PUBKEY,
   bnFromUnits,
   createHookedLpMintIfMissing,
-  defaultLpMetadata,
   defaultMarketConfig,
   deriveFutarchyAuthorityAddress,
   deriveHlpSrlpVaultAddress,
@@ -35,6 +34,10 @@ import {
 import idl from "../../target/idl/dusk.json" with { type: "json" };
 import { marketCreationOracleFromEnv, sendAtomicMarketCreation } from "../utils/market-creation.ts";
 import { oracleComputeBudgetInstructions, oracleReadAccounts } from "../../packages/dusk-sdk/dist/oracle.js";
+import { marketLpTokenNaming } from "../../packages/dusk-sdk/dist/index.js";
+import { readTokenMetadata } from "../lp-metadata/logos.ts";
+import { publishLpMetadata } from "../lp-metadata/publish.ts";
+import { pinataConfigFromEnv } from "../lp-metadata/pinata.ts";
 
 async function main() {
   const initialOracle = marketCreationOracleFromEnv();
@@ -66,6 +69,20 @@ async function main() {
     paramsHash,
   });
   const market = addresses.market;
+  const marketAccount = await provider.connection.getAccountInfo(market, "confirmed");
+  // Resolve tickers after canonical mint ordering; labels may be reversed.
+  // Do this before paying for accounts, so missing identities/uploads fail early.
+  const [baseIdentity, quoteIdentity] = await Promise.all([
+    readTokenMetadata(provider.connection, baseMint),
+    readTokenMetadata(provider.connection, quoteMint),
+  ]);
+  const baseSymbol = baseIdentity.symbol ?? duskEnv("BASE_SYMBOL");
+  const quoteSymbol = quoteIdentity.symbol ?? duskEnv("QUOTE_SYMBOL");
+  if (!baseSymbol || !quoteSymbol) {
+    throw new Error("Asset tickers are missing; initialize token metadata or set DUSK_BASE_SYMBOL and DUSK_QUOTE_SYMBOL in canonical mint order.");
+  }
+  const naming = marketLpTokenNaming({ baseSymbol, quoteSymbol });
+  const pinata = marketAccount ? undefined : pinataConfigFromEnv();
 
   const futarchyAuthority = deriveFutarchyAuthorityAddress(program.programId);
   const futarchy = await ensureFutarchyAuthority({ program, payer: payer.publicKey });
@@ -122,19 +139,23 @@ async function main() {
     srlp
   );
 
-  const marketAccount = await provider.connection.getAccountInfo(market, "confirmed");
   if (!marketAccount) {
+    const metadata = await publishLpMetadata({
+      connection: provider.connection, network: "devnet", market, baseMint, quoteMint,
+      baseSymbol, quoteSymbol, mints: { srlp, baseHlp, quoteHlp }, naming, pinata,
+    });
     console.log(`Initializing Dusk srLP/hLP market ${market.toBase58()}`);
     const instruction = await program.methods
       .initializeMarket({
         config: defaultMarketConfig(),
+        operatorInterestShareBps: Number(duskEnv("OPERATOR_INTEREST_SHARE_BPS", "0")),
         oracle: initialOracle,
         paramsHash: [...paramsHash],
         bootstrapPriceNad: new anchor.BN(duskEnv("BOOTSTRAP_PRICE_NAD", "0")),
         launchFeeProgressOffset: Number(duskEnv("LAUNCH_FEE_PROGRESS_OFFSET", "0")),
-        srlpMetadata: defaultLpMetadata("srlp"),
-        baseHlpMetadata: defaultLpMetadata("baseHlp"),
-        quoteHlpMetadata: defaultLpMetadata("quoteHlp"),
+        srlpMetadata: { ...naming.srlp, uri: metadata.srlp.uri },
+        baseHlpMetadata: { ...naming.baseHlp, uri: metadata.baseHlp.uri },
+        quoteHlpMetadata: { ...naming.quoteHlp, uri: metadata.quoteHlp.uri },
       })
       .accounts({
         payer: payer.publicKey,
