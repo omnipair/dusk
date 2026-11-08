@@ -8,9 +8,9 @@ Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by d
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
 export DUSK_PROGRAM_ID=B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2
-export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/dusk-program-keypair.json
+export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/dusk-operator-program-keypair.json
 export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY
-export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/leverage-delegate-tranches-program-keypair.json
+export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/leverage-delegate-operator-program-keypair.json
 export DUSK_FAUCET_PROGRAM_ID=EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz
 export DUSK_FAUCET_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/faucet-program-keypair.json
 
@@ -83,16 +83,27 @@ A merge to `main` publishes `@omnipair/dusk-sdk` once its version is deployed,
 so deploy first, then merge. Deploy the programs the branch changes with the
 commands above, then merge the pull request that sets the new version in
 `packages/dusk-sdk/package.json`. `yarn v2:deploy-devnet` and
-`yarn v2:deploy-leverage-delegate-devnet` upload each program's IDL from the
-same build right after deploying it, through `scripts/v2/upload_idl.sh`. The
-script upgrades the program's IDL account, or creates it for a program deployed
-to a new ID, and stops when `ANCHOR_WALLET` is not the account's authority. A
-program deployed any other way needs the script before the merge, run from the
+`yarn v2:deploy-leverage-delegate-devnet` run `scripts/v2/deploy_program.sh`.
+It stops before deploying when the program keypair is not the keypair of the
+program the IDL names, then uploads the IDL from the same build through
+`scripts/v2/upload_idl.sh`. That script upgrades the program's IDL account, or
+creates it for a program deployed to a new ID, and stops when `ANCHOR_WALLET`
+is not the account's authority. A program deployed any other way, a custom
+deploy script included, needs `upload_idl.sh` before the merge, run from the
 checkout that was deployed:
 
 ```bash
 scripts/v2/upload_idl.sh target/idl/dusk.json
 scripts/v2/upload_idl.sh target/idl/leverage_delegate.json
+```
+
+A pull request that touches the package runs the `publish-sdk` check. It fails
+while the IDLs the package ships differ from the cluster, so merge it only once
+the check passes. After deploying, re-run the failed check:
+
+```bash
+gh pr checks <pr-number> --repo omnipair/dusk
+gh run rerun <run-id> --failed --repo omnipair/dusk
 ```
 
 The merge starts `.github/workflows/publish-sdk.yaml`. It

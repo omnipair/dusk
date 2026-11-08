@@ -17,6 +17,12 @@ name: publish-sdk
 # interface only: a program change that keeps the IDLs passes it whether or not
 # it is deployed.
 #
+# A pull request that touches the package runs the same checks without
+# publishing, and fails while the IDLs it ships differ from the cluster. A
+# deployment or IDL upload that has not happened shows on the pull request
+# before the merge, instead of as a warning after it. Re-run the check once the
+# programs and IDLs are live.
+#
 # A `dusk-sdk-v<version>` tag on a deployed main commit also publishes it, and
 # fails instead of warning when the IDLs differ. A manual run takes an existing
 # tag: it publishes versions tagged on commits that predate this workflow, or
@@ -40,6 +46,10 @@ on:
     tags:
       - "dusk-sdk-v*"
     # GitHub applies path filters to branch pushes only; every tag push runs.
+    paths:
+      - "packages/dusk-sdk/**"
+      - ".github/workflows/publish-sdk.yaml"
+  pull_request:
     paths:
       - "packages/dusk-sdk/**"
       - ".github/workflows/publish-sdk.yaml"
@@ -73,9 +83,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      # Empty for a merge to main, which takes its version from the manifest.
+      # Empty for a merge to main or a pull request, which take their version
+      # from the manifest.
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_type == 'tag' && github.ref_name || '' }}
       MERGE: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+      PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
     outputs:
       version: ${{ steps.channel.outputs.version }}
@@ -135,16 +147,20 @@ jobs:
           VERSION: ${{ steps.channel.outputs.version }}
           DIST_TAG: ${{ steps.channel.outputs.dist_tag }}
           CLUSTER: ${{ steps.channel.outputs.cluster }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          git fetch --quiet --no-tags origin +refs/heads/main:refs/remotes/origin/main
           COMMIT="$(git rev-parse HEAD)"
-          if ! git merge-base --is-ancestor "$COMMIT" refs/remotes/origin/main; then
-            if [ -n "$TAG" ]; then
-              echo "::error::$TAG points at $COMMIT, which is not on main. Tag the deployed commit once it has merged."
-            else
-              echo "::error::$COMMIT is no longer on main."
+          # A pull request is checked before it reaches main.
+          if [ "$PULL_REQUEST" != "true" ]; then
+            git fetch --quiet --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            if ! git merge-base --is-ancestor "$COMMIT" refs/remotes/origin/main; then
+              if [ -n "$TAG" ]; then
+                echo "::error::$TAG points at $COMMIT, which is not on main. Tag the deployed commit once it has merged."
+              else
+                echo "::error::$COMMIT is no longer on main."
+              fi
+              exit 1
             fi
-            exit 1
           fi
           MANIFEST="$PACKAGE_DIR/package.json"
           ID="$(node -p 'const m = require(process.argv[1]); `${m.name}@${m.version}`' "./$MANIFEST")"
@@ -155,6 +171,8 @@ jobs:
           SOURCE="merge to main"
           if [ -n "$TAG" ]; then
             SOURCE="\`$TAG\`"
+          elif [ "$PULL_REQUEST" = "true" ]; then
+            SOURCE="pull request #$PR_NUMBER"
           fi
           {
             echo "### $PACKAGE_NAME@$VERSION"
@@ -171,7 +189,8 @@ jobs:
           VERSION: ${{ steps.channel.outputs.version }}
           CLUSTER: ${{ steps.channel.outputs.cluster }}
         run: |
-          # A merge that keeps a published version has nothing to build.
+          # A merge or pull request that keeps a published version has nothing
+          # to build.
           BUILD=true
           if OUTPUT="$(npm view "$PACKAGE_NAME@$VERSION" version 2>&1)"; then
             PUBLISHED=true
@@ -180,11 +199,17 @@ jobs:
             if [ "$MERGE" = "true" ]; then
               BUILD=false
               NEXT="this merge publishes nothing. A change to the package needs a new version in $PACKAGE_DIR/package.json."
+            elif [ "$PULL_REQUEST" = "true" ]; then
+              BUILD=false
+              NEXT="merging this pull request publishes nothing. A change to the package needs a new version in $PACKAGE_DIR/package.json."
             fi
           elif grep -q E404 <<< "$OUTPUT"; then
             PUBLISHED=false
             STATUS="Not on npm yet"
             NEXT="it publishes if every IDL it ships matches $CLUSTER."
+            if [ "$PULL_REQUEST" = "true" ]; then
+              NEXT="its merge publishes it if every IDL it ships matches $CLUSTER, and this check fails until they do."
+            fi
           else
             echo "$OUTPUT"
             echo "::error::Could not read $PACKAGE_NAME@$VERSION from the npm registry."
@@ -266,9 +291,11 @@ jobs:
           }
 
           (async () => {
-            const { CLUSTER, RPC_URL, MERGE, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY } = process.env;
-            // A merge can land before its deployment, so it warns where a tag fails.
+            const { CLUSTER, RPC_URL, MERGE, PULL_REQUEST, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY } = process.env;
+            // A merge can land before its deployment, so it warns where a tag
+            // or a pull request fails.
             const merge = MERGE === "true";
+            const pullRequest = PULL_REQUEST === "true";
             const level = merge ? "warning" : "error";
             const connection = new Connection(RPC_URL, "confirmed");
             const files = readdirSync("src").filter((name) => /^idl_.+\.json$/.test(name)).sort();
@@ -305,9 +332,10 @@ jobs:
                   const sections = [...new Set([...Object.keys(shipped), ...Object.keys(deployed)])].filter(
                     (key) => canonicalJson(shipped[key]) !== canonicalJson(deployed[key])
                   );
-                  const hint = merge
-                    ? ""
-                    : " Upload the IDL of the deployed build with scripts/v2/upload_idl.sh, or tag the commit that was deployed.";
+                  const hint =
+                    merge || pullRequest
+                      ? ""
+                      : " Upload the IDL of the deployed build with scripts/v2/upload_idl.sh, or tag the commit that was deployed.";
                   console.log(
                     `::${level}::${file} differs from the ${CLUSTER} IDL of ${programId.toBase58()} in: ${sections.join(", ")}.${hint}`
                   );
@@ -329,9 +357,11 @@ jobs:
               ...rows,
               "",
             ];
-            if (!allMatch && merge) {
-              const message = `This merge does not match the ${CLUSTER} deployment yet, so it publishes nothing. Once its programs and IDLs are live, re-run this run to publish it.`;
-              console.log(`::warning::${message}`);
+            if (!allMatch && (merge || pullRequest)) {
+              const message = merge
+                ? `This merge does not match the ${CLUSTER} deployment yet, so it publishes nothing. Once its programs and IDLs are live, re-run this run to publish it.`
+                : `This pull request does not match the ${CLUSTER} deployment yet. Deploy its programs with the yarn v2:deploy-* scripts, which upload their IDLs, or run scripts/v2/upload_idl.sh after any other deploy. Then re-run this check before merging.`;
+              console.log(`::${level}::${message}`);
               summary.push(message, "");
             }
             if (GITHUB_STEP_SUMMARY) appendFileSync(GITHUB_STEP_SUMMARY, summary.join("\n") + "\n");
@@ -343,9 +373,10 @@ jobs:
           });
           NODE
 
+      # A pull request stops after the checks.
       - name: Pack
         id: pack
-        if: steps.idl.outputs.deployed == 'true'
+        if: steps.idl.outputs.deployed == 'true' && github.event_name != 'pull_request'
         working-directory: ${{ env.PACKAGE_DIR }}
         run: |
           DESTINATION="$RUNNER_TEMP/package"
@@ -355,7 +386,7 @@ jobs:
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
 
       - name: Upload tarball
-        if: steps.idl.outputs.deployed == 'true'
+        if: steps.idl.outputs.deployed == 'true' && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: dusk-sdk-tarball
@@ -366,8 +397,9 @@ jobs:
   publish:
     name: Publish to npm
     needs: build
-    # A dry run comes here even for a version already on npm, to test the login.
-    if: (needs.build.outputs.published == 'false' && needs.build.outputs.deployed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    # A pull request never publishes. A dry run comes here even for a version
+    # already on npm, to test the login.
+    if: (github.event_name != 'pull_request' && needs.build.outputs.published == 'false' && needs.build.outputs.deployed == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     # Two runs for one version (a merge and a tag, or a re-run) wait for each
     # other instead of racing to publish it.
     concurrency:
