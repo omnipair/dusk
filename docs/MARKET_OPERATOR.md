@@ -52,7 +52,7 @@ explicit replacement is supplied.
 | --- | --- | --- |
 | Fees | Base/dynamic fee settings, fee asset and compounding | Existing protocol validation; launch schedule fields freeze once launch starts |
 | Concentration | Amplification, core/fade widths, including CPMM transitions | Full notice, ramp of at least one nominal day, positive targets within 0.1×–10× starting values; zero-width transitions also require guarded ramps |
-| Interest model | Coverage targets, adaptation half-life, utilization limit | Half-life 12 hours–30 days; utilization at most 80%; live base APR preserved on edit |
+| Interest model | Risk-signal and utilization target bands, adaptation half-life | Signal lower < upper; utilization 0–99.99% with lower < upper; half-life 12 hours–30 days; live base APR preserved on edit |
 | Price/depth signals | Four EMA half-lives | Existing positive protocol ranges; accrued history is retained |
 | Automatic centering | Minimum adaptive step | Always active for concentration; EMA-directed candidate and funded-profit check; adaptive step is max(minimum step, distance/5) |
 | Public borrowing | Daily principal outflow limit | Protocol maximum 30%; previously consumed budget remains counted |

@@ -5950,7 +5950,7 @@
     {
       "name": "RiskRateConfig",
       "docs": [
-        "Coverage controller configuration. Initial APR is creation-only."
+        "Coverage-and-utilization controller configuration. Initial APR is creation-only."
       ],
       "type": {
         "kind": "struct",
@@ -5964,16 +5964,20 @@
             "type": "u64"
           },
           {
+            "name": "lower_utilization_bps",
+            "type": "u16"
+          },
+          {
+            "name": "upper_utilization_bps",
+            "type": "u16"
+          },
+          {
             "name": "half_life_ms",
             "type": "u64"
           },
           {
             "name": "initial_apr_nad",
             "type": "u64"
-          },
-          {
-            "name": "borrow_utilization_limit_bps",
-            "type": "u16"
           }
         ]
       }

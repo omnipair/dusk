@@ -1,7 +1,10 @@
 use crate::{
     constants::NAD,
     errors::ErrorCode,
-    math::{borrow_controller::coverage_signal_nad, mul_div_u128, utilization_bps},
+    math::{
+        borrow_controller::{coverage_signal_nad, RiskRateInput},
+        mul_div_u128, utilization_bps,
+    },
     state::{Debt, Market, MarketAsset},
 };
 use anchor_lang::prelude::*;
@@ -92,39 +95,10 @@ impl Market {
         Ok(())
     }
 
-    /// Maximum ordinary cash draw under the configured utilization constraint,
-    /// including the aggregate rounding caused by minting borrower debt shares.
+    /// Maximum ordinary cash draw. Risk pricing is market-driven, so executable
+    /// cash rather than a utilization admission cap bounds a new loan.
     pub fn borrow_cash_headroom(&self, asset: MarketAsset) -> Result<u64> {
-        let cash = self.side(asset).reserves.cash_reserve;
-        let debt = self.covered_debt(asset)?;
-        let limit = self.config.irm.borrow_utilization_limit_bps as u128;
-        let bound = mul_div_u128(
-            debt.checked_add(cash as u128).ok_or(ErrorCode::MarketMathOverflow)?,
-            limit,
-            10_000,
-        )?
-        .saturating_sub(debt);
-        let mut low = 0;
-        let mut high = cash.min(u64::try_from(bound).unwrap_or(u64::MAX));
-        while low < high {
-            let amount = low + (high - low) / 2 + (high - low) % 2;
-            let shares = Debt::debt_to_shares(amount, self.debt.borrow_index(asset))?;
-            let increase = self.debt.fixed_debt_increase_for_shares(asset, shares)?;
-            if crate::math::borrow_controller::check_new_borrow_liquidity(
-                &self.config.irm,
-                debt,
-                cash,
-                increase as u128,
-                amount,
-            )
-            .is_ok()
-            {
-                low = amount;
-            } else {
-                high = amount - 1;
-            }
-        }
-        Ok(low)
+        Ok(self.side(asset).reserves.cash_reserve)
     }
     /// Consolidated borrower exposure, including opposite-vault hLP funding.
     pub fn covered_debt(&self, asset: MarketAsset) -> Result<u128> {
@@ -179,16 +153,27 @@ impl Market {
 
     /// Freeze both utilization inputs and the single junior/debt coverage factor
     /// before either debt index changes. No debt on an asset holds its APR.
-    pub fn tranche_coverage_signals(&self) -> Result<[Option<u128>; 2]> {
+    pub fn tranche_rate_inputs(&self) -> Result<[RiskRateInput; 2]> {
         let debts = [
             self.covered_debt(MarketAsset::Base)?,
             self.covered_debt(MarketAsset::Quote)?,
         ];
+        let utilization = [
+            utilization_bps(debts[0], self.base_side.reserves.cash_reserve as u128)?,
+            utilization_bps(debts[1], self.quote_side.reserves.cash_reserve as u128)?,
+        ];
+        let mut inputs = [RiskRateInput::default(); 2];
+        for i in 0..2 {
+            inputs[i].utilization_bps = utilization[i];
+        }
         if self.tranches.junior_reserve_shares == 0 {
-            return Ok(debts.map(|debt| if debt == 0 { None } else { Some(0) }));
+            for i in 0..2 {
+                inputs[i].signal_nad = if debts[i] == 0 { None } else { Some(0) };
+            }
+            return Ok(inputs);
         }
         if debts == [0, 0] {
-            return Ok([None, None]);
+            return Ok(inputs);
         }
         let mark = if self.amm.price_ema_nad > 0 {
             self.amm.price_ema_nad
@@ -209,18 +194,13 @@ impl Market {
         let junior_value = self
             .tranches
             .junior_value(self.funded_reserve_value()?, self.base_side.shares.srlp_supply)?;
-        let mut signals = [None, None];
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             let i = asset.code() as usize;
             if debts[i] > 0 {
-                signals[i] = coverage_signal_nad(
-                    junior_value,
-                    total_debt_value,
-                    utilization_bps(debts[i], self.side(asset).reserves.cash_reserve as u128)?,
-                )?;
+                inputs[i].signal_nad = coverage_signal_nad(junior_value, total_debt_value, utilization[i])?;
             }
         }
-        Ok(signals)
+        Ok(inputs)
     }
 }
 

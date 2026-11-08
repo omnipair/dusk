@@ -2,9 +2,10 @@
 export const RISK_RATE_DEFAULTS = Object.freeze({
   lowerSignalNad: 50_000_000,
   upperSignalNad: 62_500_000,
+  lowerUtilizationBps: 7_500,
+  upperUtilizationBps: 8_000,
   halfLifeMs: 14 * 24 * 60 * 60 * 1_000,
   initialAprNad: 40_000_000,
-  borrowUtilizationLimitBps: 8_000,
 });
 
 /** Values use one common numeraire. Returns null when this asset has no debt.

@@ -1425,13 +1425,6 @@ impl Market {
                     market.hlp_funding_debt(asset)?,
                     ErrorCode::InsufficientBorrowHeadroom
                 );
-                crate::math::borrow_controller::check_new_borrow_liquidity(
-                    &market.config.irm,
-                    market.covered_debt(asset)?,
-                    market.side(asset).reserves.cash_reserve,
-                    0,
-                    0,
-                )?;
             }
         }
         // The first mint establishes token units. Later mints use actual

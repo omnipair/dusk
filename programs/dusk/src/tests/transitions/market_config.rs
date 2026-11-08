@@ -89,6 +89,8 @@ fn irm_defaults_and_inclusive_bounds_validate() {
     let config = IrmConfig::default();
     assert_eq!(config.lower_signal_nad, NAD / 20);
     assert_eq!(config.upper_signal_nad, NAD / 16);
+    assert_eq!(config.lower_utilization_bps, 7_500);
+    assert_eq!(config.upper_utilization_bps, 8_000);
     assert_eq!(config.half_life_ms, 14 * MS_PER_DAY);
     assert_eq!(config.initial_apr_nad, 4 * NAD / 100);
     for half in [MS_PER_DAY / 2, 30 * MS_PER_DAY] {
@@ -107,6 +109,19 @@ fn irm_defaults_and_inclusive_bounds_validate() {
     .is_err());
     assert!(IrmConfig {
         half_life_ms: 30 * MS_PER_DAY + 1,
+        ..config
+    }
+    .validate()
+    .is_err());
+    assert!(IrmConfig {
+        lower_utilization_bps: 8_000,
+        upper_utilization_bps: 8_000,
+        ..config
+    }
+    .validate()
+    .is_err());
+    assert!(IrmConfig {
+        upper_utilization_bps: 10_000,
         ..config
     }
     .validate()

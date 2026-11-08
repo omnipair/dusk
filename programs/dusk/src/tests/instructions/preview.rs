@@ -154,7 +154,10 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
             &mut accrued,
             MarketAsset::Quote,
             year * half_life_ms / TARGET_MS_PER_SLOT,
-            Some(0),
+            crate::math::borrow_controller::RiskRateInput {
+                signal_nad: Some(0),
+                utilization_bps: 10_000,
+            },
         )
         .unwrap();
     }
@@ -1327,10 +1330,9 @@ fn existing_position_capacity_matches_actual_draw_and_withdrawal_boundaries() {
 fn existing_position_capacity_keeps_cash_and_daily_limits_on_additional_debt() {
     let (mut market, position) = existing_position_capacity_fixture(MarketAsset::Base);
     market.base_side.reserves.cash_reserve = 100;
-    market.config.irm.borrow_utilization_limit_bps = 8_000;
     let quote = market.position_capacity_quote(&position, MarketAsset::Quote, None, true, 0, LeverageCollateralFee::default()).unwrap();
     assert!(quote.existing_debt > 100);
-    assert_eq!(quote.max_borrow_amount.unwrap(), 0);
+    assert!(quote.max_borrow_amount.unwrap() <= 100);
     market.base_side.reserves.cash_reserve=100_000;
     market.base_side.reserves.live_reserve=u128::from(100_000 + Debt::shares_to_debt(market.debt.fixed_base_shares,market.debt.base_borrow_index_nad).unwrap() as u64);
     let daily_limit = market.daily_limit_for_side(MarketAsset::Base, market.config.max_daily_borrow_bps).unwrap();

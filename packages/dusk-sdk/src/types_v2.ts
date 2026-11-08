@@ -22010,7 +22010,7 @@ export type Dusk = {
     {
       "name": "riskRateConfig",
       "docs": [
-        "Coverage controller configuration. Initial APR is creation-only."
+        "Coverage-and-utilization controller configuration. Initial APR is creation-only."
       ],
       "type": {
         "kind": "struct",
@@ -22024,16 +22024,20 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "lowerUtilizationBps",
+            "type": "u16"
+          },
+          {
+            "name": "upperUtilizationBps",
+            "type": "u16"
+          },
+          {
             "name": "halfLifeMs",
             "type": "u64"
           },
           {
             "name": "initialAprNad",
             "type": "u64"
-          },
-          {
-            "name": "borrowUtilizationLimitBps",
-            "type": "u16"
           }
         ]
       }
@@ -22056,12 +22060,16 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "halfLifeMs",
-            "type": "u64"
+            "name": "lowerUtilizationBps",
+            "type": "u16"
           },
           {
-            "name": "borrowUtilizationLimitBps",
+            "name": "upperUtilizationBps",
             "type": "u16"
+          },
+          {
+            "name": "halfLifeMs",
+            "type": "u64"
           }
         ]
       }
@@ -23612,12 +23620,12 @@ export type Dusk = {
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 12 replaces core LP governance with operator authority and removes",
-        "configurable interest-rate floors/ceilings and redundant centering inputs.",
-        "Aggregate virtual reserves use u128; physical token amounts remain u64."
+        "Layout 14 replaces the former utilization admission threshold with",
+        "independent lower/upper utilization rate targets. Aggregate virtual",
+        "reserves use u128; physical token amounts remain u64."
       ],
       "type": "u8",
-      "value": "13"
+      "value": "14"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

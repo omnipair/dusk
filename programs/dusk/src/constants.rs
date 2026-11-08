@@ -125,11 +125,11 @@ pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// Serialized `Market` account layout discriminator.
 ///
-/// Layout 12 replaces core LP governance with operator authority and removes
-/// configurable interest-rate floors/ceilings and redundant centering inputs.
-/// Aggregate virtual reserves use u128; physical token amounts remain u64.
+/// Layout 14 replaces the former utilization admission threshold with
+/// independent lower/upper utilization rate targets. Aggregate virtual
+/// reserves use u128; physical token amounts remain u64.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 13;
+pub const MARKET_LAYOUT_VERSION: u8 = 14;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

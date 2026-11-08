@@ -112,8 +112,9 @@ base/divergence/volatility fee budgets are capped at 5,000 bps; the daily borrow
 limit is capped at 3,000 bps. The IRM family now configures the coverage-based
 borrow-rate controller: a 5–6.25% default signal band, 14-day default half-life,
 4% creation-time starting APR, 1% protocol-wide minimum APR, no configured
-economic ceiling, and an 80% new-borrow utilization limit. The signal, bounds,
-and the separate 80% parameter-execution guard are specified in
+economic ceiling, and a 75–80% utilization target band. Loans are bounded by
+cash and the existing health/daily-flow checks rather than a utilization cap.
+The two rate bands and the separate 80% parameter-execution guard are specified in
 [`BORROW_RATE_CONTROLLER.md`](../../docs/BORROW_RATE_CONTROLLER.md).
 
 `max_daily_borrow_bps` sizes one public-lending borrow bucket per debt asset

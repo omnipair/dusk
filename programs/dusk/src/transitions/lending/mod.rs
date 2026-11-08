@@ -1071,7 +1071,7 @@ pub(crate) fn accrue_side<const REPORT: bool>(
     market: &mut Market,
     asset: MarketAsset,
     current_slot: u64,
-    signal_nad: Option<u128>,
+    rate_input: crate::math::borrow_controller::RiskRateInput,
 ) -> Result<Option<InterestAccrualReceipt>> {
     let (index, borrow_apr, last_accrual_slot, fixed_shares, isolated_shares) = match asset {
         MarketAsset::Base => (
@@ -1159,7 +1159,7 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         .and_then(|value| value.checked_add(fraction as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let accrual =
-        crate::math::borrow_controller::accrue_risk_rate(&market.config.irm, previous_e18, signal_nad, dt_ms)?;
+        crate::math::borrow_controller::accrue_risk_rate(&market.config.irm, previous_e18, rate_input, dt_ms)?;
     let next_borrow_apr = accrual.end_apr_e18 / NAD as u128;
     let next_borrow_apr_fraction = (accrual.end_apr_e18 % NAD as u128) as u64;
     let rate = crate::math::mul_div_u128(
@@ -1348,19 +1348,19 @@ impl Market {
                 || self.debt.isolated_base_shares != 0
                 || self.quote_hlp_vault.debt_shares != 0
             {
-                accrue_side::<false>(self, MarketAsset::Base, current_slot, None)?;
+                accrue_side::<false>(self, MarketAsset::Base, current_slot, Default::default())?;
             }
             if self.debt.fixed_quote_shares != 0
                 || self.debt.isolated_quote_shares != 0
                 || self.base_hlp_vault.debt_shares != 0
             {
-                accrue_side::<false>(self, MarketAsset::Quote, current_slot, None)?;
+                accrue_side::<false>(self, MarketAsset::Quote, current_slot, Default::default())?;
             }
             return Ok(());
         }
-        let signals = self.tranche_coverage_signals()?;
-        accrue_side::<false>(self, MarketAsset::Base, current_slot, signals[0])?;
-        accrue_side::<false>(self, MarketAsset::Quote, current_slot, signals[1])?;
+        let inputs = self.tranche_rate_inputs()?;
+        accrue_side::<false>(self, MarketAsset::Base, current_slot, inputs[0])?;
+        accrue_side::<false>(self, MarketAsset::Quote, current_slot, inputs[1])?;
         Ok(())
     }
 
@@ -1600,13 +1600,6 @@ impl Market {
             borrow_amount,
             ErrorCode::InsufficientBorrowHeadroom
         );
-        crate::math::borrow_controller::check_new_borrow_liquidity(
-            &self.config.irm,
-            self.covered_debt(borrow_asset)?,
-            self.side(borrow_asset).reserves.cash_reserve,
-            aggregate_debt_increase as u128,
-            borrow_amount,
-        )?;
         let mut projected_debt = self.debt;
         match borrow_asset {
             MarketAsset::Base => {

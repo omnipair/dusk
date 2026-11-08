@@ -2,6 +2,7 @@
   "market": "4iuoB4WsTEsv4gnwY6RZnwgaHWqYCAwCbaLswJjbwgSa",
   "sourceSlot": 519230009,
   "unixTimestamp": 1793951534,
-  "sha256": "ba8176a892176da85f2a85af138a229b9bc90b200b9e8a45838c5dc47af80e59",
-  "description": "Devnet market after senior, junior, both hLP, borrow, leverage and fee-collection flows. Only the public market account is required by this preview."
+  "sha256": "e1cb5b7cdb7c51fa8c9d9c6c8b7e54786afce3154df19be121ef3a726b72eb74",
+  "description": "Devnet market after senior, junior, both hLP, borrow, leverage and fee-collection flows. Only the public market account is required by this preview.",
+  "schemaAdaptation": "Layout 14: independent utilization and risk-coverage target bands."
 }

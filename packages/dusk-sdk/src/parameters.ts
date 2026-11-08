@@ -108,15 +108,17 @@ export interface FeeProfile {
 export interface IrmUpdateInput {
   lowerSignalNad: IntegerLike;
   upperSignalNad: IntegerLike;
+  lowerUtilizationBps: number;
+  upperUtilizationBps: number;
   halfLifeMs: IntegerLike;
-  borrowUtilizationLimitBps: number;
 }
 
 export interface IrmUpdate {
   lowerSignalNad: BN;
   upperSignalNad: BN;
+  lowerUtilizationBps: number;
+  upperUtilizationBps: number;
   halfLifeMs: BN;
-  borrowUtilizationLimitBps: number;
 }
 
 export type ParameterUpdate =
@@ -488,17 +490,20 @@ export const MINIMUM_BORROW_APR_NAD = NAD / 100n;
 export const MIN_BORROW_HALF_LIFE_MS = 43_200_000n;
 export const MAX_BORROW_HALF_LIFE_MS = 30n * 86_400_000n;
 export function irmParameterUpdate(input: IrmUpdateInput): ParameterUpdate {
-  assertBps(input.borrowUtilizationLimitBps, "borrowUtilizationLimitBps", 8_000, 1);
+  assertBps(input.lowerUtilizationBps, "lowerUtilizationBps", 9_999);
+  assertBps(input.upperUtilizationBps, "upperUtilizationBps", 9_999, 1);
   const lowerSignalNad = toU64BigInt(input.lowerSignalNad, "lowerSignalNad");
   const upperSignalNad = toU64BigInt(input.upperSignalNad, "upperSignalNad");
   const halfLifeMs = toU64BigInt(input.halfLifeMs, "halfLifeMs");
   if (lowerSignalNad === 0n || upperSignalNad <= lowerSignalNad) throw new Error("Invalid coverage target band");
+  if (input.upperUtilizationBps <= input.lowerUtilizationBps) throw new Error("Invalid utilization target band");
   assertRange(halfLifeMs, MIN_BORROW_HALF_LIFE_MS, MAX_BORROW_HALF_LIFE_MS, "halfLifeMs");
   for (const field of Object.keys(input)) {
-    if (!["lowerSignalNad", "upperSignalNad", "halfLifeMs", "borrowUtilizationLimitBps"].includes(field)) throw new Error(`Unknown IRM update field: ${field}`);
+    if (!["lowerSignalNad", "upperSignalNad", "lowerUtilizationBps", "upperUtilizationBps", "halfLifeMs"].includes(field)) throw new Error(`Unknown IRM update field: ${field}`);
   }
   return { kind: "irm", config: { lowerSignalNad: toBN(lowerSignalNad), upperSignalNad: toBN(upperSignalNad),
-    halfLifeMs: toBN(halfLifeMs), borrowUtilizationLimitBps: input.borrowUtilizationLimitBps } };
+    lowerUtilizationBps: input.lowerUtilizationBps, upperUtilizationBps: input.upperUtilizationBps,
+    halfLifeMs: toBN(halfLifeMs) } };
 }
 
 export function emaHalfLivesParameterUpdate(input: {
@@ -691,8 +696,9 @@ export function parameterUpdateFromAnchor(value: unknown): ParameterUpdate {
     return irmParameterUpdate({
       lowerSignalNad: integerField(config, "lowerSignalNad"),
       upperSignalNad: integerField(config, "upperSignalNad"),
+      lowerUtilizationBps: numberField(config, "lowerUtilizationBps"),
+      upperUtilizationBps: numberField(config, "upperUtilizationBps"),
       halfLifeMs: integerField(config, "halfLifeMs"),
-      borrowUtilizationLimitBps: numberField(config, "borrowUtilizationLimitBps"),
     });
   }
   if (update.emaHalfLives !== undefined) {

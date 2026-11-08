@@ -20,7 +20,13 @@ fn market() -> Market {
 #[test]
 fn one_shared_junior_budget_produces_reference_signal_on_both_sides() {
     let market = market();
-    assert_eq!(market.tranche_coverage_signals().unwrap(), [Some(50_000_000); 2]);
+    assert_eq!(
+        market.tranche_rate_inputs().unwrap(),
+        [RiskRateInput {
+            signal_nad: Some(50_000_000),
+            utilization_bps: 8_000,
+        }; 2]
+    );
     assert_eq!(market.funded_reserve_value().unwrap(), 200_000_000_000_000);
 }
 
@@ -36,9 +42,10 @@ fn senior_exit_changes_cash_signal_without_changing_junior_value() {
     market.quote_side.shares.srlp_supply -= 10_000;
     let after = market.tranches.junior_value(market.funded_reserve_value().unwrap(), 90_000).unwrap();
     assert_eq!(before, after);
-    let signals = market.tranche_coverage_signals().unwrap();
-    assert!(signals[0].unwrap() < 28_000_000 && signals[0].unwrap() > 27_700_000);
-    assert_eq!(signals[0], signals[1]);
+    let inputs = market.tranche_rate_inputs().unwrap();
+    assert!(inputs[0].signal_nad.unwrap() < 28_000_000 && inputs[0].signal_nad.unwrap() > 27_700_000);
+    assert_eq!(inputs[0], inputs[1]);
+    assert_eq!(inputs[0].utilization_bps, 8_888);
 }
 
 #[test]
@@ -73,14 +80,14 @@ fn writing_off_unadvanced_interest_does_not_consume_funded_junior() {
 }
 
 #[test]
-fn cash_limits_allow_bootstrap_borrowing_without_junior() {
+fn executable_cash_allows_bootstrap_borrowing_without_junior() {
     let mut market = market();
     market.tranches.junior_reserve_shares = 0;
     market.synchronize_tranche_income();
     market.debt.fixed_base_shares = 0;
     market.debt.fixed_base_principal = 0;
     market.base_side.reserves.cash_reserve = 100_000;
-    assert_eq!(market.borrow_cash_headroom(MarketAsset::Base).unwrap(), 80_000);
+    assert_eq!(market.borrow_cash_headroom(MarketAsset::Base).unwrap(), 100_000);
 }
 
 #[test]
