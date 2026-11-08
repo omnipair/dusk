@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::{
-    constants::{MS_PER_DAY, NAD},
+    constants::{DEFAULT_BORROW_APR_NAD, MS_PER_DAY, NAD},
     errors::ErrorCode,
 };
 
@@ -30,7 +30,7 @@ impl Default for RiskRateConfig {
             lower_signal_nad: NAD / 20,
             upper_signal_nad: NAD / 16,
             half_life_ms: 14 * MS_PER_DAY,
-            initial_apr_nad: 4 * NAD / 100,
+            initial_apr_nad: DEFAULT_BORROW_APR_NAD as u64,
             borrow_utilization_limit_bps: 8_000,
         }
     }

@@ -1,5 +1,12 @@
 # Dusk versus V1 historical counterfactual benchmark
 
+> **Archived controller model.** This runner and its committed schemas preserve
+> the utilization-target Dusk model that existed when the campaign was designed.
+> It is not compatible with the active coverage-based controller without a new
+> benchmark revision. Do not use its target-utilization, curve-steepness,
+> adjustment-speed, or rate-at-target fields as current Dusk configuration. See
+> [the active specification](../../docs/BORROW_RATE_CONTROLLER.md).
+
 This isolated runner is designed to replay Omnipair V1's finalized historical
 activity as the factual control and apply the same ordered user-flow intent to
 Dusk's native integer transitions. It measures collateral/borrow capacity,

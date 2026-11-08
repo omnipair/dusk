@@ -406,8 +406,8 @@ impl Market {
     /// Current opposite-asset funding APR for one target-asset hLP vault.
     pub fn current_hlp_funding_apr_nad(&self, target_asset: MarketAsset) -> Result<u128> {
         Ok(match target_asset.opposite() {
-            MarketAsset::Base => self.debt.base_rate_at_target_nad,
-            MarketAsset::Quote => self.debt.quote_rate_at_target_nad,
+            MarketAsset::Base => self.debt.base_borrow_apr_nad,
+            MarketAsset::Quote => self.debt.quote_borrow_apr_nad,
         })
     }
 

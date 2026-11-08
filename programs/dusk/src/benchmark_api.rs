@@ -175,7 +175,7 @@ pub struct BenchmarkMarketSideCheckpoint {
     pub isolated_debt: u128,
     pub isolated_debt_principal: u64,
     pub borrow_index_nad: u128,
-    pub rate_at_target_nad: u128,
+    pub borrow_apr_nad: u128,
     pub last_accrual_slot: u64,
     pub daily_borrow_bucket: u64,
 }
@@ -5006,7 +5006,7 @@ fn market_side_checkpoint(side: &MarketSide, debt: &Debt, asset: MarketAsset) ->
         isolated_debt_shares,
         isolated_debt_principal,
         borrow_index_nad,
-        rate_at_target_nad,
+        borrow_apr_nad,
         last_accrual_slot,
     ) = match asset {
         MarketAsset::Base => (
@@ -5016,7 +5016,7 @@ fn market_side_checkpoint(side: &MarketSide, debt: &Debt, asset: MarketAsset) ->
             debt.isolated_base_shares,
             debt.isolated_base_principal,
             debt.base_borrow_index_nad,
-            debt.base_rate_at_target_nad,
+            debt.base_borrow_apr_nad,
             debt.base_last_accrual_slot,
         ),
         MarketAsset::Quote => (
@@ -5026,7 +5026,7 @@ fn market_side_checkpoint(side: &MarketSide, debt: &Debt, asset: MarketAsset) ->
             debt.isolated_quote_shares,
             debt.isolated_quote_principal,
             debt.quote_borrow_index_nad,
-            debt.quote_rate_at_target_nad,
+            debt.quote_borrow_apr_nad,
             debt.quote_last_accrual_slot,
         ),
     };
@@ -5044,7 +5044,7 @@ fn market_side_checkpoint(side: &MarketSide, debt: &Debt, asset: MarketAsset) ->
         isolated_debt: debt.isolated_debt(asset)?,
         isolated_debt_principal,
         borrow_index_nad,
-        rate_at_target_nad,
+        borrow_apr_nad,
         last_accrual_slot,
         daily_borrow_bucket: side.daily_borrow_bucket.borrowed_bucket,
     })
@@ -5712,7 +5712,7 @@ mod tests {
         assert_eq!(benchmark.market().version, MARKET_LAYOUT_VERSION);
         // With no debt, the coverage controller holds its configured rate.
         assert_eq!(
-            benchmark.market().debt.base_rate_at_target_nad,
+            benchmark.market().debt.base_borrow_apr_nad,
             benchmark.market().config.irm.initial_apr_nad as u128
         );
     }

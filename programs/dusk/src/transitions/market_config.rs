@@ -493,8 +493,8 @@ impl Market {
         self.debt = Debt {
             base_borrow_index_nad: NAD as u128,
             quote_borrow_index_nad: NAD as u128,
-            base_rate_at_target_nad: config.irm.initial_apr_nad as u128,
-            quote_rate_at_target_nad: config.irm.initial_apr_nad as u128,
+            base_borrow_apr_nad: config.irm.initial_apr_nad as u128,
+            quote_borrow_apr_nad: config.irm.initial_apr_nad as u128,
             base_last_accrual_slot: current_slot,
             quote_last_accrual_slot: current_slot,
             ..Debt::default()

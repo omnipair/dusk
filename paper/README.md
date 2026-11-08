@@ -1,5 +1,10 @@
 # Omnipair Dusk whitepapers
 
+> **2026-11-08 borrow-controller update:** the 70%-target adaptive utilization
+> controller described in the retained papers is historical. The active program
+> uses junior coverage and per-asset idle liquidity as its pricing signal. See
+> [the current controller specification](../docs/BORROW_RATE_CONTROLLER.md).
+
 > **2026-11-05 policy update:** standalone insurance was removed. Current losses flow through junior then senior; junior exit requests/renewals cost 50 bps and liquidations cost 300 bps. The retained papers, numerical results, and scripts below describe their pinned historical engines, not the current waterfall. See [current policy](../docs/CREDIT_LOSS_WATERFALL.md).
 
 **2026-11-04 terminology update:** the current sources and both rebuilt PDFs use

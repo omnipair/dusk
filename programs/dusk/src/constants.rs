@@ -87,28 +87,8 @@ pub const NATURAL_LOG_OF_TWO_NAD: u64 = 693_147_180;
 pub const MS_PER_DAY: u64 = 86_400_000;
 pub const MS_PER_YEAR: u64 = 365 * MS_PER_DAY;
 pub const MIN_LIQUIDITY: u64 = 1_000;
-
-// ADAPTIVE-CURVE INTEREST RATE MODEL
-// A fixed-shape curve anchored at the target utilization, multiplied by a
-// per-market `rate_at_target` that drifts toward the target over time:
-//
-//   instantaneous_rate(u) = rate_at_target * curve(error(u))
-//   error(u) in [-1, 1], 0 at target; curve in [1/steepness, steepness]
-//   rate_at_target_next = rate_at_target * e^(speed * error * dt/year)  (clamped)
-//
-// The curve gives an immediate, graded response to utilization; the anchor
-// makes the *level* market-driven (with a bounded ceiling), so the protocol
-// never has to know the "right" rate in advance.
-/// Lower/upper bounds and initial value for the adaptive anchor (APR in NAD).
-pub const INTEREST_MIN_RATE_AT_TARGET_NAD: u128 = (NAD as u128) / 1_000; // 0.1% APR
-pub const INTEREST_MAX_RATE_AT_TARGET_NAD: u128 = (NAD as u128) * 2; // 200% APR
-pub const INTEREST_INITIAL_RATE_AT_TARGET_NAD: u128 = (NAD as u128) * 4 / 100; // 4% APR
-/// Cap on the per-accrual exponent (NAD), bounding the anchor's move in a single
-/// step so a stale market can't jump violently (clamped further by min/max).
-pub const INTEREST_MAX_ADAPTATION_STEP_NAD: i128 = (NAD as i128) / 2;
-/// Upper bound on the elapsed time used for one adaptive-rate anchor update.
-/// Borrow-index growth charges the full elapsed interval.
-pub const MAX_INTEREST_ACCRUAL_MS: u64 = MS_PER_YEAR;
+/// Default starting APR for the active coverage-band borrow controller.
+pub const DEFAULT_BORROW_APR_NAD: u128 = 4 * NAD as u128 / 100;
 
 #[constant]
 pub const MARKET_V2_SEED_PREFIX: &[u8] = b"market_v2";

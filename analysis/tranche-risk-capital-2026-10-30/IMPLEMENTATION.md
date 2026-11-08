@@ -1,23 +1,28 @@
-# Native implementation status
+# Historical native implementation receipt
+
+> This file records the state of the original implementation branch on
+> 1 November 2026. It is not the current specification. See
+> [the active borrow-rate controller](../../docs/BORROW_RATE_CONTROLLER.md) and
+> [the current credit-loss waterfall](../../docs/CREDIT_LOSS_WATERFALL.md).
 
 1 November 2026. Branch: `feat/junior-risk-pricing`.
 Base: `f1ddce100ae66401023dfe13c0eefe5fcd648f9c`.
 
-The native market, token instructions, governance configuration and SDK now use
-hLP, yLP and jrLP. yLP is the default senior claim; only ordinary yLP enters junior.
-The verification manifest records the final checks. This work does not deploy or
-merge the program.
+The native market, token instructions, governance configuration and SDK on that
+branch used hLP, yLP and jrLP. yLP was the default senior claim; only ordinary
+yLP entered junior. The verification manifest records the checks from that
+branch and date.
 
 ## Implemented
 
 - Market-wide senior/junior reserve ownership, a funded 0.1% permanent seed,
   current-generation jrLP mint, direct yLP burns on entry, and current-value
   yLP issuance on conversion. hLP does not enter junior.
-- Seven-to-ten-day crowding notice, two-day exercise window, 5 bp request/renewal
+- Seven-to-ten-day crowding notice, two-day exercise window, 50 bp request/renewal
   fee, escrow, cancellation, expiry and checked liquidation restrictions.
   Queued capital continues earning and taking losses until conversion.
 - Per-asset exponential rates driven by `(junior / total debt) × (1 − utilization)`.
-  Defaults: 5–6.25% signal band, 14-day half-life, 4% initial APR, 2% minimum,
+  Defaults on that branch: 5–6.25% signal band, 14-day half-life, 4% initial APR, 2% minimum,
   no configured ceiling, 80% new-borrow utilization limit. Market configuration
   and prospective governance updates remain available.
 - Separate exposure-time receivable accounting for yLP/jrLP. Historical earnings

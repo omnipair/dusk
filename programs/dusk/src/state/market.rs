@@ -253,9 +253,6 @@ impl Default for AmmState {
 
 pub const DEFAULT_DAILY_BORROW_BPS: u16 = 2_000;
 pub const MAX_DAILY_BORROW_BPS: u16 = 3_000;
-pub const DEFAULT_IRM_TARGET_UTILIZATION_BPS: u16 = 7_000;
-pub const DEFAULT_IRM_CURVE_STEEPNESS_NAD: u64 = 4 * NAD;
-pub const DEFAULT_IRM_ADJUSTMENT_SPEED_PER_YEAR: u64 = 20;
 
 /// Complete mutable fee surface. The fields remain embedded in their existing
 /// `MarketConfig`/`AmmConfig` locations so this view can be used by typed
@@ -315,11 +312,11 @@ pub struct Debt {
     /// `NAD * MS_PER_YEAR`, so frequent checkpoints cannot discard interest.
     pub base_borrow_index_remainder: u128,
     pub quote_borrow_index_remainder: u128,
-    pub base_rate_at_target_nad: u128,
-    pub quote_rate_at_target_nad: u128,
+    pub base_borrow_apr_nad: u128,
+    pub quote_borrow_apr_nad: u128,
     /// Fractional NAD APR carried by the exponential controller (scale 1e9).
-    pub base_rate_fraction_e18: u64,
-    pub quote_rate_fraction_e18: u64,
+    pub base_borrow_apr_fraction_e18: u64,
+    pub quote_borrow_apr_fraction_e18: u64,
     pub global_health_base_contribution_for_quote_debt: u64,
     pub global_health_quote_contribution_for_base_debt: u64,
     pub base_last_accrual_slot: u64,

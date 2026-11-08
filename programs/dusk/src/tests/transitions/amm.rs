@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    constants::{INTEREST_INITIAL_RATE_AT_TARGET_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
+    constants::{DEFAULT_BORROW_APR_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS},
     state::{AmmConfig, Debt, MarketAsset, MarketConfig, MarketSide, ReserveShares, Reserves},
     transitions::amm::ConcentratedCurveParameters,
 };
@@ -58,8 +58,8 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
         debt: Debt {
             base_borrow_index_nad: NAD as u128,
             quote_borrow_index_nad: NAD as u128,
-            base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-            quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
+            base_borrow_apr_nad: DEFAULT_BORROW_APR_NAD,
+            quote_borrow_apr_nad: DEFAULT_BORROW_APR_NAD,
             ..Debt::default()
         },
         ..Market::default()

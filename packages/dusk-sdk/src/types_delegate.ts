@@ -3413,22 +3413,22 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
-            "name": "baseRateAtTargetNad",
+            "name": "baseBorrowAprNad",
             "type": "u128"
           },
           {
-            "name": "quoteRateAtTargetNad",
+            "name": "quoteBorrowAprNad",
             "type": "u128"
           },
           {
-            "name": "baseRateFractionE18",
+            "name": "baseBorrowAprFractionE18",
             "docs": [
               "Fractional NAD APR carried by the exponential controller (scale 1e9)."
             ],
             "type": "u64"
           },
           {
-            "name": "quoteRateFractionE18",
+            "name": "quoteBorrowAprFractionE18",
             "type": "u64"
           },
           {

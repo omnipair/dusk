@@ -162,8 +162,8 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
         debt: Debt {
             base_borrow_index_nad: NAD as u128,
             quote_borrow_index_nad: NAD as u128,
-            base_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
-            quote_rate_at_target_nad: INTEREST_INITIAL_RATE_AT_TARGET_NAD,
+            base_borrow_apr_nad: DEFAULT_BORROW_APR_NAD,
+            quote_borrow_apr_nad: DEFAULT_BORROW_APR_NAD,
             ..Debt::default()
         },
         base_hlp_vault: HlpVault::default(),
@@ -1801,7 +1801,7 @@ fn hlp_stop_rate_signal_checkpoints_the_opposite_asset_apr() {
 
     // Zero is a genuine observation: it decays the twelve-hour signal rather
     // than clearing it instantly and making Stop Rate orders spike-sensitive.
-    market.debt.quote_rate_at_target_nad = 0;
+    market.debt.quote_borrow_apr_nad = 0;
     let half_life_slots = HLP_FUNDING_APR_EMA_HALF_LIFE_MS / TARGET_MS_PER_SLOT;
     market.accrue_interest_to_slot(100 + half_life_slots).unwrap();
     let decayed = market.base_hlp_vault.funding_apr_ema_nad;

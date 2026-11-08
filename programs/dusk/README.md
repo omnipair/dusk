@@ -1,6 +1,7 @@
 # Omnipair V2 (Dusk)
 
 Current loss and fee specification: [junior-first credit loss waterfall](../../docs/CREDIT_LOSS_WATERFALL.md).
+Current interest specification: [coverage-based borrow-rate controller](../../docs/BORROW_RATE_CONTROLLER.md).
 
 Dusk is the standalone market program for Omnipair V2. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-srLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
@@ -108,9 +109,12 @@ changed and the market's revisions afterwards.
 
 Parameter bounds are enforced on creation and again on execution. Aggregate
 base/divergence/volatility fee budgets are capped at 5,000 bps; the daily borrow
-limit is capped at 3,000 bps. IRM defaults are 7,000 bps target utilization,
-4 NAD steepness, and adjustment speed 20/year, with allowed ranges of
-6,000–7,500 bps, 2–8 NAD, and 1–50/year respectively.
+limit is capped at 3,000 bps. The IRM family now configures the coverage-based
+borrow-rate controller: a 5–6.25% default signal band, 14-day default half-life,
+4% creation-time starting APR, 1% protocol-wide minimum APR, no configured
+economic ceiling, and an 80% new-borrow utilization limit. The signal, bounds,
+and the separate 80% parameter-execution guard are specified in
+[`BORROW_RATE_CONTROLLER.md`](../../docs/BORROW_RATE_CONTROLLER.md).
 
 `max_daily_borrow_bps` sizes one public-lending borrow bucket per debt asset
 against conservative depth. Only gross principal borrowed through the lending
