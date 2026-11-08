@@ -39,6 +39,10 @@ declare_id!("B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2");
 pub mod dusk {
     use super::*;
 
+    pub fn update_lp_metadata(ctx: Context<UpdateLpMetadata>, args: InitializeLpMetadataArgs) -> Result<()> {
+        UpdateLpMetadata::handle(ctx, args)
+    }
+
     pub fn checkpoint_income(ctx: Context<CheckpointIncome>, args: CheckpointIncomeArgs) -> Result<()> {
         CheckpointIncome::handle_checkpoint(ctx, args)
     }

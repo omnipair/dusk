@@ -9,3 +9,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 solana-program = "2.2.1"
+borsh = "0.10.4"
+mpl-token-metadata = "=5.1.0"

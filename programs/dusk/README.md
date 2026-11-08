@@ -135,21 +135,22 @@ Each market records three Token-2022 LP mints:
 - `hLP_base`: one-sided hedged LP shares targeting base exposure.
 - `hLP_quote`: one-sided hedged LP shares targeting quote exposure.
 
-srLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_market` creates all three immutable Metaplex records atomically, with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `srLP` for srLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
+srLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_market` creates all three Metaplex records atomically, with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `srLP` for srLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
 
 ### LP mint addresses, names and metadata
 
 The suffix rule is satisfied without a second keypair: each LP mint is a `create_with_seed` account of the market creator, `sha256(creator ‖ seed ‖ Token-2022)`, and the seed is ground until the base58 address ends in `srLP` or `hLP`. The vanity server (omnipair/vanity-server, `GET /grind?base=<creator>&suffix=srLP&owner=TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`) grinds a three-character suffix in well under a second; the SDK's `grindMarketLpMintSeeds` re-derives every answer before use, and `createHookedLpMintWithSeedInstructions` builds the mint so only the creator signs.
 
-Names and symbols are written once by `initialize_market` and cannot be changed, so they follow one scheme (`lpTokenNaming` in the SDK), with no brand in the name:
+Names and symbols use one scheme (`lpTokenNaming` in the SDK), with no brand in the name. `initialize_market` writes them at creation; the current operator can correct the name, symbol and URI using `update_lp_metadata`. This cosmetic operation has no economic timelock and cannot change metadata authority, royalties, creators, collections, uses, token balances or market settings:
 
 | Mint | Name | Symbol |
 | --- | --- | --- |
-| srLP | `yMETA/USDC LP` | `yMETA.USDC` |
-| base hLP | `hMETA` | `hMETA.USDC` |
-| quote hLP | `hUSDC` | `hUSDC.META` |
+| srLP | `META/USDC srLP` | `srME/US` |
+| jrLP | `META/USDC jrLP` | `jrME/US` |
+| base hLP | `META hLP` | `hMETA` |
+| quote hLP | `USDC hLP` | `hUSDC` |
 
-The hLP symbol leads with the asset the token is exposed to. Asset symbols are trimmed, longest first, until a symbol fits Metaplex's 10 bytes (`cbBTC/USDC` gives `ycbBT.USDC`). Metadata JSON and images are pinned to IPFS through Pinata (gateway `ipfs.omnipair.fi`) before the on-chain call: the srLP image is the two asset logos split left/right in a circle, each hLP image is its asset's logo with an `h` badge. `scripts/lp-metadata/` renders and pins them; `scripts/devnet/create_named_market.ts` is the reference flow from seed grinding to a seeded, named market.
+The hLP symbol leads with the asset the token is exposed to. Names shorten deterministically to Metaplex's 32 bytes; hLP symbols keep `h` plus up to nine asset characters, and srLP/jrLP symbols use two characters from each asset (`cbBTC/USDC` gives `srCB/US`). Metadata JSON and images are pinned to IPFS through Pinata (gateway `ipfs.omnipair.fi`) before the on-chain call: the srLP image is the two asset logos split left/right in a circle, each hLP image is its asset's logo with an `h` badge. `scripts/lp-metadata/` renders and pins them; `scripts/devnet/create_named_market.ts` is the reference flow from seed grinding to a seeded, named market.
 
 ## srLP Liquidity
 

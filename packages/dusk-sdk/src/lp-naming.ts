@@ -1,9 +1,9 @@
 /**
  * Names and symbols for LP tokens.
  *
- * The program writes the names provided at `initialize_market`, and there is
- * no instruction to change them afterwards, so the strings are decided once,
- * here, for every market. No brand in the name: the token is identified by
+ * The program writes the names provided at `initialize_market`; the operator
+ * can correct cosmetic metadata with `update_lp_metadata`. Use this naming
+ * scheme for both creation and repair. No brand in the name: tokens identify
  * what it is and which market it belongs to.
  *
  *   srLP        name `META/USDC srLP`   symbol `srME/US`

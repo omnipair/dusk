@@ -103,6 +103,7 @@ import { marketCreationLookupTablePlan, marketCreationV0Transaction, operatorCha
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
 import { grossLiquidationPayment } from "../packages/dusk-sdk/src/liquidation.js";
 import { LiteSVMConnection } from "./utils/litesvm-connection.js";
+import { Metadata } from "@metaplex-foundation/mpl-token-metadata";
 import {
   assertRequiredSwapComputeScenarios,
   getCoverageReport,
@@ -314,7 +315,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     );
     svm.addProgramFromFile(
       TOKEN_METADATA_PROGRAM_ID,
-      path.join(__dirname, "../target/deploy/token_metadata_fixture.so")
+      process.env.DUSK_REAL_METADATA_PROGRAM ?? path.join(__dirname, "../target/deploy/token_metadata_fixture.so")
     );
     svm.addProgramFromFile(OPERATOR_ADAPTER_PROGRAM_ID, path.join(__dirname, "../target/deploy/operator_adapter.so"));
     connection = new LiteSVMConnection(svm);
@@ -1744,6 +1745,61 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(svm.getAccount(fixture.srlpTokenMetadata)).to.not.equal(null);
     expect(svm.getAccount(fixture.baseHlpTokenMetadata)).to.not.equal(null);
     expect(svm.getAccount(fixture.quoteHlpTokenMetadata)).to.not.equal(null);
+  });
+
+  it("corrects LP metadata only for the operator and preserves mint/market accounting", async function () {
+    const f = await initializeFinalMarket(243);
+    const write = new DuskWrite(program);
+    const outsider = Keypair.generate();
+    await connection.requestAirdrop(outsider.publicKey, LAMPORTS_PER_SOL);
+    const metadata = { name: "USDC hLP", symbol: "hUSDC", uri: "https://example.invalid/usdc-hlp.json" };
+    const params = { market: f.market, operator: payer.publicKey, lpMint: f.quoteHlpMint, metadata };
+    const marketBefore = Buffer.from(svm.getAccount(f.market)!.data);
+    const mintBefore = Buffer.from(svm.getAccount(f.quoteHlpMint)!.data);
+    const metadataBefore = Buffer.from(svm.getAccount(f.quoteHlpTokenMetadata)!.data);
+    const original = Metadata.deserialize(metadataBefore)[0];
+    for (const [label, overrides] of [
+      ["unrelated signer", { operator: outsider.publicKey }],
+      ["asset mint instead of LP", { lpMint: f.baseMint }],
+    ] as const) {
+      const ix = await write.updateLpMetadataInstruction({ ...params, ...overrides });
+      let error: unknown;
+      try { await connection.sendTransaction(new Transaction().add(ix), [payer, ...(label === "unrelated signer" ? [outsider] : [])]); } catch (caught) { error = caught; }
+      expect(error, label).to.not.equal(undefined);
+      expect(Buffer.from(svm.getAccount(f.quoteHlpTokenMetadata)!.data).equals(metadataBefore)).to.equal(true);
+    }
+    const wrongMetadata = await program.methods.updateLpMetadata(metadata).accounts({
+      ...params, tokenMetadata: f.baseHlpTokenMetadata, tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+    }).instruction();
+    let error: unknown;
+    try { await connection.sendTransaction(new Transaction().add(wrongMetadata), [payer]); } catch (caught) { error = caught; }
+    expect(error, "metadata PDA for another LP").to.not.equal(undefined);
+    const invalid = await program.methods.updateLpMetadata({ ...metadata, name: "x".repeat(33) }).accounts({
+      ...params, tokenMetadata: f.quoteHlpTokenMetadata, tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+    }).instruction();
+    error = undefined;
+    try { await connection.sendTransaction(new Transaction().add(invalid), [payer]); } catch (caught) { error = caught; }
+    expect(error, "on-chain metadata bounds").to.not.equal(undefined);
+    const ix = await write.updateLpMetadataInstruction(params);
+    expect(ix.keys.filter(key => key.isWritable).map(key => key.pubkey.toBase58())).to.deep.equal([f.quoteHlpTokenMetadata.toBase58()]);
+    await connection.sendTransaction(new Transaction().add(ix), [payer]);
+    trackV2Instruction("updateLpMetadata", this.test?.title);
+    const corrected = Metadata.deserialize(Buffer.from(svm.getAccount(f.quoteHlpTokenMetadata)!.data))[0];
+    expect(corrected.data.name.replace(/\0+$/g, "")).to.equal(metadata.name);
+    expect(corrected.data.symbol.replace(/\0+$/g, "")).to.equal(metadata.symbol);
+    expect(corrected.data.uri.replace(/\0+$/g, "")).to.equal(metadata.uri);
+    expect(corrected.updateAuthority.toBase58()).to.equal(original.updateAuthority.toBase58());
+    expect(corrected.isMutable).to.equal(original.isMutable);
+    expect({ ...corrected.data, ...metadata }).to.deep.equal({ ...original.data, ...metadata });
+    expect(Buffer.from(svm.getAccount(f.market)!.data).equals(marketBefore)).to.equal(true);
+    expect(Buffer.from(svm.getAccount(f.quoteHlpMint)!.data).equals(mintBefore)).to.equal(true);
+    // The same instruction is usable for all current LP receipt kinds.
+    const junior = await new DuskTranches(createDuskProgram({ connection: connection as any })).initialize({ market: f.market, payer: payer.publicKey,
+      metadata: { name: "META/USDC jrLP", symbol: "jrME/US", uri: "https://example.invalid/junior.json" } });
+    await connection.sendTransaction(junior.transaction, [payer]);
+    for (const lpMint of [f.srlpMint, f.baseHlpMint, junior.juniorMint]) {
+      await connection.sendTransaction(new Transaction().add(await write.updateLpMetadataInstruction({ ...params, lpMint })), [payer]);
+    }
   });
 
   it("creates normalized and Pyth oracle markets atomically without a live report", async function () {

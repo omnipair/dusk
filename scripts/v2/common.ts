@@ -778,44 +778,6 @@ export function defaultAmmConfig() {
   };
 }
 
-export function defaultLpMetadata(kind: "srlp" | "baseHlp" | "quoteHlp" | "junior") {
-  const suffix =
-    kind === "srlp"
-      ? "SRLP"
-      : kind === "baseHlp"
-        ? "BASE_HLP"
-        : kind === "quoteHlp"
-          ? "QUOTE_HLP"
-          : "JUNIOR_LP";
-  const defaults = {
-    srlp: {
-      name: "Omnipair Dusk srLP",
-      symbol: "srLP",
-      uri: "https://omnipair.fi/metadata/dusk/srlp.json",
-    },
-    baseHlp: {
-      name: "Omnipair Dusk Base hLP",
-      symbol: "hLP",
-      uri: "https://omnipair.fi/metadata/dusk/base-hlp.json",
-    },
-    quoteHlp: {
-      name: "Omnipair Dusk Quote hLP",
-      symbol: "hLP",
-      uri: "https://omnipair.fi/metadata/dusk/quote-hlp.json",
-    },
-    junior: {
-      name: "Omnipair Dusk jrLP",
-      symbol: "jrLP",
-      uri: "https://omnipair.fi/metadata/dusk/jrlp.json",
-    },
-  }[kind];
-  return {
-    name: duskEnv(`${suffix}_NAME`, defaults.name),
-    symbol: duskEnv(`${suffix}_SYMBOL`, defaults.symbol),
-    uri: duskEnv(`${suffix}_URI`, defaults.uri),
-  };
-}
-
 export function defaultMockMetadata(kind: "base" | "quote") {
   const defaults =
     kind === "base"
