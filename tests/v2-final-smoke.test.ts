@@ -3648,6 +3648,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       methods: program.methods,
       idl: {
         instructions: program.idl.instructions,
+        // The SDK checks instruction arguments against these definitions.
+        types: program.idl.types,
         accounts: [{ ...yieldAccountDefinition, name: "yieldAccount" }],
       },
       coder: {
