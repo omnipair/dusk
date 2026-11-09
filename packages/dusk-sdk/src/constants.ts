@@ -1,5 +1,6 @@
 import { AccountMeta, PublicKey } from "@solana/web3.js";
 import IDL from "./idl_v2.js";
+import type { DuskDefinedInput } from "./instruction-args.js";
 
 /** Shared on-chain default; regenerated from the program instead of duplicated here. */
 export const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS = Number(
@@ -268,6 +269,18 @@ function yieldTokenKindCode(tokenKind: YieldTokenKind): number {
   if (tokenKind === "hlp" || tokenKind === 1) return 1;
   if (tokenKind === "junior" || tokenKind === 2) return 2;
   throw new Error(`Unsupported yield token kind: ${tokenKind}`);
+}
+
+/** The `YieldTokenKind` enum value an instruction argument takes, such as `{ hlp: {} }`. */
+export function yieldTokenKindArg(tokenKind: YieldTokenKind): DuskDefinedInput<"yieldTokenKind"> {
+  switch (yieldTokenKindCode(tokenKind)) {
+    case 0:
+      return { srlp: {} };
+    case 2:
+      return { junior: {} };
+    default:
+      return { hlp: {} };
+  }
 }
 
 /**

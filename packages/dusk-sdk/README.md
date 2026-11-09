@@ -346,8 +346,28 @@ accounts remain after that prefix.
 The write client supplies the canonical event-CPI authority and Dusk program
 accounts for instructions that emit CPI events.
 
-`write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
-same generic path for every Dusk instruction in the IDL.
+`write.builder(...)`, `write.instruction(...)`, `write.transaction(...)`, and
+`write.rpc(...)` expose the same generic path for every Dusk instruction in the
+IDL. Arguments and accounts are typed per instruction name from the IDL
+(`DuskInstructionArgs<"borrow">`, `DuskInstructionAccounts<"borrow">`), and the
+same rules are checked at run time before anything is encoded:
+
+```typescript
+await dusk.write.instruction(
+  "borrow",
+  { borrowAmount: 1_000n, minDebtAmountOut: 990n, minLiquidationCfBps: 7_500 },
+  { accounts: borrowAccounts }
+);
+```
+
+A misspelled, missing or wrongly typed field, an unknown enum variant, a fixed
+array of the wrong length, or an account name the instruction does not declare
+throws `DuskInstructionInputError`, which names the instruction and the field.
+Integers of 64 bits and wider accept BN, bigint, a safe-integer number or a
+decimal string. An `Option` field may be `null` or left out. An account Anchor
+cannot resolve on its own is required. The composite builders
+(`swapInstruction`, `depositSingleSided`, `referredBorrow` and their siblings)
+take their amounts as `bigint | number | string`.
 
 ### Leverage funding
 

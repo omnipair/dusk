@@ -3656,7 +3656,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         },
       },
     } as any);
-    const depositArgs = { depositAmount: new BN(1_000), minHlpAmount: new BN(1) };
+    const depositArgs = { depositAmount: 1_000n, minHlpAmount: 1n };
     const depositOptions = {
       payer: payer.publicKey,
       owner: payer.publicKey,
