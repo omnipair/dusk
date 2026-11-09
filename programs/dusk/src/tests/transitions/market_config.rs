@@ -345,3 +345,30 @@ fn launch_market_cap_fee_scheduler_uses_bound_price_and_imported_progress() {
         config.swap_fee_bps
     );
 }
+
+#[test]
+fn an_unset_or_passed_start_opens_trading_at_creation() {
+    let mut config = valid_config();
+    config.amm.launch_fee_start_bps = 1_000;
+    config.amm.launch_fee_duration_seconds = 100;
+    config.amm.launch_fee_decay_mode = LAUNCH_FEE_DECAY_LINEAR;
+    config.amm.swap_fee_collect_mode = SWAP_FEE_COLLECT_QUOTE_ONLY;
+    config.validate().unwrap();
+    let created_at = 1_762_700_000;
+
+    // Unset: before this rule, 0 put the start in 1970 and the launch fee had
+    // already decayed to the normal fee when the market was created.
+    config.start_time = 0;
+    assert_eq!(config.effective_base_fee_bps_at(created_at).unwrap(), config.swap_fee_bps);
+    let opened = config.opening_no_earlier_than(created_at);
+    assert_eq!(opened.start_time, created_at);
+    assert_eq!(opened.effective_base_fee_bps_at(created_at).unwrap(), 1_000);
+
+    // A scheduled start that passed while the creator signed opens now.
+    config.start_time = created_at - 30;
+    assert_eq!(config.opening_no_earlier_than(created_at).start_time, created_at);
+
+    // A future start is kept as scheduled.
+    config.start_time = created_at + 3_600;
+    assert_eq!(config.opening_no_earlier_than(created_at).start_time, created_at + 3_600);
+}
