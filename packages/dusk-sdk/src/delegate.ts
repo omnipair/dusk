@@ -65,7 +65,7 @@ export function orderProtocolFeeAccounts(treasury: PublicKey, mint: PublicKey,
 }
 
 export const LEVERAGE_DELEGATE_PROGRAM_ID = address(
-  "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY"
+  "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX"
 );
 
 export type LeverageDelegateProgram = Program<LeverageDelegate>;

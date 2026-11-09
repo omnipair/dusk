@@ -31,7 +31,7 @@ import { join } from "path";
 
 const RPC = process.env.DUSK_RPC_URL ?? "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey(
-  process.env.DUSK_PROGRAM_ID ?? "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2",
+  process.env.DUSK_PROGRAM_ID ?? "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y",
 );
 /** How many repairs fit in one transaction comfortably. */
 const BATCH = 8;

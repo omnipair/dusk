@@ -234,7 +234,7 @@ async function main() {
     leverageDelegate: {
       programId: duskEnv(
         "LEVERAGE_DELEGATE_PROGRAM_ID",
-        "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY"
+        "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX"
       ),
       upgradeAuthority: payer.publicKey.toBase58(),
     },
