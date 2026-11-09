@@ -6,13 +6,11 @@ on:
   push:
     branches:
       - main
-      - "feat/**"
-      - "fix/**"
-      - "chore/**"
-      - "docs/**"
-      - "refactor/**"
-      - "test/**"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   ANCHOR_VERSION: "0.31.1"
@@ -36,6 +34,12 @@ jobs:
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: anchor-${{ env.ANCHOR_VERSION }}-solana-${{ env.SOLANA_VERSION }}
+          cache-bin: false
 
       - name: Install JavaScript dependencies
         run: yarn install --frozen-lockfile
@@ -78,8 +82,19 @@ jobs:
           sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+      - name: Cache Anchor CLI
+        id: anchor-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/anchor
+          key: anchor-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.ANCHOR_VERSION }}
+
       - name: Install Anchor CLI
+        if: steps.anchor-cache.outputs.cache-hit != 'true'
         run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+
+      - name: Verify Anchor CLI version
+        run: test "$(anchor --version)" = "anchor-cli $ANCHOR_VERSION"
 
       - name: Build LiteSVM artifacts
         run: yarn build:litesvm
