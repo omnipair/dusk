@@ -320,7 +320,6 @@ const ix = await dusk.write.swapInstruction(
   {
     market,
     accounts: {
-      market,
       futarchyAuthority,
       trader,
       assetInMint,
@@ -337,7 +336,8 @@ const ix = await dusk.write.swapInstruction(
 ```
 
 `swapBuilder(...)`, `swapInstruction(...)`, `swapTransaction(...)`, and
-`swapRpc(...)` fetch the market before building the swap. Whenever either hLP
+`swapRpc(...)` fetch the market before building the swap and fill in the
+account map's `market` from the `market` option. Whenever either hLP
 side has nonzero supply or residual exposure, they prepend the canonical
 five-account prefix exactly once: `[srLP mint, base hLP srLP vault, quote hLP srLP
 vault, base interest vault, quote interest vault]`. Caller-provided remaining
@@ -369,7 +369,9 @@ cannot resolve on its own is required. That includes a PDA whose seeds read its
 own data, such as `market` and the position accounts on most instructions:
 Anchor cannot derive it, even when it lists a relation. The composite builders
 (`swapInstruction`, `depositSingleSided`, `referredBorrow` and their siblings)
-take their amounts as `bigint | number | string`.
+take their amounts as `bigint | number | string` and fill in the accounts they
+derive or take as options, such as `market`. An account map may still name one;
+the composite's value wins.
 
 ### Leverage-delegate orders
 

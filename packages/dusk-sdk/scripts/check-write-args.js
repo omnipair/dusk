@@ -276,3 +276,56 @@ test("composite builders check the caller's fields the same way", async () => {
     /missing field "minHlpAmount"/
   );
 });
+
+/** The address an instruction carries for one of its top-level IDL accounts. */
+function accountKey(instruction, name, account) {
+  const index = IDL.instructions.find((item) => item.name === name).accounts.findIndex((item) => item.name === account);
+  return instruction.keys[index].pubkey;
+}
+
+test("the swap and referred composites fill in the market from their options", async () => {
+  const swapAccounts = {
+    trader: owner,
+    assetInMint: baseMint,
+    assetOutMint: quoteMint,
+    reserveInVault: key(30),
+    reserveOutVault: key(31),
+    traderAssetInAccount: key(32),
+    traderAssetOutAccount: key(33),
+  };
+  const swap = await write.swapInstruction({ exactAssetIn: 100n, minAssetOut: 90n }, { market, accounts: swapAccounts });
+  assert.ok(accountKey(swap, "swap", "market").equals(market));
+  // A different market in the account map loses to the one whose state the
+  // composite read.
+  const named = await write.swapInstruction(
+    { exactAssetIn: 100n, minAssetOut: 90n },
+    { market, accounts: { ...swapAccounts, market: key(40) } }
+  );
+  assert.ok(accountKey(named, "swap", "market").equals(market));
+
+  const referral = { payer: owner, referrer: key(34), market, debtMint: baseMint };
+  const borrow = await write.referredBorrow(
+    { borrowAmount: 10n, minDebtAmountOut: 9n },
+    { ...referral, accounts: { ...borrowAccounts, market: key(40) } }
+  );
+  assert.ok(accountKey(borrow.actionInstruction, "borrow", "market").equals(market));
+  const leverage = await write.referredOpenLeverage(
+    { positionId: key(41), debtAsset: "base", marginAmount: 10n, multiplierBps: 20_000n, minCollateralOut: 1n },
+    {
+      ...referral,
+      accounts: {
+        owner,
+        payer: owner,
+        futarchyAuthority: key(35),
+        leveragePosition: key(42),
+        debtMint: baseMint,
+        collateralMint: quoteMint,
+        debtReserveVault: key(17),
+        collateralReserveVault: key(18),
+        leverageCollateralVault: key(43),
+        ownerDebtAccount: key(44),
+      },
+    }
+  );
+  assert.ok(accountKey(leverage.actionInstruction, "open_leverage", "market").equals(market));
+});

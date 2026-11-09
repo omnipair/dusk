@@ -139,8 +139,8 @@ export async function genericPath(): Promise<void> {
 }
 
 export async function composites(): Promise<void> {
+  // The swap composite fills in the account map's market from `market`.
   const swapAccounts = {
-    market: key,
     assetInMint: key,
     assetOutMint: key,
     reserveInVault: key,
@@ -149,14 +149,14 @@ export async function composites(): Promise<void> {
     traderAssetOutAccount: key,
   };
   await write.swapInstruction({ exactAssetIn: 1n, minAssetOut: "2" }, { market: key, accounts: swapAccounts });
+  // A caller may still name it; the composite's value wins.
+  await write.swapBuilder({ exactAssetIn: 1n, minAssetOut: 2n }, { market: key, accounts: { ...swapAccounts, market: key } });
   // @ts-expect-error a misspelled amount
   await write.swapTransaction({ exactAssetIn: 1n, minAssetOt: 2n }, { market: key, accounts: swapAccounts });
   // @ts-expect-error a swap account is missing
   await write.swapRpc({ exactAssetIn: 1n, minAssetOut: 2n }, { market: key, accounts: { assetInMint: key, assetOutMint: key } });
-  const { market: swapMarket, ...swapWithoutMarket } = swapAccounts;
-  void swapMarket;
-  // @ts-expect-error the account map names the market as well; the composite only reads `market`
-  await write.swapInstruction({ exactAssetIn: 1n, minAssetOut: 2n }, { market: key, accounts: swapWithoutMarket });
+  // @ts-expect-error the market option is required
+  await write.swapInstruction({ exactAssetIn: 1n, minAssetOut: 2n }, { accounts: { ...swapAccounts, market: key } });
 
   const depositAccounts = {
     futarchyAuthority: key,
@@ -190,10 +190,11 @@ export async function composites(): Promise<void> {
   await write.referredBorrow({ borrowAmount: 1n, minDebtAmountOut: 1n }, { ...referral, accounts: borrowAccounts });
   // @ts-expect-error a misspelled optional field
   await write.referredBorrow({ borrowAmount: 1n, minDebtAmountOut: 1n, minLiquidationCfBp: 1 }, { ...referral, accounts: borrowAccounts });
-  // @ts-expect-error the composite derives the referral accounts, not the borrow position
+  // The referred composites fill in the market and the referral accounts.
+  await write.referredBorrow({ borrowAmount: 1n, minDebtAmountOut: 1n }, { ...referral, accounts: borrowWithoutMarket });
+  // @ts-expect-error but not the borrow position, which has no id among the borrow parameters
   await write.referredBorrow({ borrowAmount: 1n, minDebtAmountOut: 1n }, { ...referral, accounts: borrowWithoutPosition });
   const leverageAccounts = {
-    market: key,
     futarchyAuthority: key,
     leveragePosition: key,
     debtMint: key,

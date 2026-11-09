@@ -119,7 +119,8 @@ export interface SwapAmounts {
 }
 
 export interface SwapBuildOptions extends DuskBuildOptionsBase {
-  accounts: DuskInstructionAccounts<"swap">;
+  /** The swap's accounts. The composite fills in `market` from the option below. */
+  accounts: WithOptionalAccounts<DuskInstructionAccounts<"swap">, "market">;
   market: AddressLike;
 }
 
@@ -153,11 +154,11 @@ export type ReferredActionParams<N extends ReferredActionName = ReferredActionNa
   ? ReferredBorrowParams
   : ReferredOpenLeverageParams;
 
-/** The action's accounts, less the referral accounts the composite derives. */
+/** The action's accounts, less the market and the referral accounts the composite fills in. */
 export type ReferredActionAccounts<N extends ReferredActionName = ReferredActionName> = N extends ReferredActionName
   ? WithOptionalAccounts<
       DuskInstructionAccounts<N>,
-      "referralPartner" | "referralAccrual" | "instructionsSysvar"
+      "market" | "referralPartner" | "referralAccrual" | "instructionsSysvar"
     >
   : never;
 
@@ -460,6 +461,8 @@ export class DuskWrite {
       oraclePolicy: options.oraclePolicy ?? (state as typeof state & {oracle?: {policy: OraclePolicyInput}}).oracle?.policy,
       accounts: {
         ...options.accounts,
+        // The market whose state chose the hLP prefix above.
+        market,
         instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
       },
       // Prefix order is consensus-visible. Hook accounts must remain a tail,
@@ -752,7 +755,6 @@ export class DuskWrite {
       {
         market,
         accounts: {
-          market,
           futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
           trader,
           assetInMint,
@@ -1257,6 +1259,8 @@ export class DuskWrite {
         )
       : [];
     const referrer = address(options.referrer);
+    // The market the referral accrual was derived for.
+    const market = address(options.market);
     const referralAccounts = {
       referralPartner: referral.referralPartner,
       referralAccrual: referral.referralAccrual,
@@ -1271,7 +1275,7 @@ export class DuskWrite {
             "borrow",
             borrowArgs(params as ReferredBorrowParams, referrer),
             {
-              accounts: { ...(options.accounts as ReferredActionAccounts<"borrow">), ...referralAccounts },
+              accounts: { ...(options.accounts as ReferredActionAccounts<"borrow">), market, ...referralAccounts },
               remainingAccounts,
             }
           )
@@ -1281,6 +1285,7 @@ export class DuskWrite {
             {
               accounts: {
                 ...(options.accounts as ReferredActionAccounts<"openLeverage">),
+                market,
                 ...referralAccounts,
                 instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
               },
