@@ -204,25 +204,48 @@ type AccountItem = {
   readonly accounts?: readonly unknown[];
 };
 
-// Anchor fills these in itself: a fixed address, a PDA, a relation, a signer
-// (from the provider) and the event-CPI pair `DuskWrite` adds to every Dusk
-// call. No leverage-delegate account carries those two names.
-type IsResolvable<A> = A extends
-  | { address: string }
-  | { pda: unknown }
-  | { relations: unknown }
-  | { signer: true }
-  | { name: "eventAuthority" | "program" }
-  ? true
-  : false;
+// `target/types` camel-cases names but keeps a dotted seed path as the IDL
+// spells it: account `leveragePosition`, seed path "leverage_position.owner".
+type CamelCase<S extends string> = S extends `${infer Head}_${infer Tail}` ? `${Head}${Capitalize<CamelCase<Tail>>}` : S;
 
-type IsRequiredAccount<A> = A extends { accounts: infer Sub extends readonly AccountItem[] }
-  ? true extends IsRequiredAccount<Sub[number]>
+// `true` for a seed in the data of the account named `Name`, never otherwise:
+// "order.owner" on `order`, "leverage_position.owner" on `leveragePosition`.
+type ReadsOwnData<Seed, Name> = Seed extends { kind: "account"; path: `${infer Head}.${string}` }
+  ? CamelCase<Head> extends Name
     ? true
+    : never
+  : never;
+
+// Anchor fills in a fixed address, a signer (from the provider), a relation,
+// the event-CPI pair `DuskWrite` adds to every Dusk call (no leverage-delegate
+// account carries those two names) and a PDA whose seeds it can read. It
+// reads an account seed from the account the path starts with and passes over
+// a PDA while any seed is missing, so a PDA seeded by its own data is never
+// derived, even when it lists relations: Anchor moves on to the next account
+// before it tries them.
+//
+// A PDA seeded by an account inside a nested group is not derived either
+// (`beginFlashLiquidation`'s `repaymentVault`, from "accounts.debt_mint"), but
+// stays optional here: telling a group from an account costs about as many
+// type instantiations as the rest of this check.
+//
+// Testing for a PDA first and for a group last keeps the instantiation count
+// down.
+type IsRequiredAccount<A> = A extends { pda: unknown }
+  ? A extends { name: infer Name; pda: { seeds: readonly (infer Seed)[] } }
+    ? true extends ReadsOwnData<Seed, Name>
+      ? A extends { address: string } | { signer: true }
+        ? false
+        : true
+      : false
     : false
-  : IsResolvable<A> extends true
+  : A extends { address: string } | { relations: unknown } | { signer: true } | { name: "eventAuthority" | "program" }
     ? false
-    : true;
+    : A extends { accounts: infer Sub extends readonly AccountItem[] }
+      ? true extends IsRequiredAccount<Sub[number]>
+        ? true
+        : false
+      : true;
 
 type AccountValueInput<A> = A extends { accounts: infer Sub extends readonly AccountItem[] }
   ? AccountsInput<Sub>
@@ -240,9 +263,11 @@ type AccountsInput<As extends readonly AccountItem[]> = Flatten<
 
 /**
  * Accounts for one of a program's instructions. An account Anchor cannot
- * resolve on its own (no fixed address, PDA, relation or signer default) is
- * required; an optional account takes `null` for "none". Nested account
- * groups are nested objects.
+ * resolve on its own is required: one with no fixed address, signer default,
+ * relation or PDA, and a PDA whose seeds read its own data, such as `market`
+ * on most Dusk instructions and `order` on the delegate's order instructions.
+ * An optional account takes `null` for "none". Nested account groups are
+ * nested objects.
  */
 export type ProgramInstructionAccounts<
   Idl extends ProgramIdl,
@@ -304,9 +329,10 @@ export type DuskInstructionArgs<N extends DuskInstructionName = DuskInstructionN
 
 /**
  * Accounts for one instruction. An account Anchor cannot resolve on its own
- * (no fixed address, PDA, relation or signer default) is required; an
- * optional account takes `null` for "none". Nested account groups are nested
- * objects.
+ * is required: one with no fixed address, signer default, relation or PDA,
+ * and a PDA whose seeds read its own data, such as `market` and the position
+ * accounts on most instructions. An optional account takes `null` for "none".
+ * Nested account groups are nested objects.
  */
 export type DuskInstructionAccounts<N extends DuskInstructionName = DuskInstructionName> = ProgramInstructionAccounts<
   Dusk,

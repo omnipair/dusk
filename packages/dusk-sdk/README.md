@@ -365,7 +365,9 @@ array of the wrong length, or an account name the instruction does not declare
 throws `DuskInstructionInputError`, which names the instruction and the field.
 Integers of 64 bits and wider accept BN, bigint, a safe-integer number or a
 decimal string. An `Option` field may be `null` or left out. An account Anchor
-cannot resolve on its own is required. The composite builders
+cannot resolve on its own is required. That includes a PDA whose seeds read its
+own data, such as `market` and the position accounts on most instructions:
+Anchor cannot derive it, even when it lists a relation. The composite builders
 (`swapInstruction`, `depositSingleSided`, `referredBorrow` and their siblings)
 take their amounts as `bigint | number | string`.
 
@@ -408,7 +410,9 @@ at run time by the same rules as the Dusk path: leaving out
 `protocolFeeDepositAmount` throws `DuskInstructionInputError` instead of
 sending a zero fee deposit. Anchor fills in PDAs whose seeds it can compute,
 the signer and fixed program accounts; transfer-hook and oracle accounts go in
-`remainingAccounts`. `DuskProtectionOrders` checks its inputs the same way.
+`remainingAccounts`. A new order's PDA comes from the arguments, but an
+existing order's is seeded by its own data, so every instruction that acts on
+one takes `order`. `DuskProtectionOrders` checks its inputs the same way.
 
 Both programs' aliases apply IDL-generic types that accept any Anchor IDL
 type, such as `DuskIdl` or `LeverageDelegateIdl`:

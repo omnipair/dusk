@@ -16,16 +16,54 @@ declare const program: Program<DuskIdl>;
 const write = new DuskWrite(program);
 const key = PublicKey.default;
 
+// `market` and `borrowPosition` are PDAs, but their seeds read their own data
+// (`market.params_hash`, `borrow_position.owner`), so Anchor cannot derive
+// them.
 const borrowAccounts = {
+  market: key,
   debtAssetMint: key,
   collateralAssetMint: key,
   reserveVault: key,
   ownerDebtAccount: key,
+  borrowPosition: key,
   referralPartner: null,
   referralAccrual: null,
 };
+const { market: borrowMarket, ...borrowWithoutMarket } = borrowAccounts;
+const { borrowPosition, ...borrowWithoutPosition } = borrowAccounts;
+void borrowMarket;
+void borrowPosition;
 const borrowArgs = { borrowAmount: 1n, minDebtAmountOut: 1n, minLiquidationCfBps: 0 };
-const yieldAccounts = { assetMint: key, lpMint: key, yieldAccount: key };
+const yieldAccounts = { market: key, assetMint: key, lpMint: key, yieldAccount: key };
+// A nested group whose `market` reads its own data like a top-level one.
+const flashLiquidationAccounts = {
+  market: key,
+  borrowPosition: key,
+  leveragePosition: null,
+  collateralMint: key,
+  debtMint: key,
+  collateralVault: key,
+  reserveVault: key,
+  interestVault: key,
+  buyerCollateralAccount: key,
+  buyerRefundAccount: key,
+  ownerDebtAccount: key,
+  referralPartner: null,
+  referralAccrual: null,
+  debtTokenProgram: key,
+};
+const { market: flashMarket, ...flashWithoutMarket } = flashLiquidationAccounts;
+void flashMarket;
+const flashLiquidationArgs = {
+  position: key,
+  debtAsset: 0,
+  maxRepayment: 1n,
+  maxPayment: 1n,
+  minCollateralCredit: 1n,
+  minBuyerCredit: 0n,
+  full: true,
+  settleIndex: 0,
+};
 
 export async function genericPath(): Promise<void> {
   // Integers in any form, as the argument itself or a one-element tuple.
@@ -49,9 +87,22 @@ export async function genericPath(): Promise<void> {
   // @ts-expect-error a misspelled account
   await write.instruction("borrow", borrowArgs, { accounts: { ...borrowAccounts, ownerDebtAcount: key } });
   // @ts-expect-error an account Anchor cannot resolve is required
-  await write.instruction("borrow", borrowArgs, { accounts: { debtAssetMint: key, collateralAssetMint: key, reserveVault: key, referralPartner: null, referralAccrual: null } });
+  await write.instruction("borrow", borrowArgs, { accounts: { market: key, debtAssetMint: key, collateralAssetMint: key, reserveVault: key, borrowPosition: key, referralPartner: null, referralAccrual: null } });
   // @ts-expect-error so the accounts are too
   await write.transaction("borrow", borrowArgs);
+  // @ts-expect-error a PDA whose seeds read its own data is required: the market
+  await write.instruction("borrow", borrowArgs, { accounts: borrowWithoutMarket });
+  // @ts-expect-error and the borrow position
+  await write.instruction("borrow", borrowArgs, { accounts: borrowWithoutPosition });
+  // @ts-expect-error even when it lists a relation, which Anchor does not try for a PDA it cannot derive
+  await write.instruction("executeOperatorChange", undefined, { accounts: { proposal: key, previousRevenue: null } });
+  await write.instruction("executeOperatorChange", undefined, { accounts: { market: key, proposal: key, previousRevenue: null } });
+  // A relation alone still resolves: `rentRefund` comes from the proposal.
+  await write.instruction("resolveOperatorChange", false, { accounts: { market: key, proposal: key } });
+  // A self-seeded PDA inside a nested group is required too.
+  await write.instruction("beginFlashLiquidation", flashLiquidationArgs, { accounts: { accounts: flashLiquidationAccounts, repaymentVault: key } });
+  // @ts-expect-error the nested market
+  await write.instruction("beginFlashLiquidation", flashLiquidationArgs, { accounts: { accounts: flashWithoutMarket, repaymentVault: key } });
   // @ts-expect-error null means "none" only for an optional account
   await write.instruction("borrow", borrowArgs, { accounts: { ...borrowAccounts, reserveVault: null } });
   // @ts-expect-error not an instruction
@@ -89,6 +140,7 @@ export async function genericPath(): Promise<void> {
 
 export async function composites(): Promise<void> {
   const swapAccounts = {
+    market: key,
     assetInMint: key,
     assetOutMint: key,
     reserveInVault: key,
@@ -101,6 +153,10 @@ export async function composites(): Promise<void> {
   await write.swapTransaction({ exactAssetIn: 1n, minAssetOt: 2n }, { market: key, accounts: swapAccounts });
   // @ts-expect-error a swap account is missing
   await write.swapRpc({ exactAssetIn: 1n, minAssetOut: 2n }, { market: key, accounts: { assetInMint: key, assetOutMint: key } });
+  const { market: swapMarket, ...swapWithoutMarket } = swapAccounts;
+  void swapMarket;
+  // @ts-expect-error the account map names the market as well; the composite only reads `market`
+  await write.swapInstruction({ exactAssetIn: 1n, minAssetOut: 2n }, { market: key, accounts: swapWithoutMarket });
 
   const depositAccounts = {
     futarchyAuthority: key,
@@ -134,6 +190,8 @@ export async function composites(): Promise<void> {
   await write.referredBorrow({ borrowAmount: 1n, minDebtAmountOut: 1n }, { ...referral, accounts: borrowAccounts });
   // @ts-expect-error a misspelled optional field
   await write.referredBorrow({ borrowAmount: 1n, minDebtAmountOut: 1n, minLiquidationCfBp: 1 }, { ...referral, accounts: borrowAccounts });
+  // @ts-expect-error the composite derives the referral accounts, not the borrow position
+  await write.referredBorrow({ borrowAmount: 1n, minDebtAmountOut: 1n }, { ...referral, accounts: borrowWithoutPosition });
   const leverageAccounts = {
     market: key,
     futarchyAuthority: key,

@@ -48,9 +48,14 @@ const entryArgs = {
 const { protocolFeeDepositAmount, ...withoutFeeDeposit } = entryArgs;
 void protocolFeeDepositAmount;
 const entryAccounts = { market: key, debtMint: key, collateralMint: key, ownerFundingAccount: key, fundingVault: key };
+// An existing order's PDA is seeded by its own data (`order.owner`), so
+// Anchor cannot derive it: every instruction that acts on one names it.
 const cancelEntryAccounts = { order: key, debtMint: key, fundingVault: key, ownerFundingAccount: key };
+const { order: cancelEntryOrder, ...cancelEntryWithoutOrder } = cancelEntryAccounts;
+void cancelEntryOrder;
 const protectionAccounts = { order: key, lpMint: key, custodyLpAccount: key, ownerLpAccount: key };
 const executeHlpAccounts = {
+  order: key,
   market: key,
   futarchyAuthority: key,
   baseMint: key,
@@ -69,6 +74,8 @@ const executeHlpAccounts = {
   executorTargetAccount: key,
   orderOwner: key,
 };
+const { order: executeHlpOrder, ...executeHlpWithoutOrder } = executeHlpAccounts;
+void executeHlpOrder;
 
 export async function genericPath(): Promise<void> {
   // Integers in any form; Anchor resolves the order PDA, the signer and the programs.
@@ -110,6 +117,13 @@ export async function genericPath(): Promise<void> {
   await orders.instruction("cancelLeverageEntryOrder", { orderId: 1n, minOwnerRefundOut: 0n }, { accounts: cancelEntryAccounts });
   // @ts-expect-error the refund floor is required
   await orders.instruction("cancelLeverageEntryOrder", { orderId: 1n }, { accounts: cancelEntryAccounts });
+  // @ts-expect-error the order is required: its seeds read its own data
+  await orders.instruction("cancelLeverageEntryOrder", { orderId: 1n, minOwnerRefundOut: 0n }, { accounts: cancelEntryWithoutOrder });
+  // @ts-expect-error on every instruction that acts on an existing order
+  await orders.instruction("cancelHlpOrder", { orderId: 1n }, { accounts: { targetHlpMint: key, custodyHlpAccount: key, ownerHlpAccount: key } });
+  await orders.instruction("cancelLeverageOrder", { orderId: 1n }, { accounts: { order: key } });
+  // @ts-expect-error so a cancel whose other accounts all resolve still takes options
+  await orders.instruction("cancelLeverageOrder", { orderId: 1n });
   // @ts-expect-error the hLP trigger is triggerNad
   await orders.instruction("createHlpOrder", { orderId: 1n, kind: 1, hlpAmount: 1n, triggerNAD: 1n, minTargetAmountOut: 1n }, { accounts: { market: key, targetHlpMint: key, baseMint: key, quoteMint: key, ownerHlpAccount: key, custodyHlpAccount: key, baseYieldAccount: key, quoteYieldAccount: key } });
 
@@ -125,6 +139,8 @@ export async function genericPath(): Promise<void> {
   await orders.instruction("executeHlpOrder", { orderId: 1n }, { accounts: { ...executeHlpAccounts, protocolFee: { feeRecipent: key } } });
   // @ts-expect-error the protocol fee group is required
   await orders.instruction("executeHlpOrder", { orderId: 1n }, { accounts: executeHlpAccounts });
+  // @ts-expect-error and so is the order
+  await orders.instruction("executeHlpOrder", { orderId: 1n }, { accounts: { ...executeHlpWithoutOrder, protocolFee: { feeRecipient: key } } });
   // @ts-expect-error null means "none" only for an optional account
   await orders.instruction("executeHlpOrder", { orderId: 1n }, { accounts: { ...executeHlpAccounts, protocolFee: { feeRecipient: key }, orderOwner: null } });
 
@@ -167,6 +183,21 @@ export const sameDuskArgs: Same<ProgramInstructionArgs<DuskIdl, "borrow">, DuskI
 export const sameDefined: Same<
   ProgramDefinedInput<LeverageDelegateIdl, "createHlpOrderArgs">,
   LeverageDelegateDefinedInput<"createHlpOrderArgs">
+> = true;
+
+// Exactly the accounts Anchor cannot fill in are required. An existing order
+// is; a new one, whose PDA is seeded by the arguments, is not. On the Dusk
+// side the market and the proposal read their own data, and the market's
+// relation does not help; `rentRefund`, a relation of the proposal, resolves.
+type RequiredKeys<T> = { [K in keyof T]-?: {} extends Pick<T, K> ? never : K }[keyof T];
+export const cancelRequires: Same<RequiredKeys<LeverageDelegateInstructionAccounts<"cancelLeverageOrder">>, "order"> = true;
+export const createRequires: Same<
+  RequiredKeys<LeverageDelegateInstructionAccounts<"createLeverageOrder">>,
+  "market" | "leveragePosition"
+> = true;
+export const resolveOperatorChangeRequires: Same<
+  RequiredKeys<ProgramInstructionAccounts<DuskIdl, "resolveOperatorChange">>,
+  "market" | "proposal"
 > = true;
 
 declare const duskBorrow: DuskInstructionArgs<"borrow">;
