@@ -516,6 +516,18 @@ pub struct BenchmarkDepositCollateralRequest {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BenchmarkWithdrawCollateralRequest {
+    pub clock: BenchmarkClock,
+    pub collateral_asset: MarketAsset,
+    pub collateral_debit: u64,
+    pub collateral_vault_balance_before: u64,
+    pub recipient_credit: u64,
+    pub min_recipient_credit: u64,
+    pub min_liquidation_cf_bps: u16,
+    pub global_reduce_only: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BenchmarkBorrowRequest {
     pub clock: BenchmarkClock,
     pub debt_asset: MarketAsset,
@@ -3110,6 +3122,57 @@ impl BenchmarkMarket {
         )
     }
 
+    pub fn execute_withdraw_collateral(
+        &mut self,
+        position: &mut BenchmarkBorrowPosition,
+        request: BenchmarkWithdrawCollateralRequest,
+    ) -> Result<BenchmarkPositionExecution<CollateralReceipt>> {
+        self.require_monotonic_clock(request.clock)?;
+        self.assert_position_market(position)?;
+        let revenue_before = self.revenue_checkpoint();
+        let mut next_market = clone_market(&self.market)?;
+        let mut next_position = clone_borrow_position(&position.position)?;
+        advance_market_to_slot(&mut next_market, request.clock.slot)?;
+        next_market.assert_started_at(request.clock.unix_timestamp)?;
+        require_gte!(
+            request.collateral_vault_balance_before,
+            request.collateral_debit,
+            ErrorCode::InsufficientBalance
+        );
+        if request.global_reduce_only || next_market.reduce_only {
+            let debt = next_position
+                .fixed_base_debt(&next_market.debt)?
+                .checked_add(next_position.fixed_quote_debt(&next_market.debt)?)
+                .ok_or(ErrorCode::DebtMathOverflow)?;
+            require!(debt == 0, ErrorCode::ReduceOnlyHasDebt);
+        }
+        require_gte!(
+            request.recipient_credit,
+            request.min_recipient_credit,
+            ErrorCode::SlippageExceeded
+        );
+        let receipt = next_market.withdraw_collateral_with_fee(
+            &mut next_position,
+            request.collateral_asset,
+            request.collateral_debit,
+            self.mint_transfer_fee(request.collateral_asset).admission(),
+            request.min_liquidation_cf_bps,
+        )?;
+        let mut cash = BenchmarkCashFlow::default();
+        let side = cash.side_mut(request.collateral_asset);
+        side.collateral_vault_debit = request.collateral_debit;
+        side.recipient_credit = request.recipient_credit;
+        self.commit_position_execution(
+            position,
+            next_market,
+            next_position,
+            request.clock,
+            revenue_before,
+            cash,
+            receipt,
+        )
+    }
+
     pub fn execute_borrow(
         &mut self,
         position: &mut BenchmarkBorrowPosition,
@@ -3355,6 +3418,23 @@ impl BenchmarkMarket {
             BenchmarkCashFlow::default(),
             receipt,
         )
+    }
+
+    /// Quotes exact native repayment, auction price, and junior loss settlement
+    /// without committing any account. Callers use the result to evaluate the
+    /// historical Token-2022 schedules before requesting a receipt preview.
+    pub fn preview_liquidation_plan(
+        &self,
+        position: &BenchmarkBorrowPosition,
+        request: BenchmarkLiquidationPlanRequest,
+    ) -> Result<BenchmarkLiquidationPlan> {
+        self.require_monotonic_clock(request.clock)?;
+        self.assert_position_market(position)?;
+        let mut next_market = clone_market(&self.market)?;
+        let mut next_position = clone_borrow_position(&position.position)?;
+        advance_market_to_slot(&mut next_market, request.clock.slot)?;
+        next_market.assert_started_at(request.clock.unix_timestamp)?;
+        liquidation_plan(&mut next_market, &mut next_position, request, self.transfer_fees)
     }
 
     /// Constructs the exact minimum token-account state consistent with the

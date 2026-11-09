@@ -281,7 +281,8 @@ fn normalized_ratio_authenticates_both_assets_denomination_and_uncertainty() {
 
 #[test]
 fn runtime_shape_reconfiguration_preserves_outstanding_quotes_and_reuses_exclusive_workspaces() {
-    use crate::transitions::amm::{ConcentratedCurveParameters, ConcentratedCurvePoint};
+    use crate::state::ConcentratedCurveParameters;
+    use crate::transitions::amm::ConcentratedCurvePoint;
     let (_, feed, _) = normalized();
     let policy = OraclePolicy { lambda_bps: 2500, adjustment_cap_nad: 2 * NAD, ..Default::default() };
     let runtime = RuntimePricing::bind(policy, OracleObservation { price_nad: feed.price_nad, ..Default::default() });

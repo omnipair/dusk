@@ -116,6 +116,51 @@ fn borrow_position_replay_rejects_default_owner_and_market() {
     assert!(BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, position_id, 1).is_ok());
 }
 
+#[test]
+fn collateral_withdrawal_replay_preserves_state_on_rejection_and_commits_measured_cash() {
+    let (mut benchmark, market_key) = initialized_keyed_market();
+    let mut position =
+        BenchmarkBorrowPosition::initialize(Pubkey::new_unique(), market_key, Pubkey::new_unique(), 1).unwrap();
+    benchmark
+        .execute_deposit_collateral(
+            &mut position,
+            BenchmarkDepositCollateralRequest {
+                clock: BenchmarkClock { slot: 2, unix_timestamp: 2 },
+                collateral_asset: MarketAsset::Base,
+                collateral_credit: 1_000,
+            },
+        )
+        .unwrap();
+    let request = BenchmarkWithdrawCollateralRequest {
+        clock: BenchmarkClock { slot: 3, unix_timestamp: 3 },
+        collateral_asset: MarketAsset::Base,
+        collateral_debit: 400,
+        collateral_vault_balance_before: 1_000,
+        recipient_credit: 399,
+        min_recipient_credit: 400,
+        min_liquidation_cf_bps: 0,
+        global_reduce_only: false,
+    };
+    let market_before = market_bytes(benchmark.market());
+    let position_before = position_bytes(position.position());
+    let clock_before = benchmark.clock();
+    assert!(benchmark.execute_withdraw_collateral(&mut position, request).is_err());
+    assert_eq!(market_bytes(benchmark.market()), market_before);
+    assert_eq!(position_bytes(position.position()), position_before);
+    assert_eq!(benchmark.clock(), clock_before);
+
+    let execution = benchmark
+        .execute_withdraw_collateral(
+            &mut position,
+            BenchmarkWithdrawCollateralRequest { min_recipient_credit: 399, ..request },
+        )
+        .unwrap();
+    assert_eq!(position.position().base_collateral, 600);
+    assert_eq!(execution.market.cash.base.collateral_vault_debit, 400);
+    assert_eq!(execution.market.cash.base.recipient_credit, 399);
+    assert_eq!(benchmark.clock(), request.clock);
+}
+
 fn borrow_position_with_collateral(collateral_asset: MarketAsset, collateral_amount: u64) -> BorrowPosition {
     let mut position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
@@ -1774,7 +1819,15 @@ fn liquidation_bid_matches_native_transition_and_keeps_partial_collateral() {
         protocol_auction_split: ProtocolAuctionSplit::default(),
     };
     let preview_request = BenchmarkLiquidationPreviewRequest { plan: plan_request };
+    let market_before = market_bytes(benchmark.market());
+    let position_before = position_bytes(position.position());
+    let clock_before = benchmark.clock();
+    let plan = benchmark.preview_liquidation_plan(&position, plan_request).unwrap();
+    assert_eq!(market_bytes(benchmark.market()), market_before);
+    assert_eq!(position_bytes(position.position()), position_before);
+    assert_eq!(benchmark.clock(), clock_before);
     let preview = benchmark.preview_liquidation(&position, preview_request).unwrap();
+    assert_eq!(plan, preview.plan);
     assert_eq!(
         preview.plan.auction_price_nad,
         position

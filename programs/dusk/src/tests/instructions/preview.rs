@@ -4,9 +4,9 @@ use crate::state::AmmConfig;
 use crate::transitions::amm::PreparedSwap;
 use crate::{
     math::{mul_div_u128, normalize_to_nad},
-    state::{Debt, Risk},
+    state::{ConcentratedCurveParameters, Debt, Risk},
     transitions::{
-        amm::ConcentratedCurveParameters, lending::NewPositionPreviewContext, HlpRebalanceReceipt, LeverageCollateralFee, SwapFeeBreakdown,
+        lending::NewPositionPreviewContext, HlpRebalanceReceipt, LeverageCollateralFee, SwapFeeBreakdown,
     },
 };
 use proptest::prelude::*;

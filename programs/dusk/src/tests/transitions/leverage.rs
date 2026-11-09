@@ -72,11 +72,11 @@ use spl_token_2022::extension::transfer_fee::TransferFee;
 use crate::{
     constants::{DEFAULT_BORROW_APR_NAD, MARKET_LAYOUT_VERSION, MIN_HALF_LIFE_MS, NAD},
     state::{
-        AmmConfig, AmmState, Debt, HlpVault, MarketConfig, MarketSide, ProtocolAuctionSplit, ReserveShares,
-        Reserves, Risk,
+        AmmConfig, AmmState, ConcentratedCurveParameters, Debt, HlpVault, MarketConfig, MarketSide,
+        ProtocolAuctionSplit, ReserveShares, Reserves, Risk,
     },
     transitions::{
-        amm::ConcentratedCurveParameters, require_leverage_entry_limit, LeverageCollateralFee,
+        require_leverage_entry_limit, LeverageCollateralFee,
         liquidity::SwapCashPolicy,
     },
 };
