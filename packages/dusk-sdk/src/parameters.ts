@@ -1,5 +1,6 @@
 import * as anchorNamespace from "@coral-xyz/anchor";
 import { type BN } from "@coral-xyz/anchor";
+import type { DuskDefinedInput } from "./instruction-args.js";
 
 import {
   MAX_PROPOSAL_DESCRIPTION_BYTES,
@@ -632,7 +633,7 @@ export function canonicalParameterUpdates(updates: readonly ParameterUpdate[]): 
 }
 
 /** Convert the readable SDK union to Anchor's generated Rust-enum object. */
-export function anchorParameterUpdate(update: ParameterUpdate): Record<string, unknown> {
+export function anchorParameterUpdate(update: ParameterUpdate): DuskDefinedInput<"marketParameterUpdate"> {
   assertParameterUpdate(update);
   switch (update.kind) {
     case "fee":

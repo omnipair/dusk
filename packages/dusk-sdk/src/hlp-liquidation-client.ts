@@ -46,7 +46,7 @@ export interface HlpFlashParams extends HlpRecoveryParams {
 export interface HlpRecoveryExit {
   hlpAmount: IntegerLike;
   minTargetAmountOut?: IntegerLike;
-  options: HlpLiquidityBuildOptions;
+  options: HlpLiquidityBuildOptions<"withdrawSingleSided">;
 }
 
 export interface HlpNativeCloseAndExitParams extends HlpRecoveryParams {
@@ -104,8 +104,8 @@ export class DuskHlpLiquidations {
     if (!address(exit.options.baseMint).equals(r.state.baseSide.assetMint) ||
         !address(exit.options.quoteMint).equals(r.state.quoteSide.assetMint)) throw new Error("Exit asset mints differ from market");
     const built = await this.write.withdrawSingleSided({
-      hlpAmount: integerBN(exit.hlpAmount, "hlpAmount"),
-      minTargetAmountOut: integerBN(exit.minTargetAmountOut ?? 0, "minTargetAmountOut"),
+      hlpAmount: integerBN(exit.hlpAmount, "hlpAmount").toString(),
+      minTargetAmountOut: integerBN(exit.minTargetAmountOut ?? 0, "minTargetAmountOut").toString(),
     }, exit.options);
     return built;
   }

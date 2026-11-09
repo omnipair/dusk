@@ -17,7 +17,17 @@ import {
   type TransactionInstruction,
 } from "@solana/web3.js";
 
-import { address, normalizeAccountKeys, type AddressLike } from "./address.js";
+import { address, type AddressLike } from "./address.js";
+import {
+  normalizeInstructionAccounts,
+  normalizeInstructionArgs,
+  type DuskDefinedInput,
+  type DuskInstructionAccounts,
+  type DuskInstructionArgs,
+  type DuskInstructionName,
+  type ProgramBuildCall,
+  type ProgramMethodCall,
+} from "./instruction-args.js";
 import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
 import { type MarketLaunchConfig } from "./market-bootstrap.js";
 import type { Market } from "./type-aliases.js";
@@ -39,6 +49,7 @@ import {
   deriveYieldTransferHookValidationAddress,
   deriveHlpCohortAddress,
   deriveReferralPartnerAddress,
+  yieldTokenKindArg,
   type YieldTokenKind,
 } from "./constants.js";
 import {
@@ -54,26 +65,106 @@ import {
 } from "./referral.js";
 import type { Dusk } from "./types_v2.js";
 
-export type DuskInstructionName = Dusk["instructions"][number]["name"];
-export type DuskInstructionArgs = unknown[] | unknown | undefined;
+/**
+ * An untyped account map. The write methods take
+ * `DuskInstructionAccounts<Name>`, which is checked against the IDL.
+ */
 export type DuskAccounts = Record<string, unknown>;
 
-export interface DuskBuildOptions {
+interface DuskBuildOptionsBase {
   /** Explicit source policy for offline builders; async builders resolve it from the market. */
   oraclePolicy?: OraclePolicyInput;
-  accounts?: DuskAccounts;
   remainingAccounts?: AccountMeta[];
 }
 
-export interface SwapBuildOptions extends DuskBuildOptions {
-  accounts: DuskAccounts;
+export interface DuskBuildOptions<out N extends DuskInstructionName = DuskInstructionName>
+  extends DuskBuildOptionsBase {
+  accounts?: DuskInstructionAccounts<N>;
+}
+
+type DuskBuildOptionsWithAccounts<N extends DuskInstructionName> = DuskBuildOptionsBase & {
+  accounts: DuskInstructionAccounts<N>;
+};
+
+/**
+ * The arguments after the instruction name in `builder`, `instruction`,
+ * `transaction` and `rpc`. `args` is required unless the instruction takes
+ * none; `options` and its `accounts` are required when the instruction has an
+ * account Anchor cannot resolve on its own.
+ */
+export type DuskBuildCall<N extends DuskInstructionName> = ProgramBuildCall<
+  Dusk,
+  N,
+  DuskBuildOptions<N>,
+  DuskBuildOptionsWithAccounts<N>
+>;
+
+/** The argument after the instruction name in `method`. */
+export type DuskMethodCall<N extends DuskInstructionName> = ProgramMethodCall<Dusk, N>;
+
+/** Raw base-unit amount. Accepts bigint to keep callers off floating point. */
+export type RawAmount = bigint | number | string;
+
+// A composite builder fills these accounts itself; the caller may still name
+// them, and the composite's value wins.
+type WithOptionalAccounts<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K & keyof T> & Partial<Pick<T, K & keyof T>>
+  : never;
+
+/** The swap amounts `swapBuilder`, `swapInstruction`, `swapTransaction` and `swapRpc` take. */
+export interface SwapAmounts {
+  exactAssetIn: RawAmount;
+  /** Slippage floor; the program rejects a fill below it. */
+  minAssetOut: RawAmount;
+}
+
+export interface SwapBuildOptions extends DuskBuildOptionsBase {
+  /** The swap's accounts. The composite fills in `market` from the option below. */
+  accounts: WithOptionalAccounts<DuskInstructionAccounts<"swap">, "market">;
   market: AddressLike;
 }
 
 export type ReferredActionName = "borrow" | "openLeverage";
 
-export interface ReferredActionOptions extends DuskBuildOptions {
-  accounts: DuskAccounts;
+/** `referredBorrow` amounts. The referrer comes from the options. */
+export interface ReferredBorrowParams {
+  borrowAmount: RawAmount;
+  /** Slippage floor on the debt actually opened. */
+  minDebtAmountOut: RawAmount;
+  /** Health floor in basis points; defaults to 0, no floor. */
+  minLiquidationCfBps?: number;
+}
+
+/** `referredOpenLeverage` amounts. The referrer comes from the options. */
+export interface ReferredOpenLeverageParams {
+  positionId: AddressLike;
+  /** The borrowed side: "base" or 0, "quote" or 1. */
+  debtAsset: MarketAssetSide | 0 | 1;
+  marginAmount: RawAmount;
+  /** Leverage multiplier in basis points; 20000 is two times. */
+  multiplierBps: RawAmount;
+  minCollateralOut: RawAmount;
+  /** Zero, the default, means no limit price. */
+  limitPriceNad?: RawAmount;
+  /** Open on behalf of another owner; defaults to the signing owner. */
+  positionOwner?: AddressLike | null;
+}
+
+export type ReferredActionParams<N extends ReferredActionName = ReferredActionName> = N extends "borrow"
+  ? ReferredBorrowParams
+  : ReferredOpenLeverageParams;
+
+/** The action's accounts, less the market and the referral accounts the composite fills in. */
+export type ReferredActionAccounts<N extends ReferredActionName = ReferredActionName> = N extends ReferredActionName
+  ? WithOptionalAccounts<
+      DuskInstructionAccounts<N>,
+      "market" | "referralPartner" | "referralAccrual" | "instructionsSysvar"
+    >
+  : never;
+
+export interface ReferredActionOptions<out N extends ReferredActionName = ReferredActionName>
+  extends DuskBuildOptionsBase {
+  accounts: ReferredActionAccounts<N>;
   payer: AddressLike;
   referrer: AddressLike;
   market: AddressLike;
@@ -89,8 +180,37 @@ export interface ReferredActionBuild {
   transaction: Transaction;
 }
 
-export interface HlpLiquidityBuildOptions extends DuskBuildOptions {
-  accounts: DuskAccounts;
+export type HlpLiquidityName = "depositSingleSided" | "withdrawSingleSided";
+
+/** `depositSingleSided` amounts. */
+export interface DepositSingleSidedParams {
+  depositAmount: RawAmount;
+  /** Slippage floor on minted hLP. */
+  minHlpAmount: RawAmount;
+}
+
+/** `withdrawSingleSided` amounts. */
+export interface WithdrawSingleSidedParams {
+  hlpAmount: RawAmount;
+  /** Slippage floor on the target asset paid out. */
+  minTargetAmountOut: RawAmount;
+}
+
+export type HlpLiquidityParams<N extends HlpLiquidityName = HlpLiquidityName> = N extends "depositSingleSided"
+  ? DepositSingleSidedParams
+  : WithdrawSingleSidedParams;
+
+/** The action's accounts, less the market, owner, mints and yield accounts the composite fills in. */
+export type HlpLiquidityAccounts<N extends HlpLiquidityName = HlpLiquidityName> = N extends HlpLiquidityName
+  ? WithOptionalAccounts<
+      DuskInstructionAccounts<N>,
+      "market" | "owner" | "targetHlpMint" | "baseMint" | "quoteMint" | "baseYieldAccount" | "quoteYieldAccount"
+    >
+  : never;
+
+export interface HlpLiquidityBuildOptions<out N extends HlpLiquidityName = HlpLiquidityName>
+  extends DuskBuildOptionsBase {
+  accounts: HlpLiquidityAccounts<N>;
   payer: AddressLike;
   owner: AddressLike;
   market: AddressLike;
@@ -119,6 +239,11 @@ type AnchorMethodBuilder = {
 
 type AnchorMethods = Record<string, (...args: unknown[]) => AnchorMethodBuilder>;
 
+// What the public signatures narrow down to once the name is known.
+interface UncheckedBuildOptions extends DuskBuildOptionsBase {
+  accounts?: DuskAccounts;
+}
+
 export class DuskWrite {
   constructor(readonly program: Program<Dusk>) {}
 
@@ -128,20 +253,38 @@ export class DuskWrite {
     }).account.market.fetch(market);
   }
 
-  method(name: DuskInstructionName, args?: DuskInstructionArgs): AnchorMethodBuilder {
+  /**
+   * Anchor's method builder for one instruction. `args` is checked against
+   * the IDL and converted for Anchor before anything is encoded; a missing,
+   * misspelled or wrongly typed field throws `DuskInstructionInputError`.
+   */
+  method<N extends DuskInstructionName>(name: N, ...call: DuskMethodCall<N>): AnchorMethodBuilder {
+    return this.uncheckedMethod(name, call[0]);
+  }
+
+  private uncheckedMethod(name: DuskInstructionName, args: unknown): AnchorMethodBuilder {
     const method = (this.program.methods as unknown as AnchorMethods)[name];
     if (!method) {
       throw new Error(`Unknown Dusk instruction: ${name}`);
     }
-    return method(...normalizeArgs(args));
+    return method(...normalizeInstructionArgs(this.program.idl, name, args));
   }
 
-  builder(
+  /**
+   * Anchor's method builder with accounts, oracle feeds and event-CPI accounts
+   * applied. Arguments and account names are checked against the IDL.
+   */
+  builder<N extends DuskInstructionName>(name: N, ...call: DuskBuildCall<N>): AnchorMethodBuilder {
+    const [args, options] = call as [unknown, UncheckedBuildOptions?];
+    return this.uncheckedBuilder(name, args, options);
+  }
+
+  private uncheckedBuilder(
     name: DuskInstructionName,
-    args?: DuskInstructionArgs,
-    options: DuskBuildOptions = {}
+    args: unknown,
+    options: UncheckedBuildOptions = {}
   ): AnchorMethodBuilder {
-    let builder = this.method(name, args);
+    let builder = this.uncheckedMethod(name, args);
     const instructionAccounts = this.program.idl.instructions?.find(
       (instruction) => instruction.name === name
     )?.accounts;
@@ -156,7 +299,7 @@ export class DuskWrite {
             program: this.program.programId,
           }
         : options.accounts!;
-      builder = builder.accounts(normalizeAccountKeys(accounts));
+      builder = builder.accounts(normalizeInstructionAccounts(this.program.idl, name, accounts));
     }
     const remaining = [...(options.remainingAccounts ?? [])];
     for (const meta of oracleReadAccounts(options.oraclePolicy)) {
@@ -168,27 +311,39 @@ export class DuskWrite {
     return builder;
   }
 
-  async instruction(
-    name: DuskInstructionName,
-    args?: DuskInstructionArgs,
-    options?: DuskBuildOptions
+  async instruction<N extends DuskInstructionName>(
+    name: N,
+    ...call: DuskBuildCall<N>
   ): Promise<TransactionInstruction> {
-    return this.builder(name, args, await this.withOraclePolicy(name, options)).instruction();
+    const [args, options] = call as [unknown, UncheckedBuildOptions?];
+    return this.uncheckedInstruction(name, args, options);
   }
 
-  async transaction(
+  private async uncheckedInstruction(
     name: DuskInstructionName,
-    args?: DuskInstructionArgs,
-    options?: DuskBuildOptions
+    args: unknown,
+    options?: UncheckedBuildOptions
+  ): Promise<TransactionInstruction> {
+    return this.uncheckedBuilder(name, args, await this.withOraclePolicy(name, options)).instruction();
+  }
+
+  async transaction<N extends DuskInstructionName>(
+    name: N,
+    ...call: DuskBuildCall<N>
   ): Promise<Transaction> {
-    return this.builder(name, args, await this.withOraclePolicy(name, options)).transaction();
+    const [args, options] = call as [unknown, UncheckedBuildOptions?];
+    return this.uncheckedBuilder(name, args, await this.withOraclePolicy(name, options)).transaction();
   }
 
-  async rpc(name: DuskInstructionName, args?: DuskInstructionArgs, options?: DuskBuildOptions) {
-    return this.builder(name, args, await this.withOraclePolicy(name, options)).rpc();
+  async rpc<N extends DuskInstructionName>(name: N, ...call: DuskBuildCall<N>): Promise<string> {
+    const [args, options] = call as [unknown, UncheckedBuildOptions?];
+    return this.uncheckedBuilder(name, args, await this.withOraclePolicy(name, options)).rpc();
   }
 
-  private async withOraclePolicy(name: DuskInstructionName, options: DuskBuildOptions = {}): Promise<DuskBuildOptions> {
+  private async withOraclePolicy(
+    name: DuskInstructionName,
+    options: UncheckedBuildOptions = {}
+  ): Promise<UncheckedBuildOptions> {
     if (!ORACLE_READ_INSTRUCTIONS.has(name) || options.oraclePolicy) return options;
     const nested = options.accounts?.accounts as DuskAccounts | undefined;
     const preview = options.accounts?.preview as DuskAccounts | undefined;
@@ -259,7 +414,16 @@ export class DuskWrite {
   }
 
   async swapBuilder(
-    args: Record<string, unknown>,
+    amounts: SwapAmounts,
+    options: SwapBuildOptions
+  ): Promise<AnchorMethodBuilder> {
+    // Spread rather than picked field by field, so a JavaScript caller's
+    // misspelled key reaches the IDL check instead of being dropped.
+    return this.swapMethodBuilder({ ...amounts }, options);
+  }
+
+  private async swapMethodBuilder(
+    args: DuskInstructionArgs<"swap">,
     options: SwapBuildOptions
   ): Promise<AnchorMethodBuilder> {
     const market = address(options.market);
@@ -297,6 +461,8 @@ export class DuskWrite {
       oraclePolicy: options.oraclePolicy ?? (state as typeof state & {oracle?: {policy: OraclePolicyInput}}).oracle?.policy,
       accounts: {
         ...options.accounts,
+        // The market whose state chose the hLP prefix above.
+        market,
         instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
       },
       // Prefix order is consensus-visible. Hook accounts must remain a tail,
@@ -305,16 +471,16 @@ export class DuskWrite {
     });
   }
 
-  async swapInstruction(args: Record<string, unknown>, options: SwapBuildOptions) {
-    return (await this.swapBuilder(args, options)).instruction();
+  async swapInstruction(amounts: SwapAmounts, options: SwapBuildOptions): Promise<TransactionInstruction> {
+    return (await this.swapBuilder(amounts, options)).instruction();
   }
 
-  async swapTransaction(args: Record<string, unknown>, options: SwapBuildOptions) {
-    return (await this.swapBuilder(args, options)).transaction();
+  async swapTransaction(amounts: SwapAmounts, options: SwapBuildOptions): Promise<Transaction> {
+    return (await this.swapBuilder(amounts, options)).transaction();
   }
 
-  async swapRpc(args: Record<string, unknown>, options: SwapBuildOptions) {
-    return (await this.swapBuilder(args, options)).rpc();
+  async swapRpc(amounts: SwapAmounts, options: SwapBuildOptions): Promise<string> {
+    return (await this.swapBuilder(amounts, options)).rpc();
   }
 
   /**
@@ -363,7 +529,7 @@ export class DuskWrite {
     );
 
     return this.instruction(
-      "borrow" as DuskInstructionName,
+      "borrow",
       {
         borrowAmount: integerBN(params.borrowAmount, "borrowAmount"),
         minDebtAmountOut: integerBN(
@@ -533,7 +699,7 @@ export class DuskWrite {
     );
 
     return this.instruction(
-      "createLeverageDelegation" as DuskInstructionName,
+      "createLeverageDelegation",
       {
         debtAsset: params.debtAsset === "quote" ? 1 : 0,
         delegatedProgram: address(params.delegatedProgram),
@@ -579,10 +745,9 @@ export class DuskWrite {
       tokenProgramForMint(connection, assetOutMint),
     ]);
 
-    return this.swapBuilder(
-      // A single positional SwapArgs struct: the generic builder spreads a
-      // non-array into one argument, so wrapping it in an outer object would
-      // serialize a struct of zeros and the program would reject the amount.
+    return this.swapMethodBuilder(
+      // A single positional SwapArgs struct. Wrapping it in an outer object
+      // used to serialize a struct of zeros; the IDL check now rejects it.
       {
         exactAssetIn: integerBN(params.exactAssetIn, "exactAssetIn"),
         minAssetOut: integerBN(params.minAssetOut, "minAssetOut"),
@@ -590,7 +755,6 @@ export class DuskWrite {
       {
         market,
         accounts: {
-          market,
           futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
           trader,
           assetInMint,
@@ -646,8 +810,7 @@ export class DuskWrite {
     const lpMint = address(params.lpMint);
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
-    const tokenKind = params.tokenKind === "srlp" || params.tokenKind === 0 ? { srlp: {} } : params.tokenKind === "junior" || params.tokenKind === 2 ? { junior: {} } : { hlp: {} };
-    return this.instruction("initializeYieldAccounts" as DuskInstructionName, { owner, tokenKind }, {
+    return this.instruction("initializeYieldAccounts", { owner, tokenKind: yieldTokenKindArg(params.tokenKind) }, {
       accounts: {
         payer,
         market,
@@ -702,7 +865,7 @@ export class DuskWrite {
       else throw new Error("LP mint does not belong to the market");
     }
     const isHlp = tokenKind === "hlp" || tokenKind === 1;
-    return this.instruction("initializeLpTransferHook" as DuskInstructionName, undefined, {
+    return this.instruction("initializeLpTransferHook", undefined, {
       accounts: {
         payer: address(params.payer),
         market,
@@ -773,7 +936,7 @@ export class DuskWrite {
     if (oracle && oracle.lambdaBps > 0 && !bootstrapPriceNad.isZero())
       throw new Error("Oracle-guided markets derive the initial price from the feed; omit bootstrapPriceNad");
     return this.instruction(
-      "initializeMarket" as DuskInstructionName,
+      "initializeMarket",
       {
         operatorInterestShareBps:operatorShare,
         config: anchorMarketConfig(params.config),
@@ -839,10 +1002,10 @@ export class DuskWrite {
     } });
   }
 
-  async hlpLiquidityAction(
-    name: "depositSingleSided" | "withdrawSingleSided",
-    args: Record<string, unknown>,
-    options: HlpLiquidityBuildOptions
+  async hlpLiquidityAction<N extends HlpLiquidityName>(
+    name: N,
+    params: HlpLiquidityParams<N>,
+    options: HlpLiquidityBuildOptions<N>
   ): Promise<HlpLiquidityBuild> {
     const payer = address(options.payer);
     const owner = address(options.owner);
@@ -899,9 +1062,13 @@ export class DuskWrite {
               tokenKind: "hlp",
             }),
           ];
-    const actionInstruction = await this.instruction(name, args, {
+    // Widened to both actions: `name` and `params` share one N, which
+    // TypeScript cannot narrow from a comparison.
+    const args: HlpLiquidityParams = params;
+    const accounts: HlpLiquidityAccounts = options.accounts;
+    const actionInstruction = await this.instruction<HlpLiquidityName>(name, { ...args }, {
       accounts: {
-        ...options.accounts,
+        ...accounts,
         market,
         owner,
         targetHlpMint: lpMint,
@@ -928,12 +1095,18 @@ export class DuskWrite {
     };
   }
 
-  depositSingleSided(args: Record<string, unknown>, options: HlpLiquidityBuildOptions) {
-    return this.hlpLiquidityAction("depositSingleSided", args, options);
+  depositSingleSided(
+    params: DepositSingleSidedParams,
+    options: HlpLiquidityBuildOptions<"depositSingleSided">
+  ): Promise<HlpLiquidityBuild> {
+    return this.hlpLiquidityAction("depositSingleSided", params, options);
   }
 
-  withdrawSingleSided(args: Record<string, unknown>, options: HlpLiquidityBuildOptions) {
-    return this.hlpLiquidityAction("withdrawSingleSided", args, options);
+  withdrawSingleSided(
+    params: WithdrawSingleSidedParams,
+    options: HlpLiquidityBuildOptions<"withdrawSingleSided">
+  ): Promise<HlpLiquidityBuild> {
+    return this.hlpLiquidityAction("withdrawSingleSided", params, options);
   }
 
   /** Begin a fresh hLP receipt cohort after the current vault has terminally closed. */
@@ -948,7 +1121,7 @@ export class DuskWrite {
     const market = address(params.market);
     const oldHlpMint = address(params.oldHlpMint);
     const newHlpMint = address(params.newHlpMint);
-    return this.instruction("rotateHlpCohort" as DuskInstructionName, {
+    return this.instruction("rotateHlpCohort", {
       targetAsset: params.targetAsset === "base" ? 0 : 1,
       metadata: params.metadata,
     }, {
@@ -980,7 +1153,7 @@ export class DuskWrite {
     const market = address(params.market);
     const owner = address(params.owner);
     const retiredMint = address(params.retiredMint);
-    return this.instruction("burnRetiredHlpReceipt" as DuskInstructionName, {
+    return this.instruction("burnRetiredHlpReceipt", {
       amount: integerBN(params.amount),
     }, {
       accounts: {
@@ -1063,10 +1236,10 @@ export class DuskWrite {
     );
   }
 
-  async referredAction(
-    name: ReferredActionName,
-    args: Record<string, unknown>,
-    options: ReferredActionOptions
+  async referredAction<N extends ReferredActionName>(
+    name: N,
+    params: ReferredActionParams<N>,
+    options: ReferredActionOptions<N>
   ): Promise<ReferredActionBuild> {
     const referral = referralAccrualAddresses({
       referrer: options.referrer,
@@ -1085,24 +1258,40 @@ export class DuskWrite {
           options.transferHookTransfers
         )
       : [];
-    const actionInstruction = await this.instruction(
-      name,
-      {
-        ...args,
-        referrer: address(options.referrer),
-      },
-      {
-        accounts: {
-          ...options.accounts,
-          referralPartner: referral.referralPartner,
-          referralAccrual: referral.referralAccrual,
-          ...(name === "openLeverage"
-            ? { instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY }
-            : {}),
-        },
-        remainingAccounts: mergeAccountMetas(options.remainingAccounts ?? [], hookAccounts),
-      }
-    );
+    const referrer = address(options.referrer);
+    // The market the referral accrual was derived for.
+    const market = address(options.market);
+    const referralAccounts = {
+      referralPartner: referral.referralPartner,
+      referralAccrual: referral.referralAccrual,
+    };
+    const remainingAccounts = mergeAccountMetas(options.remainingAccounts ?? [], hookAccounts);
+    // `name` and `params` share one N, which a comparison cannot narrow, so
+    // each branch restates its own action. The caller's keys are spread so a
+    // misspelled one reaches the IDL check instead of being dropped.
+    const actionInstruction =
+      name === "borrow"
+        ? await this.instruction(
+            "borrow",
+            borrowArgs(params as ReferredBorrowParams, referrer),
+            {
+              accounts: { ...(options.accounts as ReferredActionAccounts<"borrow">), market, ...referralAccounts },
+              remainingAccounts,
+            }
+          )
+        : await this.instruction(
+            "openLeverage",
+            openLeverageArgs(params as ReferredOpenLeverageParams, referrer),
+            {
+              accounts: {
+                ...(options.accounts as ReferredActionAccounts<"openLeverage">),
+                market,
+                ...referralAccounts,
+                instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+              },
+              remainingAccounts,
+            }
+          );
     return {
       referralPartner: referral.referralPartner,
       referralAccrual: referral.referralAccrual,
@@ -1112,12 +1301,18 @@ export class DuskWrite {
     };
   }
 
-  referredBorrow(args: Record<string, unknown>, options: ReferredActionOptions) {
-    return this.referredAction("borrow", args, options);
+  referredBorrow(
+    params: ReferredBorrowParams,
+    options: ReferredActionOptions<"borrow">
+  ): Promise<ReferredActionBuild> {
+    return this.referredAction("borrow", params, options);
   }
 
-  referredOpenLeverage(args: Record<string, unknown>, options: ReferredActionOptions) {
-    return this.referredAction("openLeverage", args, options);
+  referredOpenLeverage(
+    params: ReferredOpenLeverageParams,
+    options: ReferredActionOptions<"openLeverage">
+  ): Promise<ReferredActionBuild> {
+    return this.referredAction("openLeverage", params, options);
   }
 
   async setReferralRecipientInstruction(params: {
@@ -1234,7 +1429,7 @@ export class DuskWrite {
     const assetMint = address(params.assetMint);
     const positionId = address(params.positionId);
     return this.instruction(
-      "depositCollateral" as DuskInstructionName,
+      "depositCollateral",
       { positionId, depositAmount: integerBN(params.depositAmount, "depositAmount") },
       {
         accounts: {
@@ -1262,7 +1457,7 @@ export class DuskWrite {
   async donateCollateralInstruction(params: DepositCollateralParams): Promise<TransactionInstruction> {
     const market = address(params.market);
     const assetMint = address(params.assetMint);
-    return this.instruction("donateCollateral" as DuskInstructionName,
+    return this.instruction("donateCollateral",
       { depositAmount: integerBN(params.depositAmount, "depositAmount") }, {
         accounts: {
           market, owner: address(params.owner), assetMint,
@@ -1279,7 +1474,7 @@ export class DuskWrite {
     const market = address(params.market);
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
-    return this.instruction("withdrawAllCollateral" as DuskInstructionName, {
+    return this.instruction("withdrawAllCollateral", {
       minBaseOut: integerBN(params.minBaseOut, "minBaseOut"),
       minQuoteOut: integerBN(params.minQuoteOut, "minQuoteOut"),
     }, { accounts: {
@@ -1296,7 +1491,7 @@ export class DuskWrite {
   async withdrawRepaidLeverageInstruction(params: WithdrawRepaidLeverageParams): Promise<TransactionInstruction> {
     const market = address(params.market);
     const collateralMint = address(params.collateralMint);
-    return this.instruction("withdrawRepaidLeverage" as DuskInstructionName,
+    return this.instruction("withdrawRepaidLeverage",
       { minCollateralOut: integerBN(params.minCollateralOut, "minCollateralOut") }, {
         accounts: {
           market, owner: address(params.owner), collateralMint,
@@ -1329,7 +1524,7 @@ export class DuskWrite {
     const assetMint = address(params.assetMint);
     const positionId = address(params.positionId);
     return this.instruction(
-      "withdrawCollateral" as DuskInstructionName,
+      "withdrawCollateral",
       {
         withdrawAmount: integerBN(params.withdrawAmount, "withdrawAmount"),
         minAssetAmountOut: integerBN(params.minAssetAmountOut, "minAssetAmountOut"),
@@ -1380,7 +1575,7 @@ export class DuskWrite {
       ? address(params.referralPartner)
       : null;
     return this.instruction(
-      "repay" as DuskInstructionName,
+      "repay",
       { repayAmount: integerBN(params.repayAmount, "repayAmount") },
       {
         accounts: {
@@ -1431,7 +1626,7 @@ export class DuskWrite {
   ): Promise<TransactionInstruction> {
     const common = await this.resolveSrlpAccounts(params);
     return this.instruction(
-      "addLiquidity" as DuskInstructionName,
+      "addLiquidity",
       {
         baseDepositAmount: integerBN(
           params.baseDepositAmount,
@@ -1469,7 +1664,7 @@ export class DuskWrite {
   ): Promise<TransactionInstruction> {
     const common = await this.resolveSrlpAccounts(params);
     return this.instruction(
-      "removeLiquidity" as DuskInstructionName,
+      "removeLiquidity",
       {
         srlpAmount: integerBN(params.srlpAmount, "srlpAmount"),
         minBaseAmountOut: integerBN(
@@ -1516,7 +1711,7 @@ export class DuskWrite {
   ): Promise<TransactionInstruction> {
     const core = await this.resolveLeverageAccounts(params);
     return this.instruction(
-      "increaseLeverage" as DuskInstructionName,
+      "increaseLeverage",
       {
         debtAsset: marketAssetIndex(params.debtAsset),
         debtAmount: integerBN(params.debtAmount, "debtAmount"),
@@ -1565,7 +1760,7 @@ export class DuskWrite {
   ): Promise<TransactionInstruction> {
     const core = await this.resolveLeverageAccounts(params);
     return this.instruction(
-      "decreaseLeverage" as DuskInstructionName,
+      "decreaseLeverage",
       {
         debtAsset: marketAssetIndex(params.debtAsset),
         collateralAmount: integerBN(
@@ -1626,7 +1821,7 @@ export class DuskWrite {
   ): Promise<TransactionInstruction> {
     const core = await this.resolveLeverageAccounts(params);
     return this.instruction(
-      method as DuskInstructionName,
+      method,
       {
         debtAsset: marketAssetIndex(params.debtAsset),
         amount: integerBN(params.amount, "amount"),
@@ -1829,9 +2024,6 @@ export class DuskWrite {
     };
   }
 }
-
-/** Raw base-unit amount. Accepts bigint to keep callers off floating point. */
-export type RawAmount = bigint | number | string;
 
 interface LendingPositionAccounts {
   market: AddressLike;
@@ -2057,7 +2249,7 @@ export interface RemoveLiquidityParams extends SrlpLiquidityAccounts {
  * so a field added to the program fails to compile here instead of silently
  * going missing.
  */
-function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown> {
+function anchorMarketConfig(config: MarketLaunchConfig): DuskDefinedInput<"marketConfig"> {
   const bn = (value: IntegerLike, label: string) => integerBN(value, label);
   if (bn(config.amm.peakAmplificationNad as IntegerLike, "peakAmplificationNad").gtn(1_000_000_000)
       && bn(config.amm.adjustmentStepNad as IntegerLike, "adjustmentStepNad").isZero()) {
@@ -2078,8 +2270,10 @@ function anchorMarketConfig(config: MarketLaunchConfig): Record<string, unknown>
     maxDailyBorrowBps: config.maxDailyBorrowBps,
     globalHealthContributionCapBps: config.globalHealthContributionCapBps,
     borrowMarketHealthFloorBps: config.borrowMarketHealthFloorBps,
-    amm: anchorIntegerFields(config.amm, AMM_U64_FIELDS),
-    irm: anchorIntegerFields(config.irm, IRM_U64_FIELDS),
+    // `MarketLaunchConfig` keeps these two loosely typed, so the IDL check
+    // validates their fields at run time instead.
+    amm: anchorIntegerFields(config.amm, AMM_U64_FIELDS) as DuskDefinedInput<"ammConfig">,
+    irm: anchorIntegerFields(config.irm, IRM_U64_FIELDS) as DuskDefinedInput<"riskRateConfig">,
     startTime: bn(config.startTime, "startTime"),
   };
 }
@@ -2112,11 +2306,21 @@ function anchorIntegerFields(
   return out;
 }
 
-function normalizeArgs(args: DuskInstructionArgs): unknown[] {
-  if (args === undefined) {
-    return [];
-  }
-  return Array.isArray(args) ? args : [args];
+function borrowArgs(params: ReferredBorrowParams, referrer: PublicKey): DuskInstructionArgs<"borrow"> {
+  return { ...params, minLiquidationCfBps: params.minLiquidationCfBps ?? 0, referrer };
+}
+
+function openLeverageArgs(
+  params: ReferredOpenLeverageParams,
+  referrer: PublicKey
+): DuskInstructionArgs<"openLeverage"> {
+  return {
+    ...params,
+    debtAsset: params.debtAsset === 0 || params.debtAsset === 1 ? params.debtAsset : marketAssetIndex(params.debtAsset),
+    limitPriceNad: params.limitPriceNad ?? 0,
+    positionOwner: params.positionOwner ?? null,
+    referrer,
+  };
 }
 
 function mergeAccountMetas(...groups: readonly AccountMeta[][]): AccountMeta[] {

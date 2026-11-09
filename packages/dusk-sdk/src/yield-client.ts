@@ -2,7 +2,7 @@ import type { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, Transaction, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
 import { address, type AddressLike } from "./address.js";
-import { deriveFutarchyAuthorityAddress, deriveHlpCohortAddress, deriveJuniorCohortAddress, deriveYieldAccountAddress } from "./constants.js";
+import { deriveFutarchyAuthorityAddress, deriveHlpCohortAddress, deriveJuniorCohortAddress, deriveYieldAccountAddress, yieldTokenKindArg } from "./constants.js";
 import { integerBN, type IntegerLike } from "./parameters.js";
 import { DuskGet } from "./get.js";
 import { previewReturnDataBytes } from "./preview.js";
@@ -97,7 +97,7 @@ export class DuskYield {
       createAssociatedTokenAccountIdempotentInstruction(caller, recipientAssetAccount, claim.recipient, side.assetMint, tokenProgram),
     ];
     if (params.fundAccruedInterest !== false) instructions.push(await this.fundInstruction(params));
-    instructions.push(await this.write.instruction("harvest", { tokenKind: { [kind]: {} } }, { accounts: {
+    instructions.push(await this.write.instruction("harvest", { tokenKind: yieldTokenKindArg(kind) }, { accounts: {
       market, owner, caller, assetMint: side.assetMint, lpMint,
       ownerLpAccount: getAssociatedTokenAddressSync(lpMint, owner, true, TOKEN_2022_PROGRAM_ID),
       reserveVault: side.reserveVault, interestVault: side.interestVault, recipientAssetAccount, yieldAccount,

@@ -3713,6 +3713,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       methods: program.methods,
       idl: {
         instructions: program.idl.instructions,
+        // The SDK checks instruction arguments against these definitions.
+        types: program.idl.types,
         accounts: [{ ...yieldAccountDefinition, name: "yieldAccount" }],
       },
       coder: {
@@ -3721,7 +3723,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         },
       },
     } as any);
-    const depositArgs = { depositAmount: new BN(1_000), minHlpAmount: new BN(1) };
+    const depositArgs = { depositAmount: 1_000n, minHlpAmount: 1n };
     const depositOptions = {
       payer: payer.publicKey,
       owner: payer.publicKey,
