@@ -850,10 +850,8 @@ impl Market {
             // values.
             for update in updates {
                 match update {
-                    MarketParameterUpdate::Fee(_) => {
-                        if self.amm.initialized {
-                            self.amm.invalidate_deferred_controller_target();
-                        }
+                    MarketParameterUpdate::Fee(_) if self.amm.initialized => {
+                        self.amm.invalidate_deferred_controller_target();
                     }
                     MarketParameterUpdate::Concentration { .. } => {
                         self.amm.invalidate_deferred_controller_target();

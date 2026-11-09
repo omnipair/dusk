@@ -1379,9 +1379,35 @@ impl ConcentratedCurveGeometry {
             for (region, boundary) in self.nested_boundaries.into_iter().enumerate() {
                 let left = self.nested_effective_reserves(boundary, region)?;
                 let right = self.nested_effective_reserves(boundary, region + 1)?;
-                let left_price = mul_div_u128(left.1, NAD as u128, left.0)?;
-                let right_price = mul_div_u128(right.1, NAD as u128, right.0)?;
-                require!(left_price.abs_diff(right_price) <= 2, ErrorCode::InvalidMarketConfig);
+                // Inactive claims cancel against the region constants. Each
+                // effective reserve is the sum of floor(L / sqrt(p)) or
+                // floor(L * sqrt(p)) for the active tail/core/shoulder layers.
+                // With k active layers its exact value lies in [v, v + k),
+                // so the common boundary price lies strictly between
+                // y / (x + k) and (y + k) / x. Compare these intervals exactly;
+                // a fixed NAD-price tolerance rejects valid small reserves.
+                let active_layers = [1_u128, 2, 3, 2, 1];
+                let left_base_upper = left
+                    .0
+                    .checked_add(active_layers[region])
+                    .ok_or(ErrorCode::InvariantOverflow)?;
+                let left_quote_upper = left
+                    .1
+                    .checked_add(active_layers[region])
+                    .ok_or(ErrorCode::InvariantOverflow)?;
+                let right_base_upper = right
+                    .0
+                    .checked_add(active_layers[region + 1])
+                    .ok_or(ErrorCode::InvariantOverflow)?;
+                let right_quote_upper = right
+                    .1
+                    .checked_add(active_layers[region + 1])
+                    .ok_or(ErrorCode::InvariantOverflow)?;
+                require!(
+                    !ratio_lte_full_width(left_quote_upper, left.0, right.1, right_base_upper)?
+                        && !ratio_lte_full_width(right_quote_upper, right.0, left.1, left_base_upper)?,
+                    ErrorCode::InvalidMarketConfig
+                );
             }
             return Ok(());
         }

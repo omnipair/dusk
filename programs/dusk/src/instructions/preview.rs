@@ -642,7 +642,12 @@ impl<'info> PreviewAddLiquidity<'info> {
         let max_quote_reserve_credit = requested_quote_amount
             .checked_sub(max_quote_transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let receipt = market.preview_add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
+        // Validate the same reserve/share transition and curve finalization as
+        // execution. Only the clock update above may persist: hypothetical
+        // deposits, LP supply, and first-liquidity authority stay on this copy.
+        let mut projected = Box::new(market.clone());
+        let receipt = projected.add_liquidity(max_base_reserve_credit, max_quote_reserve_credit)?;
+        projected.finalize_amm_transition_and_observe_risk(Clock::get()?.slot)?;
         let base_transfer_fee =
             get_transfer_inverse_fee(&ctx.accounts.base_mint.to_account_info(), receipt.base_reserve_credit)?;
         let quote_transfer_fee =

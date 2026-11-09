@@ -442,3 +442,71 @@ fn cached_liquidation_quotes_match_canonical_rounding_across_every_region() {
         }
     }
 }
+
+#[test]
+fn small_nested_deposits_allow_only_reserve_rounding_at_boundaries() {
+    let parameters = ConcentratedCurveParameters {
+        peak_amplification_nad: 3 * NAD,
+        core_half_width_bps: 250,
+        fade_width_bps: 500,
+    };
+    // Devnet pool 2qY1kxeJNHRMhYLZ72VkBSTcMYLNPyMmTUFcuz39hzzx:
+    // 0.01 base (6 decimals) and 0.1 quote (9 decimals), normalized to 9.
+    let cache = prepare_concentrated_cache_at_point(10_000_000, 100_000_000, 10 * NAD, parameters).unwrap();
+    let curve = cache.geometry().unwrap();
+    let boundary = curve.nested_boundaries[0];
+    let left = curve.nested_effective_reserves(boundary, 0).unwrap();
+    let right = curve.nested_effective_reserves(boundary, 1).unwrap();
+    let left_price = mul_div_u128(left.1, NAD as u128, left.0).unwrap();
+    let right_price = mul_div_u128(right.1, NAD as u128, right.0).unwrap();
+    assert!(left_price.abs_diff(right_price) > 2, "must exercise the former false rejection");
+
+    // Keep positive reserves and ordered boundaries, but introduce a real
+    // price discontinuity in each adjoining region. Rounding cannot hide it.
+    for region in 0..5 {
+        let mut malformed = curve;
+        malformed.nested_quote_constants[region].magnitude += 1_000_000;
+        assert!(malformed.validate().is_err(), "region={region}");
+    }
+}
+
+#[test]
+fn small_nested_curves_cross_all_boundaries_without_round_trip_profit() {
+    for amplification in [2, 3, 20] {
+        for base in [1_000_000_u128, 10_000_000, 100_000_000, 1_000_000_000_000, 10_u128.pow(24)] {
+            for price in [NAD / 10, NAD, 10 * NAD, 100 * NAD] {
+                let parameters = ConcentratedCurveParameters {
+                    peak_amplification_nad: amplification * NAD,
+                    core_half_width_bps: 250,
+                    fade_width_bps: 500,
+                };
+                let quote = mul_div_u128(base, price as u128, NAD as u128).unwrap();
+                let cache = prepare_concentrated_cache_at_point(base, quote, price, parameters).unwrap();
+                let curve = cache.geometry().unwrap();
+                for direction in [ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase] {
+                    let (start_price, target_price, reverse) = match direction {
+                        ConcentratedCurveDirection::BaseToQuote => (price * 2, price / 2, ConcentratedCurveDirection::QuoteToBase),
+                        ConcentratedCurveDirection::QuoteToBase => (price / 2, price * 2, ConcentratedCurveDirection::BaseToQuote),
+                    };
+                    let start = curve.point_at_price_nad(start_price as u128, cache.tail_liquidity).unwrap();
+                    let target = curve.point_at_price_nad(target_price as u128, cache.tail_liquidity).unwrap();
+                    let input = match direction {
+                        ConcentratedCurveDirection::BaseToQuote => target.base_reserve - start.base_reserve,
+                        ConcentratedCurveDirection::QuoteToBase => target.quote_reserve - start.quote_reserve,
+                    };
+                    let forward = curve.quote_exact_in(start, input, direction).unwrap();
+                    assert_eq!(forward.boundary_crossings, 4);
+                    let exact_out = curve.quote_exact_out(start, forward.amount_out, direction).unwrap();
+                    let filled = curve.quote_exact_in(start, exact_out.amount_in, direction).unwrap();
+                    assert!(filled.amount_out >= forward.amount_out);
+                    let predecessor = curve.quote_exact_in(start, exact_out.amount_in - 1, direction).unwrap();
+                    assert!(predecessor.amount_out < forward.amount_out);
+                    let back = curve.quote_exact_in(forward.end, forward.amount_out, reverse).unwrap();
+                    assert_eq!(back.boundary_crossings, 4);
+                    assert!(back.amount_out <= input,
+                        "amp={amplification} base={base} price={price} direction={direction:?}: {input} -> {}", back.amount_out);
+                }
+            }
+        }
+    }
+}
