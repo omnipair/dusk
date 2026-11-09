@@ -650,6 +650,10 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
         ],
     };
 
+    // Dust reserves can floor the tail or concentrated liquidity of every
+    // candidate to zero. That is too little liquidity for the configured
+    // shape, not an internal inconsistency.
+    let mut solved_candidate = false;
     for branch in branch_candidates {
         if parameters.fade_width_bps == 0
             && matches!(
@@ -795,6 +799,7 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
         if tail_liquidity == 0 || concentrated_liquidity == 0 {
             continue;
         }
+        solved_candidate = true;
         let (cache, geometry) = complete_concentrated_cache(
             parameters,
             tail_liquidity,
@@ -809,6 +814,7 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
             return Ok((cache, geometry));
         }
     }
+    require!(solved_candidate, ErrorCode::InsufficientLiquidity);
     err!(ErrorCode::BrokenInvariant)
 }
 

@@ -550,7 +550,7 @@ fn feasible_nested_parameters() -> impl Strategy<Value = ConcentratedCurveParame
 /// Feasible parameters, a center price from 10^-6 to about 10^6 quote per
 /// base, and a reserve point at 0.6x to 1.6x that price whose smaller side
 /// holds 10^5 to 10^24 normalized atoms. Smaller pools may legitimately
-/// collapse and are covered by the explicit regressions above.
+/// collapse and are covered by the explicit regressions.
 fn nested_curve_inputs() -> impl Strategy<Value = (ConcentratedCurveParameters, u128, u128, u64)> {
     (
         feasible_nested_parameters(),
@@ -574,6 +574,31 @@ fn nested_curve_inputs() -> impl Strategy<Value = (ConcentratedCurveParameters, 
                 (parameters, base, quote, center_price_nad)
             },
         )
+}
+
+#[test]
+fn dust_reserves_without_curve_liquidity_report_insufficient_liquidity() {
+    // Every candidate branch floors the tail or concentrated liquidity of
+    // these reserves to zero. They previously surfaced as BrokenInvariant.
+    for (base, quote, center_price_nad, peak_amplification_nad, core_half_width_bps, fade_width_bps) in [
+        (3, 3, 1_238_523_730, 1_183_490_052, 3_329, 6_123),
+        (1_236, 174, 140_769_679, 1_000_601_010, 1_269, 4_054),
+    ] {
+        let parameters = ConcentratedCurveParameters {
+            peak_amplification_nad,
+            core_half_width_bps,
+            fade_width_bps,
+        };
+        let result = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters);
+        assert!(
+            matches!(
+                &result,
+                Err(anchor_lang::error::Error::AnchorError(error))
+                    if error.error_code_number == u32::from(ErrorCode::InsufficientLiquidity)
+            ),
+            "{result:?}"
+        );
+    }
 }
 
 /// Active layer liquidities per region, outermost upper region first, in the
