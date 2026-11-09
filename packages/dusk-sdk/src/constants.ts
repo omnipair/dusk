@@ -7,7 +7,7 @@ export const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS = Number(
   IDL.constants.find(({ name }) => name === "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS")!.value
 );
 
-const DEFAULT_PROGRAM_ID = "B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2";
+const DEFAULT_PROGRAM_ID = "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
 function getProgramIdFromEnv(fallback: string): string {

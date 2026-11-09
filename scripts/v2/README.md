@@ -2,15 +2,18 @@
 
 These scripts create a disposable Omnipair V2 (Dusk) devnet market and tester balances without committing keypairs.
 
+The current deployment uses fresh program IDs. Create markets only after both programs and their IDLs are finalized, so the active indexer revision includes market creation and every ownership event. Previous program accounts and observations retain their archived identities.
+
 Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by default. Override with `DUSK_DEVNET_CONFIG_DIR` or `DUSK_DEVNET_STATE`.
 
 ```bash
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export DUSK_PROGRAM_ID=B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2
-export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/dusk-operator-program-keypair.json
-export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY
-export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/leverage-delegate-operator-program-keypair.json
+export DUSK_DEVNET_CONFIG_DIR=~/.config/omnipair/dusk-devnet/fresh-layout14-20261109
+export DUSK_PROGRAM_ID=2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y
+export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/fresh-layout14-20261109/dusk-keypair.json
+export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX
+export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/fresh-layout14-20261109/leverage_delegate-keypair.json
 export DUSK_FAUCET_PROGRAM_ID=EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz
 export DUSK_FAUCET_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/faucet-program-keypair.json
 

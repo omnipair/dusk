@@ -116,9 +116,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
-const DUSK_PROGRAM_ID = new PublicKey("B3vxDQmtKFxfh6hmfLRWKaHZR2w4UPw18XJCTbfrrBa2");
+const DUSK_PROGRAM_ID = new PublicKey("2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y");
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
-  "B315E6hHTgDjHgCCPungLop2mkgv9SHkcBc9ZzALNxNY"
+  "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX"
 );
 const OPERATOR_ADAPTER_PROGRAM_ID = new PublicKey("AJZgAHa6yfsoLbJk3jzqj6dPcnei5Pb7heRMGWrZu1fQ");
 const REFERRAL_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
@@ -2576,11 +2576,24 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
 
   it("previews a funded two-hLP market across quiet intervals", async function () {
-    const snapshotPath = path.join(__dirname, "fixtures/market-preview");
-    const snapshot = JSON.parse(fs.readFileSync(path.join(snapshotPath, "snapshot.json"), "utf8"));
-    const data = fs.readFileSync(path.join(snapshotPath, "market.bin"));
-    expect(createHash("sha256").update(data).digest("hex")).to.equal(snapshot.sha256);
-    const market = new PublicKey(snapshot.market);
+    const fixture = await addBalancedLiquidity(215, marketConfig(), {
+      baseDeposit: 100_000_000_000n, quoteDeposit: 200_000_000_000n,
+      minSrlp: 1, baseMint: 1_000_000_000_000n, quoteMint: 2_000_000_000_000n,
+    });
+    const tranches = new DuskTranches(createDuskProgram({ provider: program.provider }));
+    await connection.sendTransaction((await tranches.initialize({ market: fixture.market, payer: payer.publicKey,
+      metadata: { name: "Base/Quote jrLP", symbol: "jrBA/QU", uri: "https://example.invalid/junior.json" } })).transaction, [payer]);
+    const senior = (await getAccount(connection as any, fixture.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    await connection.sendTransaction((await tranches.convert({ market: fixture.market, owner: payer.publicKey,
+      action: { kind: "enter", seniorAmount: senior / 4n, minimumJunior: 1n } })).transaction, [payer]);
+    await openBaseHedge(fixture, 20_000_000_000);
+    await openQuoteHedge(fixture, 40_000_000_000);
+    const market = fixture.market;
+    const data = Buffer.from(svm.getAccount(market)!.data);
+    const state = accountCoder.decode("Market", data) as any;
+    expect(BigInt(state.base_hlp_vault.debt_shares.toString()) > 0n).to.equal(true);
+    expect(BigInt(state.quote_hlp_vault.debt_shares.toString()) > 0n).to.equal(true);
+    const snapshot = { sourceSlot: svm.getClock().slot, unixTimestamp: svm.getClock().unixTimestamp };
     const budget = new ComputeBudget();
     budget.computeUnitLimit = 1_400_000n;
     const isolated = createLiteSvm(budget);
