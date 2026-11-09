@@ -38,7 +38,10 @@ export class Dusk {
   readonly tranches: DuskTranches;
   readonly hlpLiquidations: DuskHlpLiquidations;
   readonly fetch: DuskIndexerClient;
-  /** Conditional orders, which live in the delegate program. */
+  /**
+   * Orders in the leverage-delegate program: typed conditional-exit builders
+   * and a checked generic path for every delegate instruction.
+   */
   readonly orders: DuskLeverageOrders;
 
   constructor(options: DuskOptions = {}) {

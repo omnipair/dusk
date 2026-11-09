@@ -369,6 +369,52 @@ cannot resolve on its own is required. The composite builders
 (`swapInstruction`, `depositSingleSided`, `referredBorrow` and their siblings)
 take their amounts as `bigint | number | string`.
 
+### Leverage-delegate orders
+
+Take-profit and stop-loss exits, limit entry orders, hLP orders and protection
+orders live in the leverage-delegate program. `dusk.orders` builds exits with
+`createOrderInstruction` and `cancelOrderInstruction`, and every delegate
+instruction through the same generic path as `dusk.write`:
+`orders.method(...)`, `orders.builder(...)`, `orders.instruction(...)`,
+`orders.transaction(...)` and `orders.rpc(...)`.
+
+```typescript
+const ix = await dusk.orders.instruction(
+  "createLeverageEntryOrder",
+  {
+    orderId,
+    positionId,
+    debtAsset: 1,
+    depositAmount,
+    protocolFeeDepositAmount,
+    minMarginAmount,
+    executorBounty,
+    multiplierBps: 30_000n,
+    limitPriceNad,
+    minCollateralOut,
+    expiryUnixTimestamp,
+  },
+  {
+    accounts: { market, debtMint, collateralMint, ownerFundingAccount, fundingVault },
+    remainingAccounts: transferHookAccounts,
+  }
+);
+```
+
+Arguments and accounts are typed per instruction from the delegate IDL
+(`LeverageDelegateInstructionArgs<"createLeverageEntryOrder">`,
+`LeverageDelegateInstructionAccounts<"createLeverageEntryOrder">`) and checked
+at run time by the same rules as the Dusk path: leaving out
+`protocolFeeDepositAmount` throws `DuskInstructionInputError` instead of
+sending a zero fee deposit. Anchor fills in PDAs whose seeds it can compute,
+the signer and fixed program accounts; transfer-hook and oracle accounts go in
+`remainingAccounts`. `DuskProtectionOrders` checks its inputs the same way.
+
+Both programs' aliases apply IDL-generic types that accept any Anchor IDL
+type, such as `DuskIdl` or `LeverageDelegateIdl`:
+`ProgramInstructionArgs<Idl, Name>`, `ProgramInstructionAccounts<Idl, Name>`
+and `ProgramDefinedInput<Idl, TypeName>`.
+
 ### Leverage funding
 
 Leverage positions accept margin only in the debt token: USDC for a META long,

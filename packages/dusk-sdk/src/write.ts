@@ -25,7 +25,8 @@ import {
   type DuskInstructionAccounts,
   type DuskInstructionArgs,
   type DuskInstructionName,
-  type DuskInstructionWithoutArgs,
+  type ProgramBuildCall,
+  type ProgramMethodCall,
 } from "./instruction-args.js";
 import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
 import { type MarketLaunchConfig } from "./market-bootstrap.js";
@@ -91,18 +92,15 @@ type DuskBuildOptionsWithAccounts<N extends DuskInstructionName> = DuskBuildOpti
  * none; `options` and its `accounts` are required when the instruction has an
  * account Anchor cannot resolve on its own.
  */
-export type DuskBuildCall<N extends DuskInstructionName> = [N] extends [DuskInstructionWithoutArgs]
-  ? {} extends DuskInstructionAccounts<N>
-    ? [args?: DuskInstructionArgs<N>, options?: DuskBuildOptions<N>]
-    : [args: DuskInstructionArgs<N>, options: DuskBuildOptionsWithAccounts<N>]
-  : {} extends DuskInstructionAccounts<N>
-    ? [args: DuskInstructionArgs<N>, options?: DuskBuildOptions<N>]
-    : [args: DuskInstructionArgs<N>, options: DuskBuildOptionsWithAccounts<N>];
+export type DuskBuildCall<N extends DuskInstructionName> = ProgramBuildCall<
+  Dusk,
+  N,
+  DuskBuildOptions<N>,
+  DuskBuildOptionsWithAccounts<N>
+>;
 
 /** The argument after the instruction name in `method`. */
-export type DuskMethodCall<N extends DuskInstructionName> = [N] extends [DuskInstructionWithoutArgs]
-  ? [args?: DuskInstructionArgs<N>]
-  : [args: DuskInstructionArgs<N>];
+export type DuskMethodCall<N extends DuskInstructionName> = ProgramMethodCall<Dusk, N>;
 
 /** Raw base-unit amount. Accepts bigint to keep callers off floating point. */
 export type RawAmount = bigint | number | string;

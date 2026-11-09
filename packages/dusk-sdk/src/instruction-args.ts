@@ -1,7 +1,8 @@
 /**
- * Instruction inputs for the generic Dusk write path: compile-time types
- * derived per instruction from the `Dusk` IDL type, and the run-time check
- * that walks the IDL before Anchor encodes anything.
+ * Instruction inputs for the Dusk and leverage-delegate write paths:
+ * compile-time types derived per instruction from a program's IDL type
+ * (`Dusk`, `LeverageDelegate`), and the run-time check that walks the IDL
+ * before Anchor encodes anything.
  *
  * Anchor's Borsh encoder skips a struct field whose value is `undefined` and
  * leaves zero bytes behind, so a misspelled or missing u64 used to reach the
@@ -19,6 +20,7 @@ import type { BN } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 
 import type { AddressLike } from "./address.js";
+import type { LeverageDelegate } from "./types_delegate.js";
 import type { Dusk } from "./types_v2.js";
 
 // Same interop as parameters.ts: the ESM build exposes `BN` directly, Node's
@@ -43,35 +45,56 @@ export type IntegerInput = BN | bigint | number | string;
 /** A `bytes`, `Vec<u8>` or `[u8; N]` field. */
 export type ByteInput = Uint8Array | readonly number[];
 
-type DuskIdlInstruction = Dusk["instructions"][number];
+/**
+ * An Anchor program's IDL type in camelCase, as `target/types/<program>.ts`
+ * declares it. `Dusk` and `LeverageDelegate` both qualify.
+ */
+export interface ProgramIdl {
+  readonly instructions: readonly {
+    readonly name: string;
+    readonly args: readonly unknown[];
+    readonly accounts: readonly unknown[];
+  }[];
+  readonly types?: readonly { readonly name: string; readonly type: unknown }[];
+}
 
-/** Every instruction name the Dusk program declares, in camelCase. */
-export type DuskInstructionName = DuskIdlInstruction["name"];
+type IdlInstruction<Idl extends ProgramIdl> = Idl["instructions"][number];
 
-/** Instructions that take no arguments. */
-export type DuskInstructionWithoutArgs = Extract<DuskIdlInstruction, { args: readonly [] }>["name"];
+/** Every instruction name a program declares, in camelCase. */
+export type ProgramInstructionName<Idl extends ProgramIdl> = IdlInstruction<Idl>["name"];
 
-type DuskInstructionMap = { [I in DuskIdlInstruction as I["name"]]: I };
+/** A program's instructions that take no arguments. */
+export type ProgramInstructionWithoutArgs<Idl extends ProgramIdl> = Extract<
+  IdlInstruction<Idl>,
+  { args: readonly [] }
+>["name"];
 
-type DuskIdlTypeDef = NonNullable<Dusk["types"]>[number];
+type InstructionMap<Idl extends ProgramIdl> = { [I in IdlInstruction<Idl> as I["name"]]: I };
+
+type IdlTypeDef<Idl extends ProgramIdl> = NonNullable<Idl["types"]>[number];
 
 // Self-referential and keyed by name, so TypeScript decodes only the types a
 // call touches. An eager decode of all IDL types would exceed the compiler's
 // instantiation budget (see scripts/patch_anchor_idl_types.js).
-type DuskDefinedInputs = {
-  [D in DuskIdlTypeDef as D["name"]]: TypeDefInput<D["type"]>;
+type DefinedInputs<Idl extends ProgramIdl> = {
+  [D in IdlTypeDef<Idl> as D["name"]]: TypeDefInput<D["type"], DefinedInputs<Idl>>;
 };
 
-/** Every defined type name in the Dusk IDL, in camelCase. */
-export type DuskDefinedTypeName = keyof DuskDefinedInputs;
+/** Every defined type name in a program's IDL, in camelCase. */
+export type ProgramDefinedTypeName<Idl extends ProgramIdl> = keyof DefinedInputs<Idl>;
 
-/** The input accepted for a defined IDL type, such as `"swapArgs"`. */
-export type DuskDefinedInput<Name extends DuskDefinedTypeName> = DuskDefinedInputs[Name];
+/** The input accepted for a defined type in a program's IDL. */
+export type ProgramDefinedInput<
+  Idl extends ProgramIdl,
+  Name extends ProgramDefinedTypeName<Idl>,
+> = DefinedInputs<Idl>[Name];
 
 type WideInteger = "u64" | "i64" | "u128" | "i128" | "u256" | "i256";
 type NarrowNumber = "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f32" | "f64";
 
-type ValueInput<T> = T extends WideInteger
+// `Defs` is the program's `DefinedInputs`, carried down so a `defined` field
+// resolves against its own IDL.
+type ValueInput<T, Defs> = T extends WideInteger
   ? IntegerInput
   : T extends NarrowNumber
     ? number
@@ -84,18 +107,18 @@ type ValueInput<T> = T extends WideInteger
           : T extends "bytes"
             ? ByteInput
             : T extends { option: infer U }
-              ? ValueInput<U> | null
+              ? ValueInput<U, Defs> | null
               : T extends { coption: infer U }
-                ? ValueInput<U> | null
+                ? ValueInput<U, Defs> | null
                 : T extends { vec: infer U }
-                  ? SequenceInput<U>
+                  ? SequenceInput<U, Defs>
                   : T extends { array: readonly [infer U, unknown] }
-                    ? SequenceInput<U>
-                    : T extends { defined: { name: infer Name extends DuskDefinedTypeName } }
-                      ? DuskDefinedInputs[Name]
+                    ? SequenceInput<U, Defs>
+                    : T extends { defined: { name: infer Name extends keyof Defs } }
+                      ? Defs[Name]
                       : never;
 
-type SequenceInput<U> = readonly ValueInput<U>[] | (U extends "u8" ? Uint8Array : never);
+type SequenceInput<U, Defs> = readonly ValueInput<U, Defs>[] | (U extends "u8" ? Uint8Array : never);
 
 // An Option may be left out (it encodes as None), and so may a zero-length
 // array such as `reserved: [u8; 0]`, which encodes no bytes at all.
@@ -108,65 +131,72 @@ type NamedField = { readonly name: string; readonly type: unknown };
 // Flattened so editors and compiler errors show the fields, not the IDL.
 type Flatten<T> = { [K in keyof T]: T[K] } & {};
 
-type NamedFieldsInput<F extends readonly NamedField[]> = Flatten<
+type NamedFieldsInput<F extends readonly NamedField[], Defs> = Flatten<
   {
-    [K in F[number] as IsOmittable<K["type"]> extends true ? never : K["name"]]: ValueInput<K["type"]>;
+    [K in F[number] as IsOmittable<K["type"]> extends true ? never : K["name"]]: ValueInput<K["type"], Defs>;
   } & {
-    [K in F[number] as IsOmittable<K["type"]> extends true ? K["name"] : never]?: ValueInput<K["type"]>;
+    [K in F[number] as IsOmittable<K["type"]> extends true ? K["name"] : never]?: ValueInput<K["type"], Defs>;
   }
 >;
 
 // Anchor keys tuple fields by index; a tuple or an object keyed "0", "1", …
 // encodes the same way.
-type TupleFieldsInput<F extends readonly unknown[]> =
-  | { readonly [K in keyof F]: ValueInput<F[K]> }
-  | { [K in keyof F as K extends `${number}` ? K : never]: ValueInput<F[K]> };
+type TupleFieldsInput<F extends readonly unknown[], Defs> =
+  | { readonly [K in keyof F]: ValueInput<F[K], Defs> }
+  | { [K in keyof F as K extends `${number}` ? K : never]: ValueInput<F[K], Defs> };
 
-type FieldsInput<F> = F extends readonly []
+type FieldsInput<F, Defs> = F extends readonly []
   ? Record<string, never>
   : F extends readonly NamedField[]
-    ? NamedFieldsInput<F>
+    ? NamedFieldsInput<F, Defs>
     : F extends readonly unknown[]
-      ? TupleFieldsInput<F>
+      ? TupleFieldsInput<F, Defs>
       : Record<string, never>;
 
-type VariantInput<V> = V extends { fields: infer F } ? FieldsInput<F> : Record<string, never>;
+type VariantInput<V, Defs> = V extends { fields: infer F } ? FieldsInput<F, Defs> : Record<string, never>;
 
-type EnumInput<V extends readonly { readonly name: string }[]> = {
-  [K in V[number] as K["name"]]: { [P in K["name"]]: VariantInput<K> } & {
+type EnumInput<V extends readonly { readonly name: string }[], Defs> = {
+  [K in V[number] as K["name"]]: { [P in K["name"]]: VariantInput<K, Defs> } & {
     [P in Exclude<V[number]["name"], K["name"]>]?: undefined;
   };
 }[V[number]["name"]];
 
-type TypeDefInput<T> = T extends { kind: "struct"; fields: infer F }
-  ? FieldsInput<F>
+type TypeDefInput<T, Defs> = T extends { kind: "struct"; fields: infer F }
+  ? FieldsInput<F, Defs>
   : T extends { kind: "struct" }
     ? Record<string, never>
     : T extends { kind: "enum"; variants: infer V extends readonly { readonly name: string }[] }
-      ? EnumInput<V>
+      ? EnumInput<V, Defs>
       : T extends { kind: "type"; alias: infer A }
-        ? ValueInput<A>
+        ? ValueInput<A, Defs>
         : never;
 
 type IsSequenceType<T> = T extends "bytes" | { vec: unknown } | { array: unknown } ? true : false;
 
-type InstructionArgsInput<I> = I extends { args: readonly [] }
+type InstructionArgsInput<I, Defs> = I extends { args: readonly [] }
   ? undefined | readonly []
   : I extends { args: readonly [infer A extends NamedField] }
     ? IsSequenceType<A["type"]> extends true
-      ? readonly [ValueInput<A["type"]>]
-      : ValueInput<A["type"]> | readonly [ValueInput<A["type"]>]
+      ? readonly [ValueInput<A["type"], Defs>]
+      : ValueInput<A["type"], Defs> | readonly [ValueInput<A["type"], Defs>]
     : I extends { args: infer As extends readonly NamedField[] }
-      ? { readonly [K in keyof As]: As[K] extends NamedField ? ValueInput<As[K]["type"]> : never }
+      ? { readonly [K in keyof As]: As[K] extends NamedField ? ValueInput<As[K]["type"], Defs> : never }
       : never;
 
+// The instruction aliases below test `N` against the name union, not
+// `keyof InstructionMap<Idl>`: TypeScript recomputes the keys of a mapped type
+// with an `as` clause on every evaluation, which cost this package about 200k
+// extra type instantiations.
+
 /**
- * Arguments for one instruction, checked against the IDL. A one-argument
- * instruction takes the argument itself or a one-element tuple; an
- * instruction without arguments takes nothing.
+ * Arguments for one of a program's instructions, checked against its IDL. A
+ * one-argument instruction takes the argument itself or a one-element tuple;
+ * an instruction without arguments takes nothing.
  */
-export type DuskInstructionArgs<N extends DuskInstructionName = DuskInstructionName> =
-  N extends DuskInstructionName ? InstructionArgsInput<DuskInstructionMap[N]> : never;
+export type ProgramInstructionArgs<
+  Idl extends ProgramIdl,
+  N extends ProgramInstructionName<Idl> = ProgramInstructionName<Idl>,
+> = N extends ProgramInstructionName<Idl> ? InstructionArgsInput<InstructionMap<Idl>[N], DefinedInputs<Idl>> : never;
 
 type AccountItem = {
   readonly name: string;
@@ -175,7 +205,8 @@ type AccountItem = {
 };
 
 // Anchor fills these in itself: a fixed address, a PDA, a relation, a signer
-// (from the provider) and the event-CPI pair this SDK adds to every call.
+// (from the provider) and the event-CPI pair `DuskWrite` adds to every Dusk
+// call. No leverage-delegate account carries those two names.
 type IsResolvable<A> = A extends
   | { address: string }
   | { pda: unknown }
@@ -208,17 +239,108 @@ type AccountsInput<As extends readonly AccountItem[]> = Flatten<
 >;
 
 /**
+ * Accounts for one of a program's instructions. An account Anchor cannot
+ * resolve on its own (no fixed address, PDA, relation or signer default) is
+ * required; an optional account takes `null` for "none". Nested account
+ * groups are nested objects.
+ */
+export type ProgramInstructionAccounts<
+  Idl extends ProgramIdl,
+  N extends ProgramInstructionName<Idl> = ProgramInstructionName<Idl>,
+> = N extends ProgramInstructionName<Idl>
+  ? InstructionMap<Idl>[N] extends { accounts: infer As extends readonly AccountItem[] }
+    ? AccountsInput<As>
+    : never
+  : never;
+
+/**
+ * The arguments after the instruction name in a generic builder. `args` is
+ * required unless the instruction takes none; `options` and its `accounts`
+ * are required when the instruction has an account Anchor cannot resolve on
+ * its own.
+ */
+export type ProgramBuildCall<
+  Idl extends ProgramIdl,
+  N extends ProgramInstructionName<Idl>,
+  Options,
+  OptionsWithAccounts,
+> = [N] extends [ProgramInstructionWithoutArgs<Idl>]
+  ? {} extends ProgramInstructionAccounts<Idl, N>
+    ? [args?: ProgramInstructionArgs<Idl, N>, options?: Options]
+    : [args: ProgramInstructionArgs<Idl, N>, options: OptionsWithAccounts]
+  : {} extends ProgramInstructionAccounts<Idl, N>
+    ? [args: ProgramInstructionArgs<Idl, N>, options?: Options]
+    : [args: ProgramInstructionArgs<Idl, N>, options: OptionsWithAccounts];
+
+/** The argument after the instruction name in a generic `method`. */
+export type ProgramMethodCall<Idl extends ProgramIdl, N extends ProgramInstructionName<Idl>> = [N] extends [
+  ProgramInstructionWithoutArgs<Idl>,
+]
+  ? [args?: ProgramInstructionArgs<Idl, N>]
+  : [args: ProgramInstructionArgs<Idl, N>];
+
+// ---------------------------------------------------------------------------
+// Dusk program
+// ---------------------------------------------------------------------------
+
+/** Every instruction name the Dusk program declares, in camelCase. */
+export type DuskInstructionName = ProgramInstructionName<Dusk>;
+
+/** Instructions that take no arguments. */
+export type DuskInstructionWithoutArgs = ProgramInstructionWithoutArgs<Dusk>;
+
+/** Every defined type name in the Dusk IDL, in camelCase. */
+export type DuskDefinedTypeName = ProgramDefinedTypeName<Dusk>;
+
+/** The input accepted for a defined IDL type, such as `"swapArgs"`. */
+export type DuskDefinedInput<Name extends DuskDefinedTypeName> = ProgramDefinedInput<Dusk, Name>;
+
+/**
+ * Arguments for one instruction, checked against the IDL. A one-argument
+ * instruction takes the argument itself or a one-element tuple; an
+ * instruction without arguments takes nothing.
+ */
+export type DuskInstructionArgs<N extends DuskInstructionName = DuskInstructionName> = ProgramInstructionArgs<Dusk, N>;
+
+/**
  * Accounts for one instruction. An account Anchor cannot resolve on its own
  * (no fixed address, PDA, relation or signer default) is required; an
  * optional account takes `null` for "none". Nested account groups are nested
  * objects.
  */
-export type DuskInstructionAccounts<N extends DuskInstructionName = DuskInstructionName> =
-  N extends DuskInstructionName
-    ? DuskInstructionMap[N] extends { accounts: infer As extends readonly AccountItem[] }
-      ? AccountsInput<As>
-      : never
-    : never;
+export type DuskInstructionAccounts<N extends DuskInstructionName = DuskInstructionName> = ProgramInstructionAccounts<
+  Dusk,
+  N
+>;
+
+// ---------------------------------------------------------------------------
+// Leverage-delegate program
+// ---------------------------------------------------------------------------
+
+/** Every instruction name the leverage-delegate program declares, in camelCase. */
+export type LeverageDelegateInstructionName = ProgramInstructionName<LeverageDelegate>;
+
+/** Leverage-delegate instructions that take no arguments. */
+export type LeverageDelegateInstructionWithoutArgs = ProgramInstructionWithoutArgs<LeverageDelegate>;
+
+/** Every defined type name in the leverage-delegate IDL, in camelCase. */
+export type LeverageDelegateDefinedTypeName = ProgramDefinedTypeName<LeverageDelegate>;
+
+/** The input accepted for a defined leverage-delegate type, such as `"createLeverageEntryOrderArgs"`. */
+export type LeverageDelegateDefinedInput<Name extends LeverageDelegateDefinedTypeName> = ProgramDefinedInput<
+  LeverageDelegate,
+  Name
+>;
+
+/** Arguments for one leverage-delegate instruction, checked against its IDL. */
+export type LeverageDelegateInstructionArgs<
+  N extends LeverageDelegateInstructionName = LeverageDelegateInstructionName,
+> = ProgramInstructionArgs<LeverageDelegate, N>;
+
+/** Accounts for one leverage-delegate instruction, checked against its IDL. */
+export type LeverageDelegateInstructionAccounts<
+  N extends LeverageDelegateInstructionName = LeverageDelegateInstructionName,
+> = ProgramInstructionAccounts<LeverageDelegate, N>;
 
 // ---------------------------------------------------------------------------
 // Run-time check
@@ -256,10 +378,15 @@ interface RuntimeIdlInstruction {
   accounts: RuntimeIdlAccountItem[];
 }
 
-/** The parts of an Anchor IDL the check reads. `Program#idl` satisfies it. */
+/**
+ * The parts of an Anchor IDL the check reads. `Program#idl` satisfies it.
+ * `metadata.name` labels errors: "Dusk" for the Dusk program or an IDL
+ * without it, "Leverage delegate" for `leverageDelegate`.
+ */
 export interface InstructionInputIdl {
   instructions: readonly unknown[];
   types?: readonly unknown[];
+  metadata?: { readonly name?: string };
 }
 
 /** Thrown when instruction arguments or accounts do not match the IDL. */
@@ -268,14 +395,18 @@ export class DuskInstructionInputError extends TypeError {
     readonly instruction: string,
     /** Dotted path of the offending field or account; empty for the whole input. */
     readonly path: string,
-    detail: string
+    detail: string,
+    /** The program in the message, such as "Leverage delegate". */
+    program = "Dusk"
   ) {
-    super(`Dusk instruction "${instruction}": ${detail}`);
+    super(`${program} instruction "${instruction}": ${detail}`);
     this.name = "DuskInstructionInputError";
   }
 }
 
 interface IdlIndex {
+  /** "Dusk", "Leverage delegate": the program as error messages name it. */
+  program: string;
   instructions: Map<string, RuntimeIdlInstruction>;
   types: Map<string, RuntimeIdlTypeDef>;
 }
@@ -286,6 +417,7 @@ function indexIdl(idl: InstructionInputIdl): IdlIndex {
   let index = indexes.get(idl);
   if (!index) {
     index = {
+      program: programLabel(idl.metadata?.name),
       instructions: new Map(
         (idl.instructions as RuntimeIdlInstruction[]).map((instruction) => [instruction.name, instruction])
       ),
@@ -296,9 +428,21 @@ function indexIdl(idl: InstructionInputIdl): IdlIndex {
   return index;
 }
 
+// "dusk" -> "Dusk"; "leverageDelegate" or "leverage_delegate" -> "Leverage delegate".
+function programLabel(name: string | undefined): string {
+  const words = (name ?? "dusk")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase());
+  const label = words.join(" ");
+  return label ? label[0]!.toUpperCase() + label.slice(1) : "Dusk";
+}
+
 function instructionDefinition(idl: InstructionInputIdl, name: string): RuntimeIdlInstruction {
-  const instruction = indexIdl(idl).instructions.get(name);
-  if (!instruction) throw new Error(`Unknown Dusk instruction: ${name}`);
+  const index = indexIdl(idl);
+  const instruction = index.instructions.get(name);
+  if (!instruction) throw new Error(`Unknown ${index.program} instruction: ${name}`);
   return instruction;
 }
 
@@ -310,6 +454,7 @@ function instructionDefinition(idl: InstructionInputIdl, name: string): RuntimeI
  */
 export function normalizeInstructionArgs(idl: InstructionInputIdl, name: string, args: unknown): unknown[] {
   const instruction = instructionDefinition(idl, name);
+  const { program, types } = indexIdl(idl);
   const expected = instruction.args;
   const single = expected.length === 1 ? expected[0]! : undefined;
   const positional =
@@ -325,10 +470,11 @@ export function normalizeInstructionArgs(idl: InstructionInputIdl, name: string,
       "",
       expected.length === 0
         ? `expects no arguments, received ${positional.length}`
-        : `expects ${expected.length} argument${expected.length === 1 ? "" : "s"} (${names}), received ${positional.length}`
+        : `expects ${expected.length} argument${expected.length === 1 ? "" : "s"} (${names}), received ${positional.length}`,
+      program
     );
   }
-  const walker = new ArgsWalker(name, indexIdl(idl).types);
+  const walker = new ArgsWalker({ instruction: name, program }, types);
   return expected.map((arg, index) =>
     // With one argument the caller passes its fields directly, so paths start
     // at those fields; a primitive argument is named by itself.
@@ -347,18 +493,29 @@ export function normalizeInstructionAccounts(
   name: string,
   accounts: unknown
 ): Record<string, unknown> {
-  return accountGroup(name, instructionDefinition(idl, name).accounts, accounts, "");
+  const items = instructionDefinition(idl, name).accounts;
+  return accountGroup({ instruction: name, program: indexIdl(idl).program }, items, accounts, "");
+}
+
+/** The instruction being checked and its program, as error messages name them. */
+interface InputContext {
+  instruction: string;
+  program: string;
+}
+
+function inputError(context: InputContext, path: string, detail: string): DuskInstructionInputError {
+  return new DuskInstructionInputError(context.instruction, path, detail, context.program);
 }
 
 function accountGroup(
-  instruction: string,
+  context: InputContext,
   items: RuntimeIdlAccountItem[],
   value: unknown,
   path: string
 ): Record<string, unknown> {
   if (!isRecord(value)) {
-    throw new DuskInstructionInputError(
-      instruction,
+    throw inputError(
+      context,
       path,
       path ? `account group "${path}" must be an object of accounts, received ${describe(value)}` : `accounts must be an object, received ${describe(value)}`
     );
@@ -369,32 +526,24 @@ function accountGroup(
     const childPath = join(path, key);
     const item = byName.get(key);
     if (!item) {
-      throw new DuskInstructionInputError(
-        instruction,
-        childPath,
-        `unknown account "${childPath}"${suggest(key, [...byName.keys()])}`
-      );
+      throw inputError(context, childPath, `unknown account "${childPath}"${suggest(key, [...byName.keys()])}`);
     }
     if (child === undefined) continue;
     if (item.accounts) {
-      out[key] = accountGroup(instruction, item.accounts, child, childPath);
+      out[key] = accountGroup(context, item.accounts, child, childPath);
       continue;
     }
     // Anchor maps null on an optional account to "none" and ignores it on any
     // other account, so null passes through unchanged.
-    out[key] = child === null ? null : accountAddress(instruction, childPath, child);
+    out[key] = child === null ? null : accountAddress(context, childPath, child);
   }
   return out;
 }
 
-function accountAddress(instruction: string, path: string, value: unknown): PublicKey {
+function accountAddress(context: InputContext, path: string, value: unknown): PublicKey {
   const key = publicKeyOrUndefined(value);
   if (!key) {
-    throw new DuskInstructionInputError(
-      instruction,
-      path,
-      `account "${path}" must be a PublicKey or base58 address, received ${describe(value)}`
-    );
+    throw inputError(context, path, `account "${path}" must be a PublicKey or base58 address, received ${describe(value)}`);
   }
   return key;
 }
@@ -416,19 +565,19 @@ const INTEGER_BOUNDS: Record<string, { min: bigint; max: bigint; signed: boolean
 
 class ArgsWalker {
   constructor(
-    private readonly instruction: string,
+    private readonly context: InputContext,
     private readonly types: Map<string, RuntimeIdlTypeDef>
   ) {}
 
   typeDef(name: string): RuntimeIdlTypeDef {
     const definition = this.types.get(name);
-    if (!definition) throw new Error(`Dusk IDL is missing type ${name}`);
+    if (!definition) throw new Error(`${this.context.program} IDL is missing type ${name}`);
     if (definition.generics?.length) throw new Error(`Generic IDL type ${name} is not supported`);
     return definition;
   }
 
   fail(path: string, detail: string): never {
-    throw new DuskInstructionInputError(this.instruction, path, detail);
+    throw inputError(this.context, path, detail);
   }
 
   invalid(path: string, expectation: string, value: unknown): never {

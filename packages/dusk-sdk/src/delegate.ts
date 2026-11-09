@@ -1,4 +1,4 @@
-import { AnchorProvider, Program } from "@coral-xyz/anchor";
+import { AnchorProvider, Program, type BN } from "@coral-xyz/anchor";
 import {
   PublicKey,
   SystemProgram,
@@ -9,8 +9,17 @@ import {
 
 import { address, type AddressLike } from "./address.js";
 import { deriveLeveragePositionAddress } from "./constants.js";
-import { toBN } from "./parameters.js";
 import DELEGATE_IDL from "./idl_delegate.js";
+import {
+  DuskInstructionInputError,
+  normalizeInstructionAccounts,
+  normalizeInstructionArgs,
+  type LeverageDelegateInstructionAccounts,
+  type LeverageDelegateInstructionArgs,
+  type LeverageDelegateInstructionName,
+  type ProgramBuildCall,
+  type ProgramMethodCall,
+} from "./instruction-args.js";
 import type { LeverageDelegate } from "./types_delegate.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { integerBN } from "./parameters.js";
@@ -93,6 +102,22 @@ export const LEVERAGE_ORDER_KIND = {
 
 export type LeverageOrderKind = keyof typeof LEVERAGE_ORDER_KIND;
 
+// An unknown kind used to index LEVERAGE_ORDER_KIND as undefined, which
+// Anchor encoded as kind 0.
+function leverageOrderKindValue(kind: LeverageOrderKind): number {
+  if (!Object.prototype.hasOwnProperty.call(LEVERAGE_ORDER_KIND, kind)) {
+    const names = Object.keys(LEVERAGE_ORDER_KIND).map((name) => `"${name}"`).join(" or ");
+    const received = typeof kind === "string" ? `string ${JSON.stringify(kind)}` : String(kind);
+    throw new DuskInstructionInputError(
+      "createLeverageOrder",
+      "kind",
+      `"kind" must be ${names}, received ${received}`,
+      "Leverage delegate"
+    );
+  }
+  return LEVERAGE_ORDER_KIND[kind];
+}
+
 const ORDER_SEED = Buffer.from("leverage_order");
 
 /**
@@ -132,6 +157,58 @@ export interface CreateLeverageOrderParams {
   remainingAccounts?: AccountMeta[];
 }
 
+interface LeverageDelegateBuildOptionsBase {
+  /** Appended after the instruction's accounts, such as transfer-hook or oracle accounts. */
+  remainingAccounts?: AccountMeta[];
+}
+
+/** Options for the generic leverage-delegate builders on `DuskLeverageOrders`. */
+export interface LeverageDelegateBuildOptions<
+  out N extends LeverageDelegateInstructionName = LeverageDelegateInstructionName,
+> extends LeverageDelegateBuildOptionsBase {
+  accounts?: LeverageDelegateInstructionAccounts<N>;
+}
+
+type LeverageDelegateBuildOptionsWithAccounts<N extends LeverageDelegateInstructionName> =
+  LeverageDelegateBuildOptionsBase & {
+    accounts: LeverageDelegateInstructionAccounts<N>;
+  };
+
+/**
+ * The arguments after the instruction name in `DuskLeverageOrders#builder`,
+ * `instruction`, `transaction` and `rpc`. `args` is required unless the
+ * instruction takes none; `options` and its `accounts` are required when the
+ * instruction has an account Anchor cannot resolve on its own.
+ */
+export type LeverageDelegateBuildCall<N extends LeverageDelegateInstructionName> = ProgramBuildCall<
+  LeverageDelegate,
+  N,
+  LeverageDelegateBuildOptions<N>,
+  LeverageDelegateBuildOptionsWithAccounts<N>
+>;
+
+/** The argument after the instruction name in `DuskLeverageOrders#method`. */
+export type LeverageDelegateMethodCall<N extends LeverageDelegateInstructionName> = ProgramMethodCall<
+  LeverageDelegate,
+  N
+>;
+
+type AnchorMethodBuilder = {
+  accounts(accounts: Record<string, unknown>): AnchorMethodBuilder;
+  remainingAccounts(accounts: AccountMeta[]): AnchorMethodBuilder;
+  preInstructions(instructions: TransactionInstruction[]): AnchorMethodBuilder;
+  instruction(): Promise<TransactionInstruction>;
+  transaction(): Promise<Transaction>;
+  rpc(): Promise<string>;
+};
+
+type AnchorMethods = Record<string, (...args: unknown[]) => AnchorMethodBuilder>;
+
+// What the public signatures narrow down to once the name is known.
+interface UncheckedBuildOptions extends LeverageDelegateBuildOptionsBase {
+  accounts?: Record<string, unknown>;
+}
+
 export interface CancelLeverageOrderParams {
   owner: AddressLike;
   namespaceAuthority?: AddressLike;
@@ -146,58 +223,135 @@ export interface CancelLeverageOrderParams {
 }
 
 /**
- * Conditional orders on leverage positions.
+ * Orders in the leverage-delegate program: conditional exits on leverage
+ * positions through typed builders, and every other delegate instruction
+ * (entry orders, hLP orders, keeper execution) through the generic
+ * `method`, `builder`, `instruction`, `transaction` and `rpc`.
  *
  * These live in the delegate program rather than in Dusk itself, so they need
  * their own client. The position must already have delegated to this program
  * — see `buildCreateLeverageDelegationInstruction` — or the order has no
  * authority to act.
+ *
+ * Arguments and account names are checked against the delegate IDL before
+ * anything is encoded: a missing, misspelled or wrongly typed field, or an
+ * account the instruction does not declare, throws `DuskInstructionInputError`
+ * instead of reaching the program as zero.
  */
 export class DuskLeverageOrders {
   constructor(readonly program: LeverageDelegateProgram) {}
+
+  /**
+   * Anchor's method builder for one delegate instruction, with `args` checked
+   * against the IDL and converted for Anchor.
+   */
+  method<N extends LeverageDelegateInstructionName>(
+    name: N,
+    ...call: LeverageDelegateMethodCall<N>
+  ): AnchorMethodBuilder {
+    return this.anchorMethod(name, normalizeInstructionArgs(this.program.idl, name, call[0]));
+  }
+
+  /**
+   * Anchor's method builder with accounts and remaining accounts applied.
+   * Arguments and account names are checked against the IDL; accounts Anchor
+   * can resolve (PDAs, fixed programs, signers) may be left out. Oracle and
+   * transfer-hook accounts go in `remainingAccounts`.
+   */
+  builder<N extends LeverageDelegateInstructionName>(
+    name: N,
+    ...call: LeverageDelegateBuildCall<N>
+  ): AnchorMethodBuilder {
+    const [args, options] = call as [unknown, UncheckedBuildOptions?];
+    return this.anchorBuilder(name, normalizeInstructionArgs(this.program.idl, name, args), options);
+  }
+
+  async instruction<N extends LeverageDelegateInstructionName>(
+    name: N,
+    ...call: LeverageDelegateBuildCall<N>
+  ): Promise<TransactionInstruction> {
+    return this.builder(name, ...call).instruction();
+  }
+
+  async transaction<N extends LeverageDelegateInstructionName>(
+    name: N,
+    ...call: LeverageDelegateBuildCall<N>
+  ): Promise<Transaction> {
+    return this.builder(name, ...call).transaction();
+  }
+
+  async rpc<N extends LeverageDelegateInstructionName>(
+    name: N,
+    ...call: LeverageDelegateBuildCall<N>
+  ): Promise<string> {
+    return this.builder(name, ...call).rpc();
+  }
+
+  private anchorMethod(name: LeverageDelegateInstructionName, args: unknown[]): AnchorMethodBuilder {
+    const method = (this.program.methods as unknown as AnchorMethods)[name];
+    if (!method) {
+      throw new Error(`Unknown Leverage delegate instruction: ${name}`);
+    }
+    return method(...args);
+  }
+
+  private anchorBuilder(
+    name: LeverageDelegateInstructionName,
+    args: unknown[],
+    options: UncheckedBuildOptions = {}
+  ): AnchorMethodBuilder {
+    let builder = this.anchorMethod(name, args);
+    if (options.accounts) {
+      builder = builder.accounts(normalizeInstructionAccounts(this.program.idl, name, options.accounts));
+    }
+    if (options.remainingAccounts?.length) {
+      builder = builder.remainingAccounts(options.remainingAccounts);
+    }
+    return builder;
+  }
 
   async createOrderInstruction(
     params: CreateLeverageOrderParams
   ): Promise<TransactionInstruction> {
     const market = address(params.market);
     const owner = address(params.owner);
-    const leveragePosition = address(
-      params.leveragePosition ??
-        deriveLeveragePositionAddress(market, owner, address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]
-    );
 
     if (!Number.isInteger(params.closeBps) || params.closeBps <= 0 || params.closeBps > 10_000) {
       throw new Error("Leverage order closeBps must be between 1 and 10000");
     }
 
+    // Checked before the order address is derived from orderId.
+    const args = normalizeInstructionArgs(this.program.idl, "createLeverageOrder", {
+      orderId: params.orderId,
+      kind: leverageOrderKindValue(params.kind),
+      triggerCloseoutPriceNad: params.triggerCloseoutPriceNad,
+      closeBps: params.closeBps,
+    } satisfies LeverageDelegateInstructionArgs<"createLeverageOrder">);
+
+    const leveragePosition = address(
+      params.leveragePosition ??
+        deriveLeveragePositionAddress(market, owner, address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]
+    );
     const order = address(
       params.order ??
         deriveLeverageOrderAddress(
           leveragePosition,
           owner,
-          params.orderId,
+          checkedOrderId(args),
           this.program.programId
         )[0]
     );
 
-    return this.program.methods
-      .createLeverageOrder({
-        orderId: toBN(BigInt(params.orderId.toString())),
-        kind: LEVERAGE_ORDER_KIND[params.kind],
-        triggerCloseoutPriceNad: toBN(
-          BigInt(params.triggerCloseoutPriceNad.toString())
-        ),
-        closeBps: params.closeBps,
-      } as never)
-      .accounts({
+    return this.anchorBuilder("createLeverageOrder", args, {
+      accounts: {
         market,
         leveragePosition,
         order,
         owner,
         systemProgram: SystemProgram.programId,
-      } as never)
-      .remainingAccounts(params.remainingAccounts ?? [])
-      .instruction();
+      } satisfies LeverageDelegateInstructionAccounts<"createLeverageOrder">,
+      remainingAccounts: params.remainingAccounts,
+    }).instruction();
   }
 
   async createOrderTransaction(
@@ -217,14 +371,14 @@ export class DuskLeverageOrders {
     params: CancelLeverageOrderParams
   ): Promise<TransactionInstruction> {
     const owner = address(params.owner);
-    const order = address(params.order ?? this.resolveOrderAddress(params));
+    const args = normalizeInstructionArgs(this.program.idl, "cancelLeverageOrder", {
+      orderId: params.orderId,
+    } satisfies LeverageDelegateInstructionArgs<"cancelLeverageOrder">);
+    const order = address(params.order ?? this.resolveOrderAddress(params, checkedOrderId(args)));
 
-    return this.program.methods
-      .cancelLeverageOrder({
-        orderId: toBN(BigInt(params.orderId.toString())),
-      } as never)
-      .accounts({ order, owner } as never)
-      .instruction();
+    return this.anchorBuilder("cancelLeverageOrder", args, {
+      accounts: { order, owner } satisfies LeverageDelegateInstructionAccounts<"cancelLeverageOrder">,
+    }).instruction();
   }
 
   async cancelOrderTransaction(
@@ -233,7 +387,7 @@ export class DuskLeverageOrders {
     return new Transaction().add(await this.cancelOrderInstruction(params));
   }
 
-  private resolveOrderAddress(params: CancelLeverageOrderParams): PublicKey {
+  private resolveOrderAddress(params: CancelLeverageOrderParams, orderId: string): PublicKey {
     const leveragePosition = params.leveragePosition
       ? address(params.leveragePosition)
       : (() => {
@@ -252,8 +406,13 @@ export class DuskLeverageOrders {
     return deriveLeverageOrderAddress(
       leveragePosition,
       address(params.owner),
-      params.orderId,
+      orderId,
       this.program.programId
     )[0];
   }
+}
+
+// The decimal order id from checked `{ orderId }` arguments.
+function checkedOrderId(args: unknown[]): string {
+  return (args[0] as { orderId: BN }).orderId.toString(10);
 }
