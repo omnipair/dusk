@@ -13,10 +13,13 @@ creation and liquidation builders do not derive or accept insurance accounts.
 The market account uses layout 13; the parameter ABI has seven families and no
 insurance update variant.
 
-Junior exit requests and renewals charge a fixed **50 bps** in receipt units.
-Adding to an unready request charges only the newly added receipts; renewal
-charges the outstanding amount. Exit timing and existing ticket dates remain
-protocol-defined. Senior and hLP withdrawals do not gain this fee.
+Each fresh junior exit request charges a fixed **50 bps** in receipt units.
+Cancellation is allowed during notice and returns the remaining receipts to
+junior without refunding the fee. To change the amount or restart an expired
+request, cancel and submit a new nonzero request; every new request starts a
+full protocol-defined notice and pays the fee on its full amount. There is no
+in-place addition or renewal. Capital remains loss-bearing and earns junior
+income until conversion. Senior and hLP withdrawals do not gain this fee.
 
 Borrower and leverage liquidations charge a fixed **300 bps** of net debt repaid, capped by recovered
 surplus so the charge cannot create additional bad debt. The existing protocol

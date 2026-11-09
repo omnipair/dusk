@@ -23,13 +23,22 @@ debt. Values use one common quote numeraire. Junior capital already queued for
 exit remains funded, earns junior income, and absorbs losses until conversion,
 so it remains in the signal until it actually leaves the tranche.
 
-The default signal band is 5% through 6.25%, inclusive:
+The controller has two independently configurable inclusive target bands:
 
-| Signal | Rate response |
+- combined risk signal: 5% through 6.25% by default;
+- per-asset utilization: 75% through 80% by default.
+
+Their joint response is:
+
+| Condition | Rate response |
 | --- | --- |
-| Below 5% | APR rises |
-| 5% to 6.25% | APR holds |
-| Above 6.25% | APR falls |
+| Signal below 5%, or utilization above 80% | APR rises |
+| Signal above 6.25%, and utilization below 75% | APR falls |
+| Every other combination, including either boundary | APR holds |
+
+Undercoverage therefore raises the rate even when demand is low. Excess
+utilization raises the rate even when junior coverage is high. The APR falls
+only when both underwriting and executable cash are comfortably available.
 
 The rate doubles or halves over the configured half-life while the signal stays
 outside the band. The default half-life is 14 days. Each market starts at a 4%
@@ -37,25 +46,20 @@ APR unless creation supplies another valid value. The protocol-wide minimum is
 currently 1%; there is no configurable economic ceiling. With no debt, the
 controller holds the current rate.
 
-The signal band, half-life, and new-borrow utilization limit can be changed by
-the market's timelocked parameter process. Initial APR is creation-only, and the
-protocol-wide minimum is not a per-market parameter.
+Both target bands and the half-life can be changed by the market's timelocked
+parameter process. Initial APR is creation-only, and the protocol-wide minimum
+is not a per-market parameter.
 
-## Liquidity guards are not price targets
+## Liquidity admission
 
-The controller prices risk and cash scarcity continuously. Separately, Dusk
-uses two admission/execution guards:
+New borrowing is bounded by executable cash, collateral and aggregate market
+health, and the conservative-depth daily public-borrow bucket. There is no
+utilization admission cap: utilization above its target raises the market rate
+over the configured half-life instead of rejecting an otherwise valid loan.
 
-- A new public borrow cannot make its debt asset exceed the market's configured
-  utilization limit. The default and current maximum valid setting are both
-  80%. Repayment, cash-backed LP withdrawal, liquidation, and cashless tranche
-  conversion are not gated by this check.
-- Parameter execution and concentration-ramp steps are blocked while either
-  lending side is at or above 80% utilization. This is a fixed execution guard,
-  not the configured new-borrow limit.
-
-These guards do not set an APR or replace the coverage signal. Their policy and
-calibration are separate product decisions.
+Parameter execution and concentration-ramp steps remain blocked while either
+lending side is at or above 80% utilization. That fixed governance execution
+guard is separate from the configurable rate target and does not reject loans.
 
 ## Source of truth
 

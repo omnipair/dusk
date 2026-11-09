@@ -13,7 +13,7 @@ use anchor_spl::token_interface::{Mint, Token2022, TokenAccount};
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub enum TrancheAction {
     Enter { senior_amount: u64, minimum_junior: u64 },
-    RequestExit { additional_junior: u64 },
+    RequestExit { junior_amount: u64 },
     ConvertExit { minimum_senior: u64 },
     CancelExit,
 }
@@ -193,23 +193,23 @@ impl<'info> ConvertTranche<'info> {
                 receipt.senior_amount = senior_amount;
                 receipt.junior_amount = junior_amount;
             }
-            TrancheAction::RequestExit { additional_junior } => {
-                require_gte!(a.owner_junior.amount, additional_junior, ErrorCode::InsufficientBalance);
+            TrancheAction::RequestExit { junior_amount } => {
+                require_gte!(a.owner_junior.amount, junior_amount, ErrorCode::InsufficientBalance);
                 let config = a.market.junior_exit_config;
                 receipt.junior_fee = a
                     .exit
                     .ticket
-                    .request(&mut a.market.tranches, &config, additional_junior, slot)?;
+                    .request(&mut a.market.tranches, &config, junior_amount, slot)?;
                 token_burn(
                     a.owner.to_account_info(),
                     a.token_2022_program.to_account_info(),
                     a.junior_mint.to_account_info(),
                     a.owner_junior.to_account_info(),
-                    additional_junior,
+                    junior_amount,
                     &[],
                 )?;
                 receipt.action = 1;
-                receipt.junior_amount = additional_junior;
+                receipt.junior_amount = junior_amount;
             }
             TrancheAction::ConvertExit { minimum_senior } => {
                 // Flash recovery begins and settles within one transaction.
@@ -234,7 +234,7 @@ impl<'info> ConvertTranche<'info> {
                 receipt.senior_amount = senior_amount;
             }
             TrancheAction::CancelExit => {
-                let junior_amount = a.exit.ticket.cancel(&mut a.market.tranches, slot)?;
+                let junior_amount = a.exit.ticket.cancel(&mut a.market.tranches)?;
                 token_mint_to(
                     a.market.to_account_info(),
                     a.token_2022_program.to_account_info(),

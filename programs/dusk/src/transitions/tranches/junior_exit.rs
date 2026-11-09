@@ -48,46 +48,29 @@ pub struct JuniorExitTicket {
 }
 
 impl JuniorExitTicket {
-    /// Request, add to an unready request, or renew. Fees on an addition before
-    /// readiness cover only new receipts. Renewal charges the full amount.
-    /// The returned fee must be burned from SPL supply and retained virtually
-    /// by the seed; all remaining requested tokens must be held in escrow.
+    /// Start a fresh notice. Cancel an existing ticket before requesting again.
+    /// The returned fee is retained virtually by the seed. Requested receipts
+    /// remain junior, loss-bearing and income-earning until conversion.
     pub fn request(
         &mut self,
         capital: &mut TrancheCapital,
         config: &JuniorExitConfig,
-        additional_receipts: u64,
+        receipts: u64,
         clock: u64,
     ) -> Result<u64> {
         config.validate()?;
-        require!(
-            self.receipts == 0 || self.generation == capital.generation,
-            ErrorCode::InvalidArgument
-        );
+        require!(self.receipts == 0, ErrorCode::InvalidArgument);
         require!(capital.junior_reserve_shares > 0, ErrorCode::InvalidArgument);
-        require!(
-            additional_receipts > 0 || (self.receipts > 0 && clock >= self.ready_at),
-            ErrorCode::AmountZero
-        );
-        let total = self
-            .receipts
-            .checked_add(additional_receipts)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let renewing = self.receipts > 0 && clock >= self.ready_at;
-        let fee_basis = if renewing { total } else { additional_receipts };
+        require!(receipts > 0, ErrorCode::AmountZero);
         let fee = u64::try_from(mul_div_u128(
-            fee_basis as u128,
+            receipts as u128,
             crate::constants::JUNIOR_EXIT_FEE_BPS as u128,
             10_000,
         )?)
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
-        let net = total.checked_sub(fee).ok_or(ErrorCode::InsufficientBalance)?;
+        let net = receipts.checked_sub(fee).ok_or(ErrorCode::InsufficientBalance)?;
         require!(net > 0, ErrorCode::AmountZero);
         let mut next = *capital;
-        next.queued_receipts = next
-            .queued_receipts
-            .checked_sub(self.receipts)
-            .ok_or(ErrorCode::BrokenInvariant)?;
         next.pay_seed_fee(fee)?;
         next.queued_receipts = next
             .queued_receipts
@@ -106,12 +89,7 @@ impl JuniorExitTicket {
             .minimum_notice_slots
             .checked_add(u64::try_from(extra).map_err(|_| ErrorCode::MarketMathOverflow)?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        // Adding never pulls an existing maturity earlier, even after new
-        // deposits dilute queue crowding or the default notice is longer.
-        let ready_at = clock
-            .checked_add(notice)
-            .ok_or(ErrorCode::MarketMathOverflow)?
-            .max(self.ready_at);
+        let ready_at = clock.checked_add(notice).ok_or(ErrorCode::MarketMathOverflow)?;
         let expires_at = ready_at
             .checked_add(config.exercise_window_slots)
             .ok_or(ErrorCode::MarketMathOverflow)?;
@@ -154,12 +132,11 @@ impl JuniorExitTicket {
         Ok(senior_receipts)
     }
 
-    pub fn cancel(&mut self, capital: &mut TrancheCapital, clock: u64) -> Result<u64> {
+    pub fn cancel(&mut self, capital: &mut TrancheCapital) -> Result<u64> {
         require!(
             self.receipts > 0 && self.generation == capital.generation,
             ErrorCode::InvalidArgument
         );
-        require!(clock >= self.ready_at, ErrorCode::InvalidArgument);
         capital.queued_receipts = capital
             .queued_receipts
             .checked_sub(self.receipts)

@@ -429,20 +429,6 @@ fn derive_leverage_lifecycle_plan(
         gross_amount_out,
         debt_curve_reserve_before_share_removal,
     )?;
-    if let SwapCashPolicy::Borrow { asset, .. } = policy {
-        let before = market.covered_debt(asset)?;
-        let delta = plan
-            .post
-            .debt()
-            .isolated_debt(asset)?
-            .checked_sub(market.debt.isolated_debt(asset)?)
-            .ok_or(ErrorCode::DebtMathOverflow)?;
-        let cash = match asset {
-            MarketAsset::Base => plan.post.base_cash_reserve,
-            MarketAsset::Quote => plan.post.quote_cash_reserve,
-        };
-        crate::math::borrow_controller::check_new_borrow_liquidity(&market.config.irm, before, cash, delta, 0)?;
-    }
     Ok(plan)
 }
 

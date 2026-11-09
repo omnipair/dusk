@@ -3,6 +3,22 @@ import { test } from "node:test";
 import { RISK_RATE_DEFAULTS, riskCoverageSignalNad } from "../dist/risk-pricing.js";
 import { deriveIncomeEpochAddress, deriveJuniorMintAddress, deriveJuniorExitAddress } from "../dist/constants.js";
 import { PublicKey } from "@solana/web3.js";
+import anchor from "@coral-xyz/anchor";
+import IDL from "../dist/idl_v2.js";
+import { DuskTranches } from "../dist/tranche-client.js";
+
+test("tranche builders encode a fresh junior amount and a standalone cancellation", async () => {
+  const key = byte => new PublicKey(new Uint8Array(32).fill(byte));
+  const program = new anchor.Program(IDL, { publicKey: key(1), connection: {}, wallet: { publicKey: key(1) } });
+  program.account.market.fetch = async () => ({ srlpMint: key(2), juniorMint: key(3), baseSide: { assetMint: key(4) }, quoteSide: { assetMint: key(5) } });
+  const tranches = new DuskTranches(program);
+  const request = await tranches.convert({ market: key(6), owner: key(1), action: { kind: "requestExit", juniorAmount: 12_345n } });
+  const decoded = program.coder.instruction.decode(request.instructions.at(-1).data);
+  assert.deepEqual(Object.keys(decoded.data.action.requestExit), ["juniorAmount"]);
+  assert.equal(decoded.data.action.requestExit.juniorAmount.toString(), "12345");
+  const cancel = await tranches.convert({ market: key(6), owner: key(1), action: { kind: "cancelExit" } });
+  assert.deepEqual(program.coder.instruction.decode(cancel.instructions.at(-1).data).data.action, { cancelExit: {} });
+});
 
 test("coverage signal distinguishes capital conversion, borrowing and senior cash movement", () => {
   const signal = (junior, debt, cash) => riskCoverageSignalNad(BigInt(junior), BigInt(debt), BigInt(debt), BigInt(cash));
@@ -29,10 +45,11 @@ test("creation defaults retain the approved half-life and explicit uncapped rate
   assert.equal(RISK_RATE_DEFAULTS.halfLifeMs, 1_209_600_000);
   assert.equal(RISK_RATE_DEFAULTS.lowerSignalNad, 50_000_000);
   assert.equal(RISK_RATE_DEFAULTS.upperSignalNad, 62_500_000);
+  assert.equal(RISK_RATE_DEFAULTS.lowerUtilizationBps, 7_500);
+  assert.equal(RISK_RATE_DEFAULTS.upperUtilizationBps, 8_000);
   assert.equal(RISK_RATE_DEFAULTS.initialAprNad, 40_000_000);
   assert.equal("minimumAprNad" in RISK_RATE_DEFAULTS, false);
   assert.equal("maximumAprNad" in RISK_RATE_DEFAULTS, false);
-  assert.equal(RISK_RATE_DEFAULTS.borrowUtilizationLimitBps, 8_000);
 });
 
 test("junior generations and archived income sources cannot share addresses", () => {

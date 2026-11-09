@@ -5,7 +5,7 @@ use crate::{
     errors::ErrorCode,
 };
 
-/// Operator-configured junior income allocation. Exit timing and the request/renewal and
+/// Operator-configured junior income allocation. Exit timing and the request and
 /// liquidation fees remain fixed by the protocol.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
 pub struct TranchePolicy {

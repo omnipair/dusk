@@ -10,7 +10,6 @@ fn setup() -> (TrancheCapital, JuniorExitConfig) {
             minimum_notice_slots: 7_000,
             maximum_notice_slots: 10_000,
             exercise_window_slots: 2_000,
-
         },
     )
 }
@@ -45,30 +44,73 @@ fn large_and_expired_requests_still_count_as_crowding() {
 }
 
 #[test]
-fn additions_cannot_shorten_notice_and_renewal_pays_on_all_units() {
+fn existing_requests_must_be_cancelled_before_replacement() {
     let (mut capital, config) = setup();
     let mut ticket = JuniorExitTicket::default();
     ticket.request(&mut capital, &config, 20_000, 0).unwrap();
-    let previous_ready = ticket.ready_at;
-    assert_eq!(ticket.request(&mut capital, &config, 10_000, 1).unwrap(), 50);
-    assert!(ticket.ready_at >= previous_ready);
-    let now = ticket.ready_at;
-    assert_eq!(ticket.request(&mut capital, &config, 0, now).unwrap(), 149);
-    assert!(ticket.ready_at >= now + config.minimum_notice_slots);
-    assert!(ticket.convert(&mut capital, now, 0, false).is_err());
+    let original_ticket = ticket;
+    let original_capital = capital;
+    for now in [1, ticket.ready_at, ticket.expires_at] {
+        for amount in [0, 10_000] {
+            assert!(ticket.request(&mut capital, &config, amount, now).is_err());
+            assert_eq!(ticket, original_ticket);
+            assert_eq!(capital, original_capital);
+        }
+    }
 }
 
 #[test]
-fn cancellation_waits_for_notice_and_returns_junior() {
+fn cancellation_during_notice_returns_junior_without_refunding_fees() {
     let (mut capital, config) = setup();
     let mut ticket = JuniorExitTicket::default();
     ticket.request(&mut capital, &config, 20_000, 0).unwrap();
-    assert!(ticket.cancel(&mut capital, 0).is_err());
-    assert_eq!(ticket.cancel(&mut capital, ticket.ready_at).unwrap(), 19_900);
+    assert_eq!(ticket.cancel(&mut capital).unwrap(), 19_900);
     assert_eq!(capital.junior_reserve_shares, 100_000);
     assert_eq!(capital.junior_receipt_supply, 100_000);
     assert_eq!(capital.permanent_receipts, 200);
     assert_eq!(capital.queued_receipts, 0);
+    assert_eq!(ticket, JuniorExitTicket::default());
+    assert!(ticket.cancel(&mut capital).is_err());
+}
+
+#[test]
+fn larger_and_smaller_replacements_restart_the_full_notice() {
+    for amount in [10_000, 30_000] {
+        let (mut capital, config) = setup();
+        let mut ticket = JuniorExitTicket::default();
+        ticket.request(&mut capital, &config, 20_000, 0).unwrap();
+        let previous_ready = ticket.ready_at;
+        let now = previous_ready - 1;
+        ticket.cancel(&mut capital).unwrap();
+        let fee = ticket.request(&mut capital, &config, amount, now).unwrap();
+        assert_eq!(fee, amount / 200);
+        assert_eq!(ticket.receipts, amount - fee);
+        assert_eq!(capital.queued_receipts, amount - fee);
+        assert!(ticket.ready_at >= now + config.minimum_notice_slots);
+        assert_eq!(ticket.expires_at, ticket.ready_at + config.exercise_window_slots);
+        assert!(ticket.convert(&mut capital, previous_ready, 0, false).is_err());
+        assert_eq!(capital.junior_reserve_shares, 100_000);
+        assert_eq!(ticket.convert(&mut capital, ticket.ready_at, 0, false).unwrap(), amount - fee);
+    }
+}
+
+#[test]
+fn cancelling_preserves_losses_and_other_holders_queued_claims() {
+    let (mut capital, config) = setup();
+    let mut ticket = JuniorExitTicket::default();
+    let mut other = JuniorExitTicket::default();
+    ticket.request(&mut capital, &config, 20_000, 0).unwrap();
+    other.request(&mut capital, &config, 10_000, 0).unwrap();
+    let mut total = 500_000;
+    capital.absorb_loss(500_000, 50_000, &mut total).unwrap();
+    let before_cancel = capital;
+    let returned = ticket.cancel(&mut capital).unwrap();
+    assert_eq!(returned, 19_900);
+    assert_eq!(capital.queued_receipts, other.receipts);
+    assert_eq!(capital.junior_reserve_shares, before_cancel.junior_reserve_shares);
+    assert_eq!(capital.junior_receipt_supply, before_cancel.junior_receipt_supply);
+    ticket.request(&mut capital, &config, returned, 1).unwrap();
+    assert_eq!(ticket.convert(&mut capital, ticket.ready_at, 0, false).unwrap(), 9_900);
 }
 
 #[test]
@@ -76,6 +118,7 @@ fn rejected_request_does_not_mutate_capital_or_ticket() {
     let (mut capital, config) = setup();
     let original = capital;
     let mut ticket = JuniorExitTicket::default();
+    assert!(ticket.request(&mut capital, &config, 0, 0).is_err());
     assert!(ticket.request(&mut capital, &config, 200_000, 0).is_err());
     assert_eq!(capital, original);
     assert_eq!(ticket, JuniorExitTicket::default());
@@ -93,7 +136,8 @@ fn notice_is_not_a_loss_free_option_and_expired_exits_stay_junior() {
     capital.absorb_loss(500_000, 50_000, &mut total).unwrap();
     assert!(ticket.convert(&mut capital, ticket.expires_at, 0, false).is_err());
     let now = ticket.expires_at;
-    ticket.request(&mut capital, &config, 0, now).unwrap();
+    let receipts = ticket.cancel(&mut capital).unwrap();
+    ticket.request(&mut capital, &config, receipts, now).unwrap();
     assert_eq!(ticket.convert(&mut capital, ticket.ready_at, 0, false).unwrap(), 9_900);
 }
 

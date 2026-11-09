@@ -732,9 +732,10 @@ export function defaultMarketConfig() {
     irm: {
       lowerSignalNad: new anchor.BN(duskEnv("IRM_LOWER_SIGNAL_NAD", "50000000")),
       upperSignalNad: new anchor.BN(duskEnv("IRM_UPPER_SIGNAL_NAD", "62500000")),
+      lowerUtilizationBps: Number(duskEnv("IRM_LOWER_UTILIZATION_BPS", "7500")),
+      upperUtilizationBps: Number(duskEnv("IRM_UPPER_UTILIZATION_BPS", "8000")),
       halfLifeMs: new anchor.BN(duskEnv("IRM_HALF_LIFE_MS", "1209600000")),
       initialAprNad: new anchor.BN(duskEnv("IRM_INITIAL_APR_NAD", "40000000")),
-      borrowUtilizationLimitBps: Number(duskEnv("IRM_BORROW_UTILIZATION_LIMIT_BPS", "8000")),
     },
     startTime: new anchor.BN(startTime),
   };

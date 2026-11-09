@@ -178,14 +178,14 @@ pub(crate) fn accrue_market_interest_data<'info>(
     if market.debt.base_last_accrual_slot == current_slot && market.debt.quote_last_accrual_slot == current_slot {
         return market.accrue_interest_to_slot(current_slot);
     }
-    let signals = market.tranche_coverage_signals()?;
+    let inputs = market.tranche_rate_inputs()?;
     let mut instruction = Instruction {
         program_id: crate::ID,
         accounts: Vec::with_capacity(1),
         data: Vec::with_capacity(std::mem::size_of::<BorrowInterestAccrued>() + 16),
     };
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        if let Some(receipt) = accrue_side::<true>(market, asset, current_slot, signals[asset.code() as usize])? {
+        if let Some(receipt) = accrue_side::<true>(market, asset, current_slot, inputs[asset.code() as usize])? {
             emit_cpi_event_with_instruction(
                 &BorrowInterestAccrued {
                     market: market_key,

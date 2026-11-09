@@ -185,8 +185,9 @@ const everyFamily = [
   irmParameterUpdate({
     lowerSignalNad: 50_000_000,
     upperSignalNad: 62_500_000,
+    lowerUtilizationBps: 7_500,
+    upperUtilizationBps: 8_000,
     halfLifeMs: 14 * 24 * 60 * 60 * 1000,
-    borrowUtilizationLimitBps: 8_000,
   }),
   concentrationParameterUpdate({
     peakAmplificationNad: 4n * NAD,
@@ -218,15 +219,16 @@ assert(!IDL.instructions.some(ix=>/governance|parameter_proposal|recovery_ballot
 assert(!IDL.types.some(type=>/Governance|RecoveryBallot|ProposalSupport|ParameterProposal/.test(type.name)));
 const configType=IDL.types.find(type=>type.name==="RiskRateConfig");
 assert.deepEqual(configType.type.fields.map(field=>field.name),[
-  "lower_signal_nad","upper_signal_nad","half_life_ms","initial_apr_nad","borrow_utilization_limit_bps"]);
+  "lower_signal_nad","upper_signal_nad","lower_utilization_bps","upper_utilization_bps","half_life_ms","initial_apr_nad"]);
 const updateType=IDL.types.find(type=>type.name==="RiskRateUpdate");
 assert(!updateType.type.fields.some(field=>/initial|minimum|maximum/.test(field.name)));
 assert.equal(OPERATOR_NOTICE_SLOTS,JUNIOR_MAX_NOTICE_SLOTS+432_000);
-const validIrm={lowerSignalNad:50_000_000,upperSignalNad:62_500_000,halfLifeMs:43_200_000,borrowUtilizationLimitBps:8_000};
+const validIrm={lowerSignalNad:50_000_000,upperSignalNad:62_500_000,lowerUtilizationBps:7_500,upperUtilizationBps:8_000,halfLifeMs:43_200_000};
 for(const halfLifeMs of [0,43_199_999,30*86_400_000+1])assert.throws(()=>irmParameterUpdate({...validIrm,halfLifeMs}));
 for(const halfLifeMs of [43_200_000,30*86_400_000])assert.doesNotThrow(()=>irmParameterUpdate({...validIrm,halfLifeMs}));
 assert.throws(()=>irmParameterUpdate({...validIrm,initialAprNad:40_000_000}),/Unknown/);
-assert.throws(()=>irmParameterUpdate({...validIrm,borrowUtilizationLimitBps:8_001}));
+assert.throws(()=>irmParameterUpdate({...validIrm,lowerUtilizationBps:8_000}));
+assert.throws(()=>irmParameterUpdate({...validIrm,upperUtilizationBps:10_000}));
 assert.throws(()=>concentrationParameterUpdate({peakAmplificationNad:NAD,coreHalfWidthBps:0,fadeWidthBps:0,rampDurationSlots:431_999}));
 assert.throws(()=>centerControllerParameterUpdate({adjustmentStepNad:0}));
 

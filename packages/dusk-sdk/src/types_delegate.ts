@@ -5956,7 +5956,7 @@ export type LeverageDelegate = {
     {
       "name": "riskRateConfig",
       "docs": [
-        "Coverage controller configuration. Initial APR is creation-only."
+        "Coverage-and-utilization controller configuration. Initial APR is creation-only."
       ],
       "type": {
         "kind": "struct",
@@ -5970,16 +5970,20 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
+            "name": "lowerUtilizationBps",
+            "type": "u16"
+          },
+          {
+            "name": "upperUtilizationBps",
+            "type": "u16"
+          },
+          {
             "name": "halfLifeMs",
             "type": "u64"
           },
           {
             "name": "initialAprNad",
             "type": "u64"
-          },
-          {
-            "name": "borrowUtilizationLimitBps",
-            "type": "u16"
           }
         ]
       }
@@ -6109,7 +6113,7 @@ export type LeverageDelegate = {
     {
       "name": "tranchePolicy",
       "docs": [
-        "Operator-configured junior income allocation. Exit timing and the request/renewal and",
+        "Operator-configured junior income allocation. Exit timing and the request and",
         "liquidation fees remain fixed by the protocol."
       ],
       "type": {
