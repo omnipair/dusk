@@ -62,7 +62,8 @@ pub mod dusk {
         FundJuniorSeed::handle_fund(ctx)
     }
 
-    pub fn compound_junior_seed(ctx: Context<CompoundJuniorSeed>) -> Result<()> {
+    pub fn compound_junior_seed<'info>(ctx: Context<'_, '_, '_, 'info, CompoundJuniorSeed<'info>>) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         CompoundJuniorSeed::handle_compound(ctx)
     }
 

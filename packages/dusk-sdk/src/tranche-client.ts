@@ -5,6 +5,7 @@ import { address, type AddressLike } from "./address.js";
 import { deriveJuniorMintAddress, deriveJuniorCohortAddress, deriveJuniorExitAddress, deriveYieldAccountAddress, deriveIncomeEpochAddress, deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID } from "./constants.js";
 import { integerBN, type IntegerLike } from "./parameters.js";
 import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
+import { oracleComputeBudgetInstructions, oracleReadAccounts } from "./oracle.js";
 import { DuskWrite } from "./write.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 
@@ -129,8 +130,15 @@ export class DuskTranches {
   async compoundSeed(params: { market: AddressLike }) {
     const market = address(params.market);
     const state = await this.program.account.market.fetch(market);
-    const instruction = await this.write.instruction("compoundJuniorSeed", undefined, { accounts: { market, juniorMint: state.juniorMint } });
-    return { instruction, transaction: new Transaction().add(instruction) };
+    const policy = state.oracle.policy;
+    const instruction = await this.write.instruction("compoundJuniorSeed", undefined, {
+      accounts: { market, juniorMint: state.juniorMint },
+      remainingAccounts: oracleReadAccounts(policy),
+    });
+    return {
+      instruction,
+      transaction: new Transaction().add(...oracleComputeBudgetInstructions(policy), instruction),
+    };
   }
 
   async initialize(params: { market: AddressLike; payer: AddressLike; metadata: LpTokenMetadataInput }) {

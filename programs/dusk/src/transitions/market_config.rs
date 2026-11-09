@@ -445,6 +445,14 @@ impl MarketConfig {
         );
         Ok(())
     }
+
+    /// Trading opens no earlier than the market exists. An unset start (0), or
+    /// one that passed while the creator signed, becomes the creation time, so
+    /// the launch fee and launch rate limit run their full course from launch.
+    pub fn opening_no_earlier_than(mut self, unix_timestamp: i64) -> Self {
+        self.start_time = self.start_time.max(unix_timestamp);
+        self
+    }
 }
 
 fn half_life_in_bounds(half_life_ms: u64) -> bool {

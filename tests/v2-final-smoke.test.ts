@@ -1,4 +1,4 @@
-import type { OraclePolicyInput } from "../packages/dusk-sdk/src/oracle.js";
+import { oracleComputeBudgetInstructions, type OraclePolicyInput } from "../packages/dusk-sdk/src/oracle.js";
 import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -1920,6 +1920,68 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(quoteCredit).to.equal(199_998n);
     expect((await getAccount(connection as any,accounts.ownerBaseAccount)).amount).to.equal(1_000_000n-baseCredit);
     expect((await getAccount(connection as any,accounts.ownerQuoteAccount)).amount).to.equal(2_000_000n-quoteCredit);
+  });
+
+  it("authenticates permanent-seed compounding on oracle-selected markets", async function () {
+    const oracle = normalizedTestOracle();
+    const f = await addBalancedLiquidity(249, marketConfig(), {
+      baseDeposit: 1_000_000_000,
+      quoteDeposit: 3_000_000_000,
+      minSrlp: 1,
+      baseMint: 2_000_000_000,
+      quoteMint: 4_000_000_000,
+    }, 6, TOKEN_PROGRAM_ID, undefined, async fixture => oracle.publish(fixture), oracle.policy);
+    const sdkProgram = createDuskProgram({ provider: program.provider });
+    const tranches = new DuskTranches(sdkProgram);
+    await connection.sendTransaction((await tranches.initialize({
+      market: f.market,
+      payer: payer.publicKey,
+      metadata: {
+        name: "Base/Quote jrLP",
+        symbol: "jrBA/QU",
+        uri: "https://example.invalid/junior.json",
+      },
+    })).transaction, [payer]);
+
+    const swapAccounts = [...hlpSwapAccounts(f), ...oracle.publish(f)];
+    await swapBaseForQuote(f, swapAccounts, 10_000, 1);
+    await swapQuoteForBase(f, swapAccounts, 30_000, 1);
+    const accrued = await sdkProgram.account.market.fetch(f.market);
+    expect(accrued.baseSide.fees.junior.swapGrowthQ64.gtn(0)).to.equal(true);
+    expect(accrued.quoteSide.fees.junior.swapGrowthQ64.gtn(0)).to.equal(true);
+
+    const prepared = await tranches.compoundSeed({ market: f.market });
+    expect(prepared.instruction.keys.some(meta => meta.pubkey.equals(oracle.key))).to.equal(true);
+    const marketBefore = Buffer.from(svm.getAccount(f.market)!.data);
+    const missing = new TransactionInstruction({
+      ...prepared.instruction,
+      keys: prepared.instruction.keys.filter(meta => !meta.pubkey.equals(oracle.key)),
+    });
+    let error: unknown;
+    try {
+      await connection.sendTransaction(new Transaction().add(
+        ...oracleComputeBudgetInstructions(oracle.policy), missing,
+      ), [payer]);
+    } catch (caught) { error = caught; }
+    expect(String(error)).to.include("OracleAccountMissing");
+    expect(Buffer.from(svm.getAccount(f.market)!.data).equals(marketBefore)).to.equal(true);
+
+    const feed = svm.getAccount(oracle.key)!;
+    const stale = Buffer.from(feed.data);
+    stale.writeBigInt64LE(svm.getClock().unixTimestamp - 61n, 120);
+    svm.setAccount(oracle.key, { ...feed, data: stale });
+    svm.expireBlockhash();
+    error = undefined;
+    try { await connection.sendTransaction(prepared.transaction, [payer]); }
+    catch (caught) { error = caught; }
+    expect(String(error)).to.include("OracleStale");
+    expect(Buffer.from(svm.getAccount(f.market)!.data).equals(marketBefore)).to.equal(true);
+
+    oracle.publish(f);
+    svm.expireBlockhash();
+    await connection.sendTransaction((await tranches.compoundSeed({ market: f.market })).transaction, [payer]);
+    const compounded = await sdkProgram.account.market.fetch(f.market);
+    expect(compounded.tranches.juniorReserveShares.gt(accrued.tranches.juniorReserveShares)).to.equal(true);
   });
 
   it("seeds from the execution-time report after a reference move, with deposit caps and min-LP protection", async function () {

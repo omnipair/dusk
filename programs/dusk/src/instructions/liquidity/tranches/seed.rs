@@ -98,8 +98,8 @@ pub struct JuniorSeedCompounded {
     pub reserve_shares: u64,
 }
 
-impl CompoundJuniorSeed<'_> {
-    pub fn handle_compound(ctx: Context<Self>) -> Result<()> {
+impl<'info> CompoundJuniorSeed<'info> {
+    pub fn handle_compound(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
         let market = &mut ctx.accounts.market;
         market.assert_current_version()?;
         crate::instructions::accounting::accrue_market_interest(
