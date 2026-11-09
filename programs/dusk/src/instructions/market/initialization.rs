@@ -274,7 +274,9 @@ impl<'info> InitializeMarket<'info> {
     }
 
     pub fn handle_initialize(ctx: Context<Self>, args: InitializeMarketArgs) -> Result<()> {
-        let current_slot = Clock::get()?.slot;
+        let clock = Clock::get()?;
+        let current_slot = clock.slot;
+        let config = args.config.opening_no_earlier_than(clock.unix_timestamp);
         let market_key = ctx.accounts.market.key();
         let payer_key = ctx.accounts.payer.key();
         let base_mint = ctx.accounts.base_mint.key();
@@ -407,7 +409,7 @@ impl<'info> InitializeMarket<'info> {
             srlp_mint,
             base_side,
             quote_side,
-            args.config,
+            config,
             base_hlp_srlp_vault,
             quote_hlp_srlp_vault,
             args.params_hash,
@@ -472,9 +474,9 @@ impl<'info> InitializeMarket<'info> {
             quote_collateral_vault,
             base_hlp_mint,
             quote_hlp_mint,
-            target_hlp_leverage_bps: args.config.target_hlp_leverage_bps,
-            swap_fee_bps: args.config.swap_fee_bps,
-            config: args.config,
+            target_hlp_leverage_bps: config.target_hlp_leverage_bps,
+            swap_fee_bps: config.swap_fee_bps,
+            config,
             operator: payer_key,
             operator_revenue_recipient: payer_key,
             operator_interest_share_bps: args.operator_interest_share_bps,
