@@ -1,3 +1,6 @@
+use num_bigint::BigUint;
+use proptest::prelude::*;
+
 use super::*;
 
 fn geometry() -> ConcentratedCurveGeometry {
@@ -507,6 +510,162 @@ fn small_nested_curves_cross_all_boundaries_without_round_trip_profit() {
                         "amp={amplification} base={base} price={price} direction={direction:?}: {input} -> {}", back.amount_out);
                 }
             }
+        }
+    }
+}
+
+// Nested boundary validation accepts the rounding left by construction and
+// nothing more. Each boundary reserve sums one floored term per active layer
+// (tail, shoulder, core), so with k active layers the exact value lies in
+// [v, v + k). These properties pin that bound for every feasible curve shape
+// and size, so a construction change that rounds differently fails here
+// before it can reject a live market.
+const NESTED_REGION_LAYERS: [usize; 5] = [1, 2, 3, 2, 1];
+
+fn feasible_nested_parameters() -> impl Strategy<Value = ConcentratedCurveParameters> {
+    (1_u16..=5_000, 1_u16..=10_000, 1_u32..1_000_000).prop_filter_map(
+        "concentration must leave a nonzero tail",
+        |(core_half_width_bps, fade_width_bps, fraction)| {
+            // Peak amplification A is feasible while 1 - 1/A stays below the
+            // mean inverse square-root width; sample A inside that bound.
+            let inverse_root = |bps: f64| (1.0 + bps / 10_000.0).sqrt().recip();
+            let mean_inverse = (inverse_root(f64::from(core_half_width_bps))
+                + inverse_root(f64::from(core_half_width_bps) + f64::from(fade_width_bps)))
+                / 2.0;
+            let max_amplification = (1.0 - mean_inverse).recip().min(2_000.0);
+            let amplification = 1.0 + f64::from(fraction) / 1_000_000.0 * (max_amplification - 1.0);
+            let parameters = ConcentratedCurveParameters {
+                peak_amplification_nad: (amplification * NAD as f64) as u64,
+                core_half_width_bps,
+                fade_width_bps,
+            };
+            parameters
+                .validate(crate::state::MAX_AMM_AMPLIFICATION_NAD)
+                .ok()
+                .map(|()| parameters)
+        },
+    )
+}
+
+/// Feasible parameters, a center price from 10^-6 to about 10^6 quote per
+/// base, and a reserve point at 0.6x to 1.6x that price whose smaller side
+/// holds 10^5 to 10^24 normalized atoms. Smaller pools may legitimately
+/// collapse and are covered by the explicit regressions above.
+fn nested_curve_inputs() -> impl Strategy<Value = (ConcentratedCurveParameters, u128, u128, u64)> {
+    (
+        feasible_nested_parameters(),
+        0_u32..=12,
+        0_u128..1_000_000,
+        5_u32..=23,
+        0_u128..1_000_000,
+        60_u128..=160,
+    )
+        .prop_map(
+            |(parameters, price_exponent, price_jitter, size_exponent, size_jitter, offset_percent)| {
+                let price_floor = NAD as u128 * 10_u128.pow(price_exponent) / 1_000_000;
+                let center_price_nad = u64::try_from(price_floor + price_floor * price_jitter / 2_000_000).unwrap();
+                let smaller_side = 10_u128.pow(size_exponent) * (1_000_000 + 9 * size_jitter) / 1_000_000;
+                let point_price_nad = u128::from(center_price_nad) * offset_percent / 100;
+                let (base, quote) = if point_price_nad >= NAD as u128 {
+                    (smaller_side, mul_div_u128(smaller_side, point_price_nad, NAD as u128).unwrap())
+                } else {
+                    (mul_div_u128(smaller_side, NAD as u128, point_price_nad).unwrap(), smaller_side)
+                };
+                (parameters, base, quote, center_price_nad)
+            },
+        )
+}
+
+/// Active layer liquidities per region, outermost upper region first, in the
+/// same order as `nested_boundaries`.
+fn nested_region_liquidities(cache: ConcentratedCurveCache) -> [Vec<u128>; 5] {
+    let core = cache.concentrated_liquidity.div_ceil(2);
+    let shoulder = cache.concentrated_liquidity - core;
+    let tail = cache.tail_liquidity;
+    [
+        vec![tail],
+        vec![tail, shoulder],
+        vec![tail, shoulder, core],
+        vec![tail, shoulder],
+        vec![tail],
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2048))]
+
+    #[test]
+    fn feasible_nested_curves_pass_boundary_validation(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs()
+    ) {
+        let prepared = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters);
+        prop_assert!(prepared.is_ok(), "{parameters:?} base={base} quote={quote} center={center_price_nad}: {prepared:?}");
+    }
+
+    #[test]
+    fn nested_boundary_rounding_stays_below_one_atom_per_active_layer(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs()
+    ) {
+        let cache = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters).unwrap();
+        let curve = cache.geometry().unwrap();
+        let regions = nested_region_liquidities(cache);
+        let sqrt_prices = [
+            cache.outer_upper_sqrt_price_nad,
+            cache.core_upper_sqrt_price_nad,
+            cache.core_lower_sqrt_price_nad,
+            cache.outer_lower_sqrt_price_nad,
+        ];
+        let scale = BigUint::from(NAD);
+        for (boundary_index, boundary) in curve.nested_boundaries.into_iter().enumerate() {
+            let sqrt_price = BigUint::from(sqrt_prices[boundary_index]);
+            for region in [boundary_index, boundary_index + 1] {
+                prop_assert_eq!(regions[region].len(), NESTED_REGION_LAYERS[region]);
+                let layers = BigUint::from(regions[region].len());
+                let liquidity: BigUint = regions[region].iter().map(|&value| BigUint::from(value)).sum();
+                let (effective_base, effective_quote) = curve.nested_effective_reserves(boundary, region).unwrap();
+                // Exact base is liquidity * NAD / sqrt_price; exact quote is
+                // liquidity * sqrt_price / NAD. Both must lie in [v, v + k).
+                let base_numerator = &liquidity * &scale;
+                let effective_base = BigUint::from(effective_base);
+                prop_assert!(&effective_base * &sqrt_price <= base_numerator);
+                prop_assert!(base_numerator < (&effective_base + &layers) * &sqrt_price);
+                let quote_numerator = &liquidity * &sqrt_price;
+                let effective_quote = BigUint::from(effective_quote);
+                prop_assert!(&effective_quote * &scale <= quote_numerator);
+                prop_assert!(quote_numerator < (&effective_quote + &layers) * &scale);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_boundary_validation_rejects_one_percent_price_jumps(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs()
+    ) {
+        let curve = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters)
+            .unwrap()
+            .geometry()
+            .unwrap();
+        for region in 0_usize..5 {
+            let adjoining = [region.checked_sub(1), (region < 4).then_some(region)];
+            let mut smallest = u128::MAX;
+            let mut region_quote = 0;
+            for boundary_index in adjoining.into_iter().flatten() {
+                let boundary = curve.nested_boundaries[boundary_index];
+                for side in [boundary_index, boundary_index + 1] {
+                    let (effective_base, effective_quote) = curve.nested_effective_reserves(boundary, side).unwrap();
+                    smallest = smallest.min(effective_base).min(effective_quote);
+                    if side == region {
+                        region_quote = effective_quote;
+                    }
+                }
+            }
+            // Below 10^4 atoms a 1% move is within a few atoms of rounding.
+            if smallest < 10_000 {
+                continue;
+            }
+            let mut malformed = curve;
+            malformed.nested_quote_constants[region].magnitude += region_quote / 100;
+            prop_assert!(malformed.validate().is_err(), "region={region} {parameters:?} base={base} quote={quote}");
         }
     }
 }
