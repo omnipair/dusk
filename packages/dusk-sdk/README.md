@@ -320,7 +320,6 @@ const ix = await dusk.write.swapInstruction(
   {
     market,
     accounts: {
-      market,
       futarchyAuthority,
       trader,
       assetInMint,
@@ -337,7 +336,8 @@ const ix = await dusk.write.swapInstruction(
 ```
 
 `swapBuilder(...)`, `swapInstruction(...)`, `swapTransaction(...)`, and
-`swapRpc(...)` fetch the market before building the swap. Whenever either hLP
+`swapRpc(...)` fetch the market before building the swap and fill in the
+account map's `market` from the `market` option. Whenever either hLP
 side has nonzero supply or residual exposure, they prepend the canonical
 five-account prefix exactly once: `[srLP mint, base hLP srLP vault, quote hLP srLP
 vault, base interest vault, quote interest vault]`. Caller-provided remaining
@@ -346,8 +346,80 @@ accounts remain after that prefix.
 The write client supplies the canonical event-CPI authority and Dusk program
 accounts for instructions that emit CPI events.
 
-`write.builder(...)`, `write.transaction(...)`, and `write.rpc(...)` expose the
-same generic path for every Dusk instruction in the IDL.
+`write.builder(...)`, `write.instruction(...)`, `write.transaction(...)`, and
+`write.rpc(...)` expose the same generic path for every Dusk instruction in the
+IDL. Arguments and accounts are typed per instruction name from the IDL
+(`DuskInstructionArgs<"borrow">`, `DuskInstructionAccounts<"borrow">`), and the
+same rules are checked at run time before anything is encoded:
+
+```typescript
+await dusk.write.instruction(
+  "borrow",
+  { borrowAmount: 1_000n, minDebtAmountOut: 990n, minLiquidationCfBps: 7_500 },
+  { accounts: borrowAccounts }
+);
+```
+
+A misspelled, missing or wrongly typed field, an unknown enum variant, a fixed
+array of the wrong length, or an account name the instruction does not declare
+throws `DuskInstructionInputError`, which names the instruction and the field.
+Integers of 64 bits and wider accept BN, bigint, a safe-integer number or a
+decimal string. An `Option` field may be `null` or left out. An account Anchor
+cannot resolve on its own is required. That includes a PDA whose seeds read its
+own data, such as `market` and the position accounts on most instructions:
+Anchor cannot derive it, even when it lists a relation. The composite builders
+(`swapInstruction`, `depositSingleSided`, `referredBorrow` and their siblings)
+take their amounts as `bigint | number | string` and fill in the accounts they
+derive or take as options, such as `market`. An account map may still name one;
+the composite's value wins.
+
+### Leverage-delegate orders
+
+Take-profit and stop-loss exits, limit entry orders, hLP orders and protection
+orders live in the leverage-delegate program. `dusk.orders` builds exits with
+`createOrderInstruction` and `cancelOrderInstruction`, and every delegate
+instruction through the same generic path as `dusk.write`:
+`orders.method(...)`, `orders.builder(...)`, `orders.instruction(...)`,
+`orders.transaction(...)` and `orders.rpc(...)`.
+
+```typescript
+const ix = await dusk.orders.instruction(
+  "createLeverageEntryOrder",
+  {
+    orderId,
+    positionId,
+    debtAsset: 1,
+    depositAmount,
+    protocolFeeDepositAmount,
+    minMarginAmount,
+    executorBounty,
+    multiplierBps: 30_000n,
+    limitPriceNad,
+    minCollateralOut,
+    expiryUnixTimestamp,
+  },
+  {
+    accounts: { market, debtMint, collateralMint, ownerFundingAccount, fundingVault },
+    remainingAccounts: transferHookAccounts,
+  }
+);
+```
+
+Arguments and accounts are typed per instruction from the delegate IDL
+(`LeverageDelegateInstructionArgs<"createLeverageEntryOrder">`,
+`LeverageDelegateInstructionAccounts<"createLeverageEntryOrder">`) and checked
+at run time by the same rules as the Dusk path: leaving out
+`protocolFeeDepositAmount` throws `DuskInstructionInputError` instead of
+sending a zero fee deposit. Anchor fills in PDAs whose seeds it can compute,
+the signer and fixed program accounts; transfer-hook and oracle accounts go in
+`remainingAccounts`. A new order's PDA comes from the arguments, but an
+existing order's is seeded by its own data, so every instruction that acts on
+one takes `order`. `DuskProtectionOrders` checks its inputs the same way.
+
+Both programs' aliases apply IDL-generic types that accept any Anchor IDL
+type, such as `DuskIdl` or `LeverageDelegateIdl`:
+`ProgramInstructionArgs<Idl, Name>`, `ProgramInstructionAccounts<Idl, Name>`
+and `ProgramDefinedInput<Idl, TypeName>`.
 
 ### Leverage funding
 

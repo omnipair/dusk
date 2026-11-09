@@ -77,10 +77,46 @@ jobs:
       - name: Typecheck test harness
         run: yarn typecheck
 
+      - name: Cache Solana CLI
+        id: solana-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/solana/install
+          key: solana-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.SOLANA_VERSION }}
+
       - name: Install Solana CLI
+        if: steps.solana-cache.outputs.cache-hit != 'true'
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          for attempt in 1 2 3; do
+            if curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+              "https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install" --output "$RUNNER_TEMP/solana-install.sh" \
+              && sh "$RUNNER_TEMP/solana-install.sh"; then
+              exit 0
+            fi
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep "$((attempt * 5))"
+          done
+
+      - name: Verify Solana CLI version
+        run: |
+          SOLANA_BIN="$HOME/.local/share/solana/install/active_release/bin"
+          echo "$SOLANA_BIN" >> "$GITHUB_PATH"
+          "$SOLANA_BIN/solana" --version
+          test "$("$SOLANA_BIN/solana" --version | cut -d ' ' -f 2)" = "$SOLANA_VERSION"
+
+      - name: Cache SBF platform tools
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/solana
+          key: solana-platform-tools-${{ runner.os }}-${{ runner.arch }}-${{ env.SOLANA_VERSION }}
+
+      - name: Install SBF platform tools
+        run: |
+          for attempt in 1 2 3; do
+            if cargo-build-sbf --install-only; then exit 0; fi
+            if [ "$attempt" = 3 ]; then exit 1; fi
+            sleep "$((attempt * 5))"
+          done
 
       - name: Cache Anchor CLI
         id: anchor-cache

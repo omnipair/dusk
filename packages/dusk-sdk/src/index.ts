@@ -1,6 +1,7 @@
 // Re-export Dusk IDL
 export { default as IDL } from "./idl_v2.js";
 export type { Dusk as DuskIdl } from "./types_v2.js";
+export type { LeverageDelegate as LeverageDelegateIdl } from "./types_delegate.js";
 
 // Re-export types
 export * from "./type-aliases.js";
@@ -29,6 +30,7 @@ export * from "./preview.js";
 export * from "./program.js";
 export * from "./referral.js";
 export * from "./write.js";
+export * from "./instruction-args.js";
 export * from "./virtual-book/index.js";
 export * from "./protection.js";
 
