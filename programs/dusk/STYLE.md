@@ -73,10 +73,15 @@ Token-2022 correctness.
   compute, error-semantics, and stack analysis.
 - Do not change event mechanisms, CPI order, state-mutation order, math, or
   rounding in a style-only change.
-- Instruction test bodies live under `src/tests`; production files contain
-  only the `#[cfg(test)]` include bridge.
+- All test bodies, fixtures, counters, and test-only APIs live under
+  `src/tests`. Feature-only replay and analytical implementations live under
+  `benchmark/`; production files may contain only a conditional include bridge
+  to either boundary. Never duplicate a runtime algorithm just to make it
+  callable from a test.
 - Every private, non-recursive production helper needs at least two genuine
-  production call sites. Inline one-use helpers.
+  production call sites. Inline one-use helpers. A retained one-use boundary
+  must document a concrete SBF stack/branch constraint or independent domain
+  contract in `scripts/check_one_use_helpers.js`; stale exceptions fail CI.
 - Prefer the least code that states the business operation directly. Do not
   extract wrappers, forwarding methods, builders, traits, or helper functions
   merely for symmetry, naming, testing, or visual tidiness. Extract code only
@@ -84,8 +89,16 @@ Token-2022 correctness.
   algorithm requires a boundary.
 - Every `state/*.rs` file except `mod.rs` owns exactly one `#[account]`; do not
   create nested production modules under `state/`.
+- Serialized account fields and wire types are state-owned. Do not define a
+  persistent type under `transitions/` and re-export it through `state/`.
 - Keep `transitions/` domain-specific. Do not add a generic `Transition` trait;
   place checked mutations with the domain that owns their invariants.
+- Dusk preview accounts, arguments, handlers, and preview-only helpers live in
+  `instructions/preview.rs`; leverage-delegate previews live in its matching
+  `instructions/preview.rs`.
+- Historical replay and benchmark-only functions must not be declared under
+  `src/`. Put their authoritative implementation under `benchmark/` and share
+  it with tests through `cfg(any(test, feature = "benchmark"))` when needed.
 - Keep complex money-moving entrypoints separate. Group only short related
   administrative entrypoints whose account and mutation stories remain clear.
 
@@ -96,5 +109,14 @@ cargo fmt --all -- --check
 yarn check:hygiene
 yarn check:code-shape
 yarn check:clippy
-cargo test -p dusk --lib
+cargo test -p dusk
+cargo check -p dusk --lib --features production
+cargo test -p dusk --lib --features production
+cargo test -p leverage_delegate
+cargo test -p faucet
+yarn typecheck
+yarn build:litesvm
+yarn check:build-identity
+npm run check:dusk-sdk
+DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending
 ```

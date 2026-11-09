@@ -1,5 +1,5 @@
 use super::*;
-use crate::instructions::fees::*;
+use crate::instructions::{fees::*, fetch_hlp_order_trigger_preview};
 
 #[derive(Accounts)]
 #[instruction(args: HlpOrderIdArgs)]
@@ -99,7 +99,7 @@ impl<'info> ExecuteHlpOrder<'info> {
             .accounts
             .market
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
-        let trigger_preview = preview_hlp_order_trigger(
+        let trigger_preview = fetch_hlp_order_trigger_preview(
             ctx.accounts,
             ctx.remaining_accounts,
             target_asset,
@@ -126,20 +126,16 @@ impl<'info> ExecuteHlpOrder<'info> {
             LeverageDelegateError::InvalidTokenAccount
         );
 
-        let (principal_nav, funding_apr) = match ctx.accounts.order.kind {
-            HLP_ORDER_KIND_STOP_LOSS => (trigger_preview.principal_nav_per_token_nad, 0),
-            HLP_ORDER_KIND_STOP_RATE => (0, trigger_preview.funding_apr_ema_nad),
+        let trigger_met = match ctx.accounts.order.kind {
+            HLP_ORDER_KIND_STOP_LOSS => {
+                trigger_preview.principal_nav_per_token_nad <= ctx.accounts.order.trigger_nad
+            }
+            HLP_ORDER_KIND_STOP_RATE => {
+                trigger_preview.funding_apr_ema_nad >= u128::from(ctx.accounts.order.trigger_nad)
+            }
             _ => return err!(LeverageDelegateError::InvalidOrder),
         };
-        require!(
-            hlp_order_trigger_met(
-                ctx.accounts.order.kind,
-                principal_nav,
-                funding_apr,
-                ctx.accounts.order.trigger_nad,
-            )?,
-            LeverageDelegateError::TriggerNotMet
-        );
+        require!(trigger_met, LeverageDelegateError::TriggerNotMet);
 
         withdraw_hlp_order_position(ctx.accounts, ctx.remaining_accounts)?;
         ctx.accounts.custody_target_account.reload()?;

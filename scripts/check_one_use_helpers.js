@@ -181,55 +181,105 @@ for (const [file, source] of originalSources) {
       `${file}: persistent lifecycles may use explicit statuses, but atomic operations must not use a generic Transition trait`
     );
   }
+  if (
+    /#\s*\[\s*cfg\s*\([^\]]*\bbenchmark\b[^\]]*\)\s*\]\s*(?:(?:pub(?:\([^)]*\))?|const|async|unsafe)\s+)*(?:fn|impl)\b/.test(
+      source
+    )
+  ) {
+    architecturePlacementErrors.push(
+      `${file}: benchmark-only implementations belong under programs/dusk/benchmark/; keep only a conditional include bridge in src/`
+    );
+  }
+  if (file.startsWith("programs/dusk/src/state/")) {
+    for (const line of source.split("\n").map((value) => value.trim()).filter((value) => value.includes("crate::transitions::"))) {
+      architecturePlacementErrors.push(
+        `${file}: persistent-state dependency on transition-owned types is forbidden; move the type to state/`
+      );
+    }
+  }
 }
 
-const instructionTestPlacementErrors = [];
+const testPlacementErrors = [];
 for (const [file, originalSource] of originalSources) {
-  const instructionSource =
-    file.startsWith("programs/dusk/src/instructions/") ||
-    file.startsWith("programs/leverage_delegate/src/instructions/") ||
-    file === "programs/leverage_delegate/src/lib.rs" ||
-    file === "programs/faucet/src/lib.rs";
-  if (!instructionSource) continue;
   const source = blankNonCode(originalSource);
   if (/#\s*\[\s*test\s*\]/.test(source) || /\bproptest\s*!/.test(source)) {
-    instructionTestPlacementErrors.push(
+    testPlacementErrors.push(
       `${file}: test bodies belong under that program's src/tests directory`
     );
   }
   const cfgTest = /#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]/g;
-  for (const match of source.matchAll(cfgTest)) {
+  for (const match of originalSource.matchAll(cfgTest)) {
     let cursor = match.index + match[0].length;
-    while (/\s/.test(source[cursor] ?? "")) cursor += 1;
-    if (!source.slice(cursor).startsWith("mod tests")) {
-      instructionTestPlacementErrors.push(
-        `${file}: #[cfg(test)] may only introduce an external test include bridge`
+    while (/\s/.test(originalSource[cursor] ?? "")) cursor += 1;
+    const attributeStart = cursor;
+    while (originalSource.startsWith("#[", cursor)) {
+      const end = originalSource.indexOf("]", cursor + 2);
+      if (end < 0) break;
+      cursor = end + 1;
+      while (/\s/.test(originalSource[cursor] ?? "")) cursor += 1;
+    }
+    const attributes = originalSource.slice(attributeStart, cursor);
+    const tail = originalSource.slice(cursor);
+    const directInclude = tail.match(/^include!\s*\(\s*"([^"]+)"\s*\)\s*;/);
+    if (directInclude) {
+      if (!/(?:^|\/)tests\/support\//.test(directInclude[1])) {
+        testPlacementErrors.push(
+          `${file}: direct #[cfg(test)] includes must come from src/tests/support`
+        );
+      }
+      continue;
+    }
+
+    const module = tail.match(/^(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*([;{])/);
+    if (!module) {
+      testPlacementErrors.push(
+        `${file}: #[cfg(test)] may only introduce an external test module or support include`
       );
       continue;
     }
-    const open = source.indexOf("{", cursor);
+    if (module[2] === ";") {
+      if (!/#\[path\s*=\s*"[^"]*tests\//.test(attributes)) {
+        testPlacementErrors.push(
+          `${file}: test-only modules must use #[path] into src/tests`
+        );
+      }
+      continue;
+    }
+
+    const open = originalSource.indexOf("{", cursor);
     let close = open + 1;
     let depth = 1;
-    while (open >= 0 && close < source.length && depth > 0) {
-      if (source[close] === "{") depth += 1;
-      else if (source[close] === "}") depth -= 1;
+    while (open >= 0 && close < originalSource.length && depth > 0) {
+      if (originalSource[close] === "{") depth += 1;
+      else if (originalSource[close] === "}") depth -= 1;
       close += 1;
     }
     const moduleSource = open >= 0 ? originalSource.slice(open, close) : "";
-    const includeDirectory = file.includes("/src/instructions/")
-      ? "tests/instructions/"
-      : "tests/";
-    const bridgePattern = new RegExp(
-      `^\\{\\s*include!\\s*\\(\\s*"[^"]*${includeDirectory.replaceAll("/", "\\/")}[^"]+\\.rs"\\s*\\)\\s*;\\s*\\}$`
-    );
-    if (
-      depth !== 0 ||
-      !bridgePattern.test(moduleSource)
-    ) {
-      instructionTestPlacementErrors.push(
-        `${file}: instruction test bridge must contain only one include from src/${includeDirectory}`
+    const bridgePattern = /^\{\s*include!\s*\(\s*"[^"]*tests\/[^"]+\.rs"\s*\)\s*;\s*\}$/;
+    if (depth !== 0 || !bridgePattern.test(moduleSource)) {
+      testPlacementErrors.push(
+        `${file}: test module ${module[1]} must contain only one include from src/tests`
       );
     }
+  }
+}
+
+const previewPlacementErrors = [];
+for (const [file, originalSource] of originalSources) {
+  const instructionRoot = [
+    "programs/dusk/src/instructions/",
+    "programs/leverage_delegate/src/instructions/",
+  ].find((root) => file.startsWith(root));
+  if (!instructionRoot || file === `${instructionRoot}preview.rs`) continue;
+  const source = blankNonCode(originalSource);
+  if (
+    /\b(?:struct|enum|type)\s+Preview[A-Za-z0-9_]*\b/.test(source) ||
+    /\bimpl(?:<[^>]*>)?\s+Preview[A-Za-z0-9_]*\b/.test(source) ||
+    /\bfn\s+preview_[A-Za-z0-9_]*\b/.test(source)
+  ) {
+    previewPlacementErrors.push(
+      `${file}: preview instruction types and helpers belong in ${instructionRoot}preview.rs`
+    );
   }
 }
 
@@ -341,6 +391,11 @@ for (const declaration of allDeclarations) {
         total + callPositions(source, declaration.name, declaration.implContext).length,
       0
     );
+  declaration.globalCalls = [...callSources].reduce(
+    (total, [, source]) =>
+      total + callPositions(source, declaration.name, declaration.implContext).length,
+    0
+  );
   declaration.recursive =
     declaration.body !== undefined &&
     fileCallPositions.some(
@@ -355,10 +410,11 @@ const candidates = declarations.filter(({ visibility, fileCalls, crateCalls }) =
 );
 
 const actionable = candidates.filter(({ recursive }) => !recursive);
+const internalDead = declarations.filter(({ crateCalls, recursive }) => crateCalls === 0 && !recursive);
 // These helpers are intentional domain boundaries in the current predeployment
 // architecture. Keep the exact names here so this check remains a regression
-// gate: new one-use helpers still fail, while removing an accepted helper never
-// blocks a cleanup commit. Placement errors are never baselined.
+// gate: new one-use helpers and stale exceptions both fail. Placement errors
+// are never baselined.
 const acceptedOneUseHelpers = new Map([
   // Keep the shared index capacity search and exact fractional-growth kernel
   // separate from market writes. Boundary tests exercise index overflow,
@@ -376,11 +432,10 @@ const acceptedOneUseHelpers = new Map([
   // Bounded fixed-point exp2/log2 kernels are kept separate so their precision,
   // iteration limits and overflow behavior can be reviewed independently of
   // the controller's economic branches. apply is the debt-index carry boundary.
-  ["programs/dusk/src/math/borrow_controller.rs", new Set(["fractional_factor", "evolve", "half_life_crossing_ms"])],
+  ["programs/dusk/src/math/borrow_controller.rs", new Set(["fractional_factor", "half_life_crossing_ms"])],
   ["programs/dusk/src/transitions/tranches/risk_rate_book.rs", new Set(["apply"])],
   // Pure event construction is tested without Anchor account fixtures; the
   // instruction helper emits the result through the shared self-CPI path.
-  ["programs/dusk/src/events.rs", new Set(["from_receipts"])],
   // New hLP income allocation is a pure transition boundary: economic tests
   // exercise conservation without custody CPIs; the instruction moves exactly
   // its returned debits and credits atomically.
@@ -392,33 +447,25 @@ const acceptedOneUseHelpers = new Map([
   // The advance ledger's funding and one-shot payment consumption boundaries
   // own the frozen fee and transient-credit invariants. Keep these independently
   // testable from reserve mutation and Token-2022 CPIs.
-  ["programs/dusk/src/transitions/interest_advance.rs", new Set(["fund", "take_payment"])],
-  // Off-chain historical auction replay; compiled only with feature benchmark.
-  ["programs/dusk/src/transitions/amm/swap.rs", new Set(["settle_backstop_swap"])],
+  ["programs/dusk/src/transitions/interest_advance.rs", new Set(["take_payment"])],
   // Emergency inventory preparation must remain separate from executable
   // swaps: a virtual pricing endpoint must never become an hLP/reserve plan.
   ["programs/dusk/src/transitions/amm/liquidation.rs", new Set(["prepare_ema_liquidation"])],
   // Keep the pure, clock-bound hLP admission and fee-boundary calculations
   // independently testable from Anchor account deserialization and sysvars.
-  ["programs/dusk/src/instructions/hlp_deposit_preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
-  // CPI metadata isolation is a security boundary and has a focused test.
-  ["programs/dusk/src/instructions/leverage/settlement.rs", new Set(["delegated_callback_metas"])],
-  [
-    "programs/dusk/src/instructions/prepare_swap.rs",
-    new Set(["rebalance_executes_token_changes"]),
-  ],
+  ["programs/dusk/src/instructions/preview.rs", new Set(["preview_hlp_funding_limit", "gross_funding_limit"])],
   [
     "programs/dusk/src/transitions/amm/curve.rs",
     // Oracle geometry construction has independent price/depth inputs, unlike
     // live-reserve reconstruction, and is exercised across concentration tiers.
-    new Set(["parameters", "center_point_with_geometry", "concentrated_total_liquidity_root", "prepare_concentrated_cache_at_depth",
+    new Set(["concentrated_total_liquidity_root", "prepare_concentrated_cache_at_depth",
       // One constructor and one hot-loop lookup share exact boundary dust;
       // inlining them would mix geometry construction with the SBF proof frame.
       "prepare_quote_path", "amount_out"]),
   ],
   [
     "programs/dusk/src/transitions/amm/fees.rs",
-    new Set(["minimum_executable_input", "fee_share_cap_to_marginal_rate_nad", "gross_path_divergence_fee_raw"]),
+    new Set(["gross_path_divergence_fee_raw"]),
   ],
   [
     "programs/dusk/src/transitions/amm/mod.rs",
@@ -426,19 +473,14 @@ const acceptedOneUseHelpers = new Map([
       // Complete swaps now have one caller for these AMM-owned ledger/observation kernels.
       // These freeze a complete book/curve quote and isolate temporary geometry
       // so neither routine's caller exceeds the SBF stack-frame limit.
-      "prepare_current_hlp_quote",
       // The rare distress retry stays in its own SBF frame; placing the
       // returned integrated quote and error on the swap frame overflows it.
       "prepare_current_hlp_quote_with_distress_freeze",
       "prepare_book_curve_mark",
       "credit_protected_recenter_reserve",
       "finalize_amm_trade_after_inventory_checkpoint",
-      "liquidity_nad",
-      "checkpoint_amm_socialized_loss_raw",
       "advance_one_concentrated_controller_target",
       "apply_concentrated_curve_parameter_update",
-      "unrealized_interest",
-      "quote_concentrated_integrated_with_fee",
       // Oracle/tranche integration exceeds the SBF 4 KiB frame when the
       // ordinary-only and hLP accounting branches share one function body.
       "integrated_curve_state_without_hlp",
@@ -450,13 +492,13 @@ const acceptedOneUseHelpers = new Map([
   ],
   [
     "programs/dusk/src/transitions/market_config.rs",
-    new Set(["effective_market_cap_fee_bps_at", "assert_liquidity_seeding_available_with_futarchy"]),
-  ],
-  ["programs/dusk/src/transitions/ledger.rs", new Set(["record_interest_custody"])],
-  ["programs/dusk/src/transitions/lending/debt.rs", new Set(["isolated_clearance_for_max"])],
-  [
-    "programs/dusk/src/transitions/lending/mod.rs",
-    new Set(["global_side_health_with_virtual_reserves"]),
+    new Set([
+      "effective_market_cap_fee_bps_at",
+      "assert_liquidity_seeding_available_with_futarchy",
+      // The runtime handler and native replay must enforce the same first-LP
+      // signer policy; keeping the guard here prevents the two paths drifting.
+      "require_initial_liquidity_authority",
+    ]),
   ],
   [
     "programs/dusk/src/transitions/lending/preview.rs",
@@ -467,19 +509,31 @@ const acceptedOneUseHelpers = new Map([
       "position_capacity_quote_with_market_fees",
     ]),
   ],
+  // Repayment is a complete accounting transition shared by the instruction,
+  // native replay, and test support. Its curve, debt, reserve, risk, referral,
+  // and health updates stay atomic and independently reviewable.
+  [
+    "programs/dusk/src/transitions/lending/mod.rs",
+    new Set([
+      "repay_with_finalization_and_fee",
+      // The runtime reference-price path and analysis liquidation path share
+      // one pessimistic curve reconstruction and its conservative rounding.
+      "pessimistic_concentrated_curve",
+    ]),
+  ],
   [
     "programs/dusk/src/transitions/leverage.rs",
     new Set([
       // The shared AMM transition is the sole caller of the debt and quote kernels.
+      // Keep leverage debt settlement and loss application owned by this
+      // domain instead of embedding their accounting in the AMM swap module.
       "apply_leverage_lifecycle_transition",
+      "apply_leverage_socialized_loss",
       "validate_leverage_swap_quote",
       "require_leverage_entry_limit",
-      "set_debt",
       "commit_leverage_lifecycle_state",
       "derive_leverage_lifecycle_plan_from_state",
       "apply_leverage_lifecycle_plan",
-      "rebase_concentrated_curve_after_terminal_hlp_loss",
-      "apply_leverage_socialized_loss",
       "post_swap_closeout_quote_with_quote",
       // Repayment now has one handler after margin withdrawal was removed.
       // Keep its hLP/risk checkpoint boundary independently parity-tested.
@@ -489,29 +543,21 @@ const acceptedOneUseHelpers = new Map([
   [
     "programs/dusk/src/transitions/liquidity/hlp/engine.rs",
     new Set([
-      "prepare_concentrated_hlp_transition",
       "apply_concentrated_hlp_recovery",
       "target_asset",
       "prepare_terminal_hlp_waterfall",
-      "prepare_concentrated_hlp_transition_at_current_state",
       // Quote finalization must derive its point from the private, atom-rounded
       // ownership/debt plan rather than duplicate that accounting in the AMM.
-      "final_ordinary_point_nad",
       "debt_deltas",
-      "interest_cash_floors",
       "hlp_valuation_from_values",
       "signed_value_difference",
-      "srlp_live_underlying_amount_from_values",
-      "require_hlp_borrow_headroom",
     ]),
   ],
   [
     "programs/dusk/src/transitions/liquidity/hlp/integrated.rs",
     new Set(["refresh_hlp_endpoint",
-      "from_total_reserves",
       "reconstruct_hlp_ownership",
       "apply_hlp_recovery_bonus",
-      "apply_compounded_srlp_fee",
       "quote_integrated_exact_in",
       "quote_integrated_exact_in_with_frozen_fee",
     ]),
@@ -524,13 +570,13 @@ const acceptedOneUseHelpers = new Map([
   ["programs/dusk/src/math/risk.rs", new Set(["ema_u128_including_zero"])],
   [
     "programs/leverage_delegate/src/instructions/entry/common.rs",
-    new Set(["verify_opened_position", "escrow_margin_after_bounty"]),
+    new Set(["verify_opened_position"]),
   ],
   // Keep unit-scale trigger math testable without Anchor account fixtures.
   ["programs/leverage_delegate/src/instructions/leverage/before_close.rs", new Set(["closeout_price_nad"])],
   [
     "programs/leverage_delegate/src/instructions/hlp/common.rs",
-    new Set(["withdraw_hlp_order_position", "validate_hlp_order_kind", "hlp_order_trigger_met"]),
+    new Set(["withdraw_hlp_order_position"]),
   ],
 ]);
 // Dedicated CPI frames keep the protection executor within the SBF stack limit.
@@ -542,7 +588,13 @@ acceptedOneUseHelpers.set("programs/leverage_delegate/src/instructions/protectio
 // final-payout accounting boundary.
 acceptedOneUseHelpers.set(
   "programs/dusk/src/instructions/flash_amm_settlement.rs",
-  new Set(["preview_flash_amm_liquidation", "settle_with_amm"])
+  new Set(["quote_flash_amm_liquidation", "settle_with_amm"])
+);
+// Keep the hLP trigger CPI in a separate SBF frame while centralizing all
+// preview ownership in the delegate preview module.
+acceptedOneUseHelpers.set(
+  "programs/leverage_delegate/src/instructions/preview.rs",
+  new Set(["fetch_hlp_order_trigger_preview"])
 );
 // Keep the complete emergency market/position mutation directly testable
 // without Anchor custody accounts, using the same transition as execution.
@@ -550,7 +602,7 @@ acceptedOneUseHelpers.set(
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm_liquidation.rs", new Set(["apply_emergency_liquidation", "prepare_emergency_candidate"]));
 // Market cloning and curve preparation must not share the interval proof's
 // SBF frame. The combined version exceeded the 4 KiB stack limit.
-acceptedOneUseHelpers.set("programs/dusk/src/transitions/liquidation_sizing.rs", new Set(["executable_liquidation_market", "liquidation_scratch"]));
+acceptedOneUseHelpers.set("programs/dusk/src/transitions/liquidation_sizing.rs", new Set(["liquidation_scratch"]));
 // Separate SBF frame for the all-smaller-share recovery certificate.
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/flash_liquidation.rs", new Set(["require_first_flash_recovery"]));
 // The retired-cohort decoder needs its own SBF frame. Inlining it into the
@@ -563,7 +615,7 @@ acceptedOneUseHelpers.set("programs/dusk/src/instructions/transfer_hook.rs", new
 acceptedOneUseHelpers.set("programs/dusk/src/math/op_gamm.rs", new Set([
   "raw_coefficients", "build_bands", "coordinate_uncached", "price_bounds_nad", "native_geometry_at",
   "historical_mark_nad", "native_primitive_uncached", "analytic_residual",
-  "cpmm_integral", "taylor_cell", "elasticity", "native_seed", "taylor_quotient_integral",
+  "cpmm_integral", "taylor_cell", "elasticity", "native_seed", "solve_output", "taylor_quotient_integral",
 ]));
 // Keep the rare four-limb path out of inlined Q56 arithmetic (the combined
 // SBF body exceeded LLVM branch range). Log range reduction owns its series
@@ -572,7 +624,7 @@ acceptedOneUseHelpers.set("programs/dusk/src/math/op_gamm/interval.rs", new Set(
 // Source equivalence defines replay-history continuity across governance.
 // observation is the authority boundary for price-free repayment, also tested
 // directly to ensure deserialization cannot restore execution authority.
-acceptedOneUseHelpers.set("programs/dusk/src/oracle.rs", new Set(["observation", "read", "assert_not_before", "bind"]));
+acceptedOneUseHelpers.set("programs/dusk/src/oracle.rs", new Set(["read", "assert_not_before", "bind"]));
 // The quote finisher owns fees and final ownership certification in a separate
 // SBF frame; merging it with the solver exceeded the 4 KiB stack contract.
 acceptedOneUseHelpers.get("programs/dusk/src/transitions/amm/mod.rs").add("finish_concentrated_swap");
@@ -582,17 +634,32 @@ acceptedOneUseHelpers.get("programs/dusk/src/transitions/market_config.rs").add(
 // Historical marks measure volatility only. The repayment boundary explicitly
 // separates price-free debt reduction from authenticated price-sensitive risk.
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/oracle.rs", new Set(["update_for_debt_reduction"]));
-// SPL hook resolution owns dynamic seed indexing and privilege de-escalation;
-// it is differential-tested against SPL and isolated from token CPI plumbing.
-acceptedOneUseHelpers.set("programs/dusk/src/token.rs", new Set(["add_transfer_hook_accounts"]));
 // These boundaries isolate independently tested configuration rollback, guarded
 // ramp candidates and centering loss calculations from the callers' SBF frames.
 acceptedOneUseHelpers.get("programs/dusk/src/transitions/market_config.rs").add("copy_fee_profile_fields");
 acceptedOneUseHelpers.get("programs/dusk/src/transitions/market_config.rs").add("execute_parameter_updates_inner");
-acceptedOneUseHelpers.get("programs/dusk/src/transitions/amm/mod.rs").add("covered_impairment_nad");
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/curve_ramp.rs",new Set(["advance_concentration_ramp"]));
 const unexpectedActionable = actionable.filter(
   ({ file, name }) => !acceptedOneUseHelpers.get(file)?.has(name)
+);
+const acceptedAudit = actionable.filter(({ file, name }) => acceptedOneUseHelpers.get(file)?.has(name));
+const actionableKeys = new Set(actionable.map(({ file, name }) => `${file}:${name}`));
+const staleAccepted = [...acceptedOneUseHelpers].flatMap(([file, names]) =>
+  [...names]
+    .filter((name) => !actionableKeys.has(`${file}:${name}`))
+    .map((name) => ({ file, name }))
+);
+const publicDead = allDeclarations.filter(
+  ({ file, name, visibility, implContext, globalCalls, recursive }) =>
+    visibility === "pub" &&
+    implContext !== "trait-impl" &&
+    implContext !== "trait-definition" &&
+    globalCalls === 0 &&
+    !recursive &&
+    !file.endsWith("/src/lib.rs") &&
+    file !== "programs/dusk/src/benchmark_api.rs" &&
+    file !== "programs/dusk/src/instructions/accounts.rs" &&
+    !["bounded_swap_probe", "bounded_invariant_probe"].includes(name)
 );
 const publicAudit = process.argv.includes("--public")
   ? allDeclarations.filter(
@@ -606,13 +673,38 @@ const publicAudit = process.argv.includes("--public")
   : [];
 
 for (const error of architecturePlacementErrors) console.error(error);
-for (const error of instructionTestPlacementErrors) console.error(error);
+for (const error of testPlacementErrors) console.error(error);
+for (const error of previewPlacementErrors) console.error(error);
+for (const { file, name } of staleAccepted) {
+  console.error(`${file}: stale accepted one-use helper ${name}`);
+}
+for (const { file, line, name } of publicDead) {
+  console.error(`${file}:${line}: public fn ${name} has no production caller`);
+}
+for (const { file, line, name } of internalDead) {
+  console.error(`${file}:${line}: internal fn ${name} has no production caller`);
+}
 
 for (const candidate of process.argv.includes("--broad") ? actionable : unexpectedActionable) {
   console.log(
     `${candidate.file}:${candidate.line}: ${candidate.visibility} fn ${candidate.name} ` +
       `(file calls=${candidate.fileCalls}, crate calls=${candidate.crateCalls})`
   );
+}
+
+if (process.argv.includes("--accepted")) {
+  for (const candidate of acceptedAudit) {
+    const source = sources.get(candidate.file);
+    const bodyLines = candidate.body === undefined
+      ? 0
+      : source.slice(candidate.body.open, candidate.body.close + 1).split("\n").length;
+    const prefix = source.slice(Math.max(0, candidate.nameOffset - 240), candidate.nameOffset);
+    const inlineNever = /#\s*\[\s*inline\s*\(\s*never\s*\)\s*\]/.test(prefix);
+    console.log(
+      `${candidate.file}:${candidate.line}: ${candidate.name} ` +
+        `(body lines=${bodyLines}, inline(never)=${inlineNever}, crate calls=${candidate.crateCalls})`
+    );
+  }
 }
 
 for (const candidate of publicAudit) {
@@ -622,18 +714,28 @@ for (const candidate of publicAudit) {
   );
 }
 
-if (process.argv.includes("--public")) {
+if (process.argv.includes("--accepted")) {
+  console.log(`Accepted one-use audit entries: ${acceptedAudit.length}.`);
+} else if (process.argv.includes("--public")) {
   console.log(`Public low-use audit candidates: ${publicAudit.length}.`);
 } else if (process.argv.includes("--broad")) {
   console.log(`Broad one-use audit candidates: ${actionable.length}; internal declarations scanned: ${declarations.length}.`);
 } else if (
   architecturePlacementErrors.length > 0 ||
-  instructionTestPlacementErrors.length > 0 ||
+  testPlacementErrors.length > 0 ||
+  previewPlacementErrors.length > 0 ||
+  staleAccepted.length > 0 ||
+  publicDead.length > 0 ||
+  internalDead.length > 0 ||
   unexpectedActionable.length > 0
 ) {
   console.error(
     `Code-shape check failed: ${architecturePlacementErrors.length} architecture placement error(s); ` +
-      `${instructionTestPlacementErrors.length} misplaced instruction test module(s); ` +
+      `${testPlacementErrors.length} misplaced test module(s); ` +
+      `${previewPlacementErrors.length} misplaced preview declaration(s); ` +
+      `${staleAccepted.length} stale one-use exception(s); ` +
+      `${publicDead.length} public function(s) without production callers; ` +
+      `${internalDead.length} internal function(s) without production callers; ` +
       `${unexpectedActionable.length} unreviewed private/internal production function(s) have at most one call.`
   );
   process.exit(1);

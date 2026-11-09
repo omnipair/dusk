@@ -1,15 +1,12 @@
 use anchor_lang::prelude::*;
 use spl_token_2022::extension::transfer_fee::TransferFee;
 
-#[cfg(test)]
-use super::liquidity::prepare_concentrated_hlp_transition;
 use super::liquidity::{
-    current_hlp_signed_navs_with_prices, hlp_curve_prices_from_base_price_nad,
-    prepare_concentrated_hlp_transition_at_current_state, IntegratedCurveState, SwapCashPolicy,
+    current_hlp_signed_navs_with_prices, hlp_curve_prices_from_base_price_nad, IntegratedCurveState, SwapCashPolicy,
 };
 use super::{AmmSwapQuote, HlpRebalanceReceipt, SwapFeeBreakdown};
 use crate::{
-    constants::{BPS_DENOMINATOR, LEVERAGE_MAX_MULTIPLIER_BPS, LIQUIDATION_INCENTIVE_BPS, NAD},
+    constants::{BPS_DENOMINATOR, LEVERAGE_MAX_MULTIPLIER_BPS, NAD},
     errors::ErrorCode,
     math::{ceil_div, mul_div_ceil_u128, mul_div_u128, realized_interest_split},
     state::{Debt, LeveragePosition, Market, MarketAsset, ProtocolAuctionSplit},
@@ -92,14 +89,16 @@ impl LeverageCollateralFee {
     }
 }
 
-/// Conservative all-in Quote-per-Base execution price after swap fees, price
-/// impact, and output transfer effects.
-pub(crate) fn leverage_entry_price_nad(
+pub(crate) fn require_leverage_entry_limit(
     market: &Market,
     debt_asset: MarketAsset,
     notional_amount: u64,
     collateral_amount: u64,
-) -> Result<u64> {
+    limit_price_nad: u64,
+) -> Result<()> {
+    if limit_price_nad == 0 {
+        return Ok(());
+    }
     require!(notional_amount > 0 && collateral_amount > 0, ErrorCode::AmountZero);
     let (base_amount, quote_amount) = match debt_asset {
         MarketAsset::Base => (notional_amount, collateral_amount),
@@ -128,48 +127,21 @@ pub(crate) fn leverage_entry_price_nad(
                 .ok_or(ErrorCode::MarketMathOverflow)?,
         )
     };
-    let price = match debt_asset {
+    let execution_price_nad = u64::try_from(match debt_asset {
         // Base is sold for Quote. Floor so an order cannot pass unless the
         // received Quote-per-Base is at least its lower limit.
         MarketAsset::Base => mul_div_u128(quote_amount as u128, numerator_scale, denominator)?,
         // Quote is sold for Base. Ceil so an order cannot pass when its true
         // Quote-per-Base cost is even one atom above its upper limit.
         MarketAsset::Quote => mul_div_ceil_u128(quote_amount as u128, numerator_scale, denominator)?,
-    };
-    u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-pub(crate) fn require_leverage_entry_limit(
-    market: &Market,
-    debt_asset: MarketAsset,
-    notional_amount: u64,
-    collateral_amount: u64,
-    limit_price_nad: u64,
-) -> Result<()> {
-    if limit_price_nad == 0 {
-        return Ok(());
-    }
-    let execution_price_nad = leverage_entry_price_nad(market, debt_asset, notional_amount, collateral_amount)?;
-    require!(
-        leverage_entry_limit_satisfied(debt_asset, execution_price_nad, limit_price_nad),
-        ErrorCode::SlippageExceeded
-    );
-    Ok(())
-}
-
-pub(crate) const fn leverage_entry_limit_satisfied(
-    debt_asset: MarketAsset,
-    execution_price_nad: u64,
-    limit_price_nad: u64,
-) -> bool {
-    match debt_asset {
-        // Selling Base to obtain Quote: require at least the requested Quote
-        // per Base.
+    })
+    .map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let satisfied = match debt_asset {
         MarketAsset::Base => execution_price_nad >= limit_price_nad,
-        // Selling Quote to obtain Base: pay no more Quote per Base than the
-        // requested ceiling.
         MarketAsset::Quote => execution_price_nad <= limit_price_nad,
-    }
+    };
+    require!(satisfied, ErrorCode::SlippageExceeded);
+    Ok(())
 }
 
 use super::{
@@ -1127,44 +1099,6 @@ impl Market {
         })
     }
 
-    pub fn quote_leverage_swap(
-        &self,
-        asset_in: MarketAsset,
-        amount_in: u64,
-        current_slot: u64,
-    ) -> Result<LeverageSwapQuote> {
-        let after_launch = self.config.start_time.saturating_add(
-            self.config
-                .amm
-                .launch_fee_duration_seconds
-                .max(self.config.amm.launch_rate_limit_duration_seconds)
-                .min(i64::MAX as u64) as i64,
-        );
-        self.quote_leverage_swap_at_time(asset_in, amount_in, current_slot, after_launch)
-    }
-
-    pub fn quote_leverage_swap_at_time(
-        &self,
-        asset_in: MarketAsset,
-        amount_in: u64,
-        current_slot: u64,
-        current_unix_timestamp: i64,
-    ) -> Result<LeverageSwapQuote> {
-        let pre_state = self.dynamic_fee_pre_state(current_slot)?;
-        let preliminary = self.preliminary_swap_inputs_for_state_at_time(
-            asset_in,
-            amount_in,
-            current_slot,
-            current_unix_timestamp,
-            pre_state,
-        )?;
-        let quote = self
-            .quote_concentrated_integrated_with_fee(asset_in, amount_in, preliminary, 0)?
-            .ok_or(ErrorCode::BrokenInvariant)?
-            .as_swap_quote(asset_in);
-        Ok(LeverageSwapQuote::from_amm(quote, current_slot))
-    }
-
     pub(super) fn validate_leverage_swap_quote(
         &self,
         quote: LeverageSwapQuote,
@@ -1802,187 +1736,6 @@ impl Market {
         }))
     }
 
-    pub fn liquidate_leverage_position(
-        &mut self,
-        position: &mut LeveragePosition,
-        prepared_swap: Option<PreparedLeverageSwap>,
-        measured_unwind_credit: u64,
-        swap_fee_credit: LeverageSwapFeeCredit,
-        protocol_fee_bps: u16,
-        protocol_auction_split: ProtocolAuctionSplit,
-        current_slot: u64,
-    ) -> Result<LeverageLiquidationReceipt> {
-        self.liquidate_leverage_position_with_pending_credit(
-            position,
-            prepared_swap,
-            measured_unwind_credit,
-            None,
-            swap_fee_credit,
-            protocol_fee_bps,
-            protocol_auction_split,
-            current_slot,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn liquidate_leverage_position_with_pending_credit(
-        &mut self,
-        position: &mut LeveragePosition,
-        prepared_swap: Option<PreparedLeverageSwap>,
-        measured_unwind_credit: u64,
-        pending_unwind_credit: Option<u64>,
-        swap_fee_credit: LeverageSwapFeeCredit,
-        protocol_fee_bps: u16,
-        protocol_auction_split: ProtocolAuctionSplit,
-        current_slot: u64,
-    ) -> Result<LeverageLiquidationReceipt> {
-        if prepared_swap.is_none() {
-            require_eq!(measured_unwind_credit, 0, ErrorCode::BrokenInvariant);
-            require!(
-                swap_fee_credit == LeverageSwapFeeCredit::default(),
-                ErrorCode::BrokenInvariant
-            );
-            position.require_open()?;
-            let debt_asset = position.debt_asset()?;
-            let collateral_asset = debt_asset.opposite();
-            let debt_amount = position.debt_amount(&self.debt)?;
-            require_gt!(debt_amount, 0, ErrorCode::ZeroDebtAmount);
-            let collateral_sold = position.collateral_amount;
-            self.ensure_amm_initialized(current_slot)?;
-
-            let lifecycle = self.apply_leverage_lifecycle_transition(
-                SwapCashPolicy::Liquidate {
-                    debt_asset,
-                    debt_shares: position.debt_shares,
-                    debt_principal: position.debt_principal,
-                },
-                collateral_asset,
-                0,
-                0,
-                0,
-            )?;
-            self.apply_leverage_socialized_loss(debt_asset, lifecycle, current_slot)?;
-            let transition = prepare_concentrated_hlp_transition_at_current_state(self)?;
-            let (base_hlp_rebalance, quote_hlp_rebalance) = transition.consume(self)?;
-            self.finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
-            self.assert_market_invariants()?;
-
-            position.debt_shares = lifecycle.position_debt_shares;
-            position.debt_principal = lifecycle.position_debt_principal;
-            self.reduce_leverage_collateral(position, collateral_sold)?;
-            return Ok(LeverageLiquidationReceipt {
-                debt_repaid: lifecycle.clearance.cash_repaid,
-                socialized_loss: lifecycle.socialized_principal_loss,
-                interest_paid: lifecycle.clearance.interest_paid,
-                principal_written_off: lifecycle.writeoff.principal_written_off,
-                collateral_sold,
-                closeout_value: 0,
-                liquidator_amount: 0,
-                owner_residual: 0,
-                swap: LeverageSwapQuote {
-                    asset_in: collateral_asset.code(),
-                    quoted_slot: current_slot,
-                    ..LeverageSwapQuote::default()
-                },
-                fees: FeesReceipt::default(),
-                base_hlp_rebalance,
-                quote_hlp_rebalance,
-            });
-        }
-        let mut prepared_swap = prepared_swap.ok_or(ErrorCode::BrokenInvariant)?;
-        let swap = prepared_swap.leverage_quote();
-        position.require_open()?;
-        let debt_asset = position.debt_asset()?;
-        let debt_amount = position.debt_amount(&self.debt)?;
-        require_gt!(debt_amount, 0, ErrorCode::ZeroDebtAmount);
-        let collateral_sold = position.collateral_amount;
-        self.ensure_amm_initialized(current_slot)?;
-        require!(
-            swap.amount_in > 0 && swap.amount_in <= collateral_sold,
-            ErrorCode::BrokenInvariant
-        );
-        require_eq!(swap.amount_in, measured_unwind_credit, ErrorCode::BrokenInvariant);
-        let maintenance_bps = position.margin_terms.maintenance_bps(position.collateral_amount)?;
-        let collateral_asset = position.collateral_asset()?;
-        let pending_unhealthy = pending_unwind_credit
-            .map(|credit| {
-                require_gte!(position.collateral_amount, credit, ErrorCode::BrokenInvariant);
-                Ok(
-                    self.ema_leverage_margin_bps_for_credit(collateral_asset, credit, debt_amount)?
-                        <= u128::from(maintenance_bps),
-                )
-            })
-            .transpose()?
-            .unwrap_or(false);
-        if !pending_unhealthy {
-            require!(
-                self.ema_leverage_margin_bps_for_credit(collateral_asset, measured_unwind_credit, debt_amount,)?
-                    <= u128::from(maintenance_bps),
-                ErrorCode::LeveragePositionNotLiquidatable
-            );
-        }
-
-        let cash_policy = SwapCashPolicy::Liquidate {
-            debt_asset,
-            debt_shares: position.debt_shares,
-            debt_principal: position.debt_principal,
-        };
-        require!(
-            prepared_swap.cash_policy
-                == SwapCashPolicy::Liquidate {
-                    debt_asset,
-                    debt_shares: position.debt_shares,
-                    debt_principal: position.debt_principal,
-                },
-            ErrorCode::BrokenInvariant
-        );
-        prepared_swap.cash_policy = cash_policy;
-        let finalized = prepared_swap.apply(
-            self,
-            cash_policy,
-            swap_fee_credit,
-            current_slot,
-            protocol_fee_bps,
-            protocol_auction_split,
-            None,
-        )?;
-        let lifecycle = finalized.lifecycle;
-        let fees = finalized.fees;
-        let (base_hlp_rebalance, quote_hlp_rebalance) = (finalized.base_rebalance, finalized.quote_rebalance);
-        let clearance = lifecycle.clearance;
-        let writeoff = lifecycle.writeoff;
-        position.debt_shares = lifecycle.position_debt_shares;
-        position.debt_principal = lifecycle.position_debt_principal;
-        let full_cash_repayment = clearance
-            .cash_repaid
-            .checked_add(writeoff.aggregate_debt_written_off)
-            .ok_or(ErrorCode::DebtMathOverflow)?;
-        let residual = swap.amount_out.saturating_sub(full_cash_repayment);
-        let max_incentive = (debt_amount as u128)
-            .checked_mul(LIQUIDATION_INCENTIVE_BPS as u128)
-            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)? as u64;
-        let liquidator_amount = residual.min(max_incentive);
-        let owner_residual = residual
-            .checked_sub(liquidator_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.reduce_leverage_collateral(position, collateral_sold)?;
-        Ok(LeverageLiquidationReceipt {
-            debt_repaid: clearance.cash_repaid,
-            socialized_loss: lifecycle.socialized_principal_loss,
-            interest_paid: clearance.interest_paid,
-            principal_written_off: writeoff.principal_written_off,
-            collateral_sold,
-            closeout_value: swap.amount_out,
-            liquidator_amount,
-            owner_residual,
-            swap,
-            fees,
-            base_hlp_rebalance,
-            quote_hlp_rebalance,
-        })
-    }
-
     pub fn add_leverage_margin(
         &mut self,
         position: &mut LeveragePosition,
@@ -2091,10 +1844,6 @@ impl Market {
         })
     }
 
-    pub fn leverage_closeout_value(&self, position: &LeveragePosition, current_slot: u64) -> Result<u64> {
-        self.leverage_closeout_value_with_fee(position, current_slot, LeverageCollateralFee::default())
-    }
-
     pub fn leverage_closeout_value_with_fee(
         &self,
         position: &LeveragePosition,
@@ -2111,20 +1860,6 @@ impl Market {
         self.leverage_closeout_value_at_time_with_fee(position, current_slot, after_launch, collateral_fee)
     }
 
-    pub fn leverage_closeout_value_at_time(
-        &self,
-        position: &LeveragePosition,
-        current_slot: u64,
-        current_unix_timestamp: i64,
-    ) -> Result<u64> {
-        self.leverage_closeout_value_at_time_with_fee(
-            position,
-            current_slot,
-            current_unix_timestamp,
-            LeverageCollateralFee::default(),
-        )
-    }
-
     pub fn leverage_closeout_value_at_time_with_fee(
         &self,
         position: &LeveragePosition,
@@ -2133,22 +1868,6 @@ impl Market {
         collateral_fee: LeverageCollateralFee,
     ) -> Result<u64> {
         self.leverage_protection_closeout_value_with_fee(position, current_slot, current_unix_timestamp, collateral_fee)
-    }
-
-    /// Exact executable output used by protection health. Only valuation is
-    /// returned; the execution path still constructs and validates a full swap.
-    pub fn leverage_protection_closeout_value(
-        &self,
-        position: &LeveragePosition,
-        current_slot: u64,
-        current_unix_timestamp: i64,
-    ) -> Result<u64> {
-        self.leverage_protection_closeout_value_with_fee(
-            position,
-            current_slot,
-            current_unix_timestamp,
-            LeverageCollateralFee::default(),
-        )
     }
 
     pub fn leverage_protection_closeout_value_with_fee(
@@ -2381,6 +2100,9 @@ impl Market {
     }
 }
 
+#[cfg(any(test, feature = "benchmark"))]
+include!("../../benchmark/analysis/leverage_quote.rs");
+
 pub(crate) fn leverage_debt_from_margin(margin_amount: u64, multiplier_bps: u64) -> Result<u64> {
     let notional = (margin_amount as u128)
         .checked_mul(multiplier_bps as u128)
@@ -2441,6 +2163,9 @@ impl Market {
         Ok(())
     }
 }
+
+#[cfg(test)]
+include!("../tests/support/leverage.rs");
 
 #[cfg(test)]
 mod tests {

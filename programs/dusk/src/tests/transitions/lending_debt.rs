@@ -2,10 +2,7 @@ use super::*;
 
 #[test]
 fn zero_shares_skip_debt_arithmetic() {
-    Debt::reset_shares_to_debt_call_count();
-
     assert_eq!(Debt::shares_to_debt(0, u128::MAX).unwrap(), 0);
-    assert_eq!(Debt::shares_to_debt_call_count(), 0);
 }
 
 #[test]

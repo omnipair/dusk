@@ -3,7 +3,14 @@ use anchor_lang::prelude::*;
 
 pub mod account;
 #[cfg(feature = "benchmark")]
-pub mod benchmark_api;
+/// Off-chain-only access to Dusk's native market transitions.
+///
+/// This module is available only with the non-default `benchmark` feature. It
+/// wraps the same integer state machines used by instruction preview and
+/// execution; it does not provide an alternate economic model.
+pub mod benchmark_api {
+    include!("../benchmark/benchmark_api.rs");
+}
 pub mod constants;
 pub mod errors;
 pub mod events;

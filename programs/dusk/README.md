@@ -3,7 +3,7 @@
 Current loss and fee specification: [junior-first credit loss waterfall](../../docs/CREDIT_LOSS_WATERFALL.md).
 Current interest specification: [coverage-based borrow-rate controller](../../docs/BORROW_RATE_CONTROLLER.md).
 
-Dusk is the standalone market program for Omnipair V2. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, direct-srLP parameter governance, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
+Dusk is the standalone market program for Omnipair V2. It uses market terminology, floating yield LP shares, aggregate hedged LP vault accounting, isolated spot-margin leverage, a bounded market-operator model, and an optional oracle-less Dusk Concentrated AMM. See [`CONCENTRATION.md`](./CONCENTRATION.md) for the curve, recentering, fee, and protected-liquidity specification.
 
 See [`COMPUTE_BENCHMARKS.md`](./COMPUTE_BENCHMARKS.md) for current named-path
 regression ceilings and explicitly dated, commit-bound full-instruction
@@ -20,10 +20,11 @@ Rust source follows the V1-inspired conventions in [`STYLE.md`](./STYLE.md).
 
 - `instructions/`: Anchor account validation, token CPIs, custody reconciliation, slippage checks, and events. Small administrative entrypoints are grouped by domain; complex money paths remain separate.
 - `state/`: one file per serialized Anchor account. Embedded values live with their owning account instead of becoming pseudo-state modules.
-- `transitions/`: checked AMM, liquidity, lending, leverage, governance, ledger, and revenue state transitions shared by instruction and preview paths.
+- `transitions/`: checked AMM, liquidity, lending, leverage, operator-policy, ledger, and revenue state transitions shared by instruction and preview paths.
 - `math/`: pure fixed-point concentrated-AMM/CPMM, dynamic-fee, EMA, valuation, and interest algorithms.
+- `benchmark/`: feature-only replay and analytical implementations, shared with unit tests when they must exercise historical behavior that has no on-chain caller.
 
-Instruction modules are split by domain: `market`, `governance`, `liquidity`, `spot`, `lending`, `leverage`, `referral`, and `futarchy`.
+Instruction modules are split by domain: `market`, `operator`, `liquidity`, `spot`, `lending`, `leverage`, `referral`, and `futarchy`. All preview entrypoints are owned by `instructions/preview.rs`.
 
 | Flow | Anchor adapter | Domain owner |
 | --- | --- | --- |
@@ -31,24 +32,25 @@ Instruction modules are split by domain: `market`, `governance`, `liquidity`, `s
 | srLP and hLP | `instructions/liquidity` | `transitions/liquidity`, `transitions/ledger.rs` |
 | Borrow and liquidation | `instructions/lending` | `transitions/lending`, `state/borrow_position.rs` |
 | Isolated leverage | `instructions/leverage` | `transitions/leverage.rs`, `state/leverage_position.rs` |
-| Parameter governance | `instructions/governance` | `transitions/governance.rs`, `state/parameter_proposal.rs` |
+| Market operator changes | `instructions/operator.rs` | `transitions/market_config.rs`, `state/operator.rs` |
 
 ## Public Instructions
 
 Dusk exposes the current market instruction set:
 
-- `initialize_market` (including all three LP metadata records), `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`
-- `create_parameter_proposal`, `support_parameter_proposal`, `queue_parameter_proposal`, `execute_parameter_proposal`, `withdraw_parameter_support`
-- `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`
-- `set_yield_recipient`, `set_harvest_authority`, `harvest`
+- `initialize_market` (including all three LP metadata records), `update_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`
+- `announce_operator_change`, `execute_operator_change`, `resolve_operator_change`, `remove_market_manager`, `initialize_operator_revenue`, `claim_operator_revenue`
+- `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`, `initialize_junior`, `fund_junior_seed`, `compound_junior_seed`, `convert_tranche`, `checkpoint_income`, `roll_income_epoch`, `burn_retired_junior`
+- `set_yield_recipient`, `set_harvest_authority`, `grow_yield_account`, `fund_interest`, `harvest`
 - `swap`, `close_insolvent_hlp`
-- `deposit_collateral`, `withdraw_collateral`, `borrow`, `repay`
+- `preview_hlp_flash`, `begin_hlp_flash`, `settle_hlp_flash`
+- `deposit_collateral`, `withdraw_collateral`, `donate_collateral`, `withdraw_all_collateral`, `borrow`, `repay`
 - `configure_referral_partner`, `initialize_referral_accrual`, `set_referral_recipient`, `claim_referral_interest`
 - `preview_liquidation_health`, `preview_flash_liquidation`, `preview_flash_amm_liquidation`, `begin_flash_liquidation`, `settle_flash_liquidation`, `preview_emergency_liquidation`, `emergency_liquidation`
-- `deposit_single_sided`, `withdraw_single_sided`
+- `deposit_single_sided`, `withdraw_single_sided`, `rotate_hlp_cohort`, `burn_retired_hlp_receipt`
 - `open_leverage`, `close_leverage`, `delegated_close_leverage`, `increase_leverage`, `decrease_leverage`, `add_leverage_margin`, `repay_leverage`, `withdraw_repaid_leverage`
 - `create_leverage_delegation`, `update_leverage_delegation`, `close_leverage_delegation`
-- `preview_market`, `preview_hlp_order_trigger`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position`
+- `preview_market`, `preview_hlp_order_trigger`, `preview_hlp_deposit_capacity`, `preview_add_liquidity`, `preview_swap`, `preview_borrow_capacity`, `preview_borrow_position_capacity`, `preview_borrow_position`
 - Futarchy and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `update_protocol_auction_route`, `set_global_reduce_only`, `settle_protocol_auction`
 
 `settle_protocol_auction` requires an explicit revenue `source` in addition to
@@ -63,69 +65,29 @@ reference-age limit, and recipients. Changing the accepted mint can pause an
 affected market until governance installs a matching route; existing inventory
 is not repriced under a snapshotted historical configuration.
 
-## Direct-srLP Parameter Governance
+## Market Operator
 
-Markets have no manager or operator. Any direct srLP holder can create a typed
-parameter proposal by burn-locking at least 1% of eligible direct srLP. Other
-direct holders support it by burn-locking more srLP. Support is one-sided:
-holders who do not support remain silent or exit. Strictly more than 50% of
-eligible direct srLP queues the proposal for a seven-day wall-clock timelock,
-followed by a seven-day execution window.
+Each market has one operator, initially its deployer. LP receipts have no
+voting, election, cancellation, or configuration rights in Dusk. A separate
+governance program may own the operator authority and implement its own voting,
+token, or futarchy policy.
 
-Eligible supply excludes srLP held inside the two hLP vaults and adds back srLP
-already locked in governance. A lock continues earning both reserve-side yield
-streams through a proposal-local virtual ledger. Queued support cannot be
-withdrawn; after execution, expiry, staleness, or cancellation,
-`withdraw_parameter_support` remints the exact locked amount and merges its
-yield into the holder's normal `YieldAccount`s. When the last supporter
-withdraws, whoever sends that withdrawal, the proposal becomes a tombstone
-(`ParameterProposalTombstone`): the account shrinks to its 8-byte
-discriminator and stays rent-exempt, so its address can never hold another
-proposal, and the rest of its rent returns to the proposer.
-`support_parameter_proposal` also carries the digest the supporter reviewed
-and fails with `ProposalDigestMismatch` if it does not match.
+Operator changes use `announce_operator_change`,
+`execute_operator_change`, and `resolve_operator_change`. Every bundle waits
+the maximum junior-exit notice plus one protocol day. Only one bundle is
+current; replacement restarts the complete notice, and permissionless execution
+checks the immutable intent, operator epoch, parameter-family revisions,
+execution window, market health, and both sides' utilization below 80%.
 
-A proposal changes one or more of eight families: the complete fee profile,
-concentration shape, IRM, the four EMA half-lives, the daily borrow limit, the
-center controller, oracle policy, and junior income allocation. It names each family at most once, in ascending family order, so a
-set of updates has exactly one encoding and one digest. Every family must be a
-real change within its own bounds, and the configuration they produce together
-must be valid. One sponsorship and one vote cover the whole set, and it
-executes atomically: all families apply or none do. Concentration parameters
-apply immediately at execution; there is no concentration ramp.
+Typed updates cover fees, concentration, interest-controller dynamics,
+price/depth EMA half-lives, daily borrow limits, adaptive centering, and junior
+income allocation. Oracle sources, launch policy, and initial APR are
+creation-time settings. Concentration changes use guarded scheduled ramps, and
+automatic centering remains subject to funded-profit protection.
 
-Each proposal binds the revision of every family it changes. Executing any
-proposal advances the revision of each family it touched, so a competing
-proposal on any of those families goes stale instead of silently combining
-with it; proposals on other families are unaffected. Execution first
-checkpoints old interest/EMA/risk state and rejects at 80% utilization. Every
-family then closes its elapsed windows under the old values (the daily borrow
-buckets refill at the old rate) before any value moves, and the curve and controller side effects run
-once against the final configuration.
-`ParameterProposalCreated` carries the typed updates, their family revisions
-and the proposal metadata exactly as stored, so indexers can reconstruct a
-proposal from events alone. `ParameterProposalExecuted` lists the families that
-changed and the market's revisions afterwards.
-
-Parameter bounds are enforced on creation and again on execution. Aggregate
-base/divergence/volatility fee budgets are capped at 5,000 bps; the daily borrow
-limit is capped at 3,000 bps. The IRM family now configures the coverage-based
-borrow-rate controller: a 5–6.25% default signal band, 14-day default half-life,
-4% creation-time starting APR, 1% protocol-wide minimum APR, no configured
-economic ceiling, and a 75–80% utilization target band. Loans are bounded by
-cash and the existing health/daily-flow checks rather than a utilization cap.
-The two rate bands and the separate 80% parameter-execution guard are specified in
-[`BORROW_RATE_CONTROLLER.md`](../../docs/BORROW_RATE_CONTROLLER.md).
-
-`max_daily_borrow_bps` sizes one public-lending borrow bucket per debt asset
-against conservative depth. Only gross principal borrowed through the lending
-`borrow` path consumes it; isolated leverage and direct or automatic hLP funding
-do not, because those operations do not lend cash out of the market. The bucket
-refills continuously over 24 hours with remainder accounting that is
-checkpoint-frequency-independent while the absolute limit is fixed; it is a
-leaky/token bucket, not an exact trailing-window sum. Conservative-depth
-changes may resize the bps-derived absolute limit. Repayments and hLP/leverage
-exits do not refund already consumed flow capacity.
+Operator revenue is isolated in its own account and epoch. Authority transfer
+does not rewrite already collected entitlement, while future collections follow
+the accepted operator and recipient state.
 
 ## Token Model
 
@@ -171,9 +133,7 @@ Token-2022 does not invoke transfer hooks for arbitrary `Burn`. An untracked
 direct srLP burn is therefore an intentional, irreversible donation: Dusk's
 internal srLP denominator does not shrink, the burned share's future yield is
 not redistributed, and the destroyed balance cannot authorize principal
-withdrawal. Parameter support is the explicit exception: Dusk checkpoints the
-holder, records the burn in `governance_locked_srlp`, maintains virtual yield,
-and authorizes the matching terminal remint.
+withdrawal. There is no parameter-voting burn or matching remint path.
 
 A partial direct hLP burn is recognized lazily on the next deposit or withdrawal for that hLP side. Dusk first checkpoints nested srLP growth against the old stored supply, then replaces the stored hLP supply with the smaller nonzero live mint supply before pricing the operation. Burned hLP principal is donated to the remaining holders; historical nested yield attributable to the burned balance remains stranded, while future nested yield uses the reconciled live supply. If every hLP atom is burned directly, no holder remains to authorize the normal final exit: the side is a deliberately fail-closed zombie and later hLP deposits/withdrawals reject. There is no governance sweep or asynchronous recovery path. Normal exits must use Dusk's remove/withdraw instructions.
 
@@ -306,8 +266,8 @@ hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and fund
 | Referral partner | `referral_partner`, `referrer` | `deriveReferralPartnerAddress` |
 | Referral accrual | `referral_accrual`, `referral_partner`, `market`, `asset_mint` | `deriveReferralAccrualAddress` |
 | Yield account | `yield`, `market`, `owner`, `lp_mint`, `asset_mint`, `token_kind` | `deriveYieldAccountAddress` |
-| Parameter proposal | `parameter_proposal`, `market`, `proposer`, little-endian `nonce` | `deriveParameterProposalAddress` |
-| Proposal support | `proposal_support`, `proposal`, `supporter` | `deriveProposalSupportAddress` |
+| Operator proposal | `operator_change`, `market`, little-endian `nonce` | derive from seed tuple |
+| Operator revenue | `operator_revenue`, `market`, little-endian revenue epoch | derive from seed tuple |
 | Leverage position | `leverage_position_v2`, `market`, `position_id` | `deriveLeveragePositionAddress` |
 | Leverage delegation | `leverage_delegation_v2`, `leverage_position` | derive from seed tuple |
 | Leverage collateral vault | `leverage_collateral`, `market`, `collateral_mint` | derive from seed tuple |
@@ -333,7 +293,7 @@ Indexers should consume Dusk events from the standalone Dusk IDL:
 - `ProtocolAuctionConfigUpdated`, `ProtocolAuctionRecipientsUpdated`, `ProtocolAuctionRouteUpdated`, `ProtocolAuctionSettled`
 - `ProtocolAuctionSplitUpdated`
 - `ReferralInterestShareCapUpdated`, `ReferralPartnerConfigured`, `ReferralRecipientUpdated`, `ReferralBound`, `ReferralInterestAccrued`, `ReferralInterestClaimed`
-- `ParameterProposalCreated`, `ParameterProposalSupported`, `ParameterProposalQueued`, `ParameterProposalExecuted`, `ParameterProposalSupportWithdrawn`
+- `OperatorChangeAnnounced`, `OperatorChanged`, `OperatorChangeResolved`, `OperatorRevenueClaimed`
 
 Most market-scoped Dusk events carry `MarketEventMetadata` with signer, market,
 and slot. Compact hot-path receipts expose `market` and their relevant actor
@@ -419,18 +379,26 @@ different.
 Useful focused checks while changing Omnipair V2 (Dusk):
 
 ```bash
-cargo fmt -p dusk -- --check
-cargo check -p dusk --lib
-cargo test -p dusk --lib -- --nocapture
+cargo fmt --all -- --check
+yarn check:hygiene
+yarn check:code-shape
+yarn check:clippy
+cargo test -p dusk
+cargo check -p dusk --lib --features production
+cargo test -p dusk --lib --features production
 cargo test -p leverage_delegate
-anchor build -p dusk
-anchor build -p leverage_delegate
-npm run check-idl-current --prefix packages/dusk-sdk
-npm run build --prefix packages/dusk-sdk
-yarn test-litesvm
+cargo test -p faucet
+yarn typecheck
+yarn build:litesvm
+yarn check:build-identity
+npm run check:dusk-sdk
+DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending
 ```
 
-Run dusk-sdk builds whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match generated build artifacts.
+For a Dusk or leverage-delegate interface change, first run
+`node scripts/prepare_build.js`, build both Anchor programs, run
+`npm run prepare-idl --prefix packages/dusk-sdk`, and commit the regenerated
+SDK IDL and type files after `npm run check:dusk-sdk` passes.
 
 ## Token precision
 

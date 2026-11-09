@@ -80,13 +80,6 @@ impl<'info> ExecuteProtectionOrder<'info> {
             } else {
                 remaining
             };
-            use anchor_lang::{
-                solana_program::{
-                    instruction::{AccountMeta, Instruction},
-                    program::invoke_signed,
-                },
-                InstructionData,
-            };
             let accounts = dusk::cpi::accounts::WithdrawSingleSided {
                 market: self.market.to_account_info(),
                 futarchy_authority: self.futarchy_authority.to_account_info(),
@@ -143,28 +136,19 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 accounts.event_authority.clone(),
                 accounts.program.clone(),
             ];
-            let mut infos = Vec::with_capacity(fixed.len() + remaining.len());
-            infos.extend(fixed);
-            infos.extend_from_slice(remaining);
-            let mut metas = accounts.to_account_metas(None);
-            metas.reserve_exact(remaining.len());
-            metas.extend(remaining.iter().map(|info| AccountMeta {
-                pubkey: info.key(),
-                is_signer: info.is_signer,
-                is_writable: info.is_writable,
-            }));
-            let instruction = Instruction {
-                program_id: dusk::ID,
-                accounts: metas,
-                data: dusk::instruction::WithdrawSingleSided {
+            invoke_dusk_with_remaining(
+                &fixed,
+                accounts.to_account_metas(None),
+                remaining,
+                dusk::instruction::WithdrawSingleSided {
                     args: dusk::instructions::WithdrawSingleSidedArgs {
                         hlp_amount: lp_amount,
                         min_target_amount_out: min_payment_out,
                     },
                 }
                 .data(),
-            };
-            invoke_signed(&instruction, &infos, signer).map_err(Into::into)
+                signer,
+            )
         }
     }
 }

@@ -73,16 +73,3 @@ pub(super) fn verify_opened_position(
         .and_then(|value| u64::try_from(value).ok())
         .ok_or_else(|| error!(LeverageDelegateError::MathOverflow))
 }
-
-pub(crate) fn escrow_margin_after_bounty(
-    credited_amount: u64,
-    executor_bounty: u64,
-    minimum_margin: u64,
-) -> Result<u64> {
-    let margin = credited_amount
-        .checked_sub(executor_bounty)
-        .ok_or(LeverageDelegateError::InvalidOrder)?;
-    require_gte!(margin, minimum_margin, LeverageDelegateError::InvalidOrder);
-    require!(margin > 0, LeverageDelegateError::InvalidOrder);
-    Ok(margin)
-}

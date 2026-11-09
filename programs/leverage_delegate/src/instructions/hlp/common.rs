@@ -17,29 +17,6 @@ pub struct HlpOrderIdArgs {
 }
 
 #[inline(never)]
-pub(super) fn preview_hlp_order_trigger<'info>(
-    accounts: &ExecuteHlpOrder<'info>,
-    remaining_accounts: &[AccountInfo<'info>],
-    target_asset: MarketAsset,
-    hlp_amount: u64,
-) -> Result<dusk::instructions::HlpOrderTriggerPreview> {
-    Ok(dusk::cpi::preview_hlp_order_trigger(
-        CpiContext::new(
-            accounts.dusk_program.to_account_info(),
-            dusk::cpi::accounts::PreviewHlpOrderTrigger {
-                market: accounts.market.to_account_info(),
-            },
-        )
-        .with_remaining_accounts(remaining_accounts.to_vec()),
-        dusk::instructions::PreviewHlpOrderTriggerArgs {
-            target_asset: target_asset.code(),
-            hlp_amount,
-        },
-    )?
-    .get())
-}
-
-#[inline(never)]
 pub(super) fn withdraw_hlp_order_position<'info>(
     accounts: &ExecuteHlpOrder<'info>,
     remaining_accounts: &[AccountInfo<'info>],
@@ -185,25 +162,4 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
             token_kind: YieldTokenKind::Hlp,
         },
     )
-}
-
-pub(super) fn validate_hlp_order_kind(kind: u8) -> Result<()> {
-    require!(
-        kind == HLP_ORDER_KIND_STOP_LOSS || kind == HLP_ORDER_KIND_STOP_RATE,
-        LeverageDelegateError::InvalidOrder
-    );
-    Ok(())
-}
-
-pub(super) fn hlp_order_trigger_met(
-    kind: u8,
-    principal_nav_nad: u64,
-    funding_apr_nad: u128,
-    trigger_nad: u64,
-) -> Result<bool> {
-    match kind {
-        HLP_ORDER_KIND_STOP_LOSS => Ok(principal_nav_nad <= trigger_nad),
-        HLP_ORDER_KIND_STOP_RATE => Ok(funding_apr_nad >= trigger_nad as u128),
-        _ => err!(LeverageDelegateError::InvalidOrder),
-    }
 }

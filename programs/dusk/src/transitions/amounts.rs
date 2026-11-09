@@ -28,6 +28,5 @@ impl Market {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     include!("../tests/transitions/amounts.rs");
 }

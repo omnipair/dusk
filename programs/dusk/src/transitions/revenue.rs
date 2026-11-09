@@ -151,20 +151,6 @@ impl Fees {
         }
     }
 
-    pub fn total_liability(&self) -> Result<u64> {
-        self.swap_fee_liability
-            .checked_add(self.interest_liability)
-            .and_then(|value| value.checked_add(self.unallocated_swap_fee_liability))
-            .and_then(|value| value.checked_add(self.unallocated_interest_liability))
-            .and_then(|value| value.checked_add(self.swap_protocol_fee_liability))
-            .and_then(|value| value.checked_add(self.swap_buyback_fee_liability))
-            .and_then(|value| value.checked_add(self.interest_protocol_fee_liability))
-            .and_then(|value| value.checked_add(self.interest_buyback_fee_liability))
-            .and_then(|value| value.checked_add(self.referral_interest_liability))
-            .and_then(|value| value.checked_add(self.revenue_interest_liability))
-            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-    }
-
     pub fn assert_backed(&self) -> Result<()> {
         let swap_liability = self
             .swap_fee_liability
@@ -287,3 +273,6 @@ fn proportional_bps(amount: u64, bps: u16) -> Result<u64> {
         .ok_or(ErrorCode::MarketMathOverflow)?;
     u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
+
+#[cfg(test)]
+include!("../tests/support/revenue.rs");

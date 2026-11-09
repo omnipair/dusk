@@ -5,7 +5,7 @@ use crate::{
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
     state::*,
-    transitions::{liquidation_policy::LIQUIDATION_MINIMUM_DISCOUNT_BPS, DebtRepaymentQuote, LeverageCollateralFee},
+    transitions::{DebtRepaymentQuote, LeverageCollateralFee},
 };
 
 pub(crate) enum LiquidationPositionRef<'a> {

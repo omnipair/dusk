@@ -1,4 +1,8 @@
-use crate::{errors::ErrorCode, math::mul_div_u128};
+use crate::{
+    errors::ErrorCode,
+    math::mul_div_u128,
+    state::{IncomeExposureEnd, IncomeReceivableBook, IncomeReceivableClaim, ReceivableGrowth},
+};
 use anchor_lang::prelude::*;
 use uint::construct_uint;
 
@@ -19,41 +23,8 @@ use wide::U256;
 
 const Q64: u128 = 1_u128 << 64;
 
-/// One exposure lane's newly issued receivable units per LP receipt. The
-/// weighted paid index is kept at full Q128 precision: flooring it earlier can
-/// give late entrants a fractional claim on money paid before their entry.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct ReceivableGrowth {
-    pub units_q64: u128,
-    pub weighted_paid_q128: [u64; 4],
-}
-
-/// A bounded-denomination epoch of an unpaid-income pool. Public and hLP
-/// funding income use separate books. Repayments/defaults are pooled within
-/// each book; already funded advances do not remain unpaid claims.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct IncomeReceivableBook {
-    pub epoch: u64,
-    pub unpaid: u64,
-    pub units: u64,
-    pub paid_per_unit_q64: u128,
-    pub paid_remainder: u64,
-    /// Ordinary senior, junior, base hLP, quote hLP.
-    pub growth: [ReceivableGrowth; 4],
-}
-
 impl anchor_lang::Space for Box<IncomeReceivableBook> {
     const INIT_SPACE: usize = IncomeReceivableBook::INIT_SPACE;
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct IncomeReceivableClaim {
-    pub epoch: u64,
-    pub units_q64: u128,
-    pub paid_checkpoint_q64: u128,
-    pub growth_checkpoint: ReceivableGrowth,
-    pub paid_fraction_q128: u128,
-    pub claimable: u64,
 }
 
 impl IncomeReceivableBook {
@@ -229,7 +200,7 @@ impl IncomeReceivableClaim {
         balance: u64,
         book: &IncomeReceivableBook,
         lane: usize,
-        end: super::IncomeExposureEnd,
+        end: IncomeExposureEnd,
     ) -> Result<()> {
         if !end.ended || book.epoch < end.epoch {
             return self.checkpoint(balance, book, lane);
@@ -247,7 +218,7 @@ impl IncomeReceivableClaim {
         balance: u64,
         book: &IncomeReceivableBook,
         lane: usize,
-        end: super::IncomeExposureEnd,
+        end: IncomeExposureEnd,
     ) -> Result<()> {
         if !end.ended || book.epoch < end.epoch {
             return self.advance_epoch(balance, book, lane);

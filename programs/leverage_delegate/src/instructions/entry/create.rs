@@ -111,8 +111,15 @@ impl<'info> CreateLeverageEntryOrder<'info> {
             args.executor_bounty,
             Clock::get()?.epoch,
         )?;
-        let margin_amount =
-            escrow_margin_after_bounty(credited, bounty_debit, args.min_margin_amount)?;
+        let margin_amount = credited
+            .checked_sub(bounty_debit)
+            .ok_or(LeverageDelegateError::InvalidOrder)?;
+        require_gte!(
+            margin_amount,
+            args.min_margin_amount,
+            LeverageDelegateError::InvalidOrder
+        );
+        require!(margin_amount > 0, LeverageDelegateError::InvalidOrder);
 
         transfer_checked(
             token_program_for_mint(

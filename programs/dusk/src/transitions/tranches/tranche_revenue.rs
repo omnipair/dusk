@@ -1,4 +1,7 @@
-use crate::{errors::ErrorCode, state::TrancheCapital};
+use crate::{
+    errors::ErrorCode,
+    state::{TrancheCapital, TrancheRevenueCarry},
+};
 use anchor_lang::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,14 +21,6 @@ pub struct TrancheRevenueAllocation {
     /// New funded capital for the permanent owner when junior has no backing.
     /// Never publish this as income on a wiped generation's growth index.
     pub rebuild_seed: u64,
-}
-
-/// Carry sub-basis-point atoms across credits so splitting a payment into many
-/// small transfers cannot change either tranche's governed allocation.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct TrancheRevenueCarry {
-    pub interest_remainder_bps: u16,
-    pub swap_remainder_bps: u16,
 }
 
 impl TrancheRevenueCarry {

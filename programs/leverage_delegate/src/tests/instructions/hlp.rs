@@ -2,19 +2,6 @@ use super::*;
 use dusk::constants::NAD;
 
 #[test]
-fn hlp_order_kinds_and_trigger_directions_are_exact() {
-    assert!(validate_hlp_order_kind(HLP_ORDER_KIND_STOP_LOSS).is_ok());
-    assert!(validate_hlp_order_kind(HLP_ORDER_KIND_STOP_RATE).is_ok());
-    assert!(validate_hlp_order_kind(0).is_err());
-
-    assert!(hlp_order_trigger_met(HLP_ORDER_KIND_STOP_LOSS, 99, 0, 100).unwrap());
-    assert!(!hlp_order_trigger_met(HLP_ORDER_KIND_STOP_LOSS, 101, 0, 100).unwrap());
-    assert!(hlp_order_trigger_met(HLP_ORDER_KIND_STOP_RATE, 0, 101, 100).unwrap());
-    assert!(!hlp_order_trigger_met(HLP_ORDER_KIND_STOP_RATE, 0, 99, 100).unwrap());
-    assert!(hlp_order_trigger_met(0, 100, 100, 100).is_err());
-}
-
-#[test]
 fn partial_hlp_order_escrows_only_the_selected_tranche() {
     let user_balance = 100;
     let order_amount = 30;

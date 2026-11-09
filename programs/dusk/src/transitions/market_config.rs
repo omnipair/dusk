@@ -452,6 +452,16 @@ fn half_life_in_bounds(half_life_ms: u64) -> bool {
 }
 
 impl Market {
+    /// The same operator policy applies to every pool. There are no LP-owned
+    /// approval baselines, movement budgets, or voting-based exceptions.
+    pub fn validate_operator_updates(&self, updates: &[MarketParameterUpdate]) -> Result<()> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+        self.validate_parameter_updates(updates)?;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn initialize(
         &mut self,
@@ -606,34 +616,6 @@ impl Market {
         Ok(())
     }
 
-    pub fn current_parameter_update(&self, family: ParameterFamily) -> MarketParameterUpdate {
-        match family {
-            ParameterFamily::Fee => MarketParameterUpdate::Fee(self.config.fee_profile()),
-            ParameterFamily::Concentration => MarketParameterUpdate::Concentration {
-                peak_amplification_nad: self.config.amm.peak_amplification_nad,
-                core_half_width_bps: self.config.amm.core_half_width_bps,
-                fade_width_bps: self.config.amm.fade_width_bps,
-                ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
-            },
-            ParameterFamily::Irm => MarketParameterUpdate::Irm(self.config.irm.into()),
-            ParameterFamily::EmaHalfLives => MarketParameterUpdate::EmaHalfLives {
-                price_ms: self.config.ema_half_life_ms,
-                directional_price_ms: self.config.directional_ema_half_life_ms,
-                curve_depth_ms: self.config.curve_depth_ema_half_life_ms,
-                center_price_ms: self.config.amm.center_ema_half_life_ms,
-            },
-            ParameterFamily::DailyBorrowLimit => MarketParameterUpdate::DailyBorrowLimit {
-                max_daily_borrow_bps: self.config.max_daily_borrow_bps,
-            },
-            ParameterFamily::CenterController => MarketParameterUpdate::CenterController {
-                adjustment_step_nad: self.config.amm.adjustment_step_nad,
-            },
-            ParameterFamily::Tranche => MarketParameterUpdate::Tranche {
-                junior_income_share_bps: self.tranche_policy.junior_income_share_bps,
-            },
-        }
-    }
-
     /// Validate a proposal's updates without permitting unrelated
     /// configuration fields to move with them: one to seven, at most one per
     /// family in ascending family order, each a real change within its own
@@ -736,14 +718,6 @@ impl Market {
         }
         next.validate()?;
         Ok(next)
-    }
-
-    /// Checkpoint all elapsed state under the old parameters, apply every
-    /// family as one atomic change, enforce market health and available liquidity, and then advance the revision of each family that changed.
-    /// Any failure leaves the market untouched.
-    #[cfg(test)]
-    pub fn execute_parameter_updates(&mut self, updates: &[MarketParameterUpdate], current_slot: u64) -> Result<()> {
-        self.execute_parameter_updates_inner(updates, current_slot)
     }
 
     /// Authenticate the immutable creation-time oracle policy, then checkpoint
@@ -916,3 +890,6 @@ impl Market {
         Ok(())
     }
 }
+
+#[cfg(test)]
+include!("../tests/support/market_config.rs");

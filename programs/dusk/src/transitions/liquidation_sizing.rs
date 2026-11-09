@@ -6,7 +6,6 @@ use crate::{
     transitions::{
         amm::{cpmm_amount_out_nad, ConcentratedCurveDirection, ConcentratedCurvePoint},
         flash_liquidation::LiquidationPositionRef,
-        liquidation_policy::{LIQUIDATION_MINIMUM_DISCOUNT_BPS, LIQUIDATION_RECOVERY_BUFFER_BPS},
         LeverageCollateralFee,
     },
 };
@@ -174,7 +173,7 @@ impl Market {
                 repayment_rate = ceil(
                     repayment_rate,
                     10_000,
-                    10_000 + u128::from(crate::transitions::liquidation_policy::LIQUIDATION_FEE_BPS),
+                    10_000 + u128::from(crate::state::LIQUIDATION_FEE_BPS),
                 )?;
                 let rounding = ceil(raw_price, 1, u128::from(NAD))?
                     .checked_add(4)

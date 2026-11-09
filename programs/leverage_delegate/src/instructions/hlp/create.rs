@@ -55,9 +55,10 @@ impl<'info> CreateHlpOrder<'info> {
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: CreateHlpOrderArgs,
     ) -> Result<()> {
-        validate_hlp_order_kind(args.kind)?;
         require!(
-            args.hlp_amount > 0 && args.trigger_nad > 0,
+            (args.kind == HLP_ORDER_KIND_STOP_LOSS || args.kind == HLP_ORDER_KIND_STOP_RATE)
+                && args.hlp_amount > 0
+                && args.trigger_nad > 0,
             LeverageDelegateError::InvalidOrder
         );
         ctx.accounts

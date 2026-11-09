@@ -97,19 +97,6 @@ impl Market {
         Ok(())
     }
 
-    pub fn leverage_reference_equity_bps(&self, position: &LeveragePosition, collateral_credit: u64) -> Result<u128> {
-        let asset = position.collateral_asset()?;
-        let value = self.linear_liquidation_collateral_value_nad(asset, collateral_credit, &self.risk)?;
-        let debt = self.normalize_amount(
-            u128::from(position.debt_amount(&self.debt)?),
-            self.side(asset.opposite()).asset_decimals,
-        )?;
-        if value == 0 || debt >= value {
-            return Ok(0);
-        }
-        mul_div_u128(value - debt, 10_000, value)
-    }
-
     pub fn leverage_reference_protection_health(
         &self,
         position: &LeveragePosition,
@@ -129,3 +116,6 @@ impl Market {
         Ok(health.min(u128::from(u64::MAX)) as u64)
     }
 }
+
+#[cfg(any(test, feature = "benchmark"))]
+include!("../../benchmark/analysis/leverage_reference.rs");

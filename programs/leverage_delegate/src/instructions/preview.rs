@@ -1,4 +1,9 @@
-use super::*;
+use anchor_lang::prelude::*;
+use anchor_spl::token_interface::Mint;
+use dusk::state::{BorrowPosition, LeveragePosition, Market, MarketAsset};
+
+use super::{hlp::ExecuteHlpOrder, protection::protection_health_of};
+use crate::{errors::LeverageDelegateError, state::ProtectionOrder};
 
 #[derive(Accounts)]
 pub struct PreviewProtectionOrder<'info> {
@@ -42,4 +47,27 @@ impl PreviewProtectionOrder<'_> {
             )?,
         )
     }
+}
+
+#[inline(never)]
+pub(crate) fn fetch_hlp_order_trigger_preview<'info>(
+    accounts: &ExecuteHlpOrder<'info>,
+    remaining_accounts: &[AccountInfo<'info>],
+    target_asset: MarketAsset,
+    hlp_amount: u64,
+) -> Result<dusk::instructions::HlpOrderTriggerPreview> {
+    Ok(dusk::cpi::preview_hlp_order_trigger(
+        CpiContext::new(
+            accounts.dusk_program.to_account_info(),
+            dusk::cpi::accounts::PreviewHlpOrderTrigger {
+                market: accounts.market.to_account_info(),
+            },
+        )
+        .with_remaining_accounts(remaining_accounts.to_vec()),
+        dusk::instructions::PreviewHlpOrderTriggerArgs {
+            target_asset: target_asset.code(),
+            hlp_amount,
+        },
+    )?
+    .get())
 }

@@ -5,9 +5,6 @@ use crate::{
     errors::ErrorCode,
 };
 
-#[cfg(test)]
-use crate::constants::NAD_DECIMALS;
-
 /// Converts backed token atoms and prior carry into Q64 per-share growth while
 /// preserving `amount * 2^64 + prior = delta * supply + remainder` exactly.
 pub(crate) fn distribute_growth_q64(amount: u64, supply: u64, prior_remainder_scaled: u64) -> Result<(u128, u64)> {
@@ -20,12 +17,6 @@ pub(crate) fn distribute_growth_q64(amount: u64, supply: u64, prior_remainder_sc
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let remainder = u64::try_from(scaled % supply as u128).map_err(|_| ErrorCode::MarketMathOverflow)?;
     Ok((scaled / supply as u128, remainder))
-}
-
-#[cfg(test)]
-pub fn accrue_fee_liability(shares: u64, fee_growth_index_q64: u128, fee_growth_checkpoint_q64: u128) -> Result<u64> {
-    accrue_fee_liability_with_remainder(shares, fee_growth_index_q64, fee_growth_checkpoint_q64, 0)
-        .map(|(amount, _)| amount)
 }
 
 pub fn accrue_fee_liability_with_remainder(
@@ -98,49 +89,6 @@ pub(crate) fn rescale_amount(amount: u128, from: u8, to: u8, round_up: bool) -> 
         };
         Ok(amount / scale + u128::from(round_up && !amount.is_multiple_of(scale)))
     }
-}
-
-#[cfg(test)]
-pub(crate) fn normalize_to_nad(amount: u128, decimals: u8) -> Result<u128> {
-    match decimals.cmp(&NAD_DECIMALS) {
-        std::cmp::Ordering::Equal => Ok(amount),
-        std::cmp::Ordering::Less => amount
-            .checked_mul(
-                10_u128
-                    .checked_pow((NAD_DECIMALS - decimals) as u32)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or_else(|| ErrorCode::MarketMathOverflow.into()),
-        std::cmp::Ordering::Greater => Ok(amount
-            .checked_div(
-                10_u128
-                    .checked_pow((decimals - NAD_DECIMALS) as u32)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?),
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn denormalize_from_nad_ceil(amount_nad: u128, decimals: u8) -> Result<u64> {
-    let value = match decimals.cmp(&NAD_DECIMALS) {
-        std::cmp::Ordering::Equal => amount_nad,
-        std::cmp::Ordering::Less => ceil_div(
-            amount_nad,
-            10_u128
-                .checked_pow((NAD_DECIMALS - decimals) as u32)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )
-        .ok_or(ErrorCode::MarketMathOverflow)?,
-        std::cmp::Ordering::Greater => amount_nad
-            .checked_mul(
-                10_u128
-                    .checked_pow((decimals - NAD_DECIMALS) as u32)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-    };
-    u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 pub(crate) fn observed_or_current_u64(cached_observation: u64, current_observation: u64) -> u64 {
@@ -431,3 +379,6 @@ pub fn ceil_div(a: u128, b: u128) -> Option<u128> {
     }
     a.checked_add(b - 1)?.checked_div(b)
 }
+
+#[cfg(test)]
+include!("../tests/support/arithmetic.rs");

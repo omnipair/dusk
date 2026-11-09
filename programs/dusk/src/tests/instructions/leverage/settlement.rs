@@ -8,6 +8,30 @@ use spl_token_2022::{
     state::Mint as SplToken2022Mint,
 };
 
+fn delegated_callback_metas(
+    accounts: &[AccountInfo<'_>],
+    protected_accounts: &[Pubkey],
+    writable_protected_accounts: &[Pubkey],
+) -> Result<Vec<AccountMeta>> {
+    for (index, account) in accounts.iter().enumerate() {
+        for prior in accounts.iter().take(index) {
+            require_keys_neq!(account.key(), prior.key(), ErrorCode::InvalidLeverageDelegation);
+        }
+    }
+    Ok(accounts
+        .iter()
+        .map(|account| {
+            let protected = protected_accounts.contains(account.key);
+            AccountMeta {
+                pubkey: account.key(),
+                is_signer: false,
+                is_writable: account.is_writable
+                    && (!protected || writable_protected_accounts.contains(account.key)),
+            }
+        })
+        .collect())
+}
+
 #[test]
 fn delegated_callback_does_not_forward_outer_signers() {
     let key = Pubkey::new_unique();

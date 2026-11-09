@@ -435,8 +435,8 @@ Dusk extends the invariant set where hLP needs curve-aware one-sided hedging:
 
 | Status | Program ID |
 | --- | --- |
-| Dusk source / devnet | `5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ` |
-| Leverage delegate source / devnet | `3ChYvxNwJfr49PznzYKPmXLFUw5P2vUQZmbqqmyFJCYi` |
+| Dusk source / devnet | `2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y` |
+| Leverage delegate source / devnet | `AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX` |
 | Devnet faucet | `EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz` |
 
 ## Verification
@@ -447,16 +447,26 @@ Core Omnipair V2 (Dusk) verification gates:
 node scripts/prepare_build.js
 anchor build -p dusk
 anchor build -p leverage_delegate
-cargo fmt -p dusk -- --check
-cargo check -p dusk --lib
-cargo test -p dusk --lib -- --nocapture
+cargo fmt --all -- --check
+yarn check:hygiene
+yarn check:code-shape
+yarn check:clippy
+cargo test -p dusk
+cargo check -p dusk --lib --features production
+cargo test -p dusk --lib --features production
 cargo test -p leverage_delegate
-npm run check-idl-current --prefix packages/dusk-sdk
-npm run build --prefix packages/dusk-sdk
-yarn test-litesvm
+cargo test -p faucet
+yarn typecheck
+yarn build:litesvm
+yarn check:build-identity
+npm run check:dusk-sdk
+DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending
 ```
 
-Run the dusk-sdk build whenever public IDL, account, event, seed, or instruction shapes change. `check-idl-current` must pass after `anchor build -p dusk` so committed client files match the generated build artifacts.
+For a Dusk or leverage-delegate interface change, run
+`npm run prepare-idl --prefix packages/dusk-sdk` after both Anchor builds and
+commit the regenerated SDK IDL and type files after `npm run check:dusk-sdk`
+passes.
 
 On a clean checkout, run `node scripts/prepare_build.js` before any Anchor command. [Anchor 0.31.1's configuration discovery](https://github.com/coral-xyz/anchor/blob/47284f8f/cli/src/config.rs#L543) otherwise creates new program keys and rewrites the declared IDs when `target/deploy` is absent. The `yarn build:litesvm` and `yarn v2:build-*-devnet` commands include this preparation. `yarn check:build-identity` exercises Anchor in a disposable fresh workspace and verifies that the source declarations and devnet configuration stay unchanged. No local RPC or validator is required.
 

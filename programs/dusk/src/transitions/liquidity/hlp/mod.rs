@@ -79,11 +79,6 @@ impl HlpVault {
         Ok(())
     }
 
-    pub fn credit_srlp(&mut self, shares: u64) -> Result<()> {
-        self.srlp_shares = self.srlp_shares.checked_add(shares).ok_or(ErrorCode::SupplyOverflow)?;
-        Ok(())
-    }
-
     pub fn debit_srlp(&mut self, shares: u64) -> Result<()> {
         self.srlp_shares = self.srlp_shares.checked_sub(shares).ok_or(ErrorCode::SupplyUnderflow)?;
         Ok(())
@@ -96,37 +91,12 @@ impl HlpVault {
         }
     }
 
-    pub fn credit_hlp_live_reserve(&mut self, asset: MarketAsset, amount: u64) -> Result<()> {
-        let reserve = match asset {
-            MarketAsset::Base => &mut self.base_hlp_live_reserve,
-            MarketAsset::Quote => &mut self.quote_hlp_live_reserve,
-        };
-        *reserve = reserve.checked_add(amount).ok_or(ErrorCode::ReserveOverflow)?;
-        Ok(())
-    }
-
     pub fn debit_hlp_live_reserve(&mut self, asset: MarketAsset, amount: u64) -> Result<()> {
         let reserve = match asset {
             MarketAsset::Base => &mut self.base_hlp_live_reserve,
             MarketAsset::Quote => &mut self.quote_hlp_live_reserve,
         };
         *reserve = reserve.checked_sub(amount).ok_or(ErrorCode::ReserveUnderflow)?;
-        Ok(())
-    }
-
-    pub fn add_debt_shares(&mut self, shares: u128) -> Result<()> {
-        self.debt_shares = self
-            .debt_shares
-            .checked_add(shares)
-            .ok_or(ErrorCode::DebtShareMathOverflow)?;
-        Ok(())
-    }
-
-    pub fn add_debt_principal(&mut self, amount: u64) -> Result<()> {
-        self.debt_principal = self
-            .debt_principal
-            .checked_add(amount)
-            .ok_or(ErrorCode::DebtMathOverflow)?;
         Ok(())
     }
 
@@ -168,10 +138,6 @@ impl HlpVault {
 
     pub fn repayment_for_max(&self, max_repay_amount: u64, borrow_index_nad: u128) -> Result<DebtRepaymentQuote> {
         Debt::repayment_for_max(self.debt_shares, self.debt_shares, borrow_index_nad, max_repay_amount)
-    }
-
-    pub fn checkpoint_yield_from_srlp(&mut self, base_side: &MarketSide, quote_side: &MarketSide) -> Result<()> {
-        self.checkpoint_yield_from_srlp_shares(base_side, quote_side, self.srlp_shares)
     }
 
     pub fn checkpoint_yield_from_srlp_shares(
@@ -355,16 +321,6 @@ impl Market {
         drain_hlp_vault_unallocated_yield(vault, base_yield_account, quote_yield_account)
     }
 
-    /// Validate that the current hLP hedge state admits new capital without
-    /// exposing rebalance-engine intermediates outside the hLP domain.
-    pub fn assert_hlp_entry_available(&self, target_asset: MarketAsset) -> Result<()> {
-        require!(!self.hlp_frozen(target_asset), ErrorCode::HlpSettlementUnavailable);
-        let prices = current_hlp_curve_prices(self)?;
-        let entry = current_hlp_entry_state_with_prices(self, target_asset, prices)?;
-        require!(entry.disposition.admits_entry(), ErrorCode::HlpSettlementUnavailable);
-        Ok(())
-    }
-
     pub fn checkpoint_hlp_vaults(&mut self) -> Result<(i128, i128)> {
         let (base_delta, quote_delta, _) = self.checkpoint_hlp_vaults_with_price()?;
         Ok((base_delta, quote_delta))
@@ -482,6 +438,9 @@ pub struct HlpYieldEligibility {
     pub base_hlp_srlp_shares: u64,
     pub quote_hlp_srlp_shares: u64,
 }
+
+#[cfg(test)]
+include!("../../../tests/support/hlp.rs");
 
 #[cfg(test)]
 mod tests {

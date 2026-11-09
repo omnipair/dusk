@@ -76,7 +76,7 @@ use crate::{
         Reserves, Risk,
     },
     transitions::{
-        amm::ConcentratedCurveParameters, leverage_entry_limit_satisfied, leverage_entry_price_nad, LeverageCollateralFee,
+        amm::ConcentratedCurveParameters, require_leverage_entry_limit, LeverageCollateralFee,
         liquidity::SwapCashPolicy,
     },
 };
@@ -178,53 +178,19 @@ fn empty_position() -> LeveragePosition {
 fn leverage_entry_price_is_side_aware_and_conservatively_rounded() {
     let mut market = test_market(1_000_000, 2_000_000);
 
-    assert_eq!(
-        leverage_entry_price_nad(&market, MarketAsset::Quote, 200, 100).unwrap(),
-        2 * NAD
-    );
-    assert_eq!(
-        leverage_entry_price_nad(&market, MarketAsset::Base, 100, 200).unwrap(),
-        2 * NAD
-    );
-    assert_eq!(
-        leverage_entry_price_nad(&market, MarketAsset::Quote, 201, 100).unwrap(),
-        2_010_000_000
-    );
-    assert_eq!(
-        leverage_entry_price_nad(&market, MarketAsset::Base, 100, 199).unwrap(),
-        1_990_000_000
-    );
-    assert!(leverage_entry_limit_satisfied(
-        MarketAsset::Quote,
-        1_999_999_999,
-        2 * NAD,
-    ));
-    assert!(!leverage_entry_limit_satisfied(
-        MarketAsset::Quote,
-        2_000_000_001,
-        2 * NAD,
-    ));
-    assert!(leverage_entry_limit_satisfied(
-        MarketAsset::Base,
-        2_000_000_001,
-        2 * NAD,
-    ));
-    assert!(!leverage_entry_limit_satisfied(
-        MarketAsset::Base,
-        1_999_999_999,
-        2 * NAD,
-    ));
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Quote, 200, 100, 2 * NAD).is_ok());
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Quote, 201, 100, 2_010_000_000).is_ok());
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Quote, 201, 100, 2_009_999_999).is_err());
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Base, 100, 200, 2 * NAD).is_ok());
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Base, 100, 199, 1_990_000_000).is_ok());
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Base, 100, 199, 1_990_000_001).is_err());
 
     market.base_side.asset_decimals = 10;
     market.quote_side.asset_decimals = 9;
-    assert_eq!(
-        leverage_entry_price_nad(&market, MarketAsset::Quote, 1, 11).unwrap(),
-        909_090_910
-    );
-    assert_eq!(
-        leverage_entry_price_nad(&market, MarketAsset::Base, 11, 1).unwrap(),
-        909_090_909
-    );
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Quote, 1, 11, 909_090_910).is_ok());
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Quote, 1, 11, 909_090_909).is_err());
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Base, 11, 1, 909_090_909).is_ok());
+    assert!(require_leverage_entry_limit(&market, MarketAsset::Base, 11, 1, 909_090_910).is_err());
 }
 
 fn seeded_position(

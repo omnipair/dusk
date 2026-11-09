@@ -7,7 +7,6 @@ use anchor_lang::Discriminator;
 use crate::{
     errors::ErrorCode,
     state::{Market, MarketAsset},
-    transitions::HlpRebalanceReceipt,
 };
 
 pub(crate) fn enforce_launch_same_transaction_guard(
@@ -75,10 +74,6 @@ pub(crate) fn enforce_launch_same_transaction_guard(
     }
     require_eq!(matching_market_actions, 1, ErrorCode::LaunchRateLimitSplitTransaction);
     Ok(())
-}
-
-pub(crate) fn rebalance_executes_token_changes(receipt: &HlpRebalanceReceipt) -> bool {
-    receipt.srlp_mint_amount > 0 || receipt.srlp_burn_amount > 0 || receipt.interest_paid > 0
 }
 
 #[cfg(test)]

@@ -227,33 +227,6 @@ pub fn token_mint_to<'a>(
     }
 }
 
-pub fn token_mint_to_with_instruction<'a>(
-    scratch: &mut Instruction,
-    authority: AccountInfo<'a>,
-    token_program: AccountInfo<'a>,
-    mint: AccountInfo<'a>,
-    destination: AccountInfo<'a>,
-    amount: u64,
-    signer_seeds: &[&[&[u8]]],
-) -> Result<()> {
-    if amount == 0 {
-        return Ok(());
-    }
-    require!(
-        *token_program.key == Token2022::id() || *token_program.key == Token::id(),
-        ErrorCode::InvalidTokenProgram
-    );
-    scratch.program_id = *token_program.key;
-    scratch.accounts.clear();
-    scratch.accounts.push(AccountMeta::new(*mint.key, false));
-    scratch.accounts.push(AccountMeta::new(*destination.key, false));
-    scratch.accounts.push(AccountMeta::new_readonly(*authority.key, true));
-    scratch.data.clear();
-    scratch.data.push(7);
-    scratch.data.extend_from_slice(&amount.to_le_bytes());
-    invoke_signed(scratch, &[mint, destination, authority, token_program], signer_seeds).map_err(Into::into)
-}
-
 pub fn token_burn<'a>(
     authority: AccountInfo<'a>,
     token_program: AccountInfo<'a>,
@@ -448,6 +421,5 @@ pub fn create_token_account<'a>(
 
 #[cfg(test)]
 mod hook_resolution_tests {
-    use super::*;
     include!("tests/token_hook_resolution.rs");
 }

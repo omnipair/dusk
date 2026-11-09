@@ -13,6 +13,8 @@ pub use delegation::*;
 pub use increase_leverage::*;
 pub use open_leverage::*;
 
+#[cfg(feature = "benchmark")]
+pub(crate) use settlement::prepare_leverage_swap;
 pub use settlement::{
     lending_market_admission_fees, leverage_collateral_admission_fee, leverage_collateral_fee,
     leverage_collateral_liquidation_fee, leverage_position_pda, DelegatedCpiArgs, LeverageDelegationApproval,

@@ -67,13 +67,6 @@ impl Market {
                 .map_err(|_| ErrorCode::MarketMathOverflow)?,
         })
     }
-
-    pub(crate) fn liquidity_nad(&self) -> Result<u128> {
-        geometric_mean_floor(
-            self.normalize_amount(self.base_side.reserves.live_reserve, self.base_side.asset_decimals)?,
-            self.normalize_amount(self.quote_side.reserves.live_reserve, self.quote_side.asset_decimals)?,
-        )
-    }
 }
 
 impl Market {
@@ -541,7 +534,20 @@ impl Market {
             .checked_add(candidate_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         let candidate_curve_depth_per_share = self.curve_depth_per_share_nad(candidate_curve_depth)?;
-        let covered = covered_impairment_nad(self.amm.curve_depth_per_share_nad, candidate_curve_depth_per_share)?;
+        let impairment = self
+            .amm
+            .curve_depth_per_share_nad
+            .saturating_sub(candidate_curve_depth_per_share);
+        let covered = if impairment == 0 {
+            0
+        } else {
+            mul_bps_ceil(impairment, PROTECTED_LIQUIDITY_COVERAGE_BPS)?
+                .checked_add(mul_bps_ceil(
+                    self.amm.curve_depth_per_share_nad,
+                    PROTECTED_LIQUIDITY_GUARD_BPS,
+                )?)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
         // A protected bucket is sufficient only when deploying every locked
         // atom leaves srLP curve principal no lower than before the center
         // move. This avoids assigning a fungible token-value conversion to
@@ -678,20 +684,6 @@ impl Market {
         Ok(())
     }
 
-    /// Finalizes observations after the complete swap and hLP settlement.
-    /// The caller supplies the final executable price, including compounding.
-    #[cfg(test)]
-    pub(crate) fn finalize_amm_trade(
-        &mut self,
-        trade_start_price_nad: u64,
-        final_price_nad: u64,
-        current_slot: u64,
-    ) -> Result<()> {
-        self.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
-        self.finalize_amm_trade_after_inventory_checkpoint(trade_start_price_nad, final_price_nad, current_slot)?;
-        Ok(())
-    }
-
     /// Finalizes a trade whose complete post-trade executable inventory was
     /// already checkpointed by the immediately preceding reserve mutation.
     ///
@@ -712,17 +704,6 @@ impl Market {
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
     }
-}
-
-fn covered_impairment_nad(current_depth: u128, candidate_depth: u128) -> Result<u128> {
-    let impairment = current_depth.saturating_sub(candidate_depth);
-    if impairment == 0 {
-        return Ok(0);
-    }
-    let covered = mul_bps_ceil(impairment, PROTECTED_LIQUIDITY_COVERAGE_BPS)?;
-    covered
-        .checked_add(mul_bps_ceil(current_depth, PROTECTED_LIQUIDITY_GUARD_BPS)?)
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 fn mul_bps_ceil(value: u128, bps: u16) -> Result<u128> {
@@ -1529,49 +1510,6 @@ impl Market {
             .map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
-    #[cfg(test)]
-    pub(crate) fn quote_integrated_concentrated_exact_in_nad(
-        &self,
-        gross_amount_in_nad: u128,
-        frozen_total_fee_nad: u128,
-        asset_in: MarketAsset,
-    ) -> Result<Option<IntegratedFrozenFeeQuote>> {
-        let Some(geometry) = self.current_concentrated_curve_geometry()? else {
-            return Ok(None);
-        };
-        quote_integrated_exact_in_with_frozen_fee(
-            self.integrated_curve_state_nad()?,
-            geometry,
-            gross_amount_in_nad,
-            frozen_total_fee_nad,
-            match asset_in {
-                MarketAsset::Base => IntegratedSwapDirection::BaseToQuote,
-                MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
-            },
-        )
-        .map(Some)
-    }
-
-    pub(crate) fn quote_concentrated_integrated_with_fee(
-        &self,
-        asset_in: MarketAsset,
-        reserve_credit: u64,
-        preliminary: PreliminarySwapInputs,
-        protocol_fee_bps: u16,
-    ) -> Result<Option<ConcentratedIntegratedAmmQuote>> {
-        let (state, mark) = self.integrated_curve_state_with_mark_nad()?;
-        self.evaluate_concentrated_swap_with_mark(
-            asset_in,
-            reserve_credit,
-            preliminary,
-            &state,
-            protocol_fee_bps,
-            true,
-            mark,
-        )
-        .map(|(_, transition)| transition.map(|quote| *quote))
-    }
-
     pub(crate) fn quote_concentrated_integrated_with_fee_from_state(
         &self,
         asset_in: MarketAsset,
@@ -2167,6 +2105,9 @@ impl Market {
     }
 }
 
+#[cfg(any(test, feature = "benchmark"))]
+include!("../../../benchmark/analysis/concentrated_quote.rs");
+
 fn output_denominated_dynamic_fee(
     gross_amount_out: u64,
     gross_amount_in: u64,
@@ -2407,23 +2348,6 @@ pub(crate) struct PreliminarySwapInputs {
 }
 
 impl Market {
-    #[cfg(test)]
-    pub(crate) fn preliminary_swap_inputs_for_state(
-        &self,
-        asset_in: MarketAsset,
-        reserve_credit: u64,
-        current_slot: u64,
-        pre_state: DynamicFeePreState,
-    ) -> Result<PreliminarySwapInputs> {
-        self.preliminary_swap_inputs_for_state_at_time(
-            asset_in,
-            reserve_credit,
-            current_slot,
-            self.config.start_time,
-            pre_state,
-        )
-    }
-
     pub(crate) fn preliminary_swap_inputs_for_state_at_time(
         &self,
         asset_in: MarketAsset,
@@ -2554,7 +2478,7 @@ impl Market {
         require!(amount > 0, ErrorCode::InsufficientOutputAmount);
         require_gte!(
             amount,
-            minimum_executable_input(reserve_credit),
+            reserve_credit - hard_total_fee_budget_floor(reserve_credit),
             ErrorCode::BrokenInvariant
         );
         let reserve_input_credit = if self.amm.retain_dynamic_surcharge {
@@ -3073,3 +2997,6 @@ pub struct RetentionTarget {
 
 #[cfg(feature = "benchmark")]
 pub(crate) use swap::LendingSwapSettlement;
+
+#[cfg(test)]
+include!("../../tests/support/amm.rs");
