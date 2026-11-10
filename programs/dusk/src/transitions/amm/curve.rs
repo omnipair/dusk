@@ -654,6 +654,17 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
     // candidate to zero. That is too little liquidity for the configured
     // shape, not an internal inconsistency.
     let mut solved_candidate = false;
+    // The solve scales region constants from a fixed shape, while the
+    // geometry floors every layer at the solved liquidity. Within that
+    // rounding of a boundary, the two neighbouring solutions can each place
+    // the point in the other's region: the point lies between their boundary
+    // positions. Either solution is then exact up to rounding. The smaller
+    // one is kept, the same direction in which the root solve rounds.
+    // Single-band curves have no shoulder regions between neighbours.
+    // Misplaced candidates are rare; the list allocates only for them and
+    // keeps this frame within the SBF stack limit.
+    let neighbour_distance = if parameters.fade_width_bps == 0 { 2 } else { 1 };
+    let mut misplaced: Vec<(usize, u128, usize)> = Vec::new();
     for branch in branch_candidates {
         if parameters.fade_width_bps == 0
             && matches!(
@@ -810,9 +821,39 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
             outer_upper_sqrt_price_nad,
             sqrt_center_nad,
         )?;
-        if geometry.branch(point) == branch {
+        let region = nested_region_from_branch(branch);
+        let point_region = nested_region_from_branch(geometry.branch(point));
+        if point_region == region {
             return Ok((cache, geometry));
         }
+        let bracketing_total = misplaced
+            .iter()
+            .find(|&&(neighbour_region, _, neighbour_point_region)| {
+                neighbour_region == point_region
+                    && neighbour_point_region == region
+                    && region.abs_diff(point_region) == neighbour_distance
+            })
+            .map(|&(_, neighbour_total, _)| neighbour_total);
+        if let Some(neighbour_total) = bracketing_total {
+            if total_liquidity <= neighbour_total {
+                return Ok((cache, geometry));
+            }
+            let neighbour_concentrated = mul_div_u128(neighbour_total, concentrated_share, NAD as u128)?;
+            let neighbour_tail = neighbour_total
+                .checked_sub(neighbour_concentrated)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            return complete_concentrated_cache(
+                parameters,
+                neighbour_tail,
+                neighbour_concentrated,
+                core_lower_sqrt_price_nad,
+                core_upper_sqrt_price_nad,
+                outer_lower_sqrt_price_nad,
+                outer_upper_sqrt_price_nad,
+                sqrt_center_nad,
+            );
+        }
+        misplaced.push((region, total_liquidity, point_region));
     }
     require!(solved_candidate, ErrorCode::InsufficientLiquidity);
     err!(ErrorCode::BrokenInvariant)
