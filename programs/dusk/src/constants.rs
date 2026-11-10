@@ -11,8 +11,7 @@ pub const NAD_DECIMALS: u8 = 9;
 /// decimals beyond NAD give each atom of a nine-decimal token 1,000 internal
 /// units, so payouts, which floor to whole atoms, absorb the few units of
 /// rounding that rebuilding a concentrated curve from reserves can leave.
-/// Markets created at `NINE_DECIMAL_AMOUNT_LAYOUT_VERSION` keep nine. Prices,
-/// rates and ratios remain NAD.
+/// Prices, rates and ratios remain NAD.
 #[constant]
 pub const MIN_AMOUNT_DECIMALS: u8 = 12;
 const _: () = assert!(MIN_AMOUNT_DECIMALS >= NAD_DECIMALS);
@@ -137,19 +136,15 @@ pub const LEVERAGE_DELEGATION_SEED_PREFIX: &[u8] = b"leverage_delegation_v2";
 pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 #[constant]
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
-/// Serialized `Market` account layout discriminator.
+/// Serialized `Market` account layout discriminator, and the only layout the
+/// program reads. An account at any other layout is rejected before any of
+/// its quantities are read, never reinterpreted.
 ///
-/// Layout 15 counts token amounts in at least `MIN_AMOUNT_DECIMALS` decimals.
-/// Its bytes match layout 14, which replaced the former utilization admission
-/// threshold with independent lower/upper utilization rate targets. Aggregate
-/// virtual reserves use u128; physical token amounts remain u64.
+/// This layout counts token amounts in at least `MIN_AMOUNT_DECIMALS`
+/// decimals and sets independent lower/upper utilization rate targets.
+/// Aggregate virtual reserves use u128; physical token amounts remain u64.
 #[constant]
 pub const MARKET_LAYOUT_VERSION: u8 = 15;
-/// Layout of markets created before the twelve-decimal minimum. Their curve
-/// caches, depth averages and hLP offsets are stored at the nine-decimal
-/// minimum, which they keep.
-#[constant]
-pub const NINE_DECIMAL_AMOUNT_LAYOUT_VERSION: u8 = 14;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

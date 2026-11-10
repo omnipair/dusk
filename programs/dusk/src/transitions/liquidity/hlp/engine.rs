@@ -255,7 +255,7 @@ pub(crate) fn prepare_concentrated_hlp_transition(
     let asset_out = asset_in.opposite();
     let decimals = market.side(asset_out).asset_decimals;
     let atom_scale = 10_u128
-        .checked_pow(u32::from(market.amount_decimals() - decimals))
+        .checked_pow(u32::from(market.amount_decimals()? - decimals))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let (start_ordinary, end_ordinary) = match asset_out {
         MarketAsset::Base => (start.ordinary_base, quote.integrated.executable.curve.end.base_reserve),
@@ -2004,7 +2004,7 @@ pub(crate) fn current_hlp_entry_state_with_prices(
 ) -> Result<HlpEntryState> {
     let valuation = current_hlp_valuation_with_prices(market, target_asset, prices)?;
     let residual_exposure =
-        recognized_hlp_residual_exposure(valuation.ideal_delta, valuation.nav_nad, market.amount_decimals());
+        recognized_hlp_residual_exposure(valuation.ideal_delta, valuation.nav_nad, market.amount_decimals()?);
     let disposition = if residual_exposure == 0 {
         HlpEntryDisposition::Settled
     } else if !valuation.proportional_hedge_available || valuation.nav_nad == 0 {
@@ -2187,7 +2187,7 @@ pub(crate) fn checkpoint_one_hlp_with_prices(
 ) -> Result<i128> {
     let valuation = current_hlp_valuation_with_prices(market, target_asset, prices)?;
     let nav = valuation.nav_nad;
-    let ideal_delta = recognized_hlp_residual_exposure(valuation.ideal_delta, nav, market.amount_decimals());
+    let ideal_delta = recognized_hlp_residual_exposure(valuation.ideal_delta, nav, market.amount_decimals()?);
     let vault = match target_asset {
         MarketAsset::Base => &mut market.base_hlp_vault,
         MarketAsset::Quote => &mut market.quote_hlp_vault,

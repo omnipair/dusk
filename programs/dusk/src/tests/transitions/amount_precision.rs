@@ -131,7 +131,7 @@ fn raw_amount(tokens: f64, decimals: u8) -> Option<u64> {
 /// fee is then zeroed so only rounding can move value. `None` when the pool is
 /// too small to seed.
 fn seeded_market(pair: Pair, pool_usd: f64, shape: Shape) -> Option<Market> {
-    let mut market = Market { version: MARKET_LAYOUT_VERSION, ..Market::default() };
+    let mut market = Market { version: MARKET_LAYOUT_VERSION, ..Market::current_layout() };
     market.base_side.asset_mint = Pubkey::new_unique();
     market.quote_side.asset_mint = Pubkey::new_unique();
     market.base_side.asset_decimals = pair.base_decimals;
@@ -338,7 +338,7 @@ fn zero_fee_round_trips_return_at_most_their_input() {
 fn markets_at_or_above_twelve_decimals_keep_their_scale() {
     for pair in HIGH_DECIMAL_PAIRS {
         let market = seeded_market(pair, 1.0, Shape::Moderate).unwrap();
-        assert_eq!(market.amount_decimals(), pair.base_decimals.max(pair.quote_decimals));
+        assert_eq!(market.amount_decimals().unwrap(), pair.base_decimals.max(pair.quote_decimals));
     }
     let tally = round_trips(&HIGH_DECIMAL_PAIRS);
     println!("HIGH_DECIMAL_ROUND_TRIPS {tally:?}");

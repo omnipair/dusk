@@ -4645,10 +4645,10 @@ export type LeverageDelegate = {
         "Token amounts stored in reserves, positions, and shares are raw atoms.",
         "Internal curve quantities, risk depths, hLP NAV/exposure, and normalized",
         "debt/collateral values use `max(MIN_AMOUNT_DECIMALS, base_side.asset_decimals,",
-        "quote_side.asset_decimals)` decimal places, twelve or more (nine or more",
-        "for markets created at layout 14), including quantity fields with the",
-        "historical `_nad` suffix. Prices, rates, and per-share ratios always retain",
-        "nine-decimal NAD scaling. The quantity scale is immutable per market."
+        "quote_side.asset_decimals)` decimal places, twelve or more, including",
+        "quantity fields with the historical `_nad` suffix. Prices, rates, and",
+        "per-share ratios always retain nine-decimal NAD scaling. The quantity scale",
+        "is immutable per market."
       ],
       "type": {
         "kind": "struct",

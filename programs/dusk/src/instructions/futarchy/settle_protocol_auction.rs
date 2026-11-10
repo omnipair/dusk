@@ -35,6 +35,7 @@ pub struct SettleProtocolAuction<'info> {
 
     #[account(
         mut,
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -66,6 +67,7 @@ pub struct SettleProtocolAuction<'info> {
     #[account(mut)]
     pub staking_vault_payment_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
+    #[account(constraint = reference_market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub reference_market: Box<Account<'info, Market>>,
 
     pub token_program: Program<'info, Token>,

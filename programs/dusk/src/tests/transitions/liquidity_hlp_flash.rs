@@ -6,7 +6,7 @@ fn fixture_atoms_nad(market: &Market, atoms: u128) -> u128 {
 }
 
 fn market_for_flash(amplification: u64, target: MarketAsset, funding_bps: u128) -> Market {
-    let mut m = Market::default();
+    let mut m = Market::current_layout();
     m.base_side.asset_decimals = 6;
     m.quote_side.asset_decimals = 6;
     m.debt.base_borrow_index_nad = u128::from(NAD);

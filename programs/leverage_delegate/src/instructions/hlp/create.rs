@@ -4,7 +4,7 @@ use super::*;
 #[instruction(args: CreateHlpOrderArgs)]
 pub struct CreateHlpOrder<'info> {
     #[account(
-        constraint = market.version == MARKET_LAYOUT_VERSION @ LeverageDelegateError::InvalidMarketVersion
+        constraint = market.assert_current_version().is_ok() @ LeverageDelegateError::InvalidMarketVersion
     )]
     pub market: Box<Account<'info, Market>>,
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,

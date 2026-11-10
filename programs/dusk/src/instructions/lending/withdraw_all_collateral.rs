@@ -22,7 +22,7 @@ pub struct WithdrawAllCollateralArgs {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct WithdrawAllCollateral<'info> {
-    #[account(mut, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
     pub market: Box<Account<'info, Market>>,
     #[account(mut)]
     pub owner: Signer<'info>,

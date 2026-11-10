@@ -3,8 +3,8 @@ use super::*;
 #[test]
 fn in_place_refresh_matches_canonical_decoder_and_reuses_boxes() {
     let mut bytes = Vec::new();
-    Market::default().try_serialize(&mut bytes).unwrap();
-    let mut target = Market::default();
+    Market::current_layout().try_serialize(&mut bytes).unwrap();
+    let mut target = Market::current_layout();
     let pointers = (
         &*target.base_side as *const MarketSide,
         &*target.quote_side as *const MarketSide,

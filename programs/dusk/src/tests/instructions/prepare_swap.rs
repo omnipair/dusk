@@ -5,7 +5,7 @@ use anchor_lang::solana_program::sysvar::{
 };
 
 fn guarded_market() -> Market {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.config.start_time = 100;
     market.config.amm.launch_rate_limit_asset = crate::state::LAUNCH_RATE_LIMIT_ASSET_BASE;
     market.config.amm.launch_rate_limit_duration_seconds = 100;

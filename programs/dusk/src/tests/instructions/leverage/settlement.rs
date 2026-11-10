@@ -55,7 +55,7 @@ fn delegated_callback_does_not_forward_outer_signers() {
 
 #[test]
 fn leverage_market_pda_runtime_guard_matches_canonical_market_seeds() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.asset_mint = Pubkey::new_unique();
     market.quote_side.asset_mint = Pubkey::new_unique();
     market.params_hash = [7; 32];

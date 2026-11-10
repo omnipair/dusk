@@ -29,7 +29,7 @@ pub struct RotateHlpCohortArgs {
 pub struct RotateHlpCohort<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     pub old_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]

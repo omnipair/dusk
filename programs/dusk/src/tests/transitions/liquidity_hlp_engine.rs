@@ -4,10 +4,10 @@ use proptest::prelude::*;
 #[test]
 fn captured_hlp_entries_settle_funding_and_preserve_existing_claims() {
     for (bytes, slot) in [
-        (include_bytes!("../fixtures/hlp-entry-layout14.bin").as_slice(), 500_291_305),
+        (include_bytes!("../fixtures/hlp-entry-layout15.bin").as_slice(), 500_291_305),
         // Market 4iuoB4WsTEsv4gnwY6RZnwgaHWqYCAwCbaLswJjbwgSa,
         // devnet slot 519889239: quote hLP needs accrued-funding settlement.
-        (include_bytes!("../fixtures/hlp-entry-funding-layout14.bin").as_slice(), 519_889_239),
+        (include_bytes!("../fixtures/hlp-entry-funding-layout15.bin").as_slice(), 519_889_239),
     ] {
         for target in [MarketAsset::Base, MarketAsset::Quote] {
             for amount in [1_000_000, 10_000_000, 100_000_000] {
@@ -49,7 +49,7 @@ fn captured_hlp_entries_settle_funding_and_preserve_existing_claims() {
 
 #[test]
 fn entry_cannot_rebalance_the_other_vault_during_its_flash_session() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.add_liquidity(1_000_000, 1_000_000).unwrap();
     market.debt.base_borrow_index_nad = NAD as u128;
     market.debt.quote_borrow_index_nad = NAD as u128;
@@ -72,7 +72,7 @@ proptest! {
     ) {
         use crate::state::{AmmConfig, AmmState};
         let target = if target_base { MarketAsset::Base } else { MarketAsset::Quote };
-        let mut market = Market::default();
+        let mut market = Market::current_layout();
         market.base_side.asset_decimals = 6;
         market.quote_side.asset_decimals = if mixed_decimals { 9 } else { 6 };
         let base_unit = 1_000_000;
@@ -123,7 +123,7 @@ proptest! {
 #[test]
 fn senior_entry_and_cash_exit_exclude_separately_owned_unpaid_interest() {
     const UNIT: u64 = 1_000_000;
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.asset_decimals = 6;
     market.quote_side.asset_decimals = 6;
     market.debt.base_borrow_index_nad = NAD as u128;
@@ -165,7 +165,7 @@ fn h_lp_entry_mints_against_current_value_even_if_cached_values_are_stale() {
     use crate::state::{AmmConfig, AmmState};
 
     for target in [MarketAsset::Base, MarketAsset::Quote] {
-        let mut market = Market::default();
+        let mut market = Market::current_layout();
         market.add_liquidity(1_000_000, 1_000_000).unwrap();
         market.debt.base_borrow_index_nad = NAD as u128;
         market.debt.quote_borrow_index_nad = NAD as u128;
@@ -209,7 +209,7 @@ fn h_lp_entry_mints_against_current_value_even_if_cached_values_are_stale() {
 #[test]
 fn h_lp_share_value_includes_unpaid_public_interest_without_spending_it() {
     for target in [MarketAsset::Base, MarketAsset::Quote] {
-        let mut market = Market::default();
+        let mut market = Market::current_layout();
         market.add_liquidity(1_000_000, 1_000_000).unwrap();
         market.debt.base_borrow_index_nad = NAD as u128;
         market.debt.quote_borrow_index_nad = NAD as u128;
@@ -258,7 +258,7 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
     use crate::transitions::LeverageSwapFeeCredit;
 
     for fee_bps in [0, 30] {
-        let mut initial = Market::default();
+        let mut initial = Market::current_layout();
         initial.add_liquidity(1_000_000, 1_000_000).unwrap();
         initial.debt.base_borrow_index_nad = NAD as u128;
         initial.debt.quote_borrow_index_nad = NAD as u128;
@@ -356,7 +356,7 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
 
 #[test]
 fn extreme_forward_price_values_both_hlp_numeraires_without_a_rounded_reciprocal() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.asset_decimals = 0;
     market.quote_side.asset_decimals = 0;
     let price = (NAD as u128) * (NAD as u128) + NAD as u128;
@@ -508,7 +508,7 @@ proptest! {
 
 #[cfg(feature = "benchmark")]
 fn captured_vob_market() -> Market {
-    let bytes = include_bytes!("../fixtures/vob-market-layout14.bin");
+    let bytes = include_bytes!("../fixtures/vob-market-layout15.bin");
     Market::try_deserialize(&mut bytes.as_slice()).unwrap()
 }
 

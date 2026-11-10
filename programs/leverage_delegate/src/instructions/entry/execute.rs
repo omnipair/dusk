@@ -90,7 +90,7 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
             LeverageDelegateError::InvalidOrder
         );
         require!(
-            ctx.accounts.market.version == MARKET_LAYOUT_VERSION,
+            ctx.accounts.market.assert_current_version().is_ok(),
             LeverageDelegateError::InvalidMarketVersion
         );
         let bounty_debit = gross_debit_for_net(

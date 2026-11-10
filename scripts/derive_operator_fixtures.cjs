@@ -1,5 +1,6 @@
 // Deterministic TEST-DATA conversion. Original devnet captures stay untouched.
-// The pinned predecessor is the final layout-13 revision.
+// The pinned predecessor is the final layout-13 revision. Fixtures are derived
+// at the current market layout, the only one the program reads.
 const {execFileSync} = require('node:child_process');
 const {readFileSync,writeFileSync} = require('node:fs');
 const {createHash} = require('node:crypto');
@@ -11,6 +12,40 @@ const oldIdl=JSON.parse(original('packages/dusk-sdk/src/idl_v2.json'));
 const newIdl=JSON.parse(readFileSync('target/idl/dusk.json'));
 const oldCoder=new BorshAccountsCoder(oldIdl),newCoder=new BorshAccountsCoder(newIdl);
 const zeroKey=new PublicKey(new Uint8Array(32));
+const constant=name=>Number(newIdl.constants.find(entry=>entry.name===name).value);
+const layout=constant('MARKET_LAYOUT_VERSION');
+const minimumAmountDecimals=constant('MIN_AMOUNT_DECIMALS');
+// Internal quantities the captures stored at max(9, base, quote) decimals.
+// The current layout stores them at max(MIN_AMOUNT_DECIMALS, base, quote).
+// Raw atoms, shares, prices, rates and per-share ratios keep their units.
+const MARKET_AMOUNTS=[
+  ['oracle','recognized_tail_liquidity'],
+  ['amm','concentrated_curve_cache','tail_liquidity'],
+  ['amm','concentrated_curve_cache','concentrated_liquidity'],
+  ['amm','retention_required_nad'],['amm','retention_stop_nad'],['amm','retention_hard_cap_nad'],
+  ['amm','deferred_controller_target','required_nad'],
+  ['amm','deferred_controller_target','evaluated_base_reserve_nad'],
+  ['amm','deferred_controller_target','evaluated_quote_reserve_nad'],
+  ['amm','frozen_base_vault_base_offset_nad'],['amm','frozen_base_vault_quote_offset_nad'],
+  ['amm','frozen_quote_vault_base_offset_nad'],['amm','frozen_quote_vault_quote_offset_nad'],
+  ['base_hlp_vault','residual_exposure'],['quote_hlp_vault','residual_exposure'],
+  ['base_hlp_vault','last_nav_nad'],['quote_hlp_vault','last_nav_nad'],
+  ['risk','observed_curve_depth_nad'],['risk','curve_depth_ema_nad'],
+];
+const PREVIEW_AMOUNTS=[
+  ['retention_required_nad'],['retention_stop_nad'],['retention_hard_cap_nad'],
+  ['ordinary_base_reserve_nad'],['ordinary_quote_reserve_nad'],
+];
+function amountFactor(market) {
+  const decimals=Math.max(market.base_side.asset_decimals,market.quote_side.asset_decimals);
+  return new BN(10).pow(new BN(Math.max(minimumAmountDecimals,decimals)-Math.max(9,decimals)));
+}
+function restate(value,paths,factor) {
+  for(const path of paths) {
+    const parent=path.slice(0,-1).reduce((object,key)=>object[key],value);
+    parent[path.at(-1)]=parent[path.at(-1)].mul(factor);
+  }
+}
 function adapt(value,type) {
   if (typeof type==='string') {
     if (value!==undefined) return value;
@@ -30,35 +65,29 @@ function adapt(value,type) {
 function encode(data) {
   const old=oldCoder.decode('Market',data);
   const market=adapt(old,{defined:{name:'Market'}});
-  market.version=14;
+  market.version=layout;
   market.config.irm.lower_utilization_bps=7_500;
   market.config.irm.upper_utilization_bps=old.config.irm.borrow_utilization_limit_bps;
+  restate(market,MARKET_AMOUNTS,amountFactor(market));
   const body=Buffer.alloc(32_768);
   const size=newCoder.accountLayouts.get('Market').layout.encode(market,body);
   return Buffer.concat([newCoder.accountDiscriminator('Market'),body.subarray(0,size)]);
 }
 for(const name of ['hlp-entry','vob-market','hlp-entry-funding']) {
-  const target=`programs/dusk/src/tests/fixtures/${name}-layout14.bin`;
+  const target=`programs/dusk/src/tests/fixtures/${name}-layout${layout}.bin`;
   const data=encode(original(`programs/dusk/src/tests/fixtures/${name}-layout13.bin`));
   writeFileSync(target,data);
   process.stdout.write(`${target} ${createHash('sha256').update(data).digest('hex')}\n`);
 }
-const previewPath='tests/fixtures/market-preview/market.bin';
-const previewData=encode(original(previewPath));
-const previewHash=createHash('sha256').update(previewData).digest('hex');
-writeFileSync(previewPath,previewData);
-const previewSnapshot=JSON.parse(original('tests/fixtures/market-preview/snapshot.json'));
-previewSnapshot.sha256=previewHash;
-previewSnapshot.schemaAdaptation='Layout 14: independent utilization and risk-coverage target bands.';
-writeFileSync('tests/fixtures/market-preview/snapshot.json',JSON.stringify(previewSnapshot,null,2)+'\n');
-process.stdout.write(`${previewPath} ${previewHash}\n`);
 const batch=JSON.parse(original('packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout13.json'));
+const batchFactor=amountFactor(oldCoder.decode('Market',Buffer.from(batch.result.value.accounts[0].data[0],'base64')));
 batch.result.value.accounts[0].data[0]=encode(Buffer.from(batch.result.value.accounts[0].data[0],'base64')).toString('base64');
 batch.result.value.accounts[0].space=Buffer.from(batch.result.value.accounts[0].data[0],'base64').length;
 const oldTypes=new BorshCoder(oldIdl).types,newTypes=new BorshCoder(newIdl).types;
 function preview(data) {
-  const decoded=oldTypes.decode('SwapPreview',Buffer.from(data,'base64'));
-  return newTypes.encode('SwapPreview',adapt(decoded,{defined:{name:'SwapPreview'}})).toString('base64');
+  const decoded=adapt(oldTypes.decode('SwapPreview',Buffer.from(data,'base64')),{defined:{name:'SwapPreview'}});
+  restate(decoded,PREVIEW_AMOUNTS,batchFactor);
+  return newTypes.encode('SwapPreview',decoded).toString('base64');
 }
 const prefix=`Program return: ${batch.programId} `;
 const nextProgram=newIdl.address;
@@ -73,5 +102,7 @@ batch.market=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedM
 batch.programId=nextProgram;
 batch.result.value.returnData.programId=nextProgram;
 batch.derivedFrom=`layout-13 regression fixture at ${predecessor}`;
-batch.schemaAdaptation='Layout 14: independent utilization and risk-coverage target bands. Existing financial state is preserved; the former utilization admission threshold becomes the utilization rate upper target.';
-writeFileSync('packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout14.json',JSON.stringify(batch,null,2)+'\n');
+batch.schemaAdaptation=`Layout ${layout}: independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
+const batchTarget=`packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout${layout}.json`;
+writeFileSync(batchTarget,JSON.stringify(batch,null,2)+'\n');
+process.stdout.write(`${batchTarget}\n`);

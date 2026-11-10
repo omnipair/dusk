@@ -82,7 +82,7 @@ impl<'info> ExecuteHlpOrder<'info> {
         _args: HlpOrderIdArgs,
     ) -> Result<()> {
         require!(
-            ctx.accounts.market.version == MARKET_LAYOUT_VERSION,
+            ctx.accounts.market.assert_current_version().is_ok(),
             LeverageDelegateError::InvalidMarketVersion
         );
         require_gte!(

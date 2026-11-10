@@ -4,7 +4,7 @@ use super::*;
 #[instruction(args: UpdateLeverageOrderArgs)]
 pub struct UpdateLeverageOrder<'info> {
     #[account(
-        constraint = market.version == MARKET_LAYOUT_VERSION @ LeverageDelegateError::InvalidMarketVersion
+        constraint = market.assert_current_version().is_ok() @ LeverageDelegateError::InvalidMarketVersion
     )]
     pub market: Box<Account<'info, Market>>,
     #[account(

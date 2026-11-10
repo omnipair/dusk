@@ -299,7 +299,7 @@ fn reserve_custody_covers_cash_fees_and_hlp_backing_without_rejecting_donations(
 
 #[test]
 fn interest_asset_extension_does_not_shift_delegate_callback_accounts() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_hlp_vault.hlp_supply = 1;
     market.srlp_mint = Pubkey::new_unique();
     market.base_hlp_vault.srlp_vault = Pubkey::new_unique();

@@ -31,7 +31,7 @@ pub struct RemoveLiquidityArgs {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct RemoveLiquidity<'info> {
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
     pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,

@@ -69,7 +69,7 @@ fn max_new_position_debt_by_dynamic_health(context: &NewPositionPreviewContext<'
 }
 
 fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u64) -> Market {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.asset_decimals = 0;
     market.quote_side.asset_decimals = 0;
     market.base_side.reserves.live_reserve = 1_000_000;
@@ -101,7 +101,7 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
 
 #[test]
 fn unseeded_market_has_a_zero_spot_preview() {
-    let market = Market::default();
+    let market = Market::current_layout();
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
         let side = preview_side(&market, asset, 0).unwrap();
         assert_eq!(side.srlp_supply, 0);
@@ -113,7 +113,7 @@ fn unseeded_market_has_a_zero_spot_preview() {
 
 #[test]
 fn drained_market_previews_locked_dust_without_reconstructing_a_trade_curve() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.shares.srlp_supply = MIN_LIQUIDITY;
     market.quote_side.shares.srlp_supply = MIN_LIQUIDITY;
     market.base_side.reserves.live_reserve = 1884;
@@ -143,7 +143,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
 
     // Obtain the reported index through four legal full-utilization accruals.
     // Reuse that index in a liquid, fully hedged market after refinancing.
-    let mut accrued = Market::default();
+    let mut accrued = Market::current_layout();
     accrued.debt.quote_borrow_index_nad = NAD as u128;
     accrued.debt.quote_borrow_apr_nad = DEFAULT_BORROW_APR_NAD;
     accrued.base_hlp_vault.debt_shares = 1_000;
@@ -1381,7 +1381,7 @@ fn debt_free_position_can_withdraw_all_and_zero_draw_remains_zero() {
 
 #[test]
 fn debt_free_withdrawal_capacity_does_not_require_borrow_depth() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.version = crate::constants::MARKET_LAYOUT_VERSION;
     market.base_side.asset_decimals = 0;
     market.quote_side.asset_decimals = 0;
@@ -1530,9 +1530,9 @@ fn exhausted_hlp_waterfall_cancels_unpaid_interest_and_keeps_zero_value_receipts
 }
 
 fn snapshot() -> (Market, Clock) {
-    // Derived from the immutable devnet capture and encoded directly with
-    // layout 14. No old-account conversion runs in this regression test.
-    let bytes = include_bytes!("../fixtures/hlp-entry-layout14.bin");
+    // Derived from the immutable devnet capture and encoded directly with the
+    // current layout. No old-account conversion runs in this regression test.
+    let bytes = include_bytes!("../fixtures/hlp-entry-layout15.bin");
     let market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
     let clock = Clock {
         slot: 500_291_305,

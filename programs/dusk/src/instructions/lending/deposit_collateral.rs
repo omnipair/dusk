@@ -30,6 +30,7 @@ pub struct DepositCollateralArgs {
 pub struct DepositCollateral<'info> {
     #[account(
         mut,
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),

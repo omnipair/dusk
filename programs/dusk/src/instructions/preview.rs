@@ -76,6 +76,7 @@ pub struct PreviewHlpOrderTriggerArgs {
 pub struct PreviewMarket<'info> {
     #[account(
         mut,
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -91,6 +92,7 @@ pub struct PreviewMarket<'info> {
 pub struct PreviewHlpOrderTrigger<'info> {
     #[account(
         mut,
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -106,6 +108,7 @@ pub struct PreviewHlpOrderTrigger<'info> {
 pub struct PreviewAddLiquidity<'info> {
     #[account(
         mut,
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -123,6 +126,7 @@ pub struct PreviewAddLiquidity<'info> {
 #[derive(Accounts)]
 pub struct PreviewSwap<'info> {
     #[account(
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -147,6 +151,7 @@ pub struct PreviewSwap<'info> {
 pub struct PreviewBorrowCapacity<'info> {
     #[account(
         mut,
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -165,6 +170,7 @@ pub struct PreviewBorrowCapacity<'info> {
 pub struct PreviewBorrowPosition<'info> {
     #[account(
         mut,
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -198,6 +204,7 @@ pub struct PreviewBorrowPosition<'info> {
 #[derive(Accounts)]
 pub struct PreviewBorrowPositionCapacity<'info> {
     #[account(
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(),
             market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()],
         bump = market.bump
@@ -1031,6 +1038,7 @@ fn preview_position_debt_side(
 /// only deserialized memory, including when this instruction is submitted.
 #[derive(Accounts)]
 pub struct PreviewHlpDepositCapacity<'info> {
+    #[account(constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -1247,7 +1255,7 @@ pub struct PreviewEmergencyLiquidationArgs {
 
 #[derive(Accounts)]
 pub struct PreviewFlashLiquidation<'info> {
-    #[account(seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
+    #[account(constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
     pub market: Box<Account<'info, Market>>,
     pub borrow_position: Option<Box<Account<'info, BorrowPosition>>>,
     pub leverage_position: Option<Box<Account<'info, LeveragePosition>>>,
@@ -1457,6 +1465,7 @@ impl PreviewFlashLiquidation<'_> {
 
 #[derive(Accounts)]
 pub struct PreviewHlpFlash<'info> {
+    #[account(constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
     pub target_mint: Box<InterfaceAccount<'info, Mint>>,

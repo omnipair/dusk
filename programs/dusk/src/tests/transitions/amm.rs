@@ -62,7 +62,7 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
             quote_borrow_apr_nad: DEFAULT_BORROW_APR_NAD,
             ..Debt::default()
         },
-        ..Market::default()
+        ..Market::current_layout()
     }
 }
 

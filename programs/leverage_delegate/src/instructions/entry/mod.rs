@@ -6,7 +6,7 @@ use anchor_spl::{
     token_interface::{Mint, TokenAccount},
 };
 use dusk::{
-    constants::{BPS_DENOMINATOR, LEVERAGE_MAX_MULTIPLIER_BPS, MARKET_LAYOUT_VERSION},
+    constants::{BPS_DENOMINATOR, LEVERAGE_MAX_MULTIPLIER_BPS},
     instructions::{leverage_position_pda, OpenLeverageArgs, LEVERAGE_HLP_ACCOUNT_PREFIX_LEN},
     program::Dusk,
     state::{

@@ -31,7 +31,7 @@ pub struct CloseInsolventHlpArgs {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct CloseInsolventHlp<'info> {
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
     #[account(mut)]

@@ -340,7 +340,7 @@ fn canonical_extra_meta_schema_contains_both_asset_streams() {
             asset_mint: quote_mint,
             ..Default::default()
         }),
-        ..Market::default()
+        ..Market::current_layout()
     };
     let metas = canonical_lp_transfer_hook_metas(market, &state, lp_mint).unwrap();
     assert_eq!(metas.len(), 10);
@@ -381,7 +381,7 @@ fn hlp_hook_always_resolves_its_mint_specific_cohort() {
             hlp_mint: Pubkey::new_unique(),
             ..Default::default()
         }),
-        ..Market::default()
+        ..Market::current_layout()
     };
     let metas = canonical_lp_transfer_hook_metas(market, &state, hlp_mint).unwrap();
     assert_eq!(metas.len(), 11);

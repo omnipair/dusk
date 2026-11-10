@@ -20,7 +20,7 @@ use anchor_spl::{
 pub struct InitializeOperatorRevenue<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(seeds=[MARKET_V2_SEED_PREFIX,market.base_side.asset_mint.as_ref(),market.quote_side.asset_mint.as_ref(),market.params_hash.as_ref()],bump=market.bump)]
+    #[account(constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds=[MARKET_V2_SEED_PREFIX,market.base_side.asset_mint.as_ref(),market.quote_side.asset_mint.as_ref(),market.params_hash.as_ref()],bump=market.bump)]
     pub market: Box<Account<'info, Market>>,
     #[account(init,payer=payer,space=get_size_with_discriminator::<OperatorRevenueAccount>(),
         seeds=[OPERATOR_REVENUE_SEED,market.key().as_ref(),&market.operator.revenue_epoch.to_le_bytes()],bump)]
@@ -59,7 +59,7 @@ pub struct OperatorRevenueClaimed {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct ClaimOperatorRevenue<'info> {
-    #[account(mut,seeds=[MARKET_V2_SEED_PREFIX,market.base_side.asset_mint.as_ref(),market.quote_side.asset_mint.as_ref(),market.params_hash.as_ref()],bump=market.bump)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,seeds=[MARKET_V2_SEED_PREFIX,market.base_side.asset_mint.as_ref(),market.quote_side.asset_mint.as_ref(),market.params_hash.as_ref()],bump=market.bump)]
     pub market: Box<Account<'info, Market>>,
     #[account(mut)]
     pub revenue: Option<Box<Account<'info, OperatorRevenueAccount>>>,

@@ -87,7 +87,7 @@ fn metadata_market() -> MetadataMarketFixture {
         hlp_mint: quote_hlp_mint,
         ..MarketSide::default()
     };
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market
         .initialize(
             srlp_mint,

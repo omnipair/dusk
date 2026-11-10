@@ -122,7 +122,7 @@ fn ordinary_liquidity_can_seed_before_start_but_reduce_only_still_blocks_it() {
 
 /// Internal amount of whole units of the zero-decimal fixture assets.
 fn zero_decimal_nad(units: u128) -> u128 {
-    Market::default().normalize_amount(units, 0).unwrap()
+    Market::current_layout().normalize_amount(units, 0).unwrap()
 }
 
 fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
@@ -1938,7 +1938,7 @@ fn high_decimal_borrow_partial_repay_and_liquidation_preserve_dust_debt() {
         let mut market = invariant_market(1_000_000, 1_000_000);
         market.base_side.asset_decimals = base_decimals;
         market.quote_side.asset_decimals = quote_decimals;
-        let precision = market.amount_decimals();
+        let precision = market.amount_decimals().unwrap();
         let normalized_reserve = 1_000_000_000_000_000_u64;
         market.base_side.reserves.live_reserve = u128::from(normalized_reserve / 10_u64.pow(u32::from(precision - base_decimals)));
         market.base_side.reserves.cash_reserve = market.base_side.reserves.live_reserve.try_into().unwrap();

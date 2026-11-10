@@ -50,7 +50,7 @@ pub struct PublicInterestFunded {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct FundInterest<'info> {
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
     pub caller: Signer<'info>,

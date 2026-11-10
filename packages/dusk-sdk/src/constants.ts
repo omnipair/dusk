@@ -27,19 +27,11 @@ export const PROGRAM_ID = DUSK_PROGRAM_ID;
 export const MIN_AMOUNT_DECIMALS = Number(
   IDL.constants.find(({ name }) => name === "MIN_AMOUNT_DECIMALS")!.value
 );
-/** Current development Market account layout. */
+/** The one Market account layout the program reads. Accounts at any other
+ * layout are rejected rather than read at this layout's amount scale. */
 export const MARKET_LAYOUT_VERSION = Number(
   IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION")!.value
 );
-/** Earlier layout with identical bytes whose markets keep a nine-decimal
- * amount minimum. */
-export const NINE_DECIMAL_AMOUNT_LAYOUT_VERSION = Number(
-  IDL.constants.find(({ name }) => name === "NINE_DECIMAL_AMOUNT_LAYOUT_VERSION")!.value
-);
-/** Whether the program accepts a Market account with this layout version. */
-export function isSupportedMarketLayout(version: number): boolean {
-  return version === MARKET_LAYOUT_VERSION || version === NINE_DECIMAL_AMOUNT_LAYOUT_VERSION;
-}
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID);
 
 /** Immutable Dusk operator and metadata limits. */

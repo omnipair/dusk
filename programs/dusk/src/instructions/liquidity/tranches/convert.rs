@@ -35,7 +35,7 @@ pub struct TrancheConverted {
 pub struct ConvertTranche<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
     pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,

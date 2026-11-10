@@ -60,6 +60,7 @@ import { expect } from "chai";
 import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
 import {
   DEFAULT_PROTOCOL_REVENUE_SHARE_BPS,
+  MARKET_LAYOUT_VERSION,
   MIN_AMOUNT_DECIMALS,
   buildLpTransferHookAccountMetas,
   buildLpTransferHookValidationAccountData,
@@ -7183,6 +7184,60 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const decoded = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
     expect(decoded.base_hlp_vault.hlp_supply.toString()).to.equal("10000000000");
     expect(decoded.quote_hlp_vault.hlp_supply.toString()).to.equal("20000000000");
+  });
+
+  it("rejects a market at any other layout in Dusk and the leverage delegate", async function () {
+    // Earlier layouts share the account bytes but stored amounts at another
+    // scale. Every entry point refuses them instead of reinterpreting them.
+    const fixture = await addBalancedLiquidity(260);
+    const current = svm.getAccount(fixture.market)!;
+    const market = accountCoder.decode("Market", Buffer.from(current.data)) as any;
+    expect(market.version).to.equal(MARKET_LAYOUT_VERSION);
+    // The account coder's scratch buffer is smaller than a Market, so the
+    // layout re-encodes the account over its own bytes.
+    const setLayout = async (version: number) => {
+      const data = Buffer.from(current.data);
+      (accountCoder as any).accountLayouts.get("Market").layout.encode({ ...market, version }, data, 8);
+      svm.setAccount(fixture.market, { ...current, data: new Uint8Array(data) });
+    };
+    const rejects = async (send: () => Promise<unknown>, error: string) => {
+      svm.expireBlockhash();
+      let failure: unknown;
+      try { await send(); } catch (caught) { failure = caught; }
+      expect(String(failure)).to.include(error);
+    };
+    const orderId = new BN(990);
+    const order = PublicKey.findProgramAddressSync([Buffer.from("leverage_entry_order"), fixture.market.toBuffer(),
+      payer.publicKey.toBuffer(), orderId.toArrayLike(Buffer, "le", 8)], LEVERAGE_DELEGATE_PROGRAM_ID)[0];
+    const fundingVault = getAssociatedTokenAddressSync(fixture.quoteMint, order, true, TOKEN_PROGRAM_ID);
+    await connection.sendTransaction(new Transaction().add(createAssociatedTokenAccountIdempotentInstruction(
+      payer.publicKey, fundingVault, order, fixture.quoteMint, TOKEN_PROGRAM_ID)), [payer]);
+    const createEntryOrder = async () => connection.sendTransaction(await leverageDelegateProgram.methods
+      .createLeverageEntryOrder({
+        orderId, positionId: Keypair.generate().publicKey, debtAsset: 1,
+        depositAmount: new BN(2_000), protocolFeeDepositAmount: new BN(0),
+        minMarginAmount: new BN(1_000), executorBounty: new BN(50), multiplierBps: new BN(20_000),
+        limitPriceNad: new BN(100_000_000_000), minCollateralOut: new BN(1),
+        expiryUnixTimestamp: new BN(svm.getClock().unixTimestamp.toString()).addn(3_600), referrer: null,
+      }).accounts({ market: fixture.market, debtMint: fixture.quoteMint, collateralMint: fixture.baseMint, order,
+        ownerFundingAccount: fixture.ownerQuoteAccount, fundingVault, owner: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+      }).transaction(), [payer]);
+    const previewMarket = async () => connection.sendTransaction(
+      await program.methods.previewMarket().accounts({ market: fixture.market }).transaction(), [payer]);
+    for (const version of [0, MARKET_LAYOUT_VERSION - 1, MARKET_LAYOUT_VERSION + 1]) {
+      await setLayout(version);
+      await rejects(() => swapBaseForQuote(fixture), "InvalidVersion");
+      await rejects(previewMarket, "InvalidVersion");
+      await rejects(createEntryOrder, "InvalidMarketVersion");
+    }
+    await setLayout(MARKET_LAYOUT_VERSION);
+    svm.expireBlockhash();
+    await swapBaseForQuote(fixture);
+    svm.expireBlockhash();
+    await previewMarket();
+    await createEntryOrder();
+    expect(svm.getAccount(order)).to.not.equal(null);
   });
 
   it("repairs an old-layout yield account without changing its entitlements or permissions", async function () {

@@ -14,7 +14,7 @@ fn token_2022_hlp_interest_books_only_actual_vault_credit() {
     };
     let gross_interest_paid = 10_000;
     let actual_interest_credit = transfer_fee.calculate_post_fee_amount(gross_interest_paid).unwrap();
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.shares.srlp_supply = 4_000;
     market.quote_side.shares.srlp_supply = 4_000;
     market.base_hlp_vault.srlp_shares = 1_000;
@@ -55,7 +55,7 @@ fn token_2022_hlp_interest_books_only_actual_vault_credit() {
 
 #[test]
 fn inline_funding_preserves_prior_public_yield_but_excludes_both_hlps() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.shares.srlp_supply = 10_000;
     market.quote_side.shares.srlp_supply = 10_000;
     market.base_hlp_vault.srlp_shares = 4_000;
@@ -126,7 +126,7 @@ fn inline_funding_preserves_prior_public_yield_but_excludes_both_hlps() {
 
 #[test]
 fn public_interest_does_not_consume_hlp_funding_carry() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.shares.srlp_supply = 10_000;
     market.quote_side.shares.srlp_supply = 10_000;
     market.base_hlp_vault.srlp_shares = 4_000;
@@ -194,7 +194,7 @@ fn public_interest_does_not_consume_hlp_funding_carry() {
 
 #[test]
 fn min_liquidity_sinks_zero_holder_funding_and_later_deposit_starts_clean() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.shares.srlp_supply = 301_000;
     market.quote_side.shares.srlp_supply = 301_000;
     market.base_hlp_vault.srlp_shares = 200_000;
@@ -246,7 +246,7 @@ fn min_liquidity_sinks_zero_holder_funding_and_later_deposit_starts_clean() {
 
 #[test]
 fn last_ordinary_exit_clears_funding_carry_before_next_cohort() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.shares.srlp_supply = 4_000;
     market.quote_side.shares.srlp_supply = 4_000;
     market.base_side.reserves.live_reserve = 4_000;
@@ -327,7 +327,7 @@ fn last_ordinary_exit_clears_funding_carry_before_next_cohort() {
 
 #[test]
 fn partial_direct_burn_checkpoints_old_supply_before_reconciling() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.shares.srlp_supply = 10;
     market.quote_side.shares.srlp_supply = 10;
     market.base_side.fees.unallocated_swap_fee_liability = 10;
@@ -346,7 +346,7 @@ fn partial_direct_burn_checkpoints_old_supply_before_reconciling() {
 
 #[test]
 fn direct_burn_reconciliation_rejects_external_minting_and_all_burn_zombie() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.quote_hlp_vault.hlp_supply = 1;
 
     for invalid_live_supply in [0, 2] {

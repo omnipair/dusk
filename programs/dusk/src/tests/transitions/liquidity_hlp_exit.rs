@@ -24,7 +24,7 @@ const EXIT_PAIRS: [ExitPair; 5] = [
 /// `add_liquidity`, then opens both hLP vaults with a twentieth of each
 /// reserve so later entries join existing holders.
 fn hlp_market(pair: ExitPair, quote_tokens: f64, concentrated: bool) -> Option<Market> {
-    let mut market = Market { version: crate::constants::MARKET_LAYOUT_VERSION, ..Market::default() };
+    let mut market = Market { version: crate::constants::MARKET_LAYOUT_VERSION, ..Market::current_layout() };
     market.base_side.asset_mint = Pubkey::new_unique();
     market.quote_side.asset_mint = Pubkey::new_unique();
     market.base_side.asset_decimals = pair.base_decimals;

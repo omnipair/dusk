@@ -1,7 +1,7 @@
 use super::*;
 
 fn market() -> Market {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.debt.base_borrow_index_nad = NAD as u128;
     market.debt.quote_borrow_index_nad = NAD as u128;
     market.amm.launch_reference_price_nad = NAD;
@@ -139,7 +139,7 @@ fn permanent_seed_reinvestment_does_not_mint_senior_claims() {
 fn permissionless_seed_compound_rejects_a_same_slot_price_sandwich() {
     use crate::transitions::amm::SwapRequest;
     const UNIT: u64 = 1_000_000;
-    let mut initial = Market::default();
+    let mut initial = Market::current_layout();
     initial.base_side.asset_decimals = 6;
     initial.quote_side.asset_decimals = 6;
     initial.debt.base_borrow_index_nad = NAD as u128;
@@ -255,7 +255,7 @@ fn native_compounding_allocates_half_to_each_tranche_including_empty_seed() {
         for junior_bps in [0, 2_000, 7_000] {
             for with_hlp in [false, true] {
                 for asset in [MarketAsset::Base, MarketAsset::Quote] {
-                    let mut initial = Market::default();
+                    let mut initial = Market::current_layout();
                     initial.base_side.asset_decimals = 6;
                     initial.quote_side.asset_decimals = 6;
                     initial.debt.base_borrow_index_nad = NAD as u128;

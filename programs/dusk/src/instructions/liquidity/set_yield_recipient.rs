@@ -19,6 +19,7 @@ pub struct SetYieldRecipientArgs {
 #[instruction(args: SetYieldRecipientArgs)]
 pub struct SetYieldRecipient<'info> {
     #[account(
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),

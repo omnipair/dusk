@@ -28,7 +28,7 @@ pub struct InitializeJuniorArgs {
 pub struct InitializeJunior<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     #[account(init, payer = payer, seeds = [b"junior_mint", market.key().as_ref(), &args.generation.to_le_bytes()], bump,
         mint::decimals = market.base_side.asset_decimals, mint::authority = market,

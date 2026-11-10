@@ -64,10 +64,12 @@ pub(crate) fn prepare_leverage_swap(
     Ok(prepared)
 }
 
-/// Validates the canonical Market PDA outside Anchor's generated account
-/// parser. Keeping the seed-array construction out of `try_accounts` avoids
-/// overlapping it with the large Market deserialization frame.
+/// Validates the canonical Market PDA and its layout outside Anchor's
+/// generated account parser. Keeping the seed-array construction out of
+/// `try_accounts` avoids overlapping it with the large Market deserialization
+/// frame.
 pub fn validate_leverage_market_pda(market: &Market, market_key: Pubkey) -> Result<()> {
+    market.assert_current_version()?;
     let expected = Pubkey::create_program_address(&generate_market_seeds!(market), &crate::ID)
         .map_err(|_| error!(ErrorCode::InvalidMarket))?;
     require_keys_eq!(market_key, expected, ErrorCode::InvalidMarket);
