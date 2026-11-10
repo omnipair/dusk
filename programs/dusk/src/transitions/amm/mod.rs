@@ -2085,11 +2085,7 @@ impl Market {
             reserves.base > 0 && reserves.quote > 0,
             ErrorCode::InsufficientLiquidity
         );
-        let center = reserves
-            .quote
-            .checked_mul(NAD as u128)
-            .and_then(|value| value.checked_div(reserves.base))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let center = mul_div_u128(reserves.quote, NAD as u128, reserves.base)?;
         u64::try_from(center).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
@@ -2098,10 +2094,7 @@ impl Market {
         require_eq!(supply, self.quote_side.shares.srlp_supply, ErrorCode::BrokenInvariant);
         require!(supply > 0, ErrorCode::SupplyUnderflow);
         let supply_nad = self.normalize_amount(supply as u128, self.base_side.asset_decimals)?;
-        curve_depth_nad
-            .checked_mul(NAD as u128)
-            .and_then(|value| value.checked_div(supply_nad))
-            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+        mul_div_u128(curve_depth_nad, NAD as u128, supply_nad)
     }
 }
 

@@ -1,3 +1,4 @@
+import { marketAmountDecimals } from "../amounts.js";
 import type { DuskVirtualBookSnapshot } from "./market.js";
 
 export interface VirtualBookLevel {
@@ -128,10 +129,13 @@ export function projectDuskVirtualBookCurve(
     Number(preview.base.cashReserve.toString()) / 10 ** account.baseSide.assetDecimals;
   const cashQuote =
     Number(preview.quote.cashReserve.toString()) / 10 ** account.quoteSide.assetDecimals;
+  // Curve inventories are market-scale amounts; cash is raw token atoms.
+  const amountDecimals = marketAmountDecimals(account);
+  const amountUnit = 10 ** amountDecimals;
   const cashBaseNad =
-    (n(preview.base.cashReserve) * NAD) / 10n ** BigInt(account.baseSide.assetDecimals);
+    n(preview.base.cashReserve) * 10n ** BigInt(amountDecimals - account.baseSide.assetDecimals);
   const cashQuoteNad =
-    (n(preview.quote.cashReserve) * NAD) / 10n ** BigInt(account.quoteSide.assetDecimals);
+    n(preview.quote.cashReserve) * 10n ** BigInt(amountDecimals - account.quoteSide.assetDecimals);
   const side = (direction: 1 | -1) => {
     const levels: VirtualBookLevel[] = [];
     let previousBase = 0,
@@ -162,9 +166,9 @@ export function projectDuskVirtualBookCurve(
       }
       const target = point(targetSqrt);
       const total =
-        Number(direction === 1 ? anchor.base - target.base : target.base - anchor.base) / 1e9;
+        Number(direction === 1 ? anchor.base - target.base : target.base - anchor.base) / amountUnit;
       const quoteTotal =
-        Number(direction === 1 ? target.quote - anchor.quote : anchor.quote - target.quote) / 1e9;
+        Number(direction === 1 ? target.quote - anchor.quote : anchor.quote - target.quote) / amountUnit;
       // Never show borrowed/virtual inventory as withdrawable output cash.
       if (
         total <= previousBase ||

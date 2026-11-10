@@ -40,7 +40,10 @@ pub fn coverage_signal_nad(junior_value: u128, covered_debt_value: u128, utiliza
     // Multiplying the two fixed scales first avoids an intermediate J/D
     // overflow even when the asset is fully utilized (and its signal is zero).
     let idle_scale = (BPS_DENOMINATOR as u64 - utilization_bps) as u128 * (NAD as u128 / BPS_DENOMINATOR as u128);
-    Ok(Some(mul_div_u128(junior_value, idle_scale, covered_debt_value)?))
+    // Only the bands read the signal, so a coverage beyond u128 saturates.
+    Ok(Some(
+        mul_div_u128(junior_value, idle_scale, covered_debt_value).unwrap_or(u128::MAX),
+    ))
 }
 
 /// V1's exponential up/hold/down mechanism driven by independent inclusive

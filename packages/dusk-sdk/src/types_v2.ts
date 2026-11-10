@@ -18712,10 +18712,11 @@ export type Dusk = {
       "docs": [
         "Token amounts stored in reserves, positions, and shares are raw atoms.",
         "Internal curve quantities, risk depths, hLP NAV/exposure, and normalized",
-        "debt/collateral values use `max(9, base_side.asset_decimals,",
-        "quote_side.asset_decimals)` decimal places, including quantity fields with",
-        "the historical `_nad` suffix. Prices, rates, and per-share ratios always",
-        "retain nine-decimal NAD scaling. The quantity scale is immutable per market."
+        "debt/collateral values use `max(MIN_AMOUNT_DECIMALS, base_side.asset_decimals,",
+        "quote_side.asset_decimals)` decimal places, twelve or more (nine or more",
+        "for markets created at layout 14), including quantity fields with the",
+        "historical `_nad` suffix. Prices, rates, and per-share ratios always retain",
+        "nine-decimal NAD scaling. The quantity scale is immutable per market."
       ],
       "type": {
         "kind": "struct",
@@ -23630,12 +23631,13 @@ export type Dusk = {
       "docs": [
         "Serialized `Market` account layout discriminator.",
         "",
-        "Layout 14 replaces the former utilization admission threshold with",
-        "independent lower/upper utilization rate targets. Aggregate virtual",
-        "reserves use u128; physical token amounts remain u64."
+        "Layout 15 counts token amounts in at least `MIN_AMOUNT_DECIMALS` decimals.",
+        "Its bytes match layout 14, which replaced the former utilization admission",
+        "threshold with independent lower/upper utilization rate targets. Aggregate",
+        "virtual reserves use u128; physical token amounts remain u64."
       ],
       "type": "u8",
-      "value": "14"
+      "value": "15"
     },
     {
       "name": "marketReserveVaultSeedPrefix",
@@ -23696,6 +23698,20 @@ export type Dusk = {
       "value": "10000000"
     },
     {
+      "name": "minAmountDecimals",
+      "docs": [
+        "Fewest decimals a market counts token amounts in. A market's amount scale",
+        "is the largest of this, its base decimals and its quote decimals. Three",
+        "decimals beyond NAD give each atom of a nine-decimal token 1,000 internal",
+        "units, so payouts, which floor to whole atoms, absorb the few units of",
+        "rounding that rebuilding a concentrated curve from reserves can leave.",
+        "Markets created at `NINE_DECIMAL_AMOUNT_LAYOUT_VERSION` keep nine. Prices,",
+        "rates and ratios remain NAD."
+      ],
+      "type": "u8",
+      "value": "12"
+    },
+    {
       "name": "minBorrowHalfLifeMs",
       "type": "u64",
       "value": "43200000"
@@ -23731,6 +23747,16 @@ export type Dusk = {
       "name": "nadDecimals",
       "type": "u8",
       "value": "9"
+    },
+    {
+      "name": "nineDecimalAmountLayoutVersion",
+      "docs": [
+        "Layout of markets created before the twelve-decimal minimum. Their curve",
+        "caches, depth averages and hLP offsets are stored at the nine-decimal",
+        "minimum, which they keep."
+      ],
+      "type": "u8",
+      "value": "14"
     },
     {
       "name": "operatorExecutionWindowSlots",

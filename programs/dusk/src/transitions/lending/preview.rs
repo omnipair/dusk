@@ -237,16 +237,13 @@ impl Market {
                 let collateral_nad =
                     self.normalize_amount(collateral_exit_credit as u128, collateral_side.asset_decimals)?;
                 let debt_nad = self.normalize_amount(projected_debt, debt_side.asset_decimals)?;
-                let price = ceil_div(
-                    debt_nad
-                        .checked_mul(BPS_DENOMINATOR as u128)
-                        .and_then(|value| value.checked_mul(NAD as u128))
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                let price = mul_div_ceil_u128(
+                    debt_nad,
+                    BPS_DENOMINATOR as u128 * NAD as u128,
                     collateral_nad
                         .checked_mul(projected_terms.liquidation_cf_bps as u128)
                         .ok_or(ErrorCode::MarketMathOverflow)?,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?;
+                )?;
                 u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
             };
 
@@ -724,16 +721,13 @@ impl Market {
                 )?;
                 let debt_nad =
                     self.normalize_amount(projection.projected_position_debt, self.side(debt_asset).asset_decimals)?;
-                let price = ceil_div(
-                    debt_nad
-                        .checked_mul(BPS_DENOMINATOR as u128)
-                        .and_then(|value| value.checked_mul(NAD as u128))
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                let price = mul_div_ceil_u128(
+                    debt_nad,
+                    BPS_DENOMINATOR as u128 * NAD as u128,
                     collateral_nad
                         .checked_mul(liquidation_cf_bps as u128)
                         .ok_or(ErrorCode::MarketMathOverflow)?,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?;
+                )?;
                 u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
             };
         let mut low = 0;

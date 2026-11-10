@@ -60,7 +60,10 @@ fn native_hlp_swap_after_funded_recenter() {
     // Before the fix the quote inferred 10,333 / 10,667 tokens of hLP debt
     // from changed claims while the ledger still recorded 10,000 each.
     let state = market.integrated_curve_state_nad().unwrap();
-    assert_eq!(state.base_hlp_quote_debt, 10_000 * NAD as u128);
+    let ten_thousand_tokens_nad = market
+        .normalize_amount(u128::from(10_000 * CALIBRATION_UNIT), market.quote_side.asset_decimals)
+        .unwrap();
+    assert_eq!(state.base_hlp_quote_debt, ten_thousand_tokens_nad);
     assert_eq!(state.quote_hlp_base_debt, state.base_hlp_quote_debt);
     // The funding proof and committed cache must use the point which will
     // actually be quoted, including hLP's share of the deployed inventory.

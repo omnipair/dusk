@@ -1,12 +1,24 @@
 use anchor_lang::prelude::*;
 
-use crate::{constants::NAD_DECIMALS, errors::ErrorCode, math::rescale_amount, state::Market};
+use crate::{
+    constants::{MIN_AMOUNT_DECIMALS, NAD_DECIMALS, NINE_DECIMAL_AMOUNT_LAYOUT_VERSION},
+    errors::ErrorCode,
+    math::rescale_amount,
+    state::Market,
+};
 
 impl Market {
     // Both assets use one immutable quantity scale. Raising it to the more
     // precise mint preserves every token atom; ratios and prices remain NAD.
+    // Markets created at layout 14 stored their amounts at the nine-decimal
+    // minimum and keep it, so their persisted state is never rescaled.
     pub(crate) fn amount_decimals(&self) -> u8 {
-        NAD_DECIMALS
+        let minimum = if self.version == NINE_DECIMAL_AMOUNT_LAYOUT_VERSION {
+            NAD_DECIMALS
+        } else {
+            MIN_AMOUNT_DECIMALS
+        };
+        minimum
             .max(self.base_side.asset_decimals)
             .max(self.quote_side.asset_decimals)
     }
@@ -29,4 +41,9 @@ impl Market {
 #[cfg(test)]
 mod tests {
     include!("../tests/transitions/amounts.rs");
+}
+
+#[cfg(test)]
+mod precision_acceptance_tests {
+    include!("../tests/transitions/amount_precision.rs");
 }

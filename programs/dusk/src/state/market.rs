@@ -681,10 +681,11 @@ pub struct DailyBorrowBucket {
 
 /// Token amounts stored in reserves, positions, and shares are raw atoms.
 /// Internal curve quantities, risk depths, hLP NAV/exposure, and normalized
-/// debt/collateral values use `max(9, base_side.asset_decimals,
-/// quote_side.asset_decimals)` decimal places, including quantity fields with
-/// the historical `_nad` suffix. Prices, rates, and per-share ratios always
-/// retain nine-decimal NAD scaling. The quantity scale is immutable per market.
+/// debt/collateral values use `max(MIN_AMOUNT_DECIMALS, base_side.asset_decimals,
+/// quote_side.asset_decimals)` decimal places, twelve or more (nine or more
+/// for markets created at layout 14), including quantity fields with the
+/// historical `_nad` suffix. Prices, rates, and per-share ratios always retain
+/// nine-decimal NAD scaling. The quantity scale is immutable per market.
 #[account]
 #[derive(InitSpace, Default)]
 pub struct Market {
@@ -794,8 +795,13 @@ impl Market {
         Ok(())
     }
 
+    /// Layout 14 accounts share layout 15's bytes and differ only in the
+    /// amount scale they were created with (see `amount_decimals`).
     pub fn assert_current_version(&self) -> Result<()> {
-        require_eq!(self.version, MARKET_LAYOUT_VERSION, ErrorCode::InvalidVersion);
+        require!(
+            self.version == MARKET_LAYOUT_VERSION || self.version == NINE_DECIMAL_AMOUNT_LAYOUT_VERSION,
+            ErrorCode::InvalidVersion
+        );
         Ok(())
     }
 

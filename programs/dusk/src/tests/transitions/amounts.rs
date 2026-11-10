@@ -1,5 +1,8 @@
 use super::*;
-use crate::{constants::NAD, math::normalize_to_nad, state::MarketSide};
+use crate::{
+    constants::{MIN_AMOUNT_DECIMALS, NAD, NAD_DECIMALS},
+    state::MarketSide,
+};
 use proptest::prelude::*;
 
 #[test]
@@ -56,17 +59,44 @@ fn common_precision_keeps_sub_nad_atoms_and_price_ratios() {
 }
 
 #[test]
-fn existing_market_precision_is_unchanged() {
-    for base in 0..=9 {
-        for quote in 0..=9 {
+fn markets_count_amounts_in_at_least_twelve_decimals() {
+    // Prices stay NAD; only the amount scale has the twelve-decimal minimum.
+    // Markets whose mints already carry twelve or more decimals keep the
+    // mint precision, so the minimum leaves them unchanged.
+    for base in 0..=18 {
+        for quote in 0..=18 {
             let market = market_with_decimals(base, quote);
+            let scale = MIN_AMOUNT_DECIMALS.max(base).max(quote);
+            assert_eq!(market.amount_decimals(), scale);
             for decimals in [base, quote] {
                 for amount in [0, 1, 1_001, u128::from(u64::MAX)] {
-                    assert_eq!(market.normalize_amount(amount, decimals).unwrap(), normalize_to_nad(amount, decimals).unwrap());
+                    assert_eq!(
+                        market.normalize_amount(amount, decimals).unwrap(),
+                        amount * 10_u128.pow(u32::from(scale - decimals))
+                    );
                 }
             }
         }
     }
+}
+
+#[test]
+fn layout_fourteen_markets_keep_the_nine_decimal_minimum() {
+    use crate::constants::{MARKET_LAYOUT_VERSION, NINE_DECIMAL_AMOUNT_LAYOUT_VERSION};
+    for (base, quote) in [(0, 0), (6, 6), (9, 6), (10, 6), (12, 6), (18, 18)] {
+        let mut market = market_with_decimals(base, quote);
+        market.version = NINE_DECIMAL_AMOUNT_LAYOUT_VERSION;
+        assert_eq!(market.amount_decimals(), NAD_DECIMALS.max(base).max(quote));
+        market.assert_current_version().unwrap();
+        market.version = MARKET_LAYOUT_VERSION;
+        assert_eq!(market.amount_decimals(), MIN_AMOUNT_DECIMALS.max(base).max(quote));
+        market.assert_current_version().unwrap();
+    }
+    // A captured layout-14 devnet market reads its stored state at nine decimals.
+    let bytes = include_bytes!("../fixtures/hlp-entry-layout14.bin");
+    let captured = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
+    assert_eq!(captured.version, NINE_DECIMAL_AMOUNT_LAYOUT_VERSION);
+    assert_eq!(captured.amount_decimals(), NAD_DECIMALS);
 }
 
 #[test]

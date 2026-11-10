@@ -91,10 +91,11 @@ fn position_collateral_value_with_pricing_amount(
             require!(debt_per_collateral_price_nad > 0, ErrorCode::InvalidSettlementPrice);
             let collateral_amount_nad =
                 market.normalize_amount(collateral_amount as u128, market.side(collateral_asset).asset_decimals)?;
-            collateral_amount_nad
-                .checked_mul(debt_per_collateral_price_nad as u128)
-                .and_then(|value| value.checked_div(NAD as u128))
-                .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+            mul_div_u128(
+                collateral_amount_nad,
+                debt_per_collateral_price_nad as u128,
+                NAD as u128,
+            )
         }
     }
 }
@@ -117,10 +118,7 @@ impl Market {
         let collateral_value_nad = geometry
             .quote_exact_in(point, collateral_amount_nad, direction)?
             .amount_out;
-        let price_nad = collateral_value_nad
-            .checked_mul(NAD as u128)
-            .and_then(|value| value.checked_div(collateral_amount_nad))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let price_nad = mul_div_u128(collateral_value_nad, NAD as u128, collateral_amount_nad)?;
         let price_nad = u64::try_from(price_nad).map_err(|_| ErrorCode::MarketMathOverflow)?;
         require!(price_nad > 0, ErrorCode::InvalidSettlementPrice);
         Ok(price_nad)

@@ -544,7 +544,11 @@ fn liquidation_eligibility_is_inclusive_at_stored_cf_equality() {
         BPS_DENOMINATOR as u128,
     )
     .unwrap();
-    let threshold_debt = crate::math::ceil_div(threshold_debt_nad, NAD as u128).unwrap();
+    let threshold_debt = u128::from(
+        market
+            .denormalize_amount_ceil(threshold_debt_nad, market.quote_side.asset_decimals)
+            .unwrap(),
+    );
     market.debt.fixed_quote_shares = threshold_debt;
     market.debt.fixed_quote_principal = u64::try_from(threshold_debt).unwrap();
     borrow_position.fixed_quote_shares = threshold_debt;
@@ -580,9 +584,9 @@ fn liquidation_threshold_is_linear_and_independent_of_curve_depth() {
         .unwrap();
 
     // A slippage-adjusted trigger would liquidate this position early.
+    let debt_nad = market.normalize_amount(600_000_000, market.quote_side.asset_decimals).unwrap();
     assert!(
-        600_000_000_u128 * NAD as u128 * BPS_DENOMINATOR as u128
-            >= unwind_value_nad * borrow_position.quote_liquidation_cf_bps as u128
+        debt_nad * BPS_DENOMINATOR as u128 >= unwind_value_nad * borrow_position.quote_liquidation_cf_bps as u128
     );
     assert_eq!(
         market
@@ -636,10 +640,13 @@ fn auction_floor_scales_concentrated_and_tail_depth_together() {
     scaled_cache.concentrated_liquidity = scaled_concentrated;
     let scaled_geometry = scaled_cache.geometry().unwrap();
     let scaled_point = scaled_geometry.point_at_price_nad(NAD as u128, scaled_tail).unwrap();
+    let collateral_nad = market
+        .normalize_amount(u128::from(borrow_position.base_collateral), market.base_side.asset_decimals)
+        .unwrap();
     let expected = scaled_geometry
         .quote_exact_in(
             scaled_point,
-            borrow_position.base_collateral as u128 * NAD as u128,
+            collateral_nad,
             ConcentratedCurveDirection::BaseToQuote,
         )
         .unwrap()
@@ -652,7 +659,7 @@ fn auction_floor_scales_concentrated_and_tail_depth_together() {
     let tail_only_scaled = old_geometry
         .quote_exact_in(
             old_point,
-            borrow_position.base_collateral as u128 * NAD as u128,
+            collateral_nad,
             ConcentratedCurveDirection::BaseToQuote,
         )
         .unwrap()
@@ -672,13 +679,16 @@ fn auction_floor_uses_pessimistic_average_unwind_price() {
     let floor_price_nad = market
         .liquidation_reference_price_nad(&borrow_position, MarketAsset::Quote)
         .unwrap();
-    let reference_value_nad = (borrow_position.base_collateral as u128)
-        .checked_mul(floor_price_nad as u128)
+    let collateral_nad = market
+        .normalize_amount(u128::from(borrow_position.base_collateral), market.base_side.asset_decimals)
         .unwrap();
+    let reference_value_nad = crate::math::mul_div_u128(collateral_nad, floor_price_nad as u128, NAD as u128).unwrap();
+    // The floor price rounds down by less than one NAD price unit.
+    let price_unit_value_nad = crate::math::ceil_div(collateral_nad, NAD as u128).unwrap();
 
     assert!(floor_price_nad < NAD);
     assert!(reference_value_nad <= collateral_value_nad);
-    assert!(collateral_value_nad - reference_value_nad <= borrow_position.base_collateral as u128);
+    assert!(collateral_value_nad - reference_value_nad <= price_unit_value_nad);
 }
 
 #[test]

@@ -60,6 +60,7 @@ import { expect } from "chai";
 import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
 import {
   DEFAULT_PROTOCOL_REVENUE_SHARE_BPS,
+  MIN_AMOUNT_DECIMALS,
   buildLpTransferHookAccountMetas,
   buildLpTransferHookValidationAccountData,
   buildYieldTransferHookValidationAccountData,
@@ -2189,7 +2190,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     [6, 6, true, true, true],
   ] as const) {
     it(`preserves ${groupedUi ? "grouped UI-amount" : "high-decimal"} ${baseDecimals}/${quoteDecimals} ${concentrated ? "concentrated" : "CPMM"} liquidity, swaps, and hLP accounting`, async function () {
-      const precision = Math.max(9, baseDecimals, quoteDecimals);
+      const precision = Math.max(MIN_AMOUNT_DECIMALS, baseDecimals, quoteDecimals);
       const baseDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - baseDecimals);
       const quoteDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - quoteDecimals);
       const assetProgram = token2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
@@ -2831,7 +2832,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       { baseDecimals: 9, quoteDecimals: 6, base: 10_000_000, quote: 100_000 },
       { baseDecimals: 12, quoteDecimals: 9, base: 10_000_000_000, quote: 100_000_000 },
       // A positive price and LP quote cannot make collapsed boundaries executable.
-      { baseDecimals: 9, quoteDecimals: 9, base: 1, quote: 1_000_000_000, error: "InvalidMarketConfig" },
+      // One atom of a twelve-decimal mint is one internal amount unit.
+      { baseDecimals: 12, quoteDecimals: 12, base: 1, quote: 1_000_000_000, error: "InvalidMarketConfig" },
+      // One atom of a nine-decimal mint spans a thousand units, so the curve no
+      // longer collapses; the pool is rejected for its depth instead.
+      { baseDecimals: 9, quoteDecimals: 9, base: 1, quote: 1_000_000_000, error: "InsufficientLiquidity" },
       // LP output alone is nonzero, but the initial price rounds to zero.
       { baseDecimals: 6, quoteDecimals: 9, base: 10_000_000_000, quote: 1_000, error: "InvalidSettlementPrice" },
     ];

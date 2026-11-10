@@ -305,6 +305,30 @@ test("curve matches analytical CPMM and concentration across range boundaries", 
   close(concentrated.asks[49].size, plain.asks[49].size, 1e-7);
   close(concentrated.bids[49].size, plain.bids[49].size, 1e-7);
 });
+test("layout 15 curves are read at twelve decimals", () => {
+  // The same curve restated at the twelve-decimal minimum draws the same book:
+  // inventories are a thousand times larger and cash stays in raw atoms.
+  for (const concentrated of [false, true]) {
+    const nine = curve(concentrated);
+    const twelve = curve(concentrated);
+    twelve.account.version = MARKET_LAYOUT_VERSION;
+    const cache = twelve.account.amm.concentratedCurveCache;
+    for (const key of ["tailLiquidity", "concentratedLiquidity"])
+      cache[key] = new BN((BigInt(cache[key].toString()) * 1000n).toString());
+    for (const key of ["ordinaryBaseReserveNad", "ordinaryQuoteReserveNad"])
+      twelve.preview.amm[key] = new BN((BigInt(twelve.preview.amm[key].toString()) * 1000n).toString());
+    const expected = projectDuskVirtualBookCurve(nine, 100, 50);
+    const actual = projectDuskVirtualBookCurve(twelve, 100, 50);
+    close(actual.mid, expected.mid, 1e-9);
+    for (const side of ["bids", "asks"]) {
+      assert.equal(actual[side].length, expected[side].length);
+      for (const [i, row] of actual[side].entries()) {
+        close(row.total, expected[side][i].total, 1e-6);
+        close(row.quoteTotal, expected[side][i].quoteTotal, 1e-6);
+      }
+    }
+  }
+});
 test("curve caps output cash and rejects incompatible math or reserve state", () => {
   const limited = curve();
   limited.preview.base.cashReserve = new BN(500_000);

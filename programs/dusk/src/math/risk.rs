@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{BPS_DENOMINATOR, NAD, NATURAL_LOG_OF_TWO_NAD, TAYLOR_TERMS},
     errors::ErrorCode,
-    math::{slots_to_ms, taylor_exp},
+    math::{mul_div_u128, slots_to_ms, taylor_exp},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -67,11 +67,18 @@ pub(crate) fn ema_u128(last_ema: u128, input: u128, last_slot: u64, current_slot
         .unwrap_or(u128::MAX)
         .min(i64::MAX as u128) as i64;
     let alpha = taylor_exp(-x, NAD, TAYLOR_TERMS) as u128;
-    input
-        .saturating_mul((NAD as u128).saturating_sub(alpha))
-        .saturating_add(last_ema.saturating_mul(alpha))
-        .checked_div(NAD as u128)
-        .unwrap_or(last_ema)
+    // floor((input * (NAD - alpha) + last * alpha) / NAD), moved from the
+    // older value by a weighted difference. The products of the weighted sum
+    // exceed u128 for curve depths above about 3e29 units; the difference
+    // form is exact for every u128 input and cannot overflow, because the
+    // weighted step never exceeds the difference.
+    if input >= last_ema {
+        let step = mul_div_u128(input - last_ema, (NAD as u128).saturating_sub(alpha), NAD as u128);
+        step.map_or(input, |step| last_ema + step)
+    } else {
+        let step = mul_div_u128(last_ema - input, alpha, NAD as u128);
+        step.map_or(last_ema, |step| input + step)
+    }
 }
 
 /// EMA variant for signals where zero is a real observation rather than an

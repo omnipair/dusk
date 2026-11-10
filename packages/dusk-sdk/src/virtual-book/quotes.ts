@@ -19,7 +19,7 @@ import {
   TOKEN_PROGRAM_ID,
   unpackMint,
 } from "@solana/spl-token";
-import { deriveFutarchyAuthorityAddress, deriveMarketAddress, MARKET_LAYOUT_VERSION } from "../constants.js";
+import { deriveFutarchyAuthorityAddress, deriveMarketAddress, isSupportedMarketLayout } from "../constants.js";
 import { decodePreviewSwapReturnData, type SwapPreview } from "../preview.js";
 import type { Market } from "../type-aliases.js";
 import type { Dusk } from "../types_v2.js";
@@ -104,7 +104,7 @@ export function decodeDuskVirtualBookBatch(
     program.programId
   );
   if (
-    market.version !== MARKET_LAYOUT_VERSION ||
+    !isSupportedMarketLayout(market.version) ||
     market.bump !== bump ||
     address.toBase58() !== snapshot.market ||
     !market.baseSide.assetMint.equals(snapshot.account.baseSide.assetMint) ||

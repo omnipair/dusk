@@ -164,10 +164,21 @@ pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) 
     let whole = value / denominator;
     let base_quotient = whole.checked_mul(numerator).ok_or(ErrorCode::MarketMathOverflow)?;
     let addend = value % denominator;
+    // `addend < denominator`, so this product fits whenever
+    // `denominator * numerator` does: a large amount scaled by a price, a
+    // rate or a share ratio needs one native division, not the loop below.
+    if let Some(product) = addend.checked_mul(numerator) {
+        let (quotient, remainder) = div_rem_native(product, denominator);
+        let quotient = base_quotient
+            .checked_add(quotient)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        return Ok((quotient, remainder));
+    }
     let mut quotient = 0_u128;
     let mut remainder = 0_u128;
 
-    for bit in (0..128).rev() {
+    // Bits above the numerator's highest set bit only double zeros.
+    for bit in (0..128 - numerator.leading_zeros()).rev() {
         let carry = if remainder >= denominator - remainder {
             remainder -= denominator - remainder;
             1_u128
@@ -382,3 +393,8 @@ pub fn ceil_div(a: u128, b: u128) -> Option<u128> {
 
 #[cfg(test)]
 include!("../tests/support/arithmetic.rs");
+
+#[cfg(test)]
+mod mul_div_tests {
+    include!("../tests/math/arithmetic.rs");
+}

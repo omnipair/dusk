@@ -1,3 +1,8 @@
+/// Raw atoms of the six-decimal fixture tokens, in internal amount units.
+fn fixture_atoms_nad(market: &Market, atoms: u128) -> u128 {
+    market.normalize_amount(atoms, 6).unwrap()
+}
+
 #[test]
 fn h_lp_entry_accepts_full_value_public_interest_in_both_assets_and_curves() {
     use crate::state::{AmmConfig, AmmState};
@@ -195,7 +200,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                         let nav =
                             hlp_share_nav_nad_with_prices(&market, target, current_hlp_curve_prices(&market).unwrap())
                                 .unwrap();
-                        assert!(nav.abs_diff(expected_nav) <= 10_000, "fee={fee_bps} compound={compounding_bps} amp={amplification} interest={interest_asset:?} in={asset_in:?} target={target:?}: before={expected_nav}, after={nav}");
+                        assert!(nav.abs_diff(expected_nav) <= fixture_atoms_nad(&market, 10), "fee={fee_bps} compound={compounding_bps} amp={amplification} interest={interest_asset:?} in={asset_in:?} target={target:?}: before={expected_nav}, after={nav}");
                         let mut exit_market = market.clone();
                         let exit = exit_market.withdraw_single_sided(target, vault.hlp_supply / 2).unwrap();
                         assert!(exit.target_amount_out > 0);
@@ -261,7 +266,7 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
             let after =
                 hlp_share_nav_nad_with_prices(&market, target, current_hlp_curve_prices(&market).unwrap()).unwrap();
             assert!(
-                after.abs_diff(economic) <= 10_000,
+                after.abs_diff(economic) <= fixture_atoms_nad(&market, 10),
                 "amp={amplification} target={target:?}: economic {economic} -> {after}"
             );
             let vault = match target {
@@ -386,7 +391,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                         hlp_share_nav_nad_with_prices(&market, target, current_hlp_curve_prices(&market).unwrap())
                             .unwrap();
                     assert!(
-                        nav.abs_diff(expected) <= 10_000,
+                        nav.abs_diff(expected) <= fixture_atoms_nad(&market, 10),
                         "amp={amplification} asset={asset:?} target={target:?} writeoff={writeoff} advance={advance}"
                     );
                     if !writeoff {
@@ -400,7 +405,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                             asset_value_in_target_nad_with_prices(&market, prices, asset, paid_claim as u64, target)
                                 .unwrap();
                         let original_nav = hlp_share_nav_nad_with_prices(&before, target, prices).unwrap();
-                        assert!(nav.checked_add(funded_value).unwrap().abs_diff(original_nav) <= 10_000);
+                        assert!(nav.checked_add(funded_value).unwrap().abs_diff(original_nav) <= fixture_atoms_nad(&market, 10));
                     }
                 }
             }
@@ -612,7 +617,7 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
             for target in [MarketAsset::Base, MarketAsset::Quote] {
                 let nav_after = hlp_share_nav_nad_with_prices(&market, target, prices_after).unwrap();
                 let fixed_mark_nav = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
-                assert!(fixed_mark_nav.abs_diff(core_before_rehedge[target.code() as usize]) <= 10_000,
+                assert!(fixed_mark_nav.abs_diff(core_before_rehedge[target.code() as usize]) <= fixture_atoms_nad(&market, 10),
                     "rehedge transferred holder value at fixed mark: amp={amplification} asset={interest_asset:?} target={target:?} unpaid={unpaid_tokens}");
                 println!("ADVANCE_HLP unpaid={unpaid_tokens} gross={gross} amp={amplification} interest={interest_asset:?} target={target:?} before={} after={} price_before={} price_after={}",
                     nav_before[target.code() as usize], nav_after, prices.base_in_quote_nad(), prices_after.base_in_quote_nad());
@@ -717,7 +722,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             let ordinary_after = market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
             assert_eq!(ordinary_before, ordinary_after);
 
-            assert!(ordinary_value(&market).abs_diff(ordinary_nav_before) < 100_000,
+            assert!(ordinary_value(&market).abs_diff(ordinary_nav_before) < fixture_atoms_nad(&market, 100),
                 "ordinary LPs funded hLP recapitalization: amp={amplification} unpaid={unpaid_tokens} funding={funding_bps} diff={}",
                 ordinary_value(&market) as i128 - (ordinary_nav_before) as i128);
             for target in [MarketAsset::Base, MarketAsset::Quote] {
@@ -736,7 +741,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                         receipt.reserve_debit[t][i] - receipt.reserve_credit[t][i], target).unwrap();
                 }
                 let expected = nav_before[t] - fee_value - retained_fee_value;
-                assert!((fixed_mark_nav + yield_value).abs_diff(expected) < 100_000,
+                assert!((fixed_mark_nav + yield_value).abs_diff(expected) < fixture_atoms_nad(&market, 100),
                     "value changed amp={amplification} asset={interest_asset:?} target={target:?} unpaid={unpaid_tokens}: before_net={expected} after_plus_yield={} difference={}", fixed_mark_nav+yield_value, (fixed_mark_nav+yield_value).abs_diff(expected));
 
             }
@@ -887,7 +892,7 @@ fn tranche_hlp_rehedge_preserves_each_vaults_receivable_nav() {
             market.assert_market_invariants().unwrap();
             for target in [MarketAsset::Base, MarketAsset::Quote] {
                 let after = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
-                assert!(after.abs_diff(before[target.code() as usize]) <= 10_000, "NAV changed: amp={amplification}, income={asset:?}, target={target:?}, before={}, after={after}", before[target.code() as usize]);
+                assert!(after.abs_diff(before[target.code() as usize]) <= fixture_atoms_nad(&market, 10), "NAV changed: amp={amplification}, income={asset:?}, target={target:?}, before={}, after={after}", before[target.code() as usize]);
                 let opposite = hlp_full_underlying_amount(&market, target, target.opposite()).unwrap();
                 let vault = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
                 let debt = Debt::shares_to_debt(vault.debt_shares, market.debt.borrow_index(target.opposite())).unwrap();

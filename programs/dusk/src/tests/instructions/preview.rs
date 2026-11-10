@@ -3,7 +3,7 @@ use spl_token_2022::extension::transfer_fee::TransferFee;
 use crate::state::AmmConfig;
 use crate::transitions::amm::PreparedSwap;
 use crate::{
-    math::{mul_div_u128, normalize_to_nad},
+    math::mul_div_u128,
     state::{ConcentratedCurveParameters, Debt, Risk},
     transitions::{
         lending::NewPositionPreviewContext, HlpRebalanceReceipt, LeverageCollateralFee, SwapFeeBreakdown,
@@ -86,12 +86,13 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
     market.debt.global_health_quote_contribution_for_base_debt = aggregate_quote_contribution;
     market.config.global_health_contribution_cap_bps = 15_000;
     market.config.borrow_market_health_floor_bps = 11_000;
+    let curve_depth_ema_nad = market.normalize_amount(1_000_000, 0).unwrap();
     market.risk = Risk {
         base_price_ema_nad: NAD,
         quote_price_ema_nad: NAD,
         directional_base_price_ema_nad: NAD,
         directional_quote_price_ema_nad: NAD,
-        curve_depth_ema_nad: 1_000_000_u128 * NAD as u128,
+        curve_depth_ema_nad,
         ..Risk::default()
     };
     market.prepare_amm_for_swap(0).unwrap();
@@ -688,9 +689,10 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
         stressed.debt.quote_borrow_index_nad,
     )
     .unwrap();
-    let debt_nad = debt.checked_mul(NAD as u128).unwrap();
+    let debt_nad = stressed.normalize_amount(debt, stressed.quote_side.asset_decimals).unwrap();
+    let atom_nad = stressed.normalize_amount(1, stressed.quote_side.asset_decimals).unwrap();
     assert!(
-        opposite_claim.abs_diff(debt_nad) <= NAD as u128,
+        opposite_claim.abs_diff(debt_nad) <= atom_nad,
         "opposite_claim={opposite_claim} debt_nad={debt_nad} delta={}",
         opposite_claim.abs_diff(debt_nad)
     );
@@ -1209,7 +1211,8 @@ proptest! {
         let higher_accepted = context.is_accepted(higher_candidate).unwrap();
 
         let (cached_terms, cached_contribution, _) = context.terms(lower_candidate).unwrap();
-        let projected_debt_nad = normalize_to_nad(lower_candidate as u128, 0).unwrap();
+        let projected_debt_nad = market.normalize_amount(lower_candidate as u128, 0).unwrap();
+        let existing_debt_nad = market.normalize_amount(existing_debt as u128, 0).unwrap();
         let projected_aggregate = aggregate_contribution
             .checked_add(cached_contribution)
             .unwrap();
@@ -1217,8 +1220,8 @@ proptest! {
             .dynamic_borrow_terms(
                 MarketAsset::Base,
                 collateral_amount,
-                existing_debt as u128 * NAD as u128,
-                existing_debt as u128 * NAD as u128 + projected_debt_nad,
+                existing_debt_nad,
+                existing_debt_nad + projected_debt_nad,
                 projected_aggregate,
                 &market.risk,
             )

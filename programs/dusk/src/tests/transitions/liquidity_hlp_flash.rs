@@ -1,5 +1,10 @@
 use super::*;
 
+/// Raw atoms of the six-decimal fixture tokens, in internal amount units.
+fn fixture_atoms_nad(market: &Market, atoms: u128) -> u128 {
+    market.normalize_amount(atoms, 6).unwrap()
+}
+
 fn market_for_flash(amplification: u64, target: MarketAsset, funding_bps: u128) -> Market {
     let mut m = Market::default();
     m.base_side.asset_decimals = 6;
@@ -223,9 +228,9 @@ fn flash_recovery_preserves_other_holders_and_restores_hedge() {
                 }).sum::<u128>();
                 let ordinary_before = ordinary_value(&m);
                 m.settle_hlp_flash_recovery(q, 1).unwrap_or_else(|e| panic!("amp={amp} target={target:?} funding={funding_bps}: {e}"));
-                assert!(engine::hlp_share_nav_nad_with_prices(&m, other, prices).unwrap().abs_diff(other_nav) < 100_000);
-                assert!(engine::hlp_share_nav_nad_with_prices(&m, target, prices).unwrap().abs_diff(expected) < 100_000);
-                assert!(ordinary_value(&m).abs_diff(ordinary_before) < 100_000);
+                assert!(engine::hlp_share_nav_nad_with_prices(&m, other, prices).unwrap().abs_diff(other_nav) < fixture_atoms_nad(&m, 100));
+                assert!(engine::hlp_share_nav_nad_with_prices(&m, target, prices).unwrap().abs_diff(expected) < fixture_atoms_nad(&m, 100));
+                assert!(ordinary_value(&m).abs_diff(ordinary_before) < fixture_atoms_nad(&m, 100));
                 for t in [MarketAsset::Base, MarketAsset::Quote] {
                     let v = if t == MarketAsset::Base { m.base_hlp_vault } else { m.quote_hlp_vault };
                     let claim = engine::srlp_live_underlying_amount(&m, t.opposite(), v.srlp_shares).unwrap();
@@ -354,9 +359,9 @@ fn solvent_recovery_of_frozen_vault_must_repay_debt_and_unfreeze() {
         market.debt.quote_borrow_index_nad).unwrap();
     market.begin_hlp_flash_recovery(quote).unwrap();
     market.settle_hlp_flash_recovery(quote, 2).unwrap();
-    assert!(ordinary_value(&market).abs_diff(ordinary_before) < 100_000);
+    assert!(ordinary_value(&market).abs_diff(ordinary_before) < fixture_atoms_nad(&market, 100));
     let healthy_nav_after = engine::hlp_share_nav_nad_with_prices(&market, MarketAsset::Quote, prices).unwrap();
-    assert!(healthy_nav_after.abs_diff(healthy_nav_before) < 100_000);
+    assert!(healthy_nav_after.abs_diff(healthy_nav_before) < fixture_atoms_nad(&market, 100));
     let debt_after = Debt::shares_to_debt(market.base_hlp_vault.debt_shares,
         market.debt.quote_borrow_index_nad).unwrap();
     assert!(debt_after < debt_before);
