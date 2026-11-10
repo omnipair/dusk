@@ -69,7 +69,8 @@ pub struct RemoveLiquidity<'info> {
 impl<'info> RemoveLiquidity<'info> {
     pub fn validate(&self, args: &RemoveLiquidityArgs) -> Result<()> {
         validate_srlp_market_pda(&self.market, self.market.key())?;
-        self.market.assert_started()?;
+        // No start check: liquidity added before trading opens can leave
+        // before it opens, so a distant start never holds it.
         require!(args.srlp_amount > 0, ErrorCode::AmountZero);
         require_gte!(
             self.owner_srlp_account.amount,

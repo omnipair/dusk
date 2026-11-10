@@ -2820,6 +2820,80 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await expectSwapMarketState(cpiEvent(transaction, "swapExecuted"), fixture.market);
   });
 
+  it("previews and seeds small concentrated pools with matching curve validation", async function () {
+    const cases = [
+      // The failing devnet pool uses six-decimal base and nine-decimal quote.
+      { baseDecimals: 6, quoteDecimals: 9, base: 10_000, quote: 100_000_000 },
+      { baseDecimals: 6, quoteDecimals: 9, base: 10_000, quote: 1_000_000 },
+      { baseDecimals: 6, quoteDecimals: 9, base: 100_000, quote: 10_000_000 },
+      { baseDecimals: 9, quoteDecimals: 6, base: 10_000_000, quote: 100_000 },
+      { baseDecimals: 12, quoteDecimals: 9, base: 10_000_000_000, quote: 100_000_000 },
+      // A positive price and LP quote cannot make collapsed boundaries executable.
+      { baseDecimals: 9, quoteDecimals: 9, base: 1, quote: 1_000_000_000, error: "InvalidMarketConfig" },
+      // LP output alone is nonzero, but the initial price rounds to zero.
+      { baseDecimals: 6, quoteDecimals: 9, base: 10_000_000_000, quote: 1_000, error: "InvalidSettlementPrice" },
+    ];
+    for (const [index, testCase] of cases.entries()) {
+      const config = marketConfig();
+      config.amm.peakAmplificationNad = new BN(3_000_000_000);
+      config.amm.coreHalfWidthBps = 250;
+      config.amm.fadeWidthBps = 500;
+      const baseMint = await createMint(connection as any, payer, payer.publicKey, null, testCase.baseDecimals);
+      const quoteMint = await createMint(connection as any, payer, payer.publicKey, null, testCase.quoteDecimals);
+      const fixture = await initializeFinalMarketWithMints(220 + index, baseMint, quoteMint, config,
+        testCase.baseDecimals, {}, testCase.quoteDecimals);
+      const owner = await createOwnerAssetAccounts(fixture, testCase.base * 2, testCase.quote * 2);
+      const accounts = {
+        market: fixture.market, futarchyAuthority, owner: payer.publicKey,
+        baseMint, quoteMint, srlpMint: fixture.srlpMint,
+        baseReserveVault: fixture.baseReserveVault, quoteReserveVault: fixture.quoteReserveVault,
+        ...owner,
+        baseYieldAccount: deriveYieldAccountAddress(fixture.market, payer.publicKey, fixture.srlpMint, baseMint, "srlp")[0],
+        quoteYieldAccount: deriveYieldAccountAddress(fixture.market, payer.publicKey, fixture.srlpMint, quoteMint, "srlp")[0],
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      };
+      const args = { baseDepositAmount: new BN(testCase.base), quoteDepositAmount: new BN(testCase.quote) };
+      const previewTx = () => program.methods.previewAddLiquidity(args)
+        .accounts({ market: fixture.market, baseMint, quoteMint }).transaction();
+      const addTx = (minimum: anchor.BN) => program.methods.addLiquidity({ ...args, minSrlpAmount: minimum })
+        .accounts(accounts).transaction();
+      if (testCase.error) {
+        const before = Buffer.from(svm.getAccount(fixture.market)!.data);
+        for (const tx of [await previewTx(), await addTx(new BN(1))]) {
+          let failure: unknown;
+          try { await connection.sendTransaction(tx, [payer]); } catch (error) { failure = error; }
+          expect(String(failure)).to.include(testCase.error);
+          expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(before)).to.equal(true);
+        }
+        continue;
+      }
+      // Exercise both first and subsequent deposits. A submitted preview
+      // must not persist its hypothetical reserves, shares, or curve state.
+      for (let deposit = 0; deposit < 2; deposit++) {
+        svm.expireBlockhash();
+        const before = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+        const lpBefore = await getAccount(connection as any, owner.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID);
+        const preview = decodePreviewAddLiquidityReturnData(await simulateReturnData(await previewTx())) as any;
+        await connection.sendTransaction(await previewTx(), [payer]);
+        const afterPreview = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+        expect(afterPreview.base_side.reserves.cash_reserve.eq(before.base_side.reserves.cash_reserve)).to.equal(true);
+        expect(afterPreview.quote_side.reserves.cash_reserve.eq(before.quote_side.reserves.cash_reserve)).to.equal(true);
+        expect(afterPreview.base_side.shares.srlp_supply.eq(before.base_side.shares.srlp_supply)).to.equal(true);
+        expect(afterPreview.initial_liquidity_authority.equals(before.initial_liquidity_authority)).to.equal(true);
+        expect(afterPreview.amm.initialized).to.equal(before.amm.initialized);
+        await connection.sendTransaction(await addTx(preview.srlpAmount), [payer]);
+        const after = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+        const lpAfter = await getAccount(connection as any, owner.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID);
+        expect(lpAfter.amount - lpBefore.amount).to.equal(BigInt(preview.srlpAmount.toString()));
+        expect(after.base_side.reserves.cash_reserve.sub(before.base_side.reserves.cash_reserve).eq(preview.baseReserveCredit)).to.equal(true);
+        expect(after.quote_side.reserves.cash_reserve.sub(before.quote_side.reserves.cash_reserve).eq(preview.quoteReserveCredit)).to.equal(true);
+        expect(after.amm.initialized).to.equal(true);
+        expect(after.risk_revision.eq(after.curve_revision)).to.equal(true);
+      }
+    }
+  });
+
   it("adds V1-style limiting-side liquidity with Token-2022 transfer-fee assets", async function () {
     const baseMint = await createTransferFeeMint(payer.publicKey, 6, 100, 10_000n);
     const quoteMint = await createTransferFeeMint(payer.publicKey, 6, 50, 10_000n);
@@ -11409,6 +11483,36 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     error=undefined;
     try{await send(await operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,updates:[fee(70)]}),[manager]);}catch(e){error=e;}
     expect(String(error)).to.include("InvalidOperator");
+  });
+
+  it("lets srLP leave before trading opens", async function () {
+    const now = Number(svm.getClock().unixTimestamp);
+    const config = marketConfig();
+    config.startTime = new BN(now + 7 * 86_400);
+    const f = await addBalancedLiquidity(246, config);
+    const owner = payer.publicKey;
+
+    // A week before trading opens, the seeder withdraws part of its srLP.
+    const srlpBalance = async () => (await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    const lpBefore = await srlpBalance();
+    const tx = await program.methods.removeLiquidity({ srlpAmount: new BN(10_000),
+      minBaseAmountOut: new BN(1), minQuoteAmountOut: new BN(1) }).accounts({
+      market: f.market, futarchyAuthority, owner, baseMint: f.baseMint, quoteMint: f.quoteMint,
+      srlpMint: f.srlpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,
+      ownerBaseAccount: f.ownerBaseAccount, ownerQuoteAccount: f.ownerQuoteAccount, ownerSrlpAccount: f.ownerSrlpAccount,
+      baseYieldAccount: deriveYieldAccountAddress(f.market, owner, f.srlpMint, f.baseMint, "srlp")[0],
+      quoteYieldAccount: deriveYieldAccountAddress(f.market, owner, f.srlpMint, f.quoteMint, "srlp")[0],
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).transaction();
+    await connection.sendTransaction(tx, [payer]);
+    expect(await srlpBalance()).to.equal(lpBefore - 10_000n);
+    const removed = cpiEvent(tx, "liquidityRemoved");
+    expect(removed.srlpAmount.toString()).to.equal("10000");
+    expect(removed.baseOwnerCredit.gtn(0) && removed.quoteOwnerCredit.gtn(0)).to.equal(true);
+
+    // Trading is still closed: the start did not move.
+    const market = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+    expect(market.config.start_time.toNumber()).to.equal(now + 7 * 86_400);
   });
 
   it("preserves collected operator cash across handoff and assigns later collections to the successor", async function () {

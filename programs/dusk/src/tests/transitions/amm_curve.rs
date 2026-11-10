@@ -1,3 +1,6 @@
+use num_bigint::BigUint;
+use proptest::prelude::*;
+
 use super::*;
 
 fn geometry() -> ConcentratedCurveGeometry {
@@ -440,5 +443,451 @@ fn cached_liquidation_quotes_match_canonical_rounding_across_every_region() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn small_nested_deposits_allow_only_reserve_rounding_at_boundaries() {
+    let parameters = ConcentratedCurveParameters {
+        peak_amplification_nad: 3 * NAD,
+        core_half_width_bps: 250,
+        fade_width_bps: 500,
+    };
+    // Devnet pool 2qY1kxeJNHRMhYLZ72VkBSTcMYLNPyMmTUFcuz39hzzx:
+    // 0.01 base (6 decimals) and 0.1 quote (9 decimals), normalized to 9.
+    let cache = prepare_concentrated_cache_at_point(10_000_000, 100_000_000, 10 * NAD, parameters).unwrap();
+    let curve = cache.geometry().unwrap();
+    let boundary = curve.nested_boundaries[0];
+    let left = curve.nested_effective_reserves(boundary, 0).unwrap();
+    let right = curve.nested_effective_reserves(boundary, 1).unwrap();
+    let left_price = mul_div_u128(left.1, NAD as u128, left.0).unwrap();
+    let right_price = mul_div_u128(right.1, NAD as u128, right.0).unwrap();
+    assert!(left_price.abs_diff(right_price) > 2, "must exercise the former false rejection");
+
+    // Keep positive reserves and ordered boundaries, but introduce a real
+    // price discontinuity in each adjoining region. Rounding cannot hide it.
+    for region in 0..5 {
+        let mut malformed = curve;
+        malformed.nested_quote_constants[region].magnitude += 1_000_000;
+        assert!(malformed.validate().is_err(), "region={region}");
+    }
+}
+
+#[test]
+fn small_nested_curves_cross_all_boundaries_without_round_trip_profit() {
+    for amplification in [2, 3, 20] {
+        for base in [1_000_000_u128, 10_000_000, 100_000_000, 1_000_000_000_000, 10_u128.pow(24)] {
+            for price in [NAD / 10, NAD, 10 * NAD, 100 * NAD] {
+                let parameters = ConcentratedCurveParameters {
+                    peak_amplification_nad: amplification * NAD,
+                    core_half_width_bps: 250,
+                    fade_width_bps: 500,
+                };
+                let quote = mul_div_u128(base, price as u128, NAD as u128).unwrap();
+                let cache = prepare_concentrated_cache_at_point(base, quote, price, parameters).unwrap();
+                let curve = cache.geometry().unwrap();
+                for direction in [ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase] {
+                    let (start_price, target_price, reverse) = match direction {
+                        ConcentratedCurveDirection::BaseToQuote => (price * 2, price / 2, ConcentratedCurveDirection::QuoteToBase),
+                        ConcentratedCurveDirection::QuoteToBase => (price / 2, price * 2, ConcentratedCurveDirection::BaseToQuote),
+                    };
+                    let start = curve.point_at_price_nad(start_price as u128, cache.tail_liquidity).unwrap();
+                    let target = curve.point_at_price_nad(target_price as u128, cache.tail_liquidity).unwrap();
+                    let input = match direction {
+                        ConcentratedCurveDirection::BaseToQuote => target.base_reserve - start.base_reserve,
+                        ConcentratedCurveDirection::QuoteToBase => target.quote_reserve - start.quote_reserve,
+                    };
+                    let forward = curve.quote_exact_in(start, input, direction).unwrap();
+                    assert_eq!(forward.boundary_crossings, 4);
+                    let exact_out = curve.quote_exact_out(start, forward.amount_out, direction).unwrap();
+                    let filled = curve.quote_exact_in(start, exact_out.amount_in, direction).unwrap();
+                    assert!(filled.amount_out >= forward.amount_out);
+                    let predecessor = curve.quote_exact_in(start, exact_out.amount_in - 1, direction).unwrap();
+                    assert!(predecessor.amount_out < forward.amount_out);
+                    let back = curve.quote_exact_in(forward.end, forward.amount_out, reverse).unwrap();
+                    assert_eq!(back.boundary_crossings, 4);
+                    assert!(back.amount_out <= input,
+                        "amp={amplification} base={base} price={price} direction={direction:?}: {input} -> {}", back.amount_out);
+                }
+            }
+        }
+    }
+}
+
+// Nested boundary validation accepts the rounding left by construction and
+// nothing more. Each boundary reserve sums one floored term per active layer
+// (tail, shoulder, core), so with k active layers the exact value lies in
+// [v, v + k). These properties pin that bound for every feasible curve shape
+// and size, so a construction change that rounds differently fails here
+// before it can reject a live market.
+const NESTED_REGION_LAYERS: [usize; 5] = [1, 2, 3, 2, 1];
+
+fn feasible_nested_parameters() -> impl Strategy<Value = ConcentratedCurveParameters> {
+    (1_u16..=5_000, 1_u16..=10_000, 1_u32..1_000_000).prop_filter_map(
+        "concentration must leave a nonzero tail",
+        |(core_half_width_bps, fade_width_bps, fraction)| {
+            // Peak amplification A is feasible while 1 - 1/A stays below the
+            // mean inverse square-root width; sample A inside that bound.
+            let inverse_root = |bps: f64| (1.0 + bps / 10_000.0).sqrt().recip();
+            let mean_inverse = (inverse_root(f64::from(core_half_width_bps))
+                + inverse_root(f64::from(core_half_width_bps) + f64::from(fade_width_bps)))
+                / 2.0;
+            let max_amplification = (1.0 - mean_inverse).recip().min(2_000.0);
+            let amplification = 1.0 + f64::from(fraction) / 1_000_000.0 * (max_amplification - 1.0);
+            let parameters = ConcentratedCurveParameters {
+                peak_amplification_nad: (amplification * NAD as f64) as u64,
+                core_half_width_bps,
+                fade_width_bps,
+            };
+            parameters
+                .validate(crate::state::MAX_AMM_AMPLIFICATION_NAD)
+                .ok()
+                .map(|()| parameters)
+        },
+    )
+}
+
+/// Feasible parameters, a center price from 10^-6 to about 10^6 quote per
+/// base, and a reserve point at 0.6x to 1.6x that price whose smaller side
+/// holds 10^5 to 10^24 normalized atoms. Smaller pools may legitimately
+/// collapse and are generated separately.
+fn nested_curve_inputs() -> impl Strategy<Value = (ConcentratedCurveParameters, u128, u128, u64)> {
+    nested_curve_inputs_with_size_exponents(5..=23)
+}
+
+/// As `nested_curve_inputs`, with the smaller side holding 10^e to 10^(e+1)
+/// atoms for each exponent e in the range.
+fn nested_curve_inputs_with_size_exponents(
+    size_exponents: core::ops::RangeInclusive<u32>,
+) -> impl Strategy<Value = (ConcentratedCurveParameters, u128, u128, u64)> {
+    (
+        feasible_nested_parameters(),
+        0_u32..=12,
+        0_u128..1_000_000,
+        size_exponents,
+        0_u128..1_000_000,
+        60_u128..=160,
+    )
+        .prop_map(
+            |(parameters, price_exponent, price_jitter, size_exponent, size_jitter, offset_percent)| {
+                let price_floor = NAD as u128 * 10_u128.pow(price_exponent) / 1_000_000;
+                let center_price_nad = u64::try_from(price_floor + price_floor * price_jitter / 2_000_000).unwrap();
+                let smaller_side = 10_u128.pow(size_exponent) * (1_000_000 + 9 * size_jitter) / 1_000_000;
+                let point_price_nad = u128::from(center_price_nad) * offset_percent / 100;
+                let (base, quote) = if point_price_nad >= NAD as u128 {
+                    (smaller_side, mul_div_u128(smaller_side, point_price_nad, NAD as u128).unwrap())
+                } else {
+                    (mul_div_u128(smaller_side, NAD as u128, point_price_nad).unwrap(), smaller_side)
+                };
+                (parameters, base, quote, center_price_nad)
+            },
+        )
+}
+
+#[test]
+fn dust_reserves_without_curve_liquidity_report_insufficient_liquidity() {
+    // Every candidate branch floors the tail or concentrated liquidity of
+    // these reserves to zero. They previously surfaced as BrokenInvariant.
+    for (base, quote, center_price_nad, peak_amplification_nad, core_half_width_bps, fade_width_bps) in [
+        (3, 3, 1_238_523_730, 1_183_490_052, 3_329, 6_123),
+        (1_236, 174, 140_769_679, 1_000_601_010, 1_269, 4_054),
+    ] {
+        let parameters = ConcentratedCurveParameters {
+            peak_amplification_nad,
+            core_half_width_bps,
+            fade_width_bps,
+        };
+        let result = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters);
+        assert!(
+            matches!(
+                &result,
+                Err(anchor_lang::error::Error::AnchorError(error))
+                    if error.error_code_number == u32::from(ErrorCode::InsufficientLiquidity)
+            ),
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn points_between_neighbouring_branch_solutions_reconstruct() {
+    // Each point lies within rounding of a nested boundary, where the two
+    // neighbouring branch solutions place it in each other's region. These
+    // previously failed with BrokenInvariant, from dust to 10^24 atoms.
+    let mut round_trips = 0;
+    for (base, quote, center_price_nad, peak_amplification_nad, core_half_width_bps, fade_width_bps) in [
+        (4, 694, 121_328_700_000, 2_276_128_474, 2_641, 6_132),
+        (
+            1_275_252_399_575_852,
+            377_885_106_309_528_157,
+            510_950_000_000,
+            4_834_968_260,
+            1_171,
+            4_141,
+        ),
+        (
+            1_261_115_701_243_678_306,
+            492_217_401_632_643_200_888,
+            628_290_000_000,
+            1_269_688_543,
+            4_536,
+            1_817,
+        ),
+        (
+            1_598_602_032_968_647_111_992_730,
+            287_453_245_656_189_156_793_041_298,
+            491_100_000_000,
+            1_454_206_388,
+            3_552,
+            8_197,
+        ),
+    ] {
+        let parameters = ConcentratedCurveParameters {
+            peak_amplification_nad,
+            core_half_width_bps,
+            fade_width_bps,
+        };
+        let (cache, curve) =
+            prepare_concentrated_cache_and_geometry_at_point(base, quote, center_price_nad, parameters).unwrap();
+        assert_eq!(cache.geometry().unwrap(), curve);
+        let point = ConcentratedCurvePoint {
+            base_reserve: base,
+            quote_reserve: quote,
+        };
+        curve.spot_price_nad(point).unwrap();
+        // Dust outputs round to zero; round trips need a real pool.
+        if base.min(quote) < 1_000_000 {
+            continue;
+        }
+        for (direction, reverse, input_reserve) in [
+            (ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase, base),
+            (ConcentratedCurveDirection::QuoteToBase, ConcentratedCurveDirection::BaseToQuote, quote),
+        ] {
+            for input_ppm in [1_000, 100_000] {
+                let input = mul_div_u128(input_reserve, input_ppm, 1_000_000).unwrap() + 1;
+                let Ok(forward) = curve.quote_exact_in(point, input, direction) else {
+                    continue;
+                };
+                prepare_concentrated_cache_at_point(
+                    forward.end.base_reserve,
+                    forward.end.quote_reserve,
+                    center_price_nad,
+                    parameters,
+                )
+                .unwrap();
+                // A reverse swap that ends a few atoms past a boundary floors
+                // its last segment to zero output and is rejected outright.
+                let Ok(back) = curve.quote_exact_in(forward.end, forward.amount_out, reverse) else {
+                    continue;
+                };
+                assert!(back.amount_out <= input, "{direction:?}: {input} -> {}", back.amount_out);
+                round_trips += 1;
+            }
+        }
+    }
+    assert!(round_trips >= 8, "{round_trips}");
+}
+
+/// A point `offset` atoms of base along the boundary's reserve ratio, if both
+/// reserves stay positive. Above 10^18 atoms the offset grows with the pool,
+/// as the rounding band does.
+fn point_near_boundary(boundary: ConcentratedCurvePoint, offset: i128) -> Option<ConcentratedCurvePoint> {
+    let scale = (boundary.base_reserve.min(boundary.quote_reserve) / 10_u128.pow(18)).max(1);
+    let base_step = offset.unsigned_abs() * scale;
+    let quote_step = mul_div_u128(base_step, boundary.quote_reserve, boundary.base_reserve).unwrap();
+    let point = if offset < 0 {
+        ConcentratedCurvePoint {
+            base_reserve: boundary.base_reserve.checked_sub(base_step)?,
+            quote_reserve: boundary.quote_reserve + quote_step,
+        }
+    } else {
+        ConcentratedCurvePoint {
+            base_reserve: boundary.base_reserve + base_step,
+            quote_reserve: boundary.quote_reserve.checked_sub(quote_step)?,
+        }
+    };
+    (point.base_reserve > 0 && point.quote_reserve > 0).then_some(point)
+}
+
+fn is_error(result: &Result<impl core::fmt::Debug>, code: ErrorCode) -> bool {
+    matches!(
+        result,
+        Err(anchor_lang::error::Error::AnchorError(error)) if error.error_code_number == u32::from(code)
+    )
+}
+
+/// Active layer liquidities per region, outermost upper region first, in the
+/// same order as `nested_boundaries`.
+fn nested_region_liquidities(cache: ConcentratedCurveCache) -> [Vec<u128>; 5] {
+    let core = cache.concentrated_liquidity.div_ceil(2);
+    let shoulder = cache.concentrated_liquidity - core;
+    let tail = cache.tail_liquidity;
+    [
+        vec![tail],
+        vec![tail, shoulder],
+        vec![tail, shoulder, core],
+        vec![tail, shoulder],
+        vec![tail],
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(2048))]
+
+    #[test]
+    fn feasible_nested_curves_pass_boundary_validation(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs()
+    ) {
+        let prepared = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters);
+        prop_assert!(prepared.is_ok(), "{parameters:?} base={base} quote={quote} center={center_price_nad}: {prepared:?}");
+    }
+
+    #[test]
+    fn nested_boundary_rounding_stays_below_one_atom_per_active_layer(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs()
+    ) {
+        let cache = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters).unwrap();
+        let curve = cache.geometry().unwrap();
+        let regions = nested_region_liquidities(cache);
+        let sqrt_prices = [
+            cache.outer_upper_sqrt_price_nad,
+            cache.core_upper_sqrt_price_nad,
+            cache.core_lower_sqrt_price_nad,
+            cache.outer_lower_sqrt_price_nad,
+        ];
+        let scale = BigUint::from(NAD);
+        for (boundary_index, boundary) in curve.nested_boundaries.into_iter().enumerate() {
+            let sqrt_price = BigUint::from(sqrt_prices[boundary_index]);
+            for region in [boundary_index, boundary_index + 1] {
+                prop_assert_eq!(regions[region].len(), NESTED_REGION_LAYERS[region]);
+                let layers = BigUint::from(regions[region].len());
+                let liquidity: BigUint = regions[region].iter().map(|&value| BigUint::from(value)).sum();
+                let (effective_base, effective_quote) = curve.nested_effective_reserves(boundary, region).unwrap();
+                // Exact base is liquidity * NAD / sqrt_price; exact quote is
+                // liquidity * sqrt_price / NAD. Both must lie in [v, v + k).
+                let base_numerator = &liquidity * &scale;
+                let effective_base = BigUint::from(effective_base);
+                prop_assert!(&effective_base * &sqrt_price <= base_numerator);
+                prop_assert!(base_numerator < (&effective_base + &layers) * &sqrt_price);
+                let quote_numerator = &liquidity * &sqrt_price;
+                let effective_quote = BigUint::from(effective_quote);
+                prop_assert!(&effective_quote * &scale <= quote_numerator);
+                prop_assert!(quote_numerator < (&effective_quote + &layers) * &scale);
+            }
+        }
+    }
+
+    #[test]
+    fn nested_boundary_validation_rejects_one_percent_price_jumps(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs()
+    ) {
+        let curve = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters)
+            .unwrap()
+            .geometry()
+            .unwrap();
+        for region in 0_usize..5 {
+            let adjoining = [region.checked_sub(1), (region < 4).then_some(region)];
+            let mut smallest = u128::MAX;
+            let mut region_quote = 0;
+            for boundary_index in adjoining.into_iter().flatten() {
+                let boundary = curve.nested_boundaries[boundary_index];
+                for side in [boundary_index, boundary_index + 1] {
+                    let (effective_base, effective_quote) = curve.nested_effective_reserves(boundary, side).unwrap();
+                    smallest = smallest.min(effective_base).min(effective_quote);
+                    if side == region {
+                        region_quote = effective_quote;
+                    }
+                }
+            }
+            // Below 10^4 atoms a 1% move is within a few atoms of rounding.
+            if smallest < 10_000 {
+                continue;
+            }
+            let mut malformed = curve;
+            malformed.nested_quote_constants[region].magnitude += region_quote / 100;
+            prop_assert!(malformed.validate().is_err(), "region={region} {parameters:?} base={base} quote={quote}");
+        }
+    }
+    #[test]
+    fn points_near_nested_boundaries_reconstruct(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs(),
+        offset in -16_i128..=16,
+    ) {
+        let curve = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters)
+            .unwrap()
+            .geometry()
+            .unwrap();
+        for boundary in curve.nested_boundaries {
+            for point in [Some(boundary), point_near_boundary(boundary, offset)].into_iter().flatten() {
+                let prepared = prepare_concentrated_cache_and_geometry_at_point(
+                    point.base_reserve,
+                    point.quote_reserve,
+                    center_price_nad,
+                    parameters,
+                );
+                prop_assert!(prepared.is_ok(), "{parameters:?} center={center_price_nad} {point:?}: {prepared:?}");
+                let (_, local) = prepared.unwrap();
+                prop_assert!(local.spot_price_nad_prevalidated(point).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn swaps_from_nested_boundary_points_reprepare_at_their_endpoints(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs(),
+        boundary_index in 0_usize..4,
+        offset in -16_i128..=16,
+        input_ppm in 1_u128..=100_000,
+    ) {
+        let curve = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters)
+            .unwrap()
+            .geometry()
+            .unwrap();
+        let Some(start) = point_near_boundary(curve.nested_boundaries[boundary_index], offset) else {
+            return Ok(());
+        };
+        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(
+            start.base_reserve,
+            start.quote_reserve,
+            center_price_nad,
+            parameters,
+        )
+        .unwrap();
+        for (direction, input_reserve) in [
+            (ConcentratedCurveDirection::BaseToQuote, start.base_reserve),
+            (ConcentratedCurveDirection::QuoteToBase, start.quote_reserve),
+        ] {
+            let input = mul_div_u128(input_reserve, input_ppm, 1_000_000).unwrap() + 1;
+            // Outputs that round to zero are rejected before any transition.
+            let Ok(forward) = start_curve.quote_exact_in(start, input, direction) else { continue };
+            // Every transition re-prepares the curve at its endpoint. A swap
+            // can drain one side to dust, which may only fail for its size.
+            let end = prepare_concentrated_cache_at_point(
+                forward.end.base_reserve,
+                forward.end.quote_reserve,
+                center_price_nad,
+                parameters,
+            );
+            prop_assert!(
+                end.is_ok()
+                    || is_error(&end, ErrorCode::InsufficientLiquidity)
+                    || is_error(&end, ErrorCode::InvalidMarketConfig),
+                "{parameters:?} center={center_price_nad} {direction:?} end={:?}: {end:?}",
+                forward.end
+            );
+        }
+    }
+
+    #[test]
+    fn dust_nested_curves_fail_only_with_size_errors(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs_with_size_exponents(0..=4)
+    ) {
+        let prepared = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters);
+        prop_assert!(
+            prepared.is_ok()
+                || is_error(&prepared, ErrorCode::InsufficientLiquidity)
+                || is_error(&prepared, ErrorCode::InvalidMarketConfig),
+            "{parameters:?} base={base} quote={quote} center={center_price_nad}: {prepared:?}"
+        );
     }
 }

@@ -70,8 +70,9 @@ adapters retain their corresponding rollback boundary.
 
 ## Launch protection and governance
 
-Ordinary srLP liquidity may be seeded before `start_time`; swaps, lending,
-leverage, and hLP funding remain unavailable until that exact timestamp.
+Ordinary srLP liquidity may be seeded and withdrawn before `start_time`;
+swaps, lending, leverage, and hLP funding remain unavailable until that exact
+timestamp.
 Markets may configure a bounded launch base fee that decays in O(1) from the
 launch fee to the normal base fee using either a linear schedule or sixteen
 deterministic exponential steps. Distance and volatility charges remain
