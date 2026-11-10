@@ -504,11 +504,7 @@ fn small_nested_curves_cross_all_boundaries_without_round_trip_profit() {
                     assert!(filled.amount_out >= forward.amount_out);
                     let predecessor = curve.quote_exact_in(start, exact_out.amount_in - 1, direction).unwrap();
                     assert!(predecessor.amount_out < forward.amount_out);
-                    // A reverse swap that ends a few atoms past a boundary floors
-                // its last segment to zero output and is rejected outright.
-                let Ok(back) = curve.quote_exact_in(forward.end, forward.amount_out, reverse) else {
-                    continue;
-                };
+                    let back = curve.quote_exact_in(forward.end, forward.amount_out, reverse).unwrap();
                     assert_eq!(back.boundary_crossings, 4);
                     assert!(back.amount_out <= input,
                         "amp={amplification} base={base} price={price} direction={direction:?}: {input} -> {}", back.amount_out);
@@ -679,11 +675,7 @@ fn points_between_neighbouring_branch_solutions_reconstruct() {
                     parameters,
                 )
                 .unwrap();
-                // A reverse swap that ends a few atoms past a boundary floors
-                // its last segment to zero output and is rejected outright.
-                let Ok(back) = curve.quote_exact_in(forward.end, forward.amount_out, reverse) else {
-                    continue;
-                };
+                let back = curve.quote_exact_in(forward.end, forward.amount_out, reverse).unwrap();
                 assert!(back.amount_out <= input, "{direction:?}: {input} -> {}", back.amount_out);
                 round_trips += 1;
             }
@@ -756,6 +748,21 @@ fn own_region_offset_atoms(
 fn reconstruction_band_atoms(cache: ConcentratedCurveCache) -> BigUint {
     let liquidity = cache.tail_liquidity + cache.concentrated_liquidity;
     BigUint::from(8_u8) * (BigUint::from(1_u8) + BigUint::from(liquidity / NESTED_SHAPE_SCALE))
+}
+
+/// Input that takes `start` exactly onto the next boundary in `direction`.
+fn input_to_next_boundary(
+    curve: ConcentratedCurveGeometry,
+    start: ConcentratedCurvePoint,
+    direction: ConcentratedCurveDirection,
+) -> Option<u128> {
+    let branch = curve.branch_for_direction(start, direction);
+    let target = curve.next_boundary(start, branch, direction)?;
+    let distance = match direction {
+        ConcentratedCurveDirection::BaseToQuote => target.base_reserve.saturating_sub(start.base_reserve),
+        ConcentratedCurveDirection::QuoteToBase => target.quote_reserve.saturating_sub(start.quote_reserve),
+    };
+    (distance > 0).then_some(distance)
 }
 
 #[test]
@@ -998,6 +1005,47 @@ proptest! {
                 forward.amount_out,
                 back.amount_out
             );
+        }
+    }
+
+    #[test]
+    fn exact_in_output_never_falls_past_a_nested_boundary(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs(),
+        boundary_index in 0_usize..4,
+        offset in -16_i128..=16,
+        extra_exponent in 0_u32..=7,
+        extra_digit in 1_u128..=9,
+    ) {
+        let curve = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters)
+            .unwrap()
+            .geometry()
+            .unwrap();
+        let Some(start) = point_near_boundary(curve.nested_boundaries[boundary_index], offset) else {
+            return Ok(());
+        };
+        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(
+            start.base_reserve,
+            start.quote_reserve,
+            center_price_nad,
+            parameters,
+        )
+        .unwrap();
+        for direction in [ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase] {
+            let Some(crossing) = input_to_next_boundary(start_curve, start, direction) else { continue };
+            let Ok(at_boundary) = start_curve.quote_exact_in(start, crossing, direction) else { continue };
+            if at_boundary.amount_out == 0 {
+                continue;
+            }
+            // A few atoms past the boundary can floor the last segment to
+            // zero. The swap must still pay what the crossing paid.
+            let input = crossing + extra_digit * 10_u128.pow(extra_exponent);
+            let past = start_curve.quote_exact_in(start, input, direction);
+            prop_assert!(
+                matches!(&past, Ok(quote) if quote.amount_out >= at_boundary.amount_out),
+                "{parameters:?} center={center_price_nad} {start:?} {direction:?} crossing={crossing} input={input}: {past:?}"
+            );
+            let path = start_curve.prepare_quote_path(start, direction).unwrap();
+            prop_assert_eq!(path.amount_out(input).unwrap(), past.unwrap().amount_out);
         }
     }
 

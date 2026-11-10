@@ -1086,7 +1086,7 @@ impl ConcentratedQuotePath {
                 let amount = cpmm_amount_out_nad(segment.effective_input, segment.effective_output, remaining)?;
                 require!(amount <= segment.real_output, ErrorCode::InsufficientLiquidity);
                 require!(
-                    amount > 0 || input == segment.input_limit,
+                    amount > 0 || segment.output_before > 0 || input == segment.input_limit,
                     ErrorCode::InsufficientOutputAmount
                 );
                 return segment
@@ -1838,7 +1838,10 @@ impl ConcentratedCurveGeometry {
                     cpmm_amount_out_nad(effective_quote, effective_base, remaining)?
                 }
             };
-            require!(output > 0, ErrorCode::InsufficientOutputAmount);
+            // A remainder of a few atoms past the last crossing can floor to
+            // zero output. The pool keeps it, as it keeps the floor of every
+            // segment; only a swap that pays nothing at all is rejected.
+            require!(output > 0 || total_out > 0, ErrorCode::InsufficientOutputAmount);
             match direction {
                 ConcentratedCurveDirection::BaseToQuote => {
                     point.base_reserve = point
