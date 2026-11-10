@@ -11349,6 +11349,64 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(String(error)).to.include("InvalidOperator");
   });
 
+  it("lets liquidity leave before trading opens and lets the owner move a start that has not passed", async function () {
+    const now = Number(svm.getClock().unixTimestamp);
+    const day = 86_400;
+    const config = marketConfig();
+    config.startTime = new BN(now + 7 * day);
+    const f = await addBalancedLiquidity(246, config);
+    const operator = new DuskOperator(createDuskProgram({provider: program.provider}));
+    const owner = payer.publicKey;
+    const send = async (build: {transaction: Transaction}, signers: Keypair[] = []) => {
+      build.transaction.feePayer = owner; svm.expireBlockhash();
+      build.transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      await connection.sendTransaction(build.transaction, [payer, ...signers]);
+      return build.transaction;
+    };
+    const failure = async (action: () => Promise<{transaction: Transaction}>, signers: Keypair[] = []) => {
+      try { await send(await action(), signers); } catch (error) { return String(error); }
+      return "";
+    };
+
+    // A week before trading opens, the seeder withdraws part of its srLP.
+    const srlpBalance = async () => (await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    const lpBefore = await srlpBalance();
+    await connection.sendTransaction(await program.methods.removeLiquidity({ srlpAmount: new BN(10_000),
+      minBaseAmountOut: new BN(1), minQuoteAmountOut: new BN(1) }).accounts({
+      market: f.market, futarchyAuthority, owner, baseMint: f.baseMint, quoteMint: f.quoteMint,
+      srlpMint: f.srlpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,
+      ownerBaseAccount: f.ownerBaseAccount, ownerQuoteAccount: f.ownerQuoteAccount, ownerSrlpAccount: f.ownerSrlpAccount,
+      baseYieldAccount: deriveYieldAccountAddress(f.market, owner, f.srlpMint, f.baseMint, "srlp")[0],
+      quoteYieldAccount: deriveYieldAccountAddress(f.market, owner, f.srlpMint, f.quoteMint, "srlp")[0],
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).transaction(), [payer]);
+    expect(await srlpBalance()).to.equal(lpBefore - 10_000n);
+    expect((await operator.market(f.market)).config.startTime.toNumber()).to.equal(now + 7 * day);
+
+    const stranger = Keypair.generate();
+    expect(await failure(() => operator.rescheduleStart({market: f.market, operator: stranger.publicKey, startTime: now + 3 * day}), [stranger]))
+      .to.include("InvalidOperator");
+
+    // A week becomes three days.
+    const tx = await send(await operator.rescheduleStart({market: f.market, operator: owner, startTime: now + 3 * day}));
+    trackV2Instruction("rescheduleMarketStart", this.test?.title);
+    const event = cpiEvent(tx, "marketStartRescheduled");
+    expect(event.market.equals(f.market)).to.equal(true);
+    expect(event.operator.equals(owner)).to.equal(true);
+    expect(event.previousStartTime.toNumber()).to.equal(now + 7 * day);
+    expect(event.startTime.toNumber()).to.equal(now + 3 * day);
+    expect((await operator.market(f.market)).config.startTime.toNumber()).to.equal(now + 3 * day);
+
+    expect(await failure(() => operator.rescheduleStart({market: f.market, operator: owner, startTime: now - 1})))
+      .to.include("StartTimeInPast");
+
+    // Opening now is allowed; after that the start is final.
+    await send(await operator.rescheduleStart({market: f.market, operator: owner, startTime: now}));
+    expect(await failure(() => operator.rescheduleStart({market: f.market, operator: owner, startTime: now + day})))
+      .to.include("MarketAlreadyStarted");
+    expect((await operator.market(f.market)).config.startTime.toNumber()).to.equal(now);
+  });
+
   it("preserves collected operator cash across handoff and assigns later collections to the successor", async function () {
     const {f, sdkProgram, operator, owner, metadata, send} = await operatorFixture(254);
     const share=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,interestShareBps:3_000});

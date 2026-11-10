@@ -8330,6 +8330,105 @@ export type Dusk = {
       ]
     },
     {
+      "name": "rescheduleMarketStart",
+      "docs": [
+        "Move a start that has not passed to another time that has not passed.",
+        "Owner only, with no notice: before trading opens, srLP holders can",
+        "withdraw at any time."
+      ],
+      "discriminator": [
+        169,
+        15,
+        5,
+        137,
+        88,
+        147,
+        182,
+        253
+      ],
+      "accounts": [
+        {
+          "name": "operator",
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "startTime",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "resolveOperatorChange",
       "docs": [
         "The operator may cancel any bundle; a manager may cancel its own. Anyone may close obsolete proposals."
@@ -12179,6 +12278,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "marketStartRescheduled",
+      "discriminator": [
+        198,
+        139,
+        74,
+        36,
+        126,
+        234,
+        101,
+        97
+      ]
+    },
+    {
       "name": "operatorChangeAnnounced",
       "discriminator": [
         137,
@@ -13200,6 +13312,16 @@ export type Dusk = {
       "code": 6146,
       "name": "launchSettingsImmutable",
       "msg": "Launch-only settings are immutable after the market starts"
+    },
+    {
+      "code": 6147,
+      "name": "marketAlreadyStarted",
+      "msg": "Trading has opened; its start time is final"
+    },
+    {
+      "code": 6148,
+      "name": "startTimeInPast",
+      "msg": "A new start time cannot be in the past"
     }
   ],
   "types": [
@@ -19852,6 +19974,30 @@ export type Dusk = {
               "Per-srLP-share interest growth, scaled by 2^64."
             ],
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "marketStartRescheduled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "operator",
+            "type": "pubkey"
+          },
+          {
+            "name": "previousStartTime",
+            "type": "i64"
+          },
+          {
+            "name": "startTime",
+            "type": "i64"
           }
         ]
       }

@@ -414,3 +414,45 @@ impl RemoveMarketManager<'_> {
         Ok(())
     }
 }
+
+#[event]
+pub struct MarketStartRescheduled {
+    pub market: Pubkey,
+    pub operator: Pubkey,
+    pub previous_start_time: i64,
+    pub start_time: i64,
+}
+
+#[event_cpi]
+#[derive(Accounts)]
+pub struct RescheduleMarketStart<'info> {
+    pub operator: Signer<'info>,
+    #[account(mut, seeds=[MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump=market.bump)]
+    pub market: Box<Account<'info, Market>>,
+}
+
+impl RescheduleMarketStart<'_> {
+    pub fn handle(ctx: Context<Self>, start_time: i64) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+        market.assert_current_version()?;
+        require!(
+            market.operator.authority != Pubkey::default(),
+            ErrorCode::InvalidOperator
+        );
+        require_keys_eq!(
+            ctx.accounts.operator.key(),
+            market.operator.authority,
+            ErrorCode::InvalidOperator
+        );
+        let previous_start_time = market
+            .config
+            .reschedule_start(start_time, Clock::get()?.unix_timestamp)?;
+        emit_cpi!(MarketStartRescheduled {
+            market: market.key(),
+            operator: ctx.accounts.operator.key(),
+            previous_start_time,
+            start_time
+        });
+        Ok(())
+    }
+}

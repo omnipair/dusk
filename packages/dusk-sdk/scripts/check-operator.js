@@ -256,3 +256,8 @@ assert(versioned.serialize().length<=1_232);
 await assert.rejects(()=>client.announce({market:keys[1],payer:keys[0],operator:keys[0],metadata:verifiedMetadata,nextOperator:keys[8],nextManager:keys[6]}),/clears the manager/);
 const removal=await client.removeManager({market:keys[1],operator:keys[0]});
 assert.equal(program.coder.instruction.decode(removal.instruction.data).name,"removeMarketManager");
+const reschedule=await client.rescheduleStart({market:keys[1],operator:keys[0],startTime:1_762_700_000});
+const rescheduleIx=program.coder.instruction.decode(reschedule.instruction.data);
+assert.equal(rescheduleIx.name,"rescheduleMarketStart");
+assert.equal(rescheduleIx.data.startTime.toString(),"1762700000");
+assert.deepEqual(reschedule.instruction.keys.filter((key)=>key.isSigner).map((key)=>key.pubkey.toBase58()),[keys[0].toBase58()]);

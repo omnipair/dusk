@@ -372,3 +372,41 @@ fn an_unset_or_passed_start_opens_trading_at_creation() {
     config.start_time = created_at + 3_600;
     assert_eq!(config.opening_no_earlier_than(created_at).start_time, created_at + 3_600);
 }
+
+#[test]
+fn a_start_moves_only_while_it_and_its_replacement_are_ahead() {
+    let mut config = valid_config();
+    let now = 1_762_700_000;
+    let week = 7 * 86_400;
+    config.start_time = now + week;
+
+    // Brought forward from a week to three days, then postponed to two weeks.
+    assert_eq!(config.reschedule_start(now + 3 * 86_400, now).unwrap(), now + week);
+    assert_eq!(config.start_time, now + 3 * 86_400);
+    assert_eq!(config.reschedule_start(now + 2 * week, now).unwrap(), now + 3 * 86_400);
+    assert_eq!(config.start_time, now + 2 * week);
+
+    // A start of now opens trading at once; a past one would backdate the
+    // launch schedule and is refused.
+    assert_eq!(
+        config.reschedule_start(now - 1, now).unwrap_err(),
+        error!(ErrorCode::StartTimeInPast)
+    );
+    assert_eq!(
+        config.reschedule_start(now + 2 * week, now).unwrap_err(),
+        error!(ErrorCode::ParameterUpdateNotMeaningful)
+    );
+    config.reschedule_start(now, now).unwrap();
+    assert_eq!(config.start_time, now);
+
+    // Once trading has opened, the start is final.
+    assert_eq!(
+        config.reschedule_start(now + week, now).unwrap_err(),
+        error!(ErrorCode::MarketAlreadyStarted)
+    );
+    assert_eq!(
+        config.reschedule_start(now + week, now + 60).unwrap_err(),
+        error!(ErrorCode::MarketAlreadyStarted)
+    );
+    assert_eq!(config.start_time, now);
+}

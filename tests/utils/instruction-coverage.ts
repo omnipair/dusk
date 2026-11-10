@@ -146,6 +146,7 @@ const DUSK_INSTRUCTIONS = [
   "setMarketReduceOnly",
   "announceOperatorChange",
   "removeMarketManager",
+  "rescheduleMarketStart",
   "executeOperatorChange",
   "resolveOperatorChange",
   "initializeOperatorRevenue",

@@ -98,6 +98,14 @@ export class DuskOperator {
     if (!state.oracle?.policy.lambdaBps) transaction.instructions.unshift(ComputeBudgetProgram.setComputeUnitLimit({units:1_400_000}));
     return { instruction, setupInstructions, transaction };
   }
+  /** Owner only, with no notice. Moves a start that has not passed to another
+   * time that has not passed, earlier or later; once trading opens, the start
+   * is final. Liquidity added before the start can be withdrawn before it. */
+  async rescheduleStart(params: {market: AddressLike; operator: AddressLike; startTime: IntegerLike}) {
+    const instruction = await this.write.instruction("rescheduleMarketStart", integerBN(params.startTime, "startTime"),
+      {accounts: {market: address(params.market), operator: address(params.operator)}});
+    return {instruction, transaction: new Transaction().add(instruction)};
+  }
   async removeManager(params: {market: AddressLike; operator: AddressLike}) {
     const instruction = await this.write.instruction("removeMarketManager", undefined,
       {accounts: {market: address(params.market), operator: address(params.operator)}});

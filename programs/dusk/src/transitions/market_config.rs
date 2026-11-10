@@ -453,6 +453,16 @@ impl MarketConfig {
         self.start_time = self.start_time.max(unix_timestamp);
         self
     }
+
+    /// Moves a start that has not passed to another moment that has not
+    /// passed, earlier or later. Once trading opens, the start is final.
+    /// Returns the start it replaced.
+    pub fn reschedule_start(&mut self, start_time: i64, unix_timestamp: i64) -> Result<i64> {
+        require!(unix_timestamp < self.start_time, ErrorCode::MarketAlreadyStarted);
+        require!(start_time >= unix_timestamp, ErrorCode::StartTimeInPast);
+        require!(start_time != self.start_time, ErrorCode::ParameterUpdateNotMeaningful);
+        Ok(std::mem::replace(&mut self.start_time, start_time))
+    }
 }
 
 fn half_life_in_bounds(half_life_ms: u64) -> bool {
