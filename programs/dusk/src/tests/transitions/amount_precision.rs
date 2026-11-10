@@ -129,7 +129,8 @@ fn raw_amount(tokens: f64, decimals: u8) -> Option<u64> {
 /// A market seeded through `add_liquidity` with `pool_usd` split evenly
 /// between the sides. The configuration is one production accepts; the base
 /// fee is then zeroed so only rounding can move value. `None` when the pool is
-/// too small to seed.
+/// too small to seed. An overflow while seeding fails the test instead of
+/// shrinking its coverage.
 fn seeded_market(pair: Pair, pool_usd: f64, shape: Shape) -> Option<Market> {
     let mut market = Market { version: MARKET_LAYOUT_VERSION, ..Market::current_layout() };
     market.base_side.asset_mint = Pubkey::new_unique();
@@ -152,8 +153,12 @@ fn seeded_market(pair: Pair, pool_usd: f64, shape: Shape) -> Option<Market> {
     if base_raw == 0 || quote_raw == 0 {
         return None;
     }
-    market.add_liquidity(base_raw, quote_raw).ok()?;
-    market.prepare_amm_for_swap(1).ok()?;
+    let seeded = market.add_liquidity(base_raw, quote_raw).map(|_| ());
+    if let Err(error) = seeded.and_then(|()| market.prepare_amm_for_swap(1)) {
+        let name = error_name(&error);
+        assert!(!name.contains("Overflow"), "{} ${pool_usd} {shape:?}: seeding failed with {name}", pair.name);
+        return None;
+    }
     Some(market)
 }
 

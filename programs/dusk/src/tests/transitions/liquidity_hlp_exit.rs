@@ -22,7 +22,8 @@ const EXIT_PAIRS: [ExitPair; 5] = [
 
 /// Seeds `quote_tokens` of quote and its value in base through
 /// `add_liquidity`, then opens both hLP vaults with a twentieth of each
-/// reserve so later entries join existing holders.
+/// reserve so later entries join existing holders. `None` when the pool is
+/// too small to seed; an overflow while seeding fails the test instead.
 fn hlp_market(pair: ExitPair, quote_tokens: f64, concentrated: bool) -> Option<Market> {
     let mut market = Market { version: crate::constants::MARKET_LAYOUT_VERSION, ..Market::current_layout() };
     market.base_side.asset_mint = Pubkey::new_unique();
@@ -45,13 +46,18 @@ fn hlp_market(pair: ExitPair, quote_tokens: f64, concentrated: bool) -> Option<M
     if !(1.0..u64::MAX as f64).contains(&base) || !(1.0..u64::MAX as f64).contains(&quote) {
         return None;
     }
-    market.add_liquidity(base as u64, quote as u64).ok()?;
-    market.prepare_amm_for_swap(1).ok()?;
-    for asset in [MarketAsset::Base, MarketAsset::Quote] {
-        let amount = market.side(asset).reserves.cash_reserve / 20;
-        market.deposit_single_sided(asset, amount, 1).ok()?;
+    let seeded = market.add_liquidity(base as u64, quote as u64).map(|_| ());
+    let seeded = seeded.and_then(|()| market.prepare_amm_for_swap(1)).and_then(|()| {
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let amount = market.side(asset).reserves.cash_reserve / 20;
+            market.deposit_single_sided(asset, amount, 1)?;
+        }
+        Ok(())
+    });
+    if let Err(anchor_lang::error::Error::AnchorError(error)) = &seeded {
+        assert!(!error.error_name.contains("Overflow"), "{} {quote_tokens}: seeding failed with {}", pair.name, error.error_name);
     }
-    Some(market)
+    seeded.ok().map(|()| market)
 }
 
 /// Enters an hLP vault and immediately redeems every minted token. New
