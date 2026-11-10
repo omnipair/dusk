@@ -912,6 +912,76 @@ fn global_health_contribution_is_debt_capped_and_rounded_down() {
     );
 }
 
+/// Six-decimal markets holding a trillion whole base tokens against a million
+/// quote tokens, the shape of a large memecoin pool.
+fn memecoin_market() -> Market {
+    let mut market = invariant_market(1_000_000_000_000_000_000, 1_000_000_000_000);
+    market.base_side.asset_decimals = 6;
+    market.quote_side.asset_decimals = 6;
+    *market.amm = AmmState::default();
+    market.risk = Risk::default();
+    market.prepare_amm_for_swap(0).unwrap();
+    market.refresh_risk().unwrap();
+    market
+}
+
+#[test]
+fn global_health_contribution_keeps_collateral_when_its_cap_exceeds_raw_atoms() {
+    // A million quote tokens of debt against base collateral marked at 6e-8:
+    // the 150% cap is 2.5e19 base atoms, beyond u64, so the position's own
+    // collateral binds. Converting the cap to atoms before the min reverted
+    // every deposit, repayment and withdrawal of such a position.
+    let market = memecoin_market();
+    let risk = Risk {
+        base_price_ema_nad: 60,
+        directional_base_price_ema_nad: 60,
+        ..market.risk
+    };
+    let collateral = 10_000_000_000_000_000_000;
+    assert_eq!(
+        market
+            .debt_capped_global_health_contribution(MarketAsset::Quote, 1_000_000_000_000, collateral, &risk)
+            .unwrap(),
+        collateral
+    );
+}
+
+#[test]
+fn borrow_depth_keeps_the_reserve_when_virtual_depth_exceeds_raw_atoms() {
+    // A base mark a thousand times below spot puts the pessimistic virtual
+    // base reserve near 3.2e19 atoms, beyond u64. The actual reserve binds;
+    // converting first reverted every borrow's daily-limit check.
+    let mut market = memecoin_market();
+    let spot = market.risk.base_price_ema_nad;
+    market.risk.base_price_ema_nad = spot / 1_000;
+    market.risk.directional_base_price_ema_nad = spot / 1_000;
+    let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk).unwrap();
+    assert_eq!(base_depth, market.curve_reserve(MarketAsset::Base).unwrap());
+    assert!(quote_depth > 0);
+    assert!(market.daily_limit_for_side(MarketAsset::Base, DEFAULT_DAILY_BORROW_BPS).unwrap() > 0);
+}
+
+#[test]
+fn repayment_survives_a_collateral_mark_collapse_past_raw_atoms() {
+    // A 100,000-quote-token loan against base collateral. When the base mark
+    // collapses to 3e-9, the 150% contribution cap on the 60,000 tokens left
+    // after a partial repayment reaches 3e19 base atoms, beyond u64; partial
+    // and full repayment must still settle.
+    let mut market = memecoin_market();
+    let mut position = BorrowPosition::default();
+    position.clear_liquidation_auction();
+    market
+        .deposit_collateral(&mut position, MarketAsset::Base, 400_000_000_000_000_000)
+        .unwrap();
+    market.borrow(&mut position, MarketAsset::Quote, 100_000_000_000, 0, 0).unwrap();
+    market.risk.base_price_ema_nad = 3;
+    market.risk.directional_base_price_ema_nad = 3;
+    market.repay(&mut position, MarketAsset::Quote, 40_000_000_000).unwrap();
+    let rest = u64::try_from(position.fixed_quote_debt(&market.debt).unwrap()).unwrap();
+    market.repay(&mut position, MarketAsset::Quote, rest).unwrap();
+    assert_eq!(position.fixed_quote_debt(&market.debt).unwrap(), 0);
+}
+
 #[test]
 fn global_health_cap_remains_bounded_after_collateral_appreciates() {
     let mut market = invariant_market(1_000_000, 1_000_000);

@@ -21,6 +21,21 @@ use crate::{
     },
 };
 
+/// Raw atoms of a normalized amount, saturating at `u64::MAX`. Each caller
+/// bounds the result by a raw amount at once, which a saturated value never
+/// undercuts, so a value too large for a token account yields that bound
+/// instead of a revert.
+fn saturating_raw_atoms(market: &Market, amount: u128, asset_decimals: u8) -> Result<u64> {
+    match market.denormalize_amount_floor(amount, asset_decimals) {
+        Err(anchor_lang::error::Error::AnchorError(detail))
+            if detail.error_code_number == u32::from(ErrorCode::MarketMathOverflow) =>
+        {
+            Ok(u64::MAX)
+        }
+        result => result,
+    }
+}
+
 /// Stored health contributions are gross collateral units. A mint fee turns
 /// them into less exit value, so every read that underwrites debt discounts
 /// the aggregate by the current (and any scheduled) fee rate.
@@ -609,9 +624,12 @@ impl Market {
         if price_nad == 0 {
             return Ok(0);
         }
-        let collateral_cap_nad = mul_div_u128(value_cap_nad, NAD as u128, price_nad)?;
+        // A cap beyond u128 or beyond a token account cannot bind the
+        // position's own collateral, so it saturates instead of reverting the
+        // deposit, repayment or withdrawal that recomputes it.
+        let collateral_cap_nad = mul_div_u128(value_cap_nad, NAD as u128, price_nad).unwrap_or(u128::MAX);
         let collateral_cap =
-            self.denormalize_amount_floor(collateral_cap_nad, self.side(collateral_asset).asset_decimals)?;
+            saturating_raw_atoms(self, collateral_cap_nad, self.side(collateral_asset).asset_decimals)?;
         Ok(total_collateral.min(collateral_cap))
     }
 
@@ -928,10 +946,12 @@ impl Market {
 
     pub(crate) fn pessimistic_borrow_reserve_depths(&self, risk: &Risk) -> Result<(u64, u64)> {
         let (base_nad, quote_nad) = self.pessimistic_virtual_reserves_nad(MarketAsset::Base, risk, true)?;
+        // A virtual reserve at a mark far from spot can exceed any token
+        // account; the actual curve reserve bounds each depth.
         Ok((
-            self.denormalize_amount_floor(base_nad, self.base_side.asset_decimals)?
+            saturating_raw_atoms(self, base_nad, self.base_side.asset_decimals)?
                 .min(self.curve_reserve(MarketAsset::Base)?),
-            self.denormalize_amount_floor(quote_nad, self.quote_side.asset_decimals)?
+            saturating_raw_atoms(self, quote_nad, self.quote_side.asset_decimals)?
                 .min(self.curve_reserve(MarketAsset::Quote)?),
         ))
     }
