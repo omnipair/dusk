@@ -58,8 +58,6 @@ export function liquidationIncentives(input: LiquidationHealthInput) {
   const maximumBuyerDiscountBps = Number(50n + (450n * progress / BPS));
   return {
     maximumBuyerDiscountBps,
-    /** @deprecated This is the ceiling. Read the actual discount from preview. */
-    buyerDiscountBps: maximumBuyerDiscountBps,
     emergencyRewardBps: Number((100n * progress / BPS)),
     emergencyAllowed: health.emergencyAllowed,
   };

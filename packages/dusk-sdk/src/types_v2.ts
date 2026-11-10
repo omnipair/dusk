@@ -4414,44 +4414,6 @@ export type Dusk = {
       "args": []
     },
     {
-      "name": "growYieldAccount",
-      "docs": [
-        "Bring a yield account created before `harvest_authority` existed up",
-        "to the current size. Permissionless: it only appends zeroed bytes and",
-        "the caller pays the rent for them."
-      ],
-      "discriminator": [
-        203,
-        157,
-        168,
-        219,
-        59,
-        246,
-        255,
-        134
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "yieldAccount",
-          "docs": [
-            "read this account, so a typed account here would fail the very case",
-            "this instruction exists to repair."
-          ],
-          "writable": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "harvest",
       "discriminator": [
         228,
@@ -18654,9 +18616,9 @@ export type Dusk = {
     {
       "name": "lpTransferred",
       "docs": [
-        "One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints",
-        "whose extra-account list includes the event authority and Dusk program",
-        "publish it; mints initialized before that layout transfer without it."
+        "One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Every LP",
+        "mint's extra-account list includes the event authority and Dusk program,",
+        "so every LP transfer publishes it."
       ],
       "type": {
         "kind": "struct",
@@ -22691,8 +22653,8 @@ export type Dusk = {
           {
             "name": "lowerRangePriceNad",
             "docs": [
-              "Concentrated range metadata. Zeroes denote the legacy curve during the",
-              "temporary caller migration."
+              "Concentrated range metadata. Zeroes mean the curve has no concentrated",
+              "ranges: a CPMM curve, or an AMM that is not yet initialized."
             ],
             "type": "u64"
           },

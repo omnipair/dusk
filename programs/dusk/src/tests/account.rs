@@ -1,27 +1,30 @@
 use super::*;
 
-/// `YieldAccount` before and after it gained `harvest_authority`, which
-/// is an `Option<Pubkey>`: one discriminant byte and thirty-two of key.
-/// Every yield account on the devnet market was created at the smaller
-/// size, and adding liquidity through one failed with `InvalidArgument`
-/// until this grew instead of rejecting.
-const YIELD_ACCOUNT_BEFORE: usize = 234;
-const YIELD_ACCOUNT_AFTER: usize = 267;
-
+/// An existing program-owned PDA is reused only at the size this build
+/// creates. One at any other size was written by a retired build: it is
+/// rejected rather than grown or read at the current layout. The size
+/// before `YieldAccount` gained `harvest_authority`, thirty-three bytes
+/// short, is one such retired size.
 #[test]
-fn a_pda_at_the_current_size_is_left_alone() {
-    assert!(!existing_pda_needs_growth(YIELD_ACCOUNT_AFTER, YIELD_ACCOUNT_AFTER).unwrap());
-}
-
-#[test]
-fn a_pda_from_before_a_new_field_grows() {
-    assert_eq!(YIELD_ACCOUNT_AFTER - YIELD_ACCOUNT_BEFORE, 1 + 32);
-    assert!(existing_pda_needs_growth(YIELD_ACCOUNT_BEFORE, YIELD_ACCOUNT_AFTER).unwrap());
-}
-
-#[test]
-fn a_pda_larger_than_its_state_is_still_refused() {
-    // Shrinking would truncate whatever those bytes hold, so this stays
-    // an error rather than becoming a silent narrowing.
-    assert!(existing_pda_needs_growth(YIELD_ACCOUNT_AFTER, YIELD_ACCOUNT_BEFORE).is_err());
+fn existing_pdas_are_reused_only_at_the_current_size() {
+    let space = 500;
+    for (length, reused) in [(space, true), (space - 33, false), (space + 1, false)] {
+        let (key, payer_key, owner) = (Pubkey::new_unique(), Pubkey::new_unique(), crate::ID);
+        let system_key = system_program::ID;
+        let (mut lamports, mut payer_lamports, mut system_lamports) = (1_000_000, 1_000_000, 1);
+        let (mut data, mut payer_data, mut system_data) = (vec![0_u8; length], vec![], vec![]);
+        let account = AccountInfo::new(&key, false, true, &mut lamports, &mut data, &owner, false, 0);
+        let payer = AccountInfo::new(&payer_key, true, true, &mut payer_lamports, &mut payer_data, &system_key, false, 0);
+        let system =
+            AccountInfo::new(&system_key, false, false, &mut system_lamports, &mut system_data, &system_key, true, 0);
+        let result = initialize_pda_account_if_needed(payer, account, system, space, &[]);
+        if reused {
+            assert!(!result.unwrap(), "{length}");
+        } else {
+            assert!(
+                matches!(result, Err(anchor_lang::error::Error::AnchorError(error)) if error.error_name == "InvalidArgument"),
+                "{length}"
+            );
+        }
+    }
 }

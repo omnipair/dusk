@@ -41,7 +41,7 @@ Dusk exposes the current market instruction set:
 - `initialize_market` (including all three LP metadata records), `update_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`
 - `announce_operator_change`, `execute_operator_change`, `resolve_operator_change`, `remove_market_manager`, `initialize_operator_revenue`, `claim_operator_revenue`
 - `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`, `initialize_junior`, `fund_junior_seed`, `compound_junior_seed`, `convert_tranche`, `checkpoint_income`, `roll_income_epoch`, `burn_retired_junior`
-- `set_yield_recipient`, `set_harvest_authority`, `grow_yield_account`, `fund_interest`, `harvest`
+- `set_yield_recipient`, `set_harvest_authority`, `fund_interest`, `harvest`
 - `swap`, `close_insolvent_hlp`
 - `preview_hlp_flash`, `begin_hlp_flash`, `settle_hlp_flash`
 - `deposit_collateral`, `withdraw_collateral`, `donate_collateral`, `withdraw_all_collateral`, `borrow`, `repay`

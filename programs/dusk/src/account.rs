@@ -13,29 +13,12 @@ pub fn get_size_with_discriminator<T: Space>() -> usize {
     8 + T::INIT_SPACE
 }
 
-/// Whether a program-owned PDA has to grow before it can be opened.
-///
-/// A PDA created by an earlier build of this program is smaller than the
-/// state it now holds, because the state gained a field. Refusing it bricks
-/// the account: every instruction that opens it fails, and the holder can no
-/// longer deposit, harvest or withdraw. Growing it in place is safe because
-/// Borsh appends -- the bytes already written keep their meaning, and the
-/// zeroed tail decodes as the default of whatever was added, which for an
-/// `Option` is `None`.
-///
-/// Shrinking is refused. It is not the same operation: it would truncate
-/// live state rather than leave room for more of it.
-pub fn existing_pda_needs_growth(current: usize, space: usize) -> Result<bool> {
-    if current == space {
-        return Ok(false);
-    }
-    require_gte!(space, current, ErrorCode::InvalidArgument);
-    Ok(true)
-}
-
 /// Creates a canonical program-owned PDA while preserving `init_if_needed`
 /// semantics outside Anchor's generated account parser. Callers validate the
 /// PDA address before this function and deserialize the typed state after it.
+/// An existing account is reused only at the size this build creates. One at
+/// any other size was written by a retired build and is rejected, never grown
+/// or read at the current layout.
 pub fn initialize_pda_account_if_needed<'info>(
     payer: AccountInfo<'info>,
     account: AccountInfo<'info>,
@@ -44,26 +27,7 @@ pub fn initialize_pda_account_if_needed<'info>(
     signer_seeds: &[&[u8]],
 ) -> Result<bool> {
     if account.owner == &crate::ID {
-        if existing_pda_needs_growth(account.data_len(), space)? {
-            // Rent first. An account left below the minimum for its new size
-            // is collectable, and the realloc itself would not fail.
-            let rent = Rent::get()?;
-            let required_lamports = rent.minimum_balance(space);
-            let top_up = required_lamports.saturating_sub(account.lamports());
-            if top_up > 0 {
-                system_program::transfer(
-                    CpiContext::new(
-                        system_program_info,
-                        system_program::Transfer {
-                            from: payer,
-                            to: account.clone(),
-                        },
-                    ),
-                    top_up,
-                )?;
-            }
-            account.realloc(space, true)?;
-        }
+        require_eq!(account.data_len(), space, ErrorCode::InvalidArgument);
         return Ok(false);
     }
     require_keys_eq!(*account.owner, system_program::ID, ErrorCode::InvalidArgument);

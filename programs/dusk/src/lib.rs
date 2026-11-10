@@ -254,13 +254,6 @@ pub mod dusk {
         SetHarvestAuthority::handle_set(ctx, args)
     }
 
-    /// Bring a yield account created before `harvest_authority` existed up
-    /// to the current size. Permissionless: it only appends zeroed bytes and
-    /// the caller pays the rent for them.
-    pub fn grow_yield_account(ctx: Context<GrowYieldAccount>) -> Result<()> {
-        GrowYieldAccount::handle_grow(ctx)
-    }
-
     /// Fund accrued public LP interest from available cash, settle both hLP
     /// funding gaps from their new income, and publish remaining holder yield.
     pub fn fund_interest<'info>(

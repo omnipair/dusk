@@ -365,8 +365,8 @@ pub struct SwapPreview {
     pub retention_required_nad: u128,
     pub retention_stop_nad: u128,
     pub retention_hard_cap_nad: u128,
-    /// Concentrated range metadata. Zeroes denote the legacy curve during the
-    /// temporary caller migration.
+    /// Concentrated range metadata. Zeroes mean the curve has no concentrated
+    /// ranges: a CPMM curve, or an AMM that is not yet initialized.
     pub lower_range_price_nad: u64,
     pub upper_range_price_nad: u64,
     /// 0=lower tail, 1=lower shoulder, 2=inner band,

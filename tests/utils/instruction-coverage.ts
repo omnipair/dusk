@@ -155,7 +155,6 @@ const DUSK_INSTRUCTIONS = [
   "removeLiquidity",
   "setYieldRecipient",
   "setHarvestAuthority",
-  "growYieldAccount",
   "fundInterest",
   "previewHlpFlash",
   "beginHlpFlash",
