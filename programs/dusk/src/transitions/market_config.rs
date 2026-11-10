@@ -439,9 +439,16 @@ impl MarketConfig {
         );
         self.irm.validate()?;
         self.amm.validate()?;
+        let curve = self.amm.concentrated_curve_parameters()?;
         require!(
-            self.amm.concentrated_curve_parameters()?.is_cpmm() || self.amm.adjustment_step_nad > 0,
+            curve.is_cpmm() || self.amm.adjustment_step_nad > 0,
             ErrorCode::InvalidMarketConfig
+        );
+        // A round trip across curve reconstruction can return slightly more
+        // than its input. The base fee must exceed that excess.
+        require!(
+            curve.is_cpmm() || self.swap_fee_bps >= MIN_CONCENTRATED_SWAP_FEE_BPS,
+            ErrorCode::ConcentratedSwapFeeBelowMinimum
         );
         Ok(())
     }

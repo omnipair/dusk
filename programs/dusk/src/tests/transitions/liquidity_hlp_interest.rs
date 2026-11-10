@@ -992,7 +992,8 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
             interest_vault: Pubkey::new_unique(), asset_decimals: d, ..MarketSide::default()
          };
          let config = MarketConfig {
-            swap_fee_bps: 0, divergence_fee_share_cap_bps: 0, volatility_fee_share_cap_bps: 0,
+            swap_fee_bps: crate::constants::MIN_CONCENTRATED_SWAP_FEE_BPS,
+            divergence_fee_share_cap_bps: 0, volatility_fee_share_cap_bps: 0,
             target_hlp_leverage_bps: 20_000, settlement_divergence_bps: 10_000,
             ema_half_life_ms: 60_000, directional_ema_half_life_ms: 60_000,
             curve_depth_ema_half_life_ms: 60_000,
@@ -1007,6 +1008,10 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
          };
          let mut market = Market::default();
          market.initialize(Pubkey::new_unique(), side(base_decimals), side(quote_decimals), config, Pubkey::new_unique(), Pubkey::new_unique(), [0;32], Pubkey::new_unique(), 60 * NAD, 0, 2_500, 255).unwrap();
+         // Configuration admits a concentrated curve only with the minimum
+         // base fee. Remove it after initialization so fee income cannot mask
+         // a round trip funded by frozen-hLP reconstruction.
+         market.config.swap_fee_bps = 0;
          market.add_liquidity(raw(10_000,base_decimals),raw(600_000,quote_decimals)).unwrap();
          market.finalize_amm_transition_and_observe_risk(2_500).unwrap();
          market.deposit_single_sided(MarketAsset::Base,raw(1_000,base_decimals),1).unwrap();

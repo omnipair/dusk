@@ -2,6 +2,83 @@ use num_bigint::BigUint;
 use proptest::prelude::*;
 
 use super::*;
+use crate::constants::{BPS_DENOMINATOR, MIN_CONCENTRATED_SWAP_FEE_BPS};
+use crate::state::{MAX_AMM_AMPLIFICATION_NAD, MIN_AMM_TAIL_SHARE_NAD};
+
+/// Fee the first leg of a round trip pays at the minimum concentrated base
+/// fee, floored as the swap path floors it.
+fn minimum_swap_fee(input: u128) -> u128 {
+    input * u128::from(MIN_CONCENTRATED_SWAP_FEE_BPS) / u128::from(BPS_DENOMINATOR)
+}
+
+/// A point within rounding of one of the boundaries of the curve prepared at
+/// `ordinary`: a nested boundary, or a single-band curve's upper or lower one.
+fn start_near_boundary(
+    parameters: ConcentratedCurveParameters,
+    center_price_nad: u64,
+    ordinary: ConcentratedCurvePoint,
+    boundary_index: usize,
+    offset: i128,
+) -> Option<ConcentratedCurvePoint> {
+    let curve = prepare_concentrated_cache_at_point(
+        ordinary.base_reserve,
+        ordinary.quote_reserve,
+        center_price_nad,
+        parameters,
+    )
+    .ok()?
+    .geometry()
+    .unwrap();
+    let boundary = if curve.is_nested() {
+        curve.nested_boundaries[boundary_index]
+    } else if boundary_index % 2 == 0 {
+        curve.upper_boundary
+    } else {
+        curve.lower_boundary
+    };
+    point_near_boundary(boundary, offset)
+}
+
+/// Round trips from `start` in both directions, priced as live swaps price
+/// them: the way back runs on the curve rebuilt at the forward endpoint.
+/// Describes the first whose return exceeds its input plus the minimum fee.
+fn rebuilt_round_trip_excess(
+    parameters: ConcentratedCurveParameters,
+    center_price_nad: u64,
+    start: ConcentratedCurvePoint,
+    input_ppm: u128,
+) -> Option<String> {
+    let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(
+        start.base_reserve,
+        start.quote_reserve,
+        center_price_nad,
+        parameters,
+    )
+    .ok()?;
+    for (direction, reverse, input_reserve) in [
+        (ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase, start.base_reserve),
+        (ConcentratedCurveDirection::QuoteToBase, ConcentratedCurveDirection::BaseToQuote, start.quote_reserve),
+    ] {
+        let input = mul_div_u128(input_reserve, input_ppm, 1_000_000).unwrap() + 1;
+        let Ok(forward) = start_curve.quote_exact_in(start, input, direction) else { continue };
+        let Ok((_, rebuilt)) = prepare_concentrated_cache_and_geometry_at_point(
+            forward.end.base_reserve,
+            forward.end.quote_reserve,
+            center_price_nad,
+            parameters,
+        ) else {
+            continue;
+        };
+        let Ok(back) = rebuilt.quote_exact_in(forward.end, forward.amount_out, reverse) else { continue };
+        if back.amount_out > input + minimum_swap_fee(input) {
+            return Some(format!(
+                "{parameters:?} center={center_price_nad} {start:?} {direction:?}: {input} -> {} -> {}",
+                forward.amount_out, back.amount_out
+            ));
+        }
+    }
+    None
+}
 
 fn geometry() -> ConcentratedCurveGeometry {
     // Tail liquidity 1,000 and inner liquidity 4,000 over sqrt prices 10..20.
@@ -508,6 +585,28 @@ fn small_nested_curves_cross_all_boundaries_without_round_trip_profit() {
                     assert_eq!(back.boundary_crossings, 4);
                     assert!(back.amount_out <= input,
                         "amp={amplification} base={base} price={price} direction={direction:?}: {input} -> {}", back.amount_out);
+                    // Every transition rebuilds the curve at its endpoint, so a
+                    // live round trip prices its way back on a rebuilt curve.
+                    // Rounding may then return slightly more than the input,
+                    // never more than the minimum concentrated fee.
+                    let (_, prepared) = prepare_concentrated_cache_and_geometry_at_point(
+                        start.base_reserve,
+                        start.quote_reserve,
+                        price,
+                        parameters,
+                    )
+                    .unwrap();
+                    let leg = prepared.quote_exact_in(start, input, direction).unwrap();
+                    let (_, rebuilt) = prepare_concentrated_cache_and_geometry_at_point(
+                        leg.end.base_reserve,
+                        leg.end.quote_reserve,
+                        price,
+                        parameters,
+                    )
+                    .unwrap();
+                    let rebuilt_back = rebuilt.quote_exact_in(leg.end, leg.amount_out, reverse).unwrap();
+                    assert!(rebuilt_back.amount_out <= input + minimum_swap_fee(input),
+                        "amp={amplification} base={base} price={price} direction={direction:?}: {input} -> {} rebuilt", rebuilt_back.amount_out);
                 }
             }
         }
@@ -560,8 +659,43 @@ fn nested_curve_inputs() -> impl Strategy<Value = (ConcentratedCurveParameters, 
 fn nested_curve_inputs_with_size_exponents(
     size_exponents: core::ops::RangeInclusive<u32>,
 ) -> impl Strategy<Value = (ConcentratedCurveParameters, u128, u128, u64)> {
+    curve_inputs(feasible_nested_parameters(), size_exponents)
+}
+
+/// Random widths, single-band curves included, at the largest amplification
+/// the minimum tail share admits: the thinnest tails a market can configure.
+fn floor_edge_parameters() -> impl Strategy<Value = ConcentratedCurveParameters> {
+    (1_u16..=5_000, prop_oneof![Just(0_u16), 1_u16..=10_000]).prop_filter_map(
+        "widths must admit a concentrated curve",
+        |(core_half_width_bps, fade_width_bps)| {
+            let make = |peak_amplification_nad| ConcentratedCurveParameters {
+                peak_amplification_nad,
+                core_half_width_bps,
+                fade_width_bps,
+            };
+            let (mut admitted, mut rejected) = (NAD + NAD / 10, MAX_AMM_AMPLIFICATION_NAD + 1);
+            make(admitted).validate(MAX_AMM_AMPLIFICATION_NAD).ok()?;
+            while rejected - admitted > 1 {
+                let middle = admitted + (rejected - admitted) / 2;
+                if make(middle).validate(MAX_AMM_AMPLIFICATION_NAD).is_ok() {
+                    admitted = middle;
+                } else {
+                    rejected = middle;
+                }
+            }
+            Some(make(admitted))
+        },
+    )
+}
+
+/// Parameters from `parameters`, then the center price and reserve point that
+/// `nested_curve_inputs` describes.
+fn curve_inputs(
+    parameters: impl Strategy<Value = ConcentratedCurveParameters>,
+    size_exponents: core::ops::RangeInclusive<u32>,
+) -> impl Strategy<Value = (ConcentratedCurveParameters, u128, u128, u64)> {
     (
-        feasible_nested_parameters(),
+        parameters,
         0_u32..=12,
         0_u128..1_000_000,
         size_exponents,
@@ -766,34 +900,71 @@ fn input_to_next_boundary(
 }
 
 #[test]
-fn drained_upper_tail_round_trip_returns_at_most_its_input() {
-    // The upper tail of this 10^18-atom pool holds 2.5e-5 of its liquidity.
-    // The start sits on the upper-tail boundary and the forward swap drains
-    // 99.5% of base. When the root solve halved the concentrated share in
-    // NAD units, the start lay 3.6e9 quote atoms off its own region's curve
-    // and the round trip returned 2 atoms more than its input.
+fn boundary_round_trip_on_one_curve_returns_at_most_its_input() {
+    // The tails of this 10^21-atom pool hold 4.4% of its liquidity, well
+    // above the minimum share. The start sits within rounding of a nested
+    // boundary. When the root solve halved the concentrated share in NAD
+    // units, the start lay off its own region's curve and the round trip on
+    // the prepared curve returned 6,569,097 quote atoms more than its input.
     let parameters = ConcentratedCurveParameters {
-        peak_amplification_nad: 6_326_237_625,
-        core_half_width_bps: 1_648,
-        fade_width_bps: 5_787,
+        peak_amplification_nad: 5_642_959_475,
+        core_half_width_bps: 142,
+        fade_width_bps: 8_725,
     };
     let start = ConcentratedCurvePoint {
-        base_reserve: 2_954_857_125_079_159_534,
-        quote_reserve: 6_351_750_284_696_776_765,
+        base_reserve: 1_260_380_122_601_994_461_981,
+        quote_reserve: 13_667_156_012_108_867_262_669_659,
     };
-    let (cache, curve) =
-        prepare_concentrated_cache_and_geometry_at_point(start.base_reserve, start.quote_reserve, 113_599, parameters)
-            .unwrap();
+    let (cache, curve) = prepare_concentrated_cache_and_geometry_at_point(
+        start.base_reserve,
+        start.quote_reserve,
+        921_267_992_211,
+        parameters,
+    )
+    .unwrap();
     assert!(own_region_offset_atoms(cache, curve, start) <= reconstruction_band_atoms(cache));
-    let input = 114_503_002_382_228_795;
+    let input = 13_667_156_012_108_867_262_670;
     let forward = curve
         .quote_exact_in(start, input, ConcentratedCurveDirection::QuoteToBase)
         .unwrap();
-    assert!(forward.amount_out * 100 > start.base_reserve * 99);
     let back = curve
         .quote_exact_in(forward.end, forward.amount_out, ConcentratedCurveDirection::BaseToQuote)
         .unwrap();
     assert!(back.amount_out <= input, "{input} -> {}", back.amount_out);
+}
+
+#[test]
+fn concentrated_curves_keep_the_minimum_tail_share() {
+    for (core_half_width_bps, fade_width_bps) in [(5, 10), (25, 50), (100, 200), (250, 0), (1_000, 2_000)] {
+        let make = |peak_amplification_nad| ConcentratedCurveParameters {
+            peak_amplification_nad,
+            core_half_width_bps,
+            fade_width_bps,
+        };
+        let (mut admitted, mut rejected) = (NAD + NAD / 10, MAX_AMM_AMPLIFICATION_NAD + 1);
+        assert!(make(admitted).validate(MAX_AMM_AMPLIFICATION_NAD).is_ok());
+        while rejected - admitted > 1 {
+            let middle = admitted + (rejected - admitted) / 2;
+            if make(middle).validate(MAX_AMM_AMPLIFICATION_NAD).is_ok() {
+                admitted = middle;
+            } else {
+                rejected = middle;
+            }
+        }
+        let (tail_share, _) = make(admitted).liquidity_shares_nad().unwrap();
+        assert!(tail_share >= u128::from(MIN_AMM_TAIL_SHARE_NAD));
+        // The floor, not the amplification cap, bounds every width here.
+        assert!(admitted < MAX_AMM_AMPLIFICATION_NAD, "core={core_half_width_bps} fade={fade_width_bps}");
+        assert!(is_error(
+            &make(admitted + 1).validate(MAX_AMM_AMPLIFICATION_NAD),
+            ErrorCode::CurveTailShareBelowMinimum
+        ));
+        // Amplification beyond what the widths can carry leaves no tail.
+        assert!(is_error(
+            &make(MAX_AMM_AMPLIFICATION_NAD).validate(MAX_AMM_AMPLIFICATION_NAD),
+            ErrorCode::CurveTailShareBelowMinimum
+        ));
+    }
 }
 
 proptest! {
@@ -1005,6 +1176,52 @@ proptest! {
                 forward.amount_out,
                 back.amount_out
             );
+        }
+    }
+
+    // Every transition rebuilds the curve at its endpoint, so a live round
+    // trip prices its way back on a rebuilt curve. Integer reserves sit a few
+    // atoms off any curve, and the rebuild can then return slightly more than
+    // the input. The excess grows as the tails thin. The minimum fee must cover
+    // it on every admitted curve once the smaller side holds 10^8 atoms (0.1
+    // token at nine decimals). Below that, whole-atom rounding outweighs a fee
+    // that itself floors to zero on small trades: such dust pools can return
+    // up to a few thousand atoms per round trip.
+    #[test]
+    fn rebuilt_round_trips_never_gain_more_than_the_minimum_fee(
+        (parameters, base, quote, center_price_nad) in curve_inputs(
+            prop_oneof![feasible_nested_parameters(), floor_edge_parameters()],
+            8..=23,
+        ),
+        boundary_index in 0_usize..4,
+        offset in -16_i128..=16,
+        near_boundary in any::<bool>(),
+        input_ppm in 1_u128..=100_000,
+    ) {
+        let ordinary = ConcentratedCurvePoint { base_reserve: base, quote_reserve: quote };
+        let start = if near_boundary {
+            start_near_boundary(parameters, center_price_nad, ordinary, boundary_index, offset)
+        } else {
+            Some(ordinary)
+        };
+        if let Some(excess) = start.and_then(|start| rebuilt_round_trip_excess(parameters, center_price_nad, start, input_ppm)) {
+            prop_assert!(false, "{excess}");
+        }
+    }
+
+    // The same bound where it is tightest: the thinnest tails the floor admits,
+    // the smallest pools it covers, and starts within rounding of a boundary.
+    #[test]
+    fn rebuilt_round_trips_at_the_tail_floor_never_gain_more_than_the_minimum_fee(
+        (parameters, base, quote, center_price_nad) in curve_inputs(floor_edge_parameters(), 8..=9),
+        boundary_index in 0_usize..4,
+        offset in -16_i128..=16,
+        input_ppm in 1_u128..=100_000,
+    ) {
+        let ordinary = ConcentratedCurvePoint { base_reserve: base, quote_reserve: quote };
+        let start = start_near_boundary(parameters, center_price_nad, ordinary, boundary_index, offset);
+        if let Some(excess) = start.and_then(|start| rebuilt_round_trip_excess(parameters, center_price_nad, start, input_ppm)) {
+            prop_assert!(false, "{excess}");
         }
     }
 

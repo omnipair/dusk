@@ -13194,6 +13194,16 @@
       "code": 6146,
       "name": "LaunchSettingsImmutable",
       "msg": "Launch-only settings are immutable after the market starts"
+    },
+    {
+      "code": 6147,
+      "name": "CurveTailShareBelowMinimum",
+      "msg": "Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or widen the core or fade"
+    },
+    {
+      "code": 6148,
+      "name": "ConcentratedSwapFeeBelowMinimum",
+      "msg": "Concentrated curves require a base swap fee of at least 1 bps"
     }
   ],
   "types": [
@@ -23683,6 +23693,15 @@
       "name": "MIN_BORROW_HALF_LIFE_MS",
       "type": "u64",
       "value": "43200000"
+    },
+    {
+      "name": "MIN_CONCENTRATED_SWAP_FEE_BPS",
+      "docs": [
+        "Minimum base swap fee of a concentrated curve. It exceeds the round-trip",
+        "excess that curve reconstruction can leave at the minimum tail share."
+      ],
+      "type": "u16",
+      "value": "1"
     },
     {
       "name": "MIN_CONCENTRATION_RAMP_SLOTS",

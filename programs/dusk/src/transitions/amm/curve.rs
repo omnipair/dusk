@@ -317,10 +317,16 @@ impl ConcentratedCurveParameters {
             u32::from(self.core_half_width_bps) + u32::from(self.fade_width_bps) <= u16::MAX as u32,
             ErrorCode::InvalidMarketConfig
         );
-        let shares = self.liquidity_shares_nad()?;
-        require!(shares.0 > 0 && shares.1 > 0, ErrorCode::InvalidMarketConfig);
+        let (tail_share, concentrated_share) = self.liquidity_shares_nad()?;
+        // Every transition rebuilds the curve from rounded reserves. The
+        // round-trip excess that rebuild can leave grows as the tail thins.
+        require!(
+            tail_share >= u128::from(crate::state::MIN_AMM_TAIL_SHARE_NAD),
+            ErrorCode::CurveTailShareBelowMinimum
+        );
+        require!(concentrated_share > 0, ErrorCode::InvalidMarketConfig);
         if self.fade_width_bps > 0 {
-            require!(shares.1 >= 2, ErrorCode::InvalidMarketConfig);
+            require!(concentrated_share >= 2, ErrorCode::InvalidMarketConfig);
         }
         Ok(())
     }
@@ -367,7 +373,8 @@ impl ConcentratedCurveParameters {
             NAD as u128,
             average_inverse,
         )?;
-        require!(concentrated_share < NAD as u128, ErrorCode::InvalidMarketConfig);
+        // Amplification beyond what the widths can carry leaves no tail.
+        require!(concentrated_share < NAD as u128, ErrorCode::CurveTailShareBelowMinimum);
         Ok((NAD as u128 - concentrated_share, concentrated_share))
     }
 }

@@ -4,9 +4,16 @@ use std::{cell::OnceCell, rc::Rc};
 use super::{IncomeReceivableBook, IncomeReceivableClaim, ReceivableGrowth};
 use crate::{constants::*, errors::ErrorCode, state::OperatorState};
 
-/// Maximum center amplification admitted by the protocol. The concentrated curve
-/// enforces this through the nonzero full-range tail share.
+/// Maximum center amplification admitted by the protocol. Narrow widths reach
+/// the minimum full-range tail share below first.
 pub const MAX_AMM_AMPLIFICATION_NAD: u64 = 2_000 * NAD;
+/// Minimum share of a concentrated curve's peak liquidity held by its
+/// full-range tail, in NAD: 0.01%. Every transition rebuilds the curve from
+/// rounded reserves, and a round trip across that rebuild can return slightly
+/// more than its input. The excess grows as the tail thins. At this floor the
+/// largest excess found in sampled round trips is 0.16 bps of the trade, below
+/// `MIN_CONCENTRATED_SWAP_FEE_BPS`.
+pub const MIN_AMM_TAIL_SHARE_NAD: u64 = NAD / 10_000;
 pub const MIN_AMM_ADJUSTMENT_NAD: u64 = NAD / 1_000_000;
 pub const MAX_AMM_ADJUSTMENT_NAD: u64 = NAD / 10;
 pub const MAX_AMM_VOLATILITY_NAD: u64 = 10 * NAD;

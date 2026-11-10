@@ -142,6 +142,8 @@ const LEVERAGE_DELEGATION_SEED = Buffer.from("leverage_delegation_v2");
 const LEVERAGE_ORDER_SEED = Buffer.from("leverage_order");
 const LEVERAGE_DELEGATE_CLOSE = 1;
 const ORDER_KIND_TAKE_PROFIT = 1;
+// Program minimum base fee of a concentrated curve (`MIN_CONCENTRATED_SWAP_FEE_BPS`).
+const MIN_CONCENTRATED_SWAP_FEE_BPS = 1;
 const FEATURE_PROGRAM_ID = new PublicKey(
   "Feature111111111111111111111111111111111111"
 );
@@ -4531,7 +4533,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("measures concentrated transition and shifted-CPMM tail swap paths", async function () {
     const config = marketConfig();
-    config.swapFeeBps = 0;
+    config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -4564,8 +4566,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("retains a concentrated dynamic surcharge as recentering principal on SBF", async function () {
     const config = marketConfig();
-    config.swapFeeBps = 0;
-    config.divergenceFeeShareCapBps = 5_000;
+    config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    config.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -4754,8 +4756,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("executes wide divergence paths with CPMM distribution and concentrated retention", async function () {
     const concentratedConfig = marketConfig();
-    concentratedConfig.swapFeeBps = 0;
-    concentratedConfig.divergenceFeeShareCapBps = 5_000;
+    concentratedConfig.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    concentratedConfig.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
     concentratedConfig.amm.peakAmplificationNad = new BN("4000000000");
     concentratedConfig.amm.coreHalfWidthBps = 100;
     concentratedConfig.amm.fadeWidthBps = 400;
@@ -4796,8 +4798,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("swap", this.test?.title);
 
     const retainedConfig = marketConfig();
-    retainedConfig.swapFeeBps = 0;
-    retainedConfig.divergenceFeeShareCapBps = 5_000;
+    retainedConfig.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    retainedConfig.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
     retainedConfig.amm.peakAmplificationNad = new BN("4000000000");
     retainedConfig.amm.coreHalfWidthBps = 100;
     retainedConfig.amm.fadeWidthBps = 400;
@@ -4840,8 +4842,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   it("keeps hard-capped divergence executable in both fee routes and rolls back an exhausted atom", async function () {
     const configFor = (retained: boolean) => {
       const config = marketConfig();
-      config.swapFeeBps = 0;
-      config.divergenceFeeShareCapBps = 5_000;
+      config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+      config.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
       config.amm.peakAmplificationNad = new BN("4000000000");
       config.amm.coreHalfWidthBps = 100;
       config.amm.fadeWidthBps = 400;
@@ -4965,7 +4967,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("rejects the same zero post-retention mark in preview and execution without mutation", async function () {
     const config = marketConfig();
-    config.swapFeeBps = 0;
+    config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -5145,8 +5147,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("executes a funded concentrated recenter with both hLPs below the SBF compute ceiling", async function () {
     const config = marketConfig();
-    config.swapFeeBps = 0;
-    config.divergenceFeeShareCapBps = 5_000;
+    config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    config.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -5285,7 +5287,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       for (const interestAsset of ["base", "quote"] as const) {
         await updateInterestRevenue(2_000);
         const config = marketConfig();
-        config.swapFeeBps = 0;
+        config.swapFeeBps = amplification === 1 ? 0 : MIN_CONCENTRATED_SWAP_FEE_BPS;
         config.divergenceFeeShareCapBps = 0;
         config.volatilityFeeShareCapBps = 0;
         config.amm.peakAmplificationNad = new BN(amplification * 1_000_000_000);

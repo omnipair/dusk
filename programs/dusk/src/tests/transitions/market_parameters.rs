@@ -1422,6 +1422,52 @@ fn concentration_execution_schedules_guarded_intermediate_and_final_shapes() {
 }
 
 #[test]
+fn concentration_requires_the_minimum_base_fee() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.amm.adjustment_step_nad = NAD / 1_000;
+    market.finalize_amm_transition_and_observe_risk(1).unwrap();
+    assert_eq!(market.config.swap_fee_bps, 0);
+    let concentration = MarketParameterUpdate::Concentration {
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
+        ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
+    };
+
+    // The proposal is checked against its target, so a fee-free market cannot
+    // schedule a concentrated curve.
+    let before = market.try_to_vec().unwrap();
+    assert_eq!(
+        market
+            .execute_parameter_updates(core::slice::from_ref(&concentration), 2)
+            .unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::ConcentratedSwapFeeBelowMinimum)
+    );
+    assert_eq!(market.try_to_vec().unwrap(), before);
+
+    // Raising the base fee in the same proposal admits it.
+    let mut minimum = market.config.fee_profile();
+    minimum.base_fee_bps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    market
+        .execute_parameter_updates(&[MarketParameterUpdate::Fee(minimum), concentration], 2)
+        .unwrap();
+    assert!(market
+        .advance_concentration_ramp(2 + MIN_CONCENTRATION_RAMP_SLOTS)
+        .unwrap());
+    assert_eq!(market.config.amm.peak_amplification_nad, 4 * NAD);
+
+    // Once concentrated, the fee cannot return below the minimum.
+    let mut fee_free = market.config.fee_profile();
+    fee_free.base_fee_bps = 0;
+    assert_eq!(
+        market
+            .validate_parameter_updates(&[MarketParameterUpdate::Fee(fee_free)])
+            .unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::ConcentratedSwapFeeBelowMinimum)
+    );
+}
+
+#[test]
 fn returning_to_cpmm_releases_retained_principal_only_at_a_guarded_step() {
     let mut market = controller_market(1_000_000, 1_000_000);
     market.finalize_amm_transition_and_observe_risk(1).unwrap();
@@ -1725,6 +1771,7 @@ fn every_family_closes_its_windows_before_any_family_moves() {
 #[test]
 fn curve_and_center_controller_validate_together_and_cannot_disable_centering() {
     let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.swap_fee_bps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     market
         .execute_parameter_updates(
             &[
@@ -2096,5 +2143,7 @@ fn new_borrower_cannot_reclassify_older_borrowers_principal_or_tranche_loss() {
 fn controller_market(base_cash: u64, quote_cash: u64) -> Market {
     let mut market = invariant_market(base_cash, quote_cash);
     market.config.amm.adjustment_step_nad = NAD / 1_000;
+    // Concentration targets require the minimum concentrated base fee.
+    market.config.swap_fee_bps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     market
 }

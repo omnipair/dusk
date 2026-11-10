@@ -13200,6 +13200,16 @@ export type Dusk = {
       "code": 6146,
       "name": "launchSettingsImmutable",
       "msg": "Launch-only settings are immutable after the market starts"
+    },
+    {
+      "code": 6147,
+      "name": "curveTailShareBelowMinimum",
+      "msg": "Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or widen the core or fade"
+    },
+    {
+      "code": 6148,
+      "name": "concentratedSwapFeeBelowMinimum",
+      "msg": "Concentrated curves require a base swap fee of at least 1 bps"
     }
   ],
   "types": [
@@ -23689,6 +23699,15 @@ export type Dusk = {
       "name": "minBorrowHalfLifeMs",
       "type": "u64",
       "value": "43200000"
+    },
+    {
+      "name": "minConcentratedSwapFeeBps",
+      "docs": [
+        "Minimum base swap fee of a concentrated curve. It exceeds the round-trip",
+        "excess that curve reconstruction can leave at the minimum tail share."
+      ],
+      "type": "u16",
+      "value": "1"
     },
     {
       "name": "minConcentrationRampSlots",
