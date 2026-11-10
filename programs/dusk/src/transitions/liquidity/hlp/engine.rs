@@ -5,6 +5,11 @@ mod tests {
     include!("../../../tests/transitions/liquidity_hlp_engine.rs");
 }
 
+#[cfg(test)]
+mod exit_tests {
+    include!("../../../tests/transitions/liquidity_hlp_exit.rs");
+}
+
 fn recognized_hlp_residual_exposure(actual_residual_nad: i128, nav_nad: u128, amount_decimals: u8) -> i128 {
     // Keep the absolute dust allowance at 0.00001 tokens at every market scale.
     // Saturation is exact for this min: an unrepresentable absolute cap can
@@ -1406,7 +1411,12 @@ impl Market {
                 .min(value);
             require!(delta > 0, ErrorCode::AmountZero);
             require!(nav_before > 0, ErrorCode::MarketMathOverflow);
-            let amount = u64::try_from(mul_div_u128(delta, supply_before as u128, nav_before)?)
+            // Price the new shares against the post-entry NAV net of the
+            // credited value. When the entry's own rebalance rounds extra
+            // value into the vault, that surplus stays with existing holders
+            // instead of being redeemable by the entrant; otherwise this is
+            // the pre-entry NAV.
+            let amount = u64::try_from(mul_div_u128(delta, supply_before as u128, nav_after - delta)?)
                 .map_err(|_| ErrorCode::MarketMathOverflow)?;
             require!(amount > 0, ErrorCode::AmountZero);
             match target_asset {
@@ -1523,7 +1533,12 @@ impl Market {
         let target_redeemed = hlp_exit_underlying_amount(self, target_asset, target_asset, hlp_amount)?;
         let borrowed_asset = target_asset.opposite();
         let borrowed_redeemed = hlp_exit_underlying_amount(self, target_asset, borrowed_asset, hlp_amount)?;
-        let debt_shares = proportional_u128(vault.debt_shares, hlp_amount, vault.hlp_supply)?;
+        let debt_shares = hlp_exit_debt_shares(
+            vault.debt_shares,
+            hlp_amount,
+            vault.hlp_supply,
+            self.debt.borrow_index(borrowed_asset),
+        )?;
         let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
             vault.debt_shares,
             debt_shares,
@@ -1590,7 +1605,12 @@ impl Market {
                 let supply = market.base_hlp_vault.hlp_supply;
                 require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
                 let srlp_amount = proportional(market.base_hlp_vault.srlp_shares, hlp_amount, supply)?;
-                let quote_debt_shares = proportional_u128(market.base_hlp_vault.debt_shares, hlp_amount, supply)?;
+                let quote_debt_shares = hlp_exit_debt_shares(
+                    market.base_hlp_vault.debt_shares,
+                    hlp_amount,
+                    supply,
+                    market.debt.quote_borrow_index_nad,
+                )?;
                 let base_out = hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Base, hlp_amount)?;
                 let quote_redeemed =
                     hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Quote, hlp_amount)?;
@@ -1661,7 +1681,12 @@ impl Market {
                 let supply = market.quote_hlp_vault.hlp_supply;
                 require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
                 let srlp_amount = proportional(market.quote_hlp_vault.srlp_shares, hlp_amount, supply)?;
-                let base_debt_shares = proportional_u128(market.quote_hlp_vault.debt_shares, hlp_amount, supply)?;
+                let base_debt_shares = hlp_exit_debt_shares(
+                    market.quote_hlp_vault.debt_shares,
+                    hlp_amount,
+                    supply,
+                    market.debt.base_borrow_index_nad,
+                )?;
                 let quote_out = hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Quote, hlp_amount)?;
                 let base_redeemed =
                     hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Base, hlp_amount)?;
@@ -2497,11 +2522,36 @@ fn proportional(amount: u64, numerator: u64, denominator: u64) -> Result<u64> {
     u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-fn proportional_u128(amount: u128, numerator: u64, denominator: u64) -> Result<u128> {
-    amount
-        .checked_mul(numerator as u128)
-        .and_then(|value| value.checked_div(denominator as u128))
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+/// Debt shares an hLP exit burns. The exiting holder takes floored asset
+/// claims, so it also takes at least its fraction of the vault's indexed
+/// debt, rounded up and capped at the floored total. From the floored
+/// proportional share count, this burns the fewest shares whose aggregate
+/// debt reduction reaches that amount. A plain floor could leave up to an
+/// atom of the borrowed asset's debt with the remaining holders, and burned
+/// no shares for an exit below one share.
+fn hlp_exit_debt_shares(debt_shares: u128, hlp_amount: u64, hlp_supply: u64, borrow_index_nad: u128) -> Result<u128> {
+    let floored = debt_shares
+        .checked_mul(hlp_amount as u128)
+        .and_then(|value| value.checked_div(hlp_supply as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    if debt_shares == 0 {
+        return Ok(floored);
+    }
+    require!(borrow_index_nad >= NAD as u128, ErrorCode::DebtShareDivisionOverflow);
+    let debt = Debt::shares_to_debt(debt_shares, borrow_index_nad)?;
+    let indexed = debt_shares
+        .checked_mul(borrow_index_nad)
+        .ok_or(ErrorCode::DebtShareMathOverflow)?;
+    let owed = mul_div_ceil_u128(indexed, hlp_amount as u128, hlp_supply as u128 * NAD as u128)?.min(debt);
+    // Remaining shares r leave floor(r * index / NAD) <= debt - owed exactly
+    // when r * index < (debt - owed + 1) * NAD.
+    let limit = debt
+        .checked_sub(owed)
+        .and_then(|left| left.checked_add(1))
+        .and_then(|left| left.checked_mul(NAD as u128))
+        .ok_or(ErrorCode::DebtShareMathOverflow)?;
+    let max_remaining = (limit - 1) / borrow_index_nad;
+    Ok(floored.max(debt_shares.saturating_sub(max_remaining)))
 }
 
 #[cfg(test)]
