@@ -557,19 +557,23 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
         } else {
             let region = nested_region_from_branch(branch);
             require!(region <= 4, ErrorCode::InvalidMarketConfig);
-            let (tail_share_nad, concentrated_share_nad) = parameters.liquidity_shares_nad()?;
-            let core_share_nad = concentrated_share_nad.div_ceil(2);
-            let shoulder_share_nad = concentrated_share_nad
-                .checked_sub(core_share_nad)
-                .ok_or(ErrorCode::BrokenInvariant)?;
-            let core_liquidity = mul_div_u128(NESTED_SHAPE_SCALE, core_share_nad, NAD as u128)?;
-            let shoulder_liquidity = mul_div_u128(NESTED_SHAPE_SCALE, shoulder_share_nad, NAD as u128)?;
-            let tail_liquidity = NESTED_SHAPE_SCALE
+            // Split the shape exactly as the cache splits concentrated
+            // liquidity: the core takes the ceiling half. Halving the share
+            // in NAD units instead moves up to 5e-10 of the liquidity
+            // between core and shoulder, and the solved scale then misses
+            // the built curve. In a thin tail region that miss is a large
+            // fraction of the effective reserves, and round trips through
+            // the boundary returned more than their input. The shape value
+            // is recomputed rather than kept live across this loop, which
+            // would overflow the SBF stack frame.
+            let shape_concentrated = mul_div_u128(NESTED_SHAPE_SCALE, concentrated_share, NAD as u128)?;
+            let core_liquidity = shape_concentrated.div_ceil(2);
+            let shoulder_liquidity = shape_concentrated
                 .checked_sub(core_liquidity)
-                .and_then(|value| value.checked_sub(shoulder_liquidity))
                 .ok_or(ErrorCode::BrokenInvariant)?;
-            let expected_tail = mul_div_u128(NESTED_SHAPE_SCALE, tail_share_nad, NAD as u128)?;
-            require!(tail_liquidity.abs_diff(expected_tail) <= 2, ErrorCode::BrokenInvariant);
+            let tail_liquidity = NESTED_SHAPE_SCALE
+                .checked_sub(shape_concentrated)
+                .ok_or(ErrorCode::BrokenInvariant)?;
             let layers = [
                 ConcentratedCurveLayer {
                     liquidity: core_liquidity,

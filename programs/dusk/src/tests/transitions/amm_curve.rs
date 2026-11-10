@@ -504,7 +504,11 @@ fn small_nested_curves_cross_all_boundaries_without_round_trip_profit() {
                     assert!(filled.amount_out >= forward.amount_out);
                     let predecessor = curve.quote_exact_in(start, exact_out.amount_in - 1, direction).unwrap();
                     assert!(predecessor.amount_out < forward.amount_out);
-                    let back = curve.quote_exact_in(forward.end, forward.amount_out, reverse).unwrap();
+                    // A reverse swap that ends a few atoms past a boundary floors
+                // its last segment to zero output and is rejected outright.
+                let Ok(back) = curve.quote_exact_in(forward.end, forward.amount_out, reverse) else {
+                    continue;
+                };
                     assert_eq!(back.boundary_crossings, 4);
                     assert!(back.amount_out <= input,
                         "amp={amplification} base={base} price={price} direction={direction:?}: {input} -> {}", back.amount_out);
@@ -731,6 +735,60 @@ fn nested_region_liquidities(cache: ConcentratedCurveCache) -> [Vec<u128>; 5] {
     ]
 }
 
+/// How far a point lies from its own region's invariant, in atoms of the
+/// larger effective reserve: |x * y - L^2| / max(x, y).
+fn own_region_offset_atoms(
+    cache: ConcentratedCurveCache,
+    curve: ConcentratedCurveGeometry,
+    point: ConcentratedCurvePoint,
+) -> BigUint {
+    let region = nested_region_from_branch(curve.branch(point));
+    let (base, quote) = curve.nested_effective_reserves(point, region).unwrap();
+    let liquidity: u128 = nested_region_liquidities(cache)[region].iter().sum();
+    let product = BigUint::from(base) * BigUint::from(quote);
+    let square = BigUint::from(liquidity) * BigUint::from(liquidity);
+    let gap = if product >= square { product - square } else { square - product };
+    gap / BigUint::from(base.max(quote))
+}
+
+/// Rounding band of a reconstructed point: a few floored atoms per active
+/// layer, scaled up with the pool above the 10^18 solve shape.
+fn reconstruction_band_atoms(cache: ConcentratedCurveCache) -> BigUint {
+    let liquidity = cache.tail_liquidity + cache.concentrated_liquidity;
+    BigUint::from(8_u8) * (BigUint::from(1_u8) + BigUint::from(liquidity / NESTED_SHAPE_SCALE))
+}
+
+#[test]
+fn drained_upper_tail_round_trip_returns_at_most_its_input() {
+    // The upper tail of this 10^18-atom pool holds 2.5e-5 of its liquidity.
+    // The start sits on the upper-tail boundary and the forward swap drains
+    // 99.5% of base. When the root solve halved the concentrated share in
+    // NAD units, the start lay 3.6e9 quote atoms off its own region's curve
+    // and the round trip returned 2 atoms more than its input.
+    let parameters = ConcentratedCurveParameters {
+        peak_amplification_nad: 6_326_237_625,
+        core_half_width_bps: 1_648,
+        fade_width_bps: 5_787,
+    };
+    let start = ConcentratedCurvePoint {
+        base_reserve: 2_954_857_125_079_159_534,
+        quote_reserve: 6_351_750_284_696_776_765,
+    };
+    let (cache, curve) =
+        prepare_concentrated_cache_and_geometry_at_point(start.base_reserve, start.quote_reserve, 113_599, parameters)
+            .unwrap();
+    assert!(own_region_offset_atoms(cache, curve, start) <= reconstruction_band_atoms(cache));
+    let input = 114_503_002_382_228_795;
+    let forward = curve
+        .quote_exact_in(start, input, ConcentratedCurveDirection::QuoteToBase)
+        .unwrap();
+    assert!(forward.amount_out * 100 > start.base_reserve * 99);
+    let back = curve
+        .quote_exact_in(forward.end, forward.amount_out, ConcentratedCurveDirection::BaseToQuote)
+        .unwrap();
+    assert!(back.amount_out <= input, "{input} -> {}", back.amount_out);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2048))]
 
@@ -874,6 +932,71 @@ proptest! {
                     || is_error(&end, ErrorCode::InvalidMarketConfig),
                 "{parameters:?} center={center_price_nad} {direction:?} end={:?}: {end:?}",
                 forward.end
+            );
+        }
+    }
+
+    #[test]
+    fn prepared_points_lie_on_their_own_region_within_the_rounding_band(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs(),
+        offset in -16_i128..=16,
+    ) {
+        let curve = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters)
+            .unwrap()
+            .geometry()
+            .unwrap();
+        let interior = ConcentratedCurvePoint { base_reserve: base, quote_reserve: quote };
+        let near_boundaries = curve.nested_boundaries.map(|boundary| point_near_boundary(boundary, offset));
+        for point in core::iter::once(Some(interior)).chain(near_boundaries).flatten() {
+            let (cache, local) = prepare_concentrated_cache_and_geometry_at_point(
+                point.base_reserve,
+                point.quote_reserve,
+                center_price_nad,
+                parameters,
+            )
+            .unwrap();
+            let offset_atoms = own_region_offset_atoms(cache, local, point);
+            prop_assert!(
+                offset_atoms <= reconstruction_band_atoms(cache),
+                "{parameters:?} center={center_price_nad} {point:?}: {offset_atoms} atoms off"
+            );
+        }
+    }
+
+    #[test]
+    fn round_trips_from_nested_boundary_points_return_at_most_their_input(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs(),
+        boundary_index in 0_usize..4,
+        offset in -16_i128..=16,
+        input_ppm in 1_u128..=100_000,
+    ) {
+        let curve = prepare_concentrated_cache_at_point(base, quote, center_price_nad, parameters)
+            .unwrap()
+            .geometry()
+            .unwrap();
+        let Some(start) = point_near_boundary(curve.nested_boundaries[boundary_index], offset) else {
+            return Ok(());
+        };
+        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(
+            start.base_reserve,
+            start.quote_reserve,
+            center_price_nad,
+            parameters,
+        )
+        .unwrap();
+        for (direction, reverse, input_reserve) in [
+            (ConcentratedCurveDirection::BaseToQuote, ConcentratedCurveDirection::QuoteToBase, start.base_reserve),
+            (ConcentratedCurveDirection::QuoteToBase, ConcentratedCurveDirection::BaseToQuote, start.quote_reserve),
+        ] {
+            let input = mul_div_u128(input_reserve, input_ppm, 1_000_000).unwrap() + 1;
+            let Ok(forward) = start_curve.quote_exact_in(start, input, direction) else { continue };
+            // A return leg can still pay nothing when the forward output is dust.
+            let Ok(back) = start_curve.quote_exact_in(forward.end, forward.amount_out, reverse) else { continue };
+            prop_assert!(
+                back.amount_out <= input,
+                "{parameters:?} center={center_price_nad} {start:?} {direction:?}: {input} -> {} -> {}",
+                forward.amount_out,
+                back.amount_out
             );
         }
     }
