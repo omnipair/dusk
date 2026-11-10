@@ -425,8 +425,4 @@ pub enum ErrorCode {
     OracleReplay,
     #[msg("Launch-only settings are immutable after the market starts")]
     LaunchSettingsImmutable,
-    #[msg("Trading has opened; its start time is final")]
-    MarketAlreadyStarted,
-    #[msg("A new start time cannot be in the past")]
-    StartTimeInPast,
 }

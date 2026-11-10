@@ -86,7 +86,6 @@ type DuskEventTypes = [
   TypeNamed<"managerChanged">,
   TypeNamed<"operatorChangeAnnounced">,
   TypeNamed<"operatorChangeResolved">,
-  TypeNamed<"marketStartRescheduled">,
   TypeNamed<"juniorCohortInitialized">,
   TypeNamed<"juniorSeedCompounded">,
   TypeNamed<"juniorSeedFunded">,
@@ -293,6 +292,5 @@ export type ManagerChanged = IdlTypes<DuskEventIdl>["managerChanged"];
 export type OperatorChanged = IdlTypes<DuskEventIdl>["operatorChanged"];
 export type OperatorChangeAnnounced = IdlTypes<DuskEventIdl>["operatorChangeAnnounced"];
 export type OperatorChangeResolved = IdlTypes<DuskEventIdl>["operatorChangeResolved"];
-export type MarketStartRescheduled = IdlTypes<DuskEventIdl>["marketStartRescheduled"];
 
 export type OperatorRevenueAccount=IdlTypes<DuskAccountIdl>["operatorRevenueAccount"];

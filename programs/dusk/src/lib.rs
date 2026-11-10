@@ -186,13 +186,6 @@ pub mod dusk {
         RemoveMarketManager::handle(ctx)
     }
 
-    /// Move a start that has not passed to another time that has not passed.
-    /// Owner only, with no notice: before trading opens, srLP holders can
-    /// withdraw at any time.
-    pub fn reschedule_market_start(ctx: Context<RescheduleMarketStart>, start_time: i64) -> Result<()> {
-        RescheduleMarketStart::handle(ctx, start_time)
-    }
-
     /// Prepare a recipient archive with a separate funded payer.
     pub fn initialize_operator_revenue(ctx: Context<InitializeOperatorRevenue>) -> Result<()> {
         InitializeOperatorRevenue::handle(ctx)

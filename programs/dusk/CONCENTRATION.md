@@ -72,8 +72,7 @@ adapters retain their corresponding rollback boundary.
 
 Ordinary srLP liquidity may be seeded and withdrawn before `start_time`;
 swaps, lending, leverage, and hLP funding remain unavailable until that exact
-timestamp. Until then the operator may move `start_time` to any moment that
-has not passed; once trading opens it is final.
+timestamp.
 Markets may configure a bounded launch base fee that decays in O(1) from the
 launch fee to the normal base fee using either a linear schedule or sixteen
 deterministic exponential steps. Distance and volatility charges remain

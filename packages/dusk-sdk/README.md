@@ -1194,12 +1194,6 @@ bundles are preserved. Every ownership transfer clears the manager; it cannot
 be retained or replaced in the handoff bundle. The successor appoints a manager
 through a separate full-notice announcement.
 
-Before trading opens, the operator can move the start with
-`dusk.operator.rescheduleStart({market, operator, startTime})`, earlier or
-later, with no notice. The new start cannot be in the past, and once trading
-opens the start is final. Managers cannot reschedule. Liquidity added before
-the start can be withdrawn before it, so a postponed start never holds it.
-
 ### LP income projection
 
 `projectHolderIncome` projects funded interest belonging to a senior or junior

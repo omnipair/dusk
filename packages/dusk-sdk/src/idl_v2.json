@@ -8324,105 +8324,6 @@
       ]
     },
     {
-      "name": "reschedule_market_start",
-      "docs": [
-        "Move a start that has not passed to another time that has not passed.",
-        "Owner only, with no notice: before trading opens, srLP holders can",
-        "withdraw at any time."
-      ],
-      "discriminator": [
-        169,
-        15,
-        5,
-        137,
-        88,
-        147,
-        182,
-        253
-      ],
-      "accounts": [
-        {
-          "name": "operator",
-          "signer": true
-        },
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "start_time",
-          "type": "i64"
-        }
-      ]
-    },
-    {
       "name": "resolve_operator_change",
       "docs": [
         "The operator may cancel any bundle; a manager may cancel its own. Anyone may close obsolete proposals."
@@ -12272,19 +12173,6 @@
       ]
     },
     {
-      "name": "MarketStartRescheduled",
-      "discriminator": [
-        198,
-        139,
-        74,
-        36,
-        126,
-        234,
-        101,
-        97
-      ]
-    },
-    {
       "name": "OperatorChangeAnnounced",
       "discriminator": [
         137,
@@ -13306,16 +13194,6 @@
       "code": 6146,
       "name": "LaunchSettingsImmutable",
       "msg": "Launch-only settings are immutable after the market starts"
-    },
-    {
-      "code": 6147,
-      "name": "MarketAlreadyStarted",
-      "msg": "Trading has opened; its start time is final"
-    },
-    {
-      "code": 6148,
-      "name": "StartTimeInPast",
-      "msg": "A new start time cannot be in the past"
     }
   ],
   "types": [
@@ -19968,30 +19846,6 @@
               "Per-srLP-share interest growth, scaled by 2^64."
             ],
             "type": "u128"
-          }
-        ]
-      }
-    },
-    {
-      "name": "MarketStartRescheduled",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "operator",
-            "type": "pubkey"
-          },
-          {
-            "name": "previous_start_time",
-            "type": "i64"
-          },
-          {
-            "name": "start_time",
-            "type": "i64"
           }
         ]
       }
