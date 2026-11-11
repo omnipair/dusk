@@ -22,9 +22,9 @@ const EXIT_PAIRS: [ExitPair; 5] = [
 
 /// Seeds `quote_tokens` of quote and its value in base through
 /// `add_liquidity`, then opens both hLP vaults with a twentieth of each
-/// reserve so later entries join existing holders. `None` when the pool is
-/// too small to seed; an overflow while seeding fails the test instead.
-fn hlp_market(pair: ExitPair, quote_tokens: f64, concentrated: bool) -> Option<Market> {
+/// reserve so later entries join existing holders. Every pair and size used
+/// here seeds, so any seeding error fails the test.
+fn hlp_market(pair: ExitPair, quote_tokens: f64, concentrated: bool) -> Market {
     let mut market = Market { version: crate::constants::MARKET_LAYOUT_VERSION, ..Market::current_layout() };
     market.base_side.asset_mint = Pubkey::new_unique();
     market.quote_side.asset_mint = Pubkey::new_unique();
@@ -43,9 +43,11 @@ fn hlp_market(pair: ExitPair, quote_tokens: f64, concentrated: bool) -> Option<M
     }
     let base = quote_tokens / pair.price * 10_f64.powi(i32::from(pair.base_decimals));
     let quote = quote_tokens * 10_f64.powi(i32::from(pair.quote_decimals));
-    if !(1.0..u64::MAX as f64).contains(&base) || !(1.0..u64::MAX as f64).contains(&quote) {
-        return None;
-    }
+    let context = format!("{} {quote_tokens} concentrated={concentrated}", pair.name);
+    assert!(
+        (1.0..u64::MAX as f64).contains(&base) && (1.0..u64::MAX as f64).contains(&quote),
+        "{context}: seed outside one atom to u64 atoms"
+    );
     let seeded = market.add_liquidity(base as u64, quote as u64).map(|_| ());
     let seeded = seeded.and_then(|()| market.prepare_amm_for_swap(1)).and_then(|()| {
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
@@ -54,10 +56,10 @@ fn hlp_market(pair: ExitPair, quote_tokens: f64, concentrated: bool) -> Option<M
         }
         Ok(())
     });
-    if let Err(anchor_lang::error::Error::AnchorError(error)) = &seeded {
-        assert!(!error.error_name.contains("Overflow"), "{} {quote_tokens}: seeding failed with {}", pair.name, error.error_name);
+    if let Err(error) = seeded {
+        panic!("{context}: seeding failed with {error:?}");
     }
-    seeded.ok().map(|()| market)
+    market
 }
 
 /// Enters an hLP vault and immediately redeems every minted token. New
@@ -70,22 +72,34 @@ fn hlp_market(pair: ExitPair, quote_tokens: f64, concentrated: bool) -> Option<M
 #[test]
 fn hlp_entry_then_exit_returns_at_most_the_deposit() {
     let (mut trips, mut gains, mut errors) = (0, vec![], vec![]);
+    // Dust deposits that deliberately produce no round trip, by reason.
+    let mut skipped = std::collections::BTreeMap::<&str, u64>::new();
     for pair in EXIT_PAIRS {
         for concentrated in [false, true] {
             for quote_tokens in [5_000.0, 50_000_000.0] {
-                let Some(market) = hlp_market(pair, quote_tokens, concentrated) else {
-                    continue;
-                };
+                let market = hlp_market(pair, quote_tokens, concentrated);
                 for target in [MarketAsset::Base, MarketAsset::Quote] {
                     let reserve = market.side(target).reserves.cash_reserve;
                     for (deposit, dust) in [(1, true), (7, true), (reserve / 10_000, true), (reserve / 100, false), (reserve / 20, false)] {
                         if deposit == 0 {
+                            *skipped.entry("deposit below one atom").or_default() += 1;
                             continue;
                         }
                         let context = format!("{} {quote_tokens} concentrated={concentrated} {target:?} {deposit}", pair.name);
                         let mut entered = market.clone();
-                        let Ok(entry) = entered.deposit_single_sided(target, deposit, 1) else {
-                            continue;
+                        let entry = match entered.deposit_single_sided(target, deposit, 1) {
+                            Ok(entry) => entry,
+                            // A dust deposit can be worth less than one hLP atom.
+                            Err(anchor_lang::error::Error::AnchorError(error))
+                                if dust && error.error_name == "AmountZero" =>
+                            {
+                                *skipped.entry("dust entry mints no hLP").or_default() += 1;
+                                continue;
+                            }
+                            Err(error) => {
+                                errors.push(format!("{context}: entry failed with {error:?}"));
+                                continue;
+                            }
                         };
                         match entered.withdraw_single_sided(target, entry.hlp_amount) {
                             Ok(exit) => {
@@ -96,7 +110,10 @@ fn hlp_entry_then_exit_returns_at_most_the_deposit() {
                                 }
                             }
                             Err(anchor_lang::error::Error::AnchorError(error))
-                                if dust && error.error_name == "HlpSettlementUnavailable" => {}
+                                if dust && error.error_name == "HlpSettlementUnavailable" =>
+                            {
+                                *skipped.entry("dust exit cannot cover its debt atom").or_default() += 1;
+                            }
                             Err(error) => errors.push(format!("{context}: {error:?}")),
                         }
                     }
@@ -104,6 +121,7 @@ fn hlp_entry_then_exit_returns_at_most_the_deposit() {
             }
         }
     }
+    println!("HLP_ENTRY_EXIT trips={trips} skipped={skipped:?}");
     assert!(trips > 100, "{trips}");
     assert!(errors.is_empty(), "{errors:#?}");
     assert!(gains.is_empty(), "{gains:#?}");

@@ -128,10 +128,11 @@ fn raw_amount(tokens: f64, decimals: u8) -> Option<u64> {
 
 /// A market seeded through `add_liquidity` with `pool_usd` split evenly
 /// between the sides. The configuration is one production accepts; the base
-/// fee is then zeroed so only rounding can move value. `None` when the pool is
-/// too small to seed. An overflow while seeding fails the test instead of
-/// shrinking its coverage.
-fn seeded_market(pair: Pair, pool_usd: f64, shape: Shape) -> Option<Market> {
+/// fee is then zeroed so only rounding can move value. `Err` names the
+/// deliberate skip: a side below one atom, a side beyond what a token account
+/// holds, or a first deposit below the permanently locked minimum liquidity.
+/// Any other seeding error fails the test instead of shrinking its coverage.
+fn seeded_market(pair: Pair, pool_usd: f64, shape: Shape) -> std::result::Result<Market, String> {
     let mut market = Market { version: MARKET_LAYOUT_VERSION, ..Market::current_layout() };
     market.base_side.asset_mint = Pubkey::new_unique();
     market.quote_side.asset_mint = Pubkey::new_unique();
@@ -148,18 +149,20 @@ fn seeded_market(pair: Pair, pool_usd: f64, shape: Shape) -> Option<Market> {
     market.config.validate().unwrap();
     market.config.swap_fee_bps = 0;
     let quote_tokens = pool_usd / 2.0 / pair.quote_usd;
-    let base_raw = raw_amount(quote_tokens / pair.price, pair.base_decimals)?;
-    let quote_raw = raw_amount(quote_tokens, pair.quote_decimals)?;
+    let (Some(base_raw), Some(quote_raw)) = (
+        raw_amount(quote_tokens / pair.price, pair.base_decimals),
+        raw_amount(quote_tokens, pair.quote_decimals),
+    ) else {
+        return Err("seed: beyond u64 atoms".into());
+    };
     if base_raw == 0 || quote_raw == 0 {
-        return None;
+        return Err("seed: below one atom".into());
     }
     let seeded = market.add_liquidity(base_raw, quote_raw).map(|_| ());
     if let Err(error) = seeded.and_then(|()| market.prepare_amm_for_swap(1)) {
-        let name = error_name(&error);
-        assert!(!name.contains("Overflow"), "{} ${pool_usd} {shape:?}: seeding failed with {name}", pair.name);
-        return None;
+        return Err(setup_skip("seed", &format!("{} ${pool_usd} {shape:?}", pair.name), &error));
     }
-    Some(market)
+    Ok(market)
 }
 
 fn swap(market: &mut Market, asset_in: MarketAsset, reserve_credit: u64, slot: u64) -> Result<u64> {
@@ -173,6 +176,21 @@ fn swap(market: &mut Market, asset_in: MarketAsset, reserve_credit: u64, slot: u
     .prepare(market)?;
     prepared.finalize_state(market, slot, 0, ProtocolAuctionSplit::default())?;
     Ok(prepared.quote.amount_out)
+}
+
+/// The skip reason for a setup step that failed only because of dust: a first
+/// deposit below the permanently locked minimum liquidity while seeding, or a
+/// positioning trade whose output floors below one atom. Any other setup error
+/// fails the test instead of shrinking its coverage.
+fn setup_skip(stage: &str, context: &str, error: &anchor_lang::error::Error) -> String {
+    let name = error_name(error);
+    let dust = match stage {
+        "seed" => name == "LiquidityUnderflow",
+        "pre-trade" | "boundary" => name == "InsufficientOutputAmount",
+        _ => false,
+    };
+    assert!(dust, "{context}: {stage} failed with {name}");
+    format!("{stage}: {name}")
 }
 
 fn error_name(error: &anchor_lang::error::Error) -> String {
@@ -190,6 +208,9 @@ struct Tally {
     worst: String,
     overflow_errors: Vec<String>,
     other_errors: std::collections::BTreeMap<String, u64>,
+    /// Setup steps and trades that deliberately produced nothing to test,
+    /// by reason.
+    skipped: std::collections::BTreeMap<String, u64>,
 }
 
 impl Tally {
@@ -200,6 +221,10 @@ impl Tally {
         } else {
             *self.other_errors.entry(name).or_default() += 1;
         }
+    }
+
+    fn skip(&mut self, reason: impl Into<String>) {
+        *self.skipped.entry(reason.into()).or_default() += 1;
     }
 
     fn record_trip(&mut self, context: &str, amount_in: u64, amount_back: u64) {
@@ -233,22 +258,44 @@ fn atom_nad(market: &Market, asset: MarketAsset) -> u128 {
 
 /// The raw input that moves the curve from its current point onto `target`,
 /// and the asset paid in. Rounding leaves the result within an atom of it.
-fn input_to_reach(market: &Market, target: ConcentratedCurvePoint) -> Option<(MarketAsset, u64)> {
-    let current = market.ordinary_curve_point_nad().ok()?;
+/// `Err` names the deliberate skip when that input exceeds u64 atoms.
+fn input_to_reach(market: &Market, target: ConcentratedCurvePoint) -> std::result::Result<(MarketAsset, u64), String> {
+    let current = market.ordinary_curve_point_nad().unwrap();
     let (asset, internal) = if target.base_reserve > current.base_reserve {
         (MarketAsset::Base, target.base_reserve - current.base_reserve)
     } else {
-        (MarketAsset::Quote, target.quote_reserve.checked_sub(current.quote_reserve)?)
+        let internal = target.quote_reserve.checked_sub(current.quote_reserve);
+        (MarketAsset::Quote, internal.expect("a curve boundary holds more of one asset than any other curve point"))
     };
-    u64::try_from(internal / atom_nad(market, asset)).ok().map(|raw| (asset, raw))
+    u64::try_from(internal / atom_nad(market, asset))
+        .map(|raw| (asset, raw))
+        .map_err(|_| "boundary: input beyond u64 atoms".into())
+}
+
+/// The region boundaries of the market's current curve. A nested shape lists
+/// them in `nested_boundaries` and leaves the single-band pair at the origin; a
+/// CPMM has none.
+fn curve_boundaries(market: &Market) -> Vec<ConcentratedCurvePoint> {
+    let geometry = market.current_concentrated_curve_geometry().unwrap().unwrap();
+    if geometry.is_nested() {
+        geometry.nested_boundaries.iter().take(geometry.nested_boundary_count as usize).copied().collect()
+    } else if geometry.inner_liquidity > 0 {
+        vec![geometry.lower_boundary, geometry.upper_boundary]
+    } else {
+        vec![]
+    }
 }
 
 /// Starting states reached through production swaps: the seeded center, the
 /// price after one-way trades, and points within three atoms of every curve
 /// boundary, where rebuilding the curve can place a point on either branch.
-fn starting_markets(pair: Pair, pool_usd: f64, shape: Shape) -> Vec<(String, Market)> {
-    let Some(seeded) = seeded_market(pair, pool_usd, shape) else {
-        return vec![];
+fn starting_markets(pair: Pair, pool_usd: f64, shape: Shape, tally: &mut Tally) -> Vec<(String, Market)> {
+    let seeded = match seeded_market(pair, pool_usd, shape) {
+        Ok(market) => market,
+        Err(reason) => {
+            tally.skip(reason);
+            return vec![];
+        }
     };
     let label = format!("{} ${pool_usd} {shape:?}", pair.name);
     let mut starts = vec![(format!("{label} center"), seeded.clone())];
@@ -256,26 +303,36 @@ fn starting_markets(pair: Pair, pool_usd: f64, shape: Shape) -> Vec<(String, Mar
         for share in PRE_TRADE_SHARES {
             let mut market = seeded.clone();
             let amount = (reserve_raw(&market, asset) as f64 * share) as u64;
-            if amount > 0 && swap(&mut market, asset, amount, 2).is_ok() {
-                starts.push((format!("{label} pre={asset:?}x{share}"), market));
+            let context = format!("{label} pre={asset:?}x{share}");
+            if amount == 0 {
+                tally.skip("pre-trade: below one atom");
+                continue;
+            }
+            match swap(&mut market, asset, amount, 2) {
+                Ok(_) => starts.push((context, market)),
+                Err(error) => tally.skip(setup_skip("pre-trade", &context, &error)),
             }
         }
     }
-    let geometry = seeded.current_concentrated_curve_geometry().unwrap().unwrap();
-    let mut boundaries = vec![];
-    if geometry.inner_liquidity > 0 {
-        boundaries.extend([geometry.lower_boundary, geometry.upper_boundary]);
-        boundaries.extend(geometry.nested_boundaries.iter().take(geometry.nested_boundary_count as usize));
-    }
-    for (index, boundary) in boundaries.into_iter().enumerate() {
-        let Some((asset, raw)) = input_to_reach(&seeded, boundary) else {
-            continue;
+    for (index, boundary) in curve_boundaries(&seeded).into_iter().enumerate() {
+        let (asset, raw) = match input_to_reach(&seeded, boundary) {
+            Ok(input) => input,
+            Err(reason) => {
+                tally.skip(reason);
+                continue;
+            }
         };
         for offset in -3_i64..=3 {
             let amount = raw.saturating_add_signed(offset);
+            let context = format!("{label} boundary={index}{offset:+}");
+            if amount == 0 {
+                tally.skip("boundary: below one atom");
+                continue;
+            }
             let mut market = seeded.clone();
-            if amount > 0 && swap(&mut market, asset, amount, 2).is_ok() {
-                starts.push((format!("{label} boundary={index}{offset:+}"), market));
+            match swap(&mut market, asset, amount, 2) {
+                Ok(_) => starts.push((context, market)),
+                Err(error) => tally.skip(setup_skip("boundary", &context, &error)),
             }
         }
     }
@@ -301,13 +358,16 @@ fn round_trips(pairs: &[Pair]) -> Tally {
     for &pair in pairs {
         for shape in SHAPES {
             for pool_usd in POOLS_USD {
-                for (label, start) in starting_markets(pair, pool_usd, shape) {
+                for (label, start) in starting_markets(pair, pool_usd, shape, &mut tally) {
                     for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
                         for amount in trade_sizes(&start, asset_in) {
                             let context = format!("{label} in={asset_in:?} amount={amount}");
                             let mut market = start.clone();
                             let out = match swap(&mut market, asset_in, amount, 3) {
-                                Ok(0) => continue,
+                                Ok(0) => {
+                                    tally.skip("trade: output below one atom");
+                                    continue;
+                                }
                                 Ok(out) => out,
                                 Err(error) => {
                                     tally.record_error(&context, &error);
@@ -359,10 +419,12 @@ fn repeated_and_split_zero_fee_trades_return_at_most_their_input() {
     for &pair in &PAIRS {
         for shape in SHAPES {
             for pool_usd in [1.0, 10_000.0, 1e7] {
-                for (label, start) in starting_markets(pair, pool_usd, shape) {
+                for (label, start) in starting_markets(pair, pool_usd, shape, &mut tally) {
                     for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
                         let amount = (reserve_raw(&start, asset_in) as f64 * 0.01) as u64;
+                        // Seven pieces of a tenth each need at least seventy atoms.
                         if amount < 70 {
+                            tally.skip("repeated: trade below 70 atoms");
                             continue;
                         }
                         // Twenty consecutive round trips, each reinvesting
@@ -441,32 +503,46 @@ fn zero_fee_round_trips_beside_curve_boundaries_return_at_most_their_input() {
     for &pair in pairs {
         for shape in [Shape::Moderate, Shape::TailFloor, Shape::Stable] {
             for &pool_usd in pools {
-                let Some(seeded) = seeded_market(pair, pool_usd, shape) else {
-                    continue;
-                };
-                let geometry = seeded.current_concentrated_curve_geometry().unwrap().unwrap();
-                let mut boundaries = vec![geometry.lower_boundary, geometry.upper_boundary];
-                boundaries.extend(geometry.nested_boundaries.iter().take(geometry.nested_boundary_count as usize));
-                for (index, boundary) in boundaries.into_iter().enumerate() {
-                    let Some((asset, raw)) = input_to_reach(&seeded, boundary) else {
+                let seeded = match seeded_market(pair, pool_usd, shape) {
+                    Ok(market) => market,
+                    Err(reason) => {
+                        tally.skip(reason);
                         continue;
+                    }
+                };
+                for (index, boundary) in curve_boundaries(&seeded).into_iter().enumerate() {
+                    let (asset, raw) = match input_to_reach(&seeded, boundary) {
+                        Ok(input) => input,
+                        Err(reason) => {
+                            tally.skip(reason);
+                            continue;
+                        }
                     };
                     for offset in offsets.clone() {
                         let mut start = seeded.clone();
                         let amount = raw.saturating_add_signed(offset);
-                        if amount == 0 || swap(&mut start, asset, amount, 2).is_err() {
+                        let label = format!("{} ${pool_usd} {shape:?} boundary={index}{offset:+}", pair.name);
+                        if amount == 0 {
+                            tally.skip("boundary: below one atom");
+                            continue;
+                        }
+                        if let Err(error) = swap(&mut start, asset, amount, 2) {
+                            tally.skip(setup_skip("boundary", &label, &error));
                             continue;
                         }
                         for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
                             for &size in atoms {
                                 if size >= reserve_raw(&start, asset_in) {
+                                    tally.skip("trade: size not below the reserve");
                                     continue;
                                 }
-                                let context =
-                                    format!("{} ${pool_usd} {shape:?} boundary={index}{offset:+} in={asset_in:?} amount={size}", pair.name);
+                                let context = format!("{label} in={asset_in:?} amount={size}");
                                 let mut market = start.clone();
                                 let out = match swap(&mut market, asset_in, size, 3) {
-                                    Ok(0) => continue,
+                                    Ok(0) => {
+                                        tally.skip("trade: output below one atom");
+                                        continue;
+                                    }
                                     Ok(out) => out,
                                     Err(error) => {
                                         tally.record_error(&context, &error);
@@ -497,7 +573,10 @@ fn record_round_trips(tally: &mut Tally, label: &str, start: &Market, slot: u64)
             let context = format!("{label} in={asset_in:?} amount={amount}");
             let mut market = start.clone();
             let out = match swap(&mut market, asset_in, amount, slot) {
-                Ok(0) => continue,
+                Ok(0) => {
+                    tally.skip("trade: output below one atom");
+                    continue;
+                }
                 Ok(out) => out,
                 Err(error) => {
                     tally.record_error(&context, &error);
@@ -523,8 +602,12 @@ fn active_hlp_markets_keep_zero_fee_round_trips_bounded() {
     for pair in [PAIRS[0], PAIRS[1], PAIRS[4], PAIRS[7]] {
         for shape in [Shape::Cpmm, Shape::Moderate, Shape::TailFloor] {
             for pool_usd in [10_000.0, 1e8] {
-                let Some(mut market) = seeded_market(pair, pool_usd, shape) else {
-                    continue;
+                let mut market = match seeded_market(pair, pool_usd, shape) {
+                    Ok(market) => market,
+                    Err(reason) => {
+                        tally.skip(reason);
+                        continue;
+                    }
                 };
                 for asset in [MarketAsset::Base, MarketAsset::Quote] {
                     let amount = reserve_raw(&market, asset) / 20;
@@ -607,8 +690,12 @@ fn concentration_ramp_steps_keep_zero_fee_round_trips_bounded() {
                 (Shape::Moderate, ConcentratedCurveParameters { peak_amplification_nad: 200 * NAD, core_half_width_bps: 25, fade_width_bps: 50 }),
             ];
             for (from, target) in ramps {
-                let Some(mut market) = seeded_market(pair, pool_usd, from) else {
-                    continue;
+                let mut market = match seeded_market(pair, pool_usd, from) {
+                    Ok(market) => market,
+                    Err(reason) => {
+                        tally.skip(reason);
+                        continue;
+                    }
                 };
                 market.config.swap_fee_bps = MIN_CONCENTRATED_SWAP_FEE_BPS;
                 market
