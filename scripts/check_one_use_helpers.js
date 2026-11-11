@@ -634,6 +634,9 @@ acceptedOneUseHelpers.set("programs/dusk/src/oracle.rs", new Set(["read", "asser
 // The quote finisher owns fees and final ownership certification in a separate
 // SBF frame; merging it with the solver exceeded the 4 KiB stack contract.
 acceptedOneUseHelpers.get("programs/dusk/src/transitions/amm/mod.rs").add("finish_concentrated_swap");
+// A native valuation's 696-byte quote needs its own SBF frame. On the swap
+// evaluation frame it overlapped the stack-argument slots of that frame's calls.
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/amm/mod.rs").add("native_valuation_amount_out_nad");
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm/oracle.rs", new Set(["quote_oracle_integrated"]));
 // Authenticate the immutable oracle policy before the atomic operator update.
 acceptedOneUseHelpers.get("programs/dusk/src/transitions/market_config.rs").add("execute_parameter_updates_authenticated");
