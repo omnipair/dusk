@@ -14,6 +14,9 @@ pub mod benchmark_api {
 pub mod constants;
 pub mod errors;
 pub mod events;
+// The program's own allocator; consumers that embed Dusk keep theirs.
+#[cfg(all(feature = "custom-heap", not(feature = "no-entrypoint")))]
+mod heap;
 pub mod instructions;
 pub mod math;
 pub mod oracle;
