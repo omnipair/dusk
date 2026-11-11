@@ -1,4 +1,4 @@
-use anchor_lang::prelude::*;
+use anchor_lang::{prelude::*, solana_program::instruction::Instruction};
 use anchor_spl::token_interface::TokenAccount;
 
 use crate::{
@@ -7,13 +7,14 @@ use crate::{
     events::{LeverageSwapReceipt, SwapExecuted, SwapOrigin},
     generate_market_seeds,
     instructions::{
+        accounting::emit_cpi_event_with_instruction,
         accounts::{require_reserve_custody, token_account_info_amount, token_program_for_mint, HlpSwapAccountLayout},
         flash_liquidation::*,
         leverage::settlement::{record_leverage_interest, settle_inline_leverage_hlp},
         leverage_collateral_fee, leverage_collateral_liquidation_fee,
     },
     state::*,
-    token::transfer_checked_with_remaining_accounts,
+    token::transfer_checked_with_remaining_accounts_and_instruction,
     transitions::{
         amm_liquidation::EmergencyLiquidationQuote, flash_settlement::LiquidationPositionMut, HlpYieldEligibility,
         LeverageSwapFeeCredit,
@@ -142,8 +143,18 @@ impl<'info> EmergencyLiquidation<'info> {
         let (partner, share) = a.referral(asset)?;
         let layout = HlpSwapAccountLayout::try_from((&**a.market, ctx.remaining_accounts))?;
         let hooks = layout.hook_accounts(ctx.remaining_accounts);
+        // Every transfer and both closing events reuse one buffer sized for the
+        // largest event: SBF's bump heap never reclaims a dropped instruction.
+        let mut cpi_instruction = Instruction {
+            program_id: Pubkey::default(),
+            accounts: Vec::with_capacity(4),
+            data: Vec::with_capacity(
+                16 + core::mem::size_of::<SwapExecuted>().max(core::mem::size_of::<EmergencyLiquidationSettled>()),
+            ),
+        };
         let collateral_before = ctx.accounts.collateral_reserve_vault.amount;
-        transfer_checked_with_remaining_accounts(
+        transfer_checked_with_remaining_accounts_and_instruction(
+            &mut cpi_instruction,
             a.market.to_account_info(),
             a.collateral_vault.to_account_info(),
             ctx.accounts.collateral_reserve_vault.to_account_info(),
@@ -212,7 +223,8 @@ impl<'info> EmergencyLiquidation<'info> {
                 continue;
             }
             let before = token_account_info_amount(&destination)?;
-            transfer_checked_with_remaining_accounts(
+            transfer_checked_with_remaining_accounts_and_instruction(
+                &mut cpi_instruction,
                 a.market.to_account_info(),
                 a.reserve_vault.to_account_info(),
                 destination.clone(),
@@ -257,7 +269,7 @@ impl<'info> EmergencyLiquidation<'info> {
             eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),
-            None,
+            Some(&mut cpi_instruction),
         )?;
         a.market
             .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, eligibility.base_hlp_srlp_shares)?;
@@ -291,34 +303,42 @@ impl<'info> EmergencyLiquidation<'info> {
                 a.market.base_side.reserves.live_reserve,
                 a.market.quote_side.reserves.live_reserve,
             )?;
-            emit_cpi!(SwapExecuted::from_leverage(
-                a.market.key(),
-                owner,
-                a.buyer.key(),
-                position_key,
-                if a.leverage_position.is_some() {
-                    SwapOrigin::LeverageLiquidation
-                } else {
-                    SwapOrigin::CreditLiquidation
-                },
-                clock.slot,
-                receipt,
-                swap.start_price_nad,
-                &a.market
-            )?);
+            emit_cpi_event_with_instruction(
+                &SwapExecuted::from_leverage(
+                    a.market.key(),
+                    owner,
+                    a.buyer.key(),
+                    position_key,
+                    if a.leverage_position.is_some() {
+                        SwapOrigin::LeverageLiquidation
+                    } else {
+                        SwapOrigin::CreditLiquidation
+                    },
+                    clock.slot,
+                    receipt,
+                    swap.start_price_nad,
+                    &a.market,
+                )?,
+                ctx.accounts.event_authority.to_account_info(),
+                &mut cpi_instruction,
+            )?;
         }
-        emit_cpi!(EmergencyLiquidationSettled {
-            market: a.market.key(),
-            position: position_key,
-            owner,
-            caller: a.buyer.key(),
-            leverage: a.leverage_position.is_some(),
-            debt_asset: asset.code(),
-            quote: q,
-            remaining_collateral: a.position()?.collateral(asset),
-            remaining_debt: prepared.allocation.remaining_debt,
-            position_state: a.liquidation_position_state()?,
-        });
+        emit_cpi_event_with_instruction(
+            &EmergencyLiquidationSettled {
+                market: a.market.key(),
+                position: position_key,
+                owner,
+                caller: a.buyer.key(),
+                leverage: a.leverage_position.is_some(),
+                debt_asset: asset.code(),
+                quote: q,
+                remaining_collateral: a.position()?.collateral(asset),
+                remaining_debt: prepared.allocation.remaining_debt,
+                position_state: a.liquidation_position_state()?,
+            },
+            ctx.accounts.event_authority.to_account_info(),
+            &mut cpi_instruction,
+        )?;
         Ok(())
     }
 }
