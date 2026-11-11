@@ -1721,27 +1721,45 @@ impl Market {
         } else {
             0
         };
-        let integrated = Box::new(if let Some(curve) = self.bounded_curve()? {
-            self.quote_oracle_integrated(
-                &curve,
-                *state,
-                &geometry,
-                gross_curve_input_nad,
-                divergence_nad,
-                asset_in,
-            )?
-        } else {
-            quote_integrated_exact_in_with_frozen_fee(
+        let direction = match asset_in {
+            MarketAsset::Base => IntegratedSwapDirection::BaseToQuote,
+            MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
+        };
+        // A native valuation returns before finishing the swap. Keep its quote
+        // on the stack: SBF's bump heap never reclaims a dropped block, and a
+        // liquidation proof values one candidate after another.
+        let valuation_only = !materialize_transition && self.oracle.policy.lambda_bps == 0;
+        let valuation;
+        let mut boxed = None;
+        let integrated: &IntegratedFrozenFeeQuote = if valuation_only {
+            valuation = quote_integrated_exact_in_with_frozen_fee(
                 *state,
                 geometry,
                 gross_curve_input_nad,
                 divergence_nad,
-                match asset_in {
-                    MarketAsset::Base => IntegratedSwapDirection::BaseToQuote,
-                    MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
-                },
-            )?
-        });
+                direction,
+            )?;
+            &valuation
+        } else {
+            boxed.insert(Box::new(if let Some(curve) = self.bounded_curve()? {
+                self.quote_oracle_integrated(
+                    &curve,
+                    *state,
+                    &geometry,
+                    gross_curve_input_nad,
+                    divergence_nad,
+                    asset_in,
+                )?
+            } else {
+                quote_integrated_exact_in_with_frozen_fee(
+                    *state,
+                    geometry,
+                    gross_curve_input_nad,
+                    divergence_nad,
+                    direction,
+                )?
+            }))
+        };
         let gross_amount_out = self.denormalize_amount_floor(
             integrated.executable.amount_out,
             self.side(asset_in.opposite()).asset_decimals,
@@ -1783,13 +1801,13 @@ impl Market {
                 .ok_or(ErrorCode::FeeMathOverflow)?
         };
         require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
-        if !materialize_transition && self.oracle.policy.lambda_bps == 0 {
+        if valuation_only {
             return Ok((amount_out, None));
         }
         self.finish_concentrated_swap(
             state,
             &geometry,
-            integrated,
+            boxed.take().ok_or(ErrorCode::BrokenInvariant)?,
             asset_in,
             reserve_credit,
             preliminary,

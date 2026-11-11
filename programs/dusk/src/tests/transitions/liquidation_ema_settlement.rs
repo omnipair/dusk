@@ -242,3 +242,20 @@ fn kept_emergency_reference_matches_a_fresh_copy() {
         assert!(refreshed.oracle.runtime.observation().is_err());
     } } }
 }
+
+#[test]
+fn valuation_only_quote_matches_the_finished_swap() {
+    for amp in [1, 4, 10] { for hlp in [false, true] { for asset in [MarketAsset::Base, MarketAsset::Quote] {
+    for credit in [1_000, 50_000, 5_000_000] {
+        let m = market(amp, hlp);
+        let preliminary = m.preliminary_swap_inputs_for_state_at_time(asset, credit, 1, 120,
+            m.dynamic_fee_pre_state(1).unwrap()).unwrap();
+        let state = m.integrated_curve_state_nad().unwrap();
+        // The valuation skips the boxed quote; its output must equal the swap's.
+        let (valued, none) = m.evaluate_concentrated_swap(asset, credit, preliminary, state, 0, false).unwrap();
+        let (finished, quote) = m.evaluate_concentrated_swap(asset, credit, preliminary, state, 0, true).unwrap();
+        assert!(none.is_none());
+        assert_eq!(valued, finished, "amp={amp} hlp={hlp} side={asset:?} credit={credit}");
+        assert_eq!(quote.unwrap().amount_out, finished);
+    } } } }
+}

@@ -566,7 +566,6 @@ const acceptedOneUseHelpers = new Map([
       "reconstruct_hlp_ownership",
       "apply_hlp_recovery_bonus",
       "quote_integrated_exact_in",
-      "quote_integrated_exact_in_with_frozen_fee",
     ]),
   ],
   ["programs/dusk/src/transitions/liquidity/hlp/recovery.rs", new Set(["quote_hlp_recovery"])],
