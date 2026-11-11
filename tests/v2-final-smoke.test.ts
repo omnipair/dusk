@@ -11293,6 +11293,76 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
   });
 
+  it("emergency AMM liquidation executes on oracle markets against the native EMA reference", async function () {
+    const sdk = new DuskLiquidations(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
+    for (const [seed, mode] of [[256, "full"], [257, "partial"]] as const) {
+      const config = marketConfig();
+      if (mode === "full") {
+        config.swapFeeBps = 300;
+        config.divergenceFeeShareCapBps = 0; config.volatilityFeeShareCapBps = 0;
+        config.amm.peakAmplificationNad = new BN(3_000_000_000);
+        config.amm.coreHalfWidthBps = 250; config.amm.fadeWidthBps = 500;
+      } else {
+        config.amm.peakAmplificationNad = new BN(4_000_000_000);
+        config.amm.coreHalfWidthBps = 100; config.amm.fadeWidthBps = 400;
+      }
+      const oracle = normalizedTestOracle(2_500);
+      const f = await addBalancedLiquidity(seed, config, { baseDeposit: 1_000_000_000, quoteDeposit: 2_000_000_000,
+        minSrlp: 1, baseMint: 5_000_000_000, quoteMint: 5_000_000_000 }, 6, TOKEN_PROGRAM_ID, undefined,
+        async fixture => oracle.publish(fixture), oracle.policy);
+      await openBaseHedge(f, 100_000_000, undefined, oracle.metas);
+      await openQuoteHedge(f, 200_000_000, undefined, oracle.metas);
+      const { leveragePosition } = await openQuoteDebtLeverage(f, 1_000_000,
+        [...hlpSwapAccounts(f), ...oracle.metas], 20_000, 1, true);
+      // A day of interest, then about 4% EMA equity: emergency-eligible, with a
+      // recovery proof. The fresh report sits at that EMA price.
+      const now = svm.getClock();
+      now.slot += 216_000n; now.unixTimestamp += 86_400n; svm.setClock(now);
+      const account = svm.getAccount(f.market)!;
+      const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+      const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      const collateral = BigInt(p.collateral_amount.toString());
+      const debt = BigInt(p.debt_shares.toString()) * BigInt(market.debt.quote_borrow_index_nad.toString()) / 1_000_000_000n;
+      const price = ((debt * 10_000n + 9_599n) / 9_600n * 1_000_000_000n + collateral - 1n) / collateral;
+      market.risk.base_price_ema_nad = new BN(price.toString());
+      market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n / price).toString());
+      market.risk.last_snapshot_slot = new BN(now.slot.toString());
+      market.last_update_slot = new BN(now.slot.toString()); market.risk_revision = market.curve_revision;
+      const body = Buffer.alloc(account.data.length - 8);
+      const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market, body);
+      svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+        (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, length)])) });
+      const feed = svm.getAccount(oracle.key)!;
+      const report = Buffer.from(feed.data);
+      report.writeBigUInt64LE(price, 104); report.writeBigInt64LE(now.unixTimestamp, 120);
+      report.writeBigUInt64LE(now.slot, 128); report.writeBigUInt64LE(report.readBigUInt64LE(136) + 1n, 136);
+      svm.setAccount(oracle.key, { ...feed, data: report });
+      svm.expireBlockhash();
+      const request = { market: f.market, position: leveragePosition, kind: "leverage" as const,
+        debtAsset: "quote" as const, collateralDebit: mode === "full" ? collateral : 10_000n, full: mode === "full" };
+      const preview = await sdk.previewEmergency(request);
+      trackV2Instruction("previewEmergencyLiquidation", this.test?.title);
+      const plan = await sdk.buildEmergency({ ...request, caller: payer.publicKey });
+      const transaction = new Transaction().add(...plan.instructions);
+      expect(transaction.instructions.some(ix => ix.keys.some(meta => meta.pubkey.equals(oracle.key)))).to.equal(true);
+      const { computeUnits } = await connection.sendTransactionMeasured(transaction, [payer]);
+      trackV2Instruction("emergencyLiquidation", this.test?.title);
+      const quote = cpiEvent(transaction, "emergencyLiquidationSettled").quote;
+      expect(quote.swapOutput.eq(preview.swapOutput)).to.equal(true);
+      expect(quote.loss.interestPaid.gt(new BN(0))).to.equal(true);
+      const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      if (mode === "full") {
+        expect(after.debt_shares.toString()).to.equal("0");
+        expect(after.collateral_amount.toString()).to.equal("0");
+      } else {
+        expect(BigInt(after.collateral_amount.toString())).to.equal(collateral - 10_000n);
+      }
+      console.log(`    Oracle-market ${mode} emergency liquidation: ${computeUnits.toLocaleString()} CU`);
+      // Keep headroom for PDA/address-dependent account-validation work.
+      expect(computeUnits <= 1_250_000n).to.equal(true);
+    }
+  });
+
   const operatorAtSlot = (value: {toString(): string}) => {
     const clock = svm.getClock(), next = BigInt(value.toString());
     if (next > clock.slot) clock.unixTimestamp += (next - clock.slot) / 5n;

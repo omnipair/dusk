@@ -135,7 +135,8 @@ impl Market {
                             debt_fee,
                             now,
                             slot,
-                            None
+                            None,
+                            &mut None,
                         )?,
                     ErrorCode::LiquidationRepayTooLarge
                 );

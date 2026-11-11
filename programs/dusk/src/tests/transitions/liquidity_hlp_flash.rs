@@ -73,7 +73,7 @@ fn terminal_hlp_native_recovery_uses_ema_price_smoothed_depth_and_fees() {
             reserve_credit: target_claim,
             protocol_fee_bps: 2_000,
         }
-        .quote_ema_liquidation(market)
+        .quote_ema_liquidation(market, &mut None)
         .unwrap()
         .amount_out;
         borrowed_claim + output

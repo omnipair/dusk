@@ -106,14 +106,16 @@ fn ema_health_and_reference_survive_proportional_lp_withdrawal() {
         let mut m = market(amp, false);
         let p = seeded_position(&mut m, MarketAsset::Quote, 800_000, 1_000_000);
         let before = m.flash_liquidation_health(&Ref::Leverage(&p), MarketAsset::Quote, LeverageCollateralFee::default()).unwrap();
-        let (reference, state) = m.ema_liquidation_curve(MarketAsset::Base, 1).unwrap();
+        let mut first = None;
+        let (reference, state) = m.ema_liquidation_curve(MarketAsset::Base, 1, &mut first).unwrap();
         let shares = m.base_side.shares.srlp_supply / 4;
         m.remove_liquidity(shares).unwrap();
         m.finalize_amm_transition_and_observe_risk(1).unwrap();
         let after = m.flash_liquidation_health(&Ref::Leverage(&p), MarketAsset::Quote, LeverageCollateralFee::default()).unwrap();
         assert_eq!(before, after);
         assert!(!after.eligible().unwrap());
-        let (next, next_state) = m.ema_liquidation_curve(MarketAsset::Base, 1).unwrap();
+        let mut second = None;
+        let (next, next_state) = m.ema_liquidation_curve(MarketAsset::Base, 1, &mut second).unwrap();
         assert_eq!(state, next_state);
         assert_eq!(reference.amm.concentrated_curve_cache, next.amm.concentrated_curve_cache);
         // Time incorporates the withdrawn depth without changing price/health.
@@ -136,7 +138,8 @@ fn ema_reference_uses_collateral_direction_even_when_price_emas_are_not_reciproc
         // same initialized snapshot slot used by the liquidation reference.
         m.risk.last_snapshot_slot = 1;
         for (collateral, price) in [(MarketAsset::Base, 2 * NAD), (MarketAsset::Quote, NAD)] {
-            let (view, state) = m.ema_liquidation_curve(collateral, 1).unwrap();
+            let mut scratch = None;
+            let (view, state) = m.ema_liquidation_curve(collateral, 1, &mut scratch).unwrap();
             let point = crate::transitions::amm::ConcentratedCurvePoint {
                 base_reserve: state.ordinary_base, quote_reserve: state.ordinary_quote,
             };
@@ -178,5 +181,64 @@ fn ema_emergency_pays_accrued_hlp_funding_from_real_cash_and_cancels_unpaid_loan
         m.assert_market_invariants().unwrap();
         assert_eq!(m.side_mut(asset).fees.public_interest_advance.take_payment(0).unwrap(), (0, 0));
         assert_eq!(m.side(asset).fees.public_interest_advance, crate::state::PublicInterestAdvance::default());
+    } } }
+}
+
+fn bind_oracle(m: &mut Market, reference_price_nad: u64) {
+    m.oracle.policy = crate::state::OraclePolicy {
+        lambda_bps: 2_500,
+        adjustment_cap_nad: 2 * NAD,
+        ..crate::state::OraclePolicy::default()
+    };
+    m.oracle.runtime = crate::state::RuntimePricing::bind(
+        m.oracle.policy,
+        crate::state::OracleObservation { price_nad: reference_price_nad, ..Default::default() },
+    );
+}
+
+#[test]
+fn ema_emergency_reference_is_native_on_oracle_markets() {
+    for amp in [1, 4, 10] { for hlp in [false, true] { for asset in [MarketAsset::Base, MarketAsset::Quote] {
+    for reference in [NAD / 2, 3 * NAD / 2] {
+        let mut native = market(amp, hlp);
+        let p = seeded_position(&mut native, asset, 1_100_000, 1_000_000);
+        let mut oracle = native.clone();
+        bind_oracle(&mut oracle, reference);
+        let fee = LeverageCollateralFee::default();
+        let prepare = |m: &mut Market| m.prepare_emergency_liquidation(&Ref::Leverage(&p), asset,
+            p.collateral_amount, true, fee, fee, fee, 120, 1, 2_000).unwrap();
+        // The EMA already carries any oracle adjustment of the live price, so
+        // the reference curve is the native one and the live oracle is unused.
+        let native_quote = prepare(&mut native.clone()).quote;
+        let mut executed = oracle.clone();
+        let mut prepared = prepare(&mut executed);
+        assert_eq!(prepared.quote, native_quote, "amp={amp} hlp={hlp} side={asset:?} reference={reference}");
+        let mut next = p.clone();
+        executed.apply_emergency_liquidation(&mut Mut::Leverage(&mut next), asset, &mut prepared, 1, 2_000,
+            ProtocolAuctionSplit::default()).unwrap();
+        executed.assert_market_invariants().unwrap();
+        assert_eq!(next.collateral_amount, 0);
+        assert_eq!(next.debt_shares, 0);
+    } } } }
+}
+
+#[test]
+fn kept_emergency_reference_matches_a_fresh_copy() {
+    let mut other = market(10, true);
+    seeded_position(&mut other, MarketAsset::Quote, 1_100_000, 1_000_000);
+    other.risk.base_price_ema_nad = 3 * NAD;
+    for amp in [1, 4] { for hlp in [false, true] { for collateral in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut m = market(amp, hlp);
+        seeded_position(&mut m, collateral.opposite(), 900_000, 1_000_000);
+        bind_oracle(&mut m, 3 * NAD / 2);
+        let mut kept = None;
+        other.ema_liquidation_curve(collateral, 1, &mut kept).unwrap();
+        let mut fresh = None;
+        let (expected, expected_state) = m.ema_liquidation_curve(collateral, 1, &mut fresh).unwrap();
+        let (refreshed, state) = m.ema_liquidation_curve(collateral, 1, &mut kept).unwrap();
+        assert_eq!(state, expected_state);
+        assert_eq!(refreshed.try_to_vec().unwrap(), expected.try_to_vec().unwrap(), "amp={amp} hlp={hlp}");
+        assert_eq!(refreshed.oracle.policy.lambda_bps, 0);
+        assert!(refreshed.oracle.runtime.observation().is_err());
     } } }
 }

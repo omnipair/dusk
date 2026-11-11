@@ -22,6 +22,8 @@ Liquidation follows main's health-only policy from PR #59: there is no stored di
 
 Swaps, lending marks, leverage closeout and hLP valuation use the bounded market price. Lending does not substitute the raw external price for the executable market price. Existing cash, daily-rate, health, stored-margin and transfer-fee constraints remain active.
 
+Emergency AMM settlement, its recovery proof and the terminal hLP close price the configured native curve at the symmetric EMA price and smoothed depth, exactly as on a native market. The EMA already observes the bounded market price, so the reference does not apply the live oracle a second time. Real settlement after that reference quote still uses the bounded market.
+
 The positive-weight output solver uses outward-rounded Q56 intervals. Native primitives and available special cases are analytic; other regions use bounded Taylor integration. The rounded ownership endpoint must have a nonnegative lower conditional-invariant bound. Baseline preparation gains stay with LPs. Uncertainty, overflow, nonconvergence or insufficient cash rejects the transaction. Neither floating point nor an approximate root alone authorizes output.
 
 hLP net NAV is separated from cash/backing and carried interest. The endpoint accounts for indexed debt, raw-atom share rounding, frozen cohorts and compounded fees. A bounded fixed-point iteration solves carry cover at the materialized mark; failure rejects rather than settling an inconsistent endpoint. The native frozen-hLP double-counting/denominator regression is fixed as a prerequisite.

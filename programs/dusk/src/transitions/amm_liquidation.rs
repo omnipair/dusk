@@ -72,6 +72,8 @@ impl Market {
     ) -> Result<PreparedEmergencyLiquidation> {
         // Prove the bound against the unchanged market before preparation.
         // Copying the entire market solely for this read exhausted SBF heap.
+        // The proof and the quote share one reference copy for the same reason.
+        let mut scratch = None;
         if !full && collateral_debit > 1 {
             require!(
                 self.proves_partial_bound(
@@ -82,7 +84,8 @@ impl Market {
                     debt_fee,
                     now,
                     slot,
-                    Some(collateral_debit)
+                    Some(collateral_debit),
+                    &mut scratch,
                 )?,
                 ErrorCode::LiquidationRepayTooLarge
             );
@@ -98,6 +101,7 @@ impl Market {
             now,
             slot,
             protocol_fee_bps,
+            &mut scratch,
         )?;
         Ok(prepared)
     }
@@ -117,6 +121,7 @@ impl Market {
         now: i64,
         slot: u64,
         protocol_fee_bps: u16,
+        scratch: &mut Option<Box<Market>>,
     ) -> Result<PreparedEmergencyLiquidation> {
         position.require_idle()?;
         let health_before = self.flash_liquidation_health(position, asset, eligibility_fee)?;
@@ -141,7 +146,8 @@ impl Market {
                         debt_fee,
                         now,
                         slot,
-                        Some(available)
+                        Some(available),
+                        scratch,
                     )?,
                 ErrorCode::LiquidationRepayTooLarge
             );
@@ -161,7 +167,7 @@ impl Market {
                     reserve_credit: collateral_credit,
                     protocol_fee_bps,
                 }
-                .prepare_ema_liquidation(self)?,
+                .prepare_ema_liquidation(self, scratch)?,
             )
         };
         let output = swap.as_ref().map_or(0, |s| s.quote.amount_out);
