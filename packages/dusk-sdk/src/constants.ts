@@ -583,9 +583,9 @@ export function buildLpTransferHookValidationAccountData({
  * the market, underlying asset mint, canonical source/destination yield
  * accounts, hook program, and standard validation PDA as extra metas so the
  * hook can checkpoint revenue before the balance move is finalized. The event
- * authority lets the hook publish `LpTransferred`; Token-2022 ignores it for
- * mints that still use the legacy seven-account layout, so the list works for
- * both layouts.
+ * authority and Dusk program let the hook publish `LpTransferred`, and the
+ * futarchy authority and any hLP or junior cohort follow. The hook requires
+ * this complete list; every LP mint's validation account declares it.
  */
 export function buildLpTransferHookAccountMetas({
   lpMint,
