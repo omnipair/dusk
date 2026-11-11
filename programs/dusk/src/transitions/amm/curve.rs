@@ -449,32 +449,23 @@ pub(crate) fn prepare_concentrated_cache_at_point(
     center_price_nad: u64,
     parameters: ConcentratedCurveParameters,
 ) -> Result<ConcentratedCurveCache> {
-    prepare_concentrated_cache_and_geometry_at_point(base_reserve, quote_reserve, center_price_nad, parameters)
-        .map(|(cache, _)| cache)
-}
-
-// Return the already validated geometry to quote callers. Reconstructing it
-// again would repeat all nested-boundary divisions and continuity checks.
-pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
-    base_reserve: u128,
-    quote_reserve: u128,
-    center_price_nad: u64,
-    parameters: ConcentratedCurveParameters,
-) -> Result<(ConcentratedCurveCache, ConcentratedCurveGeometry)> {
-    prepare_concentrated_cache_and_geometry_with_solver(
+    prepare_concentrated_cache_and_geometry_at_point(
         &mut None,
         base_reserve,
         quote_reserve,
         center_price_nad,
         parameters,
     )
+    .map(|(cache, _)| cache)
 }
 
-/// The same reconstruction, keeping its point-independent work in `solver`.
-/// A later call with the same center and policy reuses that work. Results and
-/// errors are those of a call with an empty `solver`. The caller's stack holds
-/// the solver: Solana's bump allocator would never reclaim a heap copy.
-pub(crate) fn prepare_concentrated_cache_and_geometry_with_solver(
+// Return the already validated geometry to quote callers. Reconstructing it
+// again would repeat all nested-boundary divisions and continuity checks.
+// `solver` keeps the point-independent work: a later call with the same
+// center and policy reuses it, with the results and errors of a call given
+// `None`. The caller's stack holds the solver, since Solana's bump allocator
+// would never reclaim a heap copy.
+pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
     solver: &mut Option<ConcentratedCurveSolver>,
     base_reserve: u128,
     quote_reserve: u128,
@@ -1072,10 +1063,12 @@ fn confirmed_quadratic_root(
     } else {
         approximate_quotient(&constant.checked_add(*constant)?, &sum)?
     };
-    // The estimate is within 2^-60 of the root. Below 2^58 that already
-    // leaves it within one. Above, one Newton step on the exact polynomial
-    // leaves it within two while the root is below 2^118. Without a positive
-    // slope the candidate is near zero and is kept for the search below.
+    // Before flooring, the estimate is within 2^-60 of the root, or within
+    // one when D has at most 128 bits and its square root is exact to the
+    // integer below. Below 2^58 the floored candidate is then within two of
+    // the root. Above, one Newton step on the exact polynomial leaves it
+    // within two while the root is below 2^118. Without a positive slope the
+    // candidate is near zero and is kept for the search below.
     if candidate.bits() > 58 {
         let (positive, negative) = quadratic_sides(quadratic, linear, negative_linear, constant, &candidate)?;
         let above = positive > negative;

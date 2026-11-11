@@ -1620,7 +1620,7 @@ impl Market {
             .ok_or(ErrorCode::InsufficientLiquidity)?;
         let (cache, geometry) = match self.bounded_curve()? {
             Some(curve) => curve.native_geometry_at(point)?,
-            None => prepare_concentrated_cache_and_geometry_with_solver(
+            None => prepare_concentrated_cache_and_geometry_at_point(
                 solver,
                 point.base_reserve,
                 point.quote_reserve,
@@ -2060,7 +2060,7 @@ impl Market {
                 None => super::liquidity::prepare_concentrated_hlp_transition(self, &state, quote, asset_in)?
                     .final_ordinary_point_nad(self)?,
             };
-            let (cache, geometry) = prepare_concentrated_cache_and_geometry_with_solver(
+            let (cache, geometry) = prepare_concentrated_cache_and_geometry_at_point(
                 solver,
                 point.base_reserve,
                 point.quote_reserve,

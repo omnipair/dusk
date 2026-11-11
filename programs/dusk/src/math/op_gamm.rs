@@ -218,6 +218,7 @@ impl BoundedOracleCurve {
             return Ok((*cache, *geometry));
         }
         let value = crate::transitions::amm::curve::prepare_concentrated_cache_and_geometry_at_point(
+            &mut None,
             point.base_reserve,
             point.quote_reserve,
             self.center,
