@@ -48,7 +48,8 @@ fn rebuilt_round_trip_excess(
     start: ConcentratedCurvePoint,
     input_ppm: u128,
 ) -> Option<String> {
-    let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+    let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(
+        &mut None,
         start.base_reserve,
         start.quote_reserve,
         center_price_nad,
@@ -61,7 +62,8 @@ fn rebuilt_round_trip_excess(
     ] {
         let input = mul_div_u128(input_reserve, input_ppm, 1_000_000).unwrap() + 1;
         let Ok(forward) = start_curve.quote_exact_in(start, input, direction) else { continue };
-        let Ok((_, rebuilt)) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+        let Ok((_, rebuilt)) = prepare_concentrated_cache_and_geometry_at_point(
+            &mut None,
             forward.end.base_reserve,
             forward.end.quote_reserve,
             center_price_nad,
@@ -589,7 +591,8 @@ fn small_nested_curves_cross_all_boundaries_without_round_trip_profit() {
                     // live round trip prices its way back on a rebuilt curve.
                     // Rounding may then return slightly more than the input,
                     // never more than the minimum concentrated fee.
-                    let (_, prepared) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+                    let (_, prepared) = prepare_concentrated_cache_and_geometry_at_point(
+                        &mut None,
                         start.base_reserve,
                         start.quote_reserve,
                         price,
@@ -597,7 +600,8 @@ fn small_nested_curves_cross_all_boundaries_without_round_trip_profit() {
                     )
                     .unwrap();
                     let leg = prepared.quote_exact_in(start, input, direction).unwrap();
-                    let (_, rebuilt) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+                    let (_, rebuilt) = prepare_concentrated_cache_and_geometry_at_point(
+                        &mut None,
                         leg.end.base_reserve,
                         leg.end.quote_reserve,
                         price,
@@ -915,7 +919,8 @@ fn boundary_round_trip_on_one_curve_returns_at_most_its_input() {
         base_reserve: 1_260_380_122_601_994_461_981,
         quote_reserve: 13_667_156_012_108_867_262_669_659,
     };
-    let (cache, curve) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+    let (cache, curve) = prepare_concentrated_cache_and_geometry_at_point(
+        &mut None,
         start.base_reserve,
         start.quote_reserve,
         921_267_992_211,
@@ -1055,7 +1060,8 @@ proptest! {
             .unwrap();
         for boundary in curve.nested_boundaries {
             for point in [Some(boundary), point_near_boundary(boundary, offset)].into_iter().flatten() {
-                let prepared = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+                let prepared = prepare_concentrated_cache_and_geometry_at_point(
+                    &mut None,
                     point.base_reserve,
                     point.quote_reserve,
                     center_price_nad,
@@ -1082,7 +1088,8 @@ proptest! {
         let Some(start) = point_near_boundary(curve.nested_boundaries[boundary_index], offset) else {
             return Ok(());
         };
-        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(
+            &mut None,
             start.base_reserve,
             start.quote_reserve,
             center_price_nad,
@@ -1126,7 +1133,8 @@ proptest! {
         let interior = ConcentratedCurvePoint { base_reserve: base, quote_reserve: quote };
         let near_boundaries = curve.nested_boundaries.map(|boundary| point_near_boundary(boundary, offset));
         for point in core::iter::once(Some(interior)).chain(near_boundaries).flatten() {
-            let (cache, local) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+            let (cache, local) = prepare_concentrated_cache_and_geometry_at_point(
+                &mut None,
                 point.base_reserve,
                 point.quote_reserve,
                 center_price_nad,
@@ -1155,7 +1163,8 @@ proptest! {
         let Some(start) = point_near_boundary(curve.nested_boundaries[boundary_index], offset) else {
             return Ok(());
         };
-        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(
+            &mut None,
             start.base_reserve,
             start.quote_reserve,
             center_price_nad,
@@ -1240,7 +1249,8 @@ proptest! {
         let Some(start) = point_near_boundary(curve.nested_boundaries[boundary_index], offset) else {
             return Ok(());
         };
-        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(&mut None, 
+        let (_, start_curve) = prepare_concentrated_cache_and_geometry_at_point(
+            &mut None,
             start.base_reserve,
             start.quote_reserve,
             center_price_nad,
