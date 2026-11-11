@@ -417,7 +417,14 @@ impl SwapRequest {
             )?;
         }
         if concentrated.recovery.bonus_output > 0 {
-            market.finalize_concentrated_book_curve(integrated_start, &mut concentrated, self.asset_in, true, None)?;
+            market.finalize_concentrated_book_curve(
+                integrated_start,
+                &mut concentrated,
+                self.asset_in,
+                true,
+                None,
+                &mut None,
+            )?;
         }
         let mut transition =
             prepare_concentrated_hlp_transition(market, &integrated_start, &concentrated, self.asset_in)?;

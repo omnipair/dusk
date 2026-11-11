@@ -1279,3 +1279,193 @@ proptest! {
         );
     }
 }
+
+fn big(value: U512) -> BigUint {
+    BigUint::from_slice(
+        &value
+            .0
+            .iter()
+            .flat_map(|&limb| [limb as u32, (limb >> 32) as u32])
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn wide_value(bits: usize, limbs: [u64; 8]) -> U512 {
+    if bits == 0 {
+        return U512::zero();
+    }
+    (U512(limbs) >> (512 - bits)) | (U512::one() << (bits - 1))
+}
+
+/// floor((floor(sqrt(D)) -+ linear) / (2q)) with D = linear^2 + 4qc in
+/// arbitrary precision: the closed form the root solve evaluated before any
+/// estimate. `None` when D needs more than 512 bits.
+fn reference_quadratic_root(quadratic: U512, linear: U512, negative_linear: bool, constant: U512) -> Option<BigUint> {
+    let (q, s, c) = (big(quadratic), big(linear), big(constant));
+    let discriminant = &s * &s + BigUint::from(4_u8) * &q * &c;
+    if discriminant.bits() > 512 {
+        return None;
+    }
+    let root = discriminant.sqrt();
+    let numerator = if negative_linear { root + s } else { root - s };
+    Some(numerator / (BigUint::from(2_u8) * q))
+}
+
+fn assert_quadratic_root(quadratic: U512, linear: U512, negative_linear: bool, constant: U512) {
+    let solved = quadratic_root_floor(quadratic, linear, negative_linear, constant);
+    match reference_quadratic_root(quadratic, linear, negative_linear, constant) {
+        Some(expected) => {
+            assert_eq!(
+                big(solved.unwrap()),
+                expected,
+                "q={quadratic} linear={linear} negative={negative_linear} c={constant}"
+            );
+        }
+        None => assert!(is_error(&solved, ErrorCode::InvariantOverflow)),
+    }
+}
+
+#[test]
+fn wide_products_match_checked_multiplication() {
+    let mut edges = vec![U512::zero(), U512::one(), U512::MAX];
+    for bits in [63, 64, 65, 127, 128, 129, 191, 255, 256, 257, 320, 383, 448, 511, 512] {
+        edges.push((U512::one() << (bits - 1)) - U512::one() + (U512::one() << (bits - 1)));
+        edges.push(U512::one() << (bits - 1));
+    }
+    for lhs in &edges {
+        for rhs in &edges {
+            assert_eq!(mul_u512(lhs, rhs), lhs.checked_mul(*rhs), "lhs={lhs} rhs={rhs}");
+        }
+    }
+    let narrow = [0, 1, u64::MAX as u128, u64::MAX as u128 + 1, u128::MAX - 1, u128::MAX];
+    for lhs in narrow {
+        for rhs in narrow {
+            assert_eq!(wide_product(lhs, rhs), U512::from(lhs) * U512::from(rhs));
+        }
+    }
+}
+
+#[test]
+fn quadratic_roots_match_the_closed_form_at_exact_and_adjacent_integers() {
+    let one = U512::one();
+    for (quadratic, linear) in [
+        (U512::from(1_u8), U512::zero()),
+        (U512::from(3_u8), U512::from(7_u8)),
+        (U512::from(10_u128.pow(36)), U512::from(10_u128.pow(30))),
+        (U512::from(u128::MAX), U512::from(u64::MAX)),
+        (U512::one() << 199, U512::one() << 259),
+    ] {
+        for root in [0_u128, 1, 2, 1 << 57, (1 << 58) + 1, 1 << 90, (1 << 117) - 1, 1 << 117, 1 << 125] {
+            let root = U512::from(root);
+            for negative_linear in [false, true] {
+                // The root is exactly `root` where q l^2 + b l = c.
+                let quadratic_term = mul_u512(&quadratic, &mul_u512(&root, &root).unwrap()).unwrap();
+                let linear_term = mul_u512(&linear, &root).unwrap();
+                let Some(exact) = (if negative_linear {
+                    quadratic_term.checked_sub(linear_term)
+                } else {
+                    quadratic_term.checked_add(linear_term)
+                }) else {
+                    continue;
+                };
+                for constant in [exact.checked_sub(one), Some(exact), exact.checked_add(one)] {
+                    let Some(constant) = constant.filter(|constant| !constant.is_zero()) else {
+                        continue;
+                    };
+                    assert_quadratic_root(quadratic, linear, negative_linear, constant);
+                }
+            }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(4096))]
+
+    #[test]
+    fn wide_multiplication_matches_checked_multiplication(
+        lhs_bits in 0_usize..=512,
+        rhs_bits in 0_usize..=512,
+        lhs_limbs in any::<[u64; 8]>(),
+        rhs_limbs in any::<[u64; 8]>(),
+        narrow in any::<(u128, u128)>(),
+    ) {
+        let lhs = wide_value(lhs_bits, lhs_limbs);
+        let rhs = wide_value(rhs_bits, rhs_limbs);
+        prop_assert_eq!(mul_u512(&lhs, &rhs), lhs.checked_mul(rhs));
+        prop_assert_eq!(wide_product(narrow.0, narrow.1), U512::from(narrow.0) * U512::from(narrow.1));
+    }
+
+    #[test]
+    fn quadratic_roots_match_the_closed_form(
+        quadratic_bits in 1_usize..=200,
+        linear_bits in 0_usize..=260,
+        constant_bits in 1_usize..=400,
+        limbs in any::<([u64; 8], [u64; 8], [u64; 8])>(),
+        negative_linear in any::<bool>(),
+    ) {
+        let quadratic = wide_value(quadratic_bits, limbs.0);
+        let linear = wide_value(linear_bits, limbs.1);
+        let constant = wide_value(constant_bits, limbs.2);
+        assert_quadratic_root(quadratic, linear, negative_linear, constant);
+        // A confirmed estimate is the exact root; anything else falls back.
+        if let Some(expected) = reference_quadratic_root(quadratic, linear, negative_linear, constant) {
+            let discriminant = mul_u512(&linear, &linear)
+                .unwrap()
+                .checked_add(mul_u512(&quadratic, &constant).unwrap() << 2)
+                .unwrap();
+            if let Some(confirmed) =
+                confirmed_quadratic_root(&quadratic, &linear, negative_linear, &constant, &discriminant)
+            {
+                prop_assert_eq!(big(confirmed), expected);
+            } else {
+                // Estimates within 2^-60 confirm every root below 2^118.
+                prop_assert!(expected.bits() >= 118, "unconfirmed root {expected}");
+            }
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    #[test]
+    fn kept_solvers_reconstruct_exactly_as_fresh_ones(
+        (parameters, base, quote, center_price_nad) in nested_curve_inputs(),
+        (other_parameters, other_base, other_quote, other_center_price_nad) in nested_curve_inputs(),
+        next_percent in 50_u128..=200,
+    ) {
+        let fresh = |base, quote, center_price_nad, parameters| {
+            prepare_concentrated_cache_and_geometry_at_point(base, quote, center_price_nad, parameters)
+        };
+        let same = |kept: &Result<(ConcentratedCurveCache, ConcentratedCurveGeometry)>,
+                    fresh: &Result<(ConcentratedCurveCache, ConcentratedCurveGeometry)>| match (kept, fresh) {
+            (Ok(kept), Ok(fresh)) => kept == fresh,
+            (Err(anchor_lang::error::Error::AnchorError(kept)), Err(anchor_lang::error::Error::AnchorError(fresh))) => {
+                kept.error_code_number == fresh.error_code_number
+            }
+            _ => false,
+        };
+        let mut solver = None;
+        // The swap's mark, its endpoint after a trade, and a zero-reserve
+        // point that must fail as a fresh call fails.
+        let next_base = base * next_percent / 100;
+        for (base, quote) in [(base, quote), (next_base.max(1), quote), (0, quote)] {
+            let kept = prepare_concentrated_cache_and_geometry_with_solver(
+                &mut solver, base, quote, center_price_nad, parameters,
+            );
+            prop_assert!(same(&kept, &fresh(base, quote, center_price_nad, parameters)));
+        }
+        // A solver kept for another center or policy is rebuilt.
+        for (center_price_nad, parameters) in [
+            (other_center_price_nad, parameters),
+            (other_center_price_nad, other_parameters),
+            (other_center_price_nad, ConcentratedCurveParameters { peak_amplification_nad: NAD, core_half_width_bps: 0, fade_width_bps: 0 }),
+        ] {
+            let kept = prepare_concentrated_cache_and_geometry_with_solver(
+                &mut solver, other_base, other_quote, center_price_nad, parameters,
+            );
+            prop_assert!(same(&kept, &fresh(other_base, other_quote, center_price_nad, parameters)));
+        }
+    }
+}

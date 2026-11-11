@@ -1613,13 +1613,15 @@ impl Market {
         &self,
         state: IntegratedCurveState,
         mark: &mut IntegratedCurveMark,
+        solver: &mut Option<ConcentratedCurveSolver>,
     ) -> Result<ConcentratedCurvePoint> {
         let point = state
             .reconstructed_curve_point()?
             .ok_or(ErrorCode::InsufficientLiquidity)?;
         let (cache, geometry) = match self.bounded_curve()? {
             Some(curve) => curve.native_geometry_at(point)?,
-            None => prepare_concentrated_cache_and_geometry_at_point(
+            None => prepare_concentrated_cache_and_geometry_with_solver(
+                solver,
                 point.base_reserve,
                 point.quote_reserve,
                 self.current_curve_center_price_nad()?,
@@ -1646,11 +1648,14 @@ impl Market {
     ) -> Result<(u64, Option<Box<ConcentratedIntegratedAmmQuote>>)> {
         let config = self.dynamic_fee_config()?;
         let needs_native_center = config.divergence_coefficient_nad > 0 && config.divergence_fee_share_cap_bps > 0;
+        // The mark and the finalized endpoint rebuild the curve at one center
+        // and policy. The second reconstruction reuses the first's shape.
+        let mut solver = None;
         // The OP price is independent of native curve scale. With divergence
         // disabled, rebuilding a book-scaled native center has no consumer.
         // Native quotes still need that geometry for execution itself.
         let book_center = if state.uses_book_hedge() && (self.oracle.policy.lambda_bps == 0 || needs_native_center) {
-            Some(self.prepare_book_curve_mark(*state, &mut start_mark)?)
+            Some(self.prepare_book_curve_mark(*state, &mut start_mark, &mut solver)?)
         } else {
             None
         };
@@ -1793,6 +1798,7 @@ impl Market {
             divergence_surcharge,
             dynamic,
             materialize_transition,
+            &mut solver,
         )
         .map(|quote| (amount_out, materialize_transition.then_some(quote)))
     }
@@ -1811,6 +1817,7 @@ impl Market {
         divergence_surcharge: u64,
         dynamic: DynamicFeeQuote,
         materialize_transition: bool,
+        solver: &mut Option<ConcentratedCurveSolver>,
     ) -> Result<Box<ConcentratedIntegratedAmmQuote>> {
         let fee_asset = self.config.swap_fee_asset(asset_in)?;
         let fees_on_input = fee_asset == asset_in;
@@ -1998,6 +2005,7 @@ impl Market {
                 asset_in,
                 materialize_transition,
                 certified_point,
+                solver,
             )?;
         }
         Ok(quote)
@@ -2013,6 +2021,7 @@ impl Market {
         asset_in: MarketAsset,
         materialize_transition: bool,
         certified_point: Option<ConcentratedCurvePoint>,
+        solver: &mut Option<ConcentratedCurveSolver>,
     ) -> Result<()> {
         if certified_point.is_none() {
             if let Some(curve) = self.bounded_curve()? {
@@ -2051,7 +2060,8 @@ impl Market {
                 None => super::liquidity::prepare_concentrated_hlp_transition(self, &state, quote, asset_in)?
                     .final_ordinary_point_nad(self)?,
             };
-            let (cache, geometry) = prepare_concentrated_cache_and_geometry_at_point(
+            let (cache, geometry) = prepare_concentrated_cache_and_geometry_with_solver(
+                solver,
                 point.base_reserve,
                 point.quote_reserve,
                 self.current_curve_center_price_nad()?,

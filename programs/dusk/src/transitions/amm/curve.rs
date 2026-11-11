@@ -10,7 +10,9 @@ pub use crate::state::ConcentratedCurveParameters;
 use crate::{errors::ErrorCode, state::ConcentratedCurveCache};
 
 use crate::constants::NAD;
-use crate::math::{isqrt, mul_div_ceil_u128, mul_div_u128, ratio_lte_full_width, sqrt_ratio_nad};
+use crate::math::{
+    div_rem_native, isqrt, mul_div_ceil_u128, mul_div_u128, ratio_lte_full_width, sqrt_ratio_nad, widening_mul_u64,
+};
 
 // uint 0.9's construct_uint! expansion uses legacy integer APIs and an
 // expression-position semicolon. Rust 1.99 reports these at the call site;
@@ -230,8 +232,34 @@ impl ConcentratedCurveCache {
                     sqrt_price_scale,
                 )?,
             ];
-            for region in 0..5 {
-                let (base, quote) = nested_region_constants(layers, region, Some(&prepared_layers))?;
+            // Per layer, outermost upper region first: 2 above the layer's
+            // range, 1 inside it, 0 below it.
+            let region_states = [[2_u8, 2], [2, 1], [1, 1], [0, 1], [0, 0]];
+            for (region, states) in region_states.into_iter().enumerate() {
+                let mut base = ConcentratedSignedReserve::default();
+                let mut quote = ConcentratedSignedReserve::default();
+                for (layer, state) in prepared_layers.iter().zip(states) {
+                    match state {
+                        0 => base.add_positive(
+                            layer
+                                .lower
+                                .base_reserve
+                                .checked_sub(layer.upper.base_reserve)
+                                .ok_or(ErrorCode::BrokenInvariant)?,
+                        )?,
+                        1 => {
+                            base.subtract_positive(layer.upper.base_reserve)?;
+                            quote.subtract_positive(layer.lower.quote_reserve)?;
+                        }
+                        _ => quote.add_positive(
+                            layer
+                                .upper
+                                .quote_reserve
+                                .checked_sub(layer.lower.quote_reserve)
+                                .ok_or(ErrorCode::BrokenInvariant)?,
+                        )?,
+                    }
+                }
                 geometry.nested_base_constants[region] = base;
                 geometry.nested_quote_constants[region] = quote;
             }
@@ -380,8 +408,8 @@ impl ConcentratedCurveParameters {
 }
 
 fn reserve_ratio_cmp(point: ConcentratedCurvePoint, boundary: ConcentratedCurvePoint) -> core::cmp::Ordering {
-    (U512::from(point.quote_reserve) * U512::from(boundary.base_reserve))
-        .cmp(&(U512::from(boundary.quote_reserve) * U512::from(point.base_reserve)))
+    wide_product(point.quote_reserve, boundary.base_reserve)
+        .cmp(&wide_product(boundary.quote_reserve, point.base_reserve))
 }
 
 // Build the same tail/band geometry from independent oracle inputs. Unlike
@@ -433,7 +461,34 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
     center_price_nad: u64,
     parameters: ConcentratedCurveParameters,
 ) -> Result<(ConcentratedCurveCache, ConcentratedCurveGeometry)> {
-    parameters.validate(u64::MAX)?;
+    prepare_concentrated_cache_and_geometry_with_solver(
+        &mut None,
+        base_reserve,
+        quote_reserve,
+        center_price_nad,
+        parameters,
+    )
+}
+
+/// The same reconstruction, keeping its point-independent work in `solver`.
+/// A later call with the same center and policy reuses that work. Results and
+/// errors are those of a call with an empty `solver`. The caller's stack holds
+/// the solver: Solana's bump allocator would never reclaim a heap copy.
+pub(crate) fn prepare_concentrated_cache_and_geometry_with_solver(
+    solver: &mut Option<ConcentratedCurveSolver>,
+    base_reserve: u128,
+    quote_reserve: u128,
+    center_price_nad: u64,
+    parameters: ConcentratedCurveParameters,
+) -> Result<(ConcentratedCurveCache, ConcentratedCurveGeometry)> {
+    // A kept solver was built for these inputs after this validation passed.
+    // Validation is deterministic, so repeating it cannot fail.
+    let reusable = solver
+        .as_ref()
+        .is_some_and(|kept| kept.center_price_nad == center_price_nad && kept.parameters == parameters);
+    if !reusable {
+        parameters.validate(u64::MAX)?;
+    }
     require!(base_reserve > 0 && quote_reserve > 0, ErrorCode::InsufficientLiquidity);
 
     if parameters.is_cpmm() {
@@ -443,35 +498,15 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
         return complete_concentrated_cache(parameters, tail_liquidity, 0, 0, 0, 0, 0, sqrt_center_nad);
     }
 
-    let sqrt_center_nad = sqrt_ratio_nad(center_price_nad as u128)?;
-    let (core_sqrt_width, outer_sqrt_width) = parameters.sqrt_widths_nad()?;
-    let core_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, core_sqrt_width)?;
-    let core_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, core_sqrt_width, NAD as u128)?;
-    let outer_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, outer_sqrt_width)?;
-    let outer_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, outer_sqrt_width, NAD as u128)?;
-    let (_, concentrated_share) = parameters.liquidity_shares_nad()?;
+    let solver = match solver {
+        Some(kept) if reusable => &*kept,
+        slot => ConcentratedCurveSolver::build_in(slot, center_price_nad, parameters)?,
+    };
     let point = ConcentratedCurvePoint {
         base_reserve,
         quote_reserve,
     };
-
-    let shape_concentrated_liquidity = mul_div_u128(NESTED_SHAPE_SCALE, concentrated_share, NAD as u128)?;
-    let shape_tail_liquidity = NESTED_SHAPE_SCALE
-        .checked_sub(shape_concentrated_liquidity)
-        .ok_or(ErrorCode::BrokenInvariant)?;
-    let shape = ConcentratedCurveCache {
-        math_revision: CONCENTRATED_CURVE_MATH_REVISION,
-        peak_amplification_nad: parameters.peak_amplification_nad,
-        core_half_width_bps: parameters.core_half_width_bps,
-        fade_width_bps: parameters.fade_width_bps,
-        tail_liquidity: shape_tail_liquidity,
-        concentrated_liquidity: shape_concentrated_liquidity,
-        core_lower_sqrt_price_nad,
-        core_upper_sqrt_price_nad,
-        outer_lower_sqrt_price_nad,
-        outer_upper_sqrt_price_nad,
-    }
-    .geometry()?;
+    let shape = &solver.shape;
 
     // Curve geometry is homothetic: changing total liquidity scales every
     // boundary coordinate by the same amount. Reserve-ratio comparisons can
@@ -556,137 +591,18 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
         let total_liquidity = if parameters.fade_width_bps == 0 {
             concentrated_total_liquidity_root(
                 point,
-                concentrated_share,
-                core_lower_sqrt_price_nad,
-                core_upper_sqrt_price_nad,
+                solver.concentrated_share,
+                solver.core_lower_sqrt_price_nad,
+                solver.core_upper_sqrt_price_nad,
                 branch,
             )?
         } else {
-            let region = nested_region_from_branch(branch);
-            require!(region <= 4, ErrorCode::InvalidMarketConfig);
-            // Split the shape exactly as the cache splits concentrated
-            // liquidity: the core takes the ceiling half. Halving the share
-            // in NAD units instead moves up to 5e-10 of the liquidity
-            // between core and shoulder, and the solved scale then misses
-            // the built curve. In a thin tail region that miss is a large
-            // fraction of the effective reserves, and round trips through
-            // the boundary returned more than their input. The shape value
-            // is recomputed rather than kept live across this loop, which
-            // would overflow the SBF stack frame.
-            let shape_concentrated = mul_div_u128(NESTED_SHAPE_SCALE, concentrated_share, NAD as u128)?;
-            let core_liquidity = shape_concentrated.div_ceil(2);
-            let shoulder_liquidity = shape_concentrated
-                .checked_sub(core_liquidity)
-                .ok_or(ErrorCode::BrokenInvariant)?;
-            let tail_liquidity = NESTED_SHAPE_SCALE
-                .checked_sub(shape_concentrated)
-                .ok_or(ErrorCode::BrokenInvariant)?;
-            let layers = [
-                ConcentratedCurveLayer {
-                    liquidity: core_liquidity,
-                    lower_sqrt_price: core_lower_sqrt_price_nad,
-                    upper_sqrt_price: core_upper_sqrt_price_nad,
-                },
-                ConcentratedCurveLayer {
-                    liquidity: shoulder_liquidity,
-                    lower_sqrt_price: outer_lower_sqrt_price_nad,
-                    upper_sqrt_price: outer_upper_sqrt_price_nad,
-                },
-            ];
-            let (base_constant, quote_constant) = nested_region_constants(layers, region, None)?;
-            let active_liquidity = match region {
-                0 | 4 => tail_liquidity,
-                1 | 3 => tail_liquidity
-                    .checked_add(shoulder_liquidity)
-                    .ok_or(ErrorCode::InvariantOverflow)?,
-                2 => NESTED_SHAPE_SCALE,
-                _ => unreachable!(),
-            };
-            let active_squared = U512::from(active_liquidity)
-                .checked_mul(U512::from(active_liquidity))
-                .ok_or(ErrorCode::InvariantOverflow)?;
-            let constant_product = U512::from(base_constant.magnitude)
-                .checked_mul(U512::from(quote_constant.magnitude))
-                .ok_or(ErrorCode::InvariantOverflow)?;
-            let constants_negative = base_constant.negative ^ quote_constant.negative;
-            let quadratic = if constants_negative {
-                active_squared
-                    .checked_add(constant_product)
-                    .ok_or(ErrorCode::InvariantOverflow)?
-            } else {
-                active_squared
-                    .checked_sub(constant_product)
-                    .ok_or(ErrorCode::InvalidMarketConfig)?
-            };
-            require!(!quadratic.is_zero(), ErrorCode::InvalidMarketConfig);
-
-            let lhs = SignedWide::from_product(quote_constant.negative, point.base_reserve, quote_constant.magnitude)?;
-            let rhs = SignedWide::from_product(base_constant.negative, point.quote_reserve, base_constant.magnitude)?;
-            let linear = if lhs.negative == rhs.negative {
-                let magnitude = lhs
-                    .magnitude
-                    .checked_add(rhs.magnitude)
-                    .ok_or(ErrorCode::InvariantOverflow)?;
-                SignedWide {
-                    negative: lhs.negative && !magnitude.is_zero(),
-                    magnitude,
-                }
-            } else if lhs.magnitude >= rhs.magnitude {
-                let magnitude = lhs
-                    .magnitude
-                    .checked_sub(rhs.magnitude)
-                    .ok_or(ErrorCode::BrokenInvariant)?;
-                SignedWide {
-                    negative: lhs.negative && !magnitude.is_zero(),
-                    magnitude,
-                }
-            } else {
-                let magnitude = rhs
-                    .magnitude
-                    .checked_sub(lhs.magnitude)
-                    .ok_or(ErrorCode::BrokenInvariant)?;
-                SignedWide {
-                    negative: rhs.negative && !magnitude.is_zero(),
-                    magnitude,
-                }
-            };
-            let scaled_linear = linear
-                .magnitude
-                .checked_mul(U512::from(NESTED_SHAPE_SCALE))
-                .ok_or(ErrorCode::InvariantOverflow)?;
-            let scale_squared = U512::from(NESTED_SHAPE_SCALE)
-                .checked_mul(U512::from(NESTED_SHAPE_SCALE))
-                .ok_or(ErrorCode::InvariantOverflow)?;
-            let constant = U512::from(point.base_reserve)
-                .checked_mul(U512::from(point.quote_reserve))
-                .and_then(|value| value.checked_mul(scale_squared))
-                .ok_or(ErrorCode::InvariantOverflow)?;
-            let discriminant = scaled_linear
-                .checked_mul(scaled_linear)
-                .and_then(|value| {
-                    quadratic
-                        .checked_mul(constant)?
-                        .checked_mul(U512::from(4_u8))?
-                        .checked_add(value)
-                })
-                .ok_or(ErrorCode::InvariantOverflow)?;
-            let root = sqrt_floor_u512(discriminant)?;
-            let numerator = if linear.negative {
-                root.checked_add(scaled_linear).ok_or(ErrorCode::InvariantOverflow)?
-            } else {
-                root.checked_sub(scaled_linear).ok_or(ErrorCode::BrokenInvariant)?
-            };
-            let denominator = quadratic
-                .checked_mul(U512::from(2_u8))
-                .ok_or(ErrorCode::InvariantOverflow)?;
-            let liquidity = div_floor_u512(numerator, denominator)?;
-            require!(liquidity <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
-            liquidity.as_u128()
+            solver.nested_total_liquidity_root(point, branch)?
         };
         if total_liquidity == 0 {
             continue;
         }
-        let concentrated_liquidity = mul_div_u128(total_liquidity, concentrated_share, NAD as u128)?;
+        let concentrated_liquidity = mul_div_u128(total_liquidity, solver.concentrated_share, NAD as u128)?;
         let tail_liquidity = total_liquidity
             .checked_sub(concentrated_liquidity)
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -698,11 +614,11 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
             parameters,
             tail_liquidity,
             concentrated_liquidity,
-            core_lower_sqrt_price_nad,
-            core_upper_sqrt_price_nad,
-            outer_lower_sqrt_price_nad,
-            outer_upper_sqrt_price_nad,
-            sqrt_center_nad,
+            solver.core_lower_sqrt_price_nad,
+            solver.core_upper_sqrt_price_nad,
+            solver.outer_lower_sqrt_price_nad,
+            solver.outer_upper_sqrt_price_nad,
+            solver.sqrt_center_nad,
         )?;
         let region = nested_region_from_branch(branch);
         let point_region = nested_region_from_branch(geometry.branch(point));
@@ -721,7 +637,7 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
             if total_liquidity <= neighbour_total {
                 return Ok((cache, geometry));
             }
-            let neighbour_concentrated = mul_div_u128(neighbour_total, concentrated_share, NAD as u128)?;
+            let neighbour_concentrated = mul_div_u128(neighbour_total, solver.concentrated_share, NAD as u128)?;
             let neighbour_tail = neighbour_total
                 .checked_sub(neighbour_concentrated)
                 .ok_or(ErrorCode::BrokenInvariant)?;
@@ -729,17 +645,167 @@ pub(crate) fn prepare_concentrated_cache_and_geometry_at_point(
                 parameters,
                 neighbour_tail,
                 neighbour_concentrated,
-                core_lower_sqrt_price_nad,
-                core_upper_sqrt_price_nad,
-                outer_lower_sqrt_price_nad,
-                outer_upper_sqrt_price_nad,
-                sqrt_center_nad,
+                solver.core_lower_sqrt_price_nad,
+                solver.core_upper_sqrt_price_nad,
+                solver.outer_lower_sqrt_price_nad,
+                solver.outer_upper_sqrt_price_nad,
+                solver.sqrt_center_nad,
             );
         }
         misplaced.push((region, total_liquidity, point_region));
     }
     require!(solved_candidate, ErrorCode::InsufficientLiquidity);
     err!(ErrorCode::BrokenInvariant)
+}
+
+/// The point-independent part of a reserve-point reconstruction for one
+/// sticky center and concentration policy: the layer prices and the shape at
+/// `NESTED_SHAPE_SCALE`, whose boundaries select the branch and whose region
+/// constants define each branch's quadratic.
+pub(crate) struct ConcentratedCurveSolver {
+    center_price_nad: u64,
+    parameters: ConcentratedCurveParameters,
+    sqrt_center_nad: u128,
+    core_lower_sqrt_price_nad: u128,
+    core_upper_sqrt_price_nad: u128,
+    outer_lower_sqrt_price_nad: u128,
+    outer_upper_sqrt_price_nad: u128,
+    concentrated_share: u128,
+    shape: ConcentratedCurveGeometry,
+}
+
+impl ConcentratedCurveSolver {
+    // Builds the solver into the caller's slot from this SBF frame. A solver
+    // returned by value into the reconstruction's frame overflows it.
+    #[inline(never)]
+    fn build_in(
+        slot: &mut Option<Self>,
+        center_price_nad: u64,
+        parameters: ConcentratedCurveParameters,
+    ) -> Result<&Self> {
+        let sqrt_center_nad = sqrt_ratio_nad(center_price_nad as u128)?;
+        let (core_sqrt_width, outer_sqrt_width) = parameters.sqrt_widths_nad()?;
+        let core_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, core_sqrt_width)?;
+        let core_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, core_sqrt_width, NAD as u128)?;
+        let outer_lower_sqrt_price_nad = mul_div_u128(sqrt_center_nad, NAD as u128, outer_sqrt_width)?;
+        let outer_upper_sqrt_price_nad = mul_div_u128(sqrt_center_nad, outer_sqrt_width, NAD as u128)?;
+        let (_, concentrated_share) = parameters.liquidity_shares_nad()?;
+        let shape_concentrated_liquidity = mul_div_u128(NESTED_SHAPE_SCALE, concentrated_share, NAD as u128)?;
+        let shape_tail_liquidity = NESTED_SHAPE_SCALE
+            .checked_sub(shape_concentrated_liquidity)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let shape = ConcentratedCurveCache {
+            math_revision: CONCENTRATED_CURVE_MATH_REVISION,
+            peak_amplification_nad: parameters.peak_amplification_nad,
+            core_half_width_bps: parameters.core_half_width_bps,
+            fade_width_bps: parameters.fade_width_bps,
+            tail_liquidity: shape_tail_liquidity,
+            concentrated_liquidity: shape_concentrated_liquidity,
+            core_lower_sqrt_price_nad,
+            core_upper_sqrt_price_nad,
+            outer_lower_sqrt_price_nad,
+            outer_upper_sqrt_price_nad,
+        }
+        .geometry()?;
+        Ok(slot.insert(Self {
+            center_price_nad,
+            parameters,
+            sqrt_center_nad,
+            core_lower_sqrt_price_nad,
+            core_upper_sqrt_price_nad,
+            outer_lower_sqrt_price_nad,
+            outer_upper_sqrt_price_nad,
+            concentrated_share,
+            shape,
+        }))
+    }
+
+    // The wide quadratic of one nested branch, in its own SBF frame. The
+    // solve's frame also holds a complete cache and geometry.
+    #[inline(never)]
+    fn nested_total_liquidity_root(
+        &self,
+        point: ConcentratedCurvePoint,
+        branch: ConcentratedCurveBranch,
+    ) -> Result<u128> {
+        let shape = &self.shape;
+        let region = nested_region_from_branch(branch);
+        require!(region <= 4, ErrorCode::InvalidMarketConfig);
+        // The shape splits its liquidity exactly as the cache splits
+        // concentrated liquidity: the core takes the ceiling half.
+        // Halving the share in NAD units instead moves up to 5e-10 of
+        // the liquidity between core and shoulder, and the solved scale
+        // then misses the built curve. In a thin tail region that miss
+        // is a large fraction of the effective reserves, and round trips
+        // through the boundary returned more than their input. The
+        // shape's region constants are those of its own floored layers.
+        let base_constant = shape.nested_base_constants[region];
+        let quote_constant = shape.nested_quote_constants[region];
+        let tail_liquidity = NESTED_SHAPE_SCALE
+            .checked_sub(shape.inner_liquidity)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let active_liquidity = match region {
+            0 | 4 => tail_liquidity,
+            1 | 3 => tail_liquidity
+                .checked_add(shape.shoulder_liquidity)
+                .ok_or(ErrorCode::InvariantOverflow)?,
+            2 => NESTED_SHAPE_SCALE,
+            _ => unreachable!(),
+        };
+        let active_squared = wide_product(active_liquidity, active_liquidity);
+        let constant_product = wide_product(base_constant.magnitude, quote_constant.magnitude);
+        let constants_negative = base_constant.negative ^ quote_constant.negative;
+        let quadratic = if constants_negative {
+            active_squared
+                .checked_add(constant_product)
+                .ok_or(ErrorCode::InvariantOverflow)?
+        } else {
+            active_squared
+                .checked_sub(constant_product)
+                .ok_or(ErrorCode::InvalidMarketConfig)?
+        };
+        require!(!quadratic.is_zero(), ErrorCode::InvalidMarketConfig);
+
+        let lhs = SignedWide::from_product(quote_constant.negative, point.base_reserve, quote_constant.magnitude);
+        let rhs = SignedWide::from_product(base_constant.negative, point.quote_reserve, base_constant.magnitude);
+        let linear = if lhs.negative == rhs.negative {
+            let magnitude = lhs
+                .magnitude
+                .checked_add(rhs.magnitude)
+                .ok_or(ErrorCode::InvariantOverflow)?;
+            SignedWide {
+                negative: lhs.negative && !magnitude.is_zero(),
+                magnitude,
+            }
+        } else if lhs.magnitude >= rhs.magnitude {
+            let magnitude = lhs
+                .magnitude
+                .checked_sub(rhs.magnitude)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            SignedWide {
+                negative: lhs.negative && !magnitude.is_zero(),
+                magnitude,
+            }
+        } else {
+            let magnitude = rhs
+                .magnitude
+                .checked_sub(lhs.magnitude)
+                .ok_or(ErrorCode::BrokenInvariant)?;
+            SignedWide {
+                negative: rhs.negative && !magnitude.is_zero(),
+                magnitude,
+            }
+        };
+        let scaled_linear =
+            mul_u512(&linear.magnitude, &U512::from(NESTED_SHAPE_SCALE)).ok_or(ErrorCode::InvariantOverflow)?;
+        // 10^36 fits a u128 constant.
+        let scale_squared = U512::from(NESTED_SHAPE_SCALE * NESTED_SHAPE_SCALE);
+        let constant = mul_u512(&wide_product(point.base_reserve, point.quote_reserve), &scale_squared)
+            .ok_or(ErrorCode::InvariantOverflow)?;
+        let liquidity = quadratic_root_floor(quadratic, scaled_linear, linear.negative, constant)?;
+        require!(liquidity <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
+        Ok(liquidity.as_u128())
+    }
 }
 
 fn concentrated_total_liquidity_root(
@@ -750,9 +816,8 @@ fn concentrated_total_liquidity_root(
     branch: ConcentratedCurveBranch,
 ) -> Result<u128> {
     let scale = NAD as u128;
-    let scale_squared = U512::from(scale)
-        .checked_mul(U512::from(scale))
-        .ok_or(ErrorCode::InvariantOverflow)?;
+    // NAD^2 = 10^18 fits a u128 constant.
+    let scale_squared = U512::from(NAD as u128 * NAD as u128);
     let x = U512::from(point.base_reserve);
     let y = U512::from(point.quote_reserve);
     let rho = U512::from(share_nad);
@@ -763,51 +828,43 @@ fn concentrated_total_liquidity_root(
 
     let (a, b, c, negative_linear) = match branch {
         ConcentratedCurveBranch::Inner => {
-            let a = upper
-                .checked_mul(scale_squared)
-                .and_then(|value| value.checked_sub(rho.checked_mul(rho)?.checked_mul(lower)?))
+            let a = mul_u512(&upper, &scale_squared)
+                .and_then(|value| value.checked_sub(mul_u512(&mul_u512(&rho, &rho)?, &lower)?))
                 .ok_or(ErrorCode::InvariantOverflow)?;
-            let linear_shape = x
-                .checked_mul(lower)
-                .and_then(|value| value.checked_mul(upper))
-                .and_then(|value| value.checked_add(y.checked_mul(scale_squared)?))
+            let linear_shape = mul_u512(&x, &lower)
+                .and_then(|value| mul_u512(&value, &upper))
+                .and_then(|value| value.checked_add(mul_u512(&y, &scale_squared)?))
                 .ok_or(ErrorCode::InvariantOverflow)?;
-            let b = rho.checked_mul(linear_shape).ok_or(ErrorCode::InvariantOverflow)?;
-            let c = x
-                .checked_mul(y)
-                .and_then(|value| value.checked_mul(upper))
-                .and_then(|value| value.checked_mul(scale_squared))
+            let b = mul_u512(&rho, &linear_shape).ok_or(ErrorCode::InvariantOverflow)?;
+            let c = mul_u512(&x, &y)
+                .and_then(|value| mul_u512(&value, &upper))
+                .and_then(|value| mul_u512(&value, &scale_squared))
                 .ok_or(ErrorCode::InvariantOverflow)?;
             (a, b, c, true)
         }
         ConcentratedCurveBranch::LowerTail => {
-            let a = tail_share
-                .checked_mul(tail_share)
-                .and_then(|value| value.checked_mul(lower))
-                .and_then(|value| value.checked_mul(upper))
+            let a = mul_u512(&tail_share, &tail_share)
+                .and_then(|value| mul_u512(&value, &lower))
+                .and_then(|value| mul_u512(&value, &upper))
                 .ok_or(ErrorCode::InvariantOverflow)?;
-            let b = rho
-                .checked_mul(width)
-                .and_then(|value| value.checked_mul(y))
-                .and_then(|value| value.checked_mul(scale_squared))
+            let b = mul_u512(&rho, &width)
+                .and_then(|value| mul_u512(&value, &y))
+                .and_then(|value| mul_u512(&value, &scale_squared))
                 .ok_or(ErrorCode::InvariantOverflow)?;
-            let c = x
-                .checked_mul(y)
-                .and_then(|value| value.checked_mul(scale_squared))
-                .and_then(|value| value.checked_mul(lower))
-                .and_then(|value| value.checked_mul(upper))
+            let c = mul_u512(&x, &y)
+                .and_then(|value| mul_u512(&value, &scale_squared))
+                .and_then(|value| mul_u512(&value, &lower))
+                .and_then(|value| mul_u512(&value, &upper))
                 .ok_or(ErrorCode::InvariantOverflow)?;
             (a, b, c, false)
         }
         ConcentratedCurveBranch::UpperTail => {
-            let a = tail_share.checked_mul(tail_share).ok_or(ErrorCode::InvariantOverflow)?;
-            let b = x
-                .checked_mul(rho)
-                .and_then(|value| value.checked_mul(width))
+            let a = mul_u512(&tail_share, &tail_share).ok_or(ErrorCode::InvariantOverflow)?;
+            let b = mul_u512(&x, &rho)
+                .and_then(|value| mul_u512(&value, &width))
                 .ok_or(ErrorCode::InvariantOverflow)?;
-            let c = x
-                .checked_mul(y)
-                .and_then(|value| value.checked_mul(scale_squared))
+            let c = mul_u512(&x, &y)
+                .and_then(|value| mul_u512(&value, &scale_squared))
                 .ok_or(ErrorCode::InvariantOverflow)?;
             (a, b, c, false)
         }
@@ -816,18 +873,7 @@ fn concentrated_total_liquidity_root(
         }
     };
     require!(!a.is_zero(), ErrorCode::InvalidMarketConfig);
-    let discriminant = b
-        .checked_mul(b)
-        .and_then(|value| value.checked_add(a.checked_mul(c)?.checked_mul(U512::from(4_u8))?))
-        .ok_or(ErrorCode::InvariantOverflow)?;
-    let root = sqrt_floor_u512(discriminant)?;
-    let numerator = if negative_linear {
-        root.checked_add(b).ok_or(ErrorCode::InvariantOverflow)?
-    } else {
-        root.checked_sub(b).ok_or(ErrorCode::BrokenInvariant)?
-    };
-    let denominator = a.checked_mul(U512::from(2_u8)).ok_or(ErrorCode::InvariantOverflow)?;
-    let liquidity = div_floor_u512(numerator, denominator)?;
+    let liquidity = quadratic_root_floor(a, b, negative_linear, c)?;
     require!(liquidity <= U512::from(u128::MAX), ErrorCode::InvariantOverflow);
     Ok(liquidity.as_u128())
 }
@@ -841,15 +887,237 @@ struct SignedWide {
 }
 
 impl SignedWide {
-    fn from_product(negative: bool, lhs: u128, rhs: u128) -> Result<Self> {
-        let magnitude = U512::from(lhs)
-            .checked_mul(U512::from(rhs))
-            .ok_or(ErrorCode::InvariantOverflow)?;
-        Ok(Self {
+    fn from_product(negative: bool, lhs: u128, rhs: u128) -> Self {
+        let magnitude = wide_product(lhs, rhs);
+        Self {
             negative: negative && !magnitude.is_zero(),
             magnitude,
-        })
+        }
     }
+}
+
+fn significant_limbs(value: &U512) -> usize {
+    value.0.iter().rposition(|&limb| limb != 0).map_or(0, |index| index + 1)
+}
+
+/// Exact product of two u128 values. It is below 2^256, so it always fits.
+fn wide_product(lhs: u128, rhs: u128) -> U512 {
+    if lhs <= u128::from(u64::MAX) && rhs <= u128::from(u64::MAX) {
+        let product = widening_mul_u64(lhs as u64, rhs as u64);
+        return U512([product as u64, (product >> 64) as u64, 0, 0, 0, 0, 0, 0]);
+    }
+    let lhs = [lhs as u64, (lhs >> 64) as u64];
+    let rhs = [rhs as u64, (rhs >> 64) as u64];
+    let mut limbs = [0_u64; 8];
+    for (i, &left) in lhs.iter().enumerate() {
+        let mut carry = 0_u64;
+        for (j, &right) in rhs.iter().enumerate() {
+            let wide = widening_mul_u64(left, right);
+            let (low, high) = (wide as u64, (wide >> 64) as u64);
+            let (sum, first) = low.overflowing_add(limbs[i + j]);
+            let (sum, second) = sum.overflowing_add(carry);
+            limbs[i + j] = sum;
+            carry = high + u64::from(first) + u64::from(second);
+        }
+        limbs[i + 2] = carry;
+    }
+    U512(limbs)
+}
+
+/// Exact product, or `None` exactly when `U512::checked_mul` reports an
+/// overflow. The generic multiply visits all 64 limb pairs and multiplies
+/// every nonzero limb by each zero limb of the other factor; on SBF that was
+/// most of the cost of a curve solve. This multiplies significant limbs only.
+fn mul_u512(lhs: &U512, rhs: &U512) -> Option<U512> {
+    let lhs_limbs = significant_limbs(lhs);
+    let rhs_limbs = significant_limbs(rhs);
+    if lhs_limbs == 0 || rhs_limbs == 0 {
+        return Some(U512::zero());
+    }
+    // Both leading limbs are nonzero, so the product is at least
+    // 2^(64 * (lhs_limbs + rhs_limbs - 2)).
+    if lhs_limbs + rhs_limbs > 9 {
+        return None;
+    }
+    let mut product = [0_u64; 9];
+    for (i, &left) in lhs.0.iter().take(lhs_limbs).enumerate() {
+        let mut carry = 0_u64;
+        for (j, &right) in rhs.0.iter().take(rhs_limbs).enumerate() {
+            let wide = widening_mul_u64(left, right);
+            let (low, high) = (wide as u64, (wide >> 64) as u64);
+            let (sum, first) = low.overflowing_add(product[i + j]);
+            let (sum, second) = sum.overflowing_add(carry);
+            product[i + j] = sum;
+            // low + high * 2^64 + two words is at most 2^128 - 1, so the
+            // high word with both carries still fits.
+            carry = high + u64::from(first) + u64::from(second);
+        }
+        product[i + rhs_limbs] = carry;
+    }
+    if product[8] != 0 {
+        return None;
+    }
+    let mut limbs = [0_u64; 8];
+    limbs.copy_from_slice(&product[..8]);
+    Some(U512(limbs))
+}
+
+/// The low 128 bits of `value >> shift`, reading only the limbs they need.
+fn shifted_low_u128(value: &U512, shift: usize) -> u128 {
+    let word = |index: usize| u128::from(value.0.get(index).copied().unwrap_or(0));
+    let limb = shift / 64;
+    let bit = shift % 64;
+    let low = word(limb) | (word(limb + 1) << 64);
+    if bit == 0 {
+        low
+    } else {
+        (low >> bit) | (word(limb + 2) << (128 - bit))
+    }
+}
+
+/// Both sides of `q t^2 + b t <= c` at `t`, where `b` is `-linear` when
+/// `negative_linear` and `+linear` otherwise: `(q t^2 + linear t, c)` or
+/// `(q t^2, c + linear t)`. The polynomial is positive at `t` exactly when
+/// the first exceeds the second. `None` means a term needs more than 512
+/// bits.
+fn quadratic_sides(
+    quadratic: &U512,
+    linear: &U512,
+    negative_linear: bool,
+    constant: &U512,
+    t: &U512,
+) -> Option<(U512, U512)> {
+    let quadratic_term = mul_u512(quadratic, &mul_u512(t, t)?)?;
+    let linear_term = mul_u512(linear, t)?;
+    if negative_linear {
+        Some((quadratic_term, constant.checked_add(linear_term)?))
+    } else {
+        Some((quadratic_term.checked_add(linear_term)?, *constant))
+    }
+}
+
+/// About 62 leading bits of `numerator / denominator`. Only the candidate
+/// that exact arithmetic then confirms depends on it. `None` when the
+/// quotient would not fit.
+fn approximate_quotient(numerator: &U512, denominator: &U512) -> Option<U512> {
+    if denominator.is_zero() {
+        return None;
+    }
+    let numerator_bits = numerator.bits();
+    let denominator_bits = denominator.bits();
+    if numerator_bits < denominator_bits {
+        return Some(U512::zero());
+    }
+    // A 64-bit divisor and a dividend below 2^127 keep the division on the
+    // native two-digit path.
+    let denominator_shift = denominator_bits.saturating_sub(64);
+    let numerator_shift = numerator_bits.saturating_sub(127);
+    let (quotient, _) = div_rem_native(
+        shifted_low_u128(numerator, numerator_shift),
+        shifted_low_u128(denominator, denominator_shift),
+    );
+    let quotient = U512::from(quotient);
+    if numerator_shift >= denominator_shift {
+        let shift = numerator_shift - denominator_shift;
+        (quotient.bits() + shift <= 512).then(|| quotient << shift)
+    } else {
+        Some(quotient >> (denominator_shift - numerator_shift))
+    }
+}
+
+/// Floor of the positive root of `q l^2 + b l - c`, where `b` is `-linear`
+/// when `negative_linear` and `+linear` otherwise, `q > 0` and `c > 0`.
+/// The fallback evaluates floor((floor(sqrt(D)) - b) / (2q)) with
+/// D = linear^2 + 4qc. Since `b` and `2q` are integers, flooring sqrt(D)
+/// first does not change that floor: it is the largest `l >= 0` with
+/// `q l^2 + b l <= c`. A closed-form estimate is therefore accepted exactly
+/// when `l` meets that bound and `l + 1` does not. Overflow and error results
+/// are those of the fallback, which runs whenever no estimate is confirmed.
+#[inline(never)]
+fn quadratic_root_floor(quadratic: U512, linear: U512, negative_linear: bool, constant: U512) -> Result<U512> {
+    let discriminant = mul_u512(&quadratic, &constant)
+        .and_then(|value| value.checked_add(value))
+        .and_then(|value| value.checked_add(value))
+        .and_then(|value| value.checked_add(mul_u512(&linear, &linear)?))
+        .ok_or(ErrorCode::InvariantOverflow)?;
+    if let Some(root) = confirmed_quadratic_root(&quadratic, &linear, negative_linear, &constant, &discriminant) {
+        return Ok(root);
+    }
+    let root = sqrt_floor_u512(discriminant)?;
+    let numerator = if negative_linear {
+        root.checked_add(linear).ok_or(ErrorCode::InvariantOverflow)?
+    } else {
+        root.checked_sub(linear).ok_or(ErrorCode::BrokenInvariant)?
+    };
+    let denominator = quadratic.checked_add(quadratic).ok_or(ErrorCode::InvariantOverflow)?;
+    div_floor_u512(numerator, denominator)
+}
+
+/// The root `quadratic_root_floor` returns, estimated in closed form and
+/// confirmed with exact arithmetic. `None` leaves it to the exact fallback.
+fn confirmed_quadratic_root(
+    quadratic: &U512,
+    linear: &U512,
+    negative_linear: bool,
+    constant: &U512,
+    discriminant: &U512,
+) -> Option<U512> {
+    // sqrt(D) to about 62 bits, as the fallback's Newton seed.
+    let shift = discriminant.bits().saturating_sub(128).div_ceil(2) * 2;
+    let root = U512::from(isqrt(shifted_low_u128(discriminant, shift))) << (shift / 2);
+    // Cancellation-free forms of the same root.
+    let sum = linear.checked_add(root)?;
+    let mut candidate = if negative_linear {
+        approximate_quotient(&sum, &quadratic.checked_add(*quadratic)?)?
+    } else {
+        approximate_quotient(&constant.checked_add(*constant)?, &sum)?
+    };
+    // The estimate is within 2^-60 of the root. Below 2^58 that already
+    // leaves it within one. Above, one Newton step on the exact polynomial
+    // leaves it within two while the root is below 2^118. Without a positive
+    // slope the candidate is near zero and is kept for the search below.
+    if candidate.bits() > 58 {
+        let (positive, negative) = quadratic_sides(quadratic, linear, negative_linear, constant, &candidate)?;
+        let above = positive > negative;
+        let excess = if above {
+            positive - negative
+        } else {
+            negative - positive
+        };
+        let slope = mul_u512(&quadratic.checked_add(*quadratic)?, &candidate)?;
+        let slope = if negative_linear {
+            slope.checked_sub(*linear)
+        } else {
+            slope.checked_add(*linear)
+        };
+        if let Some(step) = slope.and_then(|slope| approximate_quotient(&excess, &slope)) {
+            candidate = if above {
+                candidate.saturating_sub(step)
+            } else {
+                candidate.checked_add(step)?
+            };
+        }
+    }
+    for _ in 0..4 {
+        let (positive, negative) = quadratic_sides(quadratic, linear, negative_linear, constant, &candidate)?;
+        if positive > negative {
+            candidate = candidate.checked_sub(U512::one())?;
+            continue;
+        }
+        // The polynomial at t + 1 adds q (2t + 1) + b.
+        let rise = mul_u512(quadratic, &candidate.checked_add(candidate)?.checked_add(U512::one())?)?;
+        let (next_positive, next_negative) = if negative_linear {
+            (positive.checked_add(rise)?, negative.checked_add(*linear)?)
+        } else {
+            (positive.checked_add(rise)?.checked_add(*linear)?, negative)
+        };
+        if next_positive <= next_negative {
+            candidate = candidate.checked_add(U512::one())?;
+            continue;
+        }
+        return Some(candidate);
+    }
+    None
 }
 
 // Knuth division in base 2^32. Its quotient estimates use native u64
@@ -1187,57 +1455,6 @@ fn nested_point_at_sqrt_price(
         base_reserve,
         quote_reserve,
     })
-}
-
-#[inline(never)]
-fn nested_region_constants(
-    layers: [ConcentratedCurveLayer; 2],
-    region: usize,
-    prepared: Option<&[PreparedCurveLayer; 2]>,
-) -> Result<(ConcentratedSignedReserve, ConcentratedSignedReserve)> {
-    let prepared_storage;
-    let layers = match prepared {
-        Some(prepared) => prepared,
-        None => {
-            prepared_storage = [layers[0].prepare()?, layers[1].prepare()?];
-            &prepared_storage
-        }
-    };
-    require!(region <= 4, ErrorCode::BrokenInvariant);
-    let states = match region {
-        0 => [2_u8, 2_u8],
-        1 => [2, 1],
-        2 => [1, 1],
-        3 => [0, 1],
-        4 => [0, 0],
-        _ => unreachable!(),
-    };
-    let mut base = ConcentratedSignedReserve::default();
-    let mut quote = ConcentratedSignedReserve::default();
-    for (layer, state) in layers.iter().zip(states) {
-        let base_at_lower = layer.lower.base_reserve;
-        let base_at_upper = layer.upper.base_reserve;
-        let quote_at_lower = layer.lower.quote_reserve;
-        let quote_at_upper = layer.upper.quote_reserve;
-        match state {
-            0 => base.add_positive(
-                base_at_lower
-                    .checked_sub(base_at_upper)
-                    .ok_or(ErrorCode::BrokenInvariant)?,
-            )?,
-            1 => {
-                base.subtract_positive(base_at_upper)?;
-                quote.subtract_positive(quote_at_lower)?;
-            }
-            2 => quote.add_positive(
-                quote_at_upper
-                    .checked_sub(quote_at_lower)
-                    .ok_or(ErrorCode::BrokenInvariant)?,
-            )?,
-            _ => unreachable!(),
-        }
-    }
-    Ok((base, quote))
 }
 
 impl ConcentratedCurveGeometry {

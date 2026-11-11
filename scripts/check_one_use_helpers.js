@@ -461,7 +461,14 @@ const acceptedOneUseHelpers = new Map([
     new Set(["concentrated_total_liquidity_root", "prepare_concentrated_cache_at_depth",
       // One constructor and one hot-loop lookup share exact boundary dust;
       // inlining them would mix geometry construction with the SBF proof frame.
-      "prepare_quote_path", "amount_out"]),
+      "prepare_quote_path", "amount_out",
+      // A nested branch's wide quadratic needs its own SBF frame: inlined into
+      // the reconstruction loop it overflows the 4 KiB frame by 320 bytes.
+      // The confirmed root estimate and the exact Newton square root behind it
+      // are independent algorithms: the estimate may decline at any step with
+      // `None`, and the fallback alone owns the closed form's error codes.
+      // Built by value in the reconstruction's frame, the solver overflows it.
+      "nested_total_liquidity_root", "confirmed_quadratic_root", "sqrt_floor_u512", "build_in"]),
   ],
   [
     "programs/dusk/src/transitions/amm/fees.rs",
