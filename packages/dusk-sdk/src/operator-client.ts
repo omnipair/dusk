@@ -7,6 +7,7 @@ import {
   anchorParameterUpdate, assertProposalMetadata, canonicalParameterUpdates, integerBN,
   type IntegerLike, type ParameterUpdate, type ProposalMetadataV1,
 } from "./parameters.js";
+import { assertCurrentMarketLayout } from "./market-layout.js";
 import type { Market, OperatorProposal, OperatorRevenueAccount } from "./type-aliases.js";
 import type { Dusk } from "./types_v2.js";
 import { DuskWrite } from "./write.js";
@@ -35,8 +36,10 @@ export class DuskOperator {
   readonly write: DuskWrite;
   constructor(readonly program: Program<Dusk>) { this.write = new DuskWrite(program); }
 
-  market(key: AddressLike): Promise<Market> {
-    return this.program.account.market.fetch(address(key));
+  /** Throws `DuskUnsupportedMarketLayoutError` for a market at any layout
+   * other than `MARKET_LAYOUT_VERSION`. */
+  async market(key: AddressLike): Promise<Market> {
+    return assertCurrentMarketLayout(await this.program.account.market.fetch(address(key)));
   }
   proposal(key: AddressLike): Promise<OperatorProposal> {
     return this.program.account.operatorProposal.fetch(address(key));

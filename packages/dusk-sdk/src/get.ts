@@ -42,6 +42,7 @@ import {
 } from "./constants.js";
 import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type AddressLike } from "./address.js";
 import { getStoredLeverageMargins } from "./leverage-margins.js";
+import { assertCurrentMarketLayout } from "./market-layout.js";
 import {
   decodePreviewHlpDepositCapacityReturnData,
   type HlpDepositCapacityPreview,
@@ -153,10 +154,14 @@ export class DuskGet {
     private readonly defaultFeePayer: AddressLike = DEFAULT_READONLY_PUBLIC_KEY
   ) {}
 
+  /** Raw account bytes, returned without decoding or a layout check. */
   async accountInfo(account: AddressLike, commitment?: Commitment) {
     return this.program.provider.connection.getAccountInfo(address(account), commitment);
   }
 
+  /** Decodes one program account by its IDL account name. A `market` account
+   * at any layout other than `MARKET_LAYOUT_VERSION` throws
+   * `DuskUnsupportedMarketLayoutError`. */
   async programAccount<T = unknown>(name: string, account: AddressLike): Promise<T> {
     const client = (
       this.program.account as unknown as Record<string, { fetch(address: PublicKey): Promise<T> }>
@@ -164,7 +169,11 @@ export class DuskGet {
     if (!client) {
       throw new Error(`Unknown Dusk account type: ${name}`);
     }
-    return client.fetch(address(account));
+    const decoded = await client.fetch(address(account));
+    if (name === "market") {
+      assertCurrentMarketLayout(decoded as Pick<Market, "version">);
+    }
+    return decoded;
   }
 
   private allProgramAccounts<T>(name: string): Promise<Array<{ publicKey: PublicKey; account: T }>> {
@@ -179,6 +188,8 @@ export class DuskGet {
     return client.all();
   }
 
+  /** Throws `DuskUnsupportedMarketLayoutError` for a market at any layout
+   * other than `MARKET_LAYOUT_VERSION`. */
   market(account: AddressLike): Promise<Market> {
     return this.programAccount<Market>("market", account);
   }
@@ -220,8 +231,15 @@ export class DuskGet {
     return this.programAccount<ReferralAccrual>("referralAccrual", account);
   }
 
-  allMarkets() {
-    return this.allProgramAccounts<Market>("market");
+  /** Every market account. Throws `DuskUnsupportedMarketLayoutError` if any
+   * is at a layout other than `MARKET_LAYOUT_VERSION`, rather than returning
+   * it as a current market. */
+  async allMarkets(): Promise<Array<{ publicKey: PublicKey; account: Market }>> {
+    const markets = await this.allProgramAccounts<Market>("market");
+    for (const { account } of markets) {
+      assertCurrentMarketLayout(account);
+    }
+    return markets;
   }
 
   allBorrowPositions() {

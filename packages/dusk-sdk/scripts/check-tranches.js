@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { RISK_RATE_DEFAULTS, riskCoverageSignalNad } from "../dist/risk-pricing.js";
-import { deriveIncomeEpochAddress, deriveJuniorMintAddress, deriveJuniorExitAddress } from "../dist/constants.js";
+import { deriveIncomeEpochAddress, deriveJuniorMintAddress, deriveJuniorExitAddress, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
 import { PublicKey } from "@solana/web3.js";
 import anchor from "@coral-xyz/anchor";
 import IDL from "../dist/idl_v2.js";
@@ -10,7 +10,7 @@ import { DuskTranches } from "../dist/tranche-client.js";
 test("tranche builders encode a fresh junior amount and a standalone cancellation", async () => {
   const key = byte => new PublicKey(new Uint8Array(32).fill(byte));
   const program = new anchor.Program(IDL, { publicKey: key(1), connection: {}, wallet: { publicKey: key(1) } });
-  program.account.market.fetch = async () => ({ srlpMint: key(2), juniorMint: key(3), baseSide: { assetMint: key(4) }, quoteSide: { assetMint: key(5) } });
+  program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION, srlpMint: key(2), juniorMint: key(3), baseSide: { assetMint: key(4) }, quoteSide: { assetMint: key(5) } });
   const tranches = new DuskTranches(program);
   const request = await tranches.convert({ market: key(6), owner: key(1), action: { kind: "requestExit", juniorAmount: 12_345n } });
   const decoded = program.coder.instruction.decode(request.instructions.at(-1).data);

@@ -5,6 +5,7 @@ import { Keypair } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
+import { MARKET_LAYOUT_VERSION } from "../dist/constants.js";
 
 for (const debtAsset of ["base", "quote"]) for (const tokenProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
   test(`leverage builder funds and pays out ${debtAsset} debt with ${tokenProgram}`, async () => {
@@ -14,7 +15,7 @@ for (const debtAsset of ["base", "quote"]) for (const tokenProgram of [TOKEN_PRO
       return { owner: tokenProgram };
     } };
     const program = new anchor.Program(IDL, { connection, publicKey: owner, wallet: { publicKey: owner } });
-    program.account.market.fetch = async () => ({
+    program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,
       baseHlpVault: { hlpSupply: 0n, residualExposure: 0n },
       quoteHlpVault: { hlpSupply: 0n, residualExposure: 0n },
     });

@@ -14,7 +14,7 @@ import {
 } from "../dist/parameters.js";
 import IDL from "../dist/idl_v2.js";
 import {DuskOperator} from "../dist/operator-client.js";
-import {deriveOperatorProposalAddress,OPERATOR_NOTICE_SLOTS,JUNIOR_MAX_NOTICE_SLOTS} from "../dist/constants.js";
+import {deriveOperatorProposalAddress,OPERATOR_NOTICE_SLOTS,JUNIOR_MAX_NOTICE_SLOTS,MARKET_LAYOUT_VERSION} from "../dist/constants.js";
 import {operatorChangeV0Transaction} from "../dist/market-launch.js";
 const {Program}=anchor;
 const keys = Array.from(
@@ -30,7 +30,7 @@ const provider = {
   publicKey: keys[0],
 };
 const program = new Program(IDL, provider);
-program.account.market.fetch = async () => ({
+program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,
   srlpMint: keys[2],
   juniorMint: keys[9],
   baseSide: { assetMint: keys[3] },
@@ -234,7 +234,7 @@ assert.throws(()=>centerControllerParameterUpdate({adjustmentStepNad:0}));
 
 const operatorState={authority:keys[0],manager:PublicKey.default,pendingAuthor:PublicKey.default,epoch:new anchor.BN(7),nextNonce:new anchor.BN(9),pending:PublicKey.default,
   revenueRecipient:keys[0],interestShareBps:0};
-program.account.market.fetch=async()=>({operator:operatorState});
+program.account.market.fetch=async()=>({ version: MARKET_LAYOUT_VERSION,operator:operatorState});
 const client=new DuskOperator(program);
 const announced=await client.announce({market:keys[1],payer:keys[0],operator:keys[7],metadata:verifiedMetadata,
   updates:canonical,nextManager:keys[6],revenueRecipient:keys[9],interestShareBps:5_000});

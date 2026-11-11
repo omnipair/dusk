@@ -3,6 +3,7 @@ import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { address, type AddressLike } from "./address.js";
 import { leverageActionMetrics } from "./leverage-actions.js";
 import { getStoredLeverageMargins } from "./leverage-margins.js";
+import { assertCurrentMarketLayout } from "./market-layout.js";
 import { simulatePreviewWithContext, type PreviewSimulationOptions } from "./simulation.js";
 import type { LeveragePosition, Market } from "./type-aliases.js";
 import type { Dusk } from "./types_v2.js";
@@ -20,6 +21,8 @@ export interface PreviewLeverageActionParams extends PreviewSimulationOptions {
  * current interest, mint fees, new admission terms and atomic failure. All
  * returned accounts/events come from the same simulated bank. EMA metrics
  * are explicitly mark valuations, not execution proceeds or liquidation quotes.
+ * A simulated market at any layout other than `MARKET_LAYOUT_VERSION` throws
+ * `DuskUnsupportedMarketLayoutError`.
  */
 export async function previewLeverageAction(program: Program<Dusk>, params: PreviewLeverageActionParams) {
   const marketKey = address(params.market), positionKey = address(params.leveragePosition);
@@ -28,7 +31,9 @@ export async function previewLeverageAction(program: Program<Dusk>, params: Prev
   });
   const [marketInfo, positionInfo] = simulation.value.accounts!;
   if (!marketInfo || marketInfo.owner !== program.programId.toBase58()) throw new Error("Missing Dusk market after simulation");
-  const market = program.coder.accounts.decode<Market>("market", Buffer.from(marketInfo.data[0], "base64"));
+  const market = assertCurrentMarketLayout(
+    program.coder.accounts.decode<Market>("market", Buffer.from(marketInfo.data[0], "base64"))
+  );
   let position: LeveragePosition | null = null;
   if (positionInfo && positionInfo.lamports > 0) {
     if (positionInfo.owner !== program.programId.toBase58()) throw new Error("Unexpected simulated position owner");

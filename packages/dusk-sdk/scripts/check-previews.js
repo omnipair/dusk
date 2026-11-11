@@ -11,6 +11,7 @@ import {
 } from "@solana/web3.js";
 
 import { DuskGet, DuskSimulationError } from "../dist/get.js";
+import { MARKET_LAYOUT_VERSION } from "../dist/constants.js";
 
 const payer = new PublicKey(new Uint8Array(32).fill(1));
 const programId = new PublicKey(new Uint8Array(32).fill(2));
@@ -241,7 +242,7 @@ test("hLP capacity helper binds all mints and preserves native status, ceilings 
   const rpcValue = { err: null, logs: [], returnData: null };
   const { connection, calls } = fixture(rpcValue);
   const program = createDuskProgram({ connection, programId });
-  program.account.market.fetch = async () => ({ oracle: {policy: { lambdaBps: 0 }} });
+  program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION, oracle: {policy: { lambdaBps: 0 }} });
   const expected = {
     market: payer, targetAsset: { base: {} }, hlpMint: targetHlpMint,
     slot: new anchor.BN(123), epoch: new anchor.BN(9), status: { ready: {} },

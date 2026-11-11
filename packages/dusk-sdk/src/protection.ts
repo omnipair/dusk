@@ -14,6 +14,7 @@ import { integerBN } from "./parameters.js";
 import { DuskWrite, type RawAmount } from "./write.js";
 import { createDuskProgram } from "./program.js";
 import { oracleReadAccounts } from "./oracle.js";
+import { assertCurrentMarketLayout } from "./market-layout.js";
 
 export const PROTECTION_ACTION = { borrowRepay: 0, borrowCollateral: 1, leverageRepay: 2 } as const;
 
@@ -61,7 +62,7 @@ export class DuskProtectionOrders {
 
   private async oracleAccounts(market: PublicKey, remaining: AccountMeta[]) {
     const dusk = createDuskProgram({ connection: this.program.provider.connection });
-    const state = await dusk.account.market.fetch(market);
+    const state = assertCurrentMarketLayout(await dusk.account.market.fetch(market));
     const accounts = [...remaining];
     for (const meta of oracleReadAccounts(state.oracle.policy)) {
       if (!accounts.some(account => account.pubkey.equals(meta.pubkey))) accounts.push(meta);

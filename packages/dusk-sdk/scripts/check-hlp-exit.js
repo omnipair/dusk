@@ -5,6 +5,7 @@ import { Keypair, TransactionInstruction } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import IDL from "../dist/idl_v2.js";
 import { DuskHlpLiquidations } from "../dist/hlp-liquidation-client.js";
+import { MARKET_LAYOUT_VERSION } from "../dist/constants.js";
 
 test("a holder can close a terminal hLP vault and burn receipts atomically", async () => {
   const keys = Array.from({ length: 13 }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(i + 1)).publicKey);
@@ -14,7 +15,7 @@ test("a holder can close a terminal hLP vault and burn receipts atomically", asy
     connection: { getAccountInfo: async () => ({ owner: TOKEN_PROGRAM_ID }) },
     wallet: { publicKey: owner }, publicKey: owner,
   });
-  program.account.market.fetch = async () => ({
+  program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,
     amm: { frozenHlpMask: 1 }, srlpMint,
     baseSide: { assetMint: baseMint, reserveVault: baseReserve, interestVault: baseInterest, hlpMint: baseHlpMint },
     quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, interestVault: quoteInterest, hlpMint: quoteHlpMint },

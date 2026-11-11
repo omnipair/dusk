@@ -9,6 +9,7 @@ export * from "./type-aliases.js";
 // Re-export constants and utilities
 export * from "./address.js";
 export * from "./amounts.js";
+export * from "./market-layout.js";
 export * from "./constants.js";
 export { Dusk } from "./dusk.js";
 export type { DuskOptions } from "./dusk.js";

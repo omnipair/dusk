@@ -4,7 +4,7 @@ import anchor from "@coral-xyz/anchor";
 import { Keypair, ComputeBudgetProgram, SystemProgram, AddressLookupTableAccount, TransactionMessage } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, createTransferCheckedInstruction, calculateFee } from "@solana/spl-token";
 import IDL from "../dist/idl_v2.js";
-import { DEFAULT_PROTOCOL_REVENUE_SHARE_BPS } from "../dist/constants.js";
+import { DEFAULT_PROTOCOL_REVENUE_SHARE_BPS, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
 import { DuskLiquidations } from "../dist/liquidation-client.js";
 import { LIQUIDATION_POLICY, liquidationHealth, liquidationIncentives, liquidationFeeAllocation, liquidationLossAllocation, grossLiquidationPayment, deriveLiquidationSessionAddress, deriveLiquidationPaymentAddress } from "../dist/liquidation.js";
 
@@ -64,7 +64,7 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
   const program = new anchor.Program({ ...IDL, address: programId.toBase58() }, {
     connection: { getAccountInfo: async () => ({ owner: TOKEN_PROGRAM_ID }) }, wallet: { publicKey: buyer }, publicKey: buyer,
   });
-  program.account.market.fetch = async () => ({
+  program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,
     baseSide: { assetMint: baseMint, reserveVault: baseReserve, collateralVault: baseCollateral, interestVault: baseInterest },
     quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, collateralVault: quoteCollateral, interestVault: quoteInterest },
   });
