@@ -52,3 +52,36 @@ proptest! {
         assert_matches_reference(value, numerator, denominator);
     }
 }
+
+#[test]
+fn widening_products_match_u128_at_the_edges() {
+    let edges = [0, 1, 2, 0xffff_ffff, 1 << 32, (1 << 63) - 1, 1 << 63, u64::MAX - 1, u64::MAX];
+    for lhs in edges {
+        for rhs in edges {
+            assert_eq!(widening_mul_u64(lhs, rhs), u128::from(lhs) * u128::from(rhs));
+        }
+    }
+}
+
+proptest! {
+    #[test]
+    fn widening_products_match_u128(lhs in any::<u64>(), rhs in any::<u64>()) {
+        prop_assert_eq!(widening_mul_u64(lhs, rhs), u128::from(lhs) * u128::from(rhs));
+    }
+
+    // Narrow operands take the widening comparison; wider ones the u128
+    // products or the continued-fraction loop.
+    #[test]
+    fn ratio_comparisons_match_wide_cross_products(
+        left_numerator in wide(),
+        left_denominator in wide().prop_map(|d| d.max(1)),
+        right_numerator in wide(),
+        right_denominator in wide().prop_map(|d| d.max(1)),
+    ) {
+        prop_assert_eq!(
+            ratio_lte_full_width(left_numerator, left_denominator, right_numerator, right_denominator).unwrap(),
+            U256::from(left_numerator) * U256::from(right_denominator)
+                <= U256::from(right_numerator) * U256::from(left_denominator)
+        );
+    }
+}
