@@ -48,7 +48,7 @@ pub struct BeforeLeverageOrder<'info> {
     )]
     pub order: Box<Account<'info, LeverageOrder>>,
     #[account(
-        constraint = market.version == MARKET_LAYOUT_VERSION @ LeverageDelegateError::InvalidMarketVersion
+        constraint = market.assert_current_version().is_ok() @ LeverageDelegateError::InvalidMarketVersion
     )]
     pub market: Box<Account<'info, Market>>,
     #[account(

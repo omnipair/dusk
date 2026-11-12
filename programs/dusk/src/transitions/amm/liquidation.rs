@@ -4,7 +4,8 @@ use crate::{
     errors::ErrorCode,
     state::*,
     transitions::{
-        amm::{prepare_concentrated_cache_at_depth, PreparedSwap, SwapRequest},
+        amm::{ConcentratedCurveGeometry, PreparedSwap, SwapRequest},
+        flash_liquidation::LiquidationReads,
         liquidity::{prepare_concentrated_hlp_transition_at_current_state, IntegratedCurveState, SwapCashPolicy},
         AmmSwapQuote, HlpRebalanceReceipt, HlpYieldEligibility,
     },
@@ -12,15 +13,22 @@ use crate::{
 use anchor_lang::prelude::*;
 
 impl Market {
-    // Only the oracle price/depth and configured shape define these coordinates.
-    // hLP cash, claims and debt belong to real settlement, never this quote.
+    // Only the EMA price/depth and configured shape define these coordinates,
+    // on the native curve: the EMA already observes any oracle adjustment of
+    // the live market, so the reference never applies the oracle again. hLP
+    // cash, claims and debt belong to real settlement, never this quote.
+    // `scratch` holds the reference; a previous reference is refreshed in place.
+    // The curve's geometry is returned with it, since the reference runtime
+    // memoizes none.
     #[inline(never)]
-    pub(crate) fn ema_liquidation_curve(
+    pub(crate) fn ema_liquidation_curve<'s>(
         &self,
         collateral_asset: MarketAsset,
         current_slot: u64,
-    ) -> Result<(Box<Market>, IntegratedCurveState)> {
-        let risk = self.current_risk_at_slot(current_slot)?;
+        scratch: &'s mut Option<Box<Market>>,
+        reads: &mut LiquidationReads,
+    ) -> Result<(&'s Market, IntegratedCurveState, ConcentratedCurveGeometry)> {
+        let risk = reads.risk_at_slot(self, current_slot)?;
         let collateral_price = self.pessimistic_collateral_price_nad(collateral_asset, &risk, false);
         require_gt!(collateral_price, 0, ErrorCode::InvalidSettlementPrice);
         // The two symmetric EMAs are averaged independently; they are not
@@ -31,11 +39,15 @@ impl Market {
             u64::try_from(u128::from(NAD).pow(2) / u128::from(collateral_price))
                 .map_err(|_| ErrorCode::MarketMathOverflow)?
         };
-        let depth = risk.curve_depth_ema_nad;
-        let cache =
-            prepare_concentrated_cache_at_depth(price, depth, self.config.amm.concentrated_curve_parameters()?)?;
-        let point = cache.center_point_with_geometry(price, cache.geometry()?)?;
-        let mut reference = self.liquidation_scratch();
+        let curve = reads.ema_curve(
+            price,
+            risk.curve_depth_ema_nad,
+            self.config.amm.concentrated_curve_parameters()?,
+        )?;
+        let (cache, point, geometry) = (curve.cache, curve.center, curve.geometry);
+        let reference = self.liquidation_scratch(scratch);
+        reference.oracle.policy.lambda_bps = 0;
+        reference.oracle.runtime = RuntimePricing::default();
         reference.amm.initialized = true;
         reference.amm.center_price_nad = price;
         reference.amm.concentrated_curve_cache = cache;
@@ -52,7 +64,7 @@ impl Market {
             quote_hlp_base_debt: 0,
             ..IntegratedCurveState::default()
         };
-        Ok((reference, state))
+        Ok((&*reference, state, geometry))
     }
 }
 
@@ -60,8 +72,13 @@ impl SwapRequest {
     /// Quote only the synthetic EMA-price, smoothed-depth liquidation curve.
     /// This deliberately avoids constructing the real hLP transition, so an
     /// insolvent hLP vault cannot block pricing its own terminal close.
-    pub(crate) fn quote_ema_liquidation(self, market: &Market) -> Result<AmmSwapQuote> {
-        let (reference, state) = market.ema_liquidation_curve(self.asset_in, self.current_slot)?;
+    pub(crate) fn quote_ema_liquidation(
+        self,
+        market: &Market,
+        scratch: &mut Option<Box<Market>>,
+        reads: &mut LiquidationReads,
+    ) -> Result<AmmSwapQuote> {
+        let (reference, state, _) = market.ema_liquidation_curve(self.asset_in, self.current_slot, scratch, reads)?;
         let preliminary = reference.preliminary_swap_inputs_at_reference_price(
             self.asset_in,
             self.reserve_credit,
@@ -84,10 +101,21 @@ impl SwapRequest {
 
     // This is an inventory settlement. Its virtual hLP endpoint/cache must
     // never be applied to the real pool. PreparedSwap enforces that distinction.
-    pub(crate) fn prepare_ema_liquidation(self, market: &mut Market) -> Result<Box<PreparedSwap>> {
+    pub(crate) fn prepare_ema_liquidation(
+        self,
+        market: &mut Market,
+        scratch: &mut Option<Box<Market>>,
+        reads: &mut LiquidationReads,
+    ) -> Result<Box<PreparedSwap>> {
+        // A kept reference must not share the income books while the market
+        // accrues: copy-on-write would allocate a second set on the SBF heap.
+        if let Some(reference) = scratch.as_mut() {
+            reference.income = LazyIncomeBooks::default();
+        }
         market.accrue_interest_to_slot(self.current_slot)?;
         market.prepare_amm_for_swap(self.current_slot)?;
-        let quote = self.quote_ema_liquidation(market)?;
+        reads.market_changed();
+        let quote = self.quote_ema_liquidation(market, scratch, reads)?;
         let eligibility = HlpYieldEligibility {
             srlp_supply: market.base_side.shares.srlp_supply,
             base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,

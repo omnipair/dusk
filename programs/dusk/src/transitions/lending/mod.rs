@@ -5,8 +5,7 @@ mod preview;
 
 pub use debt::*;
 pub use liquidation::*;
-#[cfg(test)]
-pub(crate) use preview::NewPositionPreviewContext;
+
 pub(crate) use preview::SidePrices;
 
 use anchor_lang::prelude::*;
@@ -21,6 +20,21 @@ use crate::{
         LeverageCollateralFee,
     },
 };
+
+/// Raw atoms of a normalized amount, saturating at `u64::MAX`. Each caller
+/// bounds the result by a raw amount at once, which a saturated value never
+/// undercuts, so a value too large for a token account yields that bound
+/// instead of a revert.
+fn saturating_raw_atoms(market: &Market, amount: u128, asset_decimals: u8) -> Result<u64> {
+    match market.denormalize_amount_floor(amount, asset_decimals) {
+        Err(anchor_lang::error::Error::AnchorError(detail))
+            if detail.error_code_number == u32::from(ErrorCode::MarketMathOverflow) =>
+        {
+            Ok(u64::MAX)
+        }
+        result => result,
+    }
+}
 
 /// Stored health contributions are gross collateral units. A mint fee turns
 /// them into less exit value, so every read that underwrites debt discounts
@@ -263,8 +277,13 @@ impl Market {
     }
 
     pub fn current_risk(&self) -> Result<Risk> {
-        let current_slot = Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot);
-        self.current_risk_at_slot(current_slot)
+        self.current_risk_at_slot(self.current_risk_slot())
+    }
+
+    /// The slot `current_risk` observes: the clock's, or the last update
+    /// where no clock exists.
+    pub(crate) fn current_risk_slot(&self) -> u64 {
+        Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot)
     }
 
     pub(crate) fn current_risk_at_slot(&self, current_slot: u64) -> Result<Risk> {
@@ -610,28 +629,13 @@ impl Market {
         if price_nad == 0 {
             return Ok(0);
         }
-        let collateral_cap_nad = value_cap_nad
-            .checked_mul(NAD as u128)
-            .and_then(|value| value.checked_div(price_nad))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        // A cap beyond u128 or beyond a token account cannot bind the
+        // position's own collateral, so it saturates instead of reverting the
+        // deposit, repayment or withdrawal that recomputes it.
+        let collateral_cap_nad = mul_div_u128(value_cap_nad, NAD as u128, price_nad).unwrap_or(u128::MAX);
         let collateral_cap =
-            self.denormalize_amount_floor(collateral_cap_nad, self.side(collateral_asset).asset_decimals)?;
+            saturating_raw_atoms(self, collateral_cap_nad, self.side(collateral_asset).asset_decimals)?;
         Ok(total_collateral.min(collateral_cap))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn is_position_liquidatable_with_risk(
-        &self,
-        borrow_position: &BorrowPosition,
-        debt_asset: MarketAsset,
-        risk: &Risk,
-    ) -> Result<bool> {
-        self.is_position_liquidatable_with_risk_and_credit(
-            borrow_position,
-            debt_asset,
-            borrow_position.collateral(debt_asset.opposite()),
-            risk,
-        )
     }
 
     pub(crate) fn is_position_liquidatable_with_risk_and_credit(
@@ -667,13 +671,6 @@ impl Market {
             >= collateral_value_nad.saturating_mul(liquidation_cf_bps as u128))
     }
 
-    /// Liquidation capacity divided by debt, in basis points, for protection
-    /// orders. Uses the same linear collateral valuation as borrow liquidation.
-    /// Debt-free sides return u64::MAX. Call update before observing this value.
-    pub fn borrow_protection_health_bps(&self, position: &BorrowPosition, asset: MarketAsset) -> Result<u64> {
-        self.borrow_protection_health_bps_with_credit(position, asset, position.collateral(asset.opposite()))
-    }
-
     /// Protection orders must value the amount a collateral transfer can
     /// actually deliver under the mint's current transfer-fee schedule.
     pub fn borrow_protection_health_bps_with_credit(
@@ -702,15 +699,6 @@ impl Market {
             .checked_mul(position.liquidation_cf_bps(asset) as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         Ok((capacity / debt_nad).min(u64::MAX as u128) as u64)
-    }
-
-    pub fn is_position_liquidatable(&self, borrow_position: &BorrowPosition, debt_asset: MarketAsset) -> Result<bool> {
-        self.is_position_liquidatable_with_risk_and_credit(
-            borrow_position,
-            debt_asset,
-            borrow_position.collateral(debt_asset.opposite()),
-            &self.current_risk()?,
-        )
     }
 
     pub fn is_position_liquidatable_with_credit(
@@ -806,26 +794,6 @@ impl Market {
             .map(|quote| quote.amount_out)
     }
 
-    #[cfg(test)]
-    pub(crate) fn liquidation_collateral_value_nad(
-        &self,
-        collateral_asset: MarketAsset,
-        collateral_amount: u64,
-        risk: &Risk,
-    ) -> Result<u128> {
-        if collateral_amount == 0 {
-            return Ok(0);
-        }
-        let collateral_amount_nad =
-            self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
-        let (geometry, point, direction) = self
-            .pessimistic_concentrated_curve(collateral_asset, risk, false)?
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        geometry
-            .quote_exact_in(point, collateral_amount_nad, direction)
-            .map(|quote| quote.amount_out)
-    }
-
     /// Liquidatability is a linear collateral test at the symmetric EMA.
     /// Depth and trade slippage belong to execution pricing, not the trigger.
     pub(crate) fn linear_liquidation_collateral_value_nad(
@@ -838,10 +806,7 @@ impl Market {
             self.normalize_amount(collateral_amount as u128, self.side(collateral_asset).asset_decimals)?;
         let price_nad = self.pessimistic_collateral_price_nad(collateral_asset, risk, false);
         require!(price_nad > 0, ErrorCode::InvalidSettlementPrice);
-        collateral_amount_nad
-            .checked_mul(price_nad as u128)
-            .and_then(|value| value.checked_div(NAD as u128))
-            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+        mul_div_u128(collateral_amount_nad, price_nad as u128, NAD as u128)
     }
 
     fn global_side_health(
@@ -904,9 +869,18 @@ impl Market {
                 ConcentratedCurveDirection::QuoteToBase,
             ),
         };
-        let required_collateral_nad = geometry
-            .quote_exact_out(point, projected_total_debt_nad, direction)?
-            .amount_in;
+        let required_collateral_nad = match geometry.quote_exact_out(point, projected_total_debt_nad, direction) {
+            Ok(quote) => quote.amount_in,
+            // Within a sliver of the debt reserve the required collateral no
+            // longer fits u128. Health there is zero, as at the reserve.
+            Err(anchor_lang::error::Error::AnchorError(detail))
+                if detail.error_code_number == u32::from(ErrorCode::OutputAmountOverflow)
+                    || detail.error_code_number == u32::from(ErrorCode::MarketMathOverflow) =>
+            {
+                return Ok((existing_total_debt_nad, 0));
+            }
+            Err(error) => return Err(error),
+        };
         let stored_contribution_nad = self.normalize_amount(
             aggregate_contribution as u128,
             self.side(collateral_asset).asset_decimals,
@@ -919,10 +893,8 @@ impl Market {
         let current_contribution_cap_nad = if collateral_price_nad == 0 {
             0
         } else {
-            contribution_value_cap_nad
-                .checked_mul(NAD as u128)
-                .and_then(|value| value.checked_div(collateral_price_nad))
-                .ok_or(ErrorCode::MarketMathOverflow)?
+            // A cap beyond u128 cannot bind the stored contribution below.
+            mul_div_u128(contribution_value_cap_nad, NAD as u128, collateral_price_nad).unwrap_or(u128::MAX)
         };
         // A contribution is capped both when it is recorded and when it is
         // consumed, so collateral appreciation cannot stale the 150% bound.
@@ -940,13 +912,7 @@ impl Market {
         let effective_existing_debt_nad = if required_collateral_nad >= contribution_nad {
             existing_total_debt_nad
         } else {
-            ceil_div(
-                existing_total_debt_nad
-                    .checked_mul(required_collateral_nad)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-                contribution_nad,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?
+            mul_div_ceil_u128(existing_total_debt_nad, required_collateral_nad, contribution_nad)?
         };
         Ok((effective_existing_debt_nad, market_health_bps))
     }
@@ -985,10 +951,12 @@ impl Market {
 
     pub(crate) fn pessimistic_borrow_reserve_depths(&self, risk: &Risk) -> Result<(u64, u64)> {
         let (base_nad, quote_nad) = self.pessimistic_virtual_reserves_nad(MarketAsset::Base, risk, true)?;
+        // A virtual reserve at a mark far from spot can exceed any token
+        // account; the actual curve reserve bounds each depth.
         Ok((
-            self.denormalize_amount_floor(base_nad, self.base_side.asset_decimals)?
+            saturating_raw_atoms(self, base_nad, self.base_side.asset_decimals)?
                 .min(self.curve_reserve(MarketAsset::Base)?),
-            self.denormalize_amount_floor(quote_nad, self.quote_side.asset_decimals)?
+            saturating_raw_atoms(self, quote_nad, self.quote_side.asset_decimals)?
                 .min(self.curve_reserve(MarketAsset::Quote)?),
         ))
     }
@@ -1364,20 +1332,6 @@ impl Market {
         Ok(())
     }
 
-    pub fn deposit_collateral(
-        &mut self,
-        borrow_position: &mut BorrowPosition,
-        market_asset: MarketAsset,
-        collateral_credit: u64,
-    ) -> Result<CollateralReceipt> {
-        self.deposit_collateral_with_fee(
-            borrow_position,
-            market_asset,
-            collateral_credit,
-            LeverageCollateralFee::default(),
-        )
-    }
-
     pub fn deposit_collateral_with_fee(
         &mut self,
         borrow_position: &mut BorrowPosition,
@@ -1727,21 +1681,6 @@ impl Market {
         }
     }
 
-    pub fn repay(
-        &mut self,
-        borrow_position: &mut BorrowPosition,
-        repay_asset: MarketAsset,
-        repay_credit: u64,
-    ) -> Result<DebtReceipt> {
-        self.repay_with_finalization_and_fee(
-            borrow_position,
-            repay_asset,
-            repay_credit,
-            LeverageCollateralFee::default(),
-            None,
-        )
-    }
-
     /// Native repayment finalizes the curve once, before calculating its final
     /// health contribution. Interest-vault distribution changes only yield
     /// ledgers, so it needs no second curve/risk evaluation.
@@ -1917,3 +1856,6 @@ mod limits_tests {
 mod market_interest_tests {
     include!("../../tests/transitions/lending_interest.rs");
 }
+
+#[cfg(test)]
+include!("../../tests/support/lending.rs");

@@ -12,13 +12,6 @@ impl<'info> ExecuteProtectionOrder<'info> {
         let referral_accrual = self.referral_accrual.as_ref().map(|p| p.to_account_info());
         match self.order.action {
             0 => {
-                use anchor_lang::{
-                    solana_program::{
-                        instruction::{AccountMeta, Instruction},
-                        program::invoke_signed,
-                    },
-                    InstructionData,
-                };
                 let accounts = dusk::cpi::accounts::Repay {
                     market: self.market.to_account_info(),
                     futarchy_authority: self.futarchy_authority.to_account_info(),
@@ -70,27 +63,18 @@ impl<'info> ExecuteProtectionOrder<'info> {
                     accounts.event_authority.clone(),
                     accounts.program.clone(),
                 ];
-                let mut infos = Vec::with_capacity(fixed.len() + remaining.len());
-                infos.extend(fixed);
-                infos.extend_from_slice(remaining);
-                let mut metas = accounts.to_account_metas(None);
-                metas.reserve_exact(remaining.len());
-                metas.extend(remaining.iter().map(|info| AccountMeta {
-                    pubkey: info.key(),
-                    is_signer: info.is_signer,
-                    is_writable: info.is_writable,
-                }));
-                let instruction = Instruction {
-                    program_id: dusk::ID,
-                    accounts: metas,
-                    data: dusk::instruction::Repay {
+                invoke_dusk_with_remaining(
+                    &fixed,
+                    accounts.to_account_metas(None),
+                    remaining,
+                    dusk::instruction::Repay {
                         args: dusk::instructions::RepayArgs {
                             repay_amount: amount,
                         },
                     }
                     .data(),
-                };
-                invoke_signed(&instruction, &infos, &[]).map_err(Into::into)
+                    &[],
+                )
             }
             1 => dusk::cpi::donate_collateral(
                 CpiContext::new(

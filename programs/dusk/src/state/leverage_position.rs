@@ -133,12 +133,7 @@ impl LeveragePosition {
     }
 
     pub fn require_idle(&self) -> Result<()> {
-        require_keys_eq!(
-            self.active_liquidation_session,
-            Pubkey::default(),
-            ErrorCode::LiquidationSessionActive
-        );
-        Ok(())
+        super::liquidation_session::require_no_active_liquidation_session(self.active_liquidation_session)
     }
 
     pub fn credit_collateral(&mut self, amount: u64) -> Result<()> {

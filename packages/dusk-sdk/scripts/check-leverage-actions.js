@@ -8,6 +8,8 @@ import { DuskWrite } from "../dist/write.js";
 import { leverageActionMetrics, leverageRepaymentQuote, leverageCloseSlice, leverageClosePercentage,
   planLeverageIncrease, planLeverageDecrease, planLeverageRepayAll } from "../dist/leverage-actions.js";
 import { previewLeverageAction } from "../dist/leverage-preview.js";
+import { MARKET_LAYOUT_VERSION } from "../dist/constants.js";
+import { DuskUnsupportedMarketLayoutError } from "../dist/market-layout.js";
 
 const state = { collateralAmount: 600n, collateralValue: 600n, debtAmount: 400n };
 const quote = async input => input;
@@ -82,7 +84,7 @@ test("decrease-size target preserves equity while an owner partial close pays it
 test("SDK builders encode owner partial closes, net-risk funding and guarded refunds", async () => {
   const [market, owner, positionId, debtMint, collateralMint, ownerDebtAccount] = Array.from({ length: 6 }, () => Keypair.generate().publicKey);
   const program = new anchor.Program(IDL, { connection: {}, publicKey: owner, wallet: { publicKey: owner } });
-  program.account.market.fetch = async () => ({ baseHlpVault: { hlpSupply: 0n, residualExposure: 0n }, quoteHlpVault: { hlpSupply: 0n, residualExposure: 0n } });
+  program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION, baseHlpVault: { hlpSupply: 0n, residualExposure: 0n }, quoteHlpVault: { hlpSupply: 0n, residualExposure: 0n } });
   const write = new DuskWrite(program);
   const common = { market, positionOwner: owner, positionId, debtMint, collateralMint, debtAsset: "quote", ownerDebtAccount };
   const decode = ix => program.coder.instruction.decode(ix.data);
@@ -106,7 +108,8 @@ test("SDK builders encode owner partial closes, net-risk funding and guarded ref
 
 test("actual-action preview reads one bank and reports net wallet flow from CPI events", async () => {
   const [programId, marketKey, positionKey, owner, mint, otherMint] = Array.from({ length: 6 }, () => Keypair.generate().publicKey);
-  const market = { baseSide: { assetMint: otherMint, assetDecimals: 6 }, quoteSide: { assetMint: mint, assetDecimals: 6 },
+  const market = { version: MARKET_LAYOUT_VERSION,
+    baseSide: { assetMint: otherMint, assetDecimals: 6 }, quoteSide: { assetMint: mint, assetDecimals: 6 },
     risk: { basePriceEmaNad: 1_000_000_000n }, debt: { quoteBorrowIndexNad: 1_000_000_000n } };
   const position = { market: marketKey, debtAsset: 1, collateralAmount: 900n, debtShares: 600n,
     marginTerms: { referenceCollateral: 100_000n, admissionEquityCollateralNad: 0n,
@@ -133,4 +136,11 @@ test("actual-action preview reads one bank and reports net wallet flow from CPI 
   assert.deepEqual(preview.walletFlows, [{ mint, debit: 100n, credit: 0n }]);
   includeEvents = false;
   await assert.rejects(previewLeverageAction(program, args), /CPI events/);
+  // A simulated market at any other layout is rejected, not returned.
+  includeEvents = true;
+  for (const version of [0, MARKET_LAYOUT_VERSION - 1, MARKET_LAYOUT_VERSION + 1, 255]) {
+    market.version = version;
+    await assert.rejects(previewLeverageAction(program, args), (error) =>
+      error instanceof DuskUnsupportedMarketLayoutError && error.version === version);
+  }
 });

@@ -1,20 +1,8 @@
 //! Interest fee amounts are frozen on accrual, while the current recipient earns
 //! operator cash on collection. Former recipients retain collected cash only.
-use crate::{constants::BPS_DENOMINATOR, errors::ErrorCode, math::mul_div_u128};
+use crate::{constants::BPS_DENOMINATOR, errors::ErrorCode, math::mul_div_u128, state::InterestRevenueBook};
 use anchor_lang::prelude::*;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct InterestRevenueBook {
-    pub gross_unpaid: u64,
-    pub protocol_unpaid: u64,
-    pub operator_unpaid: u64,
-    pub pending_gross: u64,
-    pub pending_protocol_gross: u64,
-    pub operator_claimable: u64,
-    pub protocol_fraction_q64: u64,
-    pub operator_fraction_q64: u64,
-    pub protocol_cash_fraction_q64: u64,
-}
 impl Space for Box<InterestRevenueBook> {
     const INIT_SPACE: usize = InterestRevenueBook::INIT_SPACE;
 }

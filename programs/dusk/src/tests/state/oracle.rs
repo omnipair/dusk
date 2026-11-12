@@ -8,7 +8,7 @@ impl FeedAccount {
 }
 fn clock()->Clock {Clock {slot:100,unix_timestamp:1000,..Clock::default()}}
 fn normalized()->(super::super::Market,NormalizedOracleV1,FeedAccount) {
-    let mut market=super::super::Market::default();
+    let mut market=super::super::Market::current_layout();
     market.base_side.asset_mint=Pubkey::new_unique();market.quote_side.asset_mint=Pubkey::new_unique();
     let provider=Pubkey::new_unique();let account=Pubkey::new_unique();
     market.oracle.policy=OraclePolicy{format:NORMALIZED_ORACLE_V1,provider,base_account:account,
@@ -281,7 +281,8 @@ fn normalized_ratio_authenticates_both_assets_denomination_and_uncertainty() {
 
 #[test]
 fn runtime_shape_reconfiguration_preserves_outstanding_quotes_and_reuses_exclusive_workspaces() {
-    use crate::transitions::amm::{ConcentratedCurveParameters, ConcentratedCurvePoint};
+    use crate::state::ConcentratedCurveParameters;
+    use crate::transitions::amm::ConcentratedCurvePoint;
     let (_, feed, _) = normalized();
     let policy = OraclePolicy { lambda_bps: 2500, adjustment_cap_nad: 2 * NAD, ..Default::default() };
     let runtime = RuntimePricing::bind(policy, OracleObservation { price_nad: feed.price_nad, ..Default::default() });

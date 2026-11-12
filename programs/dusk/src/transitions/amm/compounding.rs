@@ -43,13 +43,13 @@ impl Market {
             // remaining LP allocation using the same indivisible-atom carry.
             carry.allocate(
                 claimable_lp_fee,
-                crate::state::TrancheRevenueSource::SwapFee,
+                crate::transitions::tranches::TrancheRevenueSource::SwapFee,
                 &self.tranches,
                 self.tranche_policy.junior_income_share_bps,
             )?;
             let allocation = carry.allocate(
                 compounded_fee_debit,
-                crate::state::TrancheRevenueSource::SwapFee,
+                crate::transitions::tranches::TrancheRevenueSource::SwapFee,
                 &self.tranches,
                 self.tranche_policy.junior_income_share_bps,
             )?;

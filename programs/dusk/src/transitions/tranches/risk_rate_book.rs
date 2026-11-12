@@ -5,16 +5,9 @@ use crate::{
         borrow_controller::{accrue_risk_rate, RateAccrual, RiskRateInput, RATE_SCALE},
         mul_div_rem_u128, slots_to_ms,
     },
-    state::RiskRateConfig,
+    state::{RiskRateBook, RiskRateConfig, RiskRateSide},
 };
 use anchor_lang::prelude::*;
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
-pub struct RiskRateSide {
-    pub apr_e18: u128,
-    pub borrow_index_nad: u128,
-    pub borrow_index_remainder: u128,
-}
 
 impl RiskRateSide {
     fn apply(&mut self, accrual: RateAccrual) -> Result<()> {
@@ -34,16 +27,6 @@ impl RiskRateSide {
         self.borrow_index_remainder = remainder % denominator;
         Ok(())
     }
-}
-
-/// Both sides accrue from the same pre-operation coverage snapshot. Computing
-/// quote coverage after base accrual would otherwise make asset ordering change
-/// the common debt denominator and therefore the quote-side interest charge.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
-pub struct RiskRateBook {
-    pub config: RiskRateConfig,
-    pub sides: [RiskRateSide; 2],
-    pub last_accrual_slot: u64,
 }
 
 impl RiskRateBook {
@@ -83,27 +66,10 @@ impl RiskRateBook {
         *self = next;
         Ok(results)
     }
-
-    /// The operator handler authenticates the timelocked bundle before calling this.
-    /// Accrue under the old model, then install the new parameters prospectively.
-    /// Changing the creation default never resets an existing market's APR.
-    pub fn replace_config(
-        &mut self,
-        config: RiskRateConfig,
-        inputs: [RiskRateInput; 2],
-        current_slot: u64,
-    ) -> Result<[RateAccrual; 2]> {
-        config.validate()?;
-        require_eq!(
-            config.initial_apr_nad,
-            self.config.initial_apr_nad,
-            ErrorCode::OperatorFieldForbidden
-        );
-        let results = self.accrue(inputs, current_slot)?;
-        self.config = config;
-        Ok(results)
-    }
 }
+
+#[cfg(test)]
+include!("../../tests/support/risk_rate_book.rs");
 
 #[cfg(test)]
 mod tests {

@@ -1,4 +1,8 @@
-use crate::{constants::NAD, math::normalize_to_nad, state::MarketSide};
+use super::*;
+use crate::{
+    constants::{MARKET_LAYOUT_VERSION, MIN_AMOUNT_DECIMALS, NAD},
+    state::MarketSide,
+};
 use proptest::prelude::*;
 
 #[test]
@@ -27,10 +31,15 @@ fn decimal_scale_lookup_matches_exponentiation_and_all_rounding_edges() {
 
 fn market_with_decimals(base: u8, quote: u8) -> Market {
     Market {
+        version: MARKET_LAYOUT_VERSION,
         base_side: Box::new(MarketSide { asset_decimals: base, ..MarketSide::default() }),
         quote_side: Box::new(MarketSide { asset_decimals: quote, ..MarketSide::default() }),
-        ..Market::default()
+        ..Market::current_layout()
     }
+}
+
+fn rejects_layout<T>(result: Result<T>) -> bool {
+    matches!(result, Err(anchor_lang::error::Error::AnchorError(error)) if error.error_name == "InvalidVersion")
 }
 
 #[test]
@@ -55,17 +64,43 @@ fn common_precision_keeps_sub_nad_atoms_and_price_ratios() {
 }
 
 #[test]
-fn existing_market_precision_is_unchanged() {
-    for base in 0..=9 {
-        for quote in 0..=9 {
+fn markets_count_amounts_in_at_least_twelve_decimals() {
+    // Prices stay NAD; only the amount scale has the twelve-decimal minimum.
+    // Markets whose mints already carry twelve or more decimals keep the
+    // mint precision, so the minimum leaves them unchanged.
+    for base in 0..=18 {
+        for quote in 0..=18 {
             let market = market_with_decimals(base, quote);
+            let scale = MIN_AMOUNT_DECIMALS.max(base).max(quote);
+            assert_eq!(market.amount_decimals().unwrap(), scale);
             for decimals in [base, quote] {
                 for amount in [0, 1, 1_001, u128::from(u64::MAX)] {
-                    assert_eq!(market.normalize_amount(amount, decimals).unwrap(), normalize_to_nad(amount, decimals).unwrap());
+                    assert_eq!(
+                        market.normalize_amount(amount, decimals).unwrap(),
+                        amount * 10_u128.pow(u32::from(scale - decimals))
+                    );
                 }
             }
         }
     }
+}
+
+#[test]
+fn markets_at_any_other_layout_are_rejected_before_their_amounts_are_read() {
+    // Earlier layouts share these bytes but stored their amounts at another
+    // scale. Every conversion refuses them instead of reinterpreting them.
+    for version in [0, MARKET_LAYOUT_VERSION - 1, MARKET_LAYOUT_VERSION + 1, u8::MAX] {
+        let mut market = market_with_decimals(9, 6);
+        market.version = version;
+        assert!(rejects_layout(market.assert_current_version()), "{version}");
+        assert!(rejects_layout(market.amount_decimals()), "{version}");
+        assert!(rejects_layout(market.normalize_amount(1, 9)), "{version}");
+        assert!(rejects_layout(market.denormalize_amount_floor(1_000, 9)), "{version}");
+        assert!(rejects_layout(market.denormalize_amount_ceil(1_000, 9)), "{version}");
+    }
+    let market = market_with_decimals(9, 6);
+    market.assert_current_version().unwrap();
+    assert_eq!(market.normalize_amount(1, 9).unwrap(), 1_000);
 }
 
 #[test]

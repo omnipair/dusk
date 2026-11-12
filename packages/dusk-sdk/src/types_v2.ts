@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/dusk.json`.
  */
 export type Dusk = {
-  "address": "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y",
+  "address": "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN",
   "metadata": {
     "name": "dusk",
     "version": "2.0.0",
@@ -4414,44 +4414,6 @@ export type Dusk = {
       "args": []
     },
     {
-      "name": "growYieldAccount",
-      "docs": [
-        "Bring a yield account created before `harvest_authority` existed up",
-        "to the current size. Permissionless: it only appends zeroed bytes and",
-        "the caller pays the rent for them."
-      ],
-      "discriminator": [
-        203,
-        157,
-        168,
-        219,
-        59,
-        246,
-        255,
-        134
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "yieldAccount",
-          "docs": [
-            "read this account, so a typed account here would fail the very case",
-            "this instruction exists to repair."
-          ],
-          "writable": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "harvest",
       "discriminator": [
         228,
@@ -4937,38 +4899,38 @@ export type Dusk = {
               {
                 "kind": "const",
                 "value": [
-                  27,
-                  140,
-                  103,
-                  40,
-                  179,
-                  146,
-                  173,
-                  228,
+                  224,
+                  71,
+                  254,
+                  44,
+                  127,
+                  224,
+                  153,
+                  12,
+                  251,
+                  165,
+                  18,
+                  48,
+                  149,
+                  182,
+                  13,
+                  95,
+                  16,
+                  242,
+                  38,
+                  225,
+                  170,
+                  252,
+                  122,
+                  128,
                   120,
-                  103,
-                  179,
-                  163,
-                  81,
-                  3,
-                  120,
-                  212,
-                  102,
-                  133,
-                  17,
-                  2,
-                  205,
-                  112,
-                  223,
-                  222,
-                  105,
-                  126,
-                  70,
-                  187,
-                  100,
-                  82,
-                  112,
-                  33
+                  50,
+                  26,
+                  28,
+                  104,
+                  117,
+                  64,
+                  179
                 ]
               }
             ],
@@ -13200,6 +13162,16 @@ export type Dusk = {
       "code": 6146,
       "name": "launchSettingsImmutable",
       "msg": "Launch-only settings are immutable after the market starts"
+    },
+    {
+      "code": 6147,
+      "name": "curveTailShareBelowMinimum",
+      "msg": "Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or widen the core or fade"
+    },
+    {
+      "code": 6148,
+      "name": "concentratedSwapFeeBelowMinimum",
+      "msg": "Concentrated curves require a base swap fee of at least 1 bps"
     }
   ],
   "types": [
@@ -18644,9 +18616,9 @@ export type Dusk = {
     {
       "name": "lpTransferred",
       "docs": [
-        "One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints",
-        "whose extra-account list includes the event authority and Dusk program",
-        "publish it; mints initialized before that layout transfer without it."
+        "One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Every LP",
+        "mint's extra-account list includes the event authority and Dusk program,",
+        "so every LP transfer publishes it."
       ],
       "type": {
         "kind": "struct",
@@ -18702,10 +18674,11 @@ export type Dusk = {
       "docs": [
         "Token amounts stored in reserves, positions, and shares are raw atoms.",
         "Internal curve quantities, risk depths, hLP NAV/exposure, and normalized",
-        "debt/collateral values use `max(9, base_side.asset_decimals,",
-        "quote_side.asset_decimals)` decimal places, including quantity fields with",
-        "the historical `_nad` suffix. Prices, rates, and per-share ratios always",
-        "retain nine-decimal NAD scaling. The quantity scale is immutable per market."
+        "debt/collateral values use `max(MIN_AMOUNT_DECIMALS, base_side.asset_decimals,",
+        "quote_side.asset_decimals)` decimal places, twelve or more, including",
+        "quantity fields with the historical `_nad` suffix. Prices, rates, and",
+        "per-share ratios always retain nine-decimal NAD scaling. The quantity scale",
+        "is immutable per market."
       ],
       "type": {
         "kind": "struct",
@@ -22680,8 +22653,8 @@ export type Dusk = {
           {
             "name": "lowerRangePriceNad",
             "docs": [
-              "Concentrated range metadata. Zeroes denote the legacy curve during the",
-              "temporary caller migration."
+              "Concentrated range metadata. Zeroes mean the curve has no concentrated",
+              "ranges: a CPMM curve, or an AMM that is not yet initialized."
             ],
             "type": "u64"
           },
@@ -23618,14 +23591,16 @@ export type Dusk = {
     {
       "name": "marketLayoutVersion",
       "docs": [
-        "Serialized `Market` account layout discriminator.",
+        "Serialized `Market` account layout discriminator, and the only layout the",
+        "program reads. An account at any other layout is rejected before any of",
+        "its quantities are read, never reinterpreted.",
         "",
-        "Layout 14 replaces the former utilization admission threshold with",
-        "independent lower/upper utilization rate targets. Aggregate virtual",
-        "reserves use u128; physical token amounts remain u64."
+        "This layout counts token amounts in at least `MIN_AMOUNT_DECIMALS`",
+        "decimals and sets independent lower/upper utilization rate targets.",
+        "Aggregate virtual reserves use u128; physical token amounts remain u64."
       ],
       "type": "u8",
-      "value": "14"
+      "value": "15"
     },
     {
       "name": "marketReserveVaultSeedPrefix",
@@ -23686,9 +23661,31 @@ export type Dusk = {
       "value": "10000000"
     },
     {
+      "name": "minAmountDecimals",
+      "docs": [
+        "Fewest decimals a market counts token amounts in. A market's amount scale",
+        "is the largest of this, its base decimals and its quote decimals. Three",
+        "decimals beyond NAD give each atom of a nine-decimal token 1,000 internal",
+        "units, so payouts, which floor to whole atoms, absorb the few units of",
+        "rounding that rebuilding a concentrated curve from reserves can leave.",
+        "Prices, rates and ratios remain NAD."
+      ],
+      "type": "u8",
+      "value": "12"
+    },
+    {
       "name": "minBorrowHalfLifeMs",
       "type": "u64",
       "value": "43200000"
+    },
+    {
+      "name": "minConcentratedSwapFeeBps",
+      "docs": [
+        "Minimum base swap fee of a concentrated curve. It exceeds the round-trip",
+        "excess that curve reconstruction can leave at the minimum tail share."
+      ],
+      "type": "u16",
+      "value": "1"
     },
     {
       "name": "minConcentrationRampSlots",

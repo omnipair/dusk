@@ -1,5 +1,12 @@
 use crate::{constants::*, errors::LeverageDelegateError, state::ProtectionOrder, token::*};
-use anchor_lang::prelude::*;
+use anchor_lang::{
+    prelude::*,
+    solana_program::{
+        instruction::{AccountMeta, Instruction},
+        program::invoke_signed,
+    },
+    InstructionData,
+};
 use anchor_spl::{
     token::Token,
     token_2022::Token2022,
@@ -18,12 +25,42 @@ mod create;
 mod execute;
 mod manage;
 mod payment;
-mod preview;
 mod redeem;
 pub use create::*;
 pub use execute::*;
 pub use manage::*;
-pub use preview::*;
+
+/// Invoke Dusk with one exact-sized account buffer and an unchanged dynamic
+/// suffix. Composite protection routes otherwise allocate the same metadata
+/// and account-info vectors independently for repayment and hLP redemption.
+#[inline(never)]
+pub(super) fn invoke_dusk_with_remaining<'info>(
+    fixed: &[AccountInfo<'info>],
+    mut metas: Vec<AccountMeta>,
+    remaining: &[AccountInfo<'info>],
+    data: Vec<u8>,
+    signer: &[&[&[u8]]],
+) -> Result<()> {
+    let mut infos = Vec::with_capacity(fixed.len() + remaining.len());
+    infos.extend_from_slice(fixed);
+    infos.extend_from_slice(remaining);
+    metas.reserve_exact(remaining.len());
+    metas.extend(remaining.iter().map(|info| AccountMeta {
+        pubkey: info.key(),
+        is_signer: info.is_signer,
+        is_writable: info.is_writable,
+    }));
+    invoke_signed(
+        &Instruction {
+            program_id: dusk::ID,
+            accounts: metas,
+            data,
+        },
+        &infos,
+        signer,
+    )
+    .map_err(Into::into)
+}
 
 /// Repay borrow debt, add its opposite collateral, or repay leverage debt.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

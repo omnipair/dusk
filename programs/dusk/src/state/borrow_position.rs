@@ -2,12 +2,177 @@ use anchor_lang::prelude::*;
 
 use crate::state::market::{Debt, MarketAsset};
 use crate::{
-    constants::{BPS_DENOMINATOR, LIQUIDATION_AUCTION_DURATION_SECONDS},
+    constants::{BPS_DENOMINATOR, DEFAULT_PROTOCOL_REVENUE_SHARE_BPS},
     errors::ErrorCode,
-    math::arithmetic::mul_div_ceil_u128,
 };
 
-const LIQUIDATION_RESERVATION_FEE_BPS: u128 = 20;
+pub const LIQUIDATION_MINIMUM_DISCOUNT_BPS: u16 = 50;
+pub const LIQUIDATION_RECOVERY_BUFFER_BPS: u16 = 200;
+pub use crate::constants::LIQUIDATION_FEE_BPS;
+pub const LIQUIDATION_PROTOCOL_SHARE_BPS: u16 = DEFAULT_PROTOCOL_REVENUE_SHARE_BPS;
+
+/// Linear symmetric-EMA collateral value and actual indexed debt, both in debt
+/// token atoms. Execution prices never determine reference eligibility.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct LiquidationHealth {
+    pub collateral_value: u64,
+    pub debt: u64,
+    pub maintenance_bps: u16,
+}
+
+impl LiquidationHealth {
+    pub fn validate(&self) -> Result<()> {
+        require!(
+            self.maintenance_bps > 0 && self.maintenance_bps < BPS_DENOMINATOR,
+            ErrorCode::InvalidMarketConfig
+        );
+        Ok(())
+    }
+
+    pub fn eligible(&self) -> Result<bool> {
+        self.validate()?;
+        Ok(self.debt > 0
+            && (self.debt >= self.collateral_value
+                || u128::from(self.collateral_value - self.debt) * u128::from(BPS_DENOMINATOR)
+                    <= u128::from(self.collateral_value) * u128::from(self.maintenance_bps)))
+    }
+
+    pub fn emergency_allowed(&self) -> Result<bool> {
+        self.validate()?;
+        Ok(self.debt > 0
+            && (self.debt >= self.collateral_value
+                || u128::from(self.collateral_value - self.debt) * u128::from(BPS_DENOMINATOR) * 100
+                    <= u128::from(self.collateral_value) * u128::from(self.maintenance_bps) * 70))
+    }
+
+    /// Fractional progress from maintenance to nonpositive equity, scaled by
+    /// 10,000. Saturation makes an insolvent position immediately reach the cap.
+    pub fn distress_progress_bps(&self) -> Result<u16> {
+        self.validate()?;
+        if self.debt == 0 {
+            return Ok(0);
+        }
+        if self.debt >= self.collateral_value {
+            return Ok(BPS_DENOMINATOR);
+        }
+        let required = u128::from(self.collateral_value) * u128::from(self.maintenance_bps);
+        let equity = u128::from(self.collateral_value - self.debt) * u128::from(BPS_DENOMINATOR);
+        Ok((required.saturating_sub(equity) * u128::from(BPS_DENOMINATOR) / required) as u16)
+    }
+
+    pub fn rates(&self) -> Result<LiquidationRates> {
+        require!(self.eligible()?, ErrorCode::PositionNotLiquidatable);
+        let progress = u64::from(self.distress_progress_bps()?);
+        Ok(LiquidationRates {
+            buyer_discount_bps: LIQUIDATION_MINIMUM_DISCOUNT_BPS + (450 * progress / 10_000) as u16,
+            emergency_reward_bps: (100 * progress / 10_000) as u16,
+        })
+    }
+
+    /// Compare equity minus the surviving position's maintenance requirement.
+    /// Euclidean quotient/remainder comparison preserves fractional improvement
+    /// without a potentially overflowing signed 128-bit triple product.
+    pub fn improves(&self, after: Self) -> Result<bool> {
+        self.validate()?;
+        after.validate()?;
+        if after.debt == 0 {
+            return Ok(true);
+        }
+        if self.collateral_value == 0 || after.collateral_value == 0 {
+            return Ok(false);
+        }
+        if self.maintenance_bps == after.maintenance_bps {
+            return Ok(u128::from(self.debt) * u128::from(after.collateral_value)
+                > u128::from(after.debt) * u128::from(self.collateral_value));
+        }
+        let score = |health: Self| {
+            let value = i128::from(health.collateral_value);
+            let numerator = value * i128::from(BPS_DENOMINATOR - health.maintenance_bps)
+                - i128::from(health.debt) * i128::from(BPS_DENOMINATOR);
+            (numerator.div_euclid(value), numerator.rem_euclid(value) as u128)
+        };
+        let before_score = score(*self);
+        let after_score = score(after);
+        Ok(after_score.0 > before_score.0
+            || (after_score.0 == before_score.0
+                && after_score.1 * u128::from(self.collateral_value)
+                    > before_score.1 * u128::from(after.collateral_value)))
+    }
+
+    pub fn recovered(&self) -> Result<bool> {
+        self.validate()?;
+        if self.debt == 0 {
+            return Ok(true);
+        }
+        if self.debt >= self.collateral_value {
+            return Ok(false);
+        }
+        let target = u32::from(self.maintenance_bps) + u32::from(LIQUIDATION_RECOVERY_BUFFER_BPS);
+        Ok(u128::from(self.collateral_value - self.debt) * 10_000
+            >= u128::from(self.collateral_value) * u128::from(target))
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct LiquidationRates {
+    pub buyer_discount_bps: u16,
+    pub emergency_reward_bps: u16,
+}
+
+/// Whole spendable atoms. Transfer-fee gross-ups are separate from the net fee
+/// obligation. The collected fee is never counted again as debt repayment.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct LiquidationFeeAllocation {
+    pub total: u64,
+    pub protocol: u64,
+    pub junior: u64,
+}
+
+impl LiquidationFeeAllocation {
+    /// A fixed 3% charge, bounded by recovered surplus. The protocol share is
+    /// allocated first; all underwriting revenue belongs to junior capital.
+    pub fn quote(net_repayment: u64, surplus_cap: u64) -> Self {
+        let total = (u128::from(net_repayment) * u128::from(LIQUIDATION_FEE_BPS) / u128::from(BPS_DENOMINATOR))
+            .min(u128::from(surplus_cap)) as u64;
+        let protocol =
+            (u128::from(total) * u128::from(LIQUIDATION_PROTOCOL_SHARE_BPS) / u128::from(BPS_DENOMINATOR)) as u64;
+        Self {
+            total,
+            protocol,
+            junior: total - protocol,
+        }
+    }
+}
+
+/// A completed debt leg. `sale_recovery` is net of the caller reward and actual
+/// transfer costs. Unpaid borrower/leverage interest is canceled.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct LiquidationLossAllocation {
+    pub principal_repaid: u64,
+    pub interest_paid: u64,
+    pub principal_written_off: u64,
+    pub interest_canceled: u64,
+    pub surplus: u64,
+}
+
+impl LiquidationLossAllocation {
+    /// Recovery pays principal first. The remaining funded credit loss is
+    /// allocated to junior and then senior by the market tranche ledger.
+    /// Unpaid borrower interest is canceled, never converted to principal loss.
+    pub fn quote(principal: u64, debt: u64, sale_recovery: u64) -> Result<Self> {
+        require_gte!(debt, principal, ErrorCode::BrokenInvariant);
+        let principal_repaid = principal.min(sale_recovery);
+        let interest = debt - principal;
+        let interest_paid = interest.min(sale_recovery.saturating_sub(principal));
+        Ok(Self {
+            principal_repaid,
+            interest_paid,
+            principal_written_off: principal - principal_repaid,
+            interest_canceled: interest - interest_paid,
+            surplus: sale_recovery.saturating_sub(debt),
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CollateralReceipt {
@@ -110,12 +275,7 @@ impl BorrowPosition {
     }
 
     pub fn require_idle(&self) -> Result<()> {
-        require_keys_eq!(
-            self.active_liquidation_session,
-            Pubkey::default(),
-            ErrorCode::LiquidationSessionActive
-        );
-        Ok(())
+        super::liquidation_session::require_no_active_liquidation_session(self.active_liquidation_session)
     }
 
     pub fn debt_shares(&self, asset: MarketAsset) -> u128 {
@@ -252,89 +412,6 @@ impl BorrowPosition {
         MarketAsset::try_from_code(self.auction_debt_asset).map(Some)
     }
 
-    pub fn assert_liquidation_auction(&self, debt_asset: MarketAsset) -> Result<()> {
-        require!(
-            self.active_liquidation_auction_asset()? == Some(debt_asset),
-            ErrorCode::PositionNotLiquidatable
-        );
-        Ok(())
-    }
-
-    pub fn liquidation_auction_expired(&self, now: i64) -> Result<bool> {
-        require!(
-            self.has_active_liquidation_auction(),
-            ErrorCode::PositionNotLiquidatable
-        );
-        require!(now >= self.auction_start_time, ErrorCode::MarketMathOverflow);
-        Ok(now.saturating_sub(self.auction_start_time) >= LIQUIDATION_AUCTION_DURATION_SECONDS)
-    }
-
-    /// Applies the remaining opening premium to the current liquidation reference.
-    /// The stored start and floor prices define the premium, not a fixed fill quote.
-    pub fn liquidation_auction_price_nad(&self, now: i64, current_reference_price_nad: u64) -> Result<u64> {
-        require!(
-            self.has_active_liquidation_auction(),
-            ErrorCode::PositionNotLiquidatable
-        );
-        require!(now >= self.auction_start_time, ErrorCode::MarketMathOverflow);
-        require!(current_reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-        require!(
-            self.auction_start_price_nad >= self.auction_floor_price_nad && self.auction_floor_price_nad > 0,
-            ErrorCode::BrokenInvariant
-        );
-        let elapsed = now
-            .saturating_sub(self.auction_start_time)
-            .min(LIQUIDATION_AUCTION_DURATION_SECONDS);
-        let remaining = LIQUIDATION_AUCTION_DURATION_SECONDS
-            .checked_sub(elapsed)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let premium = self
-            .auction_start_price_nad
-            .checked_sub(self.auction_floor_price_nad)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let premium_numerator = (premium as u128)
-            .checked_mul(remaining as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let premium_denominator = (self.auction_floor_price_nad as u128)
-            .checked_mul(LIQUIDATION_AUCTION_DURATION_SECONDS as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let remaining_premium = mul_div_ceil_u128(
-            current_reference_price_nad as u128,
-            premium_numerator,
-            premium_denominator,
-        )?;
-        let price = (current_reference_price_nad as u128)
-            .checked_add(remaining_premium)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(price.min(u64::MAX as u128) as u64)
-    }
-
-    /// Adds the fixed LP reservation fee to the current auction quote.
-    pub fn liquidation_auction_bid_price_nad(&self, now: i64, current_reference_price_nad: u64) -> Result<u64> {
-        let price = self.liquidation_auction_price_nad(now, current_reference_price_nad)? as u128;
-        let reservation_fee = price
-            .checked_mul(LIQUIDATION_RESERVATION_FEE_BPS)
-            .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let bid_price = price
-            .checked_add(reservation_fee)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(bid_price.min(u64::MAX as u128) as u64)
-    }
-
-    pub fn start_liquidation_auction(
-        &mut self,
-        debt_asset: MarketAsset,
-        start_time: i64,
-        start_price_nad: u64,
-        floor_price_nad: u64,
-    ) {
-        self.auction_debt_asset = debt_asset.code();
-        self.auction_start_time = start_time;
-        self.auction_start_price_nad = start_price_nad;
-        self.auction_floor_price_nad = floor_price_nad;
-    }
-
     pub fn clear_liquidation_auction(&mut self) {
         self.auction_debt_asset = u8::MAX;
         self.auction_start_time = 0;
@@ -343,32 +420,15 @@ impl BorrowPosition {
     }
 }
 
+#[cfg(any(test, feature = "benchmark"))]
+include!("../../benchmark/analysis/borrow_position_auction.rs");
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    include!("../tests/state/borrow_position.rs");
+}
 
-    #[test]
-    fn empty_position_requires_every_terminal_field_to_be_clear() {
-        let mut position = BorrowPosition::default();
-        position.initialize(Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), 1);
-        assert!(position.is_empty());
-
-        position.base_collateral = 1;
-        assert!(!position.is_empty());
-        position.base_collateral = 0;
-
-        position.fixed_quote_shares = 1;
-        assert!(!position.is_empty());
-        position.fixed_quote_shares = 0;
-
-        position.set_referral_binding(MarketAsset::Quote, Pubkey::new_unique(), 1);
-        assert!(!position.is_empty());
-        position.clear_referral_binding(MarketAsset::Quote);
-
-        position.start_liquidation_auction(MarketAsset::Quote, 1, 2, 1);
-        assert!(!position.is_empty());
-        position.clear_liquidation_auction();
-
-        assert!(position.is_empty());
-    }
+#[cfg(test)]
+mod liquidation_policy_tests {
+    include!("../tests/transitions/liquidation_policy.rs");
 }

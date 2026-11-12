@@ -6,7 +6,7 @@ use crate::{
 
 #[test]
 fn extreme_forward_price_does_not_block_inactive_hlp_checkpoint() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.asset_decimals = 0;
     market.quote_side.asset_decimals = 0;
     market.add_liquidity(1, NAD + 1).unwrap();
@@ -187,7 +187,7 @@ fn final_hlp_exit_drains_both_asset_remainders_to_final_holder() {
     let hlp_mint = Pubkey::new_unique();
     let base_mint = Pubkey::new_unique();
     let quote_mint = Pubkey::new_unique();
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_hlp_vault.unallocated_base_swap_fee_amount = 2;
     market.base_hlp_vault.unallocated_base_interest_amount = 3;
     market.base_hlp_vault.unallocated_quote_swap_fee_amount = 5;

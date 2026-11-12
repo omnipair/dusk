@@ -3,22 +3,8 @@ use anchor_lang::prelude::*;
 use crate::{
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
+    state::TrancheCapital,
 };
-
-/// Junior's portion of the AMM's existing reserve shares. Senior receipts stay
-/// one-for-one with the remaining reserve shares, including hLP-held receipts.
-/// Junior receipts have their own exchange rate after income, losses and fees.
-#[derive(Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-#[cfg_attr(feature = "idl-build", derive(AnchorSerialize, AnchorDeserialize))]
-pub struct TrancheCapital {
-    pub junior_reserve_shares: u64,
-    pub junior_receipt_supply: u64,
-    /// Funded, nonredeemable protocol receipts; included in junior supply.
-    pub permanent_receipts: u64,
-    /// Escrow remains junior until a successful conversion or cancellation.
-    pub queued_receipts: u64,
-    pub generation: u64,
-}
 
 // Fixed Borsh layout, batched to avoid five tiny I/O calls on every swap.
 #[cfg(not(feature = "idl-build"))]

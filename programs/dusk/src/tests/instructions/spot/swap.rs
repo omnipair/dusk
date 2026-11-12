@@ -43,7 +43,7 @@ impl TestAccount {
 fn market_requiring_hlp_swap_accounts() -> Market {
     let mut market = Market {
         srlp_mint: Pubkey::new_unique(),
-        ..Market::default()
+        ..Market::current_layout()
     };
     market.base_hlp_vault.srlp_vault = Pubkey::new_unique();
     market.quote_hlp_vault.srlp_vault = Pubkey::new_unique();
@@ -65,7 +65,7 @@ fn canonical_hlp_swap_accounts(market: &Market) -> Vec<TestAccount> {
 
 #[test]
 fn inactive_hlp_leaves_every_remaining_account_available_to_transfer_hooks() {
-    let market = Market::default();
+    let market = Market::current_layout();
     let hook_key = Pubkey::new_unique();
     let mut accounts = [TestAccount::new(hook_key, Pubkey::new_unique(), false)];
     let infos: Vec<_> = accounts.iter_mut().map(TestAccount::account_info).collect();

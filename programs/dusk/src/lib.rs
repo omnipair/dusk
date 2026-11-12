@@ -3,10 +3,20 @@ use anchor_lang::prelude::*;
 
 pub mod account;
 #[cfg(feature = "benchmark")]
-pub mod benchmark_api;
+/// Off-chain-only access to Dusk's native market transitions.
+///
+/// This module is available only with the non-default `benchmark` feature. It
+/// wraps the same integer state machines used by instruction preview and
+/// execution; it does not provide an alternate economic model.
+pub mod benchmark_api {
+    include!("../benchmark/benchmark_api.rs");
+}
 pub mod constants;
 pub mod errors;
 pub mod events;
+// The program's own allocator; consumers that embed Dusk keep theirs.
+#[cfg(all(feature = "custom-heap", not(feature = "no-entrypoint")))]
+mod heap;
 pub mod instructions;
 pub mod math;
 pub mod oracle;
@@ -33,7 +43,7 @@ security_txt! {
     policy: "https://omnipair.fi/security"
 }
 
-declare_id!("2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y");
+declare_id!("G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN");
 
 #[program]
 pub mod dusk {
@@ -55,7 +65,8 @@ pub mod dusk {
         FundJuniorSeed::handle_fund(ctx)
     }
 
-    pub fn compound_junior_seed(ctx: Context<CompoundJuniorSeed>) -> Result<()> {
+    pub fn compound_junior_seed<'info>(ctx: Context<'_, '_, '_, 'info, CompoundJuniorSeed<'info>>) -> Result<()> {
+        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         CompoundJuniorSeed::handle_compound(ctx)
     }
 
@@ -244,13 +255,6 @@ pub mod dusk {
     #[access_control(ctx.accounts.validate(&args))]
     pub fn set_harvest_authority(ctx: Context<SetHarvestAuthority>, args: SetHarvestAuthorityArgs) -> Result<()> {
         SetHarvestAuthority::handle_set(ctx, args)
-    }
-
-    /// Bring a yield account created before `harvest_authority` existed up
-    /// to the current size. Permissionless: it only appends zeroed bytes and
-    /// the caller pays the rent for them.
-    pub fn grow_yield_account(ctx: Context<GrowYieldAccount>) -> Result<()> {
-        GrowYieldAccount::handle_grow(ctx)
     }
 
     /// Fund accrued public LP interest from available cash, settle both hLP

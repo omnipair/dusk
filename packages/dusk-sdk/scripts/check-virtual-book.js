@@ -18,13 +18,14 @@ import {
   decodeDuskVirtualBookBatch,
   decodePreviewSwapReturnData,
   combineVirtualBookBatches,
+  marketAmountDecimals,
   projectDuskVirtualBook,
   projectDuskVirtualBookCurve,
   virtualCurvePoint,
 } from "../dist/index.js";
 const BN = Reflect.get(anchor, "BN") ?? Reflect.get(anchor, "default").BN;
 const fixture = JSON.parse(
-  readFileSync(new URL("./fixtures/virtual-book-batch-layout14.json", import.meta.url))
+  readFileSync(new URL("./fixtures/virtual-book-batch-layout15.json", import.meta.url))
 );
 // The derived fixture is already encoded with the current account/return schema.
 // Its original network capture remains a separate provenance artifact.
@@ -264,12 +265,15 @@ test("asks use net base received and refuse fabricated positive extra depth", ()
   assert.equal(projectDuskVirtualBook(null), null);
 });
 function curve(concentrated = false) {
+  // Liquidity is a market amount, counted at the twelve-decimal minimum;
+  // square-root prices stay at NAD.
   const NAD = 1_000_000_000n,
-    tail = 100n * NAD;
+    UNIT = 1_000_000_000_000n,
+    tail = 100n * UNIT;
   const layers = concentrated
     ? [
-        { liquidity: 450n * NAD, lower: 950_000_000n, upper: 1_050_000_000n },
-        { liquidity: 450n * NAD, lower: 800_000_000n, upper: 1_200_000_000n },
+        { liquidity: 450n * UNIT, lower: 950_000_000n, upper: 1_050_000_000n },
+        { liquidity: 450n * UNIT, lower: 800_000_000n, upper: 1_200_000_000n },
       ]
     : [];
   const point = virtualCurvePoint(tail, layers, NAD);
@@ -279,7 +283,7 @@ function curve(concentrated = false) {
   snapshot.account.amm.concentratedCurveCache = {
     mathRevision: 1,
     tailLiquidity: new BN(tail.toString()),
-    concentratedLiquidity: new BN((concentrated ? 900n * NAD : 0n).toString()),
+    concentratedLiquidity: new BN((concentrated ? 900n * UNIT : 0n).toString()),
     fadeWidthBps: concentrated ? 1500 : 0,
     coreLowerSqrtPriceNad: new BN(950_000_000),
     coreUpperSqrtPriceNad: new BN(1_050_000_000),
@@ -305,6 +309,25 @@ test("curve matches analytical CPMM and concentration across range boundaries", 
   close(concentrated.asks[49].size, plain.asks[49].size, 1e-7);
   close(concentrated.bids[49].size, plain.bids[49].size, 1e-7);
 });
+test("markets at any other layout are rejected rather than read at the current scale", () => {
+  // Earlier layouts share the account bytes but stored amounts at another
+  // scale, so every reader refuses them instead of reinterpreting them.
+  for (const version of [0, MARKET_LAYOUT_VERSION - 1, MARKET_LAYOUT_VERSION + 1]) {
+    const snapshot = curve(true);
+    snapshot.account.version = version;
+    assert.throws(() => marketAmountDecimals(snapshot.account), /Unsupported Dusk market layout/);
+    assert.throws(() => projectDuskVirtualBookCurve(snapshot, 100, 50), /Unsupported Dusk market layout/);
+    const h = setup(),
+      response = h.response();
+    // The account coder's scratch buffer is smaller than a Market, so the
+    // layout re-encodes the account over its own bytes.
+    const data = Buffer.from(response.value.accounts[0].data[0], "base64");
+    h.dusk.program.coder.accounts.accountLayouts.get("market").layout.encode({ ...h.snapshot.account, version }, data, 8);
+    response.value.accounts[0].data[0] = data.toString("base64");
+    assert.throws(() => h.decode(response), /identity changed/);
+  }
+  assert.equal(marketAmountDecimals(curve().account), 12);
+});
 test("curve caps output cash and rejects incompatible math or reserve state", () => {
   const limited = curve();
   limited.preview.base.cashReserve = new BN(500_000);
@@ -324,10 +347,11 @@ test("curve caps output cash and rejects incompatible math or reserve state", ()
 test("CPMM samples current reserves after accumulated rounding changes the cached invariant", () => {
   const snapshot = curve();
   // Public devnet market 45qXCmfQrDxTDYc1k7Xu65Qo3kYHRYUkYmiCQKLvPBhL,
-  // previewMarket simulation at slot 501310482, captured 2026-09-20.
-  snapshot.account.amm.concentratedCurveCache.tailLiquidity = new BN("1000000004042");
-  snapshot.preview.amm.ordinaryBaseReserveNad = new BN("977147409571");
-  snapshot.preview.amm.ordinaryQuoteReserveNad = new BN("1023397532586");
+  // previewMarket simulation at slot 501310482, captured 2026-09-20. Its curve
+  // amounts are restated at the twelve-decimal minimum; cash stays raw.
+  snapshot.account.amm.concentratedCurveCache.tailLiquidity = new BN("1000000004042000");
+  snapshot.preview.amm.ordinaryBaseReserveNad = new BN("977147409571000");
+  snapshot.preview.amm.ordinaryQuoteReserveNad = new BN("1023397532586000");
   snapshot.preview.base.cashReserve = new BN("1177142099");
   snapshot.account.quoteSide.assetDecimals = 6;
   snapshot.preview.quote.cashReserve = new BN("1232858326");
@@ -344,7 +368,7 @@ test("CPMM samples current reserves after accumulated rounding changes the cache
     close(row.total, base * (1 / Math.sqrt(1 - .001 * (i + 1)) - 1), 2e-6);
     close(row.quoteTotal, quote * (1 - Math.sqrt(1 - .001 * (i + 1))), 2e-6);
   }
-  snapshot.account.amm.concentratedCurveCache.tailLiquidity = new BN("900000000000");
+  snapshot.account.amm.concentratedCurveCache.tailLiquidity = new BN("900000000000000");
   assert.deepEqual(projectDuskVirtualBookCurve(snapshot, 10), value);
 });
 

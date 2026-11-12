@@ -1,4 +1,4 @@
-import type { OraclePolicyInput } from "../packages/dusk-sdk/src/oracle.js";
+import { oracleComputeBudgetInstructions, type OraclePolicyInput } from "../packages/dusk-sdk/src/oracle.js";
 import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -60,6 +60,8 @@ import { expect } from "chai";
 import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
 import {
   DEFAULT_PROTOCOL_REVENUE_SHARE_BPS,
+  MARKET_LAYOUT_VERSION,
+  MIN_AMOUNT_DECIMALS,
   buildLpTransferHookAccountMetas,
   buildLpTransferHookValidationAccountData,
   buildYieldTransferHookValidationAccountData,
@@ -102,7 +104,7 @@ import { DuskWrite } from "../packages/dusk-sdk/src/write.js";
 import { marketCreationLookupTablePlan, marketCreationV0Transaction, operatorChangeV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
 import { grossLiquidationPayment } from "../packages/dusk-sdk/src/liquidation.js";
-import { LiteSVMConnection } from "./utils/litesvm-connection.js";
+import { honorHeapFrameRequests, LiteSVMConnection } from "./utils/litesvm-connection.js";
 import { Metadata } from "@metaplex-foundation/mpl-token-metadata";
 import {
   assertRequiredSwapComputeScenarios,
@@ -116,9 +118,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
-const DUSK_PROGRAM_ID = new PublicKey("2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y");
+const DUSK_PROGRAM_ID = new PublicKey("G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN");
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
-  "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX"
+  "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B"
 );
 const OPERATOR_ADAPTER_PROGRAM_ID = new PublicKey("AJZgAHa6yfsoLbJk3jzqj6dPcnei5Pb7heRMGWrZu1fQ");
 const REFERRAL_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
@@ -142,6 +144,8 @@ const LEVERAGE_DELEGATION_SEED = Buffer.from("leverage_delegation_v2");
 const LEVERAGE_ORDER_SEED = Buffer.from("leverage_order");
 const LEVERAGE_DELEGATE_CLOSE = 1;
 const ORDER_KIND_TAKE_PROFIT = 1;
+// Program minimum base fee of a concentrated curve (`MIN_CONCENTRATED_SWAP_FEE_BPS`).
+const MIN_CONCENTRATED_SWAP_FEE_BPS = 1;
 const FEATURE_PROGRAM_ID = new PublicKey(
   "Feature111111111111111111111111111111111111"
 );
@@ -183,12 +187,12 @@ function createLiteSvm(computeBudget: ComputeBudget): LiteSVM {
       "LiteSVM stricter ABI/runtime constraints must be active for deterministic tests"
     );
   }
-  return svm
+  return honorHeapFrameRequests(svm
     .withFeatureSet(featureSet)
     .withComputeBudget(computeBudget)
     .withBuiltins()
     .withDefaultPrograms()
-    .withPrecompiles();
+    .withPrecompiles(), computeBudget);
 }
 
 function deriveLeverageCollateralVaultAddress(
@@ -300,7 +304,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     computeBudget.computeUnitLimit = LITESVM_COMPUTE_UNIT_LIMIT;
     // Keep LiteSVM's cluster-default 32 KiB heap. A path that needs a larger
     // frame must request it in its transaction so the request and its CU are
-    // visible in the named measurement instead of being granted globally.
+    // visible in the named measurement instead of being granted globally;
+    // `honorHeapFrameRequests` applies each request to its own transaction.
     svm = createLiteSvm(computeBudget);
     svm.warpToSlot(1n);
     const programPath = path.join(__dirname, "../target/deploy/dusk.so");
@@ -1592,7 +1597,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [],
     multiplierBps = 20_000,
     debtAsset = 1,
-    oracleBudget = false
+    oracleBudget = false,
+    referral?: { partner: PublicKey; accrual: PublicKey },
   ) {
     const positionId = Keypair.generate().publicKey;
     const leveragePosition = deriveLeveragePositionAddress(fixture.market, payer.publicKey, positionId)[0];
@@ -1608,7 +1614,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         marginAmount: new BN(marginAmount),
         multiplierBps: new BN(multiplierBps),
         minCollateralOut: new BN(1),
-        referrer: null,
+        referrer: referral ? payer.publicKey : null,
         positionOwner: null,
         limitPriceNad: new BN(0),
       })
@@ -1624,8 +1630,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         collateralReserveVault: debtAsset === 1 ? fixture.baseReserveVault : fixture.quoteReserveVault,
         leverageCollateralVault,
         ownerDebtAccount: debtAsset === 1 ? fixture.ownerQuoteAccount : fixture.ownerBaseAccount,
-        referralPartner: null,
-        referralAccrual: null,
+        referralPartner: referral?.partner ?? null,
+        referralAccrual: referral?.accrual ?? null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -1922,6 +1928,68 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect((await getAccount(connection as any,accounts.ownerQuoteAccount)).amount).to.equal(2_000_000n-quoteCredit);
   });
 
+  it("authenticates permanent-seed compounding on oracle-selected markets", async function () {
+    const oracle = normalizedTestOracle();
+    const f = await addBalancedLiquidity(249, marketConfig(), {
+      baseDeposit: 1_000_000_000,
+      quoteDeposit: 3_000_000_000,
+      minSrlp: 1,
+      baseMint: 2_000_000_000,
+      quoteMint: 4_000_000_000,
+    }, 6, TOKEN_PROGRAM_ID, undefined, async fixture => oracle.publish(fixture), oracle.policy);
+    const sdkProgram = createDuskProgram({ provider: program.provider });
+    const tranches = new DuskTranches(sdkProgram);
+    await connection.sendTransaction((await tranches.initialize({
+      market: f.market,
+      payer: payer.publicKey,
+      metadata: {
+        name: "Base/Quote jrLP",
+        symbol: "jrBA/QU",
+        uri: "https://example.invalid/junior.json",
+      },
+    })).transaction, [payer]);
+
+    const swapAccounts = [...hlpSwapAccounts(f), ...oracle.publish(f)];
+    await swapBaseForQuote(f, swapAccounts, 10_000, 1);
+    await swapQuoteForBase(f, swapAccounts, 30_000, 1);
+    const accrued = await sdkProgram.account.market.fetch(f.market);
+    expect(accrued.baseSide.fees.junior.swapGrowthQ64.gtn(0)).to.equal(true);
+    expect(accrued.quoteSide.fees.junior.swapGrowthQ64.gtn(0)).to.equal(true);
+
+    const prepared = await tranches.compoundSeed({ market: f.market });
+    expect(prepared.instruction.keys.some(meta => meta.pubkey.equals(oracle.key))).to.equal(true);
+    const marketBefore = Buffer.from(svm.getAccount(f.market)!.data);
+    const missing = new TransactionInstruction({
+      ...prepared.instruction,
+      keys: prepared.instruction.keys.filter(meta => !meta.pubkey.equals(oracle.key)),
+    });
+    let error: unknown;
+    try {
+      await connection.sendTransaction(new Transaction().add(
+        ...oracleComputeBudgetInstructions(oracle.policy), missing,
+      ), [payer]);
+    } catch (caught) { error = caught; }
+    expect(String(error)).to.include("OracleAccountMissing");
+    expect(Buffer.from(svm.getAccount(f.market)!.data).equals(marketBefore)).to.equal(true);
+
+    const feed = svm.getAccount(oracle.key)!;
+    const stale = Buffer.from(feed.data);
+    stale.writeBigInt64LE(svm.getClock().unixTimestamp - 61n, 120);
+    svm.setAccount(oracle.key, { ...feed, data: stale });
+    svm.expireBlockhash();
+    error = undefined;
+    try { await connection.sendTransaction(prepared.transaction, [payer]); }
+    catch (caught) { error = caught; }
+    expect(String(error)).to.include("OracleStale");
+    expect(Buffer.from(svm.getAccount(f.market)!.data).equals(marketBefore)).to.equal(true);
+
+    oracle.publish(f);
+    svm.expireBlockhash();
+    await connection.sendTransaction((await tranches.compoundSeed({ market: f.market })).transaction, [payer]);
+    const compounded = await sdkProgram.account.market.fetch(f.market);
+    expect(compounded.tranches.juniorReserveShares.gt(accrued.tranches.juniorReserveShares)).to.equal(true);
+  });
+
   it("seeds from the execution-time report after a reference move, with deposit caps and min-LP protection", async function () {
     const oracle=normalizedTestOracle();
     const fixture=await initializeFinalMarket(205,marketConfig(),oracle.policy);
@@ -2125,7 +2193,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     [6, 6, true, true, true],
   ] as const) {
     it(`preserves ${groupedUi ? "grouped UI-amount" : "high-decimal"} ${baseDecimals}/${quoteDecimals} ${concentrated ? "concentrated" : "CPMM"} liquidity, swaps, and hLP accounting`, async function () {
-      const precision = Math.max(9, baseDecimals, quoteDecimals);
+      const precision = Math.max(MIN_AMOUNT_DECIMALS, baseDecimals, quoteDecimals);
       const baseDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - baseDecimals);
       const quoteDeposit = 1_000_000_000_000_000n / 10n ** BigInt(precision - quoteDecimals);
       const assetProgram = token2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
@@ -2756,6 +2824,84 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const { transaction } = await swapQuoteForBase(fixture, hlpSwapAccounts(fixture));
     await expectSwapMarketState(cpiEvent(transaction, "swapExecuted"), fixture.market);
+  });
+
+  it("previews and seeds small concentrated pools with matching curve validation", async function () {
+    const cases = [
+      // The failing devnet pool uses six-decimal base and nine-decimal quote.
+      { baseDecimals: 6, quoteDecimals: 9, base: 10_000, quote: 100_000_000 },
+      { baseDecimals: 6, quoteDecimals: 9, base: 10_000, quote: 1_000_000 },
+      { baseDecimals: 6, quoteDecimals: 9, base: 100_000, quote: 10_000_000 },
+      { baseDecimals: 9, quoteDecimals: 6, base: 10_000_000, quote: 100_000 },
+      { baseDecimals: 12, quoteDecimals: 9, base: 10_000_000_000, quote: 100_000_000 },
+      // A positive price and LP quote cannot make collapsed boundaries executable.
+      // One atom of a twelve-decimal mint is one internal amount unit.
+      { baseDecimals: 12, quoteDecimals: 12, base: 1, quote: 1_000_000_000, error: "InvalidMarketConfig" },
+      // One atom of a nine-decimal mint spans a thousand units, so the curve no
+      // longer collapses; the pool is rejected for its depth instead.
+      { baseDecimals: 9, quoteDecimals: 9, base: 1, quote: 1_000_000_000, error: "InsufficientLiquidity" },
+      // LP output alone is nonzero, but the initial price rounds to zero.
+      { baseDecimals: 6, quoteDecimals: 9, base: 10_000_000_000, quote: 1_000, error: "InvalidSettlementPrice" },
+    ];
+    for (const [index, testCase] of cases.entries()) {
+      const config = marketConfig();
+      config.amm.peakAmplificationNad = new BN(3_000_000_000);
+      config.amm.coreHalfWidthBps = 250;
+      config.amm.fadeWidthBps = 500;
+      const baseMint = await createMint(connection as any, payer, payer.publicKey, null, testCase.baseDecimals);
+      const quoteMint = await createMint(connection as any, payer, payer.publicKey, null, testCase.quoteDecimals);
+      const fixture = await initializeFinalMarketWithMints(220 + index, baseMint, quoteMint, config,
+        testCase.baseDecimals, {}, testCase.quoteDecimals);
+      const owner = await createOwnerAssetAccounts(fixture, testCase.base * 2, testCase.quote * 2);
+      const accounts = {
+        market: fixture.market, futarchyAuthority, owner: payer.publicKey,
+        baseMint, quoteMint, srlpMint: fixture.srlpMint,
+        baseReserveVault: fixture.baseReserveVault, quoteReserveVault: fixture.quoteReserveVault,
+        ...owner,
+        baseYieldAccount: deriveYieldAccountAddress(fixture.market, payer.publicKey, fixture.srlpMint, baseMint, "srlp")[0],
+        quoteYieldAccount: deriveYieldAccountAddress(fixture.market, payer.publicKey, fixture.srlpMint, quoteMint, "srlp")[0],
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        systemProgram: SystemProgram.programId, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      };
+      const args = { baseDepositAmount: new BN(testCase.base), quoteDepositAmount: new BN(testCase.quote) };
+      const previewTx = () => program.methods.previewAddLiquidity(args)
+        .accounts({ market: fixture.market, baseMint, quoteMint }).transaction();
+      const addTx = (minimum: anchor.BN) => program.methods.addLiquidity({ ...args, minSrlpAmount: minimum })
+        .accounts(accounts).transaction();
+      if (testCase.error) {
+        const before = Buffer.from(svm.getAccount(fixture.market)!.data);
+        for (const tx of [await previewTx(), await addTx(new BN(1))]) {
+          let failure: unknown;
+          try { await connection.sendTransaction(tx, [payer]); } catch (error) { failure = error; }
+          expect(String(failure)).to.include(testCase.error);
+          expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(before)).to.equal(true);
+        }
+        continue;
+      }
+      // Exercise both first and subsequent deposits. A submitted preview
+      // must not persist its hypothetical reserves, shares, or curve state.
+      for (let deposit = 0; deposit < 2; deposit++) {
+        svm.expireBlockhash();
+        const before = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+        const lpBefore = await getAccount(connection as any, owner.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID);
+        const preview = decodePreviewAddLiquidityReturnData(await simulateReturnData(await previewTx())) as any;
+        await connection.sendTransaction(await previewTx(), [payer]);
+        const afterPreview = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+        expect(afterPreview.base_side.reserves.cash_reserve.eq(before.base_side.reserves.cash_reserve)).to.equal(true);
+        expect(afterPreview.quote_side.reserves.cash_reserve.eq(before.quote_side.reserves.cash_reserve)).to.equal(true);
+        expect(afterPreview.base_side.shares.srlp_supply.eq(before.base_side.shares.srlp_supply)).to.equal(true);
+        expect(afterPreview.initial_liquidity_authority.equals(before.initial_liquidity_authority)).to.equal(true);
+        expect(afterPreview.amm.initialized).to.equal(before.amm.initialized);
+        await connection.sendTransaction(await addTx(preview.srlpAmount), [payer]);
+        const after = accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+        const lpAfter = await getAccount(connection as any, owner.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID);
+        expect(lpAfter.amount - lpBefore.amount).to.equal(BigInt(preview.srlpAmount.toString()));
+        expect(after.base_side.reserves.cash_reserve.sub(before.base_side.reserves.cash_reserve).eq(preview.baseReserveCredit)).to.equal(true);
+        expect(after.quote_side.reserves.cash_reserve.sub(before.quote_side.reserves.cash_reserve).eq(preview.quoteReserveCredit)).to.equal(true);
+        expect(after.amm.initialized).to.equal(true);
+        expect(after.risk_revision.eq(after.curve_revision)).to.equal(true);
+      }
+    }
   });
 
   it("adds V1-style limiting-side liquidity with Token-2022 transfer-fee assets", async function () {
@@ -4395,7 +4541,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("measures concentrated transition and shifted-CPMM tail swap paths", async function () {
     const config = marketConfig();
-    config.swapFeeBps = 0;
+    config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -4428,8 +4574,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("retains a concentrated dynamic surcharge as recentering principal on SBF", async function () {
     const config = marketConfig();
-    config.swapFeeBps = 0;
-    config.divergenceFeeShareCapBps = 5_000;
+    config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    config.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -4618,8 +4764,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("executes wide divergence paths with CPMM distribution and concentrated retention", async function () {
     const concentratedConfig = marketConfig();
-    concentratedConfig.swapFeeBps = 0;
-    concentratedConfig.divergenceFeeShareCapBps = 5_000;
+    concentratedConfig.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    concentratedConfig.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
     concentratedConfig.amm.peakAmplificationNad = new BN("4000000000");
     concentratedConfig.amm.coreHalfWidthBps = 100;
     concentratedConfig.amm.fadeWidthBps = 400;
@@ -4660,8 +4806,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     trackV2Instruction("swap", this.test?.title);
 
     const retainedConfig = marketConfig();
-    retainedConfig.swapFeeBps = 0;
-    retainedConfig.divergenceFeeShareCapBps = 5_000;
+    retainedConfig.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    retainedConfig.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
     retainedConfig.amm.peakAmplificationNad = new BN("4000000000");
     retainedConfig.amm.coreHalfWidthBps = 100;
     retainedConfig.amm.fadeWidthBps = 400;
@@ -4704,8 +4850,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   it("keeps hard-capped divergence executable in both fee routes and rolls back an exhausted atom", async function () {
     const configFor = (retained: boolean) => {
       const config = marketConfig();
-      config.swapFeeBps = 0;
-      config.divergenceFeeShareCapBps = 5_000;
+      config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+      config.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
       config.amm.peakAmplificationNad = new BN("4000000000");
       config.amm.coreHalfWidthBps = 100;
       config.amm.fadeWidthBps = 400;
@@ -4829,7 +4975,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("rejects the same zero post-retention mark in preview and execution without mutation", async function () {
     const config = marketConfig();
-    config.swapFeeBps = 0;
+    config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -5009,8 +5155,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
   it("executes a funded concentrated recenter with both hLPs below the SBF compute ceiling", async function () {
     const config = marketConfig();
-    config.swapFeeBps = 0;
-    config.divergenceFeeShareCapBps = 5_000;
+    config.swapFeeBps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    config.divergenceFeeShareCapBps = 5_000 - MIN_CONCENTRATED_SWAP_FEE_BPS;
     config.amm.peakAmplificationNad = new BN("4000000000");
     config.amm.coreHalfWidthBps = 100;
     config.amm.fadeWidthBps = 400;
@@ -5149,7 +5295,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       for (const interestAsset of ["base", "quote"] as const) {
         await updateInterestRevenue(2_000);
         const config = marketConfig();
-        config.swapFeeBps = 0;
+        config.swapFeeBps = amplification === 1 ? 0 : MIN_CONCENTRATED_SWAP_FEE_BPS;
         config.divergenceFeeShareCapBps = 0;
         config.volatilityFeeShareCapBps = 0;
         config.amm.peakAmplificationNad = new BN(amplification * 1_000_000_000);
@@ -7042,63 +7188,83 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_hlp_vault.hlp_supply.toString()).to.equal("20000000000");
   });
 
-  it("repairs an old-layout yield account without changing its entitlements or permissions", async function () {
+  it("rejects a market at any other layout in Dusk and the leverage delegate", async function () {
+    // Earlier layouts share the account bytes but stored amounts at another
+    // scale. Every entry point refuses them instead of reinterpreting them.
+    const fixture = await addBalancedLiquidity(260);
+    const current = svm.getAccount(fixture.market)!;
+    const market = accountCoder.decode("Market", Buffer.from(current.data)) as any;
+    expect(market.version).to.equal(MARKET_LAYOUT_VERSION);
+    // The account coder's scratch buffer is smaller than a Market, so the
+    // layout re-encodes the account over its own bytes.
+    const setLayout = async (version: number) => {
+      const data = Buffer.from(current.data);
+      (accountCoder as any).accountLayouts.get("Market").layout.encode({ ...market, version }, data, 8);
+      svm.setAccount(fixture.market, { ...current, data: new Uint8Array(data) });
+    };
+    const rejects = async (send: () => Promise<unknown>, error: string) => {
+      svm.expireBlockhash();
+      let failure: unknown;
+      try { await send(); } catch (caught) { failure = caught; }
+      expect(String(failure)).to.include(error);
+    };
+    const orderId = new BN(990);
+    const order = PublicKey.findProgramAddressSync([Buffer.from("leverage_entry_order"), fixture.market.toBuffer(),
+      payer.publicKey.toBuffer(), orderId.toArrayLike(Buffer, "le", 8)], LEVERAGE_DELEGATE_PROGRAM_ID)[0];
+    const fundingVault = getAssociatedTokenAddressSync(fixture.quoteMint, order, true, TOKEN_PROGRAM_ID);
+    await connection.sendTransaction(new Transaction().add(createAssociatedTokenAccountIdempotentInstruction(
+      payer.publicKey, fundingVault, order, fixture.quoteMint, TOKEN_PROGRAM_ID)), [payer]);
+    const createEntryOrder = async () => connection.sendTransaction(await leverageDelegateProgram.methods
+      .createLeverageEntryOrder({
+        orderId, positionId: Keypair.generate().publicKey, debtAsset: 1,
+        depositAmount: new BN(2_000), protocolFeeDepositAmount: new BN(0),
+        minMarginAmount: new BN(1_000), executorBounty: new BN(50), multiplierBps: new BN(20_000),
+        limitPriceNad: new BN(100_000_000_000), minCollateralOut: new BN(1),
+        expiryUnixTimestamp: new BN(svm.getClock().unixTimestamp.toString()).addn(3_600), referrer: null,
+      }).accounts({ market: fixture.market, debtMint: fixture.quoteMint, collateralMint: fixture.baseMint, order,
+        ownerFundingAccount: fixture.ownerQuoteAccount, fundingVault, owner: payer.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+      }).transaction(), [payer]);
+    const previewMarket = async () => connection.sendTransaction(
+      await program.methods.previewMarket().accounts({ market: fixture.market }).transaction(), [payer]);
+    for (const version of [0, MARKET_LAYOUT_VERSION - 1, MARKET_LAYOUT_VERSION + 1]) {
+      await setLayout(version);
+      await rejects(() => swapBaseForQuote(fixture), "InvalidVersion");
+      await rejects(previewMarket, "InvalidVersion");
+      await rejects(createEntryOrder, "InvalidMarketVersion");
+    }
+    await setLayout(MARKET_LAYOUT_VERSION);
+    svm.expireBlockhash();
+    await swapBaseForQuote(fixture);
+    svm.expireBlockhash();
+    await previewMarket();
+    await createEntryOrder();
+    expect(svm.getAccount(order)).to.not.equal(null);
+  });
+
+  it("rejects a yield account at a size from a retired build instead of growing it", async function () {
+    // Accounts are created at their current size and never resized. The
+    // retired devnet layout ended after `bump`, before `harvest_authority`.
     const fixture = await addBalancedLiquidity(184);
     const yieldAccount = deriveYieldAccountAddress(
       fixture.market, payer.publicKey, fixture.srlpMint, fixture.baseMint, "srlp"
     )[0];
     const current = svm.getAccount(yieldAccount)!;
-    const decoded = accountCoder.decode("YieldAccount", Buffer.from(current.data)) as any;
-    const previousState = {
-      ...decoded,
-      recipient: Keypair.generate().publicKey,
-      swap_fee_checkpoint_q64: new BN("18446744073709551617"),
-      interest_checkpoint_q64: new BN("36893488147419103235"),
-      accrued_swap_fee_amount: new BN(123),
-      accrued_interest_amount: new BN(456),
-      swap_fee_remainder_q64: new BN(789),
-      interest_remainder_q64: new BN(987),
-      harvest_authority: null,
-    };
-    // The deployed layout ended after bump, before Option<Pubkey> was added.
-    const oldSize = 234;
-    const newSize = 500;
-    expect(current.data.length).to.equal(newSize);
-    const oldBytes = (await accountCoder.encode("YieldAccount", previousState)).subarray(0, oldSize);
-    const oldRent = Number(svm.minimumBalanceForRentExemption(BigInt(oldSize)));
-    const newRent = Number(svm.minimumBalanceForRentExemption(BigInt(newSize)));
-    svm.setAccount(yieldAccount, { ...current, data: new Uint8Array(oldBytes), lamports: oldRent });
-
-    // A keeper pays for the repair; the LP owner does not sign it.
-    const keeper = Keypair.generate();
-    await connection.requestAirdrop(keeper.publicKey, LAMPORTS_PER_SOL);
-    const repair = async () => {
-      svm.expireBlockhash();
-      const tx = await program.methods.growYieldAccount().accounts({
-        payer: keeper.publicKey,
-        yieldAccount,
-        systemProgram: SystemProgram.programId,
-      }).transaction();
-      tx.feePayer = keeper.publicKey;
-      await connection.sendTransaction(tx, [keeper]);
-    };
-    await repair();
-    trackV2Instruction("growYieldAccount", this.test?.title);
-    const repaired = svm.getAccount(yieldAccount)!;
-    expect(repaired.data.length).to.equal(newSize);
-    expect(repaired.lamports).to.equal(newRent);
-    expect(Buffer.from(repaired.data.subarray(0, oldSize)).equals(oldBytes)).to.equal(true);
-    expect(Buffer.from(repaired.data.subarray(oldSize)).equals(Buffer.alloc(newSize - oldSize))).to.equal(true);
-    const repairedState = accountCoder.decode("YieldAccount", Buffer.from(repaired.data)) as any;
-    expect(repairedState.harvest_authority).to.equal(null);
-    expect(repairedState.recipient.equals(previousState.recipient)).to.equal(true);
-    expect(repairedState.accrued_swap_fee_amount.toString()).to.equal("123");
-    expect(repairedState.accrued_interest_amount.toString()).to.equal("456");
-
-    await repair();
-    const repeated = svm.getAccount(yieldAccount)!;
-    expect(repeated.lamports).to.equal(newRent);
-    expect(Buffer.from(repeated.data).equals(Buffer.from(repaired.data))).to.equal(true);
+    const retiredSize = 234;
+    expect(current.data.length).to.be.greaterThan(retiredSize);
+    const retired = new Uint8Array(current.data.subarray(0, retiredSize));
+    svm.setAccount(yieldAccount, { ...current, data: retired });
+    const setRecipient = async () => connection.sendTransaction(await program.methods
+      .setYieldRecipient({ tokenKind: { srlp: {} }, recipient: Keypair.generate().publicKey })
+      .accounts({
+        market: fixture.market, owner: payer.publicKey, assetMint: fixture.baseMint, lpMint: fixture.srlpMint,
+        yieldAccount, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      })
+      .transaction(), [payer]);
+    let failure: unknown;
+    try { await setRecipient(); } catch (caught) { failure = caught; }
+    expect(String(failure)).to.include("AccountDidNotDeserialize");
+    expect(Buffer.from(svm.getAccount(yieldAccount)!.data).equals(Buffer.from(retired))).to.equal(true);
   });
 
   it("lets the configured recipient harvest srLP yield without the owner's signature", async function () {
@@ -11129,6 +11295,150 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(quote.loss.principalWrittenOff.gt(new BN(0))).to.equal(true);
   });
 
+  // An oracle-market leverage position with both hLP vaults and a day of
+  // interest, at about 4% EMA equity: emergency-eligible, with a recovery
+  // proof. The fresh report sits at that EMA price.
+  async function oracleEmergencyRequest(seed: number, mode: "full" | "partial", tiered = false) {
+    if (tiered) await updateInterestRevenue(10_000, 5_000);
+    const config = marketConfig();
+    if (mode === "full") {
+      config.swapFeeBps = 300;
+      config.divergenceFeeShareCapBps = 0; config.volatilityFeeShareCapBps = 0;
+      config.amm.peakAmplificationNad = new BN(3_000_000_000);
+      config.amm.coreHalfWidthBps = 250; config.amm.fadeWidthBps = 500;
+    } else {
+      config.amm.peakAmplificationNad = new BN(4_000_000_000);
+      config.amm.coreHalfWidthBps = 100; config.amm.fadeWidthBps = 400;
+    }
+    const oracle = normalizedTestOracle(2_500);
+    const f = await addBalancedLiquidity(seed, config, { baseDeposit: 1_000_000_000, quoteDeposit: 2_000_000_000,
+      minSrlp: 1, baseMint: 5_000_000_000, quoteMint: 5_000_000_000 }, 6, TOKEN_PROGRAM_ID, undefined,
+      async fixture => oracle.publish(fixture), oracle.policy);
+    await openBaseHedge(f, 100_000_000, undefined, oracle.metas);
+    await openQuoteHedge(f, 200_000_000, undefined, oracle.metas);
+    const referral = tiered ? {
+      partner: await configureReferralPartner(payer.publicKey, 5_000),
+      accrual: await initializeReferralAccrual(payer.publicKey, f.market, f.quoteMint),
+    } : undefined;
+    const { leveragePosition } = await openQuoteDebtLeverage(f, 1_000_000,
+      [...hlpSwapAccounts(f), ...oracle.metas], 20_000, 1, true, referral);
+    const now = svm.getClock();
+    now.slot += 216_000n; now.unixTimestamp += 86_400n; svm.setClock(now);
+    const account = svm.getAccount(f.market)!;
+    const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+    const positionAccount = svm.getAccount(leveragePosition)!;
+    const p = accountCoder.decode("LeveragePosition", Buffer.from(positionAccount.data)) as any;
+    const collateral = BigInt(p.collateral_amount.toString());
+    if (tiered) {
+      // Ten percent of reference collateral spans two maintenance bands.
+      p.margin_terms.reference_collateral = new BN((collateral * 10n).toString());
+      svm.setAccount(leveragePosition, {
+        ...positionAccount,
+        data: new Uint8Array(await accountCoder.encode("LeveragePosition", p)),
+      });
+    }
+    const debt = BigInt(p.debt_shares.toString()) * BigInt(market.debt.quote_borrow_index_nad.toString()) / 1_000_000_000n;
+    const price = ((debt * 10_000n + 9_599n) / 9_600n * 1_000_000_000n + collateral - 1n) / collateral;
+    market.risk.base_price_ema_nad = new BN(price.toString());
+    market.risk.quote_price_ema_nad = new BN((1_000_000_000_000_000_000n / price).toString());
+    market.risk.last_snapshot_slot = new BN(now.slot.toString());
+    market.last_update_slot = new BN(now.slot.toString()); market.risk_revision = market.curve_revision;
+    const body = Buffer.alloc(account.data.length - 8);
+    const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market, body);
+    svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"), body.subarray(0, length)])) });
+    const feed = svm.getAccount(oracle.key)!;
+    const report = Buffer.from(feed.data);
+    report.writeBigUInt64LE(price, 104); report.writeBigInt64LE(now.unixTimestamp, 120);
+    report.writeBigUInt64LE(now.slot, 128); report.writeBigUInt64LE(report.readBigUInt64LE(136) + 1n, 136);
+    svm.setAccount(oracle.key, { ...feed, data: report });
+    svm.expireBlockhash();
+    const request = { market: f.market, position: leveragePosition, kind: "leverage" as const,
+      debtAsset: "quote" as const, collateralDebit: mode === "full" ? collateral : 10_000n, full: mode === "full" };
+    return { oracle, leveragePosition, collateral, request, referral };
+  }
+
+  it("emergency AMM liquidation executes on oracle markets against the native EMA reference", async function () {
+    const sdk = new DuskLiquidations(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
+    for (const [seed, mode] of [[256, "full"], [257, "partial"]] as const) {
+      const { oracle, leveragePosition, collateral, request } = await oracleEmergencyRequest(seed, mode);
+      const preview = await sdk.previewEmergency(request);
+      trackV2Instruction("previewEmergencyLiquidation", this.test?.title);
+      const plan = await sdk.buildEmergency({ ...request, caller: payer.publicKey });
+      const transaction = new Transaction().add(...plan.instructions);
+      expect(transaction.instructions.some(ix => ix.keys.some(meta => meta.pubkey.equals(oracle.key)))).to.equal(true);
+      const { computeUnits } = await connection.sendTransactionMeasured(transaction, [payer]);
+      trackV2Instruction("emergencyLiquidation", this.test?.title);
+      const quote = cpiEvent(transaction, "emergencyLiquidationSettled").quote;
+      expect(quote.swapOutput.eq(preview.swapOutput)).to.equal(true);
+      expect(quote.loss.interestPaid.gt(new BN(0))).to.equal(true);
+      const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      if (mode === "full") {
+        expect(after.debt_shares.toString()).to.equal("0");
+        expect(after.collateral_amount.toString()).to.equal("0");
+      } else {
+        expect(BigInt(after.collateral_amount.toString())).to.equal(collateral - 10_000n);
+      }
+      console.log(`    Oracle-market ${mode} emergency liquidation: ${computeUnits.toLocaleString()} CU`);
+      // Keep headroom for PDA/address-dependent account-validation work.
+      expect(computeUnits <= 1_250_000n).to.equal(true);
+    }
+  });
+
+  it("settles a full tiered oracle liquidation with a recovery proof on the default heap", async function () {
+    const sdk = new DuskLiquidations(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
+    const { leveragePosition, request, referral } = await oracleEmergencyRequest(259, "full", true);
+    const preview = await sdk.previewEmergency(request);
+    const plan = await sdk.buildEmergency({ ...request, caller: payer.publicKey });
+    const instructions = plan.instructions.filter(ix =>
+      !(ix.programId.equals(ComputeBudgetProgram.programId) && ix.data[0] === 1));
+    expect(instructions.some(ix => ix.keys.some(meta => meta.pubkey.equals(referral!.accrual)))).to.equal(true);
+    const transaction = new Transaction().add(...instructions);
+    const { computeUnits } = await connection.sendTransactionMeasured(transaction, [payer]);
+    trackV2Instruction("emergencyLiquidation", this.test?.title);
+    const quote = cpiEvent(transaction, "emergencyLiquidationSettled").quote;
+    // Positive equity requires the recovery proof. A 950 bps maintenance
+    // rate confirms both the 700 and 1,200 bps bands contributed.
+    expect(quote.healthBefore.collateralValue.gt(quote.healthBefore.debt)).to.equal(true);
+    expect(Number(quote.healthBefore.maintenanceBps)).to.equal(950);
+    expect(quote.swapOutput.eq(preview.swapOutput)).to.equal(true);
+    expect(quote.repayment.eq(preview.repayment)).to.equal(true);
+    expect(quote.loss.interestPaid.gt(new BN(0))).to.equal(true);
+    const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(after.debt_shares.toString()).to.equal("0");
+    expect(after.collateral_amount.toString()).to.equal("0");
+    console.log("    Tiered oracle full emergency liquidation: " + computeUnits.toLocaleString() + " CU on the default heap");
+    expect(computeUnits <= 1_400_000n).to.equal(true);
+  });
+
+  it("emergency AMM liquidation beyond the default 32 KiB heap runs on its requested heap frame", async function () {
+    const sdk = new DuskLiquidations(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
+    const { oracle, leveragePosition, request } = await oracleEmergencyRequest(258, "full");
+    const preview = await sdk.previewEmergency(request);
+    const plan = await sdk.buildEmergency({ ...request, caller: payer.publicKey });
+    // Every account entry costs the entrypoint 48 heap bytes. Another 120
+    // read-only entries take this liquidation past the default 32 KiB frame.
+    const liquidation = plan.instructions[plan.instructions.length - 1];
+    const padded = new TransactionInstruction({ programId: liquidation.programId, data: liquidation.data,
+      keys: [...liquidation.keys, ...Array.from({ length: 120 }, () => ({ pubkey: oracle.key, isSigner: false, isWritable: false }))] });
+    const heapFrame = (ix: TransactionInstruction) => ix.programId.equals(ComputeBudgetProgram.programId) && ix.data[0] === 1;
+    const prefix = plan.instructions.slice(0, -1);
+    expect(prefix.some(heapFrame)).to.equal(true);
+    const before = Buffer.from(svm.getAccount(leveragePosition)!.data);
+    let rejected: unknown;
+    try { await connection.sendTransaction(new Transaction().add(...prefix.filter(ix => !heapFrame(ix)), padded), [payer]); }
+    catch (error) { rejected = error; }
+    expect(String(rejected)).to.include("Access violation in heap section");
+    expect(Buffer.from(svm.getAccount(leveragePosition)!.data).equals(before)).to.equal(true);
+    svm.expireBlockhash();
+    const transaction = new Transaction().add(...prefix, padded);
+    await connection.sendTransaction(transaction, [payer]);
+    trackV2Instruction("emergencyLiquidation", this.test?.title);
+    expect(cpiEvent(transaction, "emergencyLiquidationSettled").quote.swapOutput.eq(preview.swapOutput)).to.equal(true);
+    const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(after.debt_shares.toString()).to.equal("0");
+  });
+
   const operatorAtSlot = (value: {toString(): string}) => {
     const clock = svm.getClock(), next = BigInt(value.toString());
     if (next > clock.slot) clock.unixTimestamp += (next - clock.slot) / 5n;
@@ -11347,6 +11657,36 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     error=undefined;
     try{await send(await operator.announce({market:f.market,payer:owner,operator:manager.publicKey,metadata,updates:[fee(70)]}),[manager]);}catch(e){error=e;}
     expect(String(error)).to.include("InvalidOperator");
+  });
+
+  it("lets srLP leave before trading opens", async function () {
+    const now = Number(svm.getClock().unixTimestamp);
+    const config = marketConfig();
+    config.startTime = new BN(now + 7 * 86_400);
+    const f = await addBalancedLiquidity(246, config);
+    const owner = payer.publicKey;
+
+    // A week before trading opens, the seeder withdraws part of its srLP.
+    const srlpBalance = async () => (await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+    const lpBefore = await srlpBalance();
+    const tx = await program.methods.removeLiquidity({ srlpAmount: new BN(10_000),
+      minBaseAmountOut: new BN(1), minQuoteAmountOut: new BN(1) }).accounts({
+      market: f.market, futarchyAuthority, owner, baseMint: f.baseMint, quoteMint: f.quoteMint,
+      srlpMint: f.srlpMint, baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault,
+      ownerBaseAccount: f.ownerBaseAccount, ownerQuoteAccount: f.ownerQuoteAccount, ownerSrlpAccount: f.ownerSrlpAccount,
+      baseYieldAccount: deriveYieldAccountAddress(f.market, owner, f.srlpMint, f.baseMint, "srlp")[0],
+      quoteYieldAccount: deriveYieldAccountAddress(f.market, owner, f.srlpMint, f.quoteMint, "srlp")[0],
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).transaction();
+    await connection.sendTransaction(tx, [payer]);
+    expect(await srlpBalance()).to.equal(lpBefore - 10_000n);
+    const removed = cpiEvent(tx, "liquidityRemoved");
+    expect(removed.srlpAmount.toString()).to.equal("10000");
+    expect(removed.baseOwnerCredit.gtn(0) && removed.quoteOwnerCredit.gtn(0)).to.equal(true);
+
+    // Trading is still closed: the start did not move.
+    const market = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
+    expect(market.config.start_time.toNumber()).to.equal(now + 7 * 86_400);
   });
 
   it("preserves collected operator cash across handoff and assigns later collections to the successor", async function () {

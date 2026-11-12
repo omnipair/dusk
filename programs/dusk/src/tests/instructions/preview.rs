@@ -3,10 +3,10 @@ use spl_token_2022::extension::transfer_fee::TransferFee;
 use crate::state::AmmConfig;
 use crate::transitions::amm::PreparedSwap;
 use crate::{
-    math::{mul_div_u128, normalize_to_nad},
-    state::{Debt, Risk},
+    math::mul_div_u128,
+    state::{ConcentratedCurveParameters, Debt, Risk},
     transitions::{
-        amm::ConcentratedCurveParameters, lending::NewPositionPreviewContext, HlpRebalanceReceipt, LeverageCollateralFee, SwapFeeBreakdown,
+        lending::NewPositionPreviewContext, HlpRebalanceReceipt, LeverageCollateralFee, SwapFeeBreakdown,
     },
 };
 use proptest::prelude::*;
@@ -69,7 +69,7 @@ fn max_new_position_debt_by_dynamic_health(context: &NewPositionPreviewContext<'
 }
 
 fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u64) -> Market {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.asset_decimals = 0;
     market.quote_side.asset_decimals = 0;
     market.base_side.reserves.live_reserve = 1_000_000;
@@ -86,12 +86,13 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
     market.debt.global_health_quote_contribution_for_base_debt = aggregate_quote_contribution;
     market.config.global_health_contribution_cap_bps = 15_000;
     market.config.borrow_market_health_floor_bps = 11_000;
+    let curve_depth_ema_nad = market.normalize_amount(1_000_000, 0).unwrap();
     market.risk = Risk {
         base_price_ema_nad: NAD,
         quote_price_ema_nad: NAD,
         directional_base_price_ema_nad: NAD,
         directional_quote_price_ema_nad: NAD,
-        curve_depth_ema_nad: 1_000_000_u128 * NAD as u128,
+        curve_depth_ema_nad,
         ..Risk::default()
     };
     market.prepare_amm_for_swap(0).unwrap();
@@ -100,7 +101,7 @@ fn preview_test_market(existing_base_debt: u64, aggregate_quote_contribution: u6
 
 #[test]
 fn unseeded_market_has_a_zero_spot_preview() {
-    let market = Market::default();
+    let market = Market::current_layout();
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
         let side = preview_side(&market, asset, 0).unwrap();
         assert_eq!(side.srlp_supply, 0);
@@ -112,7 +113,7 @@ fn unseeded_market_has_a_zero_spot_preview() {
 
 #[test]
 fn drained_market_previews_locked_dust_without_reconstructing_a_trade_curve() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.shares.srlp_supply = MIN_LIQUIDITY;
     market.quote_side.shares.srlp_supply = MIN_LIQUIDITY;
     market.base_side.reserves.live_reserve = 1884;
@@ -142,7 +143,7 @@ fn indexed_hlp_debt_gap_does_not_block_swap_settlement() {
 
     // Obtain the reported index through four legal full-utilization accruals.
     // Reuse that index in a liquid, fully hedged market after refinancing.
-    let mut accrued = Market::default();
+    let mut accrued = Market::current_layout();
     accrued.debt.quote_borrow_index_nad = NAD as u128;
     accrued.debt.quote_borrow_apr_nad = DEFAULT_BORROW_APR_NAD;
     accrued.base_hlp_vault.debt_shares = 1_000;
@@ -688,9 +689,10 @@ fn stressed_hlp_recovery_improves_the_matching_swap_and_restores_the_hedge() {
         stressed.debt.quote_borrow_index_nad,
     )
     .unwrap();
-    let debt_nad = debt.checked_mul(NAD as u128).unwrap();
+    let debt_nad = stressed.normalize_amount(debt, stressed.quote_side.asset_decimals).unwrap();
+    let atom_nad = stressed.normalize_amount(1, stressed.quote_side.asset_decimals).unwrap();
     assert!(
-        opposite_claim.abs_diff(debt_nad) <= NAD as u128,
+        opposite_claim.abs_diff(debt_nad) <= atom_nad,
         "opposite_claim={opposite_claim} debt_nad={debt_nad} delta={}",
         opposite_claim.abs_diff(debt_nad)
     );
@@ -1209,7 +1211,8 @@ proptest! {
         let higher_accepted = context.is_accepted(higher_candidate).unwrap();
 
         let (cached_terms, cached_contribution, _) = context.terms(lower_candidate).unwrap();
-        let projected_debt_nad = normalize_to_nad(lower_candidate as u128, 0).unwrap();
+        let projected_debt_nad = market.normalize_amount(lower_candidate as u128, 0).unwrap();
+        let existing_debt_nad = market.normalize_amount(existing_debt as u128, 0).unwrap();
         let projected_aggregate = aggregate_contribution
             .checked_add(cached_contribution)
             .unwrap();
@@ -1217,8 +1220,8 @@ proptest! {
             .dynamic_borrow_terms(
                 MarketAsset::Base,
                 collateral_amount,
-                existing_debt as u128 * NAD as u128,
-                existing_debt as u128 * NAD as u128 + projected_debt_nad,
+                existing_debt_nad,
+                existing_debt_nad + projected_debt_nad,
                 projected_aggregate,
                 &market.risk,
             )
@@ -1378,7 +1381,7 @@ fn debt_free_position_can_withdraw_all_and_zero_draw_remains_zero() {
 
 #[test]
 fn debt_free_withdrawal_capacity_does_not_require_borrow_depth() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.version = crate::constants::MARKET_LAYOUT_VERSION;
     market.base_side.asset_decimals = 0;
     market.quote_side.asset_decimals = 0;
@@ -1475,7 +1478,7 @@ fn exhausted_hlp_waterfall_cancels_unpaid_interest_and_keeps_zero_value_receipts
         reserve_credit: target_claim,
         protocol_fee_bps: 0,
     }
-    .quote_ema_liquidation(&market)
+    .quote_ema_liquidation(&market, &mut None, &mut Default::default())
     .unwrap()
     .amount_out;
     let reference_recovery = borrowed_claim.checked_add(reference_swap_output).unwrap();
@@ -1524,4 +1527,104 @@ fn exhausted_hlp_waterfall_cancels_unpaid_interest_and_keeps_zero_value_receipts
     let final_receipt = market.withdraw_single_sided(target_asset, first.hlp_supply).unwrap();
     assert_eq!(final_receipt.target_amount_out, 0);
     assert_eq!(final_receipt.hlp_supply, 0);
+}
+
+fn snapshot() -> (Market, Clock) {
+    // Derived from the immutable devnet capture and encoded directly with the
+    // current layout. No old-account conversion runs in this regression test.
+    let bytes = include_bytes!("../fixtures/hlp-entry-layout15.bin");
+    let market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
+    let clock = Clock {
+        slot: 500_291_305,
+        unix_timestamp: market.config.start_time + 1,
+        ..Clock::default()
+    };
+    (market, clock)
+}
+
+#[test]
+fn gross_limit_includes_transfer_fee_plateaus_and_caps() {
+    assert_eq!(gross_funding_limit(100, |_| Ok(0)).unwrap(), 100);
+    // A 1% rounded-up fee: 102 sends 100, 103 sends 101.
+    assert_eq!(
+        gross_funding_limit(100, |a| Ok(a / 100 + u64::from(a % 100 != 0))).unwrap(),
+        102
+    );
+    assert_eq!(gross_funding_limit(100, |a| Ok(a.min(7))).unwrap(), 107);
+    assert_eq!(gross_funding_limit(100, Ok).unwrap(), 0);
+    assert_eq!(gross_funding_limit(u64::MAX, |_| Ok(0)).unwrap(), u64::MAX);
+}
+
+#[test]
+fn native_preview_uses_full_value_hedge_and_quotes_both_funding_limits() {
+    let (mut market, clock) = snapshot();
+    let (status, limit) =
+        preview_hlp_funding_limit(&mut market, MarketAsset::Base, 10_000_000, false, &clock).unwrap();
+    assert_eq!(status, HlpDepositStatus::Ready);
+    assert!(limit > 0);
+    market.assert_hlp_entry_available(MarketAsset::Base).unwrap();
+    let receipt = market.deposit_single_sided(MarketAsset::Base, 10_000_000, 1).unwrap();
+    assert!(receipt.hlp_amount > 0);
+    market.assert_hlp_entry_available(MarketAsset::Base).unwrap();
+    let (mut market, clock) = snapshot();
+    let (status, limit) = preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock).unwrap();
+    assert_eq!(status, HlpDepositStatus::Ready);
+    assert!(limit > 0);
+    let target = market.quote_side.reserves.live_reserve as u128;
+    let opposite = market.base_side.reserves.live_reserve as u128;
+    let index = market.debt.base_borrow_index_nad;
+    let fits = |amount: u64| {
+        let borrowed = (amount as u128) * opposite / target;
+        let shares = market.quote_hlp_vault.debt_shares + Debt::debt_to_shares(borrowed as u64, index).unwrap();
+        Debt::shares_to_debt(shares, index).unwrap() <= market.base_side.reserves.cash_reserve as u128
+    };
+    assert!(fits(limit));
+    assert!(!fits(limit + 1));
+    let mut at_limit = market.clone();
+    at_limit.deposit_single_sided(MarketAsset::Quote, limit, 1).unwrap();
+    let mut above_limit = market.clone();
+    // Canonical indexed-debt rounding can admit a neighboring target atom;
+    // a whole additional target token must exceed the cash funding bound.
+    assert!(above_limit.deposit_single_sided(MarketAsset::Quote, limit + 1_000_000, 1).is_err());
+    // A real, ordinary-size USDC entry still passes the native transition.
+    market.deposit_single_sided(MarketAsset::Quote, 1_000_000, 1).unwrap();
+    market.finalize_amm_transition_and_observe_risk(clock.slot).unwrap();
+}
+
+#[test]
+fn preview_preserves_native_identity_supply_and_market_restrictions() {
+    let (mut market, clock) = snapshot();
+    assert_eq!(
+        preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, true, &clock).unwrap(),
+        (HlpDepositStatus::ReduceOnly, 0)
+    );
+    market.reduce_only = true;
+    assert_eq!(
+        preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock)
+            .unwrap()
+            .0,
+        HlpDepositStatus::ReduceOnly
+    );
+    market.reduce_only = false;
+    market.config.start_time = clock.unix_timestamp + 1;
+    assert_eq!(
+        preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock)
+            .unwrap()
+            .0,
+        HlpDepositStatus::NotStarted
+    );
+    market.version = 0;
+    assert!(preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock).is_err());
+    let (mut market, clock) = snapshot();
+    assert!(preview_hlp_funding_limit(&mut market, MarketAsset::Base, 10_000_001, false, &clock).is_err());
+    let (mut market, clock) = snapshot();
+    assert!(preview_hlp_funding_limit(&mut market, MarketAsset::Base, 0, false, &clock).is_err());
+    let (mut market, clock) = snapshot();
+    market.base_side.reserves.cash_reserve = 0;
+    assert_eq!(
+        preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock)
+            .unwrap()
+            .0,
+        HlpDepositStatus::NoFundingCapacity
+    );
 }

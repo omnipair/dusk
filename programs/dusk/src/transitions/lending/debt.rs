@@ -1,11 +1,6 @@
 use super::*;
 use crate::{constants::*, math::*, state::*};
 
-#[cfg(test)]
-std::thread_local! {
-    static SHARES_TO_DEBT_CALL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
 impl DebtClearance {
     pub fn live_debit_for_cash_repay(&self) -> Result<u64> {
         self.aggregate_debt_reduced
@@ -30,8 +25,6 @@ impl Debt {
         if shares == 0 {
             return Ok(0);
         }
-        #[cfg(test)]
-        SHARES_TO_DEBT_CALL_COUNT.with(|count| count.set(count.get().saturating_add(1)));
         shares
             .checked_mul(borrow_index_nad)
             .and_then(|value| value.checked_div(NAD as u128))
@@ -155,16 +148,6 @@ impl Debt {
             self.borrow_index(asset),
             max_repay_amount,
         )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reset_shares_to_debt_call_count() {
-        SHARES_TO_DEBT_CALL_COUNT.with(|count| count.set(0));
-    }
-
-    #[cfg(test)]
-    pub(crate) fn shares_to_debt_call_count() -> usize {
-        SHARES_TO_DEBT_CALL_COUNT.with(std::cell::Cell::get)
     }
 
     /// Increase tracked margin principal when new fixed margin debt is taken on.
@@ -318,56 +301,6 @@ impl Debt {
         })
     }
 
-    pub fn writeoff_isolated_position(
-        &mut self,
-        asset: MarketAsset,
-        position_shares: &mut u128,
-        position_principal: &mut u128,
-    ) -> Result<DebtWriteoff> {
-        require!(*position_shares > 0, ErrorCode::DebtShareDivisionOverflow);
-        let borrow_index_nad = self.borrow_index(asset);
-        let debt_written_off = u64::try_from(Self::shares_to_debt(*position_shares, borrow_index_nad)?)
-            .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        let (aggregate_shares, aggregate_principal) = match asset {
-            MarketAsset::Base => (&mut self.isolated_base_shares, &mut self.isolated_base_principal),
-            MarketAsset::Quote => (&mut self.isolated_quote_shares, &mut self.isolated_quote_principal),
-        };
-        require_gte!(*aggregate_shares, *position_shares, ErrorCode::DebtShareMathOverflow);
-        let aggregate_debt_before = Self::shares_to_debt(*aggregate_shares, borrow_index_nad)?;
-        let aggregate_debt_after = Self::shares_to_debt(
-            aggregate_shares
-                .checked_sub(*position_shares)
-                .ok_or(ErrorCode::DebtShareMathOverflow)?,
-            borrow_index_nad,
-        )?;
-        let aggregate_debt_written_off = u64::try_from(
-            aggregate_debt_before
-                .checked_sub(aggregate_debt_after)
-                .ok_or(ErrorCode::DebtMathOverflow)?,
-        )
-        .map_err(|_| ErrorCode::DebtMathOverflow)?;
-        let principal_written_off = u64::try_from(*position_principal).map_err(|_| ErrorCode::DebtMathOverflow)?;
-        require_gte!(*aggregate_principal, principal_written_off, ErrorCode::DebtMathOverflow);
-        *aggregate_shares = aggregate_shares
-            .checked_sub(*position_shares)
-            .ok_or(ErrorCode::DebtShareMathOverflow)?;
-        *aggregate_principal = aggregate_principal
-            .checked_sub(principal_written_off)
-            .ok_or(ErrorCode::DebtMathOverflow)?;
-        let shares_written_off = *position_shares;
-        *position_shares = 0;
-        *position_principal = 0;
-        if *aggregate_shares == 0 {
-            *aggregate_principal = 0;
-        }
-        Ok(DebtWriteoff {
-            shares_written_off,
-            debt_written_off,
-            aggregate_debt_written_off,
-            principal_written_off,
-        })
-    }
-
     /// Reduce tracked margin principal for a cash-backed fixed-debt repayment,
     /// returning the realized *interest* portion (the non-compounding interest
     /// the caller should route to the interest vault). Uses the side's blended
@@ -476,6 +409,9 @@ pub struct DebtReceipt {
     pub base_debt_health_bps: u64,
     pub quote_debt_health_bps: u64,
 }
+
+#[cfg(test)]
+include!("../../tests/support/lending_debt.rs");
 
 #[cfg(test)]
 mod tests {

@@ -62,7 +62,7 @@ fn market_with_liquidity(config: AmmConfig) -> Market {
             quote_borrow_apr_nad: DEFAULT_BORROW_APR_NAD,
             ..Debt::default()
         },
-        ..Market::default()
+        ..Market::current_layout()
     }
 }
 
@@ -350,7 +350,13 @@ fn concentrated_curve_initializes_and_quotes_the_integrated_ordinary_tranche() {
         fee_quote.fee.total_fee_debit + fee_quote.fee.amount_in_for_quote,
         fee_quote.fee.reserve_credit
     );
-    assert_eq!(fee_quote.amount_out as u128, fee_quote.integrated.executable.amount_out);
+    // Payouts are whole token atoms: the floor of the curve's internal output.
+    assert_eq!(
+        fee_quote.amount_out,
+        market
+            .denormalize_amount_floor(fee_quote.integrated.executable.amount_out, market.quote_side.asset_decimals)
+            .unwrap()
+    );
 }
 
 #[test]
@@ -380,8 +386,10 @@ fn quote_only_fee_is_withheld_from_base_sell_output() {
         quote.gross_amount_out
     );
     assert_eq!(
-        quote.gross_amount_out as u128,
-        quote.integrated.executable.amount_out
+        quote.gross_amount_out,
+        market
+            .denormalize_amount_floor(quote.integrated.executable.amount_out, market.quote_side.asset_decimals)
+            .unwrap()
     );
 }
 

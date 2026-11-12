@@ -2,16 +2,9 @@ use crate::{
     constants::{MS_PER_DAY, TARGET_MS_PER_SLOT},
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
-    state::TrancheCapital,
+    state::{JuniorExitConfig, JuniorExitTicket, TrancheCapital},
 };
 use anchor_lang::prelude::*;
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
-pub struct JuniorExitConfig {
-    pub minimum_notice_slots: u64,
-    pub maximum_notice_slots: u64,
-    pub exercise_window_slots: u64,
-}
 
 impl Default for JuniorExitConfig {
     fn default() -> Self {
@@ -33,18 +26,6 @@ impl JuniorExitConfig {
         );
         Ok(())
     }
-}
-
-/// Notice uses scheduled slots. The exercise window counts only slots without
-/// a verified conversion restriction; notice itself is not paused. Handlers
-/// authenticate owner/escrow and derive blocked time from protocol records.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct JuniorExitTicket {
-    pub generation: u64,
-    pub receipts: u64,
-    pub ready_at: u64,
-    /// Exclusive end before adding verified blocked time after ready_at.
-    pub expires_at: u64,
 }
 
 impl JuniorExitTicket {

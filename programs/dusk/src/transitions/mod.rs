@@ -8,20 +8,20 @@ pub(crate) mod ledger;
 pub(crate) mod lending;
 mod leverage;
 mod leverage_margins;
-pub mod liquidation_policy;
 mod liquidation_sizing;
 pub(crate) mod liquidity;
 pub(crate) mod market_config;
-pub mod market_parameters;
 pub(crate) mod revenue;
 
 pub use amm::{AmmSwapQuote, HlpRecoveryBreakdown, RetentionTarget, SwapFeeBreakdown};
 pub use ledger::{FeesReceipt, SwapReceipt, YieldClaimReceipt};
 #[cfg(feature = "benchmark")]
 pub(crate) use lending::DynamicBorrowTerms;
+#[cfg(any(test, feature = "benchmark"))]
+pub use lending::Liquidation;
 pub use lending::{
-    DebtClearance, DebtReceipt, DebtRepaymentQuote, DebtWriteoff, LendingCollateralFees, Liquidation,
-    LiquidationPricing, LiquidationReceipt, LiquidationTerms, MarketHealth,
+    DebtClearance, DebtReceipt, DebtRepaymentQuote, DebtWriteoff, LendingCollateralFees, LiquidationPricing,
+    LiquidationReceipt, LiquidationTerms, MarketHealth,
 };
 pub use leverage::*;
 pub use liquidity::{AddLiquidityReceipt, HlpRebalanceReceipt, HlpYieldEligibility, RemoveLiquidityReceipt};
@@ -29,10 +29,8 @@ pub use liquidity::{AddLiquidityReceipt, HlpRebalanceReceipt, HlpYieldEligibilit
 pub(crate) mod oracle;
 pub mod tranches;
 
-pub(crate) mod operator_policy;
-
 mod curve_ramp;
 
 mod operator_revenue;
-pub use operator_revenue::InterestRevenueBook;
+pub use crate::state::InterestRevenueBook;
 pub(crate) use operator_revenue::InterestRevenueCredit;

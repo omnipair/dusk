@@ -9,7 +9,7 @@ import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 type InstructionId = string;
 
 const DUSK_PROGRAM_ID = new PublicKey(
-  "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y"
+  "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN"
 );
 
 export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [
@@ -155,7 +155,6 @@ const DUSK_INSTRUCTIONS = [
   "removeLiquidity",
   "setYieldRecipient",
   "setHarvestAuthority",
-  "growYieldAccount",
   "fundInterest",
   "previewHlpFlash",
   "beginHlpFlash",

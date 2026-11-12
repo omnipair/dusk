@@ -30,6 +30,7 @@ import {
 } from "./instruction-args.js";
 import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
 import { type MarketLaunchConfig } from "./market-bootstrap.js";
+import { assertCurrentMarketLayout } from "./market-layout.js";
 import type { Market } from "./type-aliases.js";
 import {
   deriveBorrowPositionAddress,
@@ -247,10 +248,11 @@ interface UncheckedBuildOptions extends DuskBuildOptionsBase {
 export class DuskWrite {
   constructor(readonly program: Program<Dusk>) {}
 
-  private fetchMarketAccount(market: PublicKey): Promise<unknown> {
-    return (this.program as unknown as {
-      account: { market: { fetch(address: PublicKey): Promise<unknown> } };
-    }).account.market.fetch(market);
+  // Every Market this builder reads must be at the current layout.
+  private async fetchMarketAccount(market: PublicKey): Promise<unknown> {
+    return assertCurrentMarketLayout(await (this.program as unknown as {
+      account: { market: { fetch(address: PublicKey): Promise<Pick<Market, "version">> } };
+    }).account.market.fetch(market));
   }
 
   /**

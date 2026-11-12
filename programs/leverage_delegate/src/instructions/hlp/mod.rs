@@ -5,7 +5,7 @@ use anchor_spl::{
     token_interface::{Mint, TokenAccount},
 };
 use dusk::{
-    constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION},
+    constants::BPS_DENOMINATOR,
     instructions::{HarvestArgs, SetYieldRecipientArgs, WithdrawSingleSidedArgs},
     math::arithmetic::ceil_div,
     program::Dusk,

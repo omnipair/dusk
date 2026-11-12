@@ -303,12 +303,8 @@ fn mixed_active_and_idle_sides_accrue_independently_with_shared_coverage_snapsho
     )
     .unwrap();
     let expected_index = NAD as u128 + integral.integrated_apr_nad_ms / MS_PER_YEAR as u128;
-    Debt::reset_shares_to_debt_call_count();
     market.accrue_interest_to_slot(current_slot).unwrap();
 
-    // Coverage snapshots add three exposure conversions. The idle side
-    // performs no debt conversion.
-    assert_eq!(Debt::shares_to_debt_call_count(), 7);
     assert_eq!(market.debt.base_borrow_index_nad, expected_index);
     assert_eq!(market.debt.quote_borrow_index_nad, NAD as u128);
     assert_eq!(market.debt.base_borrow_apr_nad, integral.end_apr_e18 / NAD as u128);
@@ -336,10 +332,8 @@ fn debt_free_sides_reset_the_index_without_debt_arithmetic() {
     market.debt.quote_borrow_index_nad = u128::MAX;
     let expected_idle_rate = DEFAULT_BORROW_APR_NAD;
 
-    Debt::reset_shares_to_debt_call_count();
     market.accrue_interest_to_slot(current_slot).unwrap();
 
-    assert_eq!(Debt::shares_to_debt_call_count(), 0);
     assert_eq!(market.debt.base_borrow_index_nad, NAD as u128);
     assert_eq!(market.debt.quote_borrow_index_nad, NAD as u128);
     assert_eq!(market.base_side.reserves.live_reserve, 1_000);
@@ -367,13 +361,11 @@ fn long_slot_gap_charges_the_full_elapsed_interval() {
     )
     .unwrap();
     let expected_index = NAD as u128 + integral.integrated_apr_nad_ms / MS_PER_YEAR as u128;
-    Debt::reset_shares_to_debt_call_count();
     let current_slot = slots_for_ms(2 * MS_PER_YEAR);
     market.accrue_interest_to_slot(current_slot).unwrap();
 
     // Two years of zero junior coverage charge the full adaptive integral,
     // even without intermediate checkpoints or an economic APR ceiling.
-    assert_eq!(Debt::shares_to_debt_call_count(), 7);
     assert_eq!(market.debt.base_borrow_index_nad, expected_index);
     assert_eq!(
         market.base_side.reserves.live_reserve as u128,

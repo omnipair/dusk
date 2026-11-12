@@ -24,8 +24,8 @@ use crate::instructions::accounts::{
     BASE_INTEREST_VAULT_INDEX, HLP_SRLP_MINT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN, QUOTE_HLP_SRLP_VAULT_INDEX,
     QUOTE_INTEREST_VAULT_INDEX,
 };
+use crate::instructions::enforce_launch_same_transaction_guard;
 use crate::instructions::liquidity::record_inline_hlp_interest_credit;
-use crate::instructions::{enforce_launch_same_transaction_guard, rebalance_executes_token_changes};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SwapArgs {
@@ -39,6 +39,7 @@ pub struct SwapArgs {
 pub struct Swap<'info> {
     #[account(
         mut,
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -364,7 +365,7 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
     interest_eligibility: crate::transitions::HlpYieldEligibility,
     event_instruction: &mut anchor_lang::solana_program::instruction::Instruction,
 ) -> Result<()> {
-    if !rebalance_executes_token_changes(receipt) {
+    if receipt.srlp_mint_amount == 0 && receipt.srlp_burn_amount == 0 && receipt.interest_paid == 0 {
         return Ok(());
     }
     require_gte!(

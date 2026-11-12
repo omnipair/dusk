@@ -57,7 +57,7 @@ pub struct AnnounceOperatorChange<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     pub operator: Signer<'info>,
-    #[account(mut, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
     pub market: Box<Account<'info, Market>>,
     #[account(init, payer=payer, space=get_size_with_discriminator::<OperatorProposal>(), seeds=[OPERATOR_PROPOSAL_SEED, market.key().as_ref(), &args.nonce.to_le_bytes()], bump)]
     pub proposal: Box<Account<'info, OperatorProposal>>,
@@ -182,7 +182,7 @@ impl AnnounceOperatorChange<'_> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct ExecuteOperatorChange<'info> {
-    #[account(mut, seeds=[MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump=market.bump)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds=[MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump=market.bump)]
     pub market: Box<Account<'info, Market>>,
     #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
     pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,
@@ -330,7 +330,7 @@ impl ExecuteOperatorChange<'_> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct ResolveOperatorChange<'info> {
-    #[account(mut, seeds=[MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump=market.bump)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds=[MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump=market.bump)]
     pub market: Box<Account<'info, Market>>,
     #[account(mut,close=rent_refund,has_one=market,has_one=rent_refund,seeds=[OPERATOR_PROPOSAL_SEED,market.key().as_ref(),&proposal.nonce.to_le_bytes()],bump=proposal.bump)]
     pub proposal: Box<Account<'info, OperatorProposal>>,
@@ -375,7 +375,7 @@ impl ResolveOperatorChange<'_> {
 #[derive(Accounts)]
 pub struct RemoveMarketManager<'info> {
     pub operator: Signer<'info>,
-    #[account(mut, seeds=[MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump=market.bump)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds=[MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump=market.bump)]
     pub market: Box<Account<'info, Market>>,
 }
 

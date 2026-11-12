@@ -1,7 +1,7 @@
 use super::*;
 
 fn market() -> Market {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.debt.base_borrow_index_nad = NAD as u128;
     market.debt.quote_borrow_index_nad = NAD as u128;
     market.amm.launch_reference_price_nad = NAD;
@@ -27,7 +27,7 @@ fn one_shared_junior_budget_produces_reference_signal_on_both_sides() {
             utilization_bps: 8_000,
         }; 2]
     );
-    assert_eq!(market.funded_reserve_value().unwrap(), 200_000_000_000_000);
+    assert_eq!(market.funded_reserve_value().unwrap(), market.normalize_amount(200_000, 0).unwrap());
 }
 
 #[test]
@@ -57,14 +57,17 @@ fn funded_public_loss_burns_only_junior_common_units_before_senior() {
     assert_eq!(market.tranches.junior_reserve_shares, 16_000);
     assert_eq!(market.base_side.shares.srlp_supply, 96_000);
     assert_eq!(market.tranches.senior_reserve_shares(96_000).unwrap(), 80_000);
-    assert_eq!(market.funded_reserve_value().unwrap() * 80_000 / 96_000, 160_000_000_000_000);
+    assert_eq!(
+        market.funded_reserve_value().unwrap() * 80_000 / 96_000,
+        market.normalize_amount(160_000, 0).unwrap()
+    );
     // A quote loss consumes the remaining shared budget, not another copy.
     market.debt.fixed_quote_shares -= 40_000;
     market.debt.fixed_quote_principal -= 40_000;
     market.settle_public_debt_reserves(MarketAsset::Quote, 0, 0, 40_000, 0).unwrap();
     assert_eq!(market.tranches.junior_reserve_shares, 0);
     assert_eq!(market.base_side.shares.srlp_supply, 80_000);
-    assert_eq!(market.funded_reserve_value().unwrap(), 152_000_000_000_000);
+    assert_eq!(market.funded_reserve_value().unwrap(), market.normalize_amount(152_000, 0).unwrap());
 }
 
 #[test]
@@ -136,7 +139,7 @@ fn permanent_seed_reinvestment_does_not_mint_senior_claims() {
 fn permissionless_seed_compound_rejects_a_same_slot_price_sandwich() {
     use crate::transitions::amm::SwapRequest;
     const UNIT: u64 = 1_000_000;
-    let mut initial = Market::default();
+    let mut initial = Market::current_layout();
     initial.base_side.asset_decimals = 6;
     initial.quote_side.asset_decimals = 6;
     initial.debt.base_borrow_index_nad = NAD as u128;
@@ -252,7 +255,7 @@ fn native_compounding_allocates_half_to_each_tranche_including_empty_seed() {
         for junior_bps in [0, 2_000, 7_000] {
             for with_hlp in [false, true] {
                 for asset in [MarketAsset::Base, MarketAsset::Quote] {
-                    let mut initial = Market::default();
+                    let mut initial = Market::current_layout();
                     initial.base_side.asset_decimals = 6;
                     initial.quote_side.asset_decimals = 6;
                     initial.debt.base_borrow_index_nad = NAD as u128;
@@ -301,7 +304,8 @@ fn native_compounding_allocates_half_to_each_tranche_including_empty_seed() {
                         assert_eq!(compounded.side(asset).fees.junior.seed_swap_amount, fee / 2);
                     } else {
                         let gain = junior_value(&compounded) - junior_value(&baseline);
-                        assert!(gain.abs_diff(expected) <= 100_000,
+                        // One hundred atoms of the six-decimal fixture tokens.
+                        assert!(gain.abs_diff(expected) <= compounded.normalize_amount(100, 6).unwrap(),
                             "compound split: amp={amplification} junior={junior_bps} hLP={with_hlp} asset={asset:?} gain={gain} expected={expected}");
                         let old_senior_wallets = baseline.tranches.senior_reserve_shares(baseline.base_side.shares.srlp_supply).unwrap()
                             - baseline.base_hlp_vault.srlp_shares - baseline.quote_hlp_vault.srlp_shares;

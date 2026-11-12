@@ -5,17 +5,81 @@ use crate::{
     state::*,
     transitions::{
         amm::{cpmm_amount_out_nad, ConcentratedCurveDirection, ConcentratedCurvePoint},
-        flash_liquidation::LiquidationPositionRef,
-        liquidation_policy::{LIQUIDATION_MINIMUM_DISCOUNT_BPS, LIQUIDATION_RECOVERY_BUFFER_BPS},
+        flash_liquidation::{LiquidationPositionRef, LiquidationReads},
         LeverageCollateralFee,
     },
 };
 use anchor_lang::prelude::*;
 
 impl Market {
+    /// Copy this market into `scratch`. A kept copy is refreshed field by field
+    /// so its boxes are reused: SBF's bump heap never reclaims a dropped one.
     #[inline(never)]
-    pub(crate) fn liquidation_scratch(&self) -> Box<Market> {
-        Box::new(self.clone())
+    pub(crate) fn liquidation_scratch<'s>(&self, scratch: &'s mut Option<Box<Market>>) -> &'s mut Market {
+        let kept = scratch.is_some();
+        let copy = scratch.get_or_insert_with(|| Box::new(self.clone()));
+        if kept {
+            // Destructure every field so a new one cannot be left stale.
+            let Market {
+                oracle,
+                version,
+                srlp_mint,
+                base_side,
+                quote_side,
+                config,
+                amm,
+                debt,
+                tranches,
+                income,
+                junior_exit_config,
+                tranche_policy,
+                junior_mint,
+                base_hlp_vault,
+                quote_hlp_vault,
+                risk,
+                params_hash,
+                initial_liquidity_authority,
+                operator,
+                protocol_interest_markup_bps,
+                parameter_revisions,
+                last_marginal_observation_nad,
+                curve_revision,
+                risk_revision,
+                last_update_slot,
+                reduce_only,
+                bump,
+            } = self;
+            copy.oracle.clone_from(oracle);
+            copy.version.clone_from(version);
+            copy.srlp_mint.clone_from(srlp_mint);
+            copy.base_side.clone_from(base_side);
+            copy.quote_side.clone_from(quote_side);
+            copy.config.clone_from(config);
+            copy.amm.clone_from(amm);
+            copy.debt.clone_from(debt);
+            copy.tranches.clone_from(tranches);
+            copy.income.clone_from(income);
+            copy.junior_exit_config.clone_from(junior_exit_config);
+            copy.tranche_policy.clone_from(tranche_policy);
+            copy.junior_mint.clone_from(junior_mint);
+            copy.base_hlp_vault.clone_from(base_hlp_vault);
+            copy.quote_hlp_vault.clone_from(quote_hlp_vault);
+            copy.risk.clone_from(risk);
+            copy.params_hash.clone_from(params_hash);
+            copy.initial_liquidity_authority.clone_from(initial_liquidity_authority);
+            copy.operator.clone_from(operator);
+            copy.protocol_interest_markup_bps
+                .clone_from(protocol_interest_markup_bps);
+            copy.parameter_revisions.clone_from(parameter_revisions);
+            copy.last_marginal_observation_nad
+                .clone_from(last_marginal_observation_nad);
+            copy.curve_revision.clone_from(curve_revision);
+            copy.risk_revision.clone_from(risk_revision);
+            copy.last_update_slot.clone_from(last_update_slot);
+            copy.reduce_only.clone_from(reduce_only);
+            copy.bump.clone_from(bump);
+        }
+        copy
     }
     /// A conservative proof over every integer collateral slice, not a failed
     /// keeper-selected quote. Each interval gets more repayment, more remaining
@@ -46,8 +110,10 @@ impl Market {
         now: i64,
         slot: u64,
         recovery_before: Option<u64>,
+        scratch: &mut Option<Box<Market>>,
+        reads: &mut LiquidationReads,
     ) -> Result<bool> {
-        let before = self.flash_liquidation_health(position, asset, eligibility_fee)?;
+        let before = reads.health(self, position, asset, eligibility_fee)?;
         require!(before.emergency_allowed()?, ErrorCode::PositionNotLiquidatable);
         let collateral = position.collateral(asset);
         let shares = position.shares(asset);
@@ -57,7 +123,7 @@ impl Market {
         let rates = before.rates()?;
         // Risk is fixed for this proof. Recomputing current_risk for every
         // interval needlessly re-evaluates the concentrated curve and EMA.
-        let risk = self.current_risk_at_slot(slot)?;
+        let risk = reads.risk_at_slot(self, slot)?;
         let collateral_scale = self.normalize_amount(1, self.side(asset.opposite()).asset_decimals)?;
         let debt_scale = self.normalize_amount(1, self.side(asset).asset_decimals)?;
         let price = u128::from(self.pessimistic_collateral_price_nad(asset.opposite(), &risk, false));
@@ -103,10 +169,7 @@ impl Market {
         };
         // Certify the same EMA geometry as the emergency settlement, never a
         // live curve or a scheduled recenter. Real funding limits are separate.
-        let (executable, state) = self.ema_liquidation_curve(asset.opposite(), slot)?;
-        let geometry = executable
-            .current_concentrated_curve_geometry()?
-            .ok_or(ErrorCode::BrokenInvariant)?;
+        let (executable, state, geometry) = self.ema_liquidation_curve(asset.opposite(), slot, scratch, reads)?;
         let cpmm = geometry.is_cpmm();
         let point = ConcentratedCurvePoint {
             base_reserve: state.ordinary_base,
@@ -174,7 +237,7 @@ impl Market {
                 repayment_rate = ceil(
                     repayment_rate,
                     10_000,
-                    10_000 + u128::from(crate::transitions::liquidation_policy::LIQUIDATION_FEE_BPS),
+                    10_000 + u128::from(crate::state::LIQUIDATION_FEE_BPS),
                 )?;
                 let rounding = ceil(raw_price, 1, u128::from(NAD))?
                     .checked_add(4)
@@ -374,8 +437,11 @@ impl Market {
                         .ok_or(ErrorCode::InsufficientAmount)?;
                     let (allocation, _) = self.quote_emergency_partial_repayment(position, asset, budget, debt_fee)?;
                     Ok(LiquidationHealth {
-                        collateral_value: self
-                            .liquidation_value(asset, eligibility_fee.unwind_credit(collateral - lo)?)?,
+                        collateral_value: self.liquidation_value_at(
+                            asset,
+                            eligibility_fee.unwind_credit(collateral - lo)?,
+                            &reads.current_risk(self)?,
+                        )?,
                         debt: allocation.remaining_debt,
                         maintenance_bps: position.maintenance(asset, collateral - lo)?,
                     })

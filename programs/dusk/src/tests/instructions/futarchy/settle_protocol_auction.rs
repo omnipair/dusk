@@ -131,7 +131,7 @@ fn default_route_allows_only_the_sold_markets_direct_pair() {
             asset_mint: direct_accepted_mint,
             ..crate::state::MarketSide::default()
         }),
-        ..Market::default()
+        ..Market::current_layout()
     };
 
     assert_eq!(
@@ -181,7 +181,7 @@ fn approved_route_is_lane_specific_and_overrides_direct_pair() {
             asset_mint: accepted_mint,
             ..crate::state::MarketSide::default()
         }),
-        ..Market::default()
+        ..Market::current_layout()
     };
 
     assert_eq!(

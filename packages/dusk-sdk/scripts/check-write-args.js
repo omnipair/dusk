@@ -5,7 +5,7 @@ import anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 
 import IDL from "../dist/idl_v2.js";
-import { deriveEventAuthorityAddress } from "../dist/constants.js";
+import { deriveEventAuthorityAddress, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
 import { DuskInstructionInputError, normalizeInstructionArgs } from "../dist/instruction-args.js";
 import { feeParameterUpdate, anchorParameterUpdate } from "../dist/parameters.js";
 import { DuskWrite } from "../dist/write.js";
@@ -22,7 +22,7 @@ const provider = {
   wallet: { publicKey: owner },
 };
 const program = new anchor.Program(IDL, provider);
-program.account.market.fetch = async () => ({
+program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,
   srlpMint: key(7),
   baseSide: { assetMint: baseMint, interestVault: key(15), reserveVault: key(17) },
   quoteSide: { assetMint: quoteMint, interestVault: key(16), reserveVault: key(18) },

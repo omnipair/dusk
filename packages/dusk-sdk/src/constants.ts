@@ -7,7 +7,7 @@ export const DEFAULT_PROTOCOL_REVENUE_SHARE_BPS = Number(
   IDL.constants.find(({ name }) => name === "DEFAULT_PROTOCOL_REVENUE_SHARE_BPS")!.value
 );
 
-const DEFAULT_PROGRAM_ID = "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y";
+const DEFAULT_PROGRAM_ID = "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN";
 const MPL_TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
 function getProgramIdFromEnv(fallback: string): string {
@@ -22,7 +22,13 @@ function getProgramIdFromEnv(fallback: string): string {
 export const DUSK_PROGRAM_ID = new PublicKey(getProgramIdFromEnv(DEFAULT_PROGRAM_ID));
 
 export const PROGRAM_ID = DUSK_PROGRAM_ID;
-/** Current development Market account layout. */
+/** Fewest decimals a market counts token amounts in (curve depth, hLP NAV and
+ * debt/collateral values). Prices, rates and ratios stay at nine decimals. */
+export const MIN_AMOUNT_DECIMALS = Number(
+  IDL.constants.find(({ name }) => name === "MIN_AMOUNT_DECIMALS")!.value
+);
+/** The one Market account layout the program reads. Accounts at any other
+ * layout are rejected rather than read at this layout's amount scale. */
 export const MARKET_LAYOUT_VERSION = Number(
   IDL.constants.find(({ name }) => name === "MARKET_LAYOUT_VERSION")!.value
 );
@@ -577,9 +583,9 @@ export function buildLpTransferHookValidationAccountData({
  * the market, underlying asset mint, canonical source/destination yield
  * accounts, hook program, and standard validation PDA as extra metas so the
  * hook can checkpoint revenue before the balance move is finalized. The event
- * authority lets the hook publish `LpTransferred`; Token-2022 ignores it for
- * mints that still use the legacy seven-account layout, so the list works for
- * both layouts.
+ * authority and Dusk program let the hook publish `LpTransferred`, and the
+ * futarchy authority and any hLP or junior cohort follow. The hook requires
+ * this complete list; every LP mint's validation account declares it.
  */
 export function buildLpTransferHookAccountMetas({
   lpMint,

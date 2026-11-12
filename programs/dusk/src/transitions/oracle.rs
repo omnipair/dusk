@@ -21,13 +21,17 @@ impl Market {
         let current = self.amm.concentrated_curve_cache.tail_liquidity;
         let recognized = if self.oracle.recognized_ordinary_supply == 0 {
             current
+        } else if ordinary == self.oracle.recognized_ordinary_supply {
+            self.oracle.recognized_tail_liquidity.min(current)
         } else {
+            // A scaled tail too large for u128 exceeds `current`, which then
+            // bounds it; the denominator is nonzero here.
             crate::math::mul_div_u128(
                 self.oracle.recognized_tail_liquidity,
                 ordinary as u128,
                 self.oracle.recognized_ordinary_supply as u128,
-            )?
-            .min(current)
+            )
+            .map_or(current, |scaled| scaled.min(current))
         };
         self.oracle.recognized_tail_liquidity = recognized;
         self.oracle.recognized_ordinary_supply = ordinary;

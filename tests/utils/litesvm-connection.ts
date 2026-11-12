@@ -1,6 +1,58 @@
-import { PublicKey, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, Message, VersionedTransaction, Signer, SendOptions } from "@solana/web3.js";
-import { LiteSVM } from "litesvm";
+import { PublicKey, Connection, Commitment, TransactionConfirmationStrategy, RpcResponseAndContext, SignatureResult, Transaction, Message, VersionedTransaction, Signer, SendOptions, ComputeBudgetProgram } from "@solana/web3.js";
+import { ComputeBudget, LiteSVM } from "litesvm";
 import { recordTransactionComputeUnits } from "./instruction-coverage.js";
+
+const REQUEST_HEAP_FRAME = 1;
+const MIN_HEAP_FRAME_BYTES = 32 * 1024;
+const MAX_HEAP_FRAME_BYTES = 256 * 1024;
+
+/** The heap frame a transaction requests, when it carries a valid request. */
+function requestedHeapFrameBytes(transaction: Transaction | VersionedTransaction): number | undefined {
+  const instructions = transaction instanceof VersionedTransaction
+    ? transaction.message.compiledInstructions.map((ix) => ({
+      programId: transaction.message.staticAccountKeys[ix.programIdIndex],
+      data: Buffer.from(ix.data),
+    }))
+    : transaction.instructions.map((ix) => ({ programId: ix.programId, data: Buffer.from(ix.data) }));
+  for (const { programId, data } of instructions) {
+    if (!programId.equals(ComputeBudgetProgram.programId) || data.length !== 5 || data[0] !== REQUEST_HEAP_FRAME) continue;
+    const bytes = data.readUInt32LE(1);
+    return bytes % 1024 === 0 && bytes >= MIN_HEAP_FRAME_BYTES && bytes <= MAX_HEAP_FRAME_BYTES ? bytes : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * A pinned compute budget makes LiteSVM ignore every compute-budget
+ * instruction. The cluster grants a transaction's requested heap frame, so
+ * apply that request to its own execution while keeping the pinned
+ * compute-unit limit for every transaction.
+ */
+export function honorHeapFrameRequests(svm: LiteSVM, budget: ComputeBudget): LiteSVM {
+  let current = budget;
+  const setBudget = svm.withComputeBudget.bind(svm);
+  svm.withComputeBudget = (next: ComputeBudget) => {
+    current = next;
+    return setBudget(next);
+  };
+  for (const name of ["sendTransaction", "simulateTransaction"] as const) {
+    const execute = (svm[name] as (transaction: Transaction | VersionedTransaction) => unknown).bind(svm);
+    (svm as any)[name] = (transaction: Transaction | VersionedTransaction) => {
+      const bytes = requestedHeapFrameBytes(transaction);
+      if (bytes === undefined) return execute(transaction);
+      const pinned = current.heapSize;
+      current.heapSize = bytes;
+      setBudget(current);
+      try {
+        return execute(transaction);
+      } finally {
+        current.heapSize = pinned;
+        setBudget(current);
+      }
+    };
+  }
+  return svm;
+}
 
 export type MeasuredTransaction<T extends Transaction | VersionedTransaction = Transaction> = {
   signature: string;

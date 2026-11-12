@@ -5,7 +5,10 @@ use crate::{
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
     state::*,
-    transitions::{liquidation_policy::LIQUIDATION_MINIMUM_DISCOUNT_BPS, DebtRepaymentQuote, LeverageCollateralFee},
+    transitions::{
+        amm::{prepare_concentrated_cache_and_geometry_at_depth, ConcentratedCurveGeometry, ConcentratedCurvePoint},
+        DebtRepaymentQuote, LeverageCollateralFee,
+    },
 };
 
 pub(crate) enum LiquidationPositionRef<'a> {
@@ -74,10 +77,99 @@ impl LiquidationPositionRef<'_> {
     }
 }
 
+/// What one liquidation reads more than once from a market it has not
+/// changed: the position's health, a risk refresh and the EMA reference
+/// curve. Each equals a fresh read. A market mutation clears the health and
+/// risk; the curve stays keyed by every input that builds it.
+#[derive(Default)]
+pub(crate) struct LiquidationReads {
+    health: Option<LiquidationHealth>,
+    risk: Option<(u64, Risk)>,
+    ema_curve: Option<EmaReferenceCurve>,
+}
+
+/// The EMA reference curve and the price, depth and shape that determine it.
+pub(crate) struct EmaReferenceCurve {
+    price: u64,
+    depth: u128,
+    pub(crate) cache: ConcentratedCurveCache,
+    pub(crate) geometry: ConcentratedCurveGeometry,
+    pub(crate) center: ConcentratedCurvePoint,
+}
+
+impl LiquidationReads {
+    /// `Market::current_risk_at_slot`.
+    pub(crate) fn risk_at_slot(&mut self, market: &Market, slot: u64) -> Result<Risk> {
+        if let Some((read_slot, risk)) = self.risk {
+            if read_slot == slot {
+                return Ok(risk);
+            }
+        }
+        let risk = market.current_risk_at_slot(slot)?;
+        self.risk = Some((slot, risk));
+        Ok(risk)
+    }
+
+    /// `Market::current_risk`.
+    pub(crate) fn current_risk(&mut self, market: &Market) -> Result<Risk> {
+        self.risk_at_slot(market, market.current_risk_slot())
+    }
+
+    /// `Market::flash_liquidation_health` of the one position being liquidated.
+    pub(crate) fn health(
+        &mut self,
+        market: &Market,
+        position: &LiquidationPositionRef<'_>,
+        asset: MarketAsset,
+        fee: LeverageCollateralFee,
+    ) -> Result<LiquidationHealth> {
+        if let Some(health) = self.health {
+            return Ok(health);
+        }
+        let health = market.flash_liquidation_health_with(position, asset, fee, || self.current_risk(market))?;
+        self.health = Some(health);
+        Ok(health)
+    }
+
+    /// Accrual or an AMM advance may have moved what health and risk read.
+    pub(crate) fn market_changed(&mut self) {
+        self.health = None;
+        self.risk = None;
+    }
+
+    /// The EMA reference curve at this price, depth and shape. It is built
+    /// again only when one of them changes.
+    pub(crate) fn ema_curve(
+        &mut self,
+        price: u64,
+        depth: u128,
+        parameters: ConcentratedCurveParameters,
+    ) -> Result<&EmaReferenceCurve> {
+        let built = self.ema_curve.as_ref().is_some_and(|curve| {
+            curve.price == price && curve.depth == depth && curve.cache.parameters() == parameters
+        });
+        if !built {
+            let (cache, geometry) = prepare_concentrated_cache_and_geometry_at_depth(price, depth, parameters)?;
+            let center = cache.center_point_with_geometry(price, geometry)?;
+            self.ema_curve = Some(EmaReferenceCurve {
+                price,
+                depth,
+                cache,
+                geometry,
+                center,
+            });
+        }
+        self.ema_curve.as_ref().ok_or_else(|| ErrorCode::BrokenInvariant.into())
+    }
+}
+
 impl Market {
     pub(crate) fn liquidation_value(&self, asset: MarketAsset, collateral_credit: u64) -> Result<u64> {
-        let value =
-            self.linear_liquidation_collateral_value_nad(asset.opposite(), collateral_credit, &self.current_risk()?)?;
+        self.liquidation_value_at(asset, collateral_credit, &self.current_risk()?)
+    }
+
+    pub(crate) fn liquidation_value_at(&self, asset: MarketAsset, collateral_credit: u64, risk: &Risk) -> Result<u64> {
+        let value = self.linear_liquidation_collateral_value_nad(asset.opposite(), collateral_credit, risk)?;
         self.denormalize_amount_floor(value, self.side(asset).asset_decimals)
     }
 
@@ -87,11 +179,23 @@ impl Market {
         asset: MarketAsset,
         fee: LeverageCollateralFee,
     ) -> Result<LiquidationHealth> {
+        self.flash_liquidation_health_with(position, asset, fee, || self.current_risk())
+    }
+
+    /// `risk` is read where the original health read it: once the position
+    /// and its collateral credit are known.
+    pub(crate) fn flash_liquidation_health_with(
+        &self,
+        position: &LiquidationPositionRef<'_>,
+        asset: MarketAsset,
+        fee: LeverageCollateralFee,
+        risk: impl FnOnce() -> Result<Risk>,
+    ) -> Result<LiquidationHealth> {
         if let LiquidationPositionRef::Leverage(p) = position {
             require!(p.debt_asset()? == asset, ErrorCode::InvalidLeveragePosition);
         }
         let collateral = position.collateral(asset);
-        let collateral_value = self.liquidation_value(asset, fee.unwind_credit(collateral)?)?;
+        let collateral_value = self.liquidation_value_at(asset, fee.unwind_credit(collateral)?, &risk()?)?;
         let debt = u64::try_from(Debt::shares_to_debt(
             position.shares(asset),
             self.debt.borrow_index(asset),
@@ -135,7 +239,9 @@ impl Market {
                             debt_fee,
                             now,
                             slot,
-                            None
+                            None,
+                            &mut None,
+                            &mut LiquidationReads::default(),
                         )?,
                     ErrorCode::LiquidationRepayTooLarge
                 );

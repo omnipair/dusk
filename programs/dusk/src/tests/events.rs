@@ -3,7 +3,7 @@ use crate::instructions::JuniorCohortInitialized;
 
 #[test]
 fn hlp_rebalance_event_preserves_both_vault_changes() {
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.debt.base_borrow_index_nad = crate::constants::NAD as u128;
     market.debt.quote_borrow_index_nad = crate::constants::NAD as u128;
     market.base_side.shares.srlp_supply = 1_202;

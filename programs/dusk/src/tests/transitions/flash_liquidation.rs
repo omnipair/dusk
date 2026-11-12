@@ -23,7 +23,7 @@ fn full_close_certificate_never_overrides_a_useful_integer_partial() {
                 let p = LiquidationPositionRef::Leverage(&position);
                 let health = market.flash_liquidation_health(&p, asset, fee).unwrap();
                 if !health.emergency_allowed().unwrap() { continue; }
-                let proof = market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, None).unwrap();
+                let proof = market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, None, &mut None, &mut Default::default()).unwrap();
                 let mut found = false;
                 let mut found_recovery = false;
                 for size in 1..100 {
@@ -240,7 +240,7 @@ fn positive_equity_full_close_proof_handles_raw_token_scale() {
         let mut market = test_market(50_000 * scale, 50_000 * scale);
         let position = seeded_position(&mut market, MarketAsset::Quote, 995 * scale, 1_000 * scale);
         assert!(market.proves_partial_bound(&LiquidationPositionRef::Leverage(&position), MarketAsset::Quote,
-            fee, fee, fee, 120, 0, None).unwrap(), "scale {scale}");
+            fee, fee, fee, 120, 0, None, &mut None, &mut Default::default()).unwrap(), "scale {scale}");
     }
 }
 
@@ -372,7 +372,7 @@ fn affordable_flash_prevents_fee_heavy_market_from_blocking_every_liquidation() 
                 assert!(quote.health_before.emergency_allowed().unwrap());
                 assert!(quote.health_before.improves(quote.health_after).unwrap());
                 assert!(quote.rates.buyer_discount_bps < 500);
-                assert!(!market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, None).unwrap());
+                assert!(!market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, None, &mut None, &mut Default::default()).unwrap());
                 assert!(market.quote_flash_liquidation(&p, asset, 0, true, fee, fee, fee, 120, 0).is_err());
             } else {
                 assert!(partial.is_err());
@@ -397,7 +397,7 @@ fn emergency_recovery_cap_uses_actual_fee_bearing_partials() {
             let p = LiquidationPositionRef::Leverage(&position);
             let fee = LeverageCollateralFee::default();
             let first = (1..1_000).find(|size| {
-                market.clone().prepare_emergency_candidate(&p, asset, *size, false, fee, fee, fee, 120, 0, 0)
+                market.clone().prepare_emergency_candidate(&p, asset, *size, false, fee, fee, fee, 120, 0, 0, &mut None, &mut Default::default())
                     .is_ok_and(|candidate| candidate.quote.health_after.recovered().unwrap())
             }).expect("a fee-bearing recovery crossing exists");
             let quote = market.clone().prepare_emergency_liquidation(&p, asset, first, false, fee, fee, fee, 120, 0, 0).unwrap().quote;
@@ -499,9 +499,9 @@ fn concentrated_recovery_certificate_never_skips_a_fee_bearing_integer_recovery(
         let p = LiquidationPositionRef::Leverage(&position);
         let health = market.flash_liquidation_health(&p, asset, fee).unwrap();
         if !health.emergency_allowed().unwrap() { continue; }
-        let proof = market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, Some(1_000)).unwrap();
+        let proof = market.proves_partial_bound(&p, asset, fee, fee, fee, 120, 0, Some(1_000), &mut None, &mut Default::default()).unwrap();
         let recovery = (1..1_000).any(|size| market.clone()
-            .prepare_emergency_candidate(&p, asset, size, false, fee, fee, fee, 120, 0, 0)
+            .prepare_emergency_candidate(&p, asset, size, false, fee, fee, fee, 120, 0, 0, &mut None, &mut Default::default())
             .is_ok_and(|candidate| candidate.quote.health_after.recovered().unwrap()));
         if proof {certified += 1;assert!(!recovery,"amp={amp} asset={asset:?} mode={mode} taxed={taxed} indexed={indexed}");}
         if recovery {witnesses += 1;assert!(!proof);}

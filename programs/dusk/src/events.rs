@@ -217,9 +217,9 @@ impl HlpRebalanced {
     }
 }
 
-/// One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Only mints
-/// whose extra-account list includes the event authority and Dusk program
-/// publish it; mints initialized before that layout transfer without it.
+/// One LP transfer checkpointed by the Dusk Token-2022 transfer hook. Every LP
+/// mint's extra-account list includes the event authority and Dusk program,
+/// so every LP transfer publishes it.
 #[event]
 pub struct LpTransferred {
     pub market: Pubkey,

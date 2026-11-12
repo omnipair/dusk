@@ -5,7 +5,9 @@ import { address, type AddressLike } from "./address.js";
 import { deriveJuniorMintAddress, deriveJuniorCohortAddress, deriveJuniorExitAddress, deriveYieldAccountAddress, deriveIncomeEpochAddress, deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID } from "./constants.js";
 import { integerBN, type IntegerLike } from "./parameters.js";
 import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
+import { oracleComputeBudgetInstructions, oracleReadAccounts } from "./oracle.js";
 import { DuskWrite } from "./write.js";
+import { assertCurrentMarketLayout } from "./market-layout.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 
 export type TrancheAction =
@@ -20,11 +22,16 @@ export class DuskTranches {
   readonly write: DuskWrite;
   constructor(readonly program: Program<DuskIdl>) { this.write = new DuskWrite(program); }
 
+  // Throws DuskUnsupportedMarketLayoutError for a market at any other layout.
+  private async marketState(market: PublicKey) {
+    return assertCurrentMarketLayout(await this.program.account.market.fetch(market));
+  }
+
   /** Archive a settled income denomination before further issuance overflows
    * or restarts a fully paid book. This does not claim anyone's income. */
   async rollIncome(params: { market: AddressLike; payer: AddressLike; bookIndex: number }) {
     const market = address(params.market), payer = address(params.payer);
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.marketState(market);
     const { bookIndex } = params;
     if (!Number.isInteger(bookIndex) || bookIndex < 0 || bookIndex > 3) throw new Error("bookIndex must be 0–3");
     const book = state.income.books[bookIndex];
@@ -42,7 +49,7 @@ export class DuskTranches {
   async checkpointIncome(params: { market: AddressLike; owner: AddressLike; kind: "senior" | "junior"; asset: "base" | "quote"; retiredJuniorMint?: AddressLike }) {
     const market = address(params.market), owner = address(params.owner);
     if (params.kind !== "junior" && params.retiredJuniorMint) throw new Error("Only junior has retired generations");
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.marketState(market);
     const lpMint = params.kind === "senior" ? state.srlpMint : params.retiredJuniorMint ? address(params.retiredJuniorMint) : state.juniorMint;
     const assetIndex = params.asset === "base" ? 0 : 1;
     const assetMint = assetIndex === 0 ? state.baseSide.assetMint : state.quoteSide.assetMint;
@@ -87,7 +94,7 @@ export class DuskTranches {
    * A numerically exhausted, partially paid book can be rolled explicitly with
    * rollIncome after IncomeEpochNeedsRollover. The payer funds archival rent. */
   async prepareDrainedIncomeBooks(params: { market: AddressLike; payer: AddressLike }) {
-    const state = await this.program.account.market.fetch(address(params.market));
+    const state = await this.marketState(address(params.market));
     const transactions: Transaction[] = [];
     for (let bookIndex = 0; bookIndex < 4; bookIndex++) {
       const book = state.income.books[bookIndex];
@@ -101,7 +108,7 @@ export class DuskTranches {
   /** A retired receipt has zero principal but can still own earned income. */
   async burnRetired(params: { market: AddressLike; owner: AddressLike; retiredMint: AddressLike; amount: IntegerLike }) {
     const market = address(params.market), owner = address(params.owner), retiredMint = address(params.retiredMint);
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.marketState(market);
     if (retiredMint.equals(state.juniorMint)) throw new Error("Cannot burn an active generation through the retired-receipt path");
     const exitAddress = deriveJuniorExitAddress(market, owner, retiredMint, this.program.programId)[0];
     const exitState = await this.program.account.juniorExitAccount.fetchNullable(exitAddress);
@@ -117,7 +124,7 @@ export class DuskTranches {
 
   async fundSeed(params: { market: AddressLike; asset: "base" | "quote"; remainingAccounts?: AccountMeta[] }) {
     const market = address(params.market);
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.marketState(market);
     const side = params.asset === "base" ? state.baseSide : state.quoteSide;
     const instruction = await this.write.instruction("fundJuniorSeed", undefined, { accounts: {
       market, assetMint: side.assetMint, reserveVault: side.reserveVault, interestVault: side.interestVault,
@@ -128,15 +135,22 @@ export class DuskTranches {
 
   async compoundSeed(params: { market: AddressLike }) {
     const market = address(params.market);
-    const state = await this.program.account.market.fetch(market);
-    const instruction = await this.write.instruction("compoundJuniorSeed", undefined, { accounts: { market, juniorMint: state.juniorMint } });
-    return { instruction, transaction: new Transaction().add(instruction) };
+    const state = await this.marketState(market);
+    const policy = state.oracle.policy;
+    const instruction = await this.write.instruction("compoundJuniorSeed", undefined, {
+      accounts: { market, juniorMint: state.juniorMint },
+      remainingAccounts: oracleReadAccounts(policy),
+    });
+    return {
+      instruction,
+      transaction: new Transaction().add(...oracleComputeBudgetInstructions(policy), instruction),
+    };
   }
 
   async initialize(params: { market: AddressLike; payer: AddressLike; metadata: LpTokenMetadataInput }) {
     const market = address(params.market), payer = address(params.payer);
     assertLpTokenMetadata(params.metadata);
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.marketState(market);
     const first = state.juniorMint.equals(PublicKey.default);
     if (!first && !state.tranches.juniorReserveShares.isZero()) throw new Error("Current junior capital is not wiped out");
     const generation = BigInt(state.tranches.generation.toString()) + (first ? 0n : 1n);
@@ -157,7 +171,7 @@ export class DuskTranches {
 
   async convert(params: { market: AddressLike; owner: AddressLike; action: TrancheAction }) {
     const market = address(params.market), owner = address(params.owner);
-    const state = await this.program.account.market.fetch(market);
+    const state = await this.marketState(market);
     if (state.juniorMint.equals(PublicKey.default)) throw new Error("Initialize the junior mint first");
     const seniorMint = state.srlpMint, juniorMint = state.juniorMint;
     const ownerSenior = getAssociatedTokenAddressSync(seniorMint, owner, true, TOKEN_2022_PROGRAM_ID);

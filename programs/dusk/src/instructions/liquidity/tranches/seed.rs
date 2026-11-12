@@ -20,7 +20,7 @@ use anchor_spl::{
 #[event_cpi]
 #[derive(Accounts)]
 pub struct FundJuniorSeed<'info> {
-    #[account(mut, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
     pub market: Box<Account<'info, Market>>,
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
@@ -81,7 +81,7 @@ impl<'info> FundJuniorSeed<'info> {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct CompoundJuniorSeed<'info> {
-    #[account(mut, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
     pub market: Box<Account<'info, Market>>,
     #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
     pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,
@@ -98,8 +98,8 @@ pub struct JuniorSeedCompounded {
     pub reserve_shares: u64,
 }
 
-impl CompoundJuniorSeed<'_> {
-    pub fn handle_compound(ctx: Context<Self>) -> Result<()> {
+impl<'info> CompoundJuniorSeed<'info> {
+    pub fn handle_compound(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
         let market = &mut ctx.accounts.market;
         market.assert_current_version()?;
         crate::instructions::accounting::accrue_market_interest(

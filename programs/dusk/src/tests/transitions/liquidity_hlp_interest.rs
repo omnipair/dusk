@@ -1,3 +1,8 @@
+/// Raw atoms of the six-decimal fixture tokens, in internal amount units.
+fn fixture_atoms_nad(market: &Market, atoms: u128) -> u128 {
+    market.normalize_amount(atoms, 6).unwrap()
+}
+
 #[test]
 fn h_lp_entry_accepts_full_value_public_interest_in_both_assets_and_curves() {
     use crate::state::{AmmConfig, AmmState};
@@ -6,7 +11,7 @@ fn h_lp_entry_accepts_full_value_public_interest_in_both_assets_and_curves() {
     for amplification in [1, 4] {
         for interest_asset in [MarketAsset::Base, MarketAsset::Quote] {
             for target in [MarketAsset::Base, MarketAsset::Quote] {
-                let mut market = Market::default();
+                let mut market = Market::current_layout();
                 market.base_side.asset_decimals = 6;
                 market.quote_side.asset_decimals = 6;
                 market.debt.base_borrow_index_nad = NAD as u128;
@@ -68,7 +73,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
         for amplification in [1, 4] {
             for interest_asset in [MarketAsset::Base, MarketAsset::Quote] {
                 for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
-                    let mut market = Market::default();
+                    let mut market = Market::current_layout();
                     market.base_side.asset_decimals = 6;
                     market.quote_side.asset_decimals = 6;
                     market.debt.base_borrow_index_nad = NAD as u128;
@@ -195,7 +200,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                         let nav =
                             hlp_share_nav_nad_with_prices(&market, target, current_hlp_curve_prices(&market).unwrap())
                                 .unwrap();
-                        assert!(nav.abs_diff(expected_nav) <= 10_000, "fee={fee_bps} compound={compounding_bps} amp={amplification} interest={interest_asset:?} in={asset_in:?} target={target:?}: before={expected_nav}, after={nav}");
+                        assert!(nav.abs_diff(expected_nav) <= fixture_atoms_nad(&market, 10), "fee={fee_bps} compound={compounding_bps} amp={amplification} interest={interest_asset:?} in={asset_in:?} target={target:?}: before={expected_nav}, after={nav}");
                         let mut exit_market = market.clone();
                         let exit = exit_market.withdraw_single_sided(target, vault.hlp_supply / 2).unwrap();
                         assert!(exit.target_amount_out > 0);
@@ -213,7 +218,7 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
     const UNIT: u64 = 1_000_000;
     for amplification in [1, 4] {
         for target in [MarketAsset::Base, MarketAsset::Quote] {
-            let mut market = Market::default();
+            let mut market = Market::current_layout();
             market.base_side.asset_decimals = 6;
             market.quote_side.asset_decimals = 6;
             market.debt.base_borrow_index_nad = NAD as u128;
@@ -261,7 +266,7 @@ fn h_lp_positive_book_value_recovers_when_curve_only_nav_is_negative() {
             let after =
                 hlp_share_nav_nad_with_prices(&market, target, current_hlp_curve_prices(&market).unwrap()).unwrap();
             assert!(
-                after.abs_diff(economic) <= 10_000,
+                after.abs_diff(economic) <= fixture_atoms_nad(&market, 10),
                 "amp={amplification} target={target:?}: economic {economic} -> {after}"
             );
             let vault = match target {
@@ -286,7 +291,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             for writeoff in [false, true] {
               for advance in [false, true] {
-                let mut market = Market::default();
+                let mut market = Market::current_layout();
                 market.base_side.asset_decimals = 6;
                 market.quote_side.asset_decimals = 6;
                 market.debt.base_borrow_index_nad = NAD as u128;
@@ -386,7 +391,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                         hlp_share_nav_nad_with_prices(&market, target, current_hlp_curve_prices(&market).unwrap())
                             .unwrap();
                     assert!(
-                        nav.abs_diff(expected) <= 10_000,
+                        nav.abs_diff(expected) <= fixture_atoms_nad(&market, 10),
                         "amp={amplification} asset={asset:?} target={target:?} writeoff={writeoff} advance={advance}"
                     );
                     if !writeoff {
@@ -400,7 +405,7 @@ fn public_repayment_and_writeoff_update_both_hlp_values_once() {
                             asset_value_in_target_nad_with_prices(&market, prices, asset, paid_claim as u64, target)
                                 .unwrap();
                         let original_nav = hlp_share_nav_nad_with_prices(&before, target, prices).unwrap();
-                        assert!(nav.checked_add(funded_value).unwrap().abs_diff(original_nav) <= 10_000);
+                        assert!(nav.checked_add(funded_value).unwrap().abs_diff(original_nav) <= fixture_atoms_nad(&market, 10));
                     }
                 }
             }
@@ -415,7 +420,7 @@ fn full_value_recovery_bonus_reports_the_settled_price() {
     use crate::transitions::{amm::SwapRequest, LeverageSwapFeeCredit};
     const UNIT: u64 = 1_000_000;
     for target in [MarketAsset::Base, MarketAsset::Quote] {
-        let mut market = Market::default();
+        let mut market = Market::current_layout();
         market.base_side.asset_decimals = 6;
         market.quote_side.asset_decimals = 6;
         market.debt.base_borrow_index_nad = NAD as u128;
@@ -479,7 +484,7 @@ fn accrued_interest_rehedging_does_not_pay_a_same_slot_round_trip() {
     for amplification in [1, 4] {
         for interest_asset in [MarketAsset::Base, MarketAsset::Quote] {
             for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
-                let mut market = Market::default();
+                let mut market = Market::current_layout();
                 market.base_side.asset_decimals = 6;
                 market.quote_side.asset_decimals = 6;
                 market.debt.base_borrow_index_nad = NAD as u128;
@@ -549,7 +554,7 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
     for amplification in [1, 4] {
         for interest_asset in [MarketAsset::Base, MarketAsset::Quote] {
           for unpaid_tokens in [25_000_u64, 250_000, 800_000] {
-            let mut market = Market::default();
+            let mut market = Market::current_layout();
             market.base_side.asset_decimals = 6;
             market.quote_side.asset_decimals = 6;
             market.debt.base_borrow_index_nad = NAD as u128;
@@ -612,7 +617,7 @@ fn cash_funded_interest_preserves_raw_curve_and_reports_rehedged_value() {
             for target in [MarketAsset::Base, MarketAsset::Quote] {
                 let nav_after = hlp_share_nav_nad_with_prices(&market, target, prices_after).unwrap();
                 let fixed_mark_nav = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
-                assert!(fixed_mark_nav.abs_diff(core_before_rehedge[target.code() as usize]) <= 10_000,
+                assert!(fixed_mark_nav.abs_diff(core_before_rehedge[target.code() as usize]) <= fixture_atoms_nad(&market, 10),
                     "rehedge transferred holder value at fixed mark: amp={amplification} asset={interest_asset:?} target={target:?} unpaid={unpaid_tokens}");
                 println!("ADVANCE_HLP unpaid={unpaid_tokens} gross={gross} amp={amplification} interest={interest_asset:?} target={target:?} before={} after={} price_before={} price_after={}",
                     nav_before[target.code() as usize], nav_after, prices.base_in_quote_nad(), prices_after.base_in_quote_nad());
@@ -633,7 +638,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
     for amplification in [1, 4, 10] {
         for interest_asset in [MarketAsset::Base, MarketAsset::Quote] {
           for unpaid_tokens in [25_000_u64, 250_000, 800_000] {
-            let mut market = Market::default();
+            let mut market = Market::current_layout();
             market.base_side.asset_decimals = 6;
             market.quote_side.asset_decimals = 6;
             market.debt.base_borrow_index_nad = NAD as u128;
@@ -717,7 +722,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             let ordinary_after = market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
             assert_eq!(ordinary_before, ordinary_after);
 
-            assert!(ordinary_value(&market).abs_diff(ordinary_nav_before) < 100_000,
+            assert!(ordinary_value(&market).abs_diff(ordinary_nav_before) < fixture_atoms_nad(&market, 100),
                 "ordinary LPs funded hLP recapitalization: amp={amplification} unpaid={unpaid_tokens} funding={funding_bps} diff={}",
                 ordinary_value(&market) as i128 - (ordinary_nav_before) as i128);
             for target in [MarketAsset::Base, MarketAsset::Quote] {
@@ -736,7 +741,7 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                         receipt.reserve_debit[t][i] - receipt.reserve_credit[t][i], target).unwrap();
                 }
                 let expected = nav_before[t] - fee_value - retained_fee_value;
-                assert!((fixed_mark_nav + yield_value).abs_diff(expected) < 100_000,
+                assert!((fixed_mark_nav + yield_value).abs_diff(expected) < fixture_atoms_nad(&market, 100),
                     "value changed amp={amplification} asset={interest_asset:?} target={target:?} unpaid={unpaid_tokens}: before_net={expected} after_plus_yield={} difference={}", fixed_mark_nav+yield_value, (fixed_mark_nav+yield_value).abs_diff(expected));
 
             }
@@ -753,7 +758,7 @@ fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_srlp() {
     for target in [MarketAsset::Base, MarketAsset::Quote] {
         for income_asset in [MarketAsset::Base, MarketAsset::Quote] {
             for with_active_cohort in [false, true] {
-                let mut market = Market::default();
+                let mut market = Market::current_layout();
                 market.base_side.asset_decimals = 6;
                 market.quote_side.asset_decimals = 6;
                 market.debt.base_borrow_index_nad = u128::from(NAD);
@@ -832,7 +837,7 @@ fn frozen_hlp_new_interest_is_harvestable_without_creating_unminted_srlp() {
 #[test]
 fn tranche_hlp_nav_includes_only_its_allocated_unpaid_interest() {
     const UNIT: u64 = 1_000_000;
-    let mut market = Market::default();
+    let mut market = Market::current_layout();
     market.base_side.asset_decimals = 6;
     market.quote_side.asset_decimals = 6;
     market.debt.base_borrow_index_nad = NAD as u128;
@@ -860,7 +865,7 @@ fn tranche_hlp_rehedge_preserves_each_vaults_receivable_nav() {
     const UNIT: u64 = 1_000_000;
     for amplification in [1, 4] {
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
-            let mut market = Market::default();
+            let mut market = Market::current_layout();
             market.base_side.asset_decimals = 6;
             market.quote_side.asset_decimals = 6;
             market.debt.base_borrow_index_nad = NAD as u128;
@@ -887,7 +892,7 @@ fn tranche_hlp_rehedge_preserves_each_vaults_receivable_nav() {
             market.assert_market_invariants().unwrap();
             for target in [MarketAsset::Base, MarketAsset::Quote] {
                 let after = hlp_share_nav_nad_with_prices(&market, target, prices).unwrap();
-                assert!(after.abs_diff(before[target.code() as usize]) <= 10_000, "NAV changed: amp={amplification}, income={asset:?}, target={target:?}, before={}, after={after}", before[target.code() as usize]);
+                assert!(after.abs_diff(before[target.code() as usize]) <= fixture_atoms_nad(&market, 10), "NAV changed: amp={amplification}, income={asset:?}, target={target:?}, before={}, after={after}", before[target.code() as usize]);
                 let opposite = hlp_full_underlying_amount(&market, target, target.opposite()).unwrap();
                 let vault = if target == MarketAsset::Base { market.base_hlp_vault } else { market.quote_hlp_vault };
                 let debt = Debt::shares_to_debt(vault.debt_shares, market.debt.borrow_index(target.opposite())).unwrap();
@@ -902,7 +907,7 @@ fn tranche_hlp_exit_buys_only_departing_coupons_and_does_not_gift_next_depositor
     const UNIT: u64 = 1_000_000;
     for target in [MarketAsset::Base, MarketAsset::Quote] {
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
-            let mut market = Market::default();
+            let mut market = Market::current_layout();
             market.base_side.asset_decimals = 6;
             market.quote_side.asset_decimals = 6;
             market.debt.base_borrow_index_nad = NAD as u128;
@@ -992,7 +997,8 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
             interest_vault: Pubkey::new_unique(), asset_decimals: d, ..MarketSide::default()
          };
          let config = MarketConfig {
-            swap_fee_bps: 0, divergence_fee_share_cap_bps: 0, volatility_fee_share_cap_bps: 0,
+            swap_fee_bps: crate::constants::MIN_CONCENTRATED_SWAP_FEE_BPS,
+            divergence_fee_share_cap_bps: 0, volatility_fee_share_cap_bps: 0,
             target_hlp_leverage_bps: 20_000, settlement_divergence_bps: 10_000,
             ema_half_life_ms: 60_000, directional_ema_half_life_ms: 60_000,
             curve_depth_ema_half_life_ms: 60_000,
@@ -1005,8 +1011,12 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
                 ..AmmConfig::default() },
             irm: IrmConfig::default(), ..MarketConfig::default()
          };
-         let mut market = Market::default();
+         let mut market = Market::current_layout();
          market.initialize(Pubkey::new_unique(), side(base_decimals), side(quote_decimals), config, Pubkey::new_unique(), Pubkey::new_unique(), [0;32], Pubkey::new_unique(), 60 * NAD, 0, 2_500, 255).unwrap();
+         // Configuration admits a concentrated curve only with the minimum
+         // base fee. Remove it after initialization so fee income cannot mask
+         // a round trip funded by frozen-hLP reconstruction.
+         market.config.swap_fee_bps = 0;
          market.add_liquidity(raw(10_000,base_decimals),raw(600_000,quote_decimals)).unwrap();
          market.finalize_amm_transition_and_observe_risk(2_500).unwrap();
          market.deposit_single_sided(MarketAsset::Base,raw(1_000,base_decimals),1).unwrap();

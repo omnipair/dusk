@@ -664,6 +664,13 @@ const swap = await dusk.get.previewSwap({
 Preview methods use Solana `simulateTransaction` and decode typed Anchor return
 data. They replace the old log-parsing getter workaround.
 
+Every typed market read, including `get.market`, `get.allMarkets`,
+`get.programAccount("market", ...)` and the market fetches inside instruction
+builders, accepts only `MARKET_LAYOUT_VERSION`. A market at any other layout
+throws `DuskUnsupportedMarketLayoutError` instead of being returned as a
+current market. `get.accountInfo` returns raw account bytes without that
+check.
+
 Available typed previews:
 
 - `previewMarket(market)`.

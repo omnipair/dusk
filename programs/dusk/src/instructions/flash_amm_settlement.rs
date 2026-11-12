@@ -25,7 +25,7 @@ impl Market {
     /// settlement. The ordinary flash quote exposes the temporary collateral
     /// receipt; this quote also prices its return transfer, the AMM sale, all
     /// liquidation distributions, and the buyer's final transfer fee.
-    pub(crate) fn preview_flash_amm_liquidation(
+    pub(crate) fn quote_flash_amm_liquidation(
         &mut self,
         position: &crate::transitions::flash_liquidation::LiquidationPositionRef<'_>,
         asset: MarketAsset,

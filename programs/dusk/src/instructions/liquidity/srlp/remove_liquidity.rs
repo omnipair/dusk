@@ -31,7 +31,7 @@ pub struct RemoveLiquidityArgs {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct RemoveLiquidity<'info> {
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     #[account(seeds=[crate::constants::FUTARCHY_AUTHORITY_SEED_PREFIX],bump=futarchy_authority.bump)]
     pub futarchy_authority: Box<Account<'info, crate::state::FutarchyAuthority>>,
@@ -69,7 +69,8 @@ pub struct RemoveLiquidity<'info> {
 impl<'info> RemoveLiquidity<'info> {
     pub fn validate(&self, args: &RemoveLiquidityArgs) -> Result<()> {
         validate_srlp_market_pda(&self.market, self.market.key())?;
-        self.market.assert_started()?;
+        // No start check: liquidity added before trading opens can leave
+        // before it opens, so a distant start never holds it.
         require!(args.srlp_amount > 0, ErrorCode::AmountZero);
         require_gte!(
             self.owner_srlp_account.amount,

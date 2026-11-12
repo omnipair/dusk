@@ -31,6 +31,7 @@ pub struct CloseLeverageDelegationArgs {
 #[instruction(args: CreateLeverageDelegationArgs)]
 pub struct CreateLeverageDelegation<'info> {
     #[account(
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),
@@ -78,6 +79,7 @@ pub struct CreateLeverageDelegation<'info> {
 #[instruction(args: UpdateLeverageDelegationArgs)]
 pub struct UpdateLeverageDelegation<'info> {
     #[account(
+        constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion,
         seeds = [
             MARKET_V2_SEED_PREFIX,
             market.base_side.asset_mint.as_ref(),

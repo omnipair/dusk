@@ -81,7 +81,7 @@ pub struct HlpFlashSettled {
 
 #[derive(Accounts)]
 pub struct HlpFlashAccounts<'info> {
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
     #[account(mut)]
@@ -431,47 +431,5 @@ impl<'info> SettleHlpFlash<'info> {
             ctx.accounts.event_authority.to_account_info(),
         )?;
         ctx.accounts.session.close(a.buyer.to_account_info())
-    }
-}
-
-#[derive(Accounts)]
-pub struct PreviewHlpFlash<'info> {
-    pub market: Box<Account<'info, Market>>,
-    pub futarchy_authority: Box<Account<'info, FutarchyAuthority>>,
-    pub target_mint: Box<InterfaceAccount<'info, Mint>>,
-    pub borrowed_mint: Box<InterfaceAccount<'info, Mint>>,
-}
-impl PreviewHlpFlash<'_> {
-    pub fn handle(ctx: Context<Self>, target_asset: u8) -> Result<HlpFlashQuote> {
-        let a = ctx.accounts;
-        let target = MarketAsset::try_from_code(target_asset)?;
-        validate_hlp_authority_pdas(
-            &a.market,
-            a.market.key(),
-            &a.futarchy_authority,
-            a.futarchy_authority.key(),
-        )?;
-        a.market.assert_current_version()?;
-        a.market.assert_started()?;
-        require_keys_eq!(
-            a.target_mint.key(),
-            a.market.side(target).asset_mint,
-            ErrorCode::InvalidMint
-        );
-        require_keys_eq!(
-            a.borrowed_mint.key(),
-            a.market.side(target.opposite()).asset_mint,
-            ErrorCode::InvalidMint
-        );
-        require_supported_asset_mint(&a.target_mint)?;
-        require_supported_asset_mint(&a.borrowed_mint)?;
-        let clock = Clock::get()?;
-        a.market.accrue_interest_to_slot(clock.slot)?;
-        a.market.advance_amm_clock(clock.slot)?;
-        a.market.quote_hlp_flash_recovery(
-            target,
-            leverage_collateral_fee(&a.target_mint, clock.epoch)?,
-            leverage_collateral_fee(&a.borrowed_mint, clock.epoch)?,
-        )
     }
 }

@@ -32,7 +32,7 @@ pub struct AddLiquidityArgs {
 #[event_cpi]
 #[derive(Accounts)]
 pub struct AddLiquidity<'info> {
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
 
     #[account(

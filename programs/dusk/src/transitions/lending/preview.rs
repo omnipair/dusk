@@ -147,34 +147,6 @@ impl Market {
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn borrow_capacity_quote(
-        &self,
-        collateral_asset: MarketAsset,
-        collateral_amount: u64,
-        collateral_fee: LeverageCollateralFee,
-        projected_borrow_amount: Option<u64>,
-        slot: u64,
-    ) -> Result<BorrowCapacityQuote> {
-        let fees = match collateral_asset {
-            MarketAsset::Base => LendingCollateralFees {
-                base: collateral_fee,
-                ..Default::default()
-            },
-            MarketAsset::Quote => LendingCollateralFees {
-                quote: collateral_fee,
-                ..Default::default()
-            },
-        };
-        self.borrow_capacity_quote_with_market_fees(
-            collateral_asset,
-            collateral_amount,
-            fees,
-            projected_borrow_amount,
-            slot,
-        )
-    }
-
     pub(crate) fn borrow_capacity_quote_with_market_fees(
         &self,
         collateral_asset: MarketAsset,
@@ -265,16 +237,13 @@ impl Market {
                 let collateral_nad =
                     self.normalize_amount(collateral_exit_credit as u128, collateral_side.asset_decimals)?;
                 let debt_nad = self.normalize_amount(projected_debt, debt_side.asset_decimals)?;
-                let price = ceil_div(
-                    debt_nad
-                        .checked_mul(BPS_DENOMINATOR as u128)
-                        .and_then(|value| value.checked_mul(NAD as u128))
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                let price = mul_div_ceil_u128(
+                    debt_nad,
+                    BPS_DENOMINATOR as u128 * NAD as u128,
                     collateral_nad
                         .checked_mul(projected_terms.liquidation_cf_bps as u128)
                         .ok_or(ErrorCode::MarketMathOverflow)?,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?;
+                )?;
                 u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
             };
 
@@ -568,36 +537,6 @@ pub(crate) struct PositionCapacityQuote {
 }
 
 impl Market {
-    #[cfg(test)]
-    pub(crate) fn position_capacity_quote(
-        &self,
-        position: &BorrowPosition,
-        collateral_asset: MarketAsset,
-        projected_borrow_amount: Option<u64>,
-        borrow_capacity: bool,
-        slot: u64,
-        collateral_fee: LeverageCollateralFee,
-    ) -> Result<PositionCapacityQuote> {
-        let fees = match collateral_asset {
-            MarketAsset::Base => LendingCollateralFees {
-                base: collateral_fee,
-                ..Default::default()
-            },
-            MarketAsset::Quote => LendingCollateralFees {
-                quote: collateral_fee,
-                ..Default::default()
-            },
-        };
-        self.position_capacity_quote_with_market_fees(
-            position,
-            collateral_asset,
-            projected_borrow_amount,
-            borrow_capacity,
-            slot,
-            fees,
-        )
-    }
-
     pub(crate) fn position_capacity_quote_with_market_fees(
         &self,
         position: &BorrowPosition,
@@ -782,16 +721,13 @@ impl Market {
                 )?;
                 let debt_nad =
                     self.normalize_amount(projection.projected_position_debt, self.side(debt_asset).asset_decimals)?;
-                let price = ceil_div(
-                    debt_nad
-                        .checked_mul(BPS_DENOMINATOR as u128)
-                        .and_then(|value| value.checked_mul(NAD as u128))
-                        .ok_or(ErrorCode::MarketMathOverflow)?,
+                let price = mul_div_ceil_u128(
+                    debt_nad,
+                    BPS_DENOMINATOR as u128 * NAD as u128,
                     collateral_nad
                         .checked_mul(liquidation_cf_bps as u128)
                         .ok_or(ErrorCode::MarketMathOverflow)?,
-                )
-                .ok_or(ErrorCode::MarketMathOverflow)?;
+                )?;
                 u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?
             };
         let mut low = 0;
@@ -830,3 +766,6 @@ impl Market {
         })
     }
 }
+
+#[cfg(test)]
+include!("../../tests/support/lending_preview.rs");

@@ -5,6 +5,11 @@ mod tests {
     include!("../../../tests/transitions/liquidity_hlp_engine.rs");
 }
 
+#[cfg(test)]
+mod exit_tests {
+    include!("../../../tests/transitions/liquidity_hlp_exit.rs");
+}
+
 fn recognized_hlp_residual_exposure(actual_residual_nad: i128, nav_nad: u128, amount_decimals: u8) -> i128 {
     // Keep the absolute dust allowance at 0.00001 tokens at every market scale.
     // Saturation is exact for this min: an unrepresentable absolute cap can
@@ -161,27 +166,6 @@ fn concentrated_hlp_receipt(
     })
 }
 
-/// Chooses indexed debt within one raw atom of the vault's proportional
-/// opposite-asset srLP claim at the final reserve point.
-#[cfg(test)]
-fn canonical_debt_for_proportional_claim(
-    non_debt_reserve: u128,
-    hlp_srlp_shares: u64,
-    total_srlp_supply: u64,
-    borrow_index_nad: u128,
-    quoted_debt: Option<u64>,
-) -> Result<(u128, u64)> {
-    canonical_debt_for_proportional_claim_with_carry(
-        non_debt_reserve,
-        hlp_srlp_shares,
-        total_srlp_supply,
-        borrow_index_nad,
-        0,
-        0,
-        quoted_debt,
-    )
-}
-
 fn canonical_debt_for_proportional_claim_with_carry(
     non_debt_reserve: u128,
     hlp_srlp_shares: u64,
@@ -271,7 +255,7 @@ pub(crate) fn prepare_concentrated_hlp_transition(
     let asset_out = asset_in.opposite();
     let decimals = market.side(asset_out).asset_decimals;
     let atom_scale = 10_u128
-        .checked_pow(u32::from(market.amount_decimals() - decimals))
+        .checked_pow(u32::from(market.amount_decimals()? - decimals))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let (start_ordinary, end_ordinary) = match asset_out {
         MarketAsset::Base => (start.ordinary_base, quote.integrated.executable.curve.end.base_reserve),
@@ -451,11 +435,6 @@ impl HlpTerminalWaterfallPlan {
         self.target_asset
     }
 
-    #[cfg(test)]
-    pub(crate) fn reference_recovery(self) -> u64 {
-        self.reference_recovery_in_borrowed
-    }
-
     pub(crate) fn consume(self, market: &mut Market, max_socialized_loss: u64) -> Result<HlpTerminalWaterfallReceipt> {
         require_eq!(
             market.curve_revision,
@@ -495,7 +474,7 @@ impl HlpTerminalWaterfallPlan {
         );
         let remaining_hlp_supply = vault.hlp_supply;
 
-        let mut loss = crate::transitions::liquidation_policy::LiquidationLossAllocation::quote(
+        let mut loss = crate::state::LiquidationLossAllocation::quote(
             self.expected_debt_principal.min(self.debt),
             self.debt,
             self.reference_recovery_in_borrowed,
@@ -660,7 +639,7 @@ impl Market {
                 reserve_credit: target_claim,
                 protocol_fee_bps,
             }
-            .quote_ema_liquidation(self)?
+            .quote_ema_liquidation(self, &mut None, &mut Default::default())?
             .amount_out
         };
         let reference_recovery_in_borrowed = borrowed_claim
@@ -1337,19 +1316,6 @@ impl ConcentratedHlpTransition {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[cfg(test)]
-pub(crate) struct HlpTrackingReference {
-    pub(crate) principal_nav_nad: i128,
-    pub(crate) loss_budget_nad: u128,
-    /// Frozen public-borrow interest only; never an hLP-funding claim.
-    pub(crate) base_unrealized_interest: u64,
-    /// Frozen public-borrow interest only; never an hLP-funding claim.
-    pub(crate) quote_unrealized_interest: u64,
-    pub(crate) start_srlp_shares: u64,
-    pub(crate) start_srlp_supply: u64,
-}
-
 impl Market {
     pub fn deposit_single_sided(
         &mut self,
@@ -1445,7 +1411,12 @@ impl Market {
                 .min(value);
             require!(delta > 0, ErrorCode::AmountZero);
             require!(nav_before > 0, ErrorCode::MarketMathOverflow);
-            let amount = u64::try_from(mul_div_u128(delta, supply_before as u128, nav_before)?)
+            // Price the new shares against the post-entry NAV net of the
+            // credited value. When the entry's own rebalance rounds extra
+            // value into the vault, that surplus stays with existing holders
+            // instead of being redeemable by the entrant; otherwise this is
+            // the pre-entry NAV.
+            let amount = u64::try_from(mul_div_u128(delta, supply_before as u128, nav_after - delta)?)
                 .map_err(|_| ErrorCode::MarketMathOverflow)?;
             require!(amount > 0, ErrorCode::AmountZero);
             match target_asset {
@@ -1462,7 +1433,10 @@ impl Market {
             };
             let post_entry = current_hlp_entry_state_with_prices(market, asset, post_prices)?;
             require!(
-                post_entry.disposition.admits_entry(),
+                matches!(
+                    post_entry.disposition,
+                    HlpEntryDisposition::Settled | HlpEntryDisposition::ControllerGranularityLimited
+                ),
                 ErrorCode::HlpSettlementUnavailable
             );
             let vault = if asset == MarketAsset::Base {
@@ -1559,7 +1533,12 @@ impl Market {
         let target_redeemed = hlp_exit_underlying_amount(self, target_asset, target_asset, hlp_amount)?;
         let borrowed_asset = target_asset.opposite();
         let borrowed_redeemed = hlp_exit_underlying_amount(self, target_asset, borrowed_asset, hlp_amount)?;
-        let debt_shares = proportional_u128(vault.debt_shares, hlp_amount, vault.hlp_supply)?;
+        let debt_shares = hlp_exit_debt_shares(
+            vault.debt_shares,
+            hlp_amount,
+            vault.hlp_supply,
+            self.debt.borrow_index(borrowed_asset),
+        )?;
         let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
             vault.debt_shares,
             debt_shares,
@@ -1626,7 +1605,12 @@ impl Market {
                 let supply = market.base_hlp_vault.hlp_supply;
                 require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
                 let srlp_amount = proportional(market.base_hlp_vault.srlp_shares, hlp_amount, supply)?;
-                let quote_debt_shares = proportional_u128(market.base_hlp_vault.debt_shares, hlp_amount, supply)?;
+                let quote_debt_shares = hlp_exit_debt_shares(
+                    market.base_hlp_vault.debt_shares,
+                    hlp_amount,
+                    supply,
+                    market.debt.quote_borrow_index_nad,
+                )?;
                 let base_out = hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Base, hlp_amount)?;
                 let quote_redeemed =
                     hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Quote, hlp_amount)?;
@@ -1697,7 +1681,12 @@ impl Market {
                 let supply = market.quote_hlp_vault.hlp_supply;
                 require_gte!(supply, hlp_amount, ErrorCode::InsufficientBalance);
                 let srlp_amount = proportional(market.quote_hlp_vault.srlp_shares, hlp_amount, supply)?;
-                let base_debt_shares = proportional_u128(market.quote_hlp_vault.debt_shares, hlp_amount, supply)?;
+                let base_debt_shares = hlp_exit_debt_shares(
+                    market.quote_hlp_vault.debt_shares,
+                    hlp_amount,
+                    supply,
+                    market.debt.base_borrow_index_nad,
+                )?;
                 let quote_out = hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Quote, hlp_amount)?;
                 let base_redeemed =
                     hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Base, hlp_amount)?;
@@ -2001,12 +1990,6 @@ pub(crate) enum HlpEntryDisposition {
     Unhedgeable,
 }
 
-impl HlpEntryDisposition {
-    pub(crate) const fn admits_entry(self) -> bool {
-        matches!(self, Self::Settled | Self::ControllerGranularityLimited)
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HlpEntryState {
     pub(crate) disposition: HlpEntryDisposition,
@@ -2021,7 +2004,7 @@ pub(crate) fn current_hlp_entry_state_with_prices(
 ) -> Result<HlpEntryState> {
     let valuation = current_hlp_valuation_with_prices(market, target_asset, prices)?;
     let residual_exposure =
-        recognized_hlp_residual_exposure(valuation.ideal_delta, valuation.nav_nad, market.amount_decimals());
+        recognized_hlp_residual_exposure(valuation.ideal_delta, valuation.nav_nad, market.amount_decimals()?);
     let disposition = if residual_exposure == 0 {
         HlpEntryDisposition::Settled
     } else if !valuation.proportional_hedge_available || valuation.nav_nad == 0 {
@@ -2152,38 +2135,6 @@ const fn complete_rebalance_amounts(amounts: ProportionalRebalanceAmounts) -> bo
     amounts.target_leg_amount > 0 && amounts.borrowed_leg_amount > 0 && amounts.debt_amount > 0
 }
 
-#[cfg(test)]
-pub(crate) fn hlp_end_to_end_tracking_delta(
-    market: &Market,
-    receipt: HlpRebalanceReceipt,
-    final_prices: HlpCurvePrices,
-) -> Result<i128> {
-    let tracking = HlpTrackingReference {
-        principal_nav_nad: receipt.tracking_start_nav_nad,
-        loss_budget_nad: receipt.tracking_loss_budget_nad,
-        base_unrealized_interest: receipt.tracking_base_unrealized_interest,
-        quote_unrealized_interest: receipt.tracking_quote_unrealized_interest,
-        start_srlp_shares: receipt.tracking_start_srlp_shares,
-        start_srlp_supply: receipt.tracking_start_srlp_supply,
-    };
-    let values = current_hlp_inventory_values_nad_with_prices(market, receipt.target_asset, final_prices)?;
-    let collateral = values
-        .target_inventory_value_nad
-        .checked_add(values.opposite_inventory_value_nad)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let final_principal_nav_nad = signed_value_difference(collateral, values.debt_value_nad)?;
-    let (_, _, tracking_delta_nad) = hlp_tracking_deltas_nad(
-        market,
-        receipt.target_asset,
-        final_prices,
-        final_principal_nav_nad,
-        tracking,
-    )?;
-    tracking_delta_nad
-        .checked_sub(receipt.tracking_retained_contribution_nad)
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-}
-
 /// Values both active hLP principals from a caller-proved executable price,
 /// avoiding a duplicate curve solve when an identity-bound endpoint already
 /// carries the marginal price.
@@ -2236,7 +2187,7 @@ pub(crate) fn checkpoint_one_hlp_with_prices(
 ) -> Result<i128> {
     let valuation = current_hlp_valuation_with_prices(market, target_asset, prices)?;
     let nav = valuation.nav_nad;
-    let ideal_delta = recognized_hlp_residual_exposure(valuation.ideal_delta, nav, market.amount_decimals());
+    let ideal_delta = recognized_hlp_residual_exposure(valuation.ideal_delta, nav, market.amount_decimals()?);
     let vault = match target_asset {
         MarketAsset::Base => &mut market.base_hlp_vault,
         MarketAsset::Quote => &mut market.quote_hlp_vault,
@@ -2459,123 +2410,6 @@ fn current_hlp_inventory_values_nad_with_prices(
     })
 }
 
-#[cfg(test)]
-fn hlp_interest_claims_for_shares(
-    base_unrealized_interest: u64,
-    quote_unrealized_interest: u64,
-    srlp_shares: u64,
-    srlp_supply: u64,
-) -> Result<(u64, u64)> {
-    if srlp_shares == 0 {
-        return Ok((0, 0));
-    }
-    require!(srlp_supply > 0, ErrorCode::BrokenInvariant);
-    if base_unrealized_interest == 0 && quote_unrealized_interest == 0 {
-        return Ok((0, 0));
-    }
-    let base_claim = u64::try_from(mul_div_u128(
-        base_unrealized_interest as u128,
-        srlp_shares as u128,
-        srlp_supply as u128,
-    )?)
-    .map_err(|_| ErrorCode::MarketMathOverflow)?;
-    let quote_claim = u64::try_from(mul_div_u128(
-        quote_unrealized_interest as u128,
-        srlp_shares as u128,
-        srlp_supply as u128,
-    )?)
-    .map_err(|_| ErrorCode::MarketMathOverflow)?;
-    Ok((base_claim, quote_claim))
-}
-
-#[cfg(test)]
-fn signed_asset_value_in_target_nad_with_prices(
-    market: &Market,
-    prices: HlpCurvePrices,
-    asset: MarketAsset,
-    amount: i128,
-    target_asset: MarketAsset,
-) -> Result<i128> {
-    let magnitude = u64::try_from(amount.unsigned_abs()).map_err(|_| ErrorCode::MarketMathOverflow)?;
-    let value = i128::try_from(asset_value_in_target_nad_with_prices(
-        market,
-        prices,
-        asset,
-        magnitude,
-        target_asset,
-    )?)
-    .map_err(|_| ErrorCode::MarketMathOverflow)?;
-    if amount < 0 {
-        value.checked_neg().ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-    } else {
-        Ok(value)
-    }
-}
-
-#[cfg(test)]
-fn hlp_frozen_interest_claim_delta_value_nad(
-    market: &Market,
-    target_asset: MarketAsset,
-    prices: HlpCurvePrices,
-    tracking: HlpTrackingReference,
-) -> Result<i128> {
-    let vault = match target_asset {
-        MarketAsset::Base => &market.base_hlp_vault,
-        MarketAsset::Quote => &market.quote_hlp_vault,
-    };
-    let final_srlp_supply = market.base_side.shares.srlp_supply;
-    require_eq!(
-        final_srlp_supply,
-        market.quote_side.shares.srlp_supply,
-        ErrorCode::BrokenInvariant
-    );
-    let (base_public_claim, quote_public_claim) = hlp_interest_claims_for_shares(
-        tracking.base_unrealized_interest,
-        tracking.quote_unrealized_interest,
-        vault.srlp_shares,
-        final_srlp_supply,
-    )?;
-    let (start_base_public_claim, start_quote_public_claim) = hlp_interest_claims_for_shares(
-        tracking.base_unrealized_interest,
-        tracking.quote_unrealized_interest,
-        tracking.start_srlp_shares,
-        tracking.start_srlp_supply,
-    )?;
-    let base_delta = i128::from(base_public_claim)
-        .checked_sub(i128::from(start_base_public_claim))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let quote_delta = i128::from(quote_public_claim)
-        .checked_sub(i128::from(start_quote_public_claim))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    signed_asset_value_in_target_nad_with_prices(market, prices, MarketAsset::Base, base_delta, target_asset)?
-        .checked_add(signed_asset_value_in_target_nad_with_prices(
-            market,
-            prices,
-            MarketAsset::Quote,
-            quote_delta,
-            target_asset,
-        )?)
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-}
-
-#[cfg(test)]
-fn hlp_tracking_deltas_nad(
-    market: &Market,
-    target_asset: MarketAsset,
-    prices: HlpCurvePrices,
-    final_principal_nav_nad: i128,
-    tracking: HlpTrackingReference,
-) -> Result<(i128, i128, i128)> {
-    let principal_delta = final_principal_nav_nad
-        .checked_sub(tracking.principal_nav_nad)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let claim_delta = hlp_frozen_interest_claim_delta_value_nad(market, target_asset, prices, tracking)?;
-    let combined_delta = principal_delta
-        .checked_add(claim_delta)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok((principal_delta, claim_delta, combined_delta))
-}
-
 pub(crate) fn consume_hlp_tracking_unrealized_interest(
     receipt: &mut HlpRebalanceReceipt,
     asset: MarketAsset,
@@ -2688,9 +2522,37 @@ fn proportional(amount: u64, numerator: u64, denominator: u64) -> Result<u64> {
     u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
-fn proportional_u128(amount: u128, numerator: u64, denominator: u64) -> Result<u128> {
-    amount
-        .checked_mul(numerator as u128)
-        .and_then(|value| value.checked_div(denominator as u128))
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+/// Debt shares an hLP exit burns. The exiting holder takes floored asset
+/// claims, so it also takes at least its fraction of the vault's indexed
+/// debt, rounded up and capped at the floored total. From the floored
+/// proportional share count, this burns the fewest shares whose aggregate
+/// debt reduction reaches that amount. A plain floor could leave up to an
+/// atom of the borrowed asset's debt with the remaining holders, and burned
+/// no shares for an exit below one share.
+fn hlp_exit_debt_shares(debt_shares: u128, hlp_amount: u64, hlp_supply: u64, borrow_index_nad: u128) -> Result<u128> {
+    let floored = debt_shares
+        .checked_mul(hlp_amount as u128)
+        .and_then(|value| value.checked_div(hlp_supply as u128))
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    if debt_shares == 0 {
+        return Ok(floored);
+    }
+    require!(borrow_index_nad >= NAD as u128, ErrorCode::DebtShareDivisionOverflow);
+    let debt = Debt::shares_to_debt(debt_shares, borrow_index_nad)?;
+    let indexed = debt_shares
+        .checked_mul(borrow_index_nad)
+        .ok_or(ErrorCode::DebtShareMathOverflow)?;
+    let owed = mul_div_ceil_u128(indexed, hlp_amount as u128, hlp_supply as u128 * NAD as u128)?.min(debt);
+    // Remaining shares r leave floor(r * index / NAD) <= debt - owed exactly
+    // when r * index < (debt - owed + 1) * NAD.
+    let limit = debt
+        .checked_sub(owed)
+        .and_then(|left| left.checked_add(1))
+        .and_then(|left| left.checked_mul(NAD as u128))
+        .ok_or(ErrorCode::DebtShareMathOverflow)?;
+    let max_remaining = (limit - 1) / borrow_index_nad;
+    Ok(floored.max(debt_shares.saturating_sub(max_remaining)))
 }
+
+#[cfg(test)]
+include!("../../../tests/support/hlp_engine.rs");

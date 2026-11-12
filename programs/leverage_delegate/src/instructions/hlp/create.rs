@@ -4,7 +4,7 @@ use super::*;
 #[instruction(args: CreateHlpOrderArgs)]
 pub struct CreateHlpOrder<'info> {
     #[account(
-        constraint = market.version == MARKET_LAYOUT_VERSION @ LeverageDelegateError::InvalidMarketVersion
+        constraint = market.assert_current_version().is_ok() @ LeverageDelegateError::InvalidMarketVersion
     )]
     pub market: Box<Account<'info, Market>>,
     pub target_hlp_mint: Box<InterfaceAccount<'info, Mint>>,
@@ -55,9 +55,10 @@ impl<'info> CreateHlpOrder<'info> {
         ctx: Context<'_, '_, '_, 'info, Self>,
         args: CreateHlpOrderArgs,
     ) -> Result<()> {
-        validate_hlp_order_kind(args.kind)?;
         require!(
-            args.hlp_amount > 0 && args.trigger_nad > 0,
+            (args.kind == HLP_ORDER_KIND_STOP_LOSS || args.kind == HLP_ORDER_KIND_STOP_RATE)
+                && args.hlp_amount > 0
+                && args.trigger_nad > 0,
             LeverageDelegateError::InvalidOrder
         );
         ctx.accounts

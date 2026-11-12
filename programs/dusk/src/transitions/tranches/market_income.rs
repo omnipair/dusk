@@ -1,33 +1,10 @@
-use super::{IncomeReceivableBook, IncomeReceivableClaim, ReceivableGrowth};
 use crate::{
     errors::ErrorCode,
     math::mul_div_u128,
-    state::{Market, MarketAsset},
+    state::{IncomeExposureEnd, IncomeReceivableClaim, Market, MarketAsset, MarketIncomeBooks},
 };
 use anchor_lang::prelude::*;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace)]
-pub struct IncomeExposureEnd {
-    pub ended: bool,
-    pub epoch: u64,
-    pub growth: ReceivableGrowth,
-}
-
-/// Public-loan and hLP-funding receivables are independent. The vault-owned
-/// public-income claims preserve hLP's automatic funding-gap repayment.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, InitSpace)]
-pub struct MarketIncomeBooks {
-    /// base public, quote public, base hLP funding, quote hLP funding.
-    pub books: [Box<IncomeReceivableBook>; 4],
-    pub revenue: [Box<crate::transitions::InterestRevenueBook>; 4],
-    /// Gross settlement budget awaiting measured net custody credit.
-    pub pending: [u64; 4],
-    pub seed: [IncomeReceivableClaim; 4],
-    /// [hLP target][income asset], owned by the vault rather than its holders.
-    pub hlp: [[IncomeReceivableClaim; 2]; 2],
-    pub junior_end: [IncomeExposureEnd; 4],
-    pub split_carry_bps: [u16; 4],
-}
 impl anchor_lang::Space for Box<MarketIncomeBooks> {
     const INIT_SPACE: usize = MarketIncomeBooks::INIT_SPACE;
 }

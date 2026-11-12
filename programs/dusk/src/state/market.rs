@@ -1,10 +1,19 @@
 use anchor_lang::prelude::*;
+use std::{cell::OnceCell, rc::Rc};
 
+use super::{IncomeReceivableBook, IncomeReceivableClaim, ReceivableGrowth};
 use crate::{constants::*, errors::ErrorCode, state::OperatorState};
 
-/// Maximum center amplification admitted by the protocol. The concentrated curve
-/// enforces this through the nonzero full-range tail share.
+/// Maximum center amplification admitted by the protocol. Narrow widths reach
+/// the minimum full-range tail share below first.
 pub const MAX_AMM_AMPLIFICATION_NAD: u64 = 2_000 * NAD;
+/// Minimum share of a concentrated curve's peak liquidity held by its
+/// full-range tail, in NAD: 0.01%. Every transition rebuilds the curve from
+/// rounded reserves, and a round trip across that rebuild can return slightly
+/// more than its input. The excess grows as the tail thins. At this floor the
+/// largest excess found in sampled round trips is 0.16 bps of the trade, below
+/// `MIN_CONCENTRATED_SWAP_FEE_BPS`.
+pub const MIN_AMM_TAIL_SHARE_NAD: u64 = NAD / 10_000;
 pub const MIN_AMM_ADJUSTMENT_NAD: u64 = NAD / 1_000_000;
 pub const MAX_AMM_ADJUSTMENT_NAD: u64 = NAD / 10;
 pub const MAX_AMM_VOLATILITY_NAD: u64 = 10 * NAD;
@@ -101,6 +110,192 @@ pub struct AmmConfig {
     pub launch_rate_limit_max_fee_bps: u16,
     pub launch_rate_limit_duration_seconds: u64,
     pub reserved: [u8; AMM_CONFIG_RESERVED_BYTES],
+}
+
+/// Operator configuration surface for the concentrated curve.
+///
+/// `peak_amplification_nad` is center liquidity depth relative to a CPMM with
+/// the same center reserves. `core_half_width_bps` keeps that complete depth
+/// active around the sticky center. `fade_width_bps` adds one deterministic
+/// half-depth shoulder before the nonzero full-range CPMM tail. One-times
+/// amplification with zero widths is exact CPMM.
+#[derive(AnchorSerialize, AnchorDeserialize, InitSpace, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ConcentratedCurveParameters {
+    pub peak_amplification_nad: u64,
+    pub core_half_width_bps: u16,
+    pub fade_width_bps: u16,
+}
+
+/// Coverage-and-utilization controller configuration. Initial APR is creation-only.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub struct RiskRateConfig {
+    pub lower_signal_nad: u64,
+    pub upper_signal_nad: u64,
+    pub lower_utilization_bps: u16,
+    pub upper_utilization_bps: u16,
+    pub half_life_ms: u64,
+    pub initial_apr_nad: u64,
+}
+
+/// Creation-only overrides. Missing fields use defaults; explicit zero values
+/// are preserved and validated rather than treated as missing.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace)]
+pub struct RiskRateOverrides {
+    pub lower_signal_nad: Option<u64>,
+    pub upper_signal_nad: Option<u64>,
+    pub lower_utilization_bps: Option<u16>,
+    pub upper_utilization_bps: Option<u16>,
+    pub half_life_ms: Option<u64>,
+    pub initial_apr_nad: Option<u64>,
+}
+
+/// Prospective controller settings. Initial APR and the protocol-wide floor
+/// cannot be changed after pool creation.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub struct RiskRateUpdate {
+    pub lower_signal_nad: u64,
+    pub upper_signal_nad: u64,
+    pub lower_utilization_bps: u16,
+    pub upper_utilization_bps: u16,
+    pub half_life_ms: u64,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub struct RiskRateSide {
+    pub apr_e18: u128,
+    pub borrow_index_nad: u128,
+    pub borrow_index_remainder: u128,
+}
+
+/// Both sides accrue from the same pre-operation coverage snapshot. Computing
+/// quote coverage after base accrual would otherwise make asset ordering change
+/// the common debt denominator and therefore the quote-side interest charge.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub struct RiskRateBook {
+    pub config: RiskRateConfig,
+    pub sides: [RiskRateSide; 2],
+    pub last_accrual_slot: u64,
+}
+
+/// Operator-configured junior income allocation. Exit timing and the request and
+/// liquidation fees remain fixed by the protocol.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub struct TranchePolicy {
+    pub junior_income_share_bps: u16,
+}
+
+impl Default for TranchePolicy {
+    fn default() -> Self {
+        Self {
+            junior_income_share_bps: DEFAULT_JUNIOR_INCOME_SHARE_BPS,
+        }
+    }
+}
+
+impl TranchePolicy {
+    pub fn validate(&self) -> Result<()> {
+        require!(
+            (MIN_JUNIOR_INCOME_SHARE_BPS..=MAX_JUNIOR_INCOME_SHARE_BPS).contains(&self.junior_income_share_bps),
+            ErrorCode::InvalidParameterUpdate
+        );
+        Ok(())
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub struct JuniorExitConfig {
+    pub minimum_notice_slots: u64,
+    pub maximum_notice_slots: u64,
+    pub exercise_window_slots: u64,
+}
+
+/// Junior's portion of the AMM's existing reserve shares. Senior receipts stay
+/// one-for-one with the remaining reserve shares, including hLP-held receipts.
+/// Junior receipts have their own exchange rate after income, losses and fees.
+#[derive(Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+#[cfg_attr(feature = "idl-build", derive(AnchorSerialize, AnchorDeserialize))]
+pub struct TrancheCapital {
+    pub junior_reserve_shares: u64,
+    pub junior_receipt_supply: u64,
+    /// Funded, nonredeemable protocol receipts; included in junior supply.
+    pub permanent_receipts: u64,
+    /// Escrow remains junior until a successful conversion or cancellation.
+    pub queued_receipts: u64,
+    pub generation: u64,
+}
+
+/// Carry sub-basis-point atoms across credits so splitting a payment into many
+/// small transfers cannot change either tranche's governed allocation.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct TrancheRevenueCarry {
+    pub interest_remainder_bps: u16,
+    pub swap_remainder_bps: u16,
+}
+
+/// Custody-backed junior income. Cached ownership is synchronized by every
+/// capital transition; the market invariant checks it against the shared book.
+#[derive(Clone, Copy, Debug, InitSpace)]
+#[cfg_attr(feature = "idl-build", derive(AnchorSerialize, AnchorDeserialize))]
+pub struct TrancheIncome {
+    pub initialized: bool,
+    pub income_share_bps: u16,
+    pub reserve_shares: u64,
+    pub receipt_supply: u64,
+    pub swap_growth_q64: u128,
+    pub interest_growth_q64: u128,
+    pub swap_remainder: u64,
+    pub interest_remainder: u64,
+    pub seed_swap_amount: u64,
+    pub seed_interest_amount: u64,
+    pub seed_swap_checkpoint: u128,
+    pub seed_interest_checkpoint: u128,
+    pub seed_swap_remainder: u64,
+    pub seed_interest_remainder: u64,
+    pub carry: TrancheRevenueCarry,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace)]
+pub struct IncomeExposureEnd {
+    pub ended: bool,
+    pub epoch: u64,
+    pub growth: ReceivableGrowth,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
+pub struct InterestRevenueBook {
+    pub gross_unpaid: u64,
+    pub protocol_unpaid: u64,
+    pub operator_unpaid: u64,
+    pub pending_gross: u64,
+    pub pending_protocol_gross: u64,
+    pub operator_claimable: u64,
+    pub protocol_fraction_q64: u64,
+    pub operator_fraction_q64: u64,
+    pub protocol_cash_fraction_q64: u64,
+}
+
+/// Public-loan and hLP-funding receivables are independent. The vault-owned
+/// public-income claims preserve hLP's automatic funding-gap repayment.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, InitSpace)]
+pub struct MarketIncomeBooks {
+    /// base public, quote public, base hLP funding, quote hLP funding.
+    pub books: [Box<IncomeReceivableBook>; 4],
+    pub revenue: [Box<InterestRevenueBook>; 4],
+    /// Gross settlement budget awaiting measured net custody credit.
+    pub pending: [u64; 4],
+    pub seed: [IncomeReceivableClaim; 4],
+    /// [hLP target][income asset], owned by the vault rather than its holders.
+    pub hlp: [[IncomeReceivableClaim; 2]; 2],
+    pub junior_end: [IncomeExposureEnd; 4],
+    pub split_carry_bps: [u16; 4],
+}
+
+/// Untouched income has a zero-allocation default. Nonzero income is decoded
+/// once and shared by scratch markets; quotes copy it only when they mutate it.
+/// This avoids retaining both an encoded and decoded book on the SBF heap.
+#[derive(Clone, Debug, Default)]
+pub struct LazyIncomeBooks {
+    pub(crate) decoded: OnceCell<Rc<MarketIncomeBooks>>,
 }
 
 impl Default for AmmConfig {
@@ -282,7 +477,8 @@ pub struct FeeProfile {
     pub launch_rate_limit_duration_seconds: u64,
 }
 
-pub use crate::transitions::tranches::{RiskRateConfig as IrmConfig, RiskRateUpdate as IrmUpdate};
+pub use RiskRateConfig as IrmConfig;
+pub use RiskRateUpdate as IrmUpdate;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct MarketConfig {
@@ -361,7 +557,7 @@ pub struct PublicInterestAdvance {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Fees {
-    pub junior: crate::transitions::tranches::TrancheIncome,
+    pub junior: TrancheIncome,
     pub public_interest_advance: PublicInterestAdvance,
     pub swap_fee_growth_index_q64: u128,
     pub interest_growth_index_q64: u128,
@@ -485,10 +681,11 @@ pub struct DailyBorrowBucket {
 
 /// Token amounts stored in reserves, positions, and shares are raw atoms.
 /// Internal curve quantities, risk depths, hLP NAV/exposure, and normalized
-/// debt/collateral values use `max(9, base_side.asset_decimals,
-/// quote_side.asset_decimals)` decimal places, including quantity fields with
-/// the historical `_nad` suffix. Prices, rates, and per-share ratios always
-/// retain nine-decimal NAD scaling. The quantity scale is immutable per market.
+/// debt/collateral values use `max(MIN_AMOUNT_DECIMALS, base_side.asset_decimals,
+/// quote_side.asset_decimals)` decimal places, twelve or more, including
+/// quantity fields with the historical `_nad` suffix. Prices, rates, and
+/// per-share ratios always retain nine-decimal NAD scaling. The quantity scale
+/// is immutable per market.
 #[account]
 #[derive(InitSpace, Default)]
 pub struct Market {
@@ -501,10 +698,10 @@ pub struct Market {
     pub amm: Box<AmmState>,
     pub debt: Debt,
     /// One shared junior capital budget across both reserve/debt books.
-    pub tranches: crate::transitions::tranches::TrancheCapital,
-    pub income: crate::state::LazyIncomeBooks,
-    pub junior_exit_config: crate::transitions::tranches::JuniorExitConfig,
-    pub tranche_policy: crate::transitions::tranches::TranchePolicy,
+    pub tranches: TrancheCapital,
+    pub income: LazyIncomeBooks,
+    pub junior_exit_config: JuniorExitConfig,
+    pub tranche_policy: TranchePolicy,
     pub junior_mint: Pubkey,
     pub base_hlp_vault: HlpVault,
     pub quote_hlp_vault: HlpVault,
@@ -598,6 +795,9 @@ impl Market {
         Ok(())
     }
 
+    /// The program reads one market layout. Every other version, including
+    /// earlier layouts with identical bytes, is rejected rather than read at
+    /// this layout's amount scale.
     pub fn assert_current_version(&self) -> Result<()> {
         require_eq!(self.version, MARKET_LAYOUT_VERSION, ErrorCode::InvalidVersion);
         Ok(())
@@ -750,43 +950,10 @@ impl anchor_lang::Space for Box<MarketSide> {
 
 #[cfg(test)]
 mod reload_tests {
-    use super::*;
+    include!("../tests/state/market_reload.rs");
+}
 
-    #[test]
-    fn in_place_refresh_matches_canonical_decoder_and_reuses_boxes() {
-        let mut bytes = Vec::new();
-        Market::default().try_serialize(&mut bytes).unwrap();
-        let mut target = Market::default();
-        let pointers = (
-            &*target.base_side as *const MarketSide,
-            &*target.quote_side as *const MarketSide,
-            &*target.amm as *const AmmState,
-        );
-        // Perturb every wire byte. Valid canonical encodings must refresh the
-        // entire account, including fields not currently used by protection.
-        for index in 8..bytes.len() {
-            let original = bytes[index];
-            bytes[index] = original.wrapping_add(1);
-            if let Ok(expected) = Market::try_deserialize(&mut bytes.as_slice()) {
-                target.reload_from_account_bytes(&bytes).unwrap();
-                let mut actual_bytes = Vec::new();
-                let mut expected_bytes = Vec::new();
-                target.try_serialize(&mut actual_bytes).unwrap();
-                expected.try_serialize(&mut expected_bytes).unwrap();
-                assert_eq!(actual_bytes, expected_bytes, "wire byte {index}");
-            }
-            bytes[index] = original;
-        }
-        assert_eq!(
-            pointers,
-            (
-                &*target.base_side as *const MarketSide,
-                &*target.quote_side as *const MarketSide,
-                &*target.amm as *const AmmState,
-            )
-        );
-        assert!(target.reload_from_account_bytes(&bytes[..bytes.len() - 1]).is_err());
-        bytes[0] ^= 1;
-        assert!(target.reload_from_account_bytes(&bytes).is_err());
-    }
+#[cfg(test)]
+mod tranche_policy_tests {
+    include!("../tests/transitions/tranches/policy.rs");
 }

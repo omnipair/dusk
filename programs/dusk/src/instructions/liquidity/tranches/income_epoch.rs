@@ -16,7 +16,7 @@ pub struct RollIncomeEpochArgs {
 pub struct RollIncomeEpoch<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
-    #[account(mut)]
+    #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     #[account(init, payer = payer, space = get_size_with_discriminator::<IncomeEpoch>(),
         seeds = [b"income_epoch", market.key().as_ref(), &[args.book_index], &args.epoch.to_le_bytes()], bump)]

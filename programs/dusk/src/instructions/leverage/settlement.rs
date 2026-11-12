@@ -53,7 +53,7 @@ pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 1;
 /// Keeps shared, boxed swap preparation and the initial risk observation out
 /// of the instruction handler's account-creation and token-CPI stack frame.
 #[inline(never)]
-pub(super) fn prepare_leverage_swap(
+pub(crate) fn prepare_leverage_swap(
     market: &mut Market,
     request: SwapRequest,
     cash_policy: SwapCashPolicy,
@@ -64,10 +64,12 @@ pub(super) fn prepare_leverage_swap(
     Ok(prepared)
 }
 
-/// Validates the canonical Market PDA outside Anchor's generated account
-/// parser. Keeping the seed-array construction out of `try_accounts` avoids
-/// overlapping it with the large Market deserialization frame.
+/// Validates the canonical Market PDA and its layout outside Anchor's
+/// generated account parser. Keeping the seed-array construction out of
+/// `try_accounts` avoids overlapping it with the large Market deserialization
+/// frame.
 pub fn validate_leverage_market_pda(market: &Market, market_key: Pubkey) -> Result<()> {
+    market.assert_current_version()?;
     let expected = Pubkey::create_program_address(&generate_market_seeds!(market), &crate::ID)
         .map_err(|_| error!(ErrorCode::InvalidMarket))?;
     require_keys_eq!(market_key, expected, ErrorCode::InvalidMarket);
@@ -348,34 +350,6 @@ pub fn split_delegated_accounts<'a, 'info>(
         ErrorCode::InvalidLeverageDelegation
     );
     Ok(accounts.split_at(before_accounts_len))
-}
-
-#[allow(dead_code)]
-fn delegated_callback_metas(
-    accounts: &[AccountInfo<'_>],
-    protected_accounts: &[Pubkey],
-    writable_protected_accounts: &[Pubkey],
-) -> Result<Vec<AccountMeta>> {
-    for (index, account) in accounts.iter().enumerate() {
-        for prior in accounts.iter().take(index) {
-            require_keys_neq!(account.key(), prior.key(), ErrorCode::InvalidLeverageDelegation);
-        }
-    }
-    let mut account_metas = Vec::with_capacity(accounts.len());
-    for account in accounts {
-        let is_protected = protected_accounts.contains(account.key);
-        let is_writable_protected = writable_protected_accounts.contains(account.key);
-        if is_protected && !is_writable_protected {
-            account_metas.push(AccountMeta::new_readonly(account.key(), false));
-            continue;
-        }
-        account_metas.push(AccountMeta {
-            pubkey: account.key(),
-            is_signer: false,
-            is_writable: account.is_writable,
-        });
-    }
-    Ok(account_metas)
 }
 
 pub struct DelegatedCallbackBuffers<'info> {

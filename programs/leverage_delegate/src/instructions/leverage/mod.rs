@@ -1,7 +1,7 @@
 use anchor_lang::{prelude::*, solana_program::program::set_return_data};
 use anchor_spl::token_interface::{Mint, TokenAccount};
 use dusk::{
-    constants::{BPS_DENOMINATOR, MARKET_LAYOUT_VERSION, NAD},
+    constants::{BPS_DENOMINATOR, NAD},
     instructions::{
         quote_delegated_close_payout, LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE,
         LEVERAGE_DELEGATE_CLOSE_SETTLED,

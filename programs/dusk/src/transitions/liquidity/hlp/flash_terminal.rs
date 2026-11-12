@@ -1,5 +1,5 @@
 use super::*;
-use crate::transitions::{liquidation_policy::LiquidationLossAllocation, LeverageCollateralFee};
+use crate::{state::LiquidationLossAllocation, transitions::LeverageCollateralFee};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct HlpFlashTerminalSettlement {

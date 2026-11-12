@@ -9,22 +9,33 @@ The real META vault has 10,000,000 live shares and an actionable hedge (entry bl
 `vob-market-20260929.bin` and `vob-authority-20260929.bin` are public devnet Market and FutarchyAuthority account bytes captured at slot 505496119 for market `45qXCmfQrDxTDYc1k7Xu65Qo3kYHRYUkYmiCQKLvPBhL` (META/USDC). The block timestamp was 1790677156. They contain no private keys. Tests use this fixed state and timestamp to replay the twelve bid levels that exposed the fractional-output rounding carry, plus the opposite swap direction and an unexplained reserve-drift rejection. These fixtures are regression inputs, not current market data.
 
 The raw captures remain unchanged as provenance. Native tests load separate
-layout-14 derived fixtures; no deployed-account conversion runs in the loaders.
+fixtures derived at the current market layout, the only one the program reads;
+no deployed-account conversion runs in the loaders.
 
 Run `node scripts/derive_operator_fixtures.cjs` after an Anchor build to reproduce
 them. The script decodes the pinned layout-13 inputs at
-`06094229d4a5a3858bf16bb4a2119157ca67b1cb`, then encodes layout 14 using the new
-IDL. The former 80% utilization admission threshold becomes the utilization
-rate upper target; the lower target defaults to 75%. The SDK batch fixture
-re-encodes each saved swap-preview return with the same schema. Historical
-reserve, debt, price and observation inputs remain unchanged. These are
-test-data conversions, not deployed-account migrations.
+`06094229d4a5a3858bf16bb4a2119157ca67b1cb`, then encodes the current layout
+using the new IDL:
+- The former 80% utilization admission threshold becomes the utilization rate
+  upper target; the lower target defaults to 75%.
+- The captures counted internal quantities at the nine-decimal minimum. The
+  current layout counts them at `MIN_AMOUNT_DECIMALS`, so the script multiplies
+  every stored curve liquidity, oracle tail, depth average, retention target,
+  controller target, frozen hLP offset, hLP residual exposure and hLP NAV by
+  `10^(max(12, decimals) - max(9, decimals))`. Raw token atoms, shares, prices,
+  rates and per-share ratios are unchanged.
+- The SDK batch fixture re-encodes each saved swap-preview return with the same
+  schema and restates its retention and ordinary-reserve quantities the same
+  way.
+
+Historical reserve, debt, price and observation inputs otherwise remain
+unchanged. These are test-data conversions, not deployed-account migrations.
 
 | Derived fixture | SHA-256 |
 |---|---|
-| `hlp-entry-layout14.bin` | `6fb9c358f10cf614d6fce88d67a0ad2724384f893d6d2cb96b5b878da8c68625` |
-| `vob-market-layout14.bin` | `2158a8f61afef9271bccbd02cba00c01dc7d867ef471c147bdb832a2bd2a7051` |
-| `hlp-entry-funding-layout14.bin` | `4227036bcf257a6bdbfb8c6ad22935c16e1df445dfd25be2c65fea6d86a9baa1` |
+| `hlp-entry-layout15.bin` | `9f1becfef00b2b90e68e3a69903512fe071f99f7a8175bb7cfa667a4996c0f47` |
+| `vob-market-layout15.bin` | `ac5395115c84db6b60237dfdd5c03d9b773095e541303fe5f9aa3e5f5fe85486` |
+| `hlp-entry-funding-layout15.bin` | `9972078b970c6f521f0b710485a1cf486403b4b4cfaf9fc24be7864a69c5cd05` |
 
 ## Indexed-funding hLP entry snapshot
 
@@ -33,6 +44,6 @@ test-data conversions, not deployed-account migrations.
 519889239 after the November 2026 operator release. It includes the account
 discriminator and contains no wallet keys. The base vault is empty; the quote
 vault has nine hLP tokens and accrued funding that requires settlement. Tests
-use the derived `hlp-entry-funding-layout14.bin`, accrue that exact slot and
+use the derived `hlp-entry-funding-layout15.bin`, accrue that exact slot and
 exercise both first and repeat deposits, coupon ownership, share-value
 protection and the post-entry hedge.

@@ -97,6 +97,7 @@ pub fn handle_transfer_hook<'info>(
     // Snapshot the current yield indexes while the market account is borrowed.
     let (base_context, _quote_context) =
         mutate_program_owned_account::<Market, _, _>(&accounts[5], ErrorCode::InvalidMarket, |market| {
+            market.assert_current_version()?;
             require_keys_eq!(*accounts[6].key, market.base_side.asset_mint, ErrorCode::InvalidMint);
             require_keys_eq!(*accounts[7].key, market.quote_side.asset_mint, ErrorCode::InvalidMint);
             let event_authority = &accounts[12];

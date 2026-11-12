@@ -1,9 +1,15 @@
 use anchor_lang::prelude::*;
 
 use super::{LiquidationFeeAllocation, LiquidationHealth, LiquidationRates};
+use crate::errors::ErrorCode;
 
 pub const LIQUIDATION_SESSION_SEED: &[u8] = b"liquidation-session";
 pub const LIQUIDATION_PAYMENT_SEED: &[u8] = b"liquidation-payment";
+
+pub(crate) fn require_no_active_liquidation_session(active_session: Pubkey) -> Result<()> {
+    require_keys_eq!(active_session, Pubkey::default(), ErrorCode::LiquidationSessionActive);
+    Ok(())
+}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
 pub struct FlashLiquidationQuote {

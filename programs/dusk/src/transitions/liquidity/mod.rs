@@ -110,10 +110,7 @@ impl Market {
                 self.normalize_amount(u128::from(receipt.base_reserve_credit), self.base_side.asset_decimals)?;
             let quote_nad =
                 self.normalize_amount(u128::from(receipt.quote_reserve_credit), self.quote_side.asset_decimals)?;
-            let price = quote_nad
-                .checked_mul(u128::from(NAD))
-                .and_then(|value| value.checked_div(base_nad))
-                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let price = mul_div_u128(quote_nad, u128::from(NAD), base_nad)?;
             let price = u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?;
             require!(price > 0, ErrorCode::InvalidSettlementPrice);
             if self.amm.launch_reference_price_nad > 0 {
@@ -181,7 +178,8 @@ impl Market {
             let price = u128::from(self.oracle.runtime.observation()?.price_nad);
             require!(price > 0, ErrorCode::InvalidSettlementPrice);
             let quote = self.normalize_amount(u128::from(max_quote_reserve_credit), self.quote_side.asset_decimals)?;
-            let base_limit = mul_div_u128(quote, u128::from(NAD), price)?;
+            // A limit beyond u128 leaves the caller's base cap binding.
+            let base_limit = mul_div_u128(quote, u128::from(NAD), price).unwrap_or(u128::MAX);
             let base_cap = self.normalize_amount(u128::from(max_base_reserve_credit), self.base_side.asset_decimals)?;
             max_base_reserve_credit =
                 self.denormalize_amount_floor(base_limit.min(base_cap), self.base_side.asset_decimals)?;

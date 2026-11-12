@@ -29,6 +29,7 @@ const TOKEN_ACCOUNT_OWNER_OFFSET: u8 = 32;
 pub struct InitializeLpTransferHook<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
+    #[account(constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
     pub market: Box<Account<'info, Market>>,
     pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Standard SPL transfer-hook validation PDA, derived and verified

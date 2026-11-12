@@ -120,6 +120,11 @@ fn ordinary_liquidity_can_seed_before_start_but_reduce_only_still_blocks_it() {
     );
 }
 
+/// Internal amount of whole units of the zero-decimal fixture assets.
+fn zero_decimal_nad(units: u128) -> u128 {
+    Market::current_layout().normalize_amount(units, 0).unwrap()
+}
+
 fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
     let base_mint = Pubkey::new_unique();
     let quote_mint = Pubkey::new_unique();
@@ -675,7 +680,7 @@ fn borrower_risk_valuation_uses_curve_depth_ema_cap() {
         quote_price_ema_nad: NAD,
         directional_base_price_ema_nad: NAD,
         directional_quote_price_ema_nad: NAD,
-        curve_depth_ema_nad: 100_000_u128 * NAD as u128,
+        curve_depth_ema_nad: zero_decimal_nad(100_000),
         ..Risk::default()
     };
 
@@ -683,15 +688,15 @@ fn borrower_risk_valuation_uses_curve_depth_ema_cap() {
         .collateral_value_nad(MarketAsset::Base, 50_000, &market.risk)
         .unwrap();
     let expected = crate::transitions::amm::cpmm_amount_out_nad(
-        100_000_u128 * NAD as u128,
-        100_000_u128 * NAD as u128,
-        50_000_u128 * NAD as u128,
+        zero_decimal_nad(100_000),
+        zero_decimal_nad(100_000),
+        zero_decimal_nad(50_000),
     )
     .unwrap();
     let live_depth_value = crate::transitions::amm::cpmm_amount_out_nad(
-        1_000_000_u128 * NAD as u128,
-        1_000_000_u128 * NAD as u128,
-        50_000_u128 * NAD as u128,
+        zero_decimal_nad(1_000_000),
+        zero_decimal_nad(1_000_000),
+        zero_decimal_nad(50_000),
     )
     .unwrap();
 
@@ -712,7 +717,7 @@ fn borrowing_uses_only_full_range_tail_of_concentrated_market() {
     market.refresh_risk().unwrap();
 
     let collateral_amount = 100_000;
-    let collateral_amount_nad = collateral_amount as u128 * NAD as u128;
+    let collateral_amount_nad = zero_decimal_nad(collateral_amount as u128);
     let cache = market.amm.concentrated_curve_cache;
     let current_depth = cache.tail_liquidity + cache.concentrated_liquidity;
     let risk = Risk {
@@ -754,7 +759,7 @@ fn borrowing_uses_only_full_range_tail_of_concentrated_market() {
 
 #[test]
 fn reconstructed_risk_curve_caps_depth_by_sudden_current_drawdown() {
-    let curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
+    let curve_depth_ema_nad = zero_decimal_nad(1_000_000);
     let high_risk = Risk {
         base_price_ema_nad: NAD,
         quote_price_ema_nad: NAD,
@@ -782,7 +787,7 @@ fn reconstructed_risk_curve_caps_depth_by_sudden_current_drawdown() {
 #[test]
 fn daily_borrow_bucket_uses_pessimistic_depth_at_current_spot_ratio() {
     let mut market = invariant_market(4_000_000, 1_000_000);
-    market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
+    market.risk.curve_depth_ema_nad = zero_decimal_nad(1_000_000);
 
     let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk).unwrap();
     assert_eq!(
@@ -798,7 +803,7 @@ fn daily_borrow_bucket_uses_pessimistic_depth_at_current_spot_ratio() {
 #[test]
 fn daily_borrow_bucket_track_post_swap_reserve_ratio() {
     let mut market = invariant_market(1_000_000, 1_000_000);
-    market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
+    market.risk.curve_depth_ema_nad = zero_decimal_nad(1_000_000);
     let amount_in = 250_000;
     let amount_out = crate::transitions::amm::cpmm_amount_out(1_000_000, 1_000_000, amount_in).unwrap();
     market.base_side.reserves.live_reserve += u128::from(amount_in);
@@ -830,7 +835,7 @@ fn daily_borrow_bucket_uses_live_depth_when_depth_ema_is_empty_or_above_spot() {
             <= 1
     );
 
-    market.risk.curve_depth_ema_nad = 2_000_000_u128 * NAD as u128;
+    market.risk.curve_depth_ema_nad = zero_decimal_nad(2_000_000);
     assert_eq!(market.daily_limit_for_side(MarketAsset::Base, 2_500).unwrap(), 200_000);
     assert!(
         market
@@ -844,7 +849,7 @@ fn daily_borrow_bucket_uses_live_depth_when_depth_ema_is_empty_or_above_spot() {
 #[test]
 fn daily_borrow_bucket_follows_depth_drawdown_growth_and_proportional_liquidity() {
     let mut market = invariant_market(2_000_000, 2_000_000);
-    market.risk.curve_depth_ema_nad = 1_000_000_u128 * NAD as u128;
+    market.risk.curve_depth_ema_nad = zero_decimal_nad(1_000_000);
 
     let initial = market.daily_limit_for_side(MarketAsset::Base, 1_000).unwrap();
     assert!(initial > 0);
@@ -907,6 +912,76 @@ fn global_health_contribution_is_debt_capped_and_rounded_down() {
     );
 }
 
+/// Six-decimal markets holding a trillion whole base tokens against a million
+/// quote tokens, the shape of a large memecoin pool.
+fn memecoin_market() -> Market {
+    let mut market = invariant_market(1_000_000_000_000_000_000, 1_000_000_000_000);
+    market.base_side.asset_decimals = 6;
+    market.quote_side.asset_decimals = 6;
+    *market.amm = AmmState::default();
+    market.risk = Risk::default();
+    market.prepare_amm_for_swap(0).unwrap();
+    market.refresh_risk().unwrap();
+    market
+}
+
+#[test]
+fn global_health_contribution_keeps_collateral_when_its_cap_exceeds_raw_atoms() {
+    // A million quote tokens of debt against base collateral marked at 6e-8:
+    // the 150% cap is 2.5e19 base atoms, beyond u64, so the position's own
+    // collateral binds. Converting the cap to atoms before the min reverted
+    // every deposit, repayment and withdrawal of such a position.
+    let market = memecoin_market();
+    let risk = Risk {
+        base_price_ema_nad: 60,
+        directional_base_price_ema_nad: 60,
+        ..market.risk
+    };
+    let collateral = 10_000_000_000_000_000_000;
+    assert_eq!(
+        market
+            .debt_capped_global_health_contribution(MarketAsset::Quote, 1_000_000_000_000, collateral, &risk)
+            .unwrap(),
+        collateral
+    );
+}
+
+#[test]
+fn borrow_depth_keeps_the_reserve_when_virtual_depth_exceeds_raw_atoms() {
+    // A base mark a thousand times below spot puts the pessimistic virtual
+    // base reserve near 3.2e19 atoms, beyond u64. The actual reserve binds;
+    // converting first reverted every borrow's daily-limit check.
+    let mut market = memecoin_market();
+    let spot = market.risk.base_price_ema_nad;
+    market.risk.base_price_ema_nad = spot / 1_000;
+    market.risk.directional_base_price_ema_nad = spot / 1_000;
+    let (base_depth, quote_depth) = market.pessimistic_borrow_reserve_depths(&market.risk).unwrap();
+    assert_eq!(base_depth, market.curve_reserve(MarketAsset::Base).unwrap());
+    assert!(quote_depth > 0);
+    assert!(market.daily_limit_for_side(MarketAsset::Base, DEFAULT_DAILY_BORROW_BPS).unwrap() > 0);
+}
+
+#[test]
+fn repayment_survives_a_collateral_mark_collapse_past_raw_atoms() {
+    // A 100,000-quote-token loan against base collateral. When the base mark
+    // collapses to 3e-9, the 150% contribution cap on the 60,000 tokens left
+    // after a partial repayment reaches 3e19 base atoms, beyond u64; partial
+    // and full repayment must still settle.
+    let mut market = memecoin_market();
+    let mut position = BorrowPosition::default();
+    position.clear_liquidation_auction();
+    market
+        .deposit_collateral(&mut position, MarketAsset::Base, 400_000_000_000_000_000)
+        .unwrap();
+    market.borrow(&mut position, MarketAsset::Quote, 100_000_000_000, 0, 0).unwrap();
+    market.risk.base_price_ema_nad = 3;
+    market.risk.directional_base_price_ema_nad = 3;
+    market.repay(&mut position, MarketAsset::Quote, 40_000_000_000).unwrap();
+    let rest = u64::try_from(position.fixed_quote_debt(&market.debt).unwrap()).unwrap();
+    market.repay(&mut position, MarketAsset::Quote, rest).unwrap();
+    assert_eq!(position.fixed_quote_debt(&market.debt).unwrap(), 0);
+}
+
 #[test]
 fn global_health_cap_remains_bounded_after_collateral_appreciates() {
     let mut market = invariant_market(1_000_000, 1_000_000);
@@ -918,7 +993,7 @@ fn global_health_cap_remains_bounded_after_collateral_appreciates() {
         quote_price_ema_nad: NAD * 2,
         directional_base_price_ema_nad: NAD / 2,
         directional_quote_price_ema_nad: NAD * 2,
-        curve_depth_ema_nad: 1_000_000_u128 * NAD as u128,
+        curve_depth_ema_nad: zero_decimal_nad(1_000_000),
         ..Risk::default()
     };
 
@@ -975,7 +1050,7 @@ fn external_fixed_debt_excludes_only_the_acting_position() {
 
     assert_eq!(
         market.external_fixed_debt_nad(&position, MarketAsset::Base).unwrap(),
-        75_000_u128 * NAD as u128
+        zero_decimal_nad(75_000)
     );
 }
 
@@ -1422,6 +1497,52 @@ fn concentration_execution_schedules_guarded_intermediate_and_final_shapes() {
 }
 
 #[test]
+fn concentration_requires_the_minimum_base_fee() {
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.amm.adjustment_step_nad = NAD / 1_000;
+    market.finalize_amm_transition_and_observe_risk(1).unwrap();
+    assert_eq!(market.config.swap_fee_bps, 0);
+    let concentration = MarketParameterUpdate::Concentration {
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
+        ramp_duration_slots: MIN_CONCENTRATION_RAMP_SLOTS,
+    };
+
+    // The proposal is checked against its target, so a fee-free market cannot
+    // schedule a concentrated curve.
+    let before = market.try_to_vec().unwrap();
+    assert_eq!(
+        market
+            .execute_parameter_updates(core::slice::from_ref(&concentration), 2)
+            .unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::ConcentratedSwapFeeBelowMinimum)
+    );
+    assert_eq!(market.try_to_vec().unwrap(), before);
+
+    // Raising the base fee in the same proposal admits it.
+    let mut minimum = market.config.fee_profile();
+    minimum.base_fee_bps = MIN_CONCENTRATED_SWAP_FEE_BPS;
+    market
+        .execute_parameter_updates(&[MarketParameterUpdate::Fee(minimum), concentration], 2)
+        .unwrap();
+    assert!(market
+        .advance_concentration_ramp(2 + MIN_CONCENTRATION_RAMP_SLOTS)
+        .unwrap());
+    assert_eq!(market.config.amm.peak_amplification_nad, 4 * NAD);
+
+    // Once concentrated, the fee cannot return below the minimum.
+    let mut fee_free = market.config.fee_profile();
+    fee_free.base_fee_bps = 0;
+    assert_eq!(
+        market
+            .validate_parameter_updates(&[MarketParameterUpdate::Fee(fee_free)])
+            .unwrap_err(),
+        anchor_lang::prelude::error!(ErrorCode::ConcentratedSwapFeeBelowMinimum)
+    );
+}
+
+#[test]
 fn returning_to_cpmm_releases_retained_principal_only_at_a_guarded_step() {
     let mut market = controller_market(1_000_000, 1_000_000);
     market.finalize_amm_transition_and_observe_risk(1).unwrap();
@@ -1725,6 +1846,7 @@ fn every_family_closes_its_windows_before_any_family_moves() {
 #[test]
 fn curve_and_center_controller_validate_together_and_cannot_disable_centering() {
     let mut market = invariant_market(1_000_000, 1_000_000);
+    market.config.swap_fee_bps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     market
         .execute_parameter_updates(
             &[
@@ -1816,7 +1938,7 @@ fn high_decimal_borrow_partial_repay_and_liquidation_preserve_dust_debt() {
         let mut market = invariant_market(1_000_000, 1_000_000);
         market.base_side.asset_decimals = base_decimals;
         market.quote_side.asset_decimals = quote_decimals;
-        let precision = base_decimals.max(quote_decimals);
+        let precision = market.amount_decimals().unwrap();
         let normalized_reserve = 1_000_000_000_000_000_u64;
         market.base_side.reserves.live_reserve = u128::from(normalized_reserve / 10_u64.pow(u32::from(precision - base_decimals)));
         market.base_side.reserves.cash_reserve = market.base_side.reserves.live_reserve.try_into().unwrap();
@@ -1842,7 +1964,10 @@ fn high_decimal_borrow_partial_repay_and_liquidation_preserve_dust_debt() {
             MarketAsset::Quote => position.fixed_quote_debt(&market.debt).unwrap(),
         };
         assert_eq!(debt, 1);
-        assert_eq!(market.total_fixed_debt_nad(debt_asset).unwrap(), 1);
+        assert_eq!(
+            market.total_fixed_debt_nad(debt_asset).unwrap(),
+            market.normalize_amount(1, market.side(debt_asset).asset_decimals).unwrap()
+        );
         // An underwater remainder must remain visible to risk checks.
         position.base_collateral = 0;
         position.quote_collateral = 0;
@@ -2096,5 +2221,7 @@ fn new_borrower_cannot_reclassify_older_borrowers_principal_or_tranche_loss() {
 fn controller_market(base_cash: u64, quote_cash: u64) -> Market {
     let mut market = invariant_market(base_cash, quote_cash);
     market.config.amm.adjustment_step_nad = NAD / 1_000;
+    // Concentration targets require the minimum concentrated base fee.
+    market.config.swap_fee_bps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     market
 }

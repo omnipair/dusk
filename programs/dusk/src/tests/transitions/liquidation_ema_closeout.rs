@@ -108,7 +108,7 @@ fn ema_admitted_settlement_preserves_reference_and_resource_delta() {
                     });
                     let f = audit_fee(tbps);
                     no_accrual(&mut m, 2);
-                    let mut p = audit_open(&mut m, side, 15_000_000, 5000, f).unwrap();
+                    let p = audit_open(&mut m, side, 15_000_000, 5000, f).unwrap();
                     let mark = NAD / 2;
                     no_accrual(&mut m, 3);
                     native_stress(&mut m, side.opposite(), mark, 3);

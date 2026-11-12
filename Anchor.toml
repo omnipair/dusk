@@ -8,8 +8,8 @@ skip-lint = false
 
 [programs.devnet]
 faucet = "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz"
-dusk = "2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y"
-leverage_delegate = "AXUucZuwuCu6voVQGf6tYMQ5LoRwLr9u4ESLpiPqqHbX"
+dusk = "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN"
+leverage_delegate = "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B"
 
 [registry]
 url = "https://api.apr.dev"

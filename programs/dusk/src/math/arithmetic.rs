@@ -5,9 +5,6 @@ use crate::{
     errors::ErrorCode,
 };
 
-#[cfg(test)]
-use crate::constants::NAD_DECIMALS;
-
 /// Converts backed token atoms and prior carry into Q64 per-share growth while
 /// preserving `amount * 2^64 + prior = delta * supply + remainder` exactly.
 pub(crate) fn distribute_growth_q64(amount: u64, supply: u64, prior_remainder_scaled: u64) -> Result<(u128, u64)> {
@@ -20,12 +17,6 @@ pub(crate) fn distribute_growth_q64(amount: u64, supply: u64, prior_remainder_sc
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let remainder = u64::try_from(scaled % supply as u128).map_err(|_| ErrorCode::MarketMathOverflow)?;
     Ok((scaled / supply as u128, remainder))
-}
-
-#[cfg(test)]
-pub fn accrue_fee_liability(shares: u64, fee_growth_index_q64: u128, fee_growth_checkpoint_q64: u128) -> Result<u64> {
-    accrue_fee_liability_with_remainder(shares, fee_growth_index_q64, fee_growth_checkpoint_q64, 0)
-        .map(|(amount, _)| amount)
 }
 
 pub fn accrue_fee_liability_with_remainder(
@@ -100,49 +91,6 @@ pub(crate) fn rescale_amount(amount: u128, from: u8, to: u8, round_up: bool) -> 
     }
 }
 
-#[cfg(test)]
-pub(crate) fn normalize_to_nad(amount: u128, decimals: u8) -> Result<u128> {
-    match decimals.cmp(&NAD_DECIMALS) {
-        std::cmp::Ordering::Equal => Ok(amount),
-        std::cmp::Ordering::Less => amount
-            .checked_mul(
-                10_u128
-                    .checked_pow((NAD_DECIMALS - decimals) as u32)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or_else(|| ErrorCode::MarketMathOverflow.into()),
-        std::cmp::Ordering::Greater => Ok(amount
-            .checked_div(
-                10_u128
-                    .checked_pow((decimals - NAD_DECIMALS) as u32)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?),
-    }
-}
-
-#[cfg(test)]
-pub(crate) fn denormalize_from_nad_ceil(amount_nad: u128, decimals: u8) -> Result<u64> {
-    let value = match decimals.cmp(&NAD_DECIMALS) {
-        std::cmp::Ordering::Equal => amount_nad,
-        std::cmp::Ordering::Less => ceil_div(
-            amount_nad,
-            10_u128
-                .checked_pow((NAD_DECIMALS - decimals) as u32)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-        )
-        .ok_or(ErrorCode::MarketMathOverflow)?,
-        std::cmp::Ordering::Greater => amount_nad
-            .checked_mul(
-                10_u128
-                    .checked_pow((decimals - NAD_DECIMALS) as u32)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .ok_or(ErrorCode::MarketMathOverflow)?,
-    };
-    u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
 pub(crate) fn observed_or_current_u64(cached_observation: u64, current_observation: u64) -> u64 {
     if cached_observation == 0 {
         current_observation
@@ -203,11 +151,37 @@ pub(crate) fn div_rem_native(n: u128, d: u128) -> (u128, u128) {
     (((q1 << 32) | q0) as u128, remainder as u128)
 }
 
+/// Full product of two u64 values. SBF has no 64-bit high multiply, and a
+/// u128 multiply is a call; four 32-bit partial products are cheaper.
+pub(crate) fn widening_mul_u64(lhs: u64, rhs: u64) -> u128 {
+    const LOW: u64 = 0xffff_ffff;
+    let (lhs_low, lhs_high) = (lhs & LOW, lhs >> 32);
+    let (rhs_low, rhs_high) = (rhs & LOW, rhs >> 32);
+    // Each partial product of two 32-bit halves is below 2^64.
+    let low_low = lhs_low * rhs_low;
+    let low_high = lhs_low * rhs_high;
+    let high_low = lhs_high * rhs_low;
+    let high_high = lhs_high * rhs_high;
+    // Below 3 * 2^32.
+    let middle = (low_low >> 32) + (low_high & LOW) + (high_low & LOW);
+    let low = (low_low & LOW) | (middle << 32);
+    let high = high_high + (low_high >> 32) + (high_low >> 32) + (middle >> 32);
+    (u128::from(high) << 64) | u128::from(low)
+}
+
 /// Exact `floor(value * numerator / denominator)` with a checked u128 result.
 pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) -> Result<(u128, u128)> {
     require!(denominator > 0, ErrorCode::DenominatorOverflow);
     if value == 0 || numerator == 0 {
         return Ok((0, 0));
+    }
+    // Two u64 factors cannot overflow, so the overflow-checked u128 product
+    // below, three multiply calls on SBF, is not needed.
+    if value <= u128::from(u64::MAX) && numerator <= u128::from(u64::MAX) {
+        return Ok(div_rem_native(
+            widening_mul_u64(value as u64, numerator as u64),
+            denominator,
+        ));
     }
     if let Some(product) = value.checked_mul(numerator) {
         return Ok(div_rem_native(product, denominator));
@@ -216,10 +190,21 @@ pub(crate) fn mul_div_rem_u128(value: u128, numerator: u128, denominator: u128) 
     let whole = value / denominator;
     let base_quotient = whole.checked_mul(numerator).ok_or(ErrorCode::MarketMathOverflow)?;
     let addend = value % denominator;
+    // `addend < denominator`, so this product fits whenever
+    // `denominator * numerator` does: a large amount scaled by a price, a
+    // rate or a share ratio needs one native division, not the loop below.
+    if let Some(product) = addend.checked_mul(numerator) {
+        let (quotient, remainder) = div_rem_native(product, denominator);
+        let quotient = base_quotient
+            .checked_add(quotient)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        return Ok((quotient, remainder));
+    }
     let mut quotient = 0_u128;
     let mut remainder = 0_u128;
 
-    for bit in (0..128).rev() {
+    // Bits above the numerator's highest set bit only double zeros.
+    for bit in (0..128 - numerator.leading_zeros()).rev() {
         let carry = if remainder >= denominator - remainder {
             remainder -= denominator - remainder;
             1_u128
@@ -271,6 +256,11 @@ pub(crate) fn ratio_lte_full_width(
         left_denominator > 0 && right_denominator > 0,
         ErrorCode::DenominatorOverflow
     );
+    let narrow = |value: u128| value <= u128::from(u64::MAX);
+    if narrow(left_numerator) && narrow(left_denominator) && narrow(right_numerator) && narrow(right_denominator) {
+        return Ok(widening_mul_u64(left_numerator as u64, right_denominator as u64)
+            <= widening_mul_u64(right_numerator as u64, left_denominator as u64));
+    }
     if let (Some(left), Some(right)) = (
         left_numerator.checked_mul(right_denominator),
         right_numerator.checked_mul(left_denominator),
@@ -430,4 +420,12 @@ pub fn ceil_div(a: u128, b: u128) -> Option<u128> {
         return None;
     }
     a.checked_add(b - 1)?.checked_div(b)
+}
+
+#[cfg(test)]
+include!("../tests/support/arithmetic.rs");
+
+#[cfg(test)]
+mod mul_div_tests {
+    include!("../tests/math/arithmetic.rs");
 }

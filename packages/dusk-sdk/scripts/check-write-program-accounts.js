@@ -9,7 +9,7 @@ import { marketCreationLookupTablePlan, marketCreationV0Transaction } from "../d
 import IDL from "../dist/idl_v2.js";
 import { DuskWrite } from "../dist/write.js";
 import { defaultMarketLaunchConfig } from "../dist/market-bootstrap.js";
-import { deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID } from "../dist/constants.js";
+import { deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
 
 const key = (byte) => new PublicKey(new Uint8Array(32).fill(byte));
 const owner = key(1);
@@ -27,7 +27,7 @@ const provider = {
   wallet: { publicKey: owner },
 };
 const program = new anchor.Program(IDL, provider);
-program.account.market.fetch = async () => ({
+program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,
   operator: {revenueRecipient:owner,revenueEpoch:new anchor.BN(0)},
   srlpMint: key(7),
   baseSide: { assetMint: baseMint },
@@ -177,7 +177,7 @@ test("oracle policy wire encoding matches Anchor and rejects ambiguous feed iden
 test("positive-weight previews append feeds after caller accounts and transaction budgets precede execution", async () => {
   const client = new anchor.Program(IDL, provider);
   const writer = new DuskWrite(client);
-  client.account.market.fetch = async () => ({oracle: {policy: policy()}});
+  client.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,oracle: {policy: policy()}});
   const accounts = {market, futarchyAuthority: key(23), assetInMint: baseMint, assetOutMint: quoteMint};
   const remainingAccounts = [{pubkey:key(24), isSigner:false, isWritable:true}];
   const ix = await writer.instruction("previewSwap", {exactAssetIn: new anchor.BN(100)}, {accounts, remainingAccounts});
@@ -186,7 +186,7 @@ test("positive-weight previews append feeds after caller accounts and transactio
   assert.equal(tx.instructions.length, 3);
   assert.deepEqual(tx.instructions.slice(0,2).map(ix => ix.data[0]), [1,2]);
   assert.deepEqual(tx.instructions[2].data, ix.data);
-  client.account.market.fetch = async () => ({oracle: {policy: policy(0)}});
+  client.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,oracle: {policy: policy(0)}});
   const native = await writer.transaction("previewSwap", {exactAssetIn: new anchor.BN(100)}, {accounts, remainingAccounts});
   assert.equal(native.instructions.length, 1);
   assert.equal(native.instructions[0].keys.at(-1).pubkey.toBase58(), key(24).toBase58());
@@ -224,7 +224,7 @@ test("operator execution reads and budgets only the immutable market oracle", as
   const {DuskOperator}=await import("../dist/operator-client.js");
   for(const current of [0,2500]) {
     const client=new anchor.Program(IDL,provider);
-    client.account.market.fetch=async()=>({oracle:{policy:policy(current)},operator:{revenueRecipient:owner,revenueEpoch:new anchor.BN(0)}});
+    client.account.market.fetch=async()=>({ version: MARKET_LAYOUT_VERSION,oracle:{policy:policy(current)},operator:{revenueRecipient:owner,revenueEpoch:new anchor.BN(0)}});
     client.account.operatorProposal.fetch=async()=>({revenueRecipient:null,nextOperator:null});
     const result=await new DuskOperator(client).execute({market,proposal:key(12)});
     assert.equal(result.transaction.instructions.length,current>0?3:2);

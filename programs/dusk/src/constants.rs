@@ -6,6 +6,15 @@ use anchor_lang::{prelude::*, solana_program::pubkey};
 pub const NAD: u64 = 1_000_000_000;
 #[constant]
 pub const NAD_DECIMALS: u8 = 9;
+/// Fewest decimals a market counts token amounts in. A market's amount scale
+/// is the largest of this, its base decimals and its quote decimals. Three
+/// decimals beyond NAD give each atom of a nine-decimal token 1,000 internal
+/// units, so payouts, which floor to whole atoms, absorb the few units of
+/// rounding that rebuilding a concentrated curve from reserves can leave.
+/// Prices, rates and ratios remain NAD.
+#[constant]
+pub const MIN_AMOUNT_DECIMALS: u8 = 12;
+const _: () = assert!(MIN_AMOUNT_DECIMALS >= NAD_DECIMALS);
 /// Fee/yield growth indexes use a full unsigned share-width fractional scale.
 /// Because LP supply is `u64`, every distributor remainder is strictly below
 /// one raw token atom: `remainder < supply < 2^64`.
@@ -26,6 +35,10 @@ pub const LTV_BUFFER_BPS: u16 = 500;
 /// Their configured component caps must also sum to no more than this value.
 #[constant]
 pub const MAX_PARAMETER_FEE_BPS: u16 = 5_000;
+/// Minimum base swap fee of a concentrated curve. It exceeds the round-trip
+/// excess that curve reconstruction can leave at the minimum tail share.
+#[constant]
+pub const MIN_CONCENTRATED_SWAP_FEE_BPS: u16 = 1;
 #[constant]
 pub const MAX_REFERRAL_INTEREST_SHARE_BPS: u16 = BPS_DENOMINATOR;
 #[constant]
@@ -123,13 +136,15 @@ pub const LEVERAGE_DELEGATION_SEED_PREFIX: &[u8] = b"leverage_delegation_v2";
 pub const LEVERAGE_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"leverage_collateral";
 #[constant]
 pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
-/// Serialized `Market` account layout discriminator.
+/// Serialized `Market` account layout discriminator, and the only layout the
+/// program reads. An account at any other layout is rejected before any of
+/// its quantities are read, never reinterpreted.
 ///
-/// Layout 14 replaces the former utilization admission threshold with
-/// independent lower/upper utilization rate targets. Aggregate virtual
-/// reserves use u128; physical token amounts remain u64.
+/// This layout counts token amounts in at least `MIN_AMOUNT_DECIMALS`
+/// decimals and sets independent lower/upper utilization rate targets.
+/// Aggregate virtual reserves use u128; physical token amounts remain u64.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 14;
+pub const MARKET_LAYOUT_VERSION: u8 = 15;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

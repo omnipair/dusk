@@ -67,13 +67,6 @@ impl Market {
                 .map_err(|_| ErrorCode::MarketMathOverflow)?,
         })
     }
-
-    pub(crate) fn liquidity_nad(&self) -> Result<u128> {
-        geometric_mean_floor(
-            self.normalize_amount(self.base_side.reserves.live_reserve, self.base_side.asset_decimals)?,
-            self.normalize_amount(self.quote_side.reserves.live_reserve, self.quote_side.asset_decimals)?,
-        )
-    }
 }
 
 impl Market {
@@ -541,7 +534,20 @@ impl Market {
             .checked_add(candidate_cache.concentrated_liquidity)
             .ok_or(ErrorCode::InvariantOverflow)?;
         let candidate_curve_depth_per_share = self.curve_depth_per_share_nad(candidate_curve_depth)?;
-        let covered = covered_impairment_nad(self.amm.curve_depth_per_share_nad, candidate_curve_depth_per_share)?;
+        let impairment = self
+            .amm
+            .curve_depth_per_share_nad
+            .saturating_sub(candidate_curve_depth_per_share);
+        let covered = if impairment == 0 {
+            0
+        } else {
+            mul_bps_ceil(impairment, PROTECTED_LIQUIDITY_COVERAGE_BPS)?
+                .checked_add(mul_bps_ceil(
+                    self.amm.curve_depth_per_share_nad,
+                    PROTECTED_LIQUIDITY_GUARD_BPS,
+                )?)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
         // A protected bucket is sufficient only when deploying every locked
         // atom leaves srLP curve principal no lower than before the center
         // move. This avoids assigning a fungible token-value conversion to
@@ -678,20 +684,6 @@ impl Market {
         Ok(())
     }
 
-    /// Finalizes observations after the complete swap and hLP settlement.
-    /// The caller supplies the final executable price, including compounding.
-    #[cfg(test)]
-    pub(crate) fn finalize_amm_trade(
-        &mut self,
-        trade_start_price_nad: u64,
-        final_price_nad: u64,
-        current_slot: u64,
-    ) -> Result<()> {
-        self.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
-        self.finalize_amm_trade_after_inventory_checkpoint(trade_start_price_nad, final_price_nad, current_slot)?;
-        Ok(())
-    }
-
     /// Finalizes a trade whose complete post-trade executable inventory was
     /// already checkpointed by the immediately preceding reserve mutation.
     ///
@@ -712,17 +704,6 @@ impl Market {
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
     }
-}
-
-fn covered_impairment_nad(current_depth: u128, candidate_depth: u128) -> Result<u128> {
-    let impairment = current_depth.saturating_sub(candidate_depth);
-    if impairment == 0 {
-        return Ok(0);
-    }
-    let covered = mul_bps_ceil(impairment, PROTECTED_LIQUIDITY_COVERAGE_BPS)?;
-    covered
-        .checked_add(mul_bps_ceil(current_depth, PROTECTED_LIQUIDITY_GUARD_BPS)?)
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 fn mul_bps_ceil(value: u128, bps: u16) -> Result<u128> {
@@ -1529,49 +1510,6 @@ impl Market {
             .map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
-    #[cfg(test)]
-    pub(crate) fn quote_integrated_concentrated_exact_in_nad(
-        &self,
-        gross_amount_in_nad: u128,
-        frozen_total_fee_nad: u128,
-        asset_in: MarketAsset,
-    ) -> Result<Option<IntegratedFrozenFeeQuote>> {
-        let Some(geometry) = self.current_concentrated_curve_geometry()? else {
-            return Ok(None);
-        };
-        quote_integrated_exact_in_with_frozen_fee(
-            self.integrated_curve_state_nad()?,
-            geometry,
-            gross_amount_in_nad,
-            frozen_total_fee_nad,
-            match asset_in {
-                MarketAsset::Base => IntegratedSwapDirection::BaseToQuote,
-                MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
-            },
-        )
-        .map(Some)
-    }
-
-    pub(crate) fn quote_concentrated_integrated_with_fee(
-        &self,
-        asset_in: MarketAsset,
-        reserve_credit: u64,
-        preliminary: PreliminarySwapInputs,
-        protocol_fee_bps: u16,
-    ) -> Result<Option<ConcentratedIntegratedAmmQuote>> {
-        let (state, mark) = self.integrated_curve_state_with_mark_nad()?;
-        self.evaluate_concentrated_swap_with_mark(
-            asset_in,
-            reserve_credit,
-            preliminary,
-            &state,
-            protocol_fee_bps,
-            true,
-            mark,
-        )
-        .map(|(_, transition)| transition.map(|quote| *quote))
-    }
-
     pub(crate) fn quote_concentrated_integrated_with_fee_from_state(
         &self,
         asset_in: MarketAsset,
@@ -1675,6 +1613,7 @@ impl Market {
         &self,
         state: IntegratedCurveState,
         mark: &mut IntegratedCurveMark,
+        solver: &mut Option<ConcentratedCurveSolver>,
     ) -> Result<ConcentratedCurvePoint> {
         let point = state
             .reconstructed_curve_point()?
@@ -1682,6 +1621,7 @@ impl Market {
         let (cache, geometry) = match self.bounded_curve()? {
             Some(curve) => curve.native_geometry_at(point)?,
             None => prepare_concentrated_cache_and_geometry_at_point(
+                solver,
                 point.base_reserve,
                 point.quote_reserve,
                 self.current_curve_center_price_nad()?,
@@ -1708,11 +1648,14 @@ impl Market {
     ) -> Result<(u64, Option<Box<ConcentratedIntegratedAmmQuote>>)> {
         let config = self.dynamic_fee_config()?;
         let needs_native_center = config.divergence_coefficient_nad > 0 && config.divergence_fee_share_cap_bps > 0;
+        // The mark and the finalized endpoint rebuild the curve at one center
+        // and policy. The second reconstruction reuses the first's shape.
+        let mut solver = None;
         // The OP price is independent of native curve scale. With divergence
         // disabled, rebuilding a book-scaled native center has no consumer.
         // Native quotes still need that geometry for execution itself.
         let book_center = if state.uses_book_hedge() && (self.oracle.policy.lambda_bps == 0 || needs_native_center) {
-            Some(self.prepare_book_curve_mark(*state, &mut start_mark)?)
+            Some(self.prepare_book_curve_mark(*state, &mut start_mark, &mut solver)?)
         } else {
             None
         };
@@ -1778,31 +1721,44 @@ impl Market {
         } else {
             0
         };
-        let integrated = Box::new(if let Some(curve) = self.bounded_curve()? {
-            self.quote_oracle_integrated(
-                &curve,
-                *state,
-                &geometry,
-                gross_curve_input_nad,
-                divergence_nad,
-                asset_in,
-            )?
+        let direction = match asset_in {
+            MarketAsset::Base => IntegratedSwapDirection::BaseToQuote,
+            MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
+        };
+        // A native valuation returns before finishing the swap, so its quote is
+        // never boxed: SBF's bump heap never reclaims a dropped block, and a
+        // liquidation proof values one candidate after another.
+        let valuation_only = !materialize_transition && self.oracle.policy.lambda_bps == 0;
+        let integrated = if valuation_only {
+            None
         } else {
-            quote_integrated_exact_in_with_frozen_fee(
-                *state,
-                geometry,
-                gross_curve_input_nad,
-                divergence_nad,
-                match asset_in {
-                    MarketAsset::Base => IntegratedSwapDirection::BaseToQuote,
-                    MarketAsset::Quote => IntegratedSwapDirection::QuoteToBase,
-                },
-            )?
-        });
-        let gross_amount_out = self.denormalize_amount_floor(
-            integrated.executable.amount_out,
-            self.side(asset_in.opposite()).asset_decimals,
-        )?;
+            Some(Box::new(if let Some(curve) = self.bounded_curve()? {
+                self.quote_oracle_integrated(
+                    &curve,
+                    *state,
+                    &geometry,
+                    gross_curve_input_nad,
+                    divergence_nad,
+                    asset_in,
+                )?
+            } else {
+                quote_integrated_exact_in_with_frozen_fee(
+                    *state,
+                    geometry,
+                    gross_curve_input_nad,
+                    divergence_nad,
+                    direction,
+                )?
+            }))
+        };
+        let curve_amount_out_nad = match &integrated {
+            Some(integrated) => integrated.executable.amount_out,
+            None => {
+                native_valuation_amount_out_nad(state, &geometry, gross_curve_input_nad, divergence_nad, direction)?
+            }
+        };
+        let gross_amount_out =
+            self.denormalize_amount_floor(curve_amount_out_nad, self.side(asset_in.opposite()).asset_decimals)?;
         require!(gross_amount_out > 0, ErrorCode::InsufficientOutputAmount);
         let dynamic = if fees_on_input {
             let mut dynamic = preliminary.fee;
@@ -1840,9 +1796,9 @@ impl Market {
                 .ok_or(ErrorCode::FeeMathOverflow)?
         };
         require!(amount_out > 0, ErrorCode::InsufficientOutputAmount);
-        if !materialize_transition && self.oracle.policy.lambda_bps == 0 {
+        let Some(integrated) = integrated else {
             return Ok((amount_out, None));
-        }
+        };
         self.finish_concentrated_swap(
             state,
             &geometry,
@@ -1855,6 +1811,7 @@ impl Market {
             divergence_surcharge,
             dynamic,
             materialize_transition,
+            &mut solver,
         )
         .map(|quote| (amount_out, materialize_transition.then_some(quote)))
     }
@@ -1873,6 +1830,7 @@ impl Market {
         divergence_surcharge: u64,
         dynamic: DynamicFeeQuote,
         materialize_transition: bool,
+        solver: &mut Option<ConcentratedCurveSolver>,
     ) -> Result<Box<ConcentratedIntegratedAmmQuote>> {
         let fee_asset = self.config.swap_fee_asset(asset_in)?;
         let fees_on_input = fee_asset == asset_in;
@@ -2060,6 +2018,7 @@ impl Market {
                 asset_in,
                 materialize_transition,
                 certified_point,
+                solver,
             )?;
         }
         Ok(quote)
@@ -2075,6 +2034,7 @@ impl Market {
         asset_in: MarketAsset,
         materialize_transition: bool,
         certified_point: Option<ConcentratedCurvePoint>,
+        solver: &mut Option<ConcentratedCurveSolver>,
     ) -> Result<()> {
         if certified_point.is_none() {
             if let Some(curve) = self.bounded_curve()? {
@@ -2114,6 +2074,7 @@ impl Market {
                     .final_ordinary_point_nad(self)?,
             };
             let (cache, geometry) = prepare_concentrated_cache_and_geometry_at_point(
+                solver,
                 point.base_reserve,
                 point.quote_reserve,
                 self.current_curve_center_price_nad()?,
@@ -2147,11 +2108,7 @@ impl Market {
             reserves.base > 0 && reserves.quote > 0,
             ErrorCode::InsufficientLiquidity
         );
-        let center = reserves
-            .quote
-            .checked_mul(NAD as u128)
-            .and_then(|value| value.checked_div(reserves.base))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let center = mul_div_u128(reserves.quote, NAD as u128, reserves.base)?;
         u64::try_from(center).map_err(|_| ErrorCode::MarketMathOverflow.into())
     }
 
@@ -2160,11 +2117,29 @@ impl Market {
         require_eq!(supply, self.quote_side.shares.srlp_supply, ErrorCode::BrokenInvariant);
         require!(supply > 0, ErrorCode::SupplyUnderflow);
         let supply_nad = self.normalize_amount(supply as u128, self.base_side.asset_decimals)?;
-        curve_depth_nad
-            .checked_mul(NAD as u128)
-            .and_then(|value| value.checked_div(supply_nad))
-            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+        mul_div_u128(curve_depth_nad, NAD as u128, supply_nad)
     }
+}
+
+#[cfg(any(test, feature = "benchmark"))]
+include!("../../../benchmark/analysis/concentrated_quote.rs");
+
+// The 696-byte valuation quote lives in this frame. Placed in the swap
+// evaluation's frame, it reached the slots that frame's calls use for stack
+// arguments.
+#[inline(never)]
+fn native_valuation_amount_out_nad(
+    state: &IntegratedCurveState,
+    geometry: &ConcentratedCurveGeometry,
+    gross_curve_input_nad: u128,
+    divergence_nad: u128,
+    direction: IntegratedSwapDirection,
+) -> Result<u128> {
+    Ok(
+        quote_integrated_exact_in_with_frozen_fee(*state, *geometry, gross_curve_input_nad, divergence_nad, direction)?
+            .executable
+            .amount_out,
+    )
 }
 
 fn output_denominated_dynamic_fee(
@@ -2407,23 +2382,6 @@ pub(crate) struct PreliminarySwapInputs {
 }
 
 impl Market {
-    #[cfg(test)]
-    pub(crate) fn preliminary_swap_inputs_for_state(
-        &self,
-        asset_in: MarketAsset,
-        reserve_credit: u64,
-        current_slot: u64,
-        pre_state: DynamicFeePreState,
-    ) -> Result<PreliminarySwapInputs> {
-        self.preliminary_swap_inputs_for_state_at_time(
-            asset_in,
-            reserve_credit,
-            current_slot,
-            self.config.start_time,
-            pre_state,
-        )
-    }
-
     pub(crate) fn preliminary_swap_inputs_for_state_at_time(
         &self,
         asset_in: MarketAsset,
@@ -2554,7 +2512,7 @@ impl Market {
         require!(amount > 0, ErrorCode::InsufficientOutputAmount);
         require_gte!(
             amount,
-            minimum_executable_input(reserve_credit),
+            reserve_credit - hard_total_fee_budget_floor(reserve_credit),
             ErrorCode::BrokenInvariant
         );
         let reserve_input_credit = if self.amm.retain_dynamic_surcharge {
@@ -3073,3 +3031,6 @@ pub struct RetentionTarget {
 
 #[cfg(feature = "benchmark")]
 pub(crate) use swap::LendingSwapSettlement;
+
+#[cfg(test)]
+include!("../../tests/support/amm.rs");

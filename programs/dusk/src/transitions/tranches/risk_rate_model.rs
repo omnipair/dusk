@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{DEFAULT_BORROW_APR_NAD, MS_PER_DAY, NAD},
     errors::ErrorCode,
+    state::{RiskRateConfig, RiskRateOverrides, RiskRateUpdate},
 };
 
 /// Minimum economic borrowing APR for every Dusk market. There is no
@@ -13,17 +14,6 @@ pub const MINIMUM_BORROW_APR_NAD: u64 = NAD / 100;
 pub const MIN_BORROW_HALF_LIFE_MS: u64 = MS_PER_DAY / 2;
 #[constant]
 pub const MAX_BORROW_HALF_LIFE_MS: u64 = 30 * MS_PER_DAY;
-
-/// Coverage-and-utilization controller configuration. Initial APR is creation-only.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
-pub struct RiskRateConfig {
-    pub lower_signal_nad: u64,
-    pub upper_signal_nad: u64,
-    pub lower_utilization_bps: u16,
-    pub upper_utilization_bps: u16,
-    pub half_life_ms: u64,
-    pub initial_apr_nad: u64,
-}
 
 impl Default for RiskRateConfig {
     fn default() -> Self {
@@ -53,18 +43,6 @@ impl RiskRateConfig {
     }
 }
 
-/// Creation-only overrides. Missing fields use defaults; explicit zero values
-/// are preserved and validated rather than treated as missing.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace)]
-pub struct RiskRateOverrides {
-    pub lower_signal_nad: Option<u64>,
-    pub upper_signal_nad: Option<u64>,
-    pub lower_utilization_bps: Option<u16>,
-    pub upper_utilization_bps: Option<u16>,
-    pub half_life_ms: Option<u64>,
-    pub initial_apr_nad: Option<u64>,
-}
-
 impl RiskRateOverrides {
     pub fn resolve(self) -> Result<RiskRateConfig> {
         let defaults = RiskRateConfig::default();
@@ -81,16 +59,6 @@ impl RiskRateOverrides {
     }
 }
 
-/// Prospective controller settings. Initial APR and the protocol-wide floor
-/// cannot be changed after pool creation.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
-pub struct RiskRateUpdate {
-    pub lower_signal_nad: u64,
-    pub upper_signal_nad: u64,
-    pub lower_utilization_bps: u16,
-    pub upper_utilization_bps: u16,
-    pub half_life_ms: u64,
-}
 impl From<RiskRateConfig> for RiskRateUpdate {
     fn from(config: RiskRateConfig) -> Self {
         Self {
