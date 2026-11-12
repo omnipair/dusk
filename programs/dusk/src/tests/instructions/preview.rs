@@ -1478,7 +1478,7 @@ fn exhausted_hlp_waterfall_cancels_unpaid_interest_and_keeps_zero_value_receipts
         reserve_credit: target_claim,
         protocol_fee_bps: 0,
     }
-    .quote_ema_liquidation(&market, &mut None)
+    .quote_ema_liquidation(&market, &mut None, &mut Default::default())
     .unwrap()
     .amount_out;
     let reference_recovery = borrowed_claim.checked_add(reference_swap_output).unwrap();

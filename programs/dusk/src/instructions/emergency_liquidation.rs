@@ -61,6 +61,9 @@ impl<'info> EmergencyLiquidation<'info> {
         let clock = Clock::get()?;
         let asset = MarketAsset::try_from_code(args.debt_asset)?;
         let a = &mut ctx.accounts.accounts;
+        // The proof, quote and settlement below re-read a few curve shapes
+        // many times. An oracle-bound market already memoizes them.
+        a.market.oracle.runtime.memoize_native_geometry();
         crate::instructions::enforce_launch_same_transaction_guard(
             &a.market,
             a.market.key(),
@@ -95,11 +98,8 @@ impl<'info> EmergencyLiquidation<'info> {
         let collateral_fee = leverage_collateral_fee(&a.collateral_mint, clock.epoch)?;
         let eligibility_fee = leverage_collateral_liquidation_fee(&a.collateral_mint, clock.epoch)?;
         let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
-        let health = a
-            .market
-            .flash_liquidation_health(&a.position()?, asset, eligibility_fee)?;
-        require!(health.emergency_allowed()?, ErrorCode::PositionNotLiquidatable);
-
+        // Preparation reads the position's health once and refuses with
+        // PositionNotLiquidatable before quoting anything.
         let mut prepared = match (&a.borrow_position, &a.leverage_position) {
             (Some(p), None) => a.market.prepare_emergency_liquidation(
                 &crate::transitions::flash_liquidation::LiquidationPositionRef::Borrow(p),

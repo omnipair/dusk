@@ -359,6 +359,8 @@ pub struct RuntimePricing {
     // Native account reads allocate no price context. A bound context is
     // shared only by clones within this invocation and has zero wire bytes.
     bound: Option<std::rc::Rc<RuntimeOracleContext>>,
+    // An unbound runtime memoizes geometry only once its instruction asks.
+    native_geometry: Option<GeometryMemo>,
 }
 type GeometryMemo = std::rc::Rc<
     std::cell::RefCell<
@@ -414,10 +416,9 @@ impl RuntimePricing {
         &self,
         cache: crate::state::ConcentratedCurveCache,
     ) -> Result<crate::transitions::amm::ConcentratedCurveGeometry> {
-        let Some(bound) = self.bound.as_ref() else {
+        let Some(memo) = self.geometry_memo() else {
             return cache.geometry();
         };
-        let memo = bound.geometry.get_or_init(Default::default);
         if let Some((_, geometry)) = memo.borrow().as_ref().filter(|(key, _)| *key == cache) {
             return Ok(*geometry);
         }
@@ -431,8 +432,25 @@ impl RuntimePricing {
         cache: crate::state::ConcentratedCurveCache,
         geometry: crate::transitions::amm::ConcentratedCurveGeometry,
     ) {
-        if let Some(bound) = self.bound.as_ref() {
-            *bound.geometry.get_or_init(Default::default).borrow_mut() = Some((cache, geometry));
+        if let Some(memo) = self.geometry_memo() {
+            *memo.borrow_mut() = Some((cache, geometry));
+        }
+    }
+
+    #[inline(always)]
+    fn geometry_memo(&self) -> Option<&GeometryMemo> {
+        match self.bound.as_ref() {
+            Some(bound) => Some(bound.geometry.get_or_init(Default::default)),
+            None => self.native_geometry.as_ref(),
+        }
+    }
+
+    /// Give an unbound runtime the memo a bound context already carries, for
+    /// the rest of this invocation. The memo is one heap block, so only an
+    /// instruction that re-reads the same few curves asks for it.
+    pub(crate) fn memoize_native_geometry(&mut self) {
+        if self.bound.is_none() && self.native_geometry.is_none() {
+            self.native_geometry = Some(Default::default());
         }
     }
 
@@ -444,6 +462,7 @@ impl RuntimePricing {
                 curve: Default::default(),
                 geometry: Default::default(),
             })),
+            native_geometry: None,
         }
     }
     pub(crate) fn observation(&self) -> Result<OracleObservation> {

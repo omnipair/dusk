@@ -277,8 +277,13 @@ impl Market {
     }
 
     pub fn current_risk(&self) -> Result<Risk> {
-        let current_slot = Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot);
-        self.current_risk_at_slot(current_slot)
+        self.current_risk_at_slot(self.current_risk_slot())
+    }
+
+    /// The slot `current_risk` observes: the clock's, or the last update
+    /// where no clock exists.
+    pub(crate) fn current_risk_slot(&self) -> u64 {
+        Clock::get().map(|clock| clock.slot).unwrap_or(self.last_update_slot)
     }
 
     pub(crate) fn current_risk_at_slot(&self, current_slot: u64) -> Result<Risk> {

@@ -5,7 +5,7 @@ use crate::{
     state::*,
     transitions::{
         amm::{cpmm_amount_out_nad, ConcentratedCurveDirection, ConcentratedCurvePoint},
-        flash_liquidation::LiquidationPositionRef,
+        flash_liquidation::{LiquidationPositionRef, LiquidationReads},
         LeverageCollateralFee,
     },
 };
@@ -111,8 +111,9 @@ impl Market {
         slot: u64,
         recovery_before: Option<u64>,
         scratch: &mut Option<Box<Market>>,
+        reads: &mut LiquidationReads,
     ) -> Result<bool> {
-        let before = self.flash_liquidation_health(position, asset, eligibility_fee)?;
+        let before = reads.health(self, position, asset, eligibility_fee)?;
         require!(before.emergency_allowed()?, ErrorCode::PositionNotLiquidatable);
         let collateral = position.collateral(asset);
         let shares = position.shares(asset);
@@ -122,7 +123,7 @@ impl Market {
         let rates = before.rates()?;
         // Risk is fixed for this proof. Recomputing current_risk for every
         // interval needlessly re-evaluates the concentrated curve and EMA.
-        let risk = self.current_risk_at_slot(slot)?;
+        let risk = reads.risk_at_slot(self, slot)?;
         let collateral_scale = self.normalize_amount(1, self.side(asset.opposite()).asset_decimals)?;
         let debt_scale = self.normalize_amount(1, self.side(asset).asset_decimals)?;
         let price = u128::from(self.pessimistic_collateral_price_nad(asset.opposite(), &risk, false));
@@ -168,10 +169,7 @@ impl Market {
         };
         // Certify the same EMA geometry as the emergency settlement, never a
         // live curve or a scheduled recenter. Real funding limits are separate.
-        let (executable, state) = self.ema_liquidation_curve(asset.opposite(), slot, scratch)?;
-        let geometry = executable
-            .current_concentrated_curve_geometry()?
-            .ok_or(ErrorCode::BrokenInvariant)?;
+        let (executable, state, geometry) = self.ema_liquidation_curve(asset.opposite(), slot, scratch, reads)?;
         let cpmm = geometry.is_cpmm();
         let point = ConcentratedCurvePoint {
             base_reserve: state.ordinary_base,
@@ -439,8 +437,11 @@ impl Market {
                         .ok_or(ErrorCode::InsufficientAmount)?;
                     let (allocation, _) = self.quote_emergency_partial_repayment(position, asset, budget, debt_fee)?;
                     Ok(LiquidationHealth {
-                        collateral_value: self
-                            .liquidation_value(asset, eligibility_fee.unwind_credit(collateral - lo)?)?,
+                        collateral_value: self.liquidation_value_at(
+                            asset,
+                            eligibility_fee.unwind_credit(collateral - lo)?,
+                            &reads.current_risk(self)?,
+                        )?,
                         debt: allocation.remaining_debt,
                         maintenance_bps: position.maintenance(asset, collateral - lo)?,
                     })

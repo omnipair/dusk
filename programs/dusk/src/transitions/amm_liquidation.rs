@@ -7,7 +7,7 @@ use crate::{
     state::*,
     transitions::{
         amm::{PreparedSwap, SwapRequest},
-        flash_liquidation::LiquidationPositionRef,
+        flash_liquidation::{LiquidationPositionRef, LiquidationReads},
         flash_settlement::{LiquidationDebtAllocation, LiquidationPositionMut},
         liquidity::SwapCashPolicy,
         LeverageCollateralFee, LeverageSwapFeeCredit,
@@ -73,7 +73,9 @@ impl Market {
         // Prove the bound against the unchanged market before preparation.
         // Copying the entire market solely for this read exhausted SBF heap.
         // The proof and the quote share one reference copy for the same reason.
+        // They also share every repeated read: health, risk and the EMA curve.
         let mut scratch = None;
+        let mut reads = LiquidationReads::default();
         if !full && collateral_debit > 1 {
             require!(
                 self.proves_partial_bound(
@@ -86,6 +88,7 @@ impl Market {
                     slot,
                     Some(collateral_debit),
                     &mut scratch,
+                    &mut reads,
                 )?,
                 ErrorCode::LiquidationRepayTooLarge
             );
@@ -102,6 +105,7 @@ impl Market {
             slot,
             protocol_fee_bps,
             &mut scratch,
+            &mut reads,
         )?;
         Ok(prepared)
     }
@@ -122,9 +126,10 @@ impl Market {
         slot: u64,
         protocol_fee_bps: u16,
         scratch: &mut Option<Box<Market>>,
+        reads: &mut LiquidationReads,
     ) -> Result<PreparedEmergencyLiquidation> {
         position.require_idle()?;
-        let health_before = self.flash_liquidation_health(position, asset, eligibility_fee)?;
+        let health_before = reads.health(self, position, asset, eligibility_fee)?;
         require!(health_before.emergency_allowed()?, ErrorCode::PositionNotLiquidatable);
         let available = position.collateral(asset);
         require!(
@@ -148,6 +153,7 @@ impl Market {
                         slot,
                         Some(available),
                         scratch,
+                        reads,
                     )?,
                 ErrorCode::LiquidationRepayTooLarge
             );
@@ -167,7 +173,7 @@ impl Market {
                     reserve_credit: collateral_credit,
                     protocol_fee_bps,
                 }
-                .prepare_ema_liquidation(self, scratch)?,
+                .prepare_ema_liquidation(self, scratch, reads)?,
             )
         };
         let output = swap.as_ref().map_or(0, |s| s.quote.amount_out);
@@ -201,7 +207,11 @@ impl Market {
         };
         let remaining = available - collateral_debit;
         let health_after = LiquidationHealth {
-            collateral_value: self.liquidation_value(asset, eligibility_fee.unwind_credit(remaining)?)?,
+            collateral_value: self.liquidation_value_at(
+                asset,
+                eligibility_fee.unwind_credit(remaining)?,
+                &reads.current_risk(self)?,
+            )?,
             debt: allocation.remaining_debt,
             maintenance_bps: position.maintenance(asset, remaining.max(1))?,
         };
@@ -231,7 +241,7 @@ impl Market {
         if let Some(swap) = &mut swap {
             swap.bind_liquidation(self, policy)?;
         }
-        let reference = self.current_risk()?;
+        let reference = reads.current_risk(self)?;
         let quote = EmergencyLiquidationQuote {
             reference_price_nad: self.pessimistic_collateral_price_nad(asset.opposite(), &reference, false),
             reference_depth_nad: reference.curve_depth_ema_nad,

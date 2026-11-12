@@ -7,10 +7,10 @@ use super::*;
 use crate::{
     constants::{BPS_DENOMINATOR, DEFAULT_BORROW_APR_NAD, MARKET_LAYOUT_VERSION, MIN_CONCENTRATED_SWAP_FEE_BPS, MIN_HALF_LIFE_MS, NAD},
     state::{
-        AmmConfig, BorrowPosition, Debt, MarketAsset, MarketConfig, MarketParameterUpdate, ProtocolAuctionSplit,
+        AmmConfig, BorrowPosition, ConcentratedCurveParameters, Debt, MarketAsset, MarketConfig, MarketParameterUpdate, ProtocolAuctionSplit,
         DEFAULT_DAILY_BORROW_BPS, MAX_AMM_AMPLIFICATION_NAD, MIN_CONCENTRATION_RAMP_SLOTS,
     },
-    transitions::amm::{ConcentratedCurveParameters, ConcentratedCurvePoint, SwapRequest},
+    transitions::amm::{ConcentratedCurvePoint, SwapRequest},
 };
 
 #[derive(Clone, Copy, Debug)]

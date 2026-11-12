@@ -107,7 +107,7 @@ fn ema_health_and_reference_survive_proportional_lp_withdrawal() {
         let p = seeded_position(&mut m, MarketAsset::Quote, 800_000, 1_000_000);
         let before = m.flash_liquidation_health(&Ref::Leverage(&p), MarketAsset::Quote, LeverageCollateralFee::default()).unwrap();
         let mut first = None;
-        let (reference, state) = m.ema_liquidation_curve(MarketAsset::Base, 1, &mut first).unwrap();
+        let (reference, state, _) = m.ema_liquidation_curve(MarketAsset::Base, 1, &mut first, &mut Default::default()).unwrap();
         let shares = m.base_side.shares.srlp_supply / 4;
         m.remove_liquidity(shares).unwrap();
         m.finalize_amm_transition_and_observe_risk(1).unwrap();
@@ -115,7 +115,7 @@ fn ema_health_and_reference_survive_proportional_lp_withdrawal() {
         assert_eq!(before, after);
         assert!(!after.eligible().unwrap());
         let mut second = None;
-        let (next, next_state) = m.ema_liquidation_curve(MarketAsset::Base, 1, &mut second).unwrap();
+        let (next, next_state, _) = m.ema_liquidation_curve(MarketAsset::Base, 1, &mut second, &mut Default::default()).unwrap();
         assert_eq!(state, next_state);
         assert_eq!(reference.amm.concentrated_curve_cache, next.amm.concentrated_curve_cache);
         // Time incorporates the withdrawn depth without changing price/health.
@@ -139,7 +139,7 @@ fn ema_reference_uses_collateral_direction_even_when_price_emas_are_not_reciproc
         m.risk.last_snapshot_slot = 1;
         for (collateral, price) in [(MarketAsset::Base, 2 * NAD), (MarketAsset::Quote, NAD)] {
             let mut scratch = None;
-            let (view, state) = m.ema_liquidation_curve(collateral, 1, &mut scratch).unwrap();
+            let (view, state, _) = m.ema_liquidation_curve(collateral, 1, &mut scratch, &mut Default::default()).unwrap();
             let point = crate::transitions::amm::ConcentratedCurvePoint {
                 base_reserve: state.ordinary_base, quote_reserve: state.ordinary_quote,
             };
@@ -232,15 +232,72 @@ fn kept_emergency_reference_matches_a_fresh_copy() {
         seeded_position(&mut m, collateral.opposite(), 900_000, 1_000_000);
         bind_oracle(&mut m, 3 * NAD / 2);
         let mut kept = None;
-        other.ema_liquidation_curve(collateral, 1, &mut kept).unwrap();
+        other.ema_liquidation_curve(collateral, 1, &mut kept, &mut Default::default()).unwrap();
         let mut fresh = None;
-        let (expected, expected_state) = m.ema_liquidation_curve(collateral, 1, &mut fresh).unwrap();
-        let (refreshed, state) = m.ema_liquidation_curve(collateral, 1, &mut kept).unwrap();
+        let (expected, expected_state, _) = m.ema_liquidation_curve(collateral, 1, &mut fresh, &mut Default::default()).unwrap();
+        let (refreshed, state, _) = m.ema_liquidation_curve(collateral, 1, &mut kept, &mut Default::default()).unwrap();
         assert_eq!(state, expected_state);
         assert_eq!(refreshed.try_to_vec().unwrap(), expected.try_to_vec().unwrap(), "amp={amp} hlp={hlp}");
         assert_eq!(refreshed.oracle.policy.lambda_bps, 0);
         assert!(refreshed.oracle.runtime.observation().is_err());
     } } }
+}
+
+#[test]
+fn repeated_liquidation_reads_match_fresh_reads() {
+    use crate::transitions::flash_liquidation::LiquidationReads;
+    let fee = LeverageCollateralFee::default();
+    for amp in [1, 4, 10] { for hlp in [false, true] { for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut m = market(amp, hlp);
+        let p = seeded_position(&mut m, asset, 1_100_000, 1_000_000);
+        let position = Ref::Leverage(&p);
+        let mut reads = LiquidationReads::default();
+        for _ in 0..2 {
+            assert_eq!(reads.health(&m, &position, asset, fee).unwrap(),
+                m.flash_liquidation_health(&position, asset, fee).unwrap());
+            assert_eq!(reads.current_risk(&m).unwrap(), m.current_risk().unwrap());
+            assert_eq!(reads.risk_at_slot(&m, 1).unwrap(), m.current_risk_at_slot(1).unwrap());
+        }
+        // A kept EMA curve, and the geometry returned with it, equal a fresh build.
+        let collateral = asset.opposite();
+        let (mut kept, mut fresh) = (None, None);
+        m.ema_liquidation_curve(collateral, 1, &mut kept, &mut reads).unwrap();
+        let (reused, state, geometry) = m.ema_liquidation_curve(collateral, 1, &mut kept, &mut reads).unwrap();
+        let (built, built_state, built_geometry) =
+            m.ema_liquidation_curve(collateral, 1, &mut fresh, &mut LiquidationReads::default()).unwrap();
+        assert_eq!(state, built_state, "amp={amp} hlp={hlp} asset={asset:?}");
+        assert_eq!(geometry, built_geometry);
+        assert_eq!(geometry, built.amm.concentrated_curve_cache.geometry().unwrap());
+        assert_eq!(reused.try_to_vec().unwrap(), built.try_to_vec().unwrap());
+        // A changed EMA depth builds a new curve once the change is reported.
+        m.risk.curve_depth_ema_nad /= 2;
+        reads.market_changed();
+        let (_, halved_state, halved_geometry) = m.ema_liquidation_curve(collateral, 1, &mut kept, &mut reads).unwrap();
+        let (_, expected_state, expected_geometry) =
+            m.ema_liquidation_curve(collateral, 1, &mut fresh, &mut LiquidationReads::default()).unwrap();
+        assert_ne!(halved_state, state);
+        assert_eq!(halved_state, expected_state);
+        assert_eq!(halved_geometry, expected_geometry);
+    } } }
+}
+
+#[test]
+fn native_geometry_memo_returns_each_cache_its_own_geometry() {
+    for amp in [1, 4, 10] { for hlp in [false, true] {
+        let mut m = market(amp, hlp);
+        seeded_position(&mut m, MarketAsset::Quote, 1_100_000, 1_000_000);
+        let live = m.amm.concentrated_curve_cache;
+        let mut scratch = None;
+        let (reference, _, _) = m.ema_liquidation_curve(MarketAsset::Base, 1, &mut scratch, &mut Default::default()).unwrap();
+        let ema = reference.amm.concentrated_curve_cache;
+        assert_ne!(live, ema);
+        let plain = m.clone();
+        m.oracle.runtime.memoize_native_geometry();
+        for cache in [live, live, ema, ema, live] {
+            assert_eq!(m.oracle.runtime.geometry(cache).unwrap(), cache.geometry().unwrap(), "amp={amp} hlp={hlp}");
+        }
+        assert_eq!(m.current_risk_at_slot(1).unwrap(), plain.current_risk_at_slot(1).unwrap());
+    } }
 }
 
 #[test]

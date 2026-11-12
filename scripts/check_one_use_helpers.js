@@ -458,7 +458,7 @@ const acceptedOneUseHelpers = new Map([
     "programs/dusk/src/transitions/amm/curve.rs",
     // Oracle geometry construction has independent price/depth inputs, unlike
     // live-reserve reconstruction, and is exercised across concentration tiers.
-    new Set(["concentrated_total_liquidity_root", "prepare_concentrated_cache_at_depth",
+    new Set(["concentrated_total_liquidity_root", "prepare_concentrated_cache_and_geometry_at_depth",
       // One constructor and one hot-loop lookup share exact boundary dust;
       // inlining them would mix geometry construction with the SBF proof frame.
       "prepare_quote_path", "amount_out",
@@ -611,6 +611,11 @@ acceptedOneUseHelpers.set("programs/dusk/src/transitions/amm_liquidation.rs", ne
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/liquidation_sizing.rs", new Set(["liquidation_scratch"]));
 // Separate SBF frame for the all-smaller-share recovery certificate.
 acceptedOneUseHelpers.set("programs/dusk/src/transitions/flash_liquidation.rs", new Set(["require_first_flash_recovery"]));
+// A liquidation's read cache keeps its keys private: the EMA curve is rebuilt
+// unless every input that builds it repeats, and the one market mutation
+// between proof and quote states which reads it invalidates.
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/flash_liquidation.rs").add("ema_curve");
+acceptedOneUseHelpers.get("programs/dusk/src/transitions/flash_liquidation.rs").add("market_changed");
 // The retired-cohort decoder needs its own SBF frame. Inlining it into the
 // generic transfer-hook account mutation exceeded the 4 KiB stack limit.
 acceptedOneUseHelpers.set("programs/dusk/src/instructions/transfer_hook.rs", new Set(["retired_hlp_yield_contexts"]));
@@ -631,6 +636,9 @@ acceptedOneUseHelpers.set("programs/dusk/src/math/op_gamm/interval.rs", new Set(
 // observation is the authority boundary for price-free repayment, also tested
 // directly to ensure deserialization cannot restore execution authority.
 acceptedOneUseHelpers.set("programs/dusk/src/oracle.rs", new Set(["read", "assert_not_before", "bind"]));
+// The native geometry memo costs one heap block, so an instruction opts in
+// where it re-reads the same few curves; emergency liquidation does.
+acceptedOneUseHelpers.get("programs/dusk/src/oracle.rs").add("memoize_native_geometry");
 // The quote finisher owns fees and final ownership certification in a separate
 // SBF frame; merging it with the solver exceeded the 4 KiB stack contract.
 acceptedOneUseHelpers.get("programs/dusk/src/transitions/amm/mod.rs").add("finish_concentrated_swap");

@@ -639,7 +639,7 @@ impl Market {
                 reserve_credit: target_claim,
                 protocol_fee_bps,
             }
-            .quote_ema_liquidation(self, &mut None)?
+            .quote_ema_liquidation(self, &mut None, &mut Default::default())?
             .amount_out
         };
         let reference_recovery_in_borrowed = borrowed_claim
