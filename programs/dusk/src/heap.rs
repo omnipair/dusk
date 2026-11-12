@@ -1,12 +1,10 @@
 //! Bump allocator over the largest heap frame a transaction can request.
 //!
 //! Blocks are placed upward from a cursor word at the start of the heap. An
-//! instruction that stays within the default 32 KiB frame touches only memory
-//! that frame maps, so a transaction without `ComputeBudgetProgram`'s
-//! `requestHeapFrame` behaves as with the default allocator. A transaction that
-//! requests a larger frame can allocate up to that frame. Memory past the frame
-//! a transaction actually requested faults on first access and aborts the
-//! instruction, as an exhausted default heap does.
+//! allocation that fits in the default 32 KiB is mapped by the runtime. Above
+//! that, the allocator checks the last byte with a memory syscall before it
+//! reports success. The heap is contiguous, so a mapped last byte guarantees
+//! the whole block is mapped. Exhausting the actual frame aborts at allocation.
 //!
 //! Nothing is ever freed, so no memory is reused. The newest block can grow in
 //! place, which saves the copy and the abandoned block of a regrown vector.
@@ -15,12 +13,16 @@
 
 #[cfg(target_os = "solana")]
 mod upward {
-    use anchor_lang::solana_program::entrypoint::HEAP_START_ADDRESS;
+    use anchor_lang::solana_program::{
+        entrypoint::{HEAP_LENGTH, HEAP_START_ADDRESS},
+        syscalls::sol_memset_,
+    };
     use core::alloc::{GlobalAlloc, Layout};
 
     /// `MAX_HEAP_FRAME_BYTES` of the compute-budget program.
     const MAX_HEAP_BYTES: usize = 256 * 1024;
     const CURSOR_BYTES: usize = core::mem::size_of::<usize>();
+    const DEFAULT_HEAP_END: usize = HEAP_START_ADDRESS as usize + HEAP_LENGTH;
 
     struct UpwardBumpAllocator;
 
@@ -42,6 +44,11 @@ mod upward {
             if end > start + MAX_HEAP_BYTES {
                 return core::ptr::null_mut();
             }
+            if end > DEFAULT_HEAP_END {
+                // The syscall checks the VM mapping before touching a newly
+                // allocated byte. No Rust reference to that address is formed.
+                sol_memset_(end.wrapping_sub(1) as *mut u8, 0, 1);
+            }
             *cursor = end;
             begin as *mut u8
         }
@@ -57,6 +64,10 @@ mod upward {
                 let end = (ptr as usize).wrapping_add(new_size);
                 if end > start + MAX_HEAP_BYTES {
                     return core::ptr::null_mut();
+                }
+                if end > *cursor && end > DEFAULT_HEAP_END {
+                    // Validate only a new byte, never the preserved contents.
+                    sol_memset_(end.wrapping_sub(1) as *mut u8, 0, 1);
                 }
                 // A shrink keeps the cursor: the bump allocator never reuses memory.
                 *cursor = end.max(*cursor);

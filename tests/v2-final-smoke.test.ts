@@ -1597,7 +1597,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     remainingAccounts: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[] = [],
     multiplierBps = 20_000,
     debtAsset = 1,
-    oracleBudget = false
+    oracleBudget = false,
+    referral?: { partner: PublicKey; accrual: PublicKey },
   ) {
     const positionId = Keypair.generate().publicKey;
     const leveragePosition = deriveLeveragePositionAddress(fixture.market, payer.publicKey, positionId)[0];
@@ -1613,7 +1614,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         marginAmount: new BN(marginAmount),
         multiplierBps: new BN(multiplierBps),
         minCollateralOut: new BN(1),
-        referrer: null,
+        referrer: referral ? payer.publicKey : null,
         positionOwner: null,
         limitPriceNad: new BN(0),
       })
@@ -1629,8 +1630,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         collateralReserveVault: debtAsset === 1 ? fixture.baseReserveVault : fixture.quoteReserveVault,
         leverageCollateralVault,
         ownerDebtAccount: debtAsset === 1 ? fixture.ownerQuoteAccount : fixture.ownerBaseAccount,
-        referralPartner: null,
-        referralAccrual: null,
+        referralPartner: referral?.partner ?? null,
+        referralAccrual: referral?.accrual ?? null,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
@@ -11297,7 +11298,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   // An oracle-market leverage position with both hLP vaults and a day of
   // interest, at about 4% EMA equity: emergency-eligible, with a recovery
   // proof. The fresh report sits at that EMA price.
-  async function oracleEmergencyRequest(seed: number, mode: "full" | "partial") {
+  async function oracleEmergencyRequest(seed: number, mode: "full" | "partial", tiered = false) {
+    if (tiered) await updateInterestRevenue(10_000, 5_000);
     const config = marketConfig();
     if (mode === "full") {
       config.swapFeeBps = 300;
@@ -11314,14 +11316,27 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       async fixture => oracle.publish(fixture), oracle.policy);
     await openBaseHedge(f, 100_000_000, undefined, oracle.metas);
     await openQuoteHedge(f, 200_000_000, undefined, oracle.metas);
+    const referral = tiered ? {
+      partner: await configureReferralPartner(payer.publicKey, 5_000),
+      accrual: await initializeReferralAccrual(payer.publicKey, f.market, f.quoteMint),
+    } : undefined;
     const { leveragePosition } = await openQuoteDebtLeverage(f, 1_000_000,
-      [...hlpSwapAccounts(f), ...oracle.metas], 20_000, 1, true);
+      [...hlpSwapAccounts(f), ...oracle.metas], 20_000, 1, true, referral);
     const now = svm.getClock();
     now.slot += 216_000n; now.unixTimestamp += 86_400n; svm.setClock(now);
     const account = svm.getAccount(f.market)!;
     const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
-    const p = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    const positionAccount = svm.getAccount(leveragePosition)!;
+    const p = accountCoder.decode("LeveragePosition", Buffer.from(positionAccount.data)) as any;
     const collateral = BigInt(p.collateral_amount.toString());
+    if (tiered) {
+      // Ten percent of reference collateral spans two maintenance bands.
+      p.margin_terms.reference_collateral = new BN((collateral * 10n).toString());
+      svm.setAccount(leveragePosition, {
+        ...positionAccount,
+        data: new Uint8Array(await accountCoder.encode("LeveragePosition", p)),
+      });
+    }
     const debt = BigInt(p.debt_shares.toString()) * BigInt(market.debt.quote_borrow_index_nad.toString()) / 1_000_000_000n;
     const price = ((debt * 10_000n + 9_599n) / 9_600n * 1_000_000_000n + collateral - 1n) / collateral;
     market.risk.base_price_ema_nad = new BN(price.toString());
@@ -11340,7 +11355,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     svm.expireBlockhash();
     const request = { market: f.market, position: leveragePosition, kind: "leverage" as const,
       debtAsset: "quote" as const, collateralDebit: mode === "full" ? collateral : 10_000n, full: mode === "full" };
-    return { oracle, leveragePosition, collateral, request };
+    return { oracle, leveragePosition, collateral, request, referral };
   }
 
   it("emergency AMM liquidation executes on oracle markets against the native EMA reference", async function () {
@@ -11368,6 +11383,32 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       // Keep headroom for PDA/address-dependent account-validation work.
       expect(computeUnits <= 1_250_000n).to.equal(true);
     }
+  });
+
+  it("settles a full tiered oracle liquidation with a recovery proof on the default heap", async function () {
+    const sdk = new DuskLiquidations(createDuskProgram({ provider: program.provider as any }), payer.publicKey);
+    const { leveragePosition, request, referral } = await oracleEmergencyRequest(259, "full", true);
+    const preview = await sdk.previewEmergency(request);
+    const plan = await sdk.buildEmergency({ ...request, caller: payer.publicKey });
+    const instructions = plan.instructions.filter(ix =>
+      !(ix.programId.equals(ComputeBudgetProgram.programId) && ix.data[0] === 1));
+    expect(instructions.some(ix => ix.keys.some(meta => meta.pubkey.equals(referral!.accrual)))).to.equal(true);
+    const transaction = new Transaction().add(...instructions);
+    const { computeUnits } = await connection.sendTransactionMeasured(transaction, [payer]);
+    trackV2Instruction("emergencyLiquidation", this.test?.title);
+    const quote = cpiEvent(transaction, "emergencyLiquidationSettled").quote;
+    // Positive equity requires the recovery proof. A 950 bps maintenance
+    // rate confirms both the 700 and 1,200 bps bands contributed.
+    expect(quote.healthBefore.collateralValue.gt(quote.healthBefore.debt)).to.equal(true);
+    expect(Number(quote.healthBefore.maintenanceBps)).to.equal(950);
+    expect(quote.swapOutput.eq(preview.swapOutput)).to.equal(true);
+    expect(quote.repayment.eq(preview.repayment)).to.equal(true);
+    expect(quote.loss.interestPaid.gt(new BN(0))).to.equal(true);
+    const after = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+    expect(after.debt_shares.toString()).to.equal("0");
+    expect(after.collateral_amount.toString()).to.equal("0");
+    console.log("    Tiered oracle full emergency liquidation: " + computeUnits.toLocaleString() + " CU on the default heap");
+    expect(computeUnits <= 1_400_000n).to.equal(true);
   });
 
   it("emergency AMM liquidation beyond the default 32 KiB heap runs on its requested heap frame", async function () {
