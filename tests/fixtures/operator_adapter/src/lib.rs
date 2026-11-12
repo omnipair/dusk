@@ -14,7 +14,7 @@ use solana_program::{
 };
 
 solana_program::declare_id!("AJZgAHa6yfsoLbJk3jzqj6dPcnei5Pb7heRMGWrZu1fQ");
-const DUSK: Pubkey = pubkey!("2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y");
+const DUSK: Pubkey = pubkey!("G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN");
 entrypoint!(process_instruction);
 
 pub fn process_instruction(
