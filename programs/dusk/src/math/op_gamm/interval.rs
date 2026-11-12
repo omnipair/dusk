@@ -22,7 +22,7 @@ mod wide {
 }
 use wide::U256;
 
-use crate::math::div_rem_native;
+use crate::math::{arithmetic::widening_mul_u64, div_rem_native};
 
 fn sqrt_q56(value: i128, up: bool) -> Result<i128> {
     require!(value >= 0, ErrorCode::InvalidArgument);
@@ -162,7 +162,7 @@ impl Interval {
     pub fn sub(self, other: Self) -> Result<Self> {
         self.add(other.neg()?)
     }
-    #[inline(always)]
+    #[inline(never)]
     pub fn mul(self, other: Self) -> Result<Self> {
         if self == Self::ZERO || other == Self::ZERO {
             return Ok(Self::ZERO);
@@ -328,17 +328,19 @@ fn ln_point(value: i128) -> Result<Interval> {
     }
     let z = normalized.sub(Interval::UNIT)?.div(normalized.add(Interval::UNIT)?)?;
     require!(z.lo >= 0 && z.hi < ONE / 2, ErrorCode::MarketMathOverflow);
-    let square = unsigned_ratio(z.lo as u128, z.lo as u128, ONE as u128, false)?;
-    let mut term = z.lo as u128;
+    // The ordered interval and range check give 0 <= z.lo < ONE / 2.
+    // Both factors stay in u64 as each floor-rounded term decreases.
+    let mut term = z.lo as u64;
+    let square = (widening_mul_u64(term, term) >> 56) as u64;
     let mut sum = 0_u128;
     for k in 0..24 {
         if term == 0 {
             break;
         }
         sum = sum
-            .checked_add(((term as u64) / (2 * k + 1) as u64) as u128)
+            .checked_add(u128::from(term / (2 * k + 1) as u64))
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        term = unsigned_ratio(term, square, ONE as u128, false)?;
+        term = (widening_mul_u64(term, square) >> 56) as u64;
     }
     let lower = narrow(sum.checked_mul(2).ok_or(ErrorCode::MarketMathOverflow)?, false)?;
     // Here z<=1/3 plus a Q56 rounding unit. Floor-series error is
@@ -371,14 +373,17 @@ fn exp_point(value: i128) -> Result<Interval> {
         reduced.lo >= 0 && reduced.hi < 7 * ONE / 10,
         ErrorCode::MarketMathOverflow
     );
-    let mut term = ONE as u128;
-    let mut sum = term;
+    // The ordered interval and range check give 0 <= reduced.lo < ONE.
+    // Floor rounding and division by k keep every term in 0..=ONE.
+    let reduced_lo = reduced.lo as u64;
+    let mut term = ONE as u64;
+    let mut sum = u128::from(term);
     for k in 1..=24 {
         if term == 0 {
             break;
         }
-        term = ((unsigned_ratio(term, reduced.lo as u128, ONE as u128, false)? as u64) / k as u64) as u128;
-        sum = sum.checked_add(term).ok_or(ErrorCode::MarketMathOverflow)?;
+        term = ((widening_mul_u64(term, reduced_lo) >> 56) as u64) / k as u64;
+        sum = sum.checked_add(u128::from(term)).ok_or(ErrorCode::MarketMathOverflow)?;
     }
     let lower = narrow(sum, false)?;
     // In [0,.7], each term's accumulated floor error is <2 Q56
