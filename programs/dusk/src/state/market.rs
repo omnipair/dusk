@@ -4,8 +4,9 @@ use std::{cell::OnceCell, rc::Rc};
 use super::{IncomeReceivableBook, IncomeReceivableClaim, ReceivableGrowth};
 use crate::{constants::*, errors::ErrorCode, state::OperatorState};
 
-/// Maximum center amplification admitted by the protocol. Narrow widths reach
-/// the minimum full-range tail share below first.
+/// Maximum center amplification admitted by the protocol. Only the narrowest
+/// bands reach it. Past about an 8 bps core with no fade, the minimum
+/// full-range tail share below binds first; any fade lowers that width.
 pub const MAX_AMM_AMPLIFICATION_NAD: u64 = 2_000 * NAD;
 /// Minimum share of a concentrated curve's peak liquidity held by its
 /// full-range tail, in NAD: 0.01%. Every transition rebuilds the curve from
