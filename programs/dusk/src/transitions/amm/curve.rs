@@ -414,11 +414,12 @@ fn reserve_ratio_cmp(point: ConcentratedCurvePoint, boundary: ConcentratedCurveP
 
 // Build the same tail/band geometry from independent oracle inputs. Unlike
 // reconstruction at a reserve point, this never reads the live inventory.
-pub(crate) fn prepare_concentrated_cache_at_depth(
+// The validated geometry is returned rather than rebuilt by the caller.
+pub(crate) fn prepare_concentrated_cache_and_geometry_at_depth(
     center_price_nad: u64,
     depth_nad: u128,
     parameters: ConcentratedCurveParameters,
-) -> Result<ConcentratedCurveCache> {
+) -> Result<(ConcentratedCurveCache, ConcentratedCurveGeometry)> {
     parameters.validate(u64::MAX)?;
     require!(center_price_nad > 0 && depth_nad > 0, ErrorCode::InvalidSettlementPrice);
     let sqrt_center = sqrt_ratio_nad(u128::from(center_price_nad))?;
@@ -435,7 +436,6 @@ pub(crate) fn prepare_concentrated_cache_at_depth(
         mul_div_u128(sqrt_center, outer_width, u128::from(NAD))?,
         sqrt_center,
     )
-    .map(|(cache, _)| cache)
 }
 
 /// Reconstructs the unique positive curve scale through an arbitrary reserve
