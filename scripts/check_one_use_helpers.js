@@ -484,7 +484,6 @@ const acceptedOneUseHelpers = new Map([
       // returned integrated quote and error on the swap frame overflows it.
       "prepare_current_hlp_quote_with_distress_freeze",
       "prepare_book_curve_mark",
-      "credit_protected_recenter_reserve",
       "finalize_amm_trade_after_inventory_checkpoint",
       "advance_one_concentrated_controller_target",
       "apply_concentrated_curve_parameter_update",
@@ -622,7 +621,7 @@ acceptedOneUseHelpers.set("programs/dusk/src/instructions/transfer_hook.rs", new
 // remainder certificate each have an independent mathematical contract.
 // Taylor arrays and the output seed also require separate SBF stack frames.
 acceptedOneUseHelpers.set("programs/dusk/src/math/op_gamm.rs", new Set([
-  "raw_coefficients", "build_bands", "coordinate_uncached", "price_bounds_nad", "native_geometry_at",
+  "raw_coefficients", "build_bands", "coordinate_uncached", "native_geometry_at",
   "historical_mark_nad", "native_primitive_uncached", "analytic_residual",
   "cpmm_integral", "taylor_cell", "elasticity", "native_seed", "solve_output", "taylor_quotient_integral",
 ]));

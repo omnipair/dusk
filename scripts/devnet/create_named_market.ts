@@ -47,7 +47,6 @@ import {
   createHookedLpMintWithSeedInstructions,
   defaultMarketLaunchConfig,
   deriveMarketAddress,
-  deriveMarketParamsHash,
   grindMarketLpMintSeeds,
   hasLpMintAddressSuffix,
   lpMintRent,
@@ -140,11 +139,11 @@ async function main() {
   const naming = marketLpTokenNaming({ baseSymbol, quoteSymbol });
   const pinata = DRY_RUN ? undefined : pinataConfigFromEnv();
 
-  const paramsHash = await deriveMarketParamsHash({
-    namespace: "dusk-final-devnet",
-    label,
-    baseMint,
-    quoteMint,
+  // The market address is bound to its creator and creation arguments.
+  const paramsHash = await dusk.write.marketParamsHashFor({
+    payer: owner,
+    config: defaultMarketLaunchConfig(),
+    oracle: initialOracle,
   });
   const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
   console.log(`label          ${label}`);
@@ -182,7 +181,7 @@ async function main() {
   }
 
   if (await connection.getAccountInfo(market, "confirmed")) {
-    throw new Error(`market ${market.toBase58()} already exists; choose another LABEL`);
+    throw new Error(`market ${market.toBase58()} already exists: this creator already made a market with this configuration for the pair`);
   }
 
   const send = async (instructions: TransactionInstruction[], signers: Keypair[] = [], oracle?: { lambdaBps: number }) => {

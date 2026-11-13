@@ -75,7 +75,6 @@ impl<'info> RotateHlpCohort<'info> {
             .old_cohort
             .assert_identity(market_key, old_mint, target_asset)?;
         require!(!ctx.accounts.old_cohort.retired, ErrorCode::InvalidArgument);
-        require!(ctx.accounts.old_hlp_mint.supply > 0, ErrorCode::InvalidHlpMintSupply);
         require_eq!(ctx.accounts.new_hlp_mint.supply, 0, ErrorCode::NonZeroSupply);
         let decimals = market.side(target_asset).asset_decimals;
         validate_lp_mint(&ctx.accounts.new_hlp_mint, market_key, decimals)?;
@@ -97,7 +96,17 @@ impl<'info> RotateHlpCohort<'info> {
                 new_mint,
             )?,
         }
-        reconcile_live_hlp_supply(market, target_asset, ctx.accounts.old_hlp_mint.supply)?;
+        reconcile_live_hlp_supply(market, target_asset, ctx.accounts.old_hlp_mint.supply, false)?;
+        // An old mint with no live receipts is accepted once nothing is
+        // outstanding (a complete direct burn of a terminally closed vault).
+        let outstanding = match target_asset {
+            MarketAsset::Base => market.base_hlp_vault.hlp_supply,
+            MarketAsset::Quote => market.quote_hlp_vault.hlp_supply,
+        };
+        require!(
+            ctx.accounts.old_hlp_mint.supply > 0 || outstanding == 0,
+            ErrorCode::InvalidHlpMintSupply
+        );
         require!(
             market.hlp_terminally_closed(target_asset),
             ErrorCode::HlpSettlementUnavailable

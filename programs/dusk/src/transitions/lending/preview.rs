@@ -746,7 +746,9 @@ impl Market {
                 collateral_amount - midpoint,
                 collateral_fee,
             )?;
-            if withdrawal.max_debt as u128 >= withdrawal.position_debt {
+            let keeps_floor = withdrawal.position_debt == 0
+                || self.withdrawal_keeps_health_floor(position, debt_asset, withdrawal.target_contribution, risk)?;
+            if withdrawal.max_debt as u128 >= withdrawal.position_debt && keeps_floor {
                 low = midpoint;
             } else {
                 high = midpoint - 1;

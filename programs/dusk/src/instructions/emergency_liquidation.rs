@@ -24,6 +24,9 @@ use crate::{
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct EmergencyLiquidationArgs {
     pub debt_asset: u8,
+    /// Collateral the caller priced. A partial sale debits exactly this
+    /// amount; a full sale debits all live collateral, which must be at least
+    /// this amount.
     pub collateral_debit: u64,
     pub full: bool,
     pub min_reward_credit: u64,

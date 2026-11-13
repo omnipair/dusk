@@ -36,6 +36,46 @@ fn market_creation_seed_prefix_precedes_optional_oracle_and_metadata() {
     }
 }
 
+#[test]
+fn market_params_hash_binds_the_creator_and_every_economic_argument() {
+    let args = InitializeMarketArgs {
+        params_hash: [0; 32],
+        config: valid_config(),
+        operator_interest_share_bps: 100,
+        oracle: None,
+        bootstrap_price_nad: 0,
+        launch_fee_progress_offset: 0,
+        srlp_metadata: valid_metadata(),
+        base_hlp_metadata: valid_metadata(),
+        quote_hlp_metadata: valid_metadata(),
+    };
+    let creator = Pubkey::new_unique();
+    let hash = args.params_hash_for(&creator).unwrap();
+    assert_eq!(args.params_hash_for(&creator).unwrap(), hash);
+    assert_ne!(args.params_hash_for(&Pubkey::new_unique()).unwrap(), hash);
+
+    let mut changed = args.clone();
+    changed.config.swap_fee_bps = changed.config.swap_fee_bps.wrapping_add(1);
+    assert_ne!(changed.params_hash_for(&creator).unwrap(), hash);
+    let mut changed = args.clone();
+    changed.operator_interest_share_bps += 1;
+    assert_ne!(changed.params_hash_for(&creator).unwrap(), hash);
+    let mut changed = args.clone();
+    changed.oracle = Some(OraclePolicy::default());
+    assert_ne!(changed.params_hash_for(&creator).unwrap(), hash);
+    let mut changed = args.clone();
+    changed.bootstrap_price_nad = NAD;
+    assert_ne!(changed.params_hash_for(&creator).unwrap(), hash);
+    let mut changed = args.clone();
+    changed.launch_fee_progress_offset = 1;
+    assert_ne!(changed.params_hash_for(&creator).unwrap(), hash);
+
+    // LP metadata is cosmetic and updatable by the operator.
+    let mut changed = args.clone();
+    changed.srlp_metadata.name = "Renamed srLP".to_string();
+    assert_eq!(changed.params_hash_for(&creator).unwrap(), hash);
+}
+
 fn valid_metadata() -> InitializeLpMetadataArgs {
     InitializeLpMetadataArgs {
         name: "Omnipair V2 (Dusk) srLP".to_string(),

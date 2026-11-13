@@ -740,3 +740,48 @@ fn consecutive_partial_hlp_exits_keep_live_reserve_on_funded_debt() {
         market.clone().deposit_single_sided(MarketAsset::Base, 10_000, 1).unwrap();
     }
 }
+
+#[test]
+fn hlp_exit_imbalance_is_capped_by_the_bounded_market_price() {
+    use crate::oracle::{OracleObservation, OraclePolicy, RuntimePricing};
+    use crate::state::{AmmConfig, AmmState};
+    let mut native = Market::current_layout();
+    native.add_liquidity(1_000_000, 1_000_000).unwrap();
+    native.config.amm = AmmConfig {
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
+        center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
+        ..AmmConfig::default()
+    };
+    *native.amm = AmmState::default();
+    native.prepare_amm_for_swap(1).unwrap();
+    // Selling a 10,000 base surplus for quote, and covering a 10,000 quote
+    // shortfall with base, on the native curve.
+    let native_surplus = settled_close_target_amount(&native, MarketAsset::Quote, 0, 10_000, 0).unwrap();
+    let native_retained = 50_000 - settled_close_target_amount(&native, MarketAsset::Base, 50_000, 0, 10_000).unwrap();
+    for reference in [NAD / 2, 2 * NAD] {
+        let mut market = native.clone();
+        market.oracle.policy = OraclePolicy {
+            lambda_bps: 9_000,
+            adjustment_cap_nad: 2 * NAD,
+            ..OraclePolicy::default()
+        };
+        market.oracle.runtime = RuntimePricing::bind(
+            market.oracle.policy,
+            OracleObservation {
+                price_nad: reference,
+                ..OracleObservation::default()
+            },
+        );
+        market.checkpoint_oracle_risk_depth().unwrap();
+        let curve = market.bounded_curve().unwrap().unwrap();
+        let (low, high) = curve.price_bounds_nad(market.ordinary_curve_point_nad().unwrap()).unwrap();
+        let surplus = settled_close_target_amount(&market, MarketAsset::Quote, 0, 10_000, 0).unwrap();
+        assert!(surplus <= native_surplus);
+        assert!(u128::from(surplus) <= 10_000 * u128::from(low) / u128::from(NAD));
+        let retained = 50_000 - settled_close_target_amount(&market, MarketAsset::Base, 50_000, 0, 10_000).unwrap();
+        assert!(retained >= native_retained);
+        assert!(u128::from(retained) >= 10_000 * u128::from(NAD) / u128::from(high));
+    }
+}

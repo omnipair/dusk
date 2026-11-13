@@ -114,7 +114,7 @@ test("builders and readers derive every Dusk PDA under their program's ID", asyn
   const programs = await derivationPrograms(async () => {
     built.initializeMarket = await write.initializeMarketInstruction({
       payer: owner, baseMint, quoteMint, srlpMint, baseHlpMint, quoteHlpMint,
-      teamTreasury: key(30), teamTreasuryWsolAccount: key(31), paramsHash: Array(32).fill(1),
+      teamTreasury: key(30), teamTreasuryWsolAccount: key(31),
       config: defaultMarketLaunchConfig(),
       lpMetadata: Object.fromEntries(["srlp", "baseHlp", "quoteHlp"].map((kind) =>
         [kind, { name: "Omnipair LP", symbol: "LP", uri: "https://omnipair.fi/lp.json" }])),
@@ -201,7 +201,8 @@ test("builders and readers derive every Dusk PDA under their program's ID", asyn
 
   const futarchy = at(deriveFutarchyAuthorityAddress(programId));
   const eventAuthority = at(deriveEventAuthorityAddress(programId));
-  const marketAddress = at(deriveMarketAddress(baseMint, quoteMint, Array(32).fill(1), programId));
+  const paramsHash = await write.marketParamsHashFor({ payer: owner, config: defaultMarketLaunchConfig() });
+  const marketAddress = at(deriveMarketAddress(baseMint, quoteMint, paramsHash, programId));
   const init = accountsOf(program, built.initializeMarket);
   assert.equal(init.market, marketAddress);
   assert.equal(init.futarchyAuthority, futarchy);

@@ -334,7 +334,7 @@ fn partial_direct_burn_checkpoints_old_supply_before_reconciling() {
     market.base_hlp_vault.srlp_shares = 10;
     market.base_hlp_vault.hlp_supply = 10;
 
-    reconcile_live_hlp_supply(&mut market, MarketAsset::Base, 5).unwrap();
+    reconcile_live_hlp_supply(&mut market, MarketAsset::Base, 5, false).unwrap();
 
     assert_eq!(market.base_hlp_vault.hlp_supply, 5);
     assert_eq!(
@@ -348,9 +348,12 @@ fn partial_direct_burn_checkpoints_old_supply_before_reconciling() {
 fn direct_burn_reconciliation_rejects_external_minting_and_all_burn_zombie() {
     let mut market = Market::current_layout();
     market.quote_hlp_vault.hlp_supply = 1;
+    // The vault still holds value, so only the orphan close may unwind it.
+    market.quote_hlp_vault.srlp_shares = 1;
 
     for invalid_live_supply in [0, 2] {
-        let error = reconcile_live_hlp_supply(&mut market, MarketAsset::Quote, invalid_live_supply).unwrap_err();
+        let error =
+            reconcile_live_hlp_supply(&mut market, MarketAsset::Quote, invalid_live_supply, false).unwrap_err();
         match error {
             anchor_lang::error::Error::AnchorError(error) => {
                 assert_eq!(error.error_name, "InvalidHlpMintSupply")
@@ -359,4 +362,21 @@ fn direct_burn_reconciliation_rejects_external_minting_and_all_burn_zombie() {
         }
         assert_eq!(market.quote_hlp_vault.hlp_supply, 1);
     }
+}
+
+#[test]
+fn complete_direct_burn_is_recoverable() {
+    // A vault with value keeps its stored supply for the orphan close, which
+    // unwinds it for the whole stored supply.
+    let mut market = Market::current_layout();
+    market.quote_hlp_vault.hlp_supply = 3;
+    market.quote_hlp_vault.srlp_shares = 1;
+    reconcile_live_hlp_supply(&mut market, MarketAsset::Quote, 0, true).unwrap();
+    assert_eq!(market.quote_hlp_vault.hlp_supply, 3);
+    // A terminally closed vault holds no value; its supply follows the mint so
+    // the cohort can rotate.
+    let mut terminal = Market::current_layout();
+    terminal.quote_hlp_vault.hlp_supply = 3;
+    reconcile_live_hlp_supply(&mut terminal, MarketAsset::Quote, 0, false).unwrap();
+    assert_eq!(terminal.quote_hlp_vault.hlp_supply, 0);
 }

@@ -105,6 +105,9 @@ pub const DEFAULT_BORROW_APR_NAD: u128 = 4 * NAD as u128 / 100;
 
 #[constant]
 pub const MARKET_V2_SEED_PREFIX: &[u8] = b"market_v2";
+/// Domain tag of the market parameters hash, the third market-address seed.
+#[constant]
+pub const MARKET_PARAMS_HASH_DOMAIN: &[u8] = b"dusk:market-params:v1";
 #[constant]
 pub const FUTARCHY_AUTHORITY_SEED_PREFIX: &[u8] = b"futarchy_authority";
 #[constant]

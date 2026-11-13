@@ -3508,10 +3508,11 @@ export type LeverageDelegate = {
           {
             "name": "borrowedBucket",
             "docs": [
-              "Gross principal lent out through the public borrow path. Internal hLP",
-              "funding and isolated leverage do not consume this capacity. This is a",
-              "24-hour leaky/token bucket, not an exact trailing-window sum: it permits",
-              "a full burst after idle and then refills at the configured daily rate."
+              "Principal lent out through the public borrow path, net of principal",
+              "repaid through the public repay path. Internal hLP funding and isolated",
+              "leverage do not consume this capacity. This is a 24-hour leaky/token",
+              "bucket, not an exact trailing-window sum: it permits a full burst after",
+              "idle and then refills at the configured daily rate."
             ],
             "type": "u64"
           },
@@ -5532,6 +5533,12 @@ export type LeverageDelegate = {
     },
     {
       "name": "orderProtocolFeePaid",
+      "docs": [
+        "Protocol fee charged on one order execution. `value` is the execution",
+        "value the fee is assessed on. `debit` is the gross amount spent, capped by",
+        "the order's fee budget; `credited` is what the treasury received after any",
+        "transfer fee, and `fee` equals `credited`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [

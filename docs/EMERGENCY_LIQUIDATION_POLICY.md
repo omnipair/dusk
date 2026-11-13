@@ -36,6 +36,13 @@ Protected liquidation is available immediately. The timer gates only fallback. A
 
 The internal quote and execution must bind the same prepared curve, fee, collateral amount, debt accounting and cash state, with no untrusted route between them. This prevents a caller substituting a worse swap than the program calculated. It does NOT establish a fair price: manipulation before the instruction can still worsen that quote. Slot-opening snapshots are an optional earlier guard, not a trusted oracle or proof that #287652 is solved.
 
+A full internal sale disposes of the position's live collateral. Its
+`collateral_debit` argument is the amount the caller priced and acts as a
+floor: collateral credited to the position after pricing (a one-atom donation
+ahead of the sale) is sold with the rest instead of making the sale revert,
+and `min_swap_output` and `min_reward_credit` bound the outcome. A partial
+sale debits exactly the requested amount.
+
 ### What happens when every price bound fails
 
 1. Before terminal permission, protected/guarded fills revert if their bound fails. Reverts cannot leave a failed-attempt marker. The public distress observer can still succeed independently.

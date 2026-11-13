@@ -1057,3 +1057,72 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
       }
     }
 }
+
+#[test]
+fn recovery_bonus_is_priced_at_the_executable_mark() {
+    use crate::state::{AmmConfig, AmmState};
+    use crate::transitions::amm::SwapRequest;
+    const UNIT: u64 = 1_000_000;
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = Market::current_layout();
+        market.base_side.asset_decimals = 6;
+        market.quote_side.asset_decimals = 6;
+        market.debt.base_borrow_index_nad = NAD as u128;
+        market.debt.quote_borrow_index_nad = NAD as u128;
+        market.add_liquidity(1_000_000 * UNIT, 1_000_000 * UNIT).unwrap();
+        market.deposit_single_sided(MarketAsset::Base, 20_000 * UNIT, 1).unwrap();
+        market.deposit_single_sided(MarketAsset::Quote, 20_000 * UNIT, 1).unwrap();
+        // A funding deficit, as in full_value_recovery_bonus_reports_the_settled_price.
+        match target {
+            MarketAsset::Base => {
+                market.debt.fixed_base_shares = u128::from(425_000 * UNIT);
+                market.debt.fixed_base_principal = 400_000 * UNIT;
+                market.debt.quote_borrow_index_nad = 11 * u128::from(NAD) / 10;
+            }
+            MarketAsset::Quote => {
+                market.debt.fixed_quote_shares = u128::from(425_000 * UNIT);
+                market.debt.fixed_quote_principal = 400_000 * UNIT;
+                market.debt.base_borrow_index_nad = 11 * u128::from(NAD) / 10;
+            }
+        }
+        market.side_mut(target).reserves.cash_reserve -= 400_000 * UNIT;
+        market.side_mut(target).reserves.live_reserve += u128::from(25_000 * UNIT);
+        market.config.swap_fee_bps = 30;
+        market.config.amm = AmmConfig {
+            compounding_fee_bps: 10_000,
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
+            center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
+            ..AmmConfig::default()
+        };
+        *market.amm = AmmState::default();
+        market.prepare_amm_for_swap(1).unwrap();
+        // The deficit set-up leaves the ordinary point where the reserve ratio
+        // and the concentrated curve's marginal price disagree.
+        let spot = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+        let prepared = SwapRequest {
+            current_slot: 1,
+            current_unix_timestamp: 0,
+            asset_in: target.opposite(),
+            reserve_credit: 10_000 * UNIT,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut market.clone())
+        .unwrap();
+        let recovery = prepared.quote.recovery;
+        assert!(recovery.bonus_output > 0, "{target:?}: the vault must be under-funded");
+        // The matched input valued at the executable mark, then d/(1-d).
+        let fair = match target {
+            MarketAsset::Base => u128::from(recovery.matched_input) * u128::from(NAD) / u128::from(spot),
+            MarketAsset::Quote => u128::from(recovery.matched_input) * u128::from(spot) / u128::from(NAD),
+        };
+        let bound = fair * u128::from(recovery.discount_bps)
+            / (u128::from(BPS_DENOMINATOR) - u128::from(recovery.discount_bps));
+        assert!(
+            u128::from(recovery.bonus_output) <= bound + 1,
+            "{target:?}: bonus {} exceeds the mark-priced bound {bound}",
+            recovery.bonus_output
+        );
+    }
+}

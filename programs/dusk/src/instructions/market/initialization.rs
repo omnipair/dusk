@@ -51,6 +51,29 @@ pub struct InitializeMarketArgs {
     pub quote_hlp_metadata: InitializeLpMetadataArgs,
 }
 
+impl InitializeMarketArgs {
+    /// The market-address seed for these arguments from this creator:
+    /// SHA-256 over a domain tag, the creator (who becomes operator and
+    /// initial liquidity authority) and the Borsh encoding of every economic
+    /// creation argument. LP metadata is cosmetic and excluded. Binding the
+    /// creator and configuration stops a third party from creating a market
+    /// at the address another creator prepared mints for.
+    pub fn params_hash_for(&self, creator: &Pubkey) -> Result<[u8; 32]> {
+        let config = self.config.try_to_vec().map_err(|_| ErrorCode::InvalidParamsHash)?;
+        let oracle = self.oracle.try_to_vec().map_err(|_| ErrorCode::InvalidParamsHash)?;
+        Ok(anchor_lang::solana_program::hash::hashv(&[
+            MARKET_PARAMS_HASH_DOMAIN,
+            creator.as_ref(),
+            &config,
+            &self.operator_interest_share_bps.to_le_bytes(),
+            &oracle,
+            &self.bootstrap_price_nad.to_le_bytes(),
+            &self.launch_fee_progress_offset.to_le_bytes(),
+        ])
+        .to_bytes())
+    }
+}
+
 // Decode only the fixed-size seed prefix in account validation. Keep the same
 // `args.params_hash` path as the public payload so IDL PDA resolution works.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -238,6 +261,10 @@ impl<'info> InitializeMarket<'info> {
         )?;
         require_supported_asset_mint(&self.base_mint)?;
         require_supported_asset_mint(&self.quote_mint)?;
+        require!(
+            args.params_hash == args.params_hash_for(&self.payer.key())?,
+            ErrorCode::InvalidParamsHash
+        );
 
         let market = self.market.key();
         validate_lp_mint(&self.srlp_mint, market, self.base_mint.decimals)?;

@@ -1158,6 +1158,7 @@ fn owned_hlp_entry_matches_native_market_and_account_ordering() {
         &mut expected_market,
         MarketAsset::Base,
         expected_external.hlp_mint_supply,
+        false,
     )
     .unwrap();
     expected_market.advance_amm_clock(request.clock.slot).unwrap();

@@ -507,6 +507,9 @@ pub struct LiquidationPositionState {
     pub quote_liquidation_cf_bps: u16,
     pub leverage_collateral_amount: u64,
     pub leverage_debt_shares: u128,
+    /// Economic closure: no collateral and no debt shares remain. The
+    /// position account stays open until its owner withdraws through
+    /// `withdraw_all_collateral` or `withdraw_repaid_leverage`.
     pub closed: bool,
 }
 
@@ -588,6 +591,11 @@ impl<'info> SettleFlashLiquidation<'info> {
             .ok_or(ErrorCode::InsufficientAmount)?;
         let quote = session.quote;
         let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
+        // The split is recomputed on current state rather than pinned at
+        // Begin. Begin and settle sit in one transaction the liquidator
+        // builds; another position's borrow or repay placed between them can
+        // move rounding atoms among debt reduction, fees and owner surplus,
+        // while the buyer's payment bound and collateral stay fixed.
         let terms = a
             .market
             .flash_amm_settlement_terms(&a.position()?, asset, quote, debt_fee)?;
@@ -727,12 +735,9 @@ impl<'info> SettleFlashLiquidation<'info> {
         a.market
             .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, eligibility.quote_hlp_srlp_shares)?;
         ctx.accounts.repayment_vault.reload()?;
-        let refund = ctx
-            .accounts
-            .repayment_vault
-            .amount
-            .checked_sub(session.payment_balance_before)
-            .ok_or(ErrorCode::BrokenInvariant)?;
+        // Return the whole balance. Tokens that reached the vault outside a
+        // session never count as payment and have no other way out.
+        let refund = ctx.accounts.repayment_vault.amount;
         if refund > 0 {
             transfer_checked_with_remaining_accounts(
                 session.to_account_info(),

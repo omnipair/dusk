@@ -1,6 +1,6 @@
 import { deriveJuniorCohortAddress } from "./constants.js";
 import { oracleComputeBudgetInstructions, oraclePolicy, oracleReadAccounts, type OraclePolicyInput } from "./oracle.js";
-import type { Program } from "@coral-xyz/anchor";
+import type { BN, Program } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
   getMint,
@@ -29,7 +29,7 @@ import {
   type ProgramMethodCall,
 } from "./instruction-args.js";
 import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js";
-import { type MarketLaunchConfig } from "./market-bootstrap.js";
+import { marketParamsHash, type MarketLaunchConfig } from "./market-bootstrap.js";
 import { assertCurrentMarketLayout } from "./market-layout.js";
 import type { Market } from "./type-aliases.js";
 import {
@@ -354,6 +354,30 @@ export class DuskWrite {
   ): Promise<Transaction> {
     const state = await this.fetchMarketAccount(address(market)) as { oracle?: { policy: OraclePolicyInput } };
     return new Transaction().add(...oracleComputeBudgetInstructions(state.oracle?.policy), instruction);
+  }
+
+  /**
+   * Add and remove liquidity first apply a due, funded recenter, which costs
+   * about as much as a recentering swap and exceeds the default 200k compute
+   * units. Concentrated markets with a centre controller get a limit sized
+   * for it; positive-weight oracle markets keep their larger oracle budget.
+   */
+  private async liquidityBudgetedTransaction(
+    market: AddressLike,
+    instruction: TransactionInstruction
+  ): Promise<Transaction> {
+    const state = await this.fetchMarketAccount(address(market)) as {
+      oracle?: { policy: OraclePolicyInput };
+      config: { amm: { peakAmplificationNad: BN; adjustmentStepNad: BN } };
+    };
+    const oracleBudget = oracleComputeBudgetInstructions(state.oracle?.policy);
+    // A peak amplification of one (NAD) is the CPMM, which never recenters.
+    const recenters = BigInt(state.config.amm.peakAmplificationNad.toString()) > 1_000_000_000n
+      && !state.config.amm.adjustmentStepNad.isZero();
+    const budget = oracleBudget.length > 0 || !recenters
+      ? oracleBudget
+      : [ComputeBudgetProgram.setComputeUnitLimit({ units: LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT })];
+    return new Transaction().add(...budget, instruction);
   }
 
   private async withOraclePolicy(
@@ -877,14 +901,18 @@ export class DuskWrite {
     const lpMint = address(params.lpMint);
     const market = address(params.market);
     let tokenKind = params.tokenKind;
+    const juniorCohort = deriveJuniorCohortAddress(market, lpMint, this.program.programId)[0];
     if (tokenKind === undefined) {
       const state = await this.fetchMarketAccount(market) as Market;
       if (lpMint.equals(state.srlpMint)) tokenKind = "srlp";
       else if (lpMint.equals(state.juniorMint)) tokenKind = "junior";
       else if (lpMint.equals(state.baseSide.hlpMint) || lpMint.equals(state.quoteSide.hlpMint)) tokenKind = "hlp";
+      // A retired junior generation resolves through its retired cohort.
+      else if (await this.program.provider.connection.getAccountInfo(juniorCohort)) tokenKind = "junior";
       else throw new Error("LP mint does not belong to the market");
     }
     const isHlp = tokenKind === "hlp" || tokenKind === 1;
+    const isJunior = tokenKind === "junior" || tokenKind === 2;
     return this.instruction("initializeLpTransferHook", undefined, {
       accounts: {
         payer: address(params.payer),
@@ -893,9 +921,13 @@ export class DuskWrite {
         validationAccount: deriveYieldTransferHookValidationAddress(lpMint, this.program.programId)[0],
         systemProgram: SystemProgram.programId,
       },
+      // The program reads the junior cohort only for a mint that is no
+      // longer the market's current junior mint.
       remainingAccounts: isHlp
         ? [{ pubkey: deriveHlpCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: true }]
-        : [],
+        : isJunior
+          ? [{ pubkey: juniorCohort, isSigner: false, isWritable: false }]
+          : [],
     });
   }
 
@@ -903,6 +935,29 @@ export class DuskWrite {
     params: Parameters<DuskWrite["initializeLpTransferHookInstruction"]>[0]
   ): Promise<Transaction> {
     return new Transaction().add(await this.initializeLpTransferHookInstruction(params));
+  }
+
+  /**
+   * The `params_hash`, and so the market address seed, that
+   * `initializeMarketInstruction` derives from these arguments. Compute it to
+   * create the LP mints for a market address before the market exists.
+   */
+  async marketParamsHashFor(params: {
+    payer: AddressLike;
+    config: MarketLaunchConfig;
+    operatorInterestShareBps?: number;
+    oracle?: OraclePolicyInput | null;
+    bootstrapPriceNad?: IntegerLike;
+    launchFeeProgressOffset?: number;
+  }): Promise<Uint8Array> {
+    return marketParamsHash(this.program.coder, {
+      creator: params.payer,
+      config: anchorMarketConfig(params.config),
+      operatorInterestShareBps: params.operatorInterestShareBps ?? 0,
+      oracle: params.oracle == null ? null : oraclePolicy(params.oracle),
+      bootstrapPriceNad: integerBN(params.bootstrapPriceNad ?? 0, "bootstrapPriceNad"),
+      launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
+    });
   }
 
   /**
@@ -926,7 +981,10 @@ export class DuskWrite {
     quoteHlpMint: AddressLike;
     teamTreasury: AddressLike;
     teamTreasuryWsolAccount: AddressLike;
-    paramsHash: Uint8Array | Buffer | number[];
+    /** Derived from the payer and creation arguments (`marketParamsHash`).
+     * A supplied value must equal it; omit it unless checking a precomputed
+     * market address. */
+    paramsHash?: Uint8Array | Buffer | number[];
     config: MarketLaunchConfig;
     /** Share of base interest retained by the operator, 0–5000 bps. */
     operatorInterestShareBps?: number;
@@ -946,25 +1004,27 @@ export class DuskWrite {
     if(!Number.isInteger(operatorShare)||operatorShare<0||operatorShare>5_000)throw new Error("operatorInterestShareBps must be 0–5000");
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
-    const paramsHash = Uint8Array.from(params.paramsHash);
-    if (paramsHash.length !== 32) {
-      throw new Error(`paramsHash must be 32 bytes, received ${paramsHash.length}`);
-    }
-    const programId = this.program.programId;
-    const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash, programId);
     const oracle = params.oracle == null ? null : oraclePolicy(params.oracle);
     const bootstrapPriceNad = integerBN(params.bootstrapPriceNad ?? 0, "bootstrapPriceNad");
     if (oracle && oracle.lambdaBps > 0 && !bootstrapPriceNad.isZero())
       throw new Error("Oracle-guided markets derive the initial price from the feed; omit bootstrapPriceNad");
+    const config = anchorMarketConfig(params.config);
+    const launchFeeProgressOffset = params.launchFeeProgressOffset ?? 0;
+    const paramsHash = await this.marketParamsHashFor(params);
+    if (params.paramsHash !== undefined && !Buffer.from(params.paramsHash).equals(Buffer.from(paramsHash))) {
+      throw new Error("paramsHash does not match the payer and creation arguments; omit it to derive the market address");
+    }
+    const programId = this.program.programId;
+    const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash, programId);
     return this.instruction(
       "initializeMarket",
       {
         operatorInterestShareBps:operatorShare,
-        config: anchorMarketConfig(params.config),
+        config,
         oracle,
         paramsHash: [...paramsHash],
         bootstrapPriceNad,
-        launchFeeProgressOffset: params.launchFeeProgressOffset ?? 0,
+        launchFeeProgressOffset,
         srlpMetadata: params.lpMetadata.srlp,
         baseHlpMetadata: params.lpMetadata.baseHlp,
         quoteHlpMetadata: params.lpMetadata.quoteHlp,
@@ -1679,7 +1739,7 @@ export class DuskWrite {
   async addLiquidityTransaction(
     params: AddLiquidityParams
   ): Promise<Transaction> {
-    return this.oracleBudgetedTransaction(params.market, await this.addLiquidityInstruction(params));
+    return this.liquidityBudgetedTransaction(params.market, await this.addLiquidityInstruction(params));
   }
 
   /**
@@ -1711,7 +1771,7 @@ export class DuskWrite {
   async removeLiquidityTransaction(
     params: RemoveLiquidityParams
   ): Promise<Transaction> {
-    return this.oracleBudgetedTransaction(params.market, await this.removeLiquidityInstruction(params));
+    return this.liquidityBudgetedTransaction(params.market, await this.removeLiquidityInstruction(params));
   }
 
   /**
@@ -2275,7 +2335,8 @@ export interface RemoveLiquidityParams extends SrlpLiquidityAccounts {
  */
 function anchorMarketConfig(config: MarketLaunchConfig): DuskDefinedInput<"marketConfig"> {
   const bn = (value: IntegerLike, label: string) => integerBN(value, label);
-  if (bn(config.amm.peakAmplificationNad as IntegerLike, "peakAmplificationNad").gtn(1_000_000_000)
+  // bn.js `gtn` is only defined below 2^26, so compare as BigInt.
+  if (BigInt(bn(config.amm.peakAmplificationNad as IntegerLike, "peakAmplificationNad").toString()) > 1_000_000_000n
       && bn(config.amm.adjustmentStepNad as IntegerLike, "adjustmentStepNad").isZero()) {
     throw new Error("concentrated markets require an enabled center controller");
   }
@@ -2396,6 +2457,11 @@ export interface WithdrawRepaidLeverageParams {
 }
 
 // Kept in step with the on-chain instruction binding boundary.
+/** Compute limit for an add or remove that first applies a due recenter on
+ * a concentrated market: 322,568 CU measured on the finished binary, plus
+ * margin. */
+export const LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT = 400_000;
+
 const ORACLE_READ_INSTRUCTIONS = new Set<string>([
   "addLiquidity",
   "openLiquidityGates",

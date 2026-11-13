@@ -13,7 +13,7 @@ use crate::{
     constants::{HLP_COHORT_SEED_PREFIX, TRANSFER_HOOK_EXTRA_ACCOUNT_METAS_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
     errors::ErrorCode,
     instructions::accounts::validate_lp_mint,
-    state::{HlpCohort, Market, MarketAsset, YieldTokenKind},
+    state::{HlpCohort, JuniorCohort, Market, MarketAsset, YieldTokenKind},
 };
 
 /// Market, both asset mints, four yield accounts, then the event authority and
@@ -40,23 +40,25 @@ pub struct InitializeLpTransferHook<'info> {
 }
 
 impl<'info> InitializeLpTransferHook<'info> {
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self, remaining_accounts: &[AccountInfo<'info>]) -> Result<()> {
         let lp_mint = self.lp_mint.key();
-        let lp_decimals = if lp_mint == self.market.srlp_mint || lp_mint == self.market.junior_mint {
-            self.market.base_side.asset_decimals
-        } else {
+        let market_key = self.market.key();
+        let token_kind = lp_hook_token_kind(market_key, &self.market, lp_mint, remaining_accounts)?;
+        let lp_decimals = if token_kind == YieldTokenKind::Hlp {
             match self.market.asset_for_hlp_mint(lp_mint)? {
                 MarketAsset::Base => self.market.base_side.asset_decimals,
                 MarketAsset::Quote => self.market.quote_side.asset_decimals,
             }
+        } else {
+            self.market.base_side.asset_decimals
         };
-        validate_lp_mint(&self.lp_mint, self.market.key(), lp_decimals)?;
+        validate_lp_mint(&self.lp_mint, market_key, lp_decimals)?;
         require_keys_eq!(
             self.validation_account.key(),
             get_extra_account_metas_address(&lp_mint, &crate::ID),
             ErrorCode::InvalidArgument
         );
-        canonical_lp_transfer_hook_metas(self.market.key(), &self.market, lp_mint)?;
+        canonical_lp_transfer_hook_metas(market_key, &self.market, token_kind)?;
         Ok(())
     }
 
@@ -70,10 +72,11 @@ impl<'info> InitializeLpTransferHook<'info> {
         } = ctx.accounts;
         let lp_mint = lp_mint.key();
         let validation_info = validation_account.to_account_info();
-        let cohort_asset = if lp_mint == market.srlp_mint || lp_mint == market.junior_mint {
-            None
-        } else {
+        let token_kind = lp_hook_token_kind(market.key(), market, lp_mint, ctx.remaining_accounts)?;
+        let cohort_asset = if token_kind == YieldTokenKind::Hlp {
             Some(market.asset_for_hlp_mint(lp_mint)?)
+        } else {
+            None
         };
         if let Some(target_asset) = cohort_asset {
             let cohort_info = ctx.remaining_accounts.first().ok_or(ErrorCode::InvalidArgument)?;
@@ -115,10 +118,10 @@ impl<'info> InitializeLpTransferHook<'info> {
                 require_eq!(cohort.bump, cohort_bump, ErrorCode::InvalidArgument);
             }
         }
-        let meta_count = if cohort_asset.is_some() || lp_mint == market.junior_mint {
-            HLP_TRANSFER_HOOK_META_COUNT
-        } else {
+        let meta_count = if token_kind == YieldTokenKind::Srlp {
             LP_TRANSFER_HOOK_META_COUNT
+        } else {
+            HLP_TRANSFER_HOOK_META_COUNT
         };
         let account_size =
             ExtraAccountMetaList::size_of(meta_count).map_err(|_| error!(ErrorCode::MarketMathOverflow))?;
@@ -176,7 +179,7 @@ impl<'info> InitializeLpTransferHook<'info> {
             }
         }
         require_keys_eq!(*validation_info.owner, crate::ID, ErrorCode::InvalidArgument);
-        let extra_metas = canonical_lp_transfer_hook_metas(market.key(), market, lp_mint)?;
+        let extra_metas = canonical_lp_transfer_hook_metas(market.key(), market, token_kind)?;
 
         require_eq!(validation_info.data_len(), account_size, ErrorCode::InvalidArgument);
 
@@ -194,19 +197,36 @@ impl<'info> InitializeLpTransferHook<'info> {
     }
 }
 
-pub(crate) fn canonical_lp_transfer_hook_metas(
+/// The receipt kind whose hook metas `lp_mint` receives. A retired junior
+/// generation keeps transferring after rollover (the hook serves it through its
+/// retired cohort), so its metas must stay creatable even when they were never
+/// initialized while it was live; its retired cohort account, passed first,
+/// proves the mint is a junior generation of this market.
+pub(crate) fn lp_hook_token_kind(
     market_key: Pubkey,
     market: &Market,
     lp_mint: Pubkey,
+    remaining_accounts: &[AccountInfo],
+) -> Result<YieldTokenKind> {
+    if lp_mint == market.srlp_mint {
+        return Ok(YieldTokenKind::Srlp);
+    }
+    if lp_mint == market.junior_mint {
+        return Ok(YieldTokenKind::Junior);
+    }
+    if market.asset_for_hlp_mint(lp_mint).is_ok() {
+        return Ok(YieldTokenKind::Hlp);
+    }
+    let cohort = remaining_accounts.first().ok_or(ErrorCode::InvalidLpMintKey)?;
+    JuniorCohort::from_remaining(cohort, market_key, lp_mint)?;
+    Ok(YieldTokenKind::Junior)
+}
+
+pub(crate) fn canonical_lp_transfer_hook_metas(
+    market_key: Pubkey,
+    market: &Market,
+    token_kind: YieldTokenKind,
 ) -> Result<Vec<ExtraAccountMeta>> {
-    let token_kind = if lp_mint == market.srlp_mint {
-        YieldTokenKind::Srlp
-    } else if lp_mint == market.junior_mint {
-        YieldTokenKind::Junior
-    } else {
-        market.asset_for_hlp_mint(lp_mint)?;
-        YieldTokenKind::Hlp
-    };
     let mut metas = vec![
         ExtraAccountMeta::new_with_pubkey(&market_key, false, true).map_err(|_| error!(ErrorCode::InvalidArgument))?,
         ExtraAccountMeta::new_with_pubkey(&market.base_side.asset_mint, false, false)

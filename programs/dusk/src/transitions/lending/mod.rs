@@ -502,6 +502,39 @@ impl Market {
         Ok(Some((geometry, point, direction)))
     }
 
+    /// Borrow admission requires the market-health floor; withdrawing the
+    /// collateral that satisfied it must not undo that. Only a move from
+    /// at-or-above the floor to below it is refused, so surplus collateral is
+    /// never trapped in a market that is already below the floor. Execution
+    /// and the capacity preview share this check.
+    pub(crate) fn withdrawal_keeps_health_floor(
+        &self,
+        position: &BorrowPosition,
+        debt_asset: MarketAsset,
+        target_contribution: u64,
+        risk: &Risk,
+    ) -> Result<bool> {
+        let (aggregate, current) = match debt_asset {
+            MarketAsset::Base => (
+                self.debt.global_health_quote_contribution_for_base_debt,
+                position.global_health_quote_contribution_for_base_debt,
+            ),
+            MarketAsset::Quote => (
+                self.debt.global_health_base_contribution_for_quote_debt,
+                position.global_health_base_contribution_for_quote_debt,
+            ),
+        };
+        let projected = aggregate
+            .checked_sub(current)
+            .and_then(|value| value.checked_add(target_contribution))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let total_debt = self.total_fixed_debt_nad(debt_asset)?;
+        let (_, before) = self.global_side_health(debt_asset, total_debt, total_debt, aggregate, risk)?;
+        let (_, after) = self.global_side_health(debt_asset, total_debt, total_debt, projected, risk)?;
+        let floor = u64::from(self.config.borrow_market_health_floor_bps);
+        Ok(before < floor || after >= floor)
+    }
+
     pub(crate) fn total_fixed_debt_nad(&self, debt_asset: MarketAsset) -> Result<u128> {
         let (fixed_debt, debt_decimals) = match debt_asset {
             MarketAsset::Base => (self.debt.fixed_base_debt()?, self.base_side.asset_decimals),
@@ -1016,6 +1049,14 @@ impl DailyBorrowBucket {
         Ok(())
     }
 
+    /// Repaid public principal frees today's capacity again, so the limiter
+    /// bounds net cash released per day and same-slot borrow/repay loops
+    /// cannot fill it. Subtracting before the next decay gives the same bucket
+    /// as decaying first: both equal max(0, bucket - released - repaid).
+    pub fn record_repayment(&mut self, principal: u64) {
+        self.borrowed_bucket = self.borrowed_bucket.saturating_sub(principal);
+    }
+
     pub fn remaining(&self, limit: u64, current_slot: u64) -> Result<u64> {
         let mut decayed = *self;
         decayed.decay_to_slot(limit, current_slot)?;
@@ -1275,6 +1316,24 @@ impl Market {
         Ok(())
     }
 
+    /// LP deposits and exits first apply a due, funded recenter through the
+    /// same one-per-slot controller path swaps use, so retained surcharge it
+    /// deploys reaches the holders who earned it before ownership changes.
+    /// A failed attempt schedules the target for a later slot, so no later
+    /// operation in this slot can deploy a bucket an entrant did not pay for;
+    /// entry pricing values any bucket that remains.
+    pub fn update_for_liquidity_change(&mut self) -> Result<()> {
+        self.assert_current_version()?;
+        let current_slot = Clock::get()?.slot;
+        if self.amm.initialized && self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0
+        {
+            self.accrue_interest_to_slot(current_slot)?;
+            self.prepare_amm_for_swap(current_slot)?;
+            self.advance_one_amm_controller_target(current_slot)?;
+        }
+        self.update()
+    }
+
     pub fn update(&mut self) -> Result<()> {
         self.assert_current_version()?;
         let current_slot = Clock::get()?.slot;
@@ -1423,6 +1482,10 @@ impl Market {
         if position_debt > 0 {
             require_gte!(max_debt as u128, position_debt, ErrorCode::InsufficientMarketHealth);
             require_gte!(liquidation_cf_bps, min_liquidation_cf_bps, ErrorCode::SlippageExceeded);
+            require!(
+                self.withdrawal_keeps_health_floor(borrow_position, debt_asset, target_contribution, &self.risk)?,
+                ErrorCode::InsufficientMarketHealth
+            );
         }
         borrow_position.set_liquidation_cf_bps(debt_asset, liquidation_cf_bps);
 
@@ -1713,6 +1776,9 @@ impl Market {
         let live_debit = aggregate_debt_reduction
             .checked_sub(principal_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.side_mut(repay_asset)
+            .daily_borrow_bucket
+            .record_repayment(principal_credit);
         match repay_asset {
             MarketAsset::Base => {
                 borrow_position.fixed_base_shares = borrow_position

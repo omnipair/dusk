@@ -665,10 +665,11 @@ pub struct HlpVault {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct DailyBorrowBucket {
-    /// Gross principal lent out through the public borrow path. Internal hLP
-    /// funding and isolated leverage do not consume this capacity. This is a
-    /// 24-hour leaky/token bucket, not an exact trailing-window sum: it permits
-    /// a full burst after idle and then refills at the configured daily rate.
+    /// Principal lent out through the public borrow path, net of principal
+    /// repaid through the public repay path. Internal hLP funding and isolated
+    /// leverage do not consume this capacity. This is a 24-hour leaky/token
+    /// bucket, not an exact trailing-window sum: it permits a full burst after
+    /// idle and then refills at the configured daily rate.
     pub borrowed_bucket: u64,
     pub last_decay_slot: u64,
     /// Numerator remainder from `limit * elapsed_ms / MS_PER_DAY`. For a fixed

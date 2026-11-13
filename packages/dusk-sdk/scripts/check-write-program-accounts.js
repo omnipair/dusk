@@ -7,9 +7,10 @@ import { AddressLookupTableAccount, PublicKey, TransactionInstruction } from "@s
 import { marketCreationLookupTablePlan, marketCreationV0Transaction } from "../dist/market-launch.js";
 
 import IDL from "../dist/idl_v2.js";
-import { DuskWrite } from "../dist/write.js";
+import { DuskWrite, LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT } from "../dist/write.js";
 import { defaultMarketLaunchConfig } from "../dist/market-bootstrap.js";
-import { deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
+import { deriveJuniorCohortAddress, deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
+import { incomeBookMayRoll } from "../dist/tranche-client.js";
 
 const key = (byte) => new PublicKey(new Uint8Array(32).fill(byte));
 const owner = key(1);
@@ -59,9 +60,18 @@ test("LP metadata correction pins the canonical PDA and makes no financial accou
 function creationParams(oracle) {
   const metadata={name:"Omnipair Base hLP",symbol:"hLP",uri:"https://omnipair.fi/metadata/dusk/base-hlp.json"};
   return {payer:owner,baseMint,quoteMint,srlpMint:key(30),baseHlpMint:key(31),quoteHlpMint:key(32),
-    teamTreasury:key(33),teamTreasuryWsolAccount:key(34),paramsHash:Array(32).fill(1),
+    teamTreasury:key(33),teamTreasuryWsolAccount:key(34),
     config:defaultMarketLaunchConfig(),oracle,lpMetadata:{srlp:metadata,baseHlp:metadata,quoteHlp:metadata}};
 }
+
+test("only a concentrated launch config requires the centre controller", async () => {
+  const cpmm = defaultMarketLaunchConfig();
+  cpmm.amm = { ...cpmm.amm, peakAmplificationNad: 1_000_000_000n, adjustmentStepNad: 0n };
+  assert.ok(await write.initializeMarketInstruction({ ...creationParams(null), config: cpmm }));
+  const concentrated = { ...cpmm, amm: { ...cpmm.amm, peakAmplificationNad: 4_000_000_000n } };
+  await assert.rejects(write.initializeMarketInstruction({ ...creationParams(null), config: concentrated }),
+    /center controller/);
+});
 
 test("market initialization defaults to native and accepts an explicit null oracle", async () => {
   for (const oracle of [undefined,null]) {
@@ -70,7 +80,12 @@ test("market initialization defaults to native and accepts an explicit null orac
     assert.equal(decoded.name,"initializeMarket");
     assert.equal(decoded.data.args.oracle,null);
     assert.equal(decoded.data.args.bootstrapPriceNad.toString(),"0");
-    assert.deepEqual([...ix.data.subarray(8,40)],Array(32).fill(1));
+    // The market address seed is bound to the payer and creation arguments.
+    const paramsHash=await write.marketParamsHashFor(creationParams(oracle));
+    assert.deepEqual([...ix.data.subarray(8,40)],[...paramsHash]);
+    assert.notDeepEqual([...paramsHash],[...await write.marketParamsHashFor({...creationParams(oracle),payer:key(35)})]);
+    await assert.rejects(write.initializeMarketInstruction({...creationParams(oracle),paramsHash:Array(32).fill(1)}),/paramsHash does not match/);
+    assert.ok(await write.initializeMarketInstruction({...creationParams(oracle),paramsHash}));
     const initialize = program.idl.instructions.find(instruction => instruction.name === "initializeMarket");
     const accounts = Object.fromEntries(initialize.accounts.map((account, i) => [account.name, ix.keys[i].pubkey]));
     delete accounts.market;
@@ -196,7 +211,8 @@ test("transaction helpers and generic builds over oracle-reading instructions ca
   const state = await program.account.market.fetch();
   for (const lambdaBps of [2500, 0]) {
     const client = new anchor.Program(IDL, provider);
-    client.account.market.fetch = async () => ({ ...state, oracle: { policy: policy(lambdaBps) } });
+    client.account.market.fetch = async () => ({ ...state, oracle: { policy: policy(lambdaBps) },
+      config: { amm: { peakAmplificationNad: new anchor.BN(1_000_000_000), adjustmentStepNad: new anchor.BN(1_000_000) } } });
     const writer = new DuskWrite(client);
     const lending = { market, owner, positionId, assetMint: baseMint, ownerAssetAccount: key(6) };
     const srlp = { market, owner, baseMint, quoteMint, srlpMint: key(7),
@@ -225,6 +241,28 @@ test("transaction helpers and generic builds over oracle-reading instructions ca
     const seed = await writer.instruction("compoundJuniorSeed", undefined, { accounts: { market, juniorMint: key(26) } });
     assert.equal(seed.keys.some(meta => meta.pubkey.equals(key(21))), lambdaBps > 0);
   }
+});
+
+test("liquidity transactions on concentrated markets budget for a recenter", async () => {
+  const state = await program.account.market.fetch();
+  const client = new anchor.Program(IDL, provider);
+  client.account.market.fetch = async () => ({ ...state, oracle: { policy: policy(0) },
+    config: { amm: { peakAmplificationNad: new anchor.BN(4_000_000_000), adjustmentStepNad: new anchor.BN(1_000_000) } } });
+  const writer = new DuskWrite(client);
+  const srlp = { market, owner, baseMint, quoteMint, srlpMint: key(7),
+    ownerBaseAccount: key(8), ownerQuoteAccount: key(9), ownerSrlpAccount: key(10) };
+  for (const tx of await Promise.all([
+    writer.addLiquidityTransaction({ ...srlp, baseDepositAmount: 100n, quoteDepositAmount: 100n, minSrlpAmount: 0n }),
+    writer.removeLiquidityTransaction({ ...srlp, srlpAmount: 1n, minBaseAmountOut: 0n, minQuoteAmountOut: 0n }),
+  ])) {
+    assert.equal(tx.instructions.length, 2);
+    assert.equal(tx.instructions[0].data[0], 2);
+    assert.equal(tx.instructions[0].data.readUInt32LE(1), LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT);
+  }
+  // Collateral paths never recenter and keep the default budget.
+  const deposit = await writer.depositCollateralTransaction({ market, owner, positionId, assetMint: baseMint,
+    ownerAssetAccount: key(6), depositAmount: 100n });
+  assert.equal(deposit.instructions.length, 1);
 });
 
 test("hLP liquidity actions preserve a caller-supplied oracle policy", async () => {
@@ -284,4 +322,32 @@ test("oracle-selected creation fits a versioned transaction and rejects oversize
   const large={name:"n".repeat(32),symbol:"s".repeat(10),uri:"https://"+"u".repeat(110)};
   const oversized=await write.initializeMarketInstruction({...input,lpMetadata:{srlp:large,baseHlp:large,quoteHlp:large}});
   assert.throws(()=>build(oversized),/market creation exceeds transaction size/);
+});
+
+test("junior hook setup names the junior cohort, which a retired generation resolves through", async () => {
+  const lpMint = key(41);
+  const junior = await write.initializeLpTransferHookInstruction({ payer: owner, market, lpMint, tokenKind: "junior" });
+  const cohort = junior.keys.at(-1);
+  assert.equal(cohort.pubkey.toBase58(), deriveJuniorCohortAddress(market, lpMint, program.programId)[0].toBase58());
+  assert.equal(cohort.isWritable, false);
+  const srlp = await write.initializeLpTransferHookInstruction({ payer: owner, market, lpMint, tokenKind: "srlp" });
+  assert.equal(srlp.keys.length, junior.keys.length - 1);
+});
+
+test("an income book rolls once half repaid or near its numeric limits", () => {
+  const BN = anchor.BN;
+  const book = (units, unpaid, extra = {}) => ({
+    units: new BN(units), unpaid: new BN(unpaid), paidPerUnitQ64: new BN(0),
+    growth: Array.from({ length: 4 }, () => ({ unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, 0].map(v => new BN(v)) })),
+    ...extra,
+  });
+  assert.equal(incomeBookMayRoll(book(100, 100)), false);
+  assert.equal(incomeBookMayRoll(book(100, 51)), false);
+  assert.equal(incomeBookMayRoll(book(100, 50)), true);
+  assert.equal(incomeBookMayRoll(book(100, 0)), true);
+  assert.equal(incomeBookMayRoll(book(0, 0)), false);
+  assert.equal(incomeBookMayRoll(book("9223372036854775807", "9223372036854775806")), true);
+  assert.equal(incomeBookMayRoll(book(100, 99, { paidPerUnitQ64: new BN("170141183460469231731687303715884105727") })), true);
+  const lane = { unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, "9223372036854775807"].map(v => new BN(v)) };
+  assert.equal(incomeBookMayRoll(book(100, 99, { growth: [lane, ...book(1, 1).growth.slice(1)] })), true);
 });

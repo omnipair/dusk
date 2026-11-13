@@ -145,7 +145,7 @@ impl<'info> RemoveLiquidity<'info> {
         Ok(())
     }
 
-    crate::instructions::accounts::market_update_and_validate!(RemoveLiquidityArgs);
+    crate::instructions::accounts::market_update_and_validate!(RemoveLiquidityArgs, liquidity_change);
 
     pub fn handle_remove_liquidity(ctx: Context<'_, '_, '_, 'info, Self>, args: RemoveLiquidityArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

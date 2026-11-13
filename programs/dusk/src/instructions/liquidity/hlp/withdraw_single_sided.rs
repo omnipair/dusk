@@ -7,7 +7,7 @@ use anchor_spl::{
 use crate::{
     constants::*,
     errors::ErrorCode,
-    events::HlpClosed,
+    events::{HlpClosed, OrphanedHlpClosed},
     generate_market_seeds,
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
     token::{token_burn, transfer_checked_with_remaining_accounts},
@@ -129,11 +129,23 @@ impl<'info> WithdrawSingleSided<'info> {
         require!(interest_asset == borrowed_asset, ErrorCode::InvalidVault);
         validate_owner_asset_account(self.owner.key(), target_mint, &self.owner_target_account)?;
         validate_owner_lp_account(self.owner.key(), &self.target_hlp_mint, &self.owner_hlp_account)?;
-        require_gte!(
-            self.owner_hlp_account.amount,
-            args.hlp_amount,
-            ErrorCode::InsufficientBalance
-        );
+        if self.target_hlp_mint.supply == 0 {
+            // Orphan close: a complete direct burn left no receipt to exit
+            // with. Anyone may close the whole stored supply; the released
+            // value is protocol revenue, so there is no owner minimum.
+            let stored_supply = match target_asset {
+                MarketAsset::Base => self.market.base_hlp_vault.hlp_supply,
+                MarketAsset::Quote => self.market.quote_hlp_vault.hlp_supply,
+            };
+            require_eq!(args.hlp_amount, stored_supply, ErrorCode::InvalidArgument);
+            require_eq!(args.min_target_amount_out, 0, ErrorCode::InvalidArgument);
+        } else {
+            require_gte!(
+                self.owner_hlp_account.amount,
+                args.hlp_amount,
+                ErrorCode::InsufficientBalance
+            );
+        }
         validate_lp_mint(&self.target_hlp_mint, self.market.key(), target_mint.decimals)?;
         validate_lp_mint(&self.srlp_mint, self.market.key(), self.base_mint.decimals)?;
         validate_hlp_yield_account_pda(
@@ -180,7 +192,13 @@ impl<'info> WithdrawSingleSided<'info> {
     pub fn update_and_validate(&mut self, args: &WithdrawSingleSidedArgs) -> Result<()> {
         self.validate(args)?;
         let target_asset = self.market.asset_for_hlp_mint(self.target_hlp_mint.key())?;
-        reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
+        let orphan_close = self.target_hlp_mint.supply == 0;
+        reconcile_live_hlp_supply(
+            &mut self.market,
+            target_asset,
+            self.target_hlp_mint.supply,
+            orphan_close,
+        )?;
         if self.market.hlp_terminally_closed(target_asset) {
             // This operation only burns a retired receipt. It does not change
             // reserves or debt and must not depend on another vault's health.
@@ -193,7 +211,7 @@ impl<'info> WithdrawSingleSided<'info> {
             self.event_authority.to_account_info(),
             self.futarchy_authority.revenue_share.interest_bps,
         )?;
-        self.market.update()?;
+        self.market.update_for_liquidity_change()?;
         Ok(())
     }
 
@@ -237,19 +255,22 @@ impl<'info> WithdrawSingleSided<'info> {
             quote_interest_growth,
         )?;
 
-        let hlp_program = token_program_for_mint(
-            &ctx.accounts.target_hlp_mint,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
-        )?;
-        token_burn(
-            ctx.accounts.owner.to_account_info(),
-            hlp_program,
-            ctx.accounts.target_hlp_mint.to_account_info(),
-            ctx.accounts.owner_hlp_account.to_account_info(),
-            args.hlp_amount,
-            &[],
-        )?;
+        let orphan_close = ctx.accounts.target_hlp_mint.supply == 0;
+        if !orphan_close {
+            let hlp_program = token_program_for_mint(
+                &ctx.accounts.target_hlp_mint,
+                &ctx.accounts.token_program,
+                &ctx.accounts.token_2022_program,
+            )?;
+            token_burn(
+                ctx.accounts.owner.to_account_info(),
+                hlp_program,
+                ctx.accounts.target_hlp_mint.to_account_info(),
+                ctx.accounts.owner_hlp_account.to_account_info(),
+                args.hlp_amount,
+                &[],
+            )?;
+        }
 
         // Settle the hLP debt and credit its closing-period interest.
         let receipt = ctx
@@ -386,7 +407,23 @@ impl<'info> WithdrawSingleSided<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        if receipt.target_amount_out > 0 {
+        if orphan_close {
+            // The released value stays in the reserve vault and moves from
+            // reserve accounting to protocol fee custody.
+            if receipt.target_amount_out > 0 {
+                let srlp_supply = ctx.accounts.market.base_side.shares.srlp_supply;
+                let split = ctx.accounts.futarchy_authority.protocol_auction_split;
+                ctx.accounts.market.side_mut(target_asset).record_swap_fee_allocation(
+                    receipt.target_amount_out,
+                    0,
+                    0,
+                    0,
+                    BPS_DENOMINATOR,
+                    split,
+                    srlp_supply,
+                )?;
+            }
+        } else if receipt.target_amount_out > 0 {
             transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 target_reserve_vault,
@@ -407,6 +444,19 @@ impl<'info> WithdrawSingleSided<'info> {
         let target_credit = token_account_credit(target_balance_before, &ctx.accounts.owner_target_account)?;
         require_gte!(target_credit, args.min_target_amount_out, ErrorCode::SlippageExceeded);
 
+        if orphan_close {
+            emit_cpi!(OrphanedHlpClosed {
+                market: market_key,
+                caller: owner_key,
+                asset_side: target_asset.code(),
+                hlp_amount: receipt.hlp_amount,
+                srlp_amount: receipt.srlp_amount,
+                protocol_revenue: receipt.target_amount_out,
+                debt_repaid: receipt.debt_repaid,
+                interest_paid: receipt.interest_paid,
+            });
+            return Ok(());
+        }
         emit_cpi!(HlpClosed {
             market: market_key,
             owner: owner_key,

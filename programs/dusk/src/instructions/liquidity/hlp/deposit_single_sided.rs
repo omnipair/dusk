@@ -174,10 +174,13 @@ impl<'info> DepositSingleSided<'info> {
             self.event_authority.to_account_info(),
             self.futarchy_authority.revenue_share.interest_bps,
         )?;
-        reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply)?;
+        reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply, false)?;
         self.market.assert_current_version()?;
         if self.market.base_side.reserves.live_reserve > 0 && self.market.quote_side.reserves.live_reserve > 0 {
-            self.market.advance_amm_clock(current_slot)?;
+            // As for srLP entries, a due and funded recenter deploys retained
+            // surcharge to the holders of record before the vault mints srLP.
+            self.market.prepare_amm_for_swap(current_slot)?;
+            self.market.advance_one_amm_controller_target(current_slot)?;
             self.market.checkpoint_hlp_vaults()?;
             self.market.observe_current_risk(current_slot)?;
         }

@@ -152,6 +152,10 @@ impl<'info> OrderFeePayment<'info> {
     }
 }
 
+/// Protocol fee charged on one order execution. `value` is the execution
+/// value the fee is assessed on. `debit` is the gross amount spent, capped by
+/// the order's fee budget; `credited` is what the treasury received after any
+/// transfer fee, and `fee` equals `credited`.
 #[event]
 pub struct OrderProtocolFeePaid {
     pub order: Pubkey,

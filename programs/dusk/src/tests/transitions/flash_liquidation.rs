@@ -79,6 +79,30 @@ fn emergency_sale_uses_principal_first_waterfall_and_clears_both_directions() {
 }
 
 #[test]
+fn full_emergency_sale_takes_live_collateral_above_the_priced_amount() {
+    let fee = LeverageCollateralFee::default();
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let mut market = test_market(5_000_000, 5_000_000);
+        let mut position = indexed_position(&mut market, asset, 900_000);
+        let remove = position.collateral_amount - 850_000;
+        market.reduce_leverage_collateral(&mut position, remove).unwrap();
+        let position_ref = LiquidationPositionRef::Leverage(&position);
+        // Collateral credited after the caller priced the sale (a one-atom
+        // donation ahead of it) no longer makes the full fallback revert.
+        let prepared = market
+            .clone()
+            .prepare_emergency_liquidation(&position_ref, asset, 849_999, true, fee, fee, fee, 0, 0, 0)
+            .unwrap();
+        assert_eq!(prepared.quote.collateral_debit, 850_000);
+        // The priced amount remains a floor.
+        assert!(market
+            .clone()
+            .prepare_emergency_liquidation(&position_ref, asset, 850_001, true, fee, fee, fee, 0, 0, 0)
+            .is_err());
+    }
+}
+
+#[test]
 fn emergency_partial_improves_health_after_reward_and_charge() {
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
         let mut market = test_market(50_000_000, 50_000_000);

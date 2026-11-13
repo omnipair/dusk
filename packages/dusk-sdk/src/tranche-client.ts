@@ -1,4 +1,4 @@
-import type { Program } from "@coral-xyz/anchor";
+import type { BN, Program } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, Transaction, SYSVAR_INSTRUCTIONS_PUBKEY, type AccountMeta } from "@solana/web3.js";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { address, type AddressLike } from "./address.js";
@@ -9,6 +9,28 @@ import { oracleComputeBudgetInstructions, oracleReadAccounts } from "./oracle.js
 import { DuskWrite } from "./write.js";
 import { assertCurrentMarketLayout } from "./market-layout.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
+import type { Market } from "./type-aliases.js";
+
+type IncomeBook = Market["income"]["books"][number];
+
+/** Whether `value` reaches half of an unsigned `bits`-bit range (Rust's
+ * `MAX / 2`, which is 2^(bits−1) − 1). */
+const atHalfRange = (value: BN, bits: number) => value.addn(1).bitLength() >= bits;
+
+/** Mirrors `roll_income_epoch`: a book with settled units rolls once at least
+ * half its units are repaid, or once any counter reaches half its range.
+ * Rolling earlier would let anyone fragment holders' catch-up into many
+ * archived epochs. */
+export function incomeBookMayRoll(book: IncomeBook): boolean {
+  if (book.units.lte(book.unpaid)) return false;
+  if (book.unpaid.lte(book.units.divn(2))) return true;
+  return (
+    atHalfRange(book.units, 64) ||
+    atHalfRange(book.unpaid, 64) ||
+    atHalfRange(book.paidPerUnitQ64, 128) ||
+    book.growth.some((lane) => atHalfRange(lane.unitsQ64, 128) || atHalfRange(lane.weightedPaidQ128[3], 64))
+  );
+}
 
 export type TrancheAction =
   | { kind: "enter"; seniorAmount: IntegerLike; minimumJunior: IntegerLike }
@@ -27,15 +49,18 @@ export class DuskTranches {
     return assertCurrentMarketLayout(await this.program.account.market.fetch(market));
   }
 
-  /** Archive a settled income denomination before further issuance overflows
-   * or restarts a fully paid book. This does not claim anyone's income. */
+  /** Archive an income denomination once at least half of its units are
+   * repaid, or once it nears its numeric limits, so further issuance does not
+   * overflow. Anyone may roll; this does not claim anyone's income. */
   async rollIncome(params: { market: AddressLike; payer: AddressLike; bookIndex: number }) {
     const market = address(params.market), payer = address(params.payer);
     const state = await this.marketState(market);
     const { bookIndex } = params;
     if (!Number.isInteger(bookIndex) || bookIndex < 0 || bookIndex > 3) throw new Error("bookIndex must be 0–3");
     const book = state.income.books[bookIndex];
-    if (book.units.lte(book.unpaid)) throw new Error("Income books have no settled units to roll");
+    if (!incomeBookMayRoll(book)) {
+      throw new Error("Income book cannot roll until half its units are repaid or it nears its numeric limits");
+    }
     if (!state.income.pending[bookIndex].isZero()) throw new Error("Income custody settlement is pending");
     const incomeEpoch = deriveIncomeEpochAddress(market, bookIndex, book.epoch, this.program.programId)[0];
     const instruction = await this.write.instruction("rollIncomeEpoch", { bookIndex, epoch: book.epoch }, { accounts: {

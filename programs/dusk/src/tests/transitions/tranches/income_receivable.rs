@@ -120,3 +120,28 @@ fn targeted_receivable_purchase_preserves_other_owners_and_past_cash() {
     assert!(vault.claimable.abs_diff(58) <= 1);
     assert!(senior.claimable + junior.claimable + vault.claimable + purchased <= 980);
 }
+
+#[test]
+fn rolls_need_half_the_units_repaid_or_a_book_near_its_limits() {
+    let book = |units: u64, unpaid: u64| IncomeReceivableBook {
+        units,
+        unpaid,
+        ..IncomeReceivableBook::default()
+    };
+    // Nothing settled, or one atom repaid: a griefer cannot force a roll.
+    assert!(!book(0, 0).may_roll());
+    assert!(!book(1_000, 1_000).may_roll());
+    assert!(!book(1_000, 999).may_roll());
+    assert!(!book(1_000, 501).may_roll());
+    // Half repaid, or fully drained (the SDK's maintenance roll).
+    assert!(book(1_000, 500).may_roll());
+    assert!(book(1_000, 0).may_roll());
+    // Near a fixed-width limit, a small repayment is enough to recover.
+    assert!(book(u64::MAX / 2 + 2, u64::MAX / 2 + 1).may_roll());
+    let mut index = book(1_000, 999);
+    index.paid_per_unit_q64 = u128::MAX / 2;
+    assert!(index.may_roll());
+    let mut lane = book(1_000, 999);
+    lane.growth[1].units_q64 = u128::MAX / 2;
+    assert!(lane.may_roll());
+}

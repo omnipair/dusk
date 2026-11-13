@@ -36,6 +36,14 @@ creation and the treasury creation charge.
 
 Guided creation has no independent opening price: omit `bootstrapPriceNad` or
 pass zero. The SDK and program reject a nonzero value when λ is positive.
+Add and remove liquidity first apply a due, funded recenter on concentrated
+markets, which costs about as much as a recentering swap (about 323k compute
+units measured). `addLiquidityTransaction` and `removeLiquidityTransaction`
+lead with a `LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT` compute limit there; raw
+instruction callers should size the limit by simulation. New shares are priced
+including any retained recenter surcharge the controller could not yet deploy,
+and `previewAddLiquidity` returns the same amount.
+
 `addLiquidityInstruction` takes two maximum gross spends. On the first guided
 deposit the validated execution-time report sets their usable ratio; base is
 rounded down and quote up to token atoms, and unused tokens stay in the owner's
@@ -61,6 +69,17 @@ bytes. The launch scripts accept optional `DUSK_ORACLE_POLICY_JSON` using
 `OraclePolicyInput` field names (base58 addresses, 32-byte feed-ID arrays and
 string values for large integers); omission selects native pricing. They resolve
 the stored policy's feeds and compute budget when seeding liquidity.
+
+The market address seed `paramsHash` is bound to the creator (the payer) and
+the economic creation arguments: `initialize_market` rejects any value other
+than SHA-256 over `dusk:market-params:v1`, the payer, and the Borsh-encoded
+config, operator interest share, oracle policy, bootstrap price and launch fee
+offset. `initializeMarketInstruction` derives it, and a supplied `paramsHash`
+must match. To create LP mints for the market address first, call
+`dusk.write.marketParamsHashFor({ payer, config, oracle, ... })`, or
+`marketParamsHash(program.coder, ...)` with Anchor-shaped arguments.
+`deriveMarketParamsHash` (the label hash) only finds markets created before
+this binding.
 
 Raw Anchor callers must include `oracle: null` or a serialized policy. The
 `initializeMarket` argument layout now starts with `paramsHash`, followed by
@@ -247,8 +266,8 @@ invalidates the bound settle index. Helpers include ATA setup, a 256 KiB heap,
 a 1.4M compute-unit limit and required hLP accounts. A compute-unit limit supplied
 in the prefix overrides the default; set the priority price there as needed.
 The session closes at settle. Its payment token account persists for reuse,
-including withheld Token-2022 fees; preexisting token donations do not count as
-payment and are not refunded to the next buyer.
+including withheld Token-2022 fees. Preexisting token donations do not count as
+payment; settlement refunds the account's whole balance to the buyer.
 
 The 0.5%–5% ramp sets a maximum buyer discount. Partial quotes choose the highest
 whole-basis-point discount within that range that improves health after the
@@ -1228,7 +1247,9 @@ The SDK exposes bounded maintenance transactions; none are submitted implicitly:
 1. Before issuing income into a fully collected book, call
    `prepareDrainedIncomeBooks({ market, payer })` and submit its transactions.
    For `IncomeEpochNeedsRollover` on a partially paid book, use `rollIncome` for
-   the affected book. The payer funds its immutable archive account.
+   the affected book. The payer funds its immutable archive account. A book
+   rolls only once at least half its units are repaid or a counter reaches
+   half its numeric range (`incomeBookMayRoll`); anyone may roll it.
 2. For an existing srLP/jrLP holder, call
    `prepareHolderIncome({ market, owner, kind: "senior" | "junior" })`.
    Submit its transactions and repeat while `hasMore` is true. Each instruction

@@ -519,7 +519,9 @@ impl Market {
                 .quote
                 .checked_add(self.normalize_amount(protected_quote as u128, self.quote_side.asset_decimals)?)
                 .ok_or(ErrorCode::ReserveOverflow)?;
-            self.hlp_curve_basis_from_reserves_nad(reserves)?.ordinary
+            // Quotes evaluate the frozen-adjusted point; admit and cache the
+            // deployed inventory at that same point.
+            self.frozen_adjusted_ordinary(&self.hlp_curve_basis_from_reserves_nad(reserves)?)?
         } else {
             ordinary
         };
