@@ -543,6 +543,7 @@ export class DuskWrite {
       this.program.provider.connection,
       debtAssetMint
     );
+    const programId = this.program.programId;
 
     return this.instruction(
       "borrow",
@@ -558,13 +559,13 @@ export class DuskWrite {
       {
         accounts: {
           market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          futarchyAuthority: deriveFutarchyAuthorityAddress(programId)[0],
           owner,
           debtAssetMint,
           collateralAssetMint,
           reserveVault: address(
             params.reserveVault ??
-              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
+              deriveMarketReserveVaultAddress(market, debtAssetMint, programId)[0]
           ),
           ownerDebtAccount: address(
             params.ownerDebtAccount ??
@@ -577,7 +578,7 @@ export class DuskWrite {
           ),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, owner, address(params.positionId))[0]
+              deriveBorrowPositionAddress(market, owner, address(params.positionId), programId)[0]
           ),
           referralPartner: null,
           referralAccrual: null,
@@ -621,6 +622,7 @@ export class DuskWrite {
       this.program.provider.connection,
       debtMint
     );
+    const programId = this.program.programId;
 
     const openArgs = {
         positionId,
@@ -647,26 +649,26 @@ export class DuskWrite {
       {
         accounts: {
           market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          futarchyAuthority: deriveFutarchyAuthorityAddress(programId)[0],
           owner,
           payer: address(params.payer ?? owner),
           leveragePosition: address(
             params.leveragePosition ??
-              deriveLeveragePositionAddress(market, owner, positionId)[0]
+              deriveLeveragePositionAddress(market, owner, positionId, owner, programId)[0]
           ),
           debtMint,
           collateralMint,
           debtReserveVault: address(
             params.debtReserveVault ??
-              deriveMarketReserveVaultAddress(market, debtMint)[0]
+              deriveMarketReserveVaultAddress(market, debtMint, programId)[0]
           ),
           collateralReserveVault: address(
             params.collateralReserveVault ??
-              deriveMarketReserveVaultAddress(market, collateralMint)[0]
+              deriveMarketReserveVaultAddress(market, collateralMint, programId)[0]
           ),
           leverageCollateralVault: address(
             params.leverageCollateralVault ??
-              deriveLeverageCollateralVaultAddress(market, collateralMint)[0]
+              deriveLeverageCollateralVaultAddress(market, collateralMint, programId)[0]
           ),
           ownerDebtAccount: address(
             params.ownerDebtAccount ??
@@ -709,9 +711,10 @@ export class DuskWrite {
     params: CreateLeverageDelegationParams
   ): Promise<TransactionInstruction> {
     const market = address(params.market);
+    const programId = this.program.programId;
     const leveragePosition = address(
       params.leveragePosition ??
-        deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]
+        deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner), programId)[0]
     );
 
     return this.instruction(
@@ -727,7 +730,7 @@ export class DuskWrite {
           leveragePosition,
           leverageDelegation: address(
             params.leverageDelegation ??
-              deriveLeverageDelegationAddress(leveragePosition)[0]
+              deriveLeverageDelegationAddress(leveragePosition, programId)[0]
           ),
           owner: address(params.owner),
           systemProgram: SystemProgram.programId,
@@ -756,6 +759,7 @@ export class DuskWrite {
     }
 
     const connection = this.program.provider.connection;
+    const programId = this.program.programId;
     const [assetInProgram, assetOutProgram] = await Promise.all([
       tokenProgramForMint(connection, assetInMint),
       tokenProgramForMint(connection, assetOutMint),
@@ -771,17 +775,17 @@ export class DuskWrite {
       {
         market,
         accounts: {
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          futarchyAuthority: deriveFutarchyAuthorityAddress(programId)[0],
           trader,
           assetInMint,
           assetOutMint,
           reserveInVault: address(
             params.reserveInVault ??
-              deriveMarketReserveVaultAddress(market, assetInMint)[0]
+              deriveMarketReserveVaultAddress(market, assetInMint, programId)[0]
           ),
           reserveOutVault: address(
             params.reserveOutVault ??
-              deriveMarketReserveVaultAddress(market, assetOutMint)[0]
+              deriveMarketReserveVaultAddress(market, assetOutMint, programId)[0]
           ),
           traderAssetInAccount: address(
             params.traderAssetInAccount ??
@@ -946,7 +950,8 @@ export class DuskWrite {
     if (paramsHash.length !== 32) {
       throw new Error(`paramsHash must be 32 bytes, received ${paramsHash.length}`);
     }
-    const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash, this.program.programId);
+    const programId = this.program.programId;
+    const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash, programId);
     const oracle = params.oracle == null ? null : oraclePolicy(params.oracle);
     const bootstrapPriceNad = integerBN(params.bootstrapPriceNad ?? 0, "bootstrapPriceNad");
     if (oracle && oracle.lambdaBps > 0 && !bootstrapPriceNad.isZero())
@@ -976,13 +981,13 @@ export class DuskWrite {
           baseHlpTokenMetadata: deriveTokenMetadataAddress(address(params.baseHlpMint))[0],
           quoteHlpTokenMetadata: deriveTokenMetadataAddress(address(params.quoteHlpMint))[0],
           market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
-          baseReserveVault: deriveMarketReserveVaultAddress(market, baseMint)[0],
-          quoteReserveVault: deriveMarketReserveVaultAddress(market, quoteMint)[0],
-          baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint)[0],
-          quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint)[0],
-          baseInterestVault: deriveMarketInterestVaultAddress(market, baseMint)[0],
-          quoteInterestVault: deriveMarketInterestVaultAddress(market, quoteMint)[0],
+          futarchyAuthority: deriveFutarchyAuthorityAddress(programId)[0],
+          baseReserveVault: deriveMarketReserveVaultAddress(market, baseMint, programId)[0],
+          quoteReserveVault: deriveMarketReserveVaultAddress(market, quoteMint, programId)[0],
+          baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint, programId)[0],
+          quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint, programId)[0],
+          baseInterestVault: deriveMarketInterestVaultAddress(market, baseMint, programId)[0],
+          quoteInterestVault: deriveMarketInterestVaultAddress(market, quoteMint, programId)[0],
           teamTreasury: address(params.teamTreasury),
           teamTreasuryWsolAccount: address(params.teamTreasuryWsolAccount),
           systemProgram: SystemProgram.programId,
@@ -1211,8 +1216,8 @@ export class DuskWrite {
         accounts: {
           authoritySigner: address(params.authoritySigner),
           futarchyAuthority:
-            params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
-          referralPartner: deriveReferralPartnerAddress(referrer)[0],
+            params.futarchyAuthority ?? deriveFutarchyAuthorityAddress(this.program.programId)[0],
+          referralPartner: deriveReferralPartnerAddress(referrer, this.program.programId)[0],
           systemProgram: SystemProgram.programId,
         },
       }
@@ -1231,7 +1236,7 @@ export class DuskWrite {
     market: AddressLike;
     assetMint: AddressLike;
   }): Promise<TransactionInstruction> {
-    const referral = referralAccrualAddresses(params);
+    const referral = referralAccrualAddresses({ ...params, programId: this.program.programId });
     return this.instruction("initializeReferralAccrual", undefined, {
       accounts: {
         payer: address(params.payer),
@@ -1261,6 +1266,7 @@ export class DuskWrite {
       referrer: options.referrer,
       market: options.market,
       assetMint: options.debtMint,
+      programId: this.program.programId,
     });
     const setupInstruction = await this.initializeReferralAccrualInstruction({
       payer: options.payer,
@@ -1344,7 +1350,7 @@ export class DuskWrite {
       {
         accounts: {
           authority,
-          referralPartner: deriveReferralPartnerAddress(authority)[0],
+          referralPartner: deriveReferralPartnerAddress(authority, this.program.programId)[0],
         },
       }
     );
@@ -1372,9 +1378,10 @@ export class DuskWrite {
       referrer: authority,
       market,
       assetMint: mintKey,
+      programId: this.program.programId,
     });
     const interestVault = address(
-      params.interestVault ?? deriveMarketInterestVaultAddress(market, mintKey)[0]
+      params.interestVault ?? deriveMarketInterestVaultAddress(market, mintKey, this.program.programId)[0]
     );
     const recipientTokenAccount = address(params.recipientTokenAccount);
     const tokenProgram = await tokenProgramForMint(
@@ -1446,6 +1453,7 @@ export class DuskWrite {
     const owner = address(params.owner);
     const assetMint = address(params.assetMint);
     const positionId = address(params.positionId);
+    const programId = this.program.programId;
     return this.instruction(
       "depositCollateral",
       { positionId, depositAmount: integerBN(params.depositAmount, "depositAmount") },
@@ -1456,12 +1464,12 @@ export class DuskWrite {
           assetMint,
           collateralVault: address(
             params.collateralVault ??
-              deriveMarketCollateralVaultAddress(market, assetMint)[0]
+              deriveMarketCollateralVaultAddress(market, assetMint, programId)[0]
           ),
           ownerAssetAccount: address(params.ownerAssetAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, owner, positionId)[0]
+              deriveBorrowPositionAddress(market, owner, positionId, programId)[0]
           ),
           tokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1475,13 +1483,14 @@ export class DuskWrite {
   async donateCollateralInstruction(params: DepositCollateralParams): Promise<TransactionInstruction> {
     const market = address(params.market);
     const assetMint = address(params.assetMint);
+    const programId = this.program.programId;
     return this.instruction("donateCollateral",
       { depositAmount: integerBN(params.depositAmount, "depositAmount") }, {
         accounts: {
           market, owner: address(params.owner), assetMint,
-          collateralVault: address(params.collateralVault ?? deriveMarketCollateralVaultAddress(market, assetMint)[0]),
+          collateralVault: address(params.collateralVault ?? deriveMarketCollateralVaultAddress(market, assetMint, programId)[0]),
           ownerAssetAccount: address(params.ownerAssetAccount),
-          borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionOwner ?? params.owner), address(params.positionId))[0]),
+          borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.positionOwner ?? params.owner), address(params.positionId), programId)[0]),
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
         }, remainingAccounts: params.remainingAccounts,
       });
@@ -1492,14 +1501,15 @@ export class DuskWrite {
     const market = address(params.market);
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
+    const programId = this.program.programId;
     return this.instruction("withdrawAllCollateral", {
       minBaseOut: integerBN(params.minBaseOut, "minBaseOut"),
       minQuoteOut: integerBN(params.minQuoteOut, "minQuoteOut"),
     }, { accounts: {
       market, owner: address(params.owner), baseMint, quoteMint,
-      borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.owner), address(params.positionId))[0]),
-      baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint)[0],
-      quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint)[0],
+      borrowPosition: address(params.borrowPosition ?? deriveBorrowPositionAddress(market, address(params.owner), address(params.positionId), programId)[0]),
+      baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint, programId)[0],
+      quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint, programId)[0],
       ownerBaseAccount: address(params.ownerBaseAccount), ownerQuoteAccount: address(params.ownerQuoteAccount),
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
     }, remainingAccounts: params.remainingAccounts });
@@ -1509,12 +1519,13 @@ export class DuskWrite {
   async withdrawRepaidLeverageInstruction(params: WithdrawRepaidLeverageParams): Promise<TransactionInstruction> {
     const market = address(params.market);
     const collateralMint = address(params.collateralMint);
+    const programId = this.program.programId;
     return this.instruction("withdrawRepaidLeverage",
       { minCollateralOut: integerBN(params.minCollateralOut, "minCollateralOut") }, {
         accounts: {
           market, owner: address(params.owner), collateralMint,
-          leveragePosition: address(params.leveragePosition ?? deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]),
-          collateralVault: deriveLeverageCollateralVaultAddress(market, collateralMint)[0],
+          leveragePosition: address(params.leveragePosition ?? deriveLeveragePositionAddress(market, address(params.owner), address(params.positionId), address(params.namespaceAuthority ?? params.owner), programId)[0]),
+          collateralVault: deriveLeverageCollateralVaultAddress(market, collateralMint, programId)[0],
           ownerCollateralAccount: address(params.ownerCollateralAccount),
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
         }, remainingAccounts: params.remainingAccounts,
@@ -1539,6 +1550,7 @@ export class DuskWrite {
     const owner = address(params.owner);
     const assetMint = address(params.assetMint);
     const positionId = address(params.positionId);
+    const programId = this.program.programId;
     return this.instruction(
       "withdrawCollateral",
       {
@@ -1549,17 +1561,17 @@ export class DuskWrite {
       {
         accounts: {
           market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          futarchyAuthority: deriveFutarchyAuthorityAddress(programId)[0],
           owner,
           assetMint,
           collateralVault: address(
             params.collateralVault ??
-              deriveMarketCollateralVaultAddress(market, assetMint)[0]
+              deriveMarketCollateralVaultAddress(market, assetMint, programId)[0]
           ),
           ownerAssetAccount: address(params.ownerAssetAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, owner, positionId)[0]
+              deriveBorrowPositionAddress(market, owner, positionId, programId)[0]
           ),
           tokenProgram: TOKEN_PROGRAM_ID,
           token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1588,35 +1600,37 @@ export class DuskWrite {
     const referralPartner = params.referralPartner
       ? address(params.referralPartner)
       : null;
+    const programId = this.program.programId;
     return this.instruction(
       "repay",
       { repayAmount: integerBN(params.repayAmount, "repayAmount") },
       {
         accounts: {
           market,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          futarchyAuthority: deriveFutarchyAuthorityAddress(programId)[0],
           owner,
           debtAssetMint,
           collateralAssetMint: address(params.collateralAssetMint),
           reserveVault: address(
             params.reserveVault ??
-              deriveMarketReserveVaultAddress(market, debtAssetMint)[0]
+              deriveMarketReserveVaultAddress(market, debtAssetMint, programId)[0]
           ),
           interestVault: address(
             params.interestVault ??
-              deriveMarketInterestVaultAddress(market, debtAssetMint)[0]
+              deriveMarketInterestVaultAddress(market, debtAssetMint, programId)[0]
           ),
           ownerDebtAccount: address(params.ownerDebtAccount),
           borrowPosition: address(
             params.borrowPosition ??
-              deriveBorrowPositionAddress(market, address(params.positionOwner ?? params.owner), positionId)[0]
+              deriveBorrowPositionAddress(market, address(params.positionOwner ?? params.owner), positionId, programId)[0]
           ),
           referralPartner,
           referralAccrual: referralPartner
             ? deriveReferralAccrualAddress(
                 referralPartner,
                 market,
-                debtAssetMint
+                debtAssetMint,
+                programId
               )[0]
             : null,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -1655,7 +1669,7 @@ export class DuskWrite {
       {
         accounts: {
           ...common,
-          futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+          futarchyAuthority: deriveFutarchyAuthorityAddress(this.program.programId)[0],
         },
         remainingAccounts: params.remainingAccounts,
       }
@@ -1947,36 +1961,37 @@ export class DuskWrite {
     const referralPartner = params.referralPartner
       ? address(params.referralPartner)
       : null;
+    const programId = this.program.programId;
     return {
       market,
-      futarchyAuthority: deriveFutarchyAuthorityAddress()[0],
+      futarchyAuthority: deriveFutarchyAuthorityAddress(programId)[0],
       positionOwner,
       owner: address(params.owner ?? params.positionOwner),
       leveragePosition: address(
         params.leveragePosition ??
-          deriveLeveragePositionAddress(market, positionOwner, positionId, address(params.namespaceAuthority ?? params.positionOwner))[0]
+          deriveLeveragePositionAddress(market, positionOwner, positionId, address(params.namespaceAuthority ?? params.positionOwner), programId)[0]
       ),
       debtMint,
       collateralMint,
       debtReserveVault: address(
         params.debtReserveVault ??
-          deriveMarketReserveVaultAddress(market, debtMint)[0]
+          deriveMarketReserveVaultAddress(market, debtMint, programId)[0]
       ),
       collateralReserveVault: address(
         params.collateralReserveVault ??
-          deriveMarketReserveVaultAddress(market, collateralMint)[0]
+          deriveMarketReserveVaultAddress(market, collateralMint, programId)[0]
       ),
       debtInterestVault: address(
         params.debtInterestVault ??
-          deriveMarketInterestVaultAddress(market, debtMint)[0]
+          deriveMarketInterestVaultAddress(market, debtMint, programId)[0]
       ),
       leverageCollateralVault: address(
         params.leverageCollateralVault ??
-          deriveLeverageCollateralVaultAddress(market, collateralMint)[0]
+          deriveLeverageCollateralVaultAddress(market, collateralMint, programId)[0]
       ),
       referralPartner,
       referralAccrual: referralPartner
-        ? deriveReferralAccrualAddress(referralPartner, market, debtMint)[0]
+        ? deriveReferralAccrualAddress(referralPartner, market, debtMint, programId)[0]
         : null,
       tokenProgram: TOKEN_PROGRAM_ID,
     };
@@ -1988,6 +2003,7 @@ export class DuskWrite {
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
     const srlpMint = address(params.srlpMint);
+    const programId = this.program.programId;
     return {
       market,
       owner,
@@ -1996,11 +2012,11 @@ export class DuskWrite {
       srlpMint,
       baseReserveVault: address(
         params.baseReserveVault ??
-          deriveMarketReserveVaultAddress(market, baseMint)[0]
+          deriveMarketReserveVaultAddress(market, baseMint, programId)[0]
       ),
       quoteReserveVault: address(
         params.quoteReserveVault ??
-          deriveMarketReserveVaultAddress(market, quoteMint)[0]
+          deriveMarketReserveVaultAddress(market, quoteMint, programId)[0]
       ),
       ownerBaseAccount: address(params.ownerBaseAccount),
       ownerQuoteAccount: address(params.ownerQuoteAccount),
@@ -2013,7 +2029,7 @@ export class DuskWrite {
             srlpMint,
             baseMint,
             "srlp",
-            this.program.programId
+            programId
           )[0]
       ),
       quoteYieldAccount: address(
@@ -2024,7 +2040,7 @@ export class DuskWrite {
             srlpMint,
             quoteMint,
             "srlp",
-            this.program.programId
+            programId
           )[0]
       ),
       tokenProgram: TOKEN_PROGRAM_ID,

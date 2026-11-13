@@ -103,15 +103,19 @@ export function referralAccrualAddresses(params: {
   referrer: AddressLike;
   market: AddressLike;
   assetMint: AddressLike;
+  /** The Dusk deployment; defaults to `DUSK_PROGRAM_ID`. */
+  programId?: AddressLike;
 }): ReferralAccrualAddresses {
   const referrer = address(params.referrer);
   const market = address(params.market);
   const assetMint = address(params.assetMint);
-  const [referralPartner] = deriveReferralPartnerAddress(referrer);
+  const programId = params.programId === undefined ? undefined : address(params.programId);
+  const [referralPartner] = deriveReferralPartnerAddress(referrer, programId);
   const [referralAccrual] = deriveReferralAccrualAddress(
     referralPartner,
     market,
-    assetMint
+    assetMint,
+    programId
   );
   return { referralPartner, referralAccrual };
 }
