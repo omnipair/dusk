@@ -16,4 +16,10 @@ pub enum LeverageDelegateError {
     InvalidMarketVersion,
     #[msg("Net close payout is below the owner's minimum")]
     MinimumPayoutNotMet,
+    #[msg("The order's hLP cohort was retired; only cancellation remains")]
+    HlpCohortRetired,
+    #[msg("Opened margin is below the owner's minimum")]
+    MinimumMarginNotMet,
+    #[msg("Harvest the order's earned yield before closing it")]
+    UnclaimedYield,
 }

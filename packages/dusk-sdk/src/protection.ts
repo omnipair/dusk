@@ -29,6 +29,7 @@ type MethodAccounts<T extends keyof LeverageDelegateProgram["methods"]> =
 type CreateAccounts = Omit<MethodAccounts<"createProtectionOrder">,
   "order" | "duskEventAuthority" | "duskProgram" | "token2022Program" | "systemProgram"> & { owner: PublicKey };
 type ManageAccounts = Omit<MethodAccounts<"fundProtectionOrder">, "token2022Program">;
+type CloseAccounts = Omit<MethodAccounts<"closeProtectionOrder">, "tokenProgram" | "token2022Program">;
 type ExecuteAccounts = Omit<MethodAccounts<"executeProtectionOrder">,
   "duskEventAuthority" | "duskProgram" | "tokenProgram" | "token2022Program">;
 type CreateArgs = IdlTypes<LeverageDelegate>["createProtectionOrderArgs"];
@@ -45,6 +46,8 @@ export type CreateProtectionOrderParams = {
  * require buildLpTransferHookAccountMetas. The sponsor remains yield recipient.
  * Execution needs a keeper token balance to advance repayment; LP redemption
  * reimburses that balance atomically. Insufficient redemption liquidity reverts.
+ * Cancellation refunds the LP; after harvesting the order's yield, closing it
+ * returns the rent of the order and its custody accounts.
  */
 export class DuskProtectionOrders {
   constructor(readonly program: LeverageDelegateProgram) {}
@@ -98,6 +101,18 @@ export class DuskProtectionOrders {
     const checked = this.checkedAccounts<MethodAccounts<"cancelProtectionOrder">>("cancelProtectionOrder",
       { ...accounts, token2022Program: TOKEN_2022_PROGRAM_ID });
     return this.program.methods.cancelProtectionOrder().accountsStrict(checked)
+      .remainingAccounts(remainingAccounts).instruction();
+  }
+
+  /** Close a cancelled order and return its rent to the sponsor. The LP custody
+   * must be empty and both yield accounts harvested. Pass the order's asset
+   * custody accounts to close them too, or null; a custody account holding a
+   * balance needs the sponsor's token account for that mint, which receives it.
+   */
+  async closeInstruction(accounts: CloseAccounts, remainingAccounts: AccountMeta[] = []) {
+    const checked = this.checkedAccounts<MethodAccounts<"closeProtectionOrder">>("closeProtectionOrder",
+      { ...accounts, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID });
+    return this.program.methods.closeProtectionOrder().accountsStrict(checked)
       .remainingAccounts(remainingAccounts).instruction();
   }
 

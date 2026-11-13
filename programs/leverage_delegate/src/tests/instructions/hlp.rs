@@ -23,3 +23,20 @@ fn partial_hlp_order_escrows_only_the_selected_tranche() {
     };
     assert_eq!(order.hlp_amount, 30);
 }
+
+#[test]
+fn a_rotated_hlp_mint_is_a_retired_cohort() {
+    let mut market = Market::default();
+    market.base_side.hlp_mint = Pubkey::new_unique();
+    market.quote_side.hlp_mint = Pubkey::new_unique();
+    let stored = market.base_side.hlp_mint;
+    assert!(current_hlp_asset(&market, stored).unwrap() == MarketAsset::Base);
+    assert!(current_hlp_asset(&market, market.quote_side.hlp_mint).unwrap() == MarketAsset::Quote);
+
+    // rotate_hlp_cohort installs a new mint for the side.
+    market.base_side.hlp_mint = Pubkey::new_unique();
+    assert_eq!(
+        current_hlp_asset(&market, stored).unwrap_err(),
+        error!(LeverageDelegateError::HlpCohortRetired)
+    );
+}

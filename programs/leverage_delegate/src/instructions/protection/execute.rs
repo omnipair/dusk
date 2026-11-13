@@ -1,5 +1,5 @@
 use super::*;
-use crate::instructions::fees::*;
+use crate::instructions::{fees::*, hlp::current_hlp_asset};
 
 #[derive(Accounts)]
 pub struct ExecuteProtectionOrder<'info> {
@@ -104,6 +104,15 @@ impl<'info> ExecuteProtectionOrder<'info> {
         } else {
             asset
         };
+        // An hLP budget must still be its side's current cohort. Dusk retires
+        // the mint on rotation and could no longer redeem it after the
+        // keeper's payment; fail before any funds move.
+        if a.order.lp_mint != a.market.srlp_mint {
+            require!(
+                current_hlp_asset(&a.market, a.order.lp_mint)? == payment_asset,
+                LeverageDelegateError::InvalidOrder
+            );
+        }
         let payment_mint = if payment_asset == MarketAsset::Base {
             &a.base_mint
         } else {
@@ -367,7 +376,8 @@ impl<'info> ExecuteProtectionOrder<'info> {
             )?
         };
         require!(
-            after >= a.order.target_health_bps && after > before,
+            a.order
+                .accepts_health(before, after, args.lp_amount, args.payment_amount),
             LeverageDelegateError::InvalidOrder
         );
 
