@@ -195,7 +195,7 @@ impl<'info> ConvertTranche<'info> {
             }
             TrancheAction::RequestExit { junior_amount } => {
                 require_gte!(a.owner_junior.amount, junior_amount, ErrorCode::InsufficientBalance);
-                let config = JuniorExitConfig::for_market(a.market.key());
+                let config = JuniorExitConfig::default();
                 receipt.junior_fee = a
                     .exit
                     .ticket

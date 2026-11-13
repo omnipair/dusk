@@ -21,7 +21,7 @@ use crate::{
     errors::ErrorCode,
     events::{MarketCreated, MarketEventMetadata},
     generate_market_seeds,
-    state::{FutarchyAuthority, JuniorExitConfig, Market, MarketConfig, MarketSide, OraclePolicy},
+    state::{FutarchyAuthority, Market, MarketConfig, MarketSide, OraclePolicy},
     token::create_token_account,
 };
 
@@ -419,7 +419,6 @@ impl<'info> InitializeMarket<'info> {
             current_slot,
             ctx.bumps.market,
         )?;
-        ctx.accounts.market.junior_exit_config = JuniorExitConfig::for_market(market_key);
         ctx.accounts.market.oracle.policy = args.oracle.unwrap_or_default();
         ctx.accounts.market.operator.interest_share_bps = args.operator_interest_share_bps;
         ctx.accounts.market.protocol_interest_markup_bps = ctx.accounts.futarchy_authority.revenue_share.interest_bps;

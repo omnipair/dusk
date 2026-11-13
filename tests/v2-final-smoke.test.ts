@@ -1004,7 +1004,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   }
 
   async function initializeFinalMarketWithMints(
-    paramsSeed: number | Buffer,
+    paramsSeed: number,
     baseMint: PublicKey,
     quoteMint: PublicKey,
     config = marketConfig(),
@@ -1019,7 +1019,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expectedError?: string,
     bootstrapPriceNad = 0
   ) {
-    const paramsHash = typeof paramsSeed === "number" ? Buffer.alloc(32, paramsSeed) : paramsSeed;
+    const paramsHash = Buffer.alloc(32, paramsSeed);
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
     const srlpMint = lpMints.srlpMint ?? (await createHookedLpMint(market, lpDecimals));
     const baseHlpMint = lpMints.baseHlpMint ?? (await createHookedLpMint(market, lpDecimals));
@@ -1212,7 +1212,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   }
 
   async function addBalancedLiquidity(
-    paramsSeed: number | Buffer,
+    paramsSeed: number,
     config = marketConfig(),
     amounts: {
       baseDeposit: number | bigint;
@@ -1237,7 +1237,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const quoteDecimals = typeof mintDecimals === "number" ? mintDecimals : mintDecimals.quote;
     const fixture = assetMints
       ? await initializeFinalMarketWithMints(paramsSeed, assetMints.base, assetMints.quote, config, baseDecimals, {}, quoteDecimals, oracle)
-      : typeof paramsSeed === "number" && baseDecimals === 6 && quoteDecimals === 6 && assetTokenProgram.equals(TOKEN_PROGRAM_ID)
+      : baseDecimals === 6 && quoteDecimals === 6 && assetTokenProgram.equals(TOKEN_PROGRAM_ID)
       ? await initializeFinalMarket(paramsSeed, config, oracle)
       : await initializeFinalMarketWithMints(
           paramsSeed,
@@ -11462,68 +11462,65 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   }
 
   if (process.env.DUSK_EXPECT_SHORT_NOTICE === "1") {
-    it("accelerates only the devnet test market, with jrLP exits first", async function () {
-      const standard = await operatorFixture(251);
-      const normal = await standard.operator.market(standard.f.market);
-      expect(normal.juniorExitConfig.minimumNoticeSlots.toString()).to.equal("3024000");
-      expect(normal.juniorExitConfig.maximumNoticeSlots.toString()).to.equal("4320000");
-      const normalChange = await standard.operator.announce({market: standard.f.market, payer: standard.owner,
-        operator: standard.owner, metadata: standard.metadata, updates: [standard.fee(50)]});
-      await standard.send(normalChange);
-      const normalProposal = await standard.operator.proposal(normalChange.proposal);
-      expect(normalProposal.executeAfterSlot.sub(normalProposal.announcedAtSlot).toString()).to.equal("4752000");
+    for (const seed of [251, 252]) {
+      it(`uses short devnet notices for jrLP and operator changes (market seed ${seed})`, async function () {
+        const {f, sdkProgram, operator, owner, metadata, send, fee} = await operatorFixture(seed);
+        const tranches = new DuskTranches(sdkProgram);
+        const short = await operator.market(f.market);
+        expect(short.juniorExitConfig.minimumNoticeSlots.toString()).to.equal("2500");
+        expect(short.juniorExitConfig.maximumNoticeSlots.toString()).to.equal("2500");
+        expect(short.juniorExitConfig.exerciseWindowSlots.toString()).to.equal("864000");
+        await send(await tranches.initialize({market: f.market, payer: owner,
+          metadata: {name: "Devnet notice test jrLP", symbol: "jrTest", uri: "https://example.invalid/junior.json"}}));
+        await send(await tranches.convert({market: f.market, owner,
+          action: {kind: "enter", seniorAmount: 20_000, minimumJunior: 20_000}}));
+        if (seed === 252) {
+          // An existing market can still mirror the standard schedule until
+          // its first exit request under the short-notice build.
+          const account = svm.getAccount(f.market)!;
+          const data = Buffer.from(account.data);
+          const market = accountCoder.decode("Market", data);
+          market.junior_exit_config.minimum_notice_slots = new BN(3_024_000);
+          market.junior_exit_config.maximum_notice_slots = new BN(4_320_000);
+          (accountCoder as any).accountLayouts.get("Market").layout.encode(market, data, 8);
+          svm.setAccount(f.market, {...account, data});
+        }
 
-      const template = await createMint(connection as any, payer, payer.publicKey, null, 6);
-      const mintAccount = svm.getAccount(template)!;
-      const base = new PublicKey("2G78R5YwVopkAxnDMmvNany3RdL98eAM2jcr3UafvL7W");
-      const quote = new PublicKey("G8XEiNtP7TZ2cZRbUdtcPoc3C19T2GgYxTJqBpWz5ZDV");
-      svm.setAccount(base, mintAccount);
-      svm.setAccount(quote, mintAccount);
-      const paramsHash = Buffer.from("fcba934034bc5ac4574f2d72f6731f352aaafa41bd1a39ef2ac646bdac04a7df", "hex");
-      const f = await addBalancedLiquidity(paramsHash, marketConfig(), undefined, 6, TOKEN_PROGRAM_ID, {base, quote});
-      expect(f.market.toBase58()).to.equal("AGniDZ5Ygy7RbqghrJAdFZ7YCPjE2tqtXEk42NoG6rQk");
-      const {sdkProgram, operator, owner, metadata, send, fee} = standard;
-      const tranches = new DuskTranches(sdkProgram);
-      const short = await operator.market(f.market);
-      expect(short.juniorExitConfig.minimumNoticeSlots.toString()).to.equal("2500");
-      expect(short.juniorExitConfig.maximumNoticeSlots.toString()).to.equal("2500");
-      expect(short.juniorExitConfig.exerciseWindowSlots.toString()).to.equal("864000");
-      await send(await tranches.initialize({market: f.market, payer: owner,
-        metadata: {name: "Devnet notice test jrLP", symbol: "jrTest", uri: "https://example.invalid/junior.json"}}));
-      await send(await tranches.convert({market: f.market, owner,
-        action: {kind: "enter", seniorAmount: 20_000, minimumJunior: 20_000}}));
+        const slot = svm.getClock().slot;
+        const request = await tranches.convert({market: f.market, owner,
+          action: {kind: "requestExit", juniorAmount: 10_000}});
+        await send(request);
+        const updated = await operator.market(f.market);
+        expect(updated.juniorExitConfig.minimumNoticeSlots.toString()).to.equal("2500");
+        expect(updated.juniorExitConfig.maximumNoticeSlots.toString()).to.equal("2500");
+        const announcement = await operator.announce({market: f.market, payer: owner, operator: owner,
+          metadata, updates: [fee(50)]});
+        await send(announcement);
+        const exit = await sdkProgram.account.juniorExitAccount.fetch(request.exit);
+        const proposal = await operator.proposal(announcement.proposal);
+        expect(BigInt(exit.ticket.readyAt.toString()) - slot).to.equal(2500n);
+        expect(proposal.executeAfterSlot.sub(proposal.announcedAtSlot).toString()).to.equal("3750");
+        expect(proposal.deadlineSlot.sub(proposal.executeAfterSlot).toString()).to.equal("3024000");
+        const convert = async () => send(await tranches.convert({market: f.market, owner,
+          action: {kind: "convertExit", minimumSenior: 9_950}}));
+        const execute = async () => send(await operator.execute({market: f.market, proposal: announcement.proposal}));
 
-      const slot = svm.getClock().slot;
-      const request = await tranches.convert({market: f.market, owner,
-        action: {kind: "requestExit", juniorAmount: 10_000}});
-      await send(request);
-      const announcement = await operator.announce({market: f.market, payer: owner, operator: owner,
-        metadata, updates: [fee(50)]});
-      await send(announcement);
-      const exit = await sdkProgram.account.juniorExitAccount.fetch(request.exit);
-      const proposal = await operator.proposal(announcement.proposal);
-      expect(BigInt(exit.ticket.readyAt.toString()) - slot).to.equal(2500n);
-      expect(proposal.executeAfterSlot.sub(proposal.announcedAtSlot).toString()).to.equal("3750");
-      expect(proposal.deadlineSlot.sub(proposal.executeAfterSlot).toString()).to.equal("3024000");
-      const convert = async () => send(await tranches.convert({market: f.market, owner,
-        action: {kind: "convertExit", minimumSenior: 9_950}}));
-      const execute = async () => send(await operator.execute({market: f.market, proposal: announcement.proposal}));
-
-      operatorAtSlot(exit.ticket.readyAt.subn(1));
-      let error: unknown;
-      try { await convert(); } catch (e) { error = e; }
-      expect(String(error)).to.include("InvalidArgument");
-      operatorAtSlot(exit.ticket.readyAt);
-      await convert();
-      expect((await operator.market(f.market)).tranches.queuedReceipts.toString()).to.equal("0");
-      operatorAtSlot(proposal.executeAfterSlot.subn(1));
-      error = undefined;
-      try { await execute(); } catch (e) { error = e; }
-      expect(String(error)).to.include("OperatorNoticeNotReady");
-      operatorAtSlot(proposal.executeAfterSlot);
-      await execute();
-      expect((await operator.market(f.market)).config.swapFeeBps).to.equal(50);
-    });
+        operatorAtSlot(exit.ticket.readyAt.subn(1));
+        let error: unknown;
+        try { await convert(); } catch (e) { error = e; }
+        expect(String(error)).to.include("InvalidArgument");
+        operatorAtSlot(exit.ticket.readyAt);
+        await convert();
+        expect((await operator.market(f.market)).tranches.queuedReceipts.toString()).to.equal("0");
+        operatorAtSlot(proposal.executeAfterSlot.subn(1));
+        error = undefined;
+        try { await execute(); } catch (e) { error = e; }
+        expect(String(error)).to.include("OperatorNoticeNotReady");
+        operatorAtSlot(proposal.executeAfterSlot);
+        await execute();
+        expect((await operator.market(f.market)).config.swapFeeBps).to.equal(50);
+      });
+    }
   }
 
   it("announces exactly one replaceable operator bundle without locking LP ownership", async function () {
