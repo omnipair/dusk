@@ -321,11 +321,39 @@ is sold from reserve-vault custody and debits the matching swap-fee liability;
 interest revenue is sold from the side-specific interest vault and debits the
 matching interest-fee liability.
 
-Auction configuration is intentionally retroactive for unsettled inventory:
-the local lane/source epoch keeps its original start slot, but settlement uses
-the current accepted mint, price parameters, reference-age limit, and
-recipients. An accepted-mint change may pause a market until governance updates
-its route; no historical config version is stored per inventory epoch.
+Fee auctions use continuous virtual constant-product pricing, following
+[Inverse's DBR auction](https://github.com/InverseFinance/dbrAuction/blob/main/src/Auction.sol).
+Governance calls `configure_protocol_auction` independently for each market,
+sold asset, lane and source. It sets the accepted mint, two positive virtual
+reserves in raw token atoms, and sold-token atoms streamed per nominal protocol
+day. An omitted accepted mint uses the lane default. Existing curves retain
+their accepted mint when the default changes. Recipients and payment splits
+remain governed per lane and apply to subsequent settlements.
+
+With sold reserve `s`, payment reserve `p` and streamed virtual inventory `e`,
+the current reserves become `s + e` and `ceil(p * s / (s + e))`. Buying `b`
+net sold atoms costs `ceil(current_p * b / (current_s - b))`, then subtracts
+`b` from virtual inventory and adds the payment to the virtual payment reserve.
+Waiting lowers the price; purchases raise it. There is no EMA reference, price
+floor, fixed-duration auction, or external reference-market account. Integer
+rounding preserves a positive payment and the constant-product invariant.
+
+The clock starts at governance configuration, even before the first fee
+arrives or the first purchase succeeds. Fee arrivals and empty actual inventory
+preserve the curve. Fractional streaming carries across purchases; rejected
+settlements leave state unchanged. Time uses `Clock.slot` and
+`TARGET_MS_PER_SLOT`, consistent with Dusk's other economic timers, so a
+protocol day is nominal rather than measured wall-clock time. Reconfiguration
+explicitly replaces that curve's reserves, rate and payment mint at the current
+slot. A zero rate stops streaming while allowing purchases.
+
+Virtual inventory creates no tokens or spendable custody. A purchase must fit
+both the selected actual fee liability and the virtual inventory, and cannot
+exhaust the virtual sold reserve. Token-2022 sold-asset transfer fees reduce the
+bidder's received amount; the curve prices that net output while the liability
+and custody are debited gross. Accepted payment mints must be fee-free. The SDK
+exports `quoteProtocolAuction` for exact integer payment quotes; callers still
+need to check actual inventory and supply a `maxPaymentAmount` limit.
 
 ## Integrator Notes
 

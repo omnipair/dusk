@@ -8,7 +8,7 @@ import { Dusk, DuskUnsupportedMarketLayoutError, MARKET_LAYOUT_VERSION } from ".
 // Each case rewrites only its version byte, so every reader sees otherwise
 // valid current-format bytes.
 const fixture = JSON.parse(
-  readFileSync(new URL("./fixtures/virtual-book-batch-layout15.json", import.meta.url))
+  readFileSync(new URL("./fixtures/virtual-book-batch-layout16.json", import.meta.url))
 );
 const original = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
 const programId = new PublicKey(fixture.programId);

@@ -1,202 +1,114 @@
 use super::*;
-use crate::math::{denormalize_from_nad_ceil, normalize_to_nad};
-use crate::state::{ProtocolAuctionConfig, ProtocolAuctionParams, ProtocolAuctionRecipients};
+use crate::state::ProtocolAuctionState;
+use proptest::prelude::*;
 
-fn decayed_auction_price_nad(
-    auction: &crate::state::ProtocolAuctionConfig,
-    epoch_start_slot: u64,
-    reference_price_nad: u64,
-    current_slot: u64,
-) -> Result<u64> {
-    require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-    let start_price = (reference_price_nad as u128)
-        .checked_mul(auction.params.start_multiplier_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let floor_price = (reference_price_nad as u128)
-        .checked_mul(auction.params.floor_multiplier_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let elapsed_slots = current_slot
-        .saturating_sub(epoch_start_slot)
-        .min(auction.params.duration_slots);
-    let decay = start_price
-        .checked_sub(floor_price)
-        .ok_or(ErrorCode::MarketMathOverflow)?
-        .checked_mul(elapsed_slots as u128)
-        .and_then(|value| value.checked_div(auction.params.duration_slots as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let price = start_price.checked_sub(decay).ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow.into())
-}
-
-fn auction_payment_amount(
-    sold_amount: u64,
-    sold_decimals: u8,
-    auction_price_nad: u64,
-    accepted_decimals: u8,
-) -> Result<u64> {
-    let sold_nad = normalize_to_nad(sold_amount as u128, sold_decimals)?;
-    let payment_nad = sold_nad
-        .checked_mul(auction_price_nad as u128)
-        .and_then(|value| value.checked_div(NAD as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    denormalize_from_nad_ceil(payment_nad, accepted_decimals)
-}
-
-fn split_payment(payment_amount: u64, staking_vault_bps: u16) -> Result<(u64, u64)> {
-    require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
-    let staking_vault_amount = (payment_amount as u128)
-        .checked_mul(staking_vault_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let staking_vault_amount = u64::try_from(staking_vault_amount).map_err(|_| ErrorCode::MarketMathOverflow)?;
-    let treasury_amount = payment_amount
-        .checked_sub(staking_vault_amount)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok((treasury_amount, staking_vault_amount))
-}
-
-fn auction() -> ProtocolAuctionConfig {
-    ProtocolAuctionConfig {
+fn curve(sold: u128, payment: u128, rate: u64) -> ProtocolAuctionState {
+    ProtocolAuctionState {
         accepted_mint: Pubkey::new_unique(),
-        recipients: ProtocolAuctionRecipients::treasury_only(Pubkey::new_unique(), Pubkey::new_unique()),
-        params: ProtocolAuctionParams {
-            start_multiplier_bps: 12_000,
-            floor_multiplier_bps: 8_000,
-            duration_slots: 100,
-            max_reference_age_slots: 10,
-        },
+        virtual_sold_reserve: sold,
+        virtual_payment_reserve: payment,
+        sold_rate_per_day: rate,
+        last_update_slot: 10,
+        stream_remainder: 0,
     }
 }
 
 #[test]
-fn dutch_price_decays_linearly_to_floor() {
-    let auction = auction();
-
-    let start = decayed_auction_price_nad(&auction, 10, NAD, 10).unwrap();
-    let halfway = decayed_auction_price_nad(&auction, 10, NAD, 60).unwrap();
-    let floor = decayed_auction_price_nad(&auction, 10, NAD, 110).unwrap();
-    let after_floor = decayed_auction_price_nad(&auction, 10, NAD, 210).unwrap();
-
-    assert_eq!(start, 1_200_000_000);
-    assert_eq!(halfway, 1_000_000_000);
-    assert_eq!(floor, 800_000_000);
-    assert_eq!(after_floor, 800_000_000);
+fn first_purchase_decays_from_configuration_and_has_no_ema_floor() {
+    let initial = curve(1_000, 1_000, 1_000);
+    let day = MS_PER_DAY / TARGET_MS_PER_SLOT;
+    let immediate = quote_protocol_auction_settlement(initial, 100, 10, 0).unwrap();
+    let first = quote_protocol_auction_settlement(initial, 100, 10 + day, 0).unwrap();
+    assert_eq!(immediate.payment_amount, 112);
+    assert_eq!(first.payment_amount, 27);
+    assert_eq!(first.next_state.virtual_sold_reserve, 1_900);
+    assert_eq!(first.next_state.virtual_payment_reserve, 527);
+    assert_eq!(first.next_state.last_update_slot, 10 + day);
+    // Buying raises the next purchase's price at the same slot.
+    let next = quote_protocol_auction_settlement(first.next_state, 100, 10 + day, 0).unwrap();
+    assert_eq!(next.payment_amount, 30);
+    // A quote is read-only; failed transactions cannot commit its new clock.
+    assert_eq!(initial.last_update_slot, 10);
 }
 
 #[test]
-fn auction_payment_amount_normalizes_decimals_and_rounds_up() {
-    let exact = auction_payment_amount(1_000_000, 6, 2 * NAD, 6).unwrap();
-    let rounded = auction_payment_amount(1, 0, NAD / 3, 6).unwrap();
-
-    assert_eq!(exact, 2_000_000);
-    assert_eq!(rounded, 333_334);
+fn fragmented_streaming_carries_fractional_atoms_across_purchases() {
+    let day = MS_PER_DAY / TARGET_MS_PER_SLOT;
+    let initial = curve(10_000, 10_000, 1);
+    let first = quote_protocol_auction_settlement(initial, 1, 10 + day - 1, 0).unwrap();
+    assert_eq!(first.next_state.virtual_sold_reserve, 9_999);
+    assert_eq!(first.next_state.stream_remainder, day - 1);
+    let second = quote_protocol_auction_settlement(first.next_state, 1, 10 + day, 0).unwrap();
+    assert_eq!(second.next_state.virtual_sold_reserve, 9_999);
+    assert_eq!(second.next_state.stream_remainder, 0);
 }
 
 #[test]
-fn payment_split_sends_rounding_remainder_to_treasury() {
-    let (treasury, staking_vault) = split_payment(101, 3_333).unwrap();
-    let (treasury_only, staking_zero) = split_payment(101, 0).unwrap();
-
-    assert_eq!(treasury, 68);
-    assert_eq!(staking_vault, 33);
-    assert_eq!(treasury_only, 101);
-    assert_eq!(staking_zero, 0);
+fn payment_rounds_up_in_raw_mint_units_and_splits_without_loss() {
+    for (sold_reserve, payment_reserve, sold, payment) in [
+        (1_000_000_000, 1_000_000, 1, 1), // 9-decimal sold, 6-decimal payment.
+        (1_000_000, 1_000_000_000, 1, 1_001), // Reverse decimal direction.
+        (u64::MAX as u128, 1, 1, 1), // A positive sale can never be free.
+        (200, 101, 100, 101),
+    ] {
+        let quote = quote_protocol_auction_settlement(curve(sold_reserve, payment_reserve, 0), sold, 10, 3_333).unwrap();
+        assert_eq!(quote.payment_amount, payment);
+        assert_eq!(quote.treasury_amount + quote.staking_vault_amount, payment);
+    }
+    let quote = quote_protocol_auction_settlement(curve(200, 101, 0), 100, 10, 3_333).unwrap();
+    assert_eq!(quote.treasury_amount, 68);
+    assert_eq!(quote.staking_vault_amount, 33);
 }
 
 #[test]
-fn reference_snapshot_must_be_fresh() {
-    assert_fresh_reference(100, 110, 10).unwrap();
-
-    let missing = assert_fresh_reference(0, 110, 10).unwrap_err();
-    let stale = assert_fresh_reference(99, 110, 10).unwrap_err();
-
-    assert_eq!(missing, error!(ErrorCode::StaleAuctionReference));
-    assert_eq!(stale, error!(ErrorCode::StaleAuctionReference));
-}
-
-#[test]
-fn default_route_allows_only_the_sold_markets_direct_pair() {
-    let market_key = Pubkey::new_unique();
-    let sold_mint = Pubkey::new_unique();
-    let direct_accepted_mint = Pubkey::new_unique();
-    let unrelated_accepted_mint = Pubkey::new_unique();
-    let market = Market {
-        base_side: Box::new(crate::state::MarketSide {
-            asset_mint: sold_mint,
-            ..crate::state::MarketSide::default()
-        }),
-        quote_side: Box::new(crate::state::MarketSide {
-            asset_mint: direct_accepted_mint,
-            ..crate::state::MarketSide::default()
-        }),
-        ..Market::current_layout()
-    };
-
+fn zero_streaming_still_sells_and_large_idle_intervals_remain_nonzero() {
+    let static_curve = curve(1_000, 1_000, 0);
     assert_eq!(
-        expected_reference_market(
-            &market,
-            market_key,
-            ProtocolAuctionLane::Fee,
-            sold_mint,
-            direct_accepted_mint,
-        )
-        .unwrap(),
-        market_key
+        quote_protocol_auction_settlement(static_curve, 100, u64::MAX, 0).unwrap().payment_amount,
+        quote_protocol_auction_settlement(static_curve, 100, 10, 0).unwrap().payment_amount,
     );
-    assert_eq!(
-        expected_reference_market(
-            &market,
-            market_key,
-            ProtocolAuctionLane::Fee,
-            sold_mint,
-            unrelated_accepted_mint,
-        )
-        .unwrap_err(),
-        error!(ErrorCode::InvalidMarket)
-    );
+    let quote = quote_protocol_auction_settlement(curve(u64::MAX as u128, u64::MAX as u128, u64::MAX), 1, u64::MAX, 0).unwrap();
+    assert_eq!(quote.payment_amount, 1);
+    assert!(quote.next_state.virtual_sold_reserve > u64::MAX as u128);
+    assert!(quote.next_state.virtual_payment_reserve > 0);
 }
 
 #[test]
-fn approved_route_is_lane_specific_and_overrides_direct_pair() {
-    let market_key = Pubkey::new_unique();
-    let sold_mint = Pubkey::new_unique();
-    let accepted_mint = Pubkey::new_unique();
-    let fee_reference = Pubkey::new_unique();
-    let buyback_reference = Pubkey::new_unique();
-    let mut base_side = crate::state::MarketSide {
-        asset_mint: sold_mint,
-        ..crate::state::MarketSide::default()
-    };
-    base_side
-        .fees
-        .set_protocol_auction_reference_market(ProtocolAuctionLane::Fee, fee_reference);
-    base_side
-        .fees
-        .set_protocol_auction_reference_market(ProtocolAuctionLane::Buyback, buyback_reference);
-    let market = Market {
-        base_side: Box::new(base_side),
-        quote_side: Box::new(crate::state::MarketSide {
-            asset_mint: accepted_mint,
-            ..crate::state::MarketSide::default()
-        }),
-        ..Market::current_layout()
-    };
+fn invalid_clock_unconfigured_curve_and_virtual_exhaustion_are_rejected() {
+    let initial = curve(100, 100, 0);
+    for amount in [100, 101] {
+        assert_eq!(quote_protocol_auction_settlement(initial, amount, 10, 0).unwrap_err(), error!(ErrorCode::InsufficientAmount));
+    }
+    assert_eq!(quote_protocol_auction_settlement(initial, 0, 10, 0).unwrap_err(), error!(ErrorCode::AmountZero));
+    assert_eq!(quote_protocol_auction_settlement(initial, 1, 9, 0).unwrap_err(), error!(ErrorCode::InvalidAuctionClock));
+    assert_eq!(quote_protocol_auction_settlement(ProtocolAuctionState::default(), 1, 10, 0).unwrap_err(), error!(ErrorCode::InvalidAuctionConfig));
+    assert_eq!(quote_protocol_auction_settlement(initial, 1, 10, BPS_DENOMINATOR + 1).unwrap_err(), error!(ErrorCode::InvalidDistribution));
+}
 
-    assert_eq!(
-        expected_reference_market(&market, market_key, ProtocolAuctionLane::Fee, sold_mint, accepted_mint,).unwrap(),
-        fee_reference
-    );
-    assert_eq!(
-        expected_reference_market(
-            &market,
-            market_key,
-            ProtocolAuctionLane::Buyback,
-            sold_mint,
-            accepted_mint,
-        )
-        .unwrap(),
-        buyback_reference
-    );
+proptest! {
+    #[test]
+    fn continuous_curve_preserves_product_and_conserves_streamed_atoms(
+        sold in 2_u64..1_000_000_000,
+        payment in 1_u64..1_000_000_000,
+        rate in 0_u64..1_000_000_000,
+        elapsed in 0_u64..10_000_000,
+        buy_bps in 1_u64..10_000,
+        share in 0_u16..=10_000,
+    ) {
+        let initial = curve(sold as u128, payment as u128, rate);
+        let day = (MS_PER_DAY / TARGET_MS_PER_SLOT) as u128;
+        let streamed = rate as u128 * elapsed as u128;
+        let available_virtual = sold as u128 + streamed / day;
+        let amount = ((available_virtual * buy_bps as u128 / 10_000).max(1)) as u64;
+        let quote = quote_protocol_auction_settlement(initial, amount, 10 + elapsed, share).unwrap();
+        prop_assert_eq!(quote.next_state.virtual_sold_reserve + amount as u128, available_virtual);
+        prop_assert_eq!(quote.next_state.stream_remainder as u128, streamed % day);
+        prop_assert!(quote.payment_amount > 0);
+        prop_assert_eq!(quote.treasury_amount + quote.staking_vault_amount, quote.payment_amount);
+        let decayed_payment = quote.next_state.virtual_payment_reserve - quote.payment_amount as u128;
+        prop_assert!(decayed_payment * available_virtual >= sold as u128 * payment as u128);
+        prop_assert!(quote.next_state.virtual_payment_reserve * quote.next_state.virtual_sold_reserve >= decayed_payment * available_virtual);
+        // One fewer payment atom would violate the purchase invariant.
+        prop_assert!((decayed_payment + quote.payment_amount as u128 - 1) * quote.next_state.virtual_sold_reserve < decayed_payment * available_virtual);
+    }
 }

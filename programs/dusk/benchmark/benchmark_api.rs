@@ -1510,8 +1510,8 @@ impl BenchmarkMarket {
         let mut market = Box::<Market>::default();
         market.initialize(
             init.srlp_mint,
-            init.base_side,
-            init.quote_side,
+            Box::new(init.base_side),
+            Box::new(init.quote_side),
             init.config,
             init.base_hlp_srlp_vault,
             init.quote_hlp_srlp_vault,

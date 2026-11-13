@@ -3692,51 +3692,34 @@
             "type": "u64"
           },
           {
-            "name": "fee_auction_reference_market",
-            "docs": [
-              "Governance-approved reference market for fee-lane auctions. A default",
-              "key permits only the sold market itself when it directly pairs the sold",
-              "and accepted mints."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "buyback_auction_reference_market",
-            "docs": [
-              "Governance-approved reference market for buyback-lane auctions. A",
-              "default key has the same direct-market-only meaning as above."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "fee_swap_auction_epoch",
+            "name": "fee_swap_auction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionEpoch"
+                "name": "ProtocolAuctionState"
               }
             }
           },
           {
-            "name": "fee_interest_auction_epoch",
+            "name": "fee_interest_auction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionEpoch"
+                "name": "ProtocolAuctionState"
               }
             }
           },
           {
-            "name": "buyback_swap_auction_epoch",
+            "name": "buyback_swap_auction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionEpoch"
+                "name": "ProtocolAuctionState"
               }
             }
           },
           {
-            "name": "buyback_interest_auction_epoch",
+            "name": "buyback_interest_auction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionEpoch"
+                "name": "ProtocolAuctionState"
               }
             }
           }
@@ -5559,6 +5542,10 @@
         "fields": [
           {
             "name": "accepted_mint",
+            "docs": [
+              "Default payment mint for newly configured curves. Each curve stores its",
+              "own mint; changing this default never reinterprets existing reserves."
+            ],
             "type": "pubkey"
           },
           {
@@ -5568,59 +5555,6 @@
                 "name": "ProtocolAuctionRecipients"
               }
             }
-          },
-          {
-            "name": "params",
-            "type": {
-              "defined": {
-                "name": "ProtocolAuctionParams"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "ProtocolAuctionEpoch",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "start_slot",
-            "type": "u64"
-          },
-          {
-            "name": "tracked_inventory",
-            "docs": [
-              "Liability remaining immediately after the preceding fill. A larger",
-              "current liability proves that new inventory arrived and starts a new",
-              "epoch instead of inheriting an old floor price."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "ProtocolAuctionParams",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "start_multiplier_bps",
-            "type": "u16"
-          },
-          {
-            "name": "floor_multiplier_bps",
-            "type": "u16"
-          },
-          {
-            "name": "duration_slots",
-            "type": "u64"
-          },
-          {
-            "name": "max_reference_age_slots",
-            "type": "u64"
           }
         ]
       }
@@ -5661,6 +5595,48 @@
           {
             "name": "buyback_auction_bps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolAuctionState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "accepted_mint",
+            "docs": [
+              "A configured curve binds raw payment reserves to this specific mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "virtual_sold_reserve",
+            "type": "u128"
+          },
+          {
+            "name": "virtual_payment_reserve",
+            "type": "u128"
+          },
+          {
+            "name": "sold_rate_per_day",
+            "type": "u64"
+          },
+          {
+            "name": "last_update_slot",
+            "docs": [
+              "Initialized by governance, then advanced only by successful settlements.",
+              "Fee arrivals and exhaustion of actual inventory never restart this clock."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "stream_remainder",
+            "docs": [
+              "Fractional streamed atoms, with a denominator of nominal slots per day."
+            ],
+            "type": "u64"
           }
         ]
       }

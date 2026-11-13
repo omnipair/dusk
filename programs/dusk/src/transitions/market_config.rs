@@ -477,12 +477,15 @@ impl Market {
         Ok(())
     }
 
+    // Keep the two side values and full state initialization in a separate
+    // SBF frame from the instruction's metadata and vault account setup.
+    #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     pub fn initialize(
         &mut self,
         srlp_mint: Pubkey,
-        base_side: MarketSide,
-        quote_side: MarketSide,
+        base_side: Box<MarketSide>,
+        quote_side: Box<MarketSide>,
         config: MarketConfig,
         base_hlp_srlp_vault: Pubkey,
         quote_hlp_srlp_vault: Pubkey,
@@ -507,8 +510,8 @@ impl Market {
         )?;
         self.version = MARKET_LAYOUT_VERSION;
         self.srlp_mint = srlp_mint;
-        *self.base_side = base_side;
-        *self.quote_side = quote_side;
+        self.base_side = base_side;
+        self.quote_side = quote_side;
         self.config = config;
         // Reserves are empty at market creation. The first balanced-liquidity
         // checkpoint initializes center, depth/share, and the applied parameters.

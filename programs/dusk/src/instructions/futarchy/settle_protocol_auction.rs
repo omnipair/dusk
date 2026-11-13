@@ -67,9 +67,6 @@ pub struct SettleProtocolAuction<'info> {
     #[account(mut)]
     pub staking_vault_payment_account: Box<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(constraint = reference_market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion)]
-    pub reference_market: Box<Account<'info, Market>>,
-
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -83,7 +80,6 @@ impl<'info> SettleProtocolAuction<'info> {
 
         // Bind the settlement to the configured auction and payment asset.
         let auction = self.futarchy_authority.auction_config(args.lane);
-        require_keys_eq!(self.accepted_mint.key(), auction.accepted_mint, ErrorCode::InvalidMint);
         require!(is_fee_free_mint(&self.accepted_mint)?, ErrorCode::InvalidMint);
 
         // Match the sold liability to its physical custody vault.
@@ -112,16 +108,8 @@ impl<'info> SettleProtocolAuction<'info> {
         );
         require_gte!(self.sold_vault.amount, tracked_custody, ErrorCode::UnbackedFeeLiability);
 
-        // Resolve the only reference market permitted for this auction lane.
-        let sold_mint = self.sold_mint.key();
-        let accepted_mint = self.accepted_mint.key();
-        let expected_reference_market =
-            expected_reference_market(&self.market, self.market.key(), args.lane, sold_mint, accepted_mint)?;
-        require_keys_eq!(
-            self.reference_market.key(),
-            expected_reference_market,
-            ErrorCode::InvalidMarket
-        );
+        let curve = market_side.fees.protocol_auction(args.lane, args.source);
+        require_keys_eq!(self.accepted_mint.key(), curve.accepted_mint, ErrorCode::InvalidMint);
 
         // Validate the bidder and both revenue-recipient token accounts.
         validate_owner_asset_account(self.bidder.key(), &self.accepted_mint, &self.bidder_payment_account)?;
@@ -142,70 +130,23 @@ impl<'info> SettleProtocolAuction<'info> {
     }
 
     pub fn handle_settle(ctx: Context<'_, '_, '_, 'info, Self>, args: SettleProtocolAuctionArgs) -> Result<()> {
-        // Freeze the epoch and configured pricing terms for this settlement.
+        // Freeze the configured curve and recipients before token CPIs.
         let clock = Clock::get()?;
-        let current_slot = clock.slot;
         let sold_mint = ctx.accounts.sold_mint.key();
         let accepted_mint = ctx.accounts.accepted_mint.key();
         let sold_side = ctx.accounts.market.asset_for_mint(sold_mint)?;
-        let auction_epoch =
-            ctx.accounts
-                .market
-                .side(sold_side)
-                .fees
-                .protocol_auction_epoch(args.lane, args.source, current_slot);
-        let (max_reference_age_slots, start_multiplier_bps, floor_multiplier_bps, duration_slots, staking_vault_bps) = {
-            let auction = ctx.accounts.futarchy_authority.auction_config(args.lane);
-            (
-                auction.params.max_reference_age_slots,
-                auction.params.start_multiplier_bps,
-                auction.params.floor_multiplier_bps,
-                auction.params.duration_slots,
-                auction.recipients.staking_vault_bps,
-            )
-        };
-        let approved_reference_market = ctx
+        let auction_state = ctx
             .accounts
             .market
             .side(sold_side)
             .fees
-            .protocol_auction_reference_market(args.lane);
-
-        // Resolve the lane's unit or fresh internal EMA reference price.
-        let expected_reference_market = expected_reference_market(
-            &ctx.accounts.market,
-            ctx.accounts.market.key(),
-            args.lane,
-            sold_mint,
-            accepted_mint,
-        )?;
-        require_keys_eq!(
-            ctx.accounts.reference_market.key(),
-            expected_reference_market,
-            ErrorCode::InvalidMarket
-        );
-        let (reference_market, reference_price_nad) = if sold_mint == accepted_mint {
-            (ctx.accounts.market.key(), NAD)
-        } else if approved_reference_market == Pubkey::default() {
-            let price_nad =
-                price_from_market(&ctx.accounts.market, sold_mint, accepted_mint).ok_or(ErrorCode::InvalidMarket)?;
-            assert_fresh_reference(
-                ctx.accounts.market.risk.last_snapshot_slot,
-                current_slot,
-                max_reference_age_slots,
-            )?;
-            (ctx.accounts.market.key(), price_nad)
-        } else {
-            let price_nad = price_from_market(&ctx.accounts.reference_market, sold_mint, accepted_mint)
-                .ok_or(ErrorCode::InvalidMarket)?;
-            assert_fresh_reference(
-                ctx.accounts.reference_market.risk.last_snapshot_slot,
-                current_slot,
-                max_reference_age_slots,
-            )?;
-            (ctx.accounts.reference_market.key(), price_nad)
-        };
-        require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
+            .protocol_auction(args.lane, args.source);
+        let staking_vault_bps = ctx
+            .accounts
+            .futarchy_authority
+            .auction_config(args.lane)
+            .recipients
+            .staking_vault_bps;
 
         // The bidder pays for atoms actually received. The auction liability
         // and custody debit remain denominated in the gross sold amount.
@@ -218,18 +159,7 @@ impl<'info> SettleProtocolAuction<'info> {
             )?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require!(sold_net_amount > 0, ErrorCode::InsufficientAmount);
-        let quote = quote_protocol_auction_settlement(
-            sold_net_amount,
-            ctx.accounts.sold_mint.decimals,
-            ctx.accounts.accepted_mint.decimals,
-            reference_price_nad,
-            start_multiplier_bps,
-            floor_multiplier_bps,
-            current_slot.saturating_sub(auction_epoch.start_slot),
-            duration_slots,
-            staking_vault_bps,
-        )?;
-        let auction_price_nad = quote.auction_price_nad;
+        let quote = quote_protocol_auction_settlement(auction_state, sold_net_amount, clock.slot, staking_vault_bps)?;
         let payment_amount = quote.payment_amount;
         require!(
             payment_amount <= args.max_payment_amount,
@@ -305,12 +235,10 @@ impl<'info> SettleProtocolAuction<'info> {
         // Retire the liability only after every token transfer succeeds.
         ctx.accounts.sold_vault.reload()?;
         let market_side = ctx.accounts.market.side_mut(sold_side);
-        market_side.fees.settle_protocol_auction_liability(
-            args.lane,
-            args.source,
-            args.sold_amount,
-            auction_epoch.start_slot,
-        )?;
+        market_side
+            .fees
+            .settle_protocol_auction_liability(args.lane, args.source, args.sold_amount)?;
+        *market_side.fees.protocol_auction_mut(args.lane, args.source) = quote.next_state;
         market_side.fees.assert_backed()?;
         let required_custody = match args.source {
             ProtocolRevenueSource::Swap => market_side
@@ -335,7 +263,6 @@ impl<'info> SettleProtocolAuction<'info> {
         let bidder_key = ctx.accounts.bidder.key();
         emit_cpi!(ProtocolAuctionSettled {
             market: market_key,
-            reference_market,
             lane: args.lane.code(),
             source: args.source.code(),
             side: sold_side.code(),
@@ -343,11 +270,12 @@ impl<'info> SettleProtocolAuction<'info> {
             sold_mint,
             accepted_mint,
             sold_amount: args.sold_amount,
+            sold_net_amount,
             payment_amount,
             treasury_amount,
             staking_vault_amount,
-            reference_price_nad,
-            auction_price_nad,
+            virtual_sold_reserve: quote.next_state.virtual_sold_reserve,
+            virtual_payment_reserve: quote.next_state.virtual_payment_reserve,
             remaining_fee_liability,
             remaining_buyback_liability,
             metadata: MarketEventMetadata::new(bidder_key, market_key)?,
@@ -363,45 +291,6 @@ fn validate_recipient_payment_account(
 ) -> Result<()> {
     require_keys_eq!(token_account.owner, expected_owner, ErrorCode::InvalidRecipient);
     require_keys_eq!(token_account.mint, expected_mint, ErrorCode::InvalidMint);
-    Ok(())
-}
-
-fn price_from_market(market: &Market, sold_mint: Pubkey, accepted_mint: Pubkey) -> Option<u64> {
-    if sold_mint == market.base_side.asset_mint && accepted_mint == market.quote_side.asset_mint {
-        Some(market.risk.base_price_ema_nad)
-    } else if sold_mint == market.quote_side.asset_mint && accepted_mint == market.base_side.asset_mint {
-        Some(market.risk.quote_price_ema_nad)
-    } else {
-        None
-    }
-}
-
-fn expected_reference_market(
-    market: &Market,
-    market_key: Pubkey,
-    lane: ProtocolAuctionLane,
-    sold_mint: Pubkey,
-    accepted_mint: Pubkey,
-) -> Result<Pubkey> {
-    if sold_mint == accepted_mint {
-        return Ok(market_key);
-    }
-    let sold_side = market.asset_for_mint(sold_mint)?;
-    let approved = market.side(sold_side).fees.protocol_auction_reference_market(lane);
-    if approved != Pubkey::default() {
-        return Ok(approved);
-    }
-    require!(
-        price_from_market(market, sold_mint, accepted_mint).is_some(),
-        ErrorCode::InvalidMarket
-    );
-    Ok(market_key)
-}
-
-fn assert_fresh_reference(last_snapshot_slot: u64, current_slot: u64, max_reference_age_slots: u64) -> Result<()> {
-    require!(last_snapshot_slot > 0, ErrorCode::StaleAuctionReference);
-    let age = current_slot.saturating_sub(last_snapshot_slot);
-    require!(age <= max_reference_age_slots, ErrorCode::StaleAuctionReference);
     Ok(())
 }
 

@@ -4,10 +4,10 @@ use proptest::prelude::*;
 #[test]
 fn captured_hlp_entries_settle_funding_and_preserve_existing_claims() {
     for (bytes, slot) in [
-        (include_bytes!("../fixtures/hlp-entry-layout15.bin").as_slice(), 500_291_305),
+        (include_bytes!("../fixtures/hlp-entry-layout16.bin").as_slice(), 500_291_305),
         // Market 4iuoB4WsTEsv4gnwY6RZnwgaHWqYCAwCbaLswJjbwgSa,
         // devnet slot 519889239: quote hLP needs accrued-funding settlement.
-        (include_bytes!("../fixtures/hlp-entry-funding-layout15.bin").as_slice(), 519_889_239),
+        (include_bytes!("../fixtures/hlp-entry-funding-layout16.bin").as_slice(), 519_889_239),
     ] {
         for target in [MarketAsset::Base, MarketAsset::Quote] {
             for amount in [1_000_000, 10_000_000, 100_000_000] {
@@ -508,7 +508,7 @@ proptest! {
 
 #[cfg(feature = "benchmark")]
 fn captured_vob_market() -> Market {
-    let bytes = include_bytes!("../fixtures/vob-market-layout15.bin");
+    let bytes = include_bytes!("../fixtures/vob-market-layout16.bin");
     Market::try_deserialize(&mut bytes.as_slice()).unwrap()
 }
 
@@ -519,7 +519,7 @@ fn captured_vob_bids_survive_fractional_output_rounding() {
     use crate::state::FutarchyAuthority;
 
     let authority =
-        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-layout16.bin").as_slice())
             .unwrap();
     let clock = BenchmarkClock {
         slot: 505_496_119,
@@ -578,7 +578,7 @@ fn captured_vob_bid_rejects_unexplained_reserve_drift() {
     use crate::state::FutarchyAuthority;
 
     let authority =
-        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-layout16.bin").as_slice())
             .unwrap();
     let mut market = captured_vob_market();
     let mut prepared = crate::transitions::amm::SwapRequest {
@@ -611,7 +611,7 @@ fn captured_vob_asks_certify_only_base_output_rounding() {
     use crate::state::FutarchyAuthority;
 
     let authority =
-        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-20260929.bin").as_slice())
+        FutarchyAuthority::try_deserialize(&mut include_bytes!("../fixtures/vob-authority-layout16.bin").as_slice())
             .unwrap();
     let clock = BenchmarkClock {
         slot: 505_496_119,

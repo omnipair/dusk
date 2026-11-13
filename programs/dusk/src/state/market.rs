@@ -589,26 +589,24 @@ pub struct Fees {
     pub referral_interest_liability: u64,
     /// Shared custody for operator claims and protocol fractional carry.
     pub revenue_interest_liability: u64,
-    /// Governance-approved reference market for fee-lane auctions. A default
-    /// key permits only the sold market itself when it directly pairs the sold
-    /// and accepted mints.
-    pub fee_auction_reference_market: Pubkey,
-    /// Governance-approved reference market for buyback-lane auctions. A
-    /// default key has the same direct-market-only meaning as above.
-    pub buyback_auction_reference_market: Pubkey,
-    pub fee_swap_auction_epoch: ProtocolAuctionEpoch,
-    pub fee_interest_auction_epoch: ProtocolAuctionEpoch,
-    pub buyback_swap_auction_epoch: ProtocolAuctionEpoch,
-    pub buyback_interest_auction_epoch: ProtocolAuctionEpoch,
+    pub fee_swap_auction: ProtocolAuctionState,
+    pub fee_interest_auction: ProtocolAuctionState,
+    pub buyback_swap_auction: ProtocolAuctionState,
+    pub buyback_interest_auction: ProtocolAuctionState,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, PartialEq, Eq, InitSpace)]
-pub struct ProtocolAuctionEpoch {
-    pub start_slot: u64,
-    /// Liability remaining immediately after the preceding fill. A larger
-    /// current liability proves that new inventory arrived and starts a new
-    /// epoch instead of inheriting an old floor price.
-    pub tracked_inventory: u64,
+pub struct ProtocolAuctionState {
+    /// A configured curve binds raw payment reserves to this specific mint.
+    pub accepted_mint: Pubkey,
+    pub virtual_sold_reserve: u128,
+    pub virtual_payment_reserve: u128,
+    pub sold_rate_per_day: u64,
+    /// Initialized by governance, then advanced only by successful settlements.
+    /// Fee arrivals and exhaustion of actual inventory never restart this clock.
+    pub last_update_slot: u64,
+    /// Fractional streamed atoms, with a denominator of nominal slots per day.
+    pub stream_remainder: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]

@@ -51,22 +51,18 @@ use super::*;
     }
 
     #[test]
-    fn auction_params_reject_invalid_curve_shapes() {
-        let mut params = ProtocolAuctionParams::default_epoch();
+    fn auction_params_require_positive_reserves_and_allow_zero_streaming() {
+        let mut params = ProtocolAuctionParams {
+            virtual_sold_reserve: 100,
+            virtual_payment_reserve: 200,
+            sold_rate_per_day: 0,
+        };
         params.validate().unwrap();
-
-        params.floor_multiplier_bps = params.start_multiplier_bps + 1;
-        assert_eq!(
-            params.validate().unwrap_err(),
-            error!(ErrorCode::InvalidAuctionConfig)
-        );
-
-        params = ProtocolAuctionParams::default_epoch();
-        params.duration_slots = 0;
-        assert_eq!(
-            params.validate().unwrap_err(),
-            error!(ErrorCode::InvalidAuctionConfig)
-        );
+        params.virtual_sold_reserve = 0;
+        assert_eq!(params.validate().unwrap_err(), error!(ErrorCode::InvalidAuctionConfig));
+        params.virtual_sold_reserve = 100;
+        params.virtual_payment_reserve = 0;
+        assert_eq!(params.validate().unwrap_err(), error!(ErrorCode::InvalidAuctionConfig));
     }
 
     #[test]

@@ -125,11 +125,11 @@ pub mod dusk {
         UpdateProtocolAuctionRecipients::handle_update(ctx, args)
     }
 
-    pub fn update_protocol_auction_route(
-        ctx: Context<UpdateProtocolAuctionRoute>,
-        args: UpdateProtocolAuctionRouteArgs,
+    pub fn configure_protocol_auction(
+        ctx: Context<ConfigureProtocolAuction>,
+        args: ConfigureProtocolAuctionArgs,
     ) -> Result<()> {
-        UpdateProtocolAuctionRoute::handle_update(ctx, args)
+        ConfigureProtocolAuction::handle_configure(ctx, args)
     }
 
     pub fn set_global_reduce_only(ctx: Context<SetGlobalReduceOnly>, args: SetGlobalReduceOnlyArgs) -> Result<()> {
