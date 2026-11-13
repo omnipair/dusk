@@ -1,3 +1,6 @@
+#[cfg(all(feature = "production", feature = "devnet-short-notice"))]
+compile_error!("The devnet notice test cannot be enabled in a production build.");
+
 use crate::errors::ErrorCode;
 use anchor_lang::prelude::*;
 

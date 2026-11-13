@@ -4,7 +4,7 @@ use crate::{
     errors::ErrorCode,
     generate_market_seeds,
     instructions::accounts::validate_owner_lp_account,
-    state::{JuniorExitAccount, Market, MarketAsset, YieldAccount, YieldTokenKind},
+    state::{JuniorExitAccount, JuniorExitConfig, Market, MarketAsset, YieldAccount, YieldTokenKind},
     token::{token_burn, token_mint_to},
 };
 use anchor_lang::prelude::*;
@@ -195,7 +195,7 @@ impl<'info> ConvertTranche<'info> {
             }
             TrancheAction::RequestExit { junior_amount } => {
                 require_gte!(a.owner_junior.amount, junior_amount, ErrorCode::InsufficientBalance);
-                let config = a.market.junior_exit_config;
+                let config = JuniorExitConfig::for_market(a.market.key());
                 receipt.junior_fee = a
                     .exit
                     .ticket
@@ -208,6 +208,7 @@ impl<'info> ConvertTranche<'info> {
                     junior_amount,
                     &[],
                 )?;
+                a.market.junior_exit_config = config;
                 receipt.action = 1;
                 receipt.junior_amount = junior_amount;
             }

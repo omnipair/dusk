@@ -136,10 +136,15 @@ impl AnnounceOperatorChange<'_> {
         proposal.interest_share_bps = args.interest_share_bps;
         proposal.metadata = args.metadata;
         proposal.family_revisions = market.parameter_revisions;
+        let notice_slots = if cfg!(feature = "devnet-short-notice") && market.key() == DEVNET_NOTICE_TEST_MARKET {
+            DEVNET_OPERATOR_NOTICE_SLOTS
+        } else {
+            OPERATOR_NOTICE_SLOTS
+        };
         proposal.announced_at_slot = clock.slot;
         proposal.execute_after_slot = clock
             .slot
-            .checked_add(OPERATOR_NOTICE_SLOTS)
+            .checked_add(notice_slots)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         proposal.deadline_slot = proposal
             .execute_after_slot

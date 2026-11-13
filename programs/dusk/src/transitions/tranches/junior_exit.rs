@@ -1,5 +1,5 @@
 use crate::{
-    constants::{MS_PER_DAY, TARGET_MS_PER_SLOT},
+    constants::{DEVNET_JUNIOR_NOTICE_SLOTS, DEVNET_NOTICE_TEST_MARKET, MS_PER_DAY, TARGET_MS_PER_SLOT},
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
     state::{JuniorExitConfig, JuniorExitTicket, TrancheCapital},
@@ -17,6 +17,15 @@ impl Default for JuniorExitConfig {
 }
 
 impl JuniorExitConfig {
+    pub(crate) fn for_market(market: Pubkey) -> Self {
+        let mut config = Self::default();
+        if cfg!(feature = "devnet-short-notice") && market == DEVNET_NOTICE_TEST_MARKET {
+            config.minimum_notice_slots = DEVNET_JUNIOR_NOTICE_SLOTS;
+            config.maximum_notice_slots = DEVNET_JUNIOR_NOTICE_SLOTS;
+        }
+        config
+    }
+
     pub fn validate(&self) -> Result<()> {
         require!(
             self.minimum_notice_slots > 0
