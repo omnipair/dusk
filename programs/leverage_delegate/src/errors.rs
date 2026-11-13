@@ -14,4 +14,6 @@ pub enum LeverageDelegateError {
     ApprovalSerializationFailed,
     #[msg("Unsupported Dusk market version")]
     InvalidMarketVersion,
+    #[msg("Net close payout is below the owner's minimum")]
+    MinimumPayoutNotMet,
 }

@@ -9,9 +9,12 @@ pub struct LeverageOrder {
     pub open_curve_revision: u64,
     pub order_id: u64,
     pub kind: u8,
-    pub trigger_closeout_price_nad: u64,
+    /// Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD.
+    pub trigger_price_nad: u64,
     pub close_bps: u16,
-    pub staged_margin: u64,
+    /// Minimum owner credit in debt-token atoms. Zero marks an order awaiting
+    /// owner reauthorization. This occupies the former staged margin field.
+    pub min_owner_payout: u64,
     pub staged_collateral_amount: u64,
     pub staged_remaining_collateral_amount: u64,
     pub staged_remaining_debt_shares: u128,

@@ -1,4 +1,5 @@
 import { oracleComputeBudgetInstructions, type OraclePolicyInput } from "../packages/dusk-sdk/src/oracle.js";
+import assert from "node:assert/strict";
 import { createHash } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -31,6 +32,7 @@ import {
   createTransferCheckedInstruction,
   ExtensionType,
   getAccount,
+  unpackAccount,
   getAssociatedTokenAddressSync,
   getMint,
   getMintLen,
@@ -57,7 +59,7 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import { expect } from "chai";
-import { ComputeBudget, FeatureSet, LiteSVM } from "litesvm";
+import { ComputeBudget, FailedTransactionMetadata, FeatureSet, LiteSVM } from "litesvm";
 import {
   DEFAULT_PROTOCOL_REVENUE_SHARE_BPS,
   MARKET_LAYOUT_VERSION,
@@ -144,6 +146,7 @@ const LEVERAGE_DELEGATION_SEED = Buffer.from("leverage_delegation_v2");
 const LEVERAGE_ORDER_SEED = Buffer.from("leverage_order");
 const LEVERAGE_DELEGATE_CLOSE = 1;
 const ORDER_KIND_TAKE_PROFIT = 1;
+const ORDER_KIND_STOP_LOSS = 2;
 // Program minimum base fee of a concentrated curve (`MIN_CONCENTRATED_SWAP_FEE_BPS`).
 const MIN_CONCENTRATED_SWAP_FEE_BPS = 1;
 const FEATURE_PROGRAM_ID = new PublicKey(
@@ -10411,25 +10414,40 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       );
       const feeRecipient = await orderFeeRecipient(fixture.quoteMint, assetProgram);
 
-      const createOrderTx = await leverageDelegateProgram.methods
+      const kind = partial ? ORDER_KIND_STOP_LOSS : ORDER_KIND_TAKE_PROFIT;
+      const readRisk = () =>
+        (accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any).risk;
+      const ema = readRisk().base_price_ema_nad as anchor.BN;
+      if (mode === "legacy") {
+        const spotBefore = readRisk().cached_spot_base_price_nad as anchor.BN;
+        await swapQuoteForBase(fixture, [], 5_000, 1);
+        const afterSwap = readRisk();
+        expect(afterSwap.cached_spot_base_price_nad.gt(spotBefore)).to.equal(true);
+        expect(afterSwap.cached_spot_base_price_nad.gt(ema.addn(1))).to.equal(true);
+        expect(afterSwap.base_price_ema_nad.eq(ema)).to.equal(true);
+      }
+      const checksTrigger = mode === "legacy" || mode === "partial";
+      const minimum = new BN("18446744073709551615");
+      const checksPayoutFloor = partial;
+      let exactPayout: bigint | undefined;
+      const triggerPriceNad = checksTrigger ? (partial ? ema.subn(1) : ema.addn(1)) : ema;
+      const orderAccounts = { market: fixture.market, leveragePosition, order, owner: payer.publicKey };
+      await connection.sendTransaction(await leverageDelegateProgram.methods
         .createLeverageOrder({
-          orderId,
-          kind: ORDER_KIND_TAKE_PROFIT,
-          triggerCloseoutPriceNad: new BN(1),
-          closeBps,
+          orderId, kind, triggerPriceNad, closeBps,
+          minOwnerPayout: checksPayoutFloor ? minimum : new BN(1),
         })
-        .accounts({
-          market: fixture.market,
-          leveragePosition,
-          order,
-          owner: payer.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .transaction();
-      await connection.sendTransaction(createOrderTx, [payer]);
+        .accounts({ ...orderAccounts, systemProgram: SystemProgram.programId })
+        .transaction(), [payer]);
 
-      const beforeIx = await leverageDelegateProgram.methods
-        .beforeTakeProfit({ orderId })
+      const updateOrder = async (triggerPriceNad: anchor.BN, minOwnerPayout: anchor.BN) =>
+        connection.sendTransaction(await leverageDelegateProgram.methods
+          .updateLeverageOrder({ orderId, kind, triggerPriceNad, closeBps, minOwnerPayout })
+          .accounts(orderAccounts).transaction(), [payer]);
+
+      const beforeIx = await (partial
+        ? leverageDelegateProgram.methods.beforeStopLoss({ orderId })
+        : leverageDelegateProgram.methods.beforeTakeProfit({ orderId }))
         .accounts({
           order,
           market: fixture.market,
@@ -10506,6 +10524,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         })
         .remainingAccounts([...settlementAccounts, ...beforeIx.keys, ...afterIx.keys])
         .transaction();
+      delegatedCloseTx.feePayer = executor.publicKey;
       const attackerAccount = await createAccount(
         connection as any,
         payer,
@@ -10516,6 +10535,61 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         assetProgram
       );
       const closeIx = delegatedCloseTx.instructions[0];
+      if (checksTrigger || checksPayoutFloor || transferFee) {
+        const expectRejectedClose = async (error: RegExp) => {
+          const attempt = new Transaction({ feePayer: executor.publicKey });
+          if (oracleMode) attempt.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }));
+          attempt.add(closeIx);
+          const unchanged = [fixture.market, leveragePosition, order, fixture.ownerQuoteAccount,
+            fixture.baseReserveVault, fixture.quoteReserveVault, leverageCollateralVault,
+            feeRecipient, executorTokenAccount].map((key) => [key, Buffer.from(svm.getAccount(key)!.data)] as const);
+          await assert.rejects(connection.sendTransaction(attempt, [executor]), error);
+          for (const [key, data] of unchanged) {
+            assert.deepEqual(Buffer.from(svm.getAccount(key)!.data), data);
+          }
+          svm.expireBlockhash();
+        };
+        if (checksTrigger) {
+          await expectRejectedClose(/TriggerNotMet/);
+          if (mode === "legacy") {
+            const legacyAccount = svm.getAccount(order)!;
+            const coder = new anchor.BorshAccountsCoder(leverageDelegateIdl);
+            const state = coder.decode("LeverageOrder", Buffer.from(legacyAccount.data));
+            state.trigger_price_nad = ema;
+            state.min_owner_payout = new BN(0);
+            svm.setAccount(order, {
+              ...legacyAccount, data: new Uint8Array(await coder.encode("LeverageOrder", state)),
+            });
+            await expectRejectedClose(/InvalidOrder/);
+          }
+          await updateOrder(ema, checksPayoutFloor ? minimum : new BN(1));
+        }
+        if (checksPayoutFloor) {
+          // The executor sets minAmountOut to zero. The order still requires
+          // the owner's minimum net payout, including for Token-2022 assets.
+          await expectRejectedClose(/MinimumPayoutNotMet/);
+          await updateOrder(ema, new BN(1));
+        }
+        if (transferFee) {
+          const preview = new Transaction({
+            feePayer: executor.publicKey, recentBlockhash: svm.latestBlockhash(),
+          });
+          if (oracleMode) preview.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }));
+          preview.add(closeIx).sign(executor);
+          const simulated = svm.simulateTransaction(preview);
+          if (simulated instanceof FailedTransactionMetadata) throw new Error(simulated.meta().prettyLogs());
+          const [, account] = simulated.postAccounts().find(([key]) => key.equals(fixture.ownerQuoteAccount))!;
+          const ownerQuote = unpackAccount(fixture.ownerQuoteAccount, {
+            data: Buffer.from(account.data()), owner: new PublicKey(account.owner()),
+            executable: account.executable(), lamports: Number(account.lamports()),
+          }, assetProgram);
+          exactPayout = ownerQuote.amount - ownerQuoteBefore.amount;
+          expect(exactPayout > 0n).to.equal(true);
+          await updateOrder(ema, new BN((exactPayout + 1n).toString()));
+          await expectRejectedClose(/MinimumPayoutNotMet/);
+          await updateOrder(ema, new BN(exactPayout.toString()));
+        }
+      }
       const modifiedKeys = closeIx.keys.map((meta) => ({ ...meta }));
       const payoutIndex = modifiedKeys.findIndex((meta) => meta.pubkey.equals(fixture.ownerQuoteAccount));
       expect(payoutIndex).to.be.greaterThan(-1);
@@ -10539,7 +10613,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       // compute for unused heap and can starve the oracle-partial settlement.
       if (oracleMode) delegatedCloseTx.instructions.unshift(
         ComputeBudgetProgram.setComputeUnitLimit({units: 1_400_000}));
-      const measuredClose = await connection.sendTransactionMeasured(delegatedCloseTx, [payer, executor]);
+      const measuredClose = await connection.sendTransactionMeasured(delegatedCloseTx, [executor]);
       const signature = measuredClose.signature;
       if (oracleMode) {
         console.log(`Delegated OP close ${mode}: ${measuredClose.computeUnits} CU`);
@@ -10551,6 +10625,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         partial ? "leveragePositionUpdated" : "leveragePositionClosed", "leverageClose");
       expect(delegatedSwap.actor.equals(executor.publicKey)).to.equal(true);
       expect(delegatedSwap.trader.equals(payer.publicKey)).to.equal(true);
+      if (mode === "legacy") {
+        // This same fill would have satisfied the original live-closeout trigger.
+        expect(delegatedSwap.amountOut.mul(new BN(1_000_000_000))
+          .div(openedPosition.collateral_amount).gt(triggerPriceNad)).to.equal(true);
+      }
       const meta = svm.getTransaction(Buffer.from(signature, "base64")) as any;
       const feeEvents = [...new anchor.EventParser(LEVERAGE_DELEGATE_PROGRAM_ID,
         new anchor.BorshCoder(leverageDelegateIdl)).parseLogs(meta.logs())];
@@ -10580,6 +10659,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
       expect((await getAccount(connection as any, feeRecipient, undefined, assetProgram)).amount > 0n).to.equal(true);
       expect(ownerQuoteAfter.amount > ownerQuoteBefore.amount).to.equal(true);
+      if (exactPayout !== undefined) expect(ownerQuoteAfter.amount - ownerQuoteBefore.amount).to.equal(exactPayout);
       expect(executorQuoteAfter.amount > executorQuoteBefore.amount).to.equal(true);
       expect(svm.getAccount(leveragePosition) === null).to.equal(!partial);
       expect(svm.getAccount(order)).to.equal(null);

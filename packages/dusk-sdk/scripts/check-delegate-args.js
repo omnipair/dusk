@@ -50,11 +50,11 @@ test("createOrderInstruction encodes the same bytes as before, for every integer
   // What the client sent before this check existed: BN arguments through
   // Anchor, with the same accounts.
   const expected = await program.methods
-    .createLeverageOrder({ orderId: new BN(7), kind: 2, triggerCloseoutPriceNad: new BN("1500000000"), closeBps: 5_000 })
+    .createLeverageOrder({ orderId: new BN(7), kind: 2, triggerPriceNad: new BN("1500000000"), closeBps: 5_000, minOwnerPayout: new BN(42) })
     .accounts({ market, leveragePosition, order, owner, systemProgram: SystemProgram.programId })
     .remainingAccounts([])
     .instruction();
-  for (const [orderId, triggerCloseoutPriceNad] of [
+  for (const [orderId, triggerPriceNad] of [
     [7n, 1_500_000_000n],
     [7, 1_500_000_000],
     ["7", "1500000000"],
@@ -65,15 +65,16 @@ test("createOrderInstruction encodes the same bytes as before, for every integer
       positionId,
       orderId,
       kind: "stopLoss",
-      triggerCloseoutPriceNad,
+      triggerPriceNad,
       closeBps: 5_000,
+      minOwnerPayout: 42n,
     });
     assertSameInstruction(instruction, expected);
   }
 });
 
 test("createOrderInstruction rejects an unknown kind instead of encoding kind 0", async () => {
-  const params = { market, owner, positionId, orderId: 1n, triggerCloseoutPriceNad: 1n, closeBps: 10_000 };
+  const params = { market, owner, positionId, orderId: 1n, minOwnerPayout: 1n, triggerPriceNad: 1n, closeBps: 10_000 };
   await rejectsInput(
     orders.createOrderInstruction({ ...params, kind: "takeprofit" }),
     "createLeverageOrder",
@@ -86,16 +87,17 @@ test("createOrderInstruction rejects an unknown kind instead of encoding kind 0"
 });
 
 test("order ids and triggers are checked before an address is derived from them", async () => {
-  const params = { market, owner, positionId, kind: "takeProfit", orderId: 1n, triggerCloseoutPriceNad: 1n, closeBps: 10_000 };
+  const params = { market, owner, positionId, kind: "takeProfit", orderId: 1n, minOwnerPayout: 1n, triggerPriceNad: 1n, closeBps: 10_000 };
   await rejectsInput(orders.createOrderInstruction({ ...params, orderId: "1.5" }), "createLeverageOrder", "orderId", /unsigned 64-bit integer .*received string "1.5"/);
   await rejectsInput(orders.createOrderInstruction({ ...params, orderId: -1n }), "createLeverageOrder", "orderId", /between 0 and 18446744073709551615, received -1/);
   await rejectsInput(orders.createOrderInstruction({ ...params, orderId: 2n ** 64n }), "createLeverageOrder", "orderId", /between 0 and 18446744073709551615/);
-  await rejectsInput(orders.createOrderInstruction({ ...params, triggerCloseoutPriceNad: undefined }), "createLeverageOrder", "triggerCloseoutPriceNad", /missing field "triggerCloseoutPriceNad"/);
+  await rejectsInput(orders.createOrderInstruction({ ...params, triggerPriceNad: undefined }), "createLeverageOrder", "triggerPriceNad", /missing field "triggerPriceNad"/);
+  await rejectsInput(orders.createOrderInstruction({ ...params, minOwnerPayout: undefined }), "createLeverageOrder", "minOwnerPayout", /missing field "minOwnerPayout"/);
   await rejectsInput(orders.cancelOrderInstruction({ owner, market, positionId, orderId: 2 ** 53 }), "cancelLeverageOrder", "orderId", /received number 9007199254740992/);
 });
 
 test("closeBps keeps its range check", async () => {
-  const params = { market, owner, positionId, kind: "takeProfit", orderId: 1n, triggerCloseoutPriceNad: 1n };
+  const params = { market, owner, positionId, kind: "takeProfit", orderId: 1n, minOwnerPayout: 1n, triggerPriceNad: 1n };
   for (const closeBps of [0, 10_001, 1.5]) {
     await assert.rejects(orders.createOrderInstruction({ ...params, closeBps }), /closeBps must be between 1 and 10000/);
   }

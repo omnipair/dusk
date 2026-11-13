@@ -14457,7 +14457,10 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "fullOutput",
+            "name": "reserved",
+            "docs": [
+              "Reserved to preserve the position account layout."
+            ],
             "type": "u64"
           }
         ]

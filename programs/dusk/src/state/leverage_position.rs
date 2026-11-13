@@ -18,7 +18,8 @@ pub struct CloseApprovalQuote {
     pub close_bps: u16,
     pub collateral_credit: u64,
     pub selected_output: u64,
-    pub full_output: u64,
+    /// Reserved to preserve the position account layout.
+    pub reserved: u64,
 }
 
 #[account]

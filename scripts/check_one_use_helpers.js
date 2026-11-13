@@ -578,8 +578,6 @@ const acceptedOneUseHelpers = new Map([
     "programs/leverage_delegate/src/instructions/entry/common.rs",
     new Set(["verify_opened_position"]),
   ],
-  // Keep unit-scale trigger math testable without Anchor account fixtures.
-  ["programs/leverage_delegate/src/instructions/leverage/before_close.rs", new Set(["closeout_price_nad"])],
   [
     "programs/leverage_delegate/src/instructions/hlp/common.rs",
     new Set(["withdraw_hlp_order_position"]),

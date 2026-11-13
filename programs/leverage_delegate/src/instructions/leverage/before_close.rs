@@ -1,36 +1,5 @@
 use super::*;
 
-pub(super) fn closeout_price_nad(
-    closeout_value: u64,
-    collateral_amount: u64,
-    debt_decimals: u8,
-    collateral_decimals: u8,
-) -> Result<u64> {
-    require!(collateral_amount > 0, LeverageDelegateError::InvalidOrder);
-    let (numerator, denominator) = if collateral_decimals >= debt_decimals {
-        let scale = 10_u128
-            .checked_pow((collateral_decimals - debt_decimals) as u32)
-            .ok_or(LeverageDelegateError::MathOverflow)?;
-        ((NAD as u128).checked_mul(scale), collateral_amount as u128)
-    } else {
-        let scale = 10_u128
-            .checked_pow((debt_decimals - collateral_decimals) as u32)
-            .ok_or(LeverageDelegateError::MathOverflow)?;
-        (
-            Some(NAD as u128),
-            (collateral_amount as u128)
-                .checked_mul(scale)
-                .ok_or(LeverageDelegateError::MathOverflow)?,
-        )
-    };
-    (closeout_value as u128)
-        .checked_mul(numerator.ok_or(LeverageDelegateError::MathOverflow)?)
-        .and_then(|value| value.checked_div(denominator))
-        .ok_or(LeverageDelegateError::MathOverflow)?
-        .try_into()
-        .map_err(|_| LeverageDelegateError::MathOverflow.into())
-}
-
 #[derive(Accounts)]
 #[instruction(args: ExecuteOrderArgs)]
 pub struct BeforeLeverageOrder<'info> {
@@ -80,8 +49,7 @@ pub struct BeforeLeverageOrder<'info> {
     )]
     pub executor_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     pub futarchy_authority: Box<Account<'info, dusk::state::FutarchyAuthority>>,
-    /// Collateral mint is needed to reproduce the exact net reserve credit for
-    /// Token-2022 transfer-fee assets before approving a partial close.
+    /// Used to verify the exact net reserve credit for Token-2022 collateral.
     pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
     /// CHECK: Identifies the executor; Dusk does not forward signer privileges
@@ -125,23 +93,26 @@ impl<'info> BeforeLeverageOrder<'info> {
             approval.slot == current_slot
                 && approval.close_bps == order.close_bps
                 && approval.selected_output > 0
-                && approval.full_output > 0,
+                && order.staged_collateral_amount == 0
+                && order.min_owner_payout > 0,
             LeverageDelegateError::InvalidOrder
         );
-        let closeout_value = approval.full_output;
-        let closeout_price_nad = closeout_price_nad(
-            closeout_value,
-            ctx.accounts.leverage_position.collateral_amount,
-            ctx.accounts.token_mint.decimals,
-            ctx.accounts.collateral_mint.decimals,
-        )?;
+        let risk = &ctx.accounts.market.risk;
+        let ema_price_nad = match collateral_asset {
+            MarketAsset::Base => risk.base_price_ema_nad,
+            MarketAsset::Quote => risk.quote_price_ema_nad,
+        };
+        require!(
+            risk.last_snapshot_slot == current_slot && ema_price_nad > 0,
+            LeverageDelegateError::InvalidOrder
+        );
         match expected_kind {
             ORDER_KIND_TAKE_PROFIT => require!(
-                closeout_price_nad >= order.trigger_closeout_price_nad,
+                ema_price_nad >= order.trigger_price_nad,
                 LeverageDelegateError::TriggerNotMet
             ),
             ORDER_KIND_STOP_LOSS => require!(
-                closeout_price_nad <= order.trigger_closeout_price_nad,
+                ema_price_nad <= order.trigger_price_nad,
                 LeverageDelegateError::TriggerNotMet
             ),
             _ => return err!(LeverageDelegateError::InvalidOrder),
@@ -206,7 +177,11 @@ impl<'info> BeforeLeverageOrder<'info> {
             incentive_basis,
             clock.epoch,
         )?;
-        order.staged_margin = incentive_basis;
+        require_gte!(
+            payout.owner_credit,
+            order.min_owner_payout,
+            LeverageDelegateError::MinimumPayoutNotMet
+        );
         order.staged_collateral_amount = close_slice.collateral_amount;
         order.staged_remaining_collateral_amount = ctx
             .accounts

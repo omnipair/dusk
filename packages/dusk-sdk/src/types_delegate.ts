@@ -187,8 +187,7 @@ export type LeverageDelegate = {
         {
           "name": "collateralMint",
           "docs": [
-            "Collateral mint is needed to reproduce the exact net reserve credit for",
-            "Token-2022 transfer-fee assets before approving a partial close."
+            "Used to verify the exact net reserve credit for Token-2022 collateral."
           ]
         },
         {
@@ -289,8 +288,7 @@ export type LeverageDelegate = {
         {
           "name": "collateralMint",
           "docs": [
-            "Collateral mint is needed to reproduce the exact net reserve credit for",
-            "Token-2022 transfer-fee assets before approving a partial close."
+            "Used to verify the exact net reserve credit for Token-2022 collateral."
           ]
         },
         {
@@ -2562,6 +2560,11 @@ export type LeverageDelegate = {
       "code": 6005,
       "name": "invalidMarketVersion",
       "msg": "Unsupported Dusk market version"
+    },
+    {
+      "code": 6006,
+      "name": "minimumPayoutNotMet",
+      "msg": "Net close payout is below the owner's minimum"
     }
   ],
   "types": [
@@ -3032,7 +3035,10 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "fullOutput",
+            "name": "reserved",
+            "docs": [
+              "Reserved to preserve the position account layout."
+            ],
             "type": "u64"
           }
         ]
@@ -3275,7 +3281,10 @@ export type LeverageDelegate = {
             "type": "u8"
           },
           {
-            "name": "triggerCloseoutPriceNad",
+            "name": "triggerPriceNad",
+            "docs": [
+              "Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD."
+            ],
             "type": "u64"
           },
           {
@@ -3285,6 +3294,13 @@ export type LeverageDelegate = {
               "full close; smaller values realize one proportional slice."
             ],
             "type": "u16"
+          },
+          {
+            "name": "minOwnerPayout",
+            "docs": [
+              "Positive minimum owner credit in debt-token atoms after debt and all fees."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -4447,7 +4463,10 @@ export type LeverageDelegate = {
             "type": "u8"
           },
           {
-            "name": "triggerCloseoutPriceNad",
+            "name": "triggerPriceNad",
+            "docs": [
+              "Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD."
+            ],
             "type": "u64"
           },
           {
@@ -4455,7 +4474,11 @@ export type LeverageDelegate = {
             "type": "u16"
           },
           {
-            "name": "stagedMargin",
+            "name": "minOwnerPayout",
+            "docs": [
+              "Minimum owner credit in debt-token atoms. Zero marks an order awaiting",
+              "owner reauthorization. This occupies the former staged margin field."
+            ],
             "type": "u64"
           },
           {
@@ -6161,12 +6184,22 @@ export type LeverageDelegate = {
             "type": "u8"
           },
           {
-            "name": "triggerCloseoutPriceNad",
+            "name": "triggerPriceNad",
+            "docs": [
+              "Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD."
+            ],
             "type": "u64"
           },
           {
             "name": "closeBps",
             "type": "u16"
+          },
+          {
+            "name": "minOwnerPayout",
+            "docs": [
+              "Positive minimum owner credit in debt-token atoms after debt and all fees."
+            ],
+            "type": "u64"
           }
         ]
       }

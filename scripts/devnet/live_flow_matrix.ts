@@ -452,6 +452,7 @@ async function main() {
     const signature = await send([
       await orders.createOrderInstruction({
         closeBps: 10_000,
+        minOwnerPayout: 1n,
         kind: "takeProfit",
         market,
         orderId,
@@ -459,7 +460,7 @@ async function main() {
         positionId: leverageId,
         // Far above any price this market will reach during the run, so the
         // order cannot fire before the cancel measures it.
-        triggerCloseoutPriceNad: (100_000n * 10n ** 9n).toString(),
+        triggerPriceNad: (100_000n * 10n ** 9n).toString(),
       }),
     ]);
     if (!(await orderExists())) {

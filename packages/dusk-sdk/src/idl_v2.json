@@ -14451,7 +14451,10 @@
             "type": "u64"
           },
           {
-            "name": "full_output",
+            "name": "reserved",
+            "docs": [
+              "Reserved to preserve the position account layout."
+            ],
             "type": "u64"
           }
         ]

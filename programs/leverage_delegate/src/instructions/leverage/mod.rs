@@ -1,12 +1,12 @@
 use anchor_lang::{prelude::*, solana_program::program::set_return_data};
 use anchor_spl::token_interface::{Mint, TokenAccount};
 use dusk::{
-    constants::{BPS_DENOMINATOR, NAD},
+    constants::BPS_DENOMINATOR,
     instructions::{
         quote_delegated_close_payout, LeverageDelegationApproval, LEVERAGE_DELEGATE_CLOSE,
         LEVERAGE_DELEGATE_CLOSE_SETTLED,
     },
-    state::{LeverageDelegation, LeveragePosition, Market},
+    state::{LeverageDelegation, LeveragePosition, Market, MarketAsset},
     token::get_transfer_fee,
 };
 

@@ -1,11 +1,6 @@
 use super::*;
 
-#[test]
-fn trigger_price_uses_token_decimals() {
-    assert_eq!(closeout_price_nad(2_000_000, 1_000_000_000, 6, 9).unwrap(), 2 * NAD);
-    assert_eq!(closeout_price_nad(2_000_000_000, 1_000_000, 9, 6).unwrap(), 2 * NAD);
-    assert_eq!(closeout_price_nad(2_000_000, 1_000_000, 6, 6).unwrap(), 2 * NAD);
-}
+use dusk::constants::NAD;
 
 fn leverage_order() -> LeverageOrder {
     LeverageOrder {
@@ -15,9 +10,9 @@ fn leverage_order() -> LeverageOrder {
         open_curve_revision: 1,
         order_id: 1,
         kind: ORDER_KIND_TAKE_PROFIT,
-        trigger_closeout_price_nad: NAD,
+        trigger_price_nad: NAD,
         close_bps: BPS_DENOMINATOR,
-        staged_margin: 0,
+        min_owner_payout: 1,
         staged_collateral_amount: 0,
         staged_remaining_collateral_amount: 0,
         staged_remaining_debt_shares: 0,
@@ -72,12 +67,10 @@ fn recreated_position_requires_owner_to_reauthorize_order() {
 
 fn stage_close_settlement_reference(
     order: &mut LeverageOrder,
-    margin: u64,
     owner_token_account: Pubkey,
     output_mint: Pubkey,
     output_amount: u64,
 ) {
-    order.staged_margin = margin;
     order.staged_owner_token_account = owner_token_account;
     order.staged_output_mint = output_mint;
     order.staged_output_amount = output_amount;
@@ -107,14 +100,14 @@ fn require_staged_settlement_reference(
     Ok(())
 }
 
-fn trigger_met_reference(kind: u8, closeout_price_nad: u64, trigger_closeout_price_nad: u64) -> Result<()> {
+fn trigger_met_reference(kind: u8, ema_price_nad: u64, trigger_price_nad: u64) -> Result<()> {
     match kind {
         ORDER_KIND_TAKE_PROFIT => require!(
-            closeout_price_nad >= trigger_closeout_price_nad,
+            ema_price_nad >= trigger_price_nad,
             LeverageDelegateError::TriggerNotMet
         ),
         ORDER_KIND_STOP_LOSS => require!(
-            closeout_price_nad <= trigger_closeout_price_nad,
+            ema_price_nad <= trigger_price_nad,
             LeverageDelegateError::TriggerNotMet
         ),
         _ => return err!(LeverageDelegateError::InvalidOrder),
@@ -132,7 +125,7 @@ fn order_kind_validation_accepts_only_tp_or_sl() {
 #[test]
 fn reset_staged_settlement_clears_every_binding() {
     let mut order = leverage_order();
-    order.staged_margin = 10_000;
+    order.min_owner_payout = 10_000;
     order.staged_collateral_amount = 50;
     order.staged_remaining_collateral_amount = 50;
     order.staged_remaining_debt_shares = 25;
@@ -150,7 +143,7 @@ fn reset_staged_settlement_clears_every_binding() {
     order.staged_executor_credit = 2;
     reset_staged_settlement(&mut order);
 
-    assert_eq!(order.staged_margin, 0);
+    assert_eq!(order.min_owner_payout, 10_000);
     assert_eq!(order.staged_collateral_amount, 0);
     assert_eq!(order.staged_remaining_collateral_amount, 0);
     assert_eq!(order.staged_remaining_debt_shares, 0);
@@ -180,9 +173,8 @@ fn stage_close_settlement_binds_custody_mint_and_amount() {
     let mut order = leverage_order();
     let custody = Pubkey::new_unique();
     let mint = Pubkey::new_unique();
-    stage_close_settlement_reference(&mut order, 10_000, custody, mint, 123);
+    stage_close_settlement_reference(&mut order, custody, mint, 123);
 
-    assert_eq!(order.staged_margin, 10_000);
     assert!(require_staged_settlement_reference(&order, custody, mint, 123).is_ok());
 }
 
@@ -191,7 +183,7 @@ fn staged_settlement_rejects_wrong_custody_mint_or_amount() {
     let mut order = leverage_order();
     let custody = Pubkey::new_unique();
     let mint = Pubkey::new_unique();
-    stage_close_settlement_reference(&mut order, 10_000, custody, mint, 123);
+    stage_close_settlement_reference(&mut order, custody, mint, 123);
 
     assert!(require_staged_settlement_reference(&order, Pubkey::new_unique(), mint, 123).is_err());
     assert!(require_staged_settlement_reference(&order, custody, Pubkey::new_unique(), 123).is_err());

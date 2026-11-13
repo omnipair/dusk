@@ -42,6 +42,14 @@ Borrow health is liquidation capacity divided by debt in basis points, using the
 Ordinary donations have no order budget or keeper reward. Order limits control the sponsor's escrow authorization, not the public repayment capability.
 
 
+## Leverage take-profit and stop-loss
+
+The owner sets a trigger price, a close percentage, and a positive minimum payout in debt-token atoms. The trigger uses the symmetric EMA for the collateral asset, expressed in whole debt tokens per whole collateral token. A take-profit triggers at or above that threshold. A stop-loss triggers at or below it.
+
+A keeper can submit the close once the trigger is met. Dusk sells the selected slice through the live AMM. The delegate requires the owner's minimum after debt repayment, the keeper reward, the order fee, and token transfer fees. A fill below the minimum reverts and leaves the order open. Only the owner can change the trigger, close percentage, or minimum. The same rules apply to full and partial closes.
+
+Standing orders created before this change require an owner-signed update to choose an EMA threshold and payout minimum. The owner can also cancel them to reclaim rent.
+
 ## Protocol order fee
 
 Built-in voluntary order execution assesses a hard-coded **10 bps (0.10%)** protocol service fee. This is an additional owner/sponsor expense; it does not reduce the pool LPs' revenue allocation or the executor's existing incentive. Leverage entry and hLP stop execution pay up to the assessed fee from funds remaining after the promised keeper credit and owner's net minimum, so a service fee alone cannot strand an otherwise valid exit. Native liquidations, hLP rescue, direct repayments/collateral donations, order creation/cancellation, funding, and yield harvesting do not incur this service fee. Ordinary native trading/interest fees still apply.
