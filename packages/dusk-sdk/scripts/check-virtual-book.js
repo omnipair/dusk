@@ -25,7 +25,7 @@ import {
 } from "../dist/index.js";
 const BN = Reflect.get(anchor, "BN") ?? Reflect.get(anchor, "default").BN;
 const fixture = JSON.parse(
-  readFileSync(new URL("./fixtures/virtual-book-batch-layout16.json", import.meta.url))
+  readFileSync(new URL("./fixtures/virtual-book-batch-layout17.json", import.meta.url))
 );
 // The derived fixture is already encoded with the current account/return schema.
 // Its original network capture remains a separate provenance artifact.

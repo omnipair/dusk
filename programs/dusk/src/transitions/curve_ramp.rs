@@ -2,8 +2,8 @@ use crate::{errors::ErrorCode, state::Market};
 use anchor_lang::prelude::*;
 
 impl Market {
-    /// Swaps lazily attempt the announced ramp. An unfunded, price-shifting or
-    /// unhealthy candidate remains unapplied; the existing market stays usable.
+    /// Swaps lazily attempt the announced ramp. An unfunded or unhealthy
+    /// candidate remains unapplied; the existing market stays usable.
     /// Withdrawals and repayments never depend on successfully advancing it.
     pub(crate) fn advance_concentration_ramp(&mut self, slot: u64) -> Result<bool> {
         let ramp = self.amm.concentration_ramp;
@@ -22,33 +22,7 @@ impl Market {
         let last_update_slot = self.last_update_slot;
         let attempt: Result<()> = (|| {
             self.assert_parameter_execution_utilization()?;
-            let before = self
-                .current_concentrated_spot_price_nad()?
-                .ok_or(ErrorCode::BrokenInvariant)?;
             let funded_before = self.funded_reserve_value()?;
-            // Compare against the announced starting shape at the CURRENT
-            // reserves and center. Comparing only adjacent steps would allow
-            // rounding tolerance to accumulate into a material repricing.
-            let ordinary = self.ordinary_curve_point_nad()?;
-            let live_config = self.config.amm;
-            let live_cache = self.amm.concentrated_curve_cache;
-            let baseline = if live_config.concentrated_curve_parameters()? == ramp.start {
-                before
-            } else {
-                self.config.amm.set_concentrated_curve_parameters(ramp.start)?;
-                self.amm.concentrated_curve_cache = crate::transitions::amm::prepare_concentrated_cache_at_point(
-                    ordinary.base_reserve,
-                    ordinary.quote_reserve,
-                    self.amm.center_price_nad,
-                    ramp.start,
-                )?;
-                let baseline = self
-                    .current_concentrated_spot_price_nad()?
-                    .ok_or(ErrorCode::BrokenInvariant)?;
-                self.config.amm = live_config;
-                self.amm.concentrated_curve_cache = live_cache;
-                baseline
-            };
             self.config
                 .amm
                 .set_concentrated_curve_parameters(ramp.candidate(slot)?)?;
@@ -56,7 +30,7 @@ impl Market {
             if self.config.amm.is_cpmm() {
                 self.release_protected_recenter_reserves()?;
             }
-            self.apply_concentrated_curve_parameter_update(slot, [before, baseline])?;
+            self.apply_concentrated_curve_parameter_update(slot)?;
             require!(
                 self.funded_reserve_value()? >= funded_before,
                 ErrorCode::OperatorPolicyExceeded

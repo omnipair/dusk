@@ -13444,6 +13444,19 @@ export type Dusk = {
             }
           },
           {
+            "name": "hlpFundingBasePricingOffsetNad",
+            "docs": [
+              "Pricing-only translations between the ordinary ownership books and",
+              "trading coordinates. Funding payments settle cash and liabilities;",
+              "these non-redeemable offsets keep them outside trading principal."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "hlpFundingQuotePricingOffsetNad",
+            "type": "i128"
+          },
+          {
             "name": "centerPriceNad",
             "type": "u64"
           },
@@ -23615,10 +23628,11 @@ export type Dusk = {
         "",
         "This layout counts token amounts in at least `MIN_AMOUNT_DECIMALS`",
         "decimals and sets independent lower/upper utilization rate targets.",
-        "Aggregate virtual reserves use u128; physical token amounts remain u64."
+        "Aggregate virtual reserves use u128; physical token amounts remain u64.",
+        "Separate hLP funding offsets preserve pricing principal through payment."
       ],
       "type": "u8",
-      "value": "16"
+      "value": "17"
     },
     {
       "name": "marketReserveVaultSeedPrefix",

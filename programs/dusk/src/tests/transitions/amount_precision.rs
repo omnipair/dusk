@@ -4,6 +4,7 @@
 // chain. Base fees are zero, so a round trip that returns more than its input
 // can only come from rounding.
 use super::*;
+include!("hlp_funding.rs");
 use crate::{
     constants::{BPS_DENOMINATOR, DEFAULT_BORROW_APR_NAD, MARKET_LAYOUT_VERSION, MIN_CONCENTRATED_SWAP_FEE_BPS, MIN_HALF_LIFE_MS, NAD},
     state::{

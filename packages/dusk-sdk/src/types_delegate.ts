@@ -2740,6 +2740,19 @@ export type LeverageDelegate = {
             }
           },
           {
+            "name": "hlpFundingBasePricingOffsetNad",
+            "docs": [
+              "Pricing-only translations between the ordinary ownership books and",
+              "trading coordinates. Funding payments settle cash and liabilities;",
+              "these non-redeemable offsets keep them outside trading principal."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "hlpFundingQuotePricingOffsetNad",
+            "type": "i128"
+          },
+          {
             "name": "centerPriceNad",
             "type": "u64"
           },

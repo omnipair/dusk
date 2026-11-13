@@ -35,7 +35,9 @@ pub(crate) struct HlpCarryCover {
 ///
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct IntegratedCurveState {
-    pub op_carry_cover: HlpCarryCover,
+    pub funding_carry_cover: HlpCarryCover,
+    pub base_pricing_offset_nad: i128,
+    pub quote_pricing_offset_nad: i128,
     pub ordinary_base: u128,
     pub ordinary_quote: u128,
     pub base_hlp_equity: u128,
@@ -74,8 +76,28 @@ pub(crate) struct IntegratedCurveState {
 }
 
 impl IntegratedCurveState {
+    // Capture the book-to-principal translation at quote start. Hold it fixed
+    // through the trade: re-anchoring its endpoint would hide trader cash flow
+    // or actual principal losses behind the funding separation.
+    #[inline(never)]
+    pub(crate) fn anchor_pricing_point(&mut self) -> Result<()> {
+        self.base_pricing_offset_nad = 0;
+        self.quote_pricing_offset_nad = 0;
+        let book_point = self
+            .reconstructed_curve_point()?
+            .ok_or(ErrorCode::InsufficientLiquidity)?;
+        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
+        self.base_pricing_offset_nad = signed(self.ordinary_base)?
+            .checked_sub(signed(book_point.base_reserve)?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.quote_pricing_offset_nad = signed(self.ordinary_quote)?
+            .checked_sub(signed(book_point.quote_reserve)?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
+
     pub(crate) fn backing_equities(self) -> Result<(u128, u128)> {
-        let cover = self.op_carry_cover;
+        let cover = self.funding_carry_cover;
         Ok((
             self.base_hlp_equity
                 .checked_add(cover.base)
@@ -87,9 +109,9 @@ impl IntegratedCurveState {
     }
 
     /// Replace the endpoint carry cover without charging net NAV again.
-    pub(crate) fn with_op_carry_cover(mut self, price_nad: u64) -> Result<Self> {
+    pub(crate) fn with_funding_carry_cover(mut self, price_nad: u64) -> Result<Self> {
         require!(price_nad > 0, ErrorCode::InvalidSettlementPrice);
-        let old = self.op_carry_cover;
+        let old = self.funding_carry_cover;
         let base = if self.frozen_hlp_mask & 1 == 0 {
             crate::math::mul_div_ceil_u128(
                 u128::from(self.base_hlp_quote_carry)
@@ -120,7 +142,7 @@ impl IntegratedCurveState {
         };
         self.ordinary_base_book_offset = shift(self.ordinary_base_book_offset, old.base, base)?;
         self.ordinary_quote_book_offset = shift(self.ordinary_quote_book_offset, old.quote, quote)?;
-        self.op_carry_cover = HlpCarryCover { base, quote };
+        self.funding_carry_cover = HlpCarryCover { base, quote };
         Ok(self)
     }
 
@@ -165,6 +187,22 @@ impl IntegratedCurveState {
             )
         };
         let signed = |v: u128| i128::try_from(v).map_err(|_| ErrorCode::MarketMathOverflow);
+        let base_quote_backing = endpoint
+            .base_hlp_quote_debt
+            .checked_sub(
+                u128::from(self.base_hlp_quote_carry)
+                    .checked_mul(self.quote_atom_nad)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            )
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let quote_base_backing = endpoint
+            .quote_hlp_base_debt
+            .checked_sub(
+                u128::from(self.quote_hlp_base_carry)
+                    .checked_mul(self.base_atom_nad)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            )
+            .ok_or(ErrorCode::BrokenInvariant)?;
         let value = |claim: u128, debt: u128, numerator: u128, denominator: u128| -> Result<i128> {
             let v = signed(mul_div_u128(claim.abs_diff(debt), numerator, denominator)?)?;
             Ok(if claim < debt { -v } else { v })
@@ -177,7 +215,7 @@ impl IntegratedCurveState {
             signed(base_claim)?
                 .checked_add(value(
                     base_opposite,
-                    endpoint.base_hlp_quote_debt,
+                    base_quote_backing,
                     endpoint.total_base,
                     endpoint.total_quote,
                 )?)
@@ -189,7 +227,7 @@ impl IntegratedCurveState {
             signed(quote_claim)?
                 .checked_add(value(
                     quote_opposite,
-                    endpoint.quote_hlp_base_debt,
+                    quote_base_backing,
                     endpoint.total_quote,
                     endpoint.total_base,
                 )?)
@@ -197,17 +235,19 @@ impl IntegratedCurveState {
         };
         let base = signed(endpoint.total_base)?
             .checked_sub(base_equity)
-            .and_then(|v| v.checked_sub(signed(endpoint.quote_hlp_base_debt).ok()?))
+            .and_then(|v| v.checked_sub(signed(quote_base_backing).ok()?))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote = signed(endpoint.total_quote)?
             .checked_sub(quote_equity)
-            .and_then(|v| v.checked_sub(signed(endpoint.base_hlp_quote_debt).ok()?))
+            .and_then(|v| v.checked_sub(signed(base_quote_backing).ok()?))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let base = base
             .checked_add(self.frozen_base_curve_offset_nad)
+            .and_then(|value| value.checked_add(self.base_pricing_offset_nad))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote = quote
             .checked_add(self.frozen_quote_curve_offset_nad)
+            .and_then(|value| value.checked_add(self.quote_pricing_offset_nad))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         Ok((base > 0 && quote > 0).then_some(ConcentratedCurvePoint {
             base_reserve: base.max(0) as u128,
@@ -234,7 +274,7 @@ impl IntegratedCurveState {
                 0
             })
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        if self.op_carry_cover.base > 0 || self.op_carry_cover.quote > 0 {
+        if self.funding_carry_cover.base > 0 || self.funding_carry_cover.quote > 0 {
             return Ok((
                 base.checked_add(
                     u128::from(self.quote_hlp_base_carry)

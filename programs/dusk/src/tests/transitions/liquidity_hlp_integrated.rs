@@ -215,9 +215,9 @@ fn oracle_carry_cover_replaces_backing_without_recharging_net_nav() {
     let mut state=original;
     for _ in 0..32 {
         for price in [6,600,60,3,1200] {
-            state=state.with_op_carry_cover(price*crate::constants::NAD).unwrap();
-            assert_eq!(state,original.with_op_carry_cover(price*crate::constants::NAD).unwrap());
-            assert_eq!(state,state.with_op_carry_cover(price*crate::constants::NAD).unwrap());
+            state=state.with_funding_carry_cover(price*crate::constants::NAD).unwrap();
+            assert_eq!(state,original.with_funding_carry_cover(price*crate::constants::NAD).unwrap());
+            assert_eq!(state,state.with_funding_carry_cover(price*crate::constants::NAD).unwrap());
             assert_eq!((state.base_hlp_equity,state.quote_hlp_equity),net);
             let covered_book=state.book_ordinary().unwrap();
             let backing=state.backing_equities().unwrap();

@@ -1532,7 +1532,7 @@ fn exhausted_hlp_waterfall_cancels_unpaid_interest_and_keeps_zero_value_receipts
 fn snapshot() -> (Market, Clock) {
     // Derived from the immutable devnet capture and encoded directly with the
     // current layout. No old-account conversion runs in this regression test.
-    let bytes = include_bytes!("../fixtures/hlp-entry-layout16.bin");
+    let bytes = include_bytes!("../fixtures/hlp-entry-layout17.bin");
     let market = Market::try_deserialize(&mut bytes.as_slice()).unwrap();
     let clock = Clock {
         slot: 500_291_305,
