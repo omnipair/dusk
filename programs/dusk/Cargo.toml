@@ -23,6 +23,7 @@ anchor-debug = []
 custom-heap = []
 custom-panic = []
 production = []
+devnet-short-notice = []
 # Logs the hLP reserve-identity drift instead of only rejecting on it.
 #
 # The identity fails about a third of devnet swaps and the failure has resisted

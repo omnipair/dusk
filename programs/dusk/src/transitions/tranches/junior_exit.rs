@@ -1,5 +1,5 @@
 use crate::{
-    constants::{MS_PER_DAY, TARGET_MS_PER_SLOT},
+    constants::{DEVNET_JUNIOR_NOTICE_SLOTS, JUNIOR_MAX_NOTICE_SLOTS, MS_PER_DAY, TARGET_MS_PER_SLOT},
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
     state::{JuniorExitConfig, JuniorExitTicket, TrancheCapital},
@@ -8,9 +8,14 @@ use anchor_lang::prelude::*;
 
 impl Default for JuniorExitConfig {
     fn default() -> Self {
+        let (minimum_notice_slots, maximum_notice_slots) = if cfg!(feature = "devnet-short-notice") {
+            (DEVNET_JUNIOR_NOTICE_SLOTS, DEVNET_JUNIOR_NOTICE_SLOTS)
+        } else {
+            (7 * MS_PER_DAY / TARGET_MS_PER_SLOT, JUNIOR_MAX_NOTICE_SLOTS)
+        };
         Self {
-            minimum_notice_slots: 7 * MS_PER_DAY / TARGET_MS_PER_SLOT,
-            maximum_notice_slots: crate::constants::JUNIOR_MAX_NOTICE_SLOTS,
+            minimum_notice_slots,
+            maximum_notice_slots,
             exercise_window_slots: 2 * MS_PER_DAY / TARGET_MS_PER_SLOT,
         }
     }

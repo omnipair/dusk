@@ -152,3 +152,6 @@ pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE
 /// Maximum junior notice; operator changes wait this plus one protocol day.
 #[constant]
 pub const JUNIOR_MAX_NOTICE_SLOTS: u64 = 10 * MS_PER_DAY / TARGET_MS_PER_SLOT;
+
+pub(crate) const DEVNET_JUNIOR_NOTICE_SLOTS: u64 = 2_500;
+pub(crate) const DEVNET_OPERATOR_NOTICE_SLOTS: u64 = DEVNET_JUNIOR_NOTICE_SLOTS + 1_250;
