@@ -70,6 +70,7 @@ impl<'info> EmergencyLiquidation<'info> {
             asset.opposite(),
             clock.unix_timestamp,
             &ctx.accounts.instructions,
+            false,
         )?;
         crate::instructions::accounting::accrue_market_interest(
             &mut a.market,

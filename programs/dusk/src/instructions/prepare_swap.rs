@@ -1,4 +1,7 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::instruction::{
+    get_processed_sibling_instruction, get_stack_height, Instruction, TRANSACTION_LEVEL_STACK_HEIGHT,
+};
 use anchor_lang::solana_program::sysvar::instructions::{
     load_current_index_checked, load_instruction_at_checked, ID as INSTRUCTIONS_SYSVAR_ID,
 };
@@ -15,6 +18,7 @@ pub(crate) fn enforce_launch_same_transaction_guard(
     asset_in: MarketAsset,
     unix_timestamp: i64,
     instructions_sysvar: &AccountInfo<'_>,
+    allow_direct_cpi: bool,
 ) -> Result<()> {
     if !market
         .config
@@ -31,7 +35,11 @@ pub(crate) fn enforce_launch_same_transaction_guard(
     // as a price-moving action only when it carries both reserve vaults for
     // the internal AMM route; otherwise an ordinary Dusk swap inside the
     // flash route would be incorrectly treated as a split launch trade.
-    let is_action = |ix: &anchor_lang::solana_program::instruction::Instruction| {
+    let touches_market = |ix: &Instruction| ix.accounts.iter().any(|meta| meta.pubkey == market_key);
+    let is_action = |ix: &Instruction| {
+        if ix.program_id != crate::ID || !touches_market(ix) {
+            return false;
+        }
         let Some(discriminator) = ix.data.get(..8) else {
             return false;
         };
@@ -51,28 +59,46 @@ pub(crate) fn enforce_launch_same_transaction_guard(
     );
     let current = load_instruction_at_checked(current_index, instructions_sysvar)
         .map_err(|_| ErrorCode::LaunchRateLimitSplitTransaction)?;
+    let via_cpi = current.program_id != crate::ID;
     require!(
-        current.program_id == crate::ID
-            && is_action(&current)
-            && current.accounts.iter().any(|meta| meta.pubkey == market_key),
+        if via_cpi {
+            allow_direct_cpi && get_stack_height() == TRANSACTION_LEVEL_STACK_HEIGHT + 1 && touches_market(&current)
+        } else {
+            is_action(&current)
+        },
         ErrorCode::LaunchRateLimitSplitTransaction
     );
 
-    let mut matching_market_actions = 0_u8;
-    let mut index = 0_usize;
-    while let Ok(instruction) = load_instruction_at_checked(index, instructions_sysvar) {
-        if instruction.program_id == crate::ID
-            && is_action(&instruction)
-            && instruction.accounts.iter().any(|meta| meta.pubkey == market_key)
-        {
-            matching_market_actions = matching_market_actions
-                .checked_add(1)
-                .ok_or(ErrorCode::LaunchRateLimitSplitTransaction)?;
-            require!(matching_market_actions <= 1, ErrorCode::LaunchRateLimitSplitTransaction);
+    if via_cpi {
+        // At this depth, earlier calls under the same router are siblings.
+        for index in 0.. {
+            let Some(sibling) = get_processed_sibling_instruction(index) else {
+                break;
+            };
+            require!(!is_action(&sibling), ErrorCode::LaunchRateLimitSplitTransaction);
         }
-        index = index.checked_add(1).ok_or(ErrorCode::LaunchRateLimitSplitTransaction)?;
     }
-    require_eq!(matching_market_actions, 1, ErrorCode::LaunchRateLimitSplitTransaction);
+
+    // A different top-level router instruction can hide its own CPI.
+    // For a routed buy, reject other external instructions that can write
+    // this market, in addition to the classified Dusk actions.
+    for index in 0.. {
+        let Ok(instruction) = load_instruction_at_checked(index, instructions_sysvar) else {
+            break;
+        };
+        if index != current_index {
+            let other_router = via_cpi
+                && instruction.program_id != crate::ID
+                && instruction
+                    .accounts
+                    .iter()
+                    .any(|meta| meta.pubkey == market_key && meta.is_writable);
+            require!(
+                !is_action(&instruction) && !other_router,
+                ErrorCode::LaunchRateLimitSplitTransaction
+            );
+        }
+    }
     Ok(())
 }
 

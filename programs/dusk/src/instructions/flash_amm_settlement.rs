@@ -94,6 +94,7 @@ pub(super) fn settle_with_amm<'info>(
         asset.opposite(),
         clock.unix_timestamp,
         &ctx.accounts.instructions,
+        false,
     )?;
     let collateral_credit =
         leverage_collateral_fee(&a.collateral_mint, clock.epoch)?.unwind_credit(q.collateral_credit)?;

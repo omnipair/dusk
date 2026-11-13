@@ -36,7 +36,7 @@ pub fn process_instruction(
     let bump_seed = [bump];
     let signer = [b"actor".as_ref(), controller.key.as_ref(), &bump_seed];
     match data.first() {
-        Some(0) => {
+        Some(0 | 2) => {
             let dusk = next_account_info(&mut iter)?;
             if *dusk.key != DUSK || !dusk.executable {
                 return Err(ProgramError::IncorrectProgramId);
@@ -59,7 +59,11 @@ pub fn process_instruction(
             };
             let mut infos = forwarded.to_vec();
             infos.push(dusk.clone());
-            invoke_signed(&instruction, &infos, &[&signer])
+            invoke_signed(&instruction, &infos, &[&signer])?;
+            if data[0] == 2 {
+                invoke_signed(&instruction, &infos, &[&signer])?;
+            }
+            Ok(())
         }
         Some(1) if data.len() == 1 => {
             let system = next_account_info(&mut iter)?;
@@ -82,6 +86,27 @@ pub fn process_instruction(
             )?;
             actor.try_borrow_mut_data()?.copy_from_slice(b"OPERATR1");
             Ok(())
+        }
+        Some(3) => {
+            let adapter = accounts.last().ok_or(ProgramError::NotEnoughAccountKeys)?;
+            if adapter.key != program_id || !adapter.executable {
+                return Err(ProgramError::IncorrectProgramId);
+            }
+            let mut inner_data = data.to_vec();
+            inner_data[0] = 0;
+            let instruction = Instruction {
+                program_id: *program_id,
+                data: inner_data,
+                accounts: accounts[..accounts.len() - 1]
+                    .iter()
+                    .map(|account| AccountMeta {
+                        pubkey: *account.key,
+                        is_writable: account.is_writable,
+                        is_signer: account.is_signer,
+                    })
+                    .collect(),
+            };
+            invoke_signed(&instruction, accounts, &[])
         }
         _ => Err(ProgramError::InvalidInstructionData),
     }

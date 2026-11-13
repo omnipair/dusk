@@ -113,6 +113,7 @@ impl<'info> Swap<'info> {
             asset_in,
             clock.unix_timestamp,
             &accounts.instructions_sysvar.to_account_info(),
+            true,
         )?;
         let (market_side_in, market_side_out) = accounts.market.swap_sides(asset_in);
         require_keys_eq!(

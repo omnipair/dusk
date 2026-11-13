@@ -12419,4 +12419,80 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     }
   });
 
+  it("charges the launch premium on one routed buy and rejects same-market repeats until expiry", async function () {
+    const config = marketConfig();
+    config.amm.launchRateLimitAsset = 2;
+    config.amm.launchRateLimitReferenceNad = new BN(500_000);
+    config.amm.launchRateLimitIncrementBps = 10;
+    config.amm.launchRateLimitMaxFeeBps = 100;
+    config.amm.launchRateLimitDurationSeconds = new BN(3_600);
+    const fixture = await addBalancedLiquidity(280, config);
+    const sdk = new DuskWrite(createDuskProgram({ provider: program.provider }));
+    const buy = await sdk.buildSwapInstruction({
+      market: fixture.market, trader: payer.publicKey, assetInMint: fixture.baseMint,
+      assetOutMint: fixture.quoteMint, traderAssetInAccount: fixture.ownerBaseAccount,
+      traderAssetOutAccount: fixture.ownerQuoteAccount, exactAssetIn: 1_000, minAssetOut: 1,
+    });
+    const [actor] = PublicKey.findProgramAddressSync(
+      [Buffer.from("actor"), payer.publicKey.toBuffer()], OPERATOR_ADAPTER_PROGRAM_ID
+    );
+    const forward = (mode: number) => new TransactionInstruction({
+      programId: OPERATOR_ADAPTER_PROGRAM_ID,
+      keys: [
+        { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+        { pubkey: actor, isSigner: false, isWritable: false },
+        { pubkey: buy.programId, isSigner: false, isWritable: false },
+        ...buy.keys,
+        ...(mode === 3 ? [{ pubkey: OPERATOR_ADAPTER_PROGRAM_ID, isSigner: false, isWritable: false }] : []),
+      ],
+      data: Buffer.concat([Buffer.from([mode]), buy.data]),
+    });
+    const routed = forward(0);
+    const before = (await getAccount(connection as any, fixture.ownerQuoteAccount)).amount;
+    const routedBuy = new Transaction().add(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      createAssociatedTokenAccountIdempotentInstruction(
+        payer.publicKey, fixture.ownerQuoteAccount, payer.publicKey, fixture.quoteMint,
+      ),
+      routed,
+    );
+    await connection.sendTransaction(routedBuy, [payer]);
+    const after = (await getAccount(connection as any, fixture.ownerQuoteAccount)).amount;
+    expect(after > before).to.equal(true);
+    // This buy is twice the reference size, so 30 bps plus one 10 bps
+    // increment charges four atoms on an input of 1,000.
+    expect(cpiEvent(routedBuy, "swapExecuted").baseFee.toString()).to.equal("4");
+    for (const instructions of [
+      [forward(2)], [routed, routed], [buy, routed], [routed, buy], [forward(3)],
+    ]) {
+      svm.expireBlockhash();
+      let failure: unknown;
+      try {
+        await connection.sendTransaction(new Transaction().add(...instructions), [payer]);
+      } catch (error) {
+        failure = error;
+      }
+      expect(String(failure)).to.include("LaunchRateLimitSplitTransaction");
+      expect((await getAccount(connection as any, fixture.ownerQuoteAccount)).amount).to.equal(after);
+    }
+
+    const clock = svm.getClock();
+    const expired = svm.getClock();
+    expired.unixTimestamp += 3_600n;
+    svm.setClock(expired);
+    svm.expireBlockhash();
+    try {
+      const repeatedBuy = new Transaction().add(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+        forward(2),
+      );
+      await connection.sendTransaction(repeatedBuy, [payer]);
+      const fees = cpiEvents(repeatedBuy)
+        .filter(event => event.name === "swapExecuted")
+        .map(event => event.data.baseFee.toString());
+      expect(fees).to.deep.equal(["3", "3"]);
+    } finally {
+      svm.setClock(clock);
+    }
+  });
 });

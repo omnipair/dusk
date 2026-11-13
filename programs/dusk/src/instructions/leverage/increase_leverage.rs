@@ -125,6 +125,7 @@ impl<'info> IncreaseLeverage<'info> {
             debt_asset,
             unix_timestamp,
             &self.instructions_sysvar.to_account_info(),
+            false,
         )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         validate_leverage_reserve_accounts(
