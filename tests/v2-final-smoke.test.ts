@@ -122,9 +122,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
-const DUSK_PROGRAM_ID = new PublicKey("G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN");
+const DUSK_PROGRAM_ID = new PublicKey("9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH");
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
-  "A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B"
+  "5yeZJw1bNer5jq4GVNa7ifsgnM7ivxXQLCK6ro8EJ3Ue"
 );
 const OPERATOR_ADAPTER_PROGRAM_ID = new PublicKey("AJZgAHa6yfsoLbJk3jzqj6dPcnei5Pb7heRMGWrZu1fQ");
 const REFERRAL_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
