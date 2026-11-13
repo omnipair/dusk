@@ -68,6 +68,14 @@ pub(super) fn verify_opened_position(
         position.debt_asset == order.debt_asset,
         LeverageDelegateError::InvalidOrder
     );
+    // Dusk records the margin its reserve was credited. Moving the margin out
+    // of the order vault pays a second transfer fee, so check what Dusk
+    // recorded rather than what the order forwarded.
+    require_gte!(
+        position.margin_amount,
+        order.min_margin_amount,
+        LeverageDelegateError::MinimumMarginNotMet
+    );
     (position.margin_amount as u128)
         .checked_add(position.debt_principal)
         .and_then(|value| u64::try_from(value).ok())

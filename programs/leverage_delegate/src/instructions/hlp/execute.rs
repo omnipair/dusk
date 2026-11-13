@@ -85,20 +85,14 @@ impl<'info> ExecuteHlpOrder<'info> {
             ctx.accounts.market.assert_current_version().is_ok(),
             LeverageDelegateError::InvalidMarketVersion
         );
+        let target_asset =
+            current_hlp_asset(&ctx.accounts.market, ctx.accounts.order.target_hlp_mint)?;
         require_gte!(
             ctx.accounts.custody_hlp_account.amount,
             ctx.accounts.order.hlp_amount,
             LeverageDelegateError::InvalidTokenAccount
         );
-        require!(
-            ctx.accounts.custody_target_account.amount == 0,
-            LeverageDelegateError::InvalidTokenAccount
-        );
 
-        let target_asset = ctx
-            .accounts
-            .market
-            .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
         let trigger_preview = fetch_hlp_order_trigger_preview(
             ctx.accounts,
             ctx.remaining_accounts,
@@ -137,9 +131,18 @@ impl<'info> ExecuteHlpOrder<'info> {
         };
         require!(trigger_met, LeverageDelegateError::TriggerNotMet);
 
+        // Anyone can transfer into the custody account. Measure the
+        // withdrawal as a balance delta so an earlier balance neither blocks
+        // execution nor counts as proceeds; the owner receives it on close.
+        let custody_before = ctx.accounts.custody_target_account.amount;
         withdraw_hlp_order_position(ctx.accounts, ctx.remaining_accounts)?;
         ctx.accounts.custody_target_account.reload()?;
-        let output = ctx.accounts.custody_target_account.amount;
+        let output = ctx
+            .accounts
+            .custody_target_account
+            .amount
+            .checked_sub(custody_before)
+            .ok_or(LeverageDelegateError::MathOverflow)?;
         require_gte!(
             output,
             ctx.accounts.order.min_target_amount_out,
@@ -249,8 +252,12 @@ impl<'info> ExecuteHlpOrder<'info> {
             incentive_net,
             LeverageDelegateError::InvalidOrder
         );
+        // The owner receives the whole remaining balance: its share of this
+        // withdrawal plus anything the account held before it.
+        ctx.accounts.custody_target_account.reload()?;
+        let owner_transfer = ctx.accounts.custody_target_account.amount;
         let owner_balance_before = ctx.accounts.owner_target_account.amount;
-        if owner_amount > 0 {
+        if owner_transfer > 0 {
             transfer_checked(
                 token_program_for_mint(
                     &target_mint_account,
@@ -261,7 +268,7 @@ impl<'info> ExecuteHlpOrder<'info> {
                 target_mint_account,
                 ctx.accounts.owner_target_account.to_account_info(),
                 ctx.accounts.order.to_account_info(),
-                owner_amount,
+                owner_transfer,
                 target_decimals,
                 signer,
                 ctx.remaining_accounts,

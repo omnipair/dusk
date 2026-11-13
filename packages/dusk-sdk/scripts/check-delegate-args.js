@@ -344,6 +344,35 @@ test("protection orders encode the same bytes as before and check their inputs",
   );
 });
 
+test("protection close fills in both token programs and checks its accounts", async () => {
+  const protection = new DuskProtectionOrders(program);
+  const accounts = {
+    order: deriveProtectionOrderAddress(owner, 21n, program.programId)[0],
+    custodyLpAccount: key(12),
+    baseYieldAccount: key(15),
+    quoteYieldAccount: key(16),
+    baseMint: debtMint,
+    quoteMint: collateralMint,
+    custodyBaseAccount: key(28),
+    custodyQuoteAccount: null,
+    ownerBaseAccount: key(30),
+    ownerQuoteAccount: null,
+    owner,
+  };
+  const expected = await program.methods
+    .closeProtectionOrder()
+    .accountsStrict({ ...accounts, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID })
+    .instruction();
+  assertSameInstruction(await protection.closeInstruction(accounts), expected);
+  const { custodyLpAccount, ...withoutCustody } = accounts;
+  await rejectsInput(
+    protection.closeInstruction({ ...withoutCustody, custodyLpAcount: custodyLpAccount }),
+    "closeProtectionOrder",
+    "custodyLpAcount",
+    /did you mean "custodyLpAccount"\?/
+  );
+});
+
 test("protection execution checks its inputs before reading the order", async () => {
   const protection = new DuskProtectionOrders(program);
   const accounts = {

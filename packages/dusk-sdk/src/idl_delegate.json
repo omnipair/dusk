@@ -630,6 +630,128 @@
       "args": []
     },
     {
+      "name": "close_protection_order",
+      "docs": [
+        "Close a cancelled order whose LP custody is empty and whose yield",
+        "accounts have nothing left to claim. Rent returns to the sponsor."
+      ],
+      "discriminator": [
+        37,
+        228,
+        136,
+        164,
+        116,
+        239,
+        241,
+        17
+      ],
+      "accounts": [
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "order.order_id",
+                "account": "ProtectionOrder"
+              }
+            ]
+          }
+        },
+        {
+          "name": "custody_lp_account",
+          "docs": [
+            "Must be empty. Cancellation refunds the whole balance, so repeating it",
+            "returns a later LP transfer into custody."
+          ],
+          "writable": true
+        },
+        {
+          "name": "base_yield_account"
+        },
+        {
+          "name": "quote_yield_account"
+        },
+        {
+          "name": "base_mint",
+          "docs": [
+            "Writable so Token-2022 can harvest withheld transfer fees before close."
+          ],
+          "writable": true
+        },
+        {
+          "name": "quote_mint",
+          "writable": true
+        },
+        {
+          "name": "custody_base_account",
+          "docs": [
+            "Order-owned asset custody that execution used, usually the order's ATA."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "custody_quote_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "owner_base_account",
+          "docs": [
+            "Required only when the matching custody account holds a balance."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "owner_quote_account",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_hlp_order",
       "discriminator": [
         65,
@@ -2559,6 +2681,21 @@
       "code": 6006,
       "name": "MinimumPayoutNotMet",
       "msg": "Net close payout is below the owner's minimum"
+    },
+    {
+      "code": 6007,
+      "name": "HlpCohortRetired",
+      "msg": "The order's hLP cohort was retired; only cancellation remains"
+    },
+    {
+      "code": 6008,
+      "name": "MinimumMarginNotMet",
+      "msg": "Opened margin is below the owner's minimum"
+    },
+    {
+      "code": 6009,
+      "name": "UnclaimedYield",
+      "msg": "Harvest the order's earned yield before closing it"
     }
   ],
   "types": [
@@ -4302,9 +4439,27 @@
             "type": "u8"
           },
           {
+            "name": "deposit_credit",
+            "docs": [
+              "Measured vault credit of `deposit_amount`, which funds the margin and",
+              "the executor's gross bounty. The protocol fee deposit is not included."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "margin_amount",
             "docs": [
-              "Gross vault debit forwarded to Dusk as margin."
+              "Gross vault debit forwarded to Dusk as margin at the creation epoch's",
+              "transfer fee. Execution forwards less when a later fee increase raises",
+              "the bounty's gross debit."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "min_margin_amount",
+            "docs": [
+              "Minimum margin Dusk must record for the opened position, after every",
+              "transfer fee."
             ],
             "type": "u64"
           },

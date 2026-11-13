@@ -422,7 +422,10 @@ sending a zero fee deposit. Anchor fills in PDAs whose seeds it can compute,
 the signer and fixed program accounts; transfer-hook and oracle accounts go in
 `remainingAccounts`. A new order's PDA comes from the arguments, but an
 existing order's is seeded by its own data, so every instruction that acts on
-one takes `order`. `DuskProtectionOrders` checks its inputs the same way.
+one takes `order`. `DuskProtectionOrders` checks its inputs the same way. Its
+`closeInstruction` closes a cancelled protection order whose yield has been
+harvested and returns the rent of the order and its custody accounts to the
+sponsor.
 
 Both programs' aliases apply IDL-generic types that accept any Anchor IDL
 type, such as `DuskIdl` or `LeverageDelegateIdl`:

@@ -167,6 +167,13 @@ export async function typedBuilders(): Promise<void> {
   void debtAsset;
   // @ts-expect-error the debt side is required
   await protection.createInstruction(withoutDebtAsset, createAccounts);
+
+  const closeAccounts = { order: key, custodyLpAccount: key, baseYieldAccount: key, quoteYieldAccount: key, baseMint: key, quoteMint: key, custodyBaseAccount: key, custodyQuoteAccount: null, ownerBaseAccount: key, ownerQuoteAccount: null, owner: key };
+  await protection.closeInstruction(closeAccounts);
+  const { custodyLpAccount, ...withoutCustodyLp } = closeAccounts;
+  void custodyLpAccount;
+  // @ts-expect-error the LP custody account is required
+  await protection.closeInstruction(withoutCustodyLp);
 }
 
 // The aliases are the IDL-generic types applied to each program.

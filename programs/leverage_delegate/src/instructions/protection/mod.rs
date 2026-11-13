@@ -21,14 +21,21 @@ use dusk::{
     },
     transitions::LeverageCollateralFee,
 };
+mod close;
 mod create;
 mod execute;
 mod manage;
 mod payment;
 mod redeem;
+pub use close::*;
 pub use create::*;
 pub use execute::*;
 pub use manage::*;
+
+#[cfg(test)]
+mod tests {
+    include!("../../tests/instructions/protection.rs");
+}
 
 /// Invoke Dusk with one exact-sized account buffer and an unchanged dynamic
 /// suffix. Composite protection routes otherwise allocate the same metadata
