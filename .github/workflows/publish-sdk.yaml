@@ -2,7 +2,7 @@ name: publish-sdk
 
 # Publishes @omnipair/dusk-sdk once the version on main is deployed.
 #
-# Deploy first, then merge. A merge to main that touches the package publishes
+# A merge to main that touches the package publishes
 # the version in packages/dusk-sdk/package.json when that version is not on npm
 # yet and every IDL the package ships matches the IDL account on the cluster
 # the version describes:
@@ -17,11 +17,9 @@ name: publish-sdk
 # interface only: a program change that keeps the IDLs passes it whether or not
 # it is deployed.
 #
-# A pull request that touches the package runs the same checks without
-# publishing, and fails while the IDLs it ships differ from the cluster. A
-# deployment or IDL upload that has not happened shows on the pull request
-# before the merge, instead of as a warning after it. Re-run the check once the
-# programs and IDLs are live.
+# A pull request that touches the package checks its version and build without
+# requiring a deployment. Deployment matching runs before publishing from main
+# or a release tag. A merge can wait for deployment and be re-run afterwards.
 #
 # A `dusk-sdk-v<version>` tag on a deployed main commit also publishes it, and
 # fails instead of warning when the IDLs differ. A manual run takes an existing
@@ -208,7 +206,7 @@ jobs:
             STATUS="Not on npm yet"
             NEXT="it publishes if every IDL it ships matches $CLUSTER."
             if [ "$PULL_REQUEST" = "true" ]; then
-              NEXT="its merge publishes it if every IDL it ships matches $CLUSTER, and this check fails until they do."
+              NEXT="its merge publishes it if every IDL it ships matches $CLUSTER; deployment is not required for the pull request check."
             fi
           else
             echo "$OUTPUT"
@@ -238,7 +236,7 @@ jobs:
 
       # The package's build script first copies an Anchor build from target/
       # into src/. A release ships the committed src/, which CI checks against
-      # a clean Anchor build and the next step checks against the cluster.
+      # a clean Anchor build. Publishing also checks against the cluster.
       - name: Build from the committed interface
         if: steps.registry.outputs.build == 'true'
         working-directory: ${{ env.PACKAGE_DIR }}
@@ -248,7 +246,7 @@ jobs:
 
       - name: Match the deployed IDLs
         id: idl
-        if: steps.registry.outputs.build == 'true'
+        if: steps.registry.outputs.build == 'true' && github.event_name != 'pull_request'
         working-directory: ${{ env.PACKAGE_DIR }}
         env:
           CLUSTER: ${{ steps.channel.outputs.cluster }}
@@ -291,11 +289,9 @@ jobs:
           }
 
           (async () => {
-            const { CLUSTER, RPC_URL, MERGE, PULL_REQUEST, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY } = process.env;
-            // A merge can land before its deployment, so it warns where a tag
-            // or a pull request fails.
+            const { CLUSTER, RPC_URL, MERGE, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY } = process.env;
+            // A merge can wait for deployment; a release tag must match now.
             const merge = MERGE === "true";
-            const pullRequest = PULL_REQUEST === "true";
             const level = merge ? "warning" : "error";
             const connection = new Connection(RPC_URL, "confirmed");
             const files = readdirSync("src").filter((name) => /^idl_.+\.json$/.test(name)).sort();
@@ -333,7 +329,7 @@ jobs:
                     (key) => canonicalJson(shipped[key]) !== canonicalJson(deployed[key])
                   );
                   const hint =
-                    merge || pullRequest
+                    merge
                       ? ""
                       : " Upload the IDL of the deployed build with scripts/v2/upload_idl.sh, or tag the commit that was deployed.";
                   console.log(
@@ -357,10 +353,8 @@ jobs:
               ...rows,
               "",
             ];
-            if (!allMatch && (merge || pullRequest)) {
-              const message = merge
-                ? `This merge does not match the ${CLUSTER} deployment yet, so it publishes nothing. Once its programs and IDLs are live, re-run this run to publish it.`
-                : `This pull request does not match the ${CLUSTER} deployment yet. Deploy its programs with the yarn v2:deploy-* scripts, which upload their IDLs, or run scripts/v2/upload_idl.sh after any other deploy. Then re-run this check before merging.`;
+            if (!allMatch && merge) {
+              const message = `This merge does not match the ${CLUSTER} deployment yet, so it publishes nothing. Once its programs and IDLs are live, re-run this run to publish it.`;
               console.log(`::${level}::${message}`);
               summary.push(message, "");
             }
