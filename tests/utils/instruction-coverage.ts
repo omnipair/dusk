@@ -9,7 +9,7 @@ import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 type InstructionId = string;
 
 const DUSK_PROGRAM_ID = new PublicKey(
-  "G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN"
+  "9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH"
 );
 
 export const REQUIRED_SWAP_COMPUTE_SCENARIOS = [

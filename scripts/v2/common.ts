@@ -601,11 +601,17 @@ export async function ensureFutarchyAuthority(params: { program: any; payer: Pub
   }
 
   const previousProgramId = duskEnv("PREVIOUS_PROGRAM_ID");
-  const previous = previousProgramId
-    ? await params.program.account.futarchyAuthority.fetchNullable(
-        deriveFutarchyAuthorityAddress(new PublicKey(previousProgramId))
-      )
-    : null;
+  let previous: any = null;
+  if (previousProgramId) {
+    const previousKey = new PublicKey(previousProgramId);
+    const previousProgram = await anchor.Program.at(previousKey, params.program.provider);
+    if (!previousProgram.programId.equals(previousKey)) {
+      throw new Error("Previous futarchy IDL does not match its program");
+    }
+    previous = await (previousProgram.account as any).futarchyAuthority.fetchNullable(
+      deriveFutarchyAuthorityAddress(previousKey)
+    );
+  }
   if (previousProgramId && !previous) {
     throw new Error(`Program ${previousProgramId} has no futarchy authority to copy`);
   }
