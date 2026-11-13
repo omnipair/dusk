@@ -2,25 +2,25 @@
 
 These scripts create a disposable Omnipair V2 (Dusk) devnet market and tester balances without committing keypairs.
 
-The layout-15 deployment uses fresh program IDs. Create markets only after both programs and their IDLs are finalized, so the active indexer revision includes market creation and every ownership event. Previous program accounts and observations retain their archived identities.
+The layout-16 deployment uses fresh program IDs. Create markets only after both programs and their IDLs are finalized, so the active indexer revision includes market creation and every ownership event. Previous program accounts and observations retain their archived identities.
 
 Local state and generated keypairs live in `~/.config/omnipair/dusk-devnet` by default. Override with `DUSK_DEVNET_CONFIG_DIR` or `DUSK_DEVNET_STATE`.
 
 ```bash
 export ANCHOR_PROVIDER_URL=https://api.devnet.solana.com
 export ANCHOR_WALLET=~/.config/solana/id.json
-export DUSK_DEVNET_CONFIG_DIR=~/.config/omnipair/dusk-devnet/fresh-layout15-20261112
-export DUSK_PROGRAM_ID=G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN
-export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/fresh-layout15-20261112/dusk-keypair.json
-export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=A1aX1f3fx9x43FVYunRp25pu6HBczmYz1obEW9jZCf2B
-export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/fresh-layout15-20261112/leverage_delegate-keypair.json
-export DUSK_PREVIOUS_PROGRAM_ID=2rYBVfGubUVbHrLeut6Dn4A9ShM695dGSPCErdsGo16Y
+export DUSK_DEVNET_CONFIG_DIR=~/.config/omnipair/dusk-devnet/fresh-layout16-20261114
+export DUSK_PROGRAM_ID=9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH
+export DUSK_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/fresh-layout16-20261114/dusk-keypair.json
+export DUSK_LEVERAGE_DELEGATE_PROGRAM_ID=5yeZJw1bNer5jq4GVNa7ifsgnM7ivxXQLCK6ro8EJ3Ue
+export DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/fresh-layout16-20261114/leverage_delegate-keypair.json
+export DUSK_PREVIOUS_PROGRAM_ID=G6VzihcGWCxt1nujxtKPB4oUYz36GPR2t5mLdXEH8yYN
 export DUSK_FAUCET_PROGRAM_ID=EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz
 export DUSK_FAUCET_PROGRAM_KEYPAIR=~/.config/omnipair/dusk-devnet/faucet-program-keypair.json
 
 yarn v2:build-faucet-devnet
 yarn v2:deploy-faucet-devnet
-yarn v2:build-devnet
+yarn v2:build-devnet --features devnet-short-notice
 yarn v2:deploy-devnet
 yarn v2:build-leverage-delegate-devnet
 yarn v2:deploy-leverage-delegate-devnet
@@ -38,7 +38,8 @@ the existing deployment and the binaries covered by the complete LiteSVM suite.
 It preserves the emergency authority pinned by the SDK and the live program.
 Cluster feature state can change, so re-check the target cluster before a
 deployment instead of treating this note as a permanent network guarantee.
-Use `yarn v2:build-devnet` so the artifact is built with `--arch v0`. Before
+Use `yarn v2:build-devnet` so the artifact is built with `--arch v0`.
+Pass `--features devnet-short-notice` to match the active devnet notice windows. Before
 changing binary formats, update the test runtime and validate the resulting
 deployment binaries through the complete release suite.
 
