@@ -13166,7 +13166,7 @@ export type Dusk = {
     {
       "code": 6147,
       "name": "curveTailShareBelowMinimum",
-      "msg": "Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or widen the core or fade"
+      "msg": "Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or narrow the core or fade"
     },
     {
       "code": 6148,

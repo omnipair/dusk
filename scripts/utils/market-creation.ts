@@ -1,4 +1,4 @@
-import { Connection, Keypair, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { Connection, Keypair, SYSVAR_SLOT_HASHES_PUBKEY, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import {
   marketCreationLookupTablePlan,
   marketCreationV0Transaction,
@@ -21,12 +21,16 @@ export async function sendAtomicMarketCreation(params: {
   // Public RPC endpoints can load-balance consecutive requests across nodes at
   // different confirmed banks. A confirmed slot from a leading node may not
   // exist in the SlotHashes sysvar of the node that simulates the create-table
-  // transaction. Finalized context is stable across those nodes, and
-  // minContextSlot prevents the write from being simulated behind it.
-  const lookupContext = await connection.getLatestBlockhashAndContext("finalized");
+  // transaction. Use a rooted slot already present in the sysvar, whose first
+  // entry is the newest parent slot. minContextSlot prevents a stale simulation.
+  const lookupContext = await connection.getAccountInfoAndContext(SYSVAR_SLOT_HASHES_PUBKEY, "finalized");
+  const slotHashes = lookupContext.value?.data;
+  if (!slotHashes || slotHashes.length < 48 || slotHashes.readBigUInt64LE(0) === 0n) {
+    throw new Error("No rooted slots in the SlotHashes sysvar");
+  }
   const plan = marketCreationLookupTablePlan({
     payer: payer.publicKey,
-    recentSlot: lookupContext.context.slot,
+    recentSlot: Number(slotHashes.readBigUInt64LE(8)),
     initializeMarketInstruction: instruction,
   });
   const sendPreparation = async (setup: TransactionInstruction) => {

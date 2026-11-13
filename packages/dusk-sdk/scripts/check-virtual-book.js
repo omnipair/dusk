@@ -414,4 +414,13 @@ test("full curve sampling batches both directions and retains original observati
     const inputs = sent.filter((row) => row.fromBase === direction);
     assert.ok(inputs.every((row, i) => i === 0 || row.amount > inputs[i - 1].amount));
   }
+  // A deeper book prices the curve's own levels at the depth asked for.
+  const levels = projectDuskVirtualBookCurve(snapshot, 10, 24);
+  sent.length = 0;
+  const deep = await h.dusk.get.previewVirtualBookQuotes(snapshot, { levels: 24 });
+  assert.equal(deep.quotes.bids.length, levels.bids.length);
+  assert.equal(deep.quotes.asks.length, levels.asks.length);
+  assert.ok(deep.quotes.bids.length > 12 || deep.quotes.asks.length > 12);
+  assert.equal(sent.length, levels.bids.length + levels.asks.length);
+  await assert.rejects(h.dusk.get.previewVirtualBookQuotes(snapshot, { levels: 51 }), /Invalid depth grouping/);
 });

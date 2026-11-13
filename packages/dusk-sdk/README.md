@@ -903,8 +903,9 @@ const snapshot = await dusk.get.previewVirtualBook(market, {
 ```
 
 These display previews use confirmed banks. Supported groupings are 5, 10, 25,
-50, and 100 bps. A capture uses one market preview and at most six batches of
-four swap previews. Batches must agree on market, mint and authority state,
+50, and 100 bps. `levels` sets the price levels a side, 1 to 50 (12 by default).
+A capture uses one market preview and one swap preview per level, in batches of
+four (one per batch on oracle-guided markets): six batches at the default. Batches must agree on market, mint and authority state,
 epoch, and start price, with a maximum eight-slot spread. Output amounts include
 Token-2022 transfer fees at the simulated epoch and the program's size-dependent
 fees. Depth is display data; use a fresh preview for a user's exact transaction.
