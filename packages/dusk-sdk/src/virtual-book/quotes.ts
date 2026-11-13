@@ -225,6 +225,9 @@ export async function previewVirtualBookBatch(
 
 export interface VirtualBookQuoteOptions extends PreviewSimulationOptions {
   groupingBps?: number;
+  /** Price levels a side, 1 to 50; twelve by default. Every level is one
+   * native swap preview, so a deeper book costs that many more. */
+  levels?: number;
 }
 
 /** Sample the curve, then price cumulative sizes through bounded native batches. */
@@ -237,7 +240,7 @@ export async function previewVirtualBookQuotes(
   const groupingBps = options.groupingBps ?? 10;
   if (program.programId.toBase58() !== snapshot.programId)
     throw new Error("Depth SDK deployment mismatch");
-  const curve = projectDuskVirtualBookCurve(snapshot, groupingBps);
+  const curve = projectDuskVirtualBookCurve(snapshot, groupingBps, options.levels ?? 12);
   if (!curve) throw new Error("Market depth curve unavailable");
   const requests: VirtualBookQuoteRequest[] = [];
   for (const side of ["bids", "asks"] as const) {
