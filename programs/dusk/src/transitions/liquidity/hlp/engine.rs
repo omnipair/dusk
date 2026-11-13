@@ -1403,6 +1403,10 @@ impl Market {
         }
         let nav_after = hlp_share_nav_nad_with_prices(market, target_asset, pre_prices)?;
         let hlp_amount = if supply_before == 0 {
+            // Receipts backed by zero value would price every later entry
+            // against zero NAV and reject it. A dust deposit whose ownership
+            // rounds away must not become the vault's first cohort.
+            require!(nav_after > 0, ErrorCode::AmountZero);
             deposit_amount
         } else {
             let delta = nav_after

@@ -20,6 +20,10 @@ leverage changes funding amounts, not the maintenance policy. Existing
 `margin_amount`, `open_notional`, and `multiplier_bps` are opening metadata,
 not current equity, current size, or current leverage. Recompute current
 metrics from collateral, indexed debt and an explicitly labeled price basis.
+A partial close releases the sold share of `margin_amount` and
+`open_notional` in proportion to the collateral it sells. A later full
+delegated close pays its executor 5% of the margin still held, capped by the
+residual, rather than 5% of margin that earlier closes already returned.
 
 | UI action | Program behavior | Wallet flow | SDK builder |
 | --- | --- | --- | --- |

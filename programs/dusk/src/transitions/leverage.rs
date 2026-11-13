@@ -1689,6 +1689,18 @@ impl Market {
         let (remaining_debt_amount, remaining_closeout_value) =
             if let Some(current_unix_timestamp) = partial_close_unix_timestamp {
                 position.require_collateral()?;
+                // Opening metadata describes the collateral still held. A later
+                // full delegated close bills its executor incentive on
+                // `margin_amount`, so release the closed slice's proportional
+                // share instead of charging it again.
+                let collateral_held = u128::from(position.collateral_amount);
+                let collateral_before = collateral_held + u128::from(collateral_sold);
+                let held = |opening: u64| -> Result<u64> {
+                    u64::try_from(mul_div_u128(u128::from(opening), collateral_held, collateral_before)?)
+                        .map_err(|_| ErrorCode::MarketMathOverflow.into())
+                };
+                position.margin_amount = held(position.margin_amount)?;
+                position.open_notional = held(position.open_notional)?;
                 let remaining_debt = position.debt_amount(&self.debt)?;
                 let remaining_closeout = if !had_debt {
                     0

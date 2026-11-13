@@ -36,8 +36,9 @@ export interface FlashLiquidationParams extends LiquidationPositionParams {
   /** Dusk execution sells the received collateral in the paired settle and
    * nets debt principal internally. External settlement requires route payment. */
   settlement?: "external" | "duskAmm";
-  /** Override when the route changes which hLP accounts settlement requires.
-   * Supply the complete ordered remaining-account list for the final state. */
+  /** Defaults to the canonical hLP prefix for either venue, empty while no
+   * hLP is active. Override when the route changes which hLP accounts
+   * settlement requires; supply the complete ordered list for the final state. */
   settleRemainingAccounts?: readonly AccountMeta[];
   /** Builds the collateral sale, inventory payment, or mixed route. The
    * resulting instructions run after begin and before the exact paired settle.
@@ -285,10 +286,12 @@ export class DuskLiquidations {
       minBuyerCredit: integerBN(internal ? params.minBuyerCredit ?? BigInt(ammQuote!.buyerCredit.toString()) : 0n, "minBuyerCredit"),
       full: params.full ?? false, settleIndex,
     }, { accounts: { ...common, systemProgram: SystemProgram.programId } });
+    // Both venues can settle fresh public interest into an active hLP, which
+    // reads the canonical prefix. It is empty while no hLP is active.
     const settle = await this.write.instruction("settleFlashLiquidation", [], {
       accounts: { ...common, collateralReserveVault: internal ? r.collateralSide.reserveVault : null },
       remainingAccounts: params.settleRemainingAccounts ? [...params.settleRemainingAccounts]
-        : internal ? await this.write.hlpRemainingAccounts(r.market, r.state) : [],
+        : await this.write.hlpRemainingAccounts(r.market, r.state),
     });
     return { ...context, ammQuote, beginIndex, settleIndex, instructions: [...prefix, begin, ...route, settle], beginInstruction: begin, settleInstruction: settle };
   }

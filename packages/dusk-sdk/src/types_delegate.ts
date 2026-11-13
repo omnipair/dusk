@@ -4590,12 +4590,16 @@ export type LeverageDelegate = {
           {
             "name": "marginAmount",
             "docs": [
-              "Entry equity valued in debt-token atoms."
+              "Entry equity valued in debt-token atoms, for the collateral still held.",
+              "A partial close releases the sold share in proportion to collateral."
             ],
             "type": "u64"
           },
           {
             "name": "openNotional",
+            "docs": [
+              "Entry notional for the collateral still held, released like `margin_amount`."
+            ],
             "type": "u64"
           },
           {

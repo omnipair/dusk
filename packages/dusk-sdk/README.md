@@ -191,8 +191,10 @@ with debt principal netted internally and no escrow-payment instruction. The
 buyer must retain the flashed collateral until settle. Its return transfer can
 incur another collateral token fee. Settlement rejects an AMM quote that cannot
 fund the fixed obligation; it never silently debits the owner's wallet.
-If the route changes active hLP accounts, pass the complete final-state account
-list through `settleRemainingAccounts`; the default resolves the current market.
+Either venue settles fresh public interest into an active hLP, so the settle
+instruction defaults to the current market's hLP accounts (none while no hLP is
+active). If the route changes active hLP accounts, pass the complete final-state
+account list through `settleRemainingAccounts`.
 
 `previewEmergency()` and `buildEmergency()` accept `collateralDebit` and `full`.
 
@@ -629,7 +631,8 @@ const { transaction, referralPartner, referralAccrual } =
   );
 ```
 
-`referredOpenLeverage(...)` provides the equivalent leverage-opening flow.
+`referredOpenLeverage(...)` provides the equivalent leverage-opening flow and,
+like `buildOpenLeverageInstruction`, puts the hLP accounts first while an hLP is active.
 Existing borrow debt sides and leverage positions retain their bound partner on
 later debt increases. The program snapshots the partner share, capped by the
 current runtime maximum, when the binding is created. Deactivation or later

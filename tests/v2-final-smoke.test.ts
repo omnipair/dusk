@@ -2318,6 +2318,34 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_side.shares.srlp_supply.toNumber()).to.equal(141_421);
   });
 
+  it("rejects a first hLP deposit whose ownership would round to no value", async function () {
+    // One base atom buys far less than one srLP share in this pool.
+    const f = await addBalancedLiquidity(331, marketConfig(), {
+      baseDeposit: 1_000_000_000_000n,
+      quoteDeposit: 1_000_000n,
+      minSrlp: 1n,
+      baseMint: 2_000_000_000_000n,
+      quoteMint: 2_000_000n,
+    });
+    const ownerBaseHlpAccount = await createToken2022Ata(f.baseHlpMint, payer.publicKey);
+    const hlpSupply = () => BigInt((accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any)
+      .base_hlp_vault.hlp_supply.toString());
+    let error: unknown;
+    try { await openBaseHedge(f, 1, ownerBaseHlpAccount); } catch (e) { error = e; }
+    expect(String(error)).to.include("AmountZero");
+    expect(hlpSupply()).to.equal(0n);
+    expect((await getAccount(connection as any, ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
+
+    // A deposit that carries value opens the vault, and later entries still price against it.
+    svm.expireBlockhash();
+    await openBaseHedge(f, 1_000_000, ownerBaseHlpAccount);
+    expect(hlpSupply()).to.equal(1_000_000n);
+    svm.expireBlockhash();
+    await openBaseHedge(f, 1_000_000, ownerBaseHlpAccount);
+    expect(hlpSupply() > 1_000_000n).to.equal(true);
+    trackV2Instruction("depositSingleSided", this.test?.title);
+  });
+
   it("converts senior to junior, charges notice fees, and converts only during the exercise window", async function () {
     const f = await addBalancedLiquidity(245);
     const sdkProgram = createDuskProgram({ provider: program.provider });
@@ -9391,6 +9419,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
       // Owner partial closes repay a proportional slice and return net equity.
       const partialBefore = await balance(ownerDebtAccount);
+      const positionBeforePartial = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
       const partialTx = await program.methods.closeLeverage({ debtAsset, closeBps: 5000, minAmountOut: new BN(1) })
         .accounts(closeAccounts).remainingAccounts(remaining).transaction();
       await connection.sendTransaction(partialTx, [payer]);
@@ -9399,6 +9428,14 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(await balance(ownerDebtAccount) - partialBefore).to.equal(BigInt(partial.ownerCredit.toString()));
       expect(BigInt(partial.ownerCredit.toString()) > 0n).to.equal(true);
       expect(svm.getAccount(leveragePosition)).to.not.equal(null);
+      // The sold half's opening margin is released, so a later delegated full
+      // close cannot bill its executor incentive on margin already returned.
+      const positionAfterPartial = accountCoder.decode("LeveragePosition", Buffer.from(svm.getAccount(leveragePosition)!.data)) as any;
+      const heldShare = (opening: { toString(): string }) => BigInt(opening.toString())
+        * BigInt(positionAfterPartial.collateral_amount.toString()) / BigInt(positionBeforePartial.collateral_amount.toString());
+      expect(BigInt(positionAfterPartial.margin_amount.toString())).to.equal(heldShare(positionBeforePartial.margin_amount));
+      expect(BigInt(positionAfterPartial.open_notional.toString())).to.equal(heldShare(positionBeforePartial.open_notional));
+      expect(BigInt(positionAfterPartial.margin_amount.toString()) < BigInt(positionBeforePartial.margin_amount.toString())).to.equal(true);
       collateral = BigInt(partial.collateralAmount.toString());
 
       // A bounded full debt repayment leaves a debt-free position and refunds excess.

@@ -650,3 +650,27 @@ mod interest {
     use super::*;
     include!("liquidity_hlp_interest.rs");
 }
+
+/// A first hLP deposit whose ownership rounds away must not create receipts
+/// backed by zero value. Such receipts price every later entry against zero
+/// NAV, so one dust deposit would close hLP entry on that side.
+#[test]
+fn first_hlp_deposit_must_create_positive_value() {
+    let mut market = Market::current_layout();
+    market.debt.base_borrow_index_nad = NAD as u128;
+    market.debt.quote_borrow_index_nad = NAD as u128;
+    market.add_liquidity(1_000_000_000, 1_000_000).unwrap();
+
+    let mut dust = market.clone();
+    let error = dust.deposit_single_sided(MarketAsset::Base, 1, 1).unwrap_err();
+    assert!(error.to_string().contains("AmountZero"), "{error}");
+
+    let first = market.deposit_single_sided(MarketAsset::Base, 1_000_000, 1).unwrap();
+    assert_eq!(first.hlp_amount, 1_000_000);
+    let prices = current_hlp_curve_prices(&market).unwrap();
+    assert!(hlp_share_nav_nad_with_prices(&market, MarketAsset::Base, prices).unwrap() > 0);
+    market.assert_market_invariants().unwrap();
+    let next = market.deposit_single_sided(MarketAsset::Base, 1_000_000, 1).unwrap();
+    assert!(next.hlp_amount > 0);
+    market.assert_market_invariants().unwrap();
+}

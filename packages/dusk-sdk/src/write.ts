@@ -1291,7 +1291,9 @@ export class DuskWrite {
                 ...referralAccounts,
                 instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
               },
-              remainingAccounts,
+              // Opening settles the market like `buildOpenLeverageInstruction`,
+              // so an active hLP needs the same canonical prefix first.
+              remainingAccounts: withLeadingAccounts(await this.hlpRemainingAccounts(market), remainingAccounts),
             }
           );
     return {
@@ -2323,6 +2325,17 @@ function openLeverageArgs(
     positionOwner: params.positionOwner ?? null,
     referrer,
   };
+}
+
+/**
+ * Put `prefix` first unless `accounts` already starts with it, so a caller
+ * who supplied the canonical prefix explicitly does not get it twice.
+ */
+function withLeadingAccounts(prefix: readonly AccountMeta[], accounts: readonly AccountMeta[]): AccountMeta[] {
+  const present =
+    prefix.length <= accounts.length &&
+    prefix.every((meta, index) => accounts[index].pubkey.equals(meta.pubkey));
+  return present ? [...accounts] : [...prefix, ...accounts];
 }
 
 function mergeAccountMetas(...groups: readonly AccountMeta[][]): AccountMeta[] {
