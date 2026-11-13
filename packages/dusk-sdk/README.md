@@ -902,6 +902,13 @@ const snapshot = await dusk.get.previewVirtualBook(market, {
 // snapshot.account is the accrued market returned by simulation.
 ```
 
+Levels are bands of a fixed price grid through the market's sticky centre,
+`centre × (1 + grouping)^k`, not steps from the mid. A trade smaller than the top
+band trims that level and leaves every deeper level's edges in place; the grid
+moves only when the centre recentres. The top level on each side is the part of
+its band the mid has not crossed, folded into the next band when it is under a
+tenth of a step. `book.step` remains the nominal level width at the mid.
+
 These display previews use confirmed banks. Supported groupings are 5, 10, 25,
 50, and 100 bps. `levels` sets the price levels a side, 1 to 50 (12 by default).
 A capture uses one market preview and one swap preview per level, in batches of
