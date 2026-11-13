@@ -50,7 +50,8 @@ export type CreateProtectionOrderParams = {
  * returns the rent of the order and its custody accounts.
  */
 export class DuskProtectionOrders {
-  constructor(readonly program: LeverageDelegateProgram) {}
+  /** `duskProgramId` is the Dusk deployment the orders protect positions on. */
+  constructor(readonly program: LeverageDelegateProgram, readonly duskProgramId: PublicKey = DUSK_PROGRAM_ID) {}
 
   // The same checks as the generic builders: a missing, misspelled or wrongly
   // typed field or an undeclared account throws `DuskInstructionInputError`
@@ -64,7 +65,7 @@ export class DuskProtectionOrders {
   }
 
   private async oracleAccounts(market: PublicKey, remaining: AccountMeta[]) {
-    const dusk = createDuskProgram({ connection: this.program.provider.connection });
+    const dusk = createDuskProgram({ connection: this.program.provider.connection, programId: this.duskProgramId });
     const state = assertCurrentMarketLayout(await dusk.account.market.fetch(market));
     const accounts = [...remaining];
     for (const meta of oracleReadAccounts(state.oracle.policy)) {
@@ -79,7 +80,7 @@ export class DuskProtectionOrders {
     const callerAccounts = this.checkedAccounts<CreateAccounts>("createProtectionOrder", accounts);
     const order = deriveProtectionOrderAddress(callerAccounts.owner, args.orderId.toString(), this.program.programId)[0];
     return this.program.methods.createProtectionOrder(args).accountsStrict({ ...callerAccounts, order,
-      duskProgram: DUSK_PROGRAM_ID, duskEventAuthority: deriveEventAuthorityAddress()[0],
+      duskProgram: this.duskProgramId, duskEventAuthority: deriveEventAuthorityAddress(this.duskProgramId)[0],
       token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
     }).remainingAccounts(remainingAccounts).instruction();
   }
@@ -125,10 +126,10 @@ export class DuskProtectionOrders {
     accounts: ExecuteAccounts, remainingAccounts: AccountMeta[] = []) {
     const args = this.checkedArgs<ExecuteArgs>("executeProtectionOrder", params);
     const checked = this.checkedAccounts<MethodAccounts<"executeProtectionOrder">>("executeProtectionOrder", {
-      ...accounts, duskProgram: DUSK_PROGRAM_ID, duskEventAuthority: deriveEventAuthorityAddress()[0],
+      ...accounts, duskProgram: this.duskProgramId, duskEventAuthority: deriveEventAuthorityAddress(this.duskProgramId)[0],
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
     });
-    const write = new DuskWrite(createDuskProgram({ connection: this.program.provider.connection }));
+    const write = new DuskWrite(createDuskProgram({ connection: this.program.provider.connection, programId: this.duskProgramId }));
     const order = await this.program.account.protectionOrder.fetch(checked.order);
     const prefix = order.action === PROTECTION_ACTION.borrowCollateral
       ? [] : await write.hlpRemainingAccounts(new PublicKey(checked.market));

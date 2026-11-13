@@ -6685,7 +6685,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         }).remainingAccounts(hlpSwapAccounts(f)).instruction();
         return [swap, payment];
       };
-      const built = await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, allowFull: mode === "full", route: paymentRoute });
+      // These plans only exercise rejected variants, so the loss cap stays open.
+      const built = await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, allowFull: mode === "full",
+        maxSocializedLoss: (1n << 64n) - 1n, route: paymentRoute });
       const measuredPreview = await simulateReturnData(await program.methods.previewHlpFlash(target === "base" ? 0 : 1).accounts({
         market: f.market, futarchyAuthority,
         targetMint: target === "base" ? f.baseMint : f.quoteMint,
@@ -6697,7 +6699,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       if (earlyRescue) expect(raw(built.quote.payment) > 0n).to.equal(true);
       if (mode === "full") {
         let rejected: unknown;
-        try { await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, route: paymentRoute }); }
+        try { await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, maxSocializedLoss: 0n, route: paymentRoute }); }
         catch (e) { rejected = e; }
         expect(String(rejected)).to.include("set allowFull explicitly");
       }
@@ -6734,7 +6736,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         expect((await getAccount(connection as any, target === "base" ? f.baseReserveVault : f.quoteReserveVault, undefined, tokenProgram)).amount).to.equal(reserve);
         expect(svm.getAccount(built.session)).to.equal(null);
       }
-      const good = await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, allowFull: mode === "full", route: paymentRoute });
+      // The reviewed quote caps a full close's principal write-off at its own.
+      const reviewed = await sdk.preview({ market: f.market, targetAsset: target });
+      const good = await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey, allowFull: mode === "full",
+        quote: reviewed, route: paymentRoute });
       let simulation: any;
       try {
         simulation = await sdk.get.simulateWithContext(good.instructions, {
@@ -6809,7 +6814,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const donation = createTransferCheckedInstruction(f.ownerQuoteAccount, f.quoteMint,
           good.repaymentVault, payer.publicKey, raw(quote.payment), 6);
         const unpaid = await sdk.buildFlash({ market: f.market, targetAsset: target, buyer: payer.publicKey,
-          prefixInstructions: [donation], route: () => [],
+          maxSocializedLoss: 0n, prefixInstructions: [donation], route: () => [],
         });
         const before = Buffer.from(svm.getAccount(f.market)!.data);
         let rejected: unknown;

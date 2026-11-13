@@ -38,7 +38,9 @@ import {
   deriveTokenMetadataAddress,
   deriveYieldAccountAddress,
   deriveYieldTransferHookValidationAddress,
+  DUSK_PROGRAM_ID,
   type U64SeedLike,
+  type YieldTokenKind,
 } from "./constants.js";
 import { address, DEFAULT_READONLY_PUBLIC_KEY, normalizeAccountKeys, type AddressLike } from "./address.js";
 import { getStoredLeverageMargins } from "./leverage-margins.js";
@@ -72,21 +74,47 @@ import type {
 } from "./type-aliases.js";
 import type { Dusk } from "./types_v2.js";
 
-export const pda = {
-  futarchyAuthority: deriveFutarchyAuthorityAddress,
-  market: deriveMarketAddress,
-  tokenMetadata: deriveTokenMetadataAddress,
-  marketReserveVault: deriveMarketReserveVaultAddress,
-  marketCollateralVault: deriveMarketCollateralVaultAddress,
-  marketInterestVault: deriveMarketInterestVaultAddress,
-  borrowPosition: deriveBorrowPositionAddress,
-  leveragePosition: deriveLeveragePositionAddress,
-  yieldAccount: deriveYieldAccountAddress,
-  yieldTransferHookValidation: deriveYieldTransferHookValidationAddress,
-  hlpSrlpVault: deriveHlpSrlpVaultAddress,
-  referralPartner: deriveReferralPartnerAddress,
-  referralAccrual: deriveReferralAccrualAddress,
-} as const;
+/**
+ * The Dusk PDA helpers for one deployment. Each takes the same arguments as
+ * its `derive*Address` function; an omitted trailing program ID is
+ * `programId` rather than `DUSK_PROGRAM_ID`. `tokenMetadata` is a Metaplex
+ * address and does not depend on the Dusk deployment.
+ */
+export function duskPdas(programId: PublicKey = DUSK_PROGRAM_ID) {
+  return {
+    futarchyAuthority: (id: PublicKey = programId) => deriveFutarchyAuthorityAddress(id),
+    market: (baseMint: PublicKey, quoteMint: PublicKey, paramsHash: Uint8Array | Buffer | number[], id: PublicKey = programId) =>
+      deriveMarketAddress(baseMint, quoteMint, paramsHash, id),
+    tokenMetadata: deriveTokenMetadataAddress,
+    marketReserveVault: (market: PublicKey, reserveMint: PublicKey, id: PublicKey = programId) =>
+      deriveMarketReserveVaultAddress(market, reserveMint, id),
+    marketCollateralVault: (market: PublicKey, collateralMint: PublicKey, id: PublicKey = programId) =>
+      deriveMarketCollateralVaultAddress(market, collateralMint, id),
+    marketInterestVault: (market: PublicKey, interestMint: PublicKey, id: PublicKey = programId) =>
+      deriveMarketInterestVaultAddress(market, interestMint, id),
+    borrowPosition: (market: PublicKey, owner: PublicKey, positionId: PublicKey, id: PublicKey = programId) =>
+      deriveBorrowPositionAddress(market, owner, positionId, id),
+    leveragePosition: (market: PublicKey, positionOwner: PublicKey, positionId: PublicKey,
+      namespaceAuthority: PublicKey = positionOwner, id: PublicKey = programId) =>
+      deriveLeveragePositionAddress(market, positionOwner, positionId, namespaceAuthority, id),
+    yieldAccount: (market: PublicKey, owner: PublicKey, lpMint: PublicKey, assetMint: PublicKey,
+      tokenKind: YieldTokenKind, id: PublicKey = programId) =>
+      deriveYieldAccountAddress(market, owner, lpMint, assetMint, tokenKind, id),
+    yieldTransferHookValidation: (lpMint: PublicKey, id: PublicKey = programId) =>
+      deriveYieldTransferHookValidationAddress(lpMint, id),
+    hlpSrlpVault: (market: PublicKey, targetHlpMint: PublicKey, srlpMint: PublicKey, id: PublicKey = programId) =>
+      deriveHlpSrlpVaultAddress(market, targetHlpMint, srlpMint, id),
+    referralPartner: (authority: PublicKey, id: PublicKey = programId) => deriveReferralPartnerAddress(authority, id),
+    referralAccrual: (referralPartner: PublicKey, market: PublicKey, assetMint: PublicKey, id: PublicKey = programId) =>
+      deriveReferralAccrualAddress(referralPartner, market, assetMint, id),
+  } as const;
+}
+
+export type DuskPdas = ReturnType<typeof duskPdas>;
+
+/** PDA helpers for the canonical deployment, `DUSK_PROGRAM_ID`. A `DuskGet`
+ * carries its own program's helpers as `get.pda`. */
+export const pda: DuskPdas = duskPdas();
 
 export interface PreviewHlpDepositCapacityParams extends SimulateOptions {
   market: AddressLike;
@@ -147,12 +175,15 @@ export interface PreviewBorrowPositionParams extends SimulateOptions {
 }
 
 export class DuskGet {
-  readonly pda = pda;
+  /** PDA helpers that derive under this client's program ID. */
+  readonly pda: DuskPdas;
 
   constructor(
     readonly program: Program<Dusk>,
     private readonly defaultFeePayer: AddressLike = DEFAULT_READONLY_PUBLIC_KEY
-  ) {}
+  ) {
+    this.pda = duskPdas(program.programId);
+  }
 
   /** Raw account bytes, returned without decoding or a layout check. */
   async accountInfo(account: AddressLike, commitment?: Commitment) {
@@ -219,7 +250,9 @@ export class DuskGet {
     return this.programAccount<YieldAccount>("yieldAccount", account);
   }
 
-  futarchyAuthority(account: AddressLike = deriveFutarchyAuthorityAddress()[0]): Promise<FutarchyAuthority> {
+  futarchyAuthority(
+    account: AddressLike = deriveFutarchyAuthorityAddress(this.program.programId)[0]
+  ): Promise<FutarchyAuthority> {
     return this.programAccount<FutarchyAuthority>("futarchyAuthority", account);
   }
 
@@ -314,7 +347,7 @@ export class DuskGet {
       { accounts: normalizeAccountKeys({
           market: params.market,
           futarchyAuthority:
-            params.futarchyAuthority ?? deriveFutarchyAuthorityAddress()[0],
+            params.futarchyAuthority ?? deriveFutarchyAuthorityAddress(this.program.programId)[0],
           assetInMint: params.assetInMint,
           assetOutMint: params.assetOutMint,
       }) }
