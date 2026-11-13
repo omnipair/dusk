@@ -106,6 +106,33 @@ test("SDK builders encode owner partial closes, net-risk funding and guarded ref
   assert.equal(program.idl.instructions.some(ix => ix.name === "removeLeverageMargin"), false);
 });
 
+test("leverage transaction helpers lead with the oracle budget on positive-weight markets", async () => {
+  const [market, owner, positionId, debtMint, collateralMint, ownerDebtAccount, provider, feed] =
+    Array.from({ length: 8 }, () => Keypair.generate().publicKey);
+  const policy = lambdaBps => ({ format: 1, provider, baseAccount: feed, quoteAccount: anchor.web3.PublicKey.default,
+    baseFeedId: Array(32).fill(1), quoteFeedId: Array(32).fill(0), lambdaBps, adjustmentCapNad: new anchor.BN(2_000_000_000),
+    maxAgeSeconds: 60, maxAgeSlots: new anchor.BN(100), maxConfidenceBps: 100, maxPublishSkewSeconds: 0 });
+  for (const lambdaBps of [2500, 0]) {
+    const program = new anchor.Program(IDL, { connection: {}, publicKey: owner, wallet: { publicKey: owner } });
+    program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION, oracle: { policy: policy(lambdaBps) },
+      baseHlpVault: { hlpSupply: 0n, residualExposure: 0n }, quoteHlpVault: { hlpSupply: 0n, residualExposure: 0n } });
+    const write = new DuskWrite(program);
+    const common = { market, positionOwner: owner, positionId, debtMint, collateralMint, debtAsset: "quote", ownerDebtAccount };
+    const transactions = await Promise.all([
+      write.addToLeverageTransaction({ ...common, marginAmount: 100n, debtAmount: 200n, minCollateralOut: 290n }),
+      write.increaseLeverageTransaction({ ...common, debtAmount: 200n, minCollateralOut: 190n }),
+      write.decreaseLeverageTransaction({ ...common, collateralAmount: 201n, minRepayOut: 401n, maxSurplusOut: 1n }),
+      write.closeLeverageTransaction({ ...common, minAmountOut: 0n }),
+      write.repayLeverageTransaction({ ...common, amount: 100n }),
+      write.addLeverageMarginTransaction({ ...common, amount: 100n }),
+    ]);
+    for (const tx of transactions) {
+      assert.ok(tx.instructions.at(-1).keys.some(meta => meta.pubkey.equals(feed)) === (lambdaBps > 0));
+      assert.deepEqual(tx.instructions.slice(0, -1).map(ix => ix.data[0]), lambdaBps > 0 ? [1, 2] : []);
+    }
+  }
+});
+
 test("actual-action preview reads one bank and reports net wallet flow from CPI events", async () => {
   const [programId, marketKey, positionKey, owner, mint, otherMint] = Array.from({ length: 6 }, () => Keypair.generate().publicKey);
   const market = { version: MARKET_LAYOUT_VERSION,

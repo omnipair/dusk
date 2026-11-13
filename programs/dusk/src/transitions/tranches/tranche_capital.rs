@@ -162,6 +162,11 @@ impl TrancheCapital {
     /// being transferred or used by another request. Cash never changes here.
     pub fn convert_queued(&mut self, receipts: u64) -> Result<u64> {
         require!(receipts > 0, ErrorCode::AmountZero);
+        // A wiped generation keeps its queued receipts in supply until
+        // initialize_junior archives it; burn_retired_junior then burns them.
+        // Converting them here could empty the supply, after which the wiped
+        // generation could never be archived and new entrants would join it.
+        require!(self.junior_reserve_shares > 0, ErrorCode::InvalidArgument);
         require_gte!(self.queued_receipts, receipts, ErrorCode::InsufficientBalance);
         require!(
             self.permanent_receipts <= self.junior_receipt_supply

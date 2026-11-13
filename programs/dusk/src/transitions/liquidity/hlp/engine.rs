@@ -1625,17 +1625,22 @@ impl Market {
                 )?;
                 let base_hlp_live_debit =
                     proportional(market.base_hlp_vault.base_hlp_live_reserve, hlp_amount, supply)?;
-                let quote_hlp_live_debit =
-                    proportional(market.base_hlp_vault.quote_hlp_live_reserve, hlp_amount, supply)?;
                 let base_out =
                     settled_close_target_amount(market, MarketAsset::Base, base_out, quote_redeemed, debt_repaid)?;
                 for asset in [MarketAsset::Base, MarketAsset::Quote] {
                     market.capitalize_hlp_receivable(MarketAsset::Base, asset, hlp_amount, supply)?;
                 }
                 release_hlp_backing_inventory(market, MarketAsset::Base, hlp_amount, supply)?;
+                let principal_before = market.base_hlp_vault.debt_principal;
                 let debt_clearance = market
                     .base_hlp_vault
                     .clear_debt_repay(quote_debt_shares, market.debt.quote_borrow_index_nad)?;
+                let quote_hlp_live_debit = borrowed_hlp_live_debit(
+                    market.base_hlp_vault.quote_hlp_live_reserve,
+                    principal_before,
+                    market.base_hlp_vault.debt_principal,
+                    hlp_amount == supply,
+                );
                 let interest_paid = debt_clearance.interest_paid;
                 market.base_side.debit_reserve(base_out, true)?;
                 debit_hlp_live_reserve(market, MarketAsset::Base, MarketAsset::Base, base_hlp_live_debit)?;
@@ -1699,8 +1704,6 @@ impl Market {
                     base_debt_shares,
                     market.debt.base_borrow_index_nad,
                 )?;
-                let base_hlp_live_debit =
-                    proportional(market.quote_hlp_vault.base_hlp_live_reserve, hlp_amount, supply)?;
                 let quote_hlp_live_debit =
                     proportional(market.quote_hlp_vault.quote_hlp_live_reserve, hlp_amount, supply)?;
                 let quote_out =
@@ -1709,9 +1712,16 @@ impl Market {
                     market.capitalize_hlp_receivable(MarketAsset::Quote, asset, hlp_amount, supply)?;
                 }
                 release_hlp_backing_inventory(market, MarketAsset::Quote, hlp_amount, supply)?;
+                let principal_before = market.quote_hlp_vault.debt_principal;
                 let debt_clearance = market
                     .quote_hlp_vault
                     .clear_debt_repay(base_debt_shares, market.debt.base_borrow_index_nad)?;
+                let base_hlp_live_debit = borrowed_hlp_live_debit(
+                    market.quote_hlp_vault.base_hlp_live_reserve,
+                    principal_before,
+                    market.quote_hlp_vault.debt_principal,
+                    hlp_amount == supply,
+                );
                 let interest_paid = debt_clearance.interest_paid;
                 market.quote_side.debit_reserve(quote_out, true)?;
                 debit_hlp_live_reserve(market, MarketAsset::Quote, MarketAsset::Quote, quote_hlp_live_debit)?;
@@ -1812,6 +1822,19 @@ fn debit_cash_for_hlp_interest(market: &mut Market, asset: MarketAsset, interest
         .checked_sub(interest_paid)
         .ok_or(ErrorCode::CashReserveUnderflow)?;
     Ok(())
+}
+
+/// The borrowed-side hLP live reserve is the vault's funded debt principal:
+/// every hLP transition stores one value into both. An exit debits it by the
+/// principal it actually repaid (all of it on a full exit). Independently
+/// floored proportional shares drift apart by an atom or two per exit, and a
+/// few consecutive exits pushed the next swap past the live-reserve identity.
+fn borrowed_hlp_live_debit(live: u64, principal_before: u64, principal_after: u64, full_exit: bool) -> u64 {
+    if full_exit {
+        live
+    } else {
+        principal_before.saturating_sub(principal_after).min(live)
+    }
 }
 
 fn debit_hlp_live_reserve(

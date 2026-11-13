@@ -96,13 +96,18 @@ impl Market {
             } else {
                 senior_fee
             };
-            let new_static = if static_senior == 0 || self.tranches.junior_reserve_shares == 0 {
+            let new_static = if static_senior == 0 || self.tranches.junior_reserve_shares == 0 || capitalized_fee == 0 {
                 static_supply
             } else {
                 let senior_value = mul_div_u128(before, static_senior as u128, static_supply as u128)?
                     .checked_add(mul_div_u128(senior_fee_value, static_senior as u128, senior as u128)?)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-                u64::try_from(mul_div_u128(static_senior as u128, after, senior_value)?)
+                // Senior keeps its share count, so the rounding of the new
+                // static supply falls entirely on junior. Round it up: a fee
+                // junior did not share in must not floor away a whole junior
+                // reserve share, or repeated dust swaps empty the first-loss
+                // tranche while its receipts stay outstanding.
+                u64::try_from(mul_div_ceil_u128(static_senior as u128, after, senior_value)?)
                     .map_err(|_| ErrorCode::SupplyOverflow)?
             };
             let new_junior = new_static

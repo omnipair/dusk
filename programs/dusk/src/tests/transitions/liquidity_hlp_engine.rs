@@ -674,3 +674,69 @@ fn first_hlp_deposit_must_create_positive_value() {
     assert!(next.hlp_amount > 0);
     market.assert_market_invariants().unwrap();
 }
+
+#[test]
+fn consecutive_partial_hlp_exits_keep_live_reserve_on_funded_debt() {
+    use crate::state::{AmmConfig, AmmState};
+    use crate::transitions::amm::SwapRequest;
+    use crate::transitions::liquidity::SwapCashPolicy;
+    use crate::transitions::LeverageSwapFeeCredit;
+    fn swap(market: &mut Market, asset_in: MarketAsset, amount: u64, slot: u64) -> Result<()> {
+        let mut prepared = SwapRequest {
+            current_slot: slot,
+            current_unix_timestamp: 0,
+            asset_in,
+            reserve_credit: amount,
+            protocol_fee_bps: 0,
+        }
+        .prepare(market)?;
+        let quote = prepared.leverage_quote();
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(&quote, prepared.quote.fee.claimable_fee_debit)?;
+        prepared
+            .apply(market, SwapCashPolicy::Spot, credit, slot, 0, ProtocolAuctionSplit::default(), None)
+            .map(|_| ())?;
+        market.assert_market_invariants()
+    }
+    for concentrated in [false, true] {
+        let mut market = Market::current_layout();
+        market.add_liquidity(1_000_000, 1_000_000).unwrap();
+        market.debt.base_borrow_index_nad = NAD as u128;
+        market.debt.quote_borrow_index_nad = NAD as u128;
+        market.config.settlement_divergence_bps = 10_000;
+        market.deposit_single_sided(MarketAsset::Base, 200_000, 1).unwrap();
+        market.deposit_single_sided(MarketAsset::Quote, 200_000, 1).unwrap();
+        market.config.swap_fee_bps = 30;
+        if concentrated {
+            market.config.amm = AmmConfig {
+                peak_amplification_nad: 4 * NAD,
+                core_half_width_bps: 100,
+                fade_width_bps: 400,
+                center_ema_half_life_ms: crate::constants::MIN_HALF_LIFE_MS,
+                ..AmmConfig::default()
+            };
+            *market.amm = AmmState::default();
+            market.prepare_amm_for_swap(1).unwrap();
+        }
+        swap(&mut market, MarketAsset::Quote, 30_000, 2).unwrap();
+        // Five consecutive partial exits without an intervening swap used to
+        // leave the borrowed-side live reserve above the funded debt by more
+        // than the three-atom identity tolerance, and every swap reverted.
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            let supply = match target {
+                MarketAsset::Base => market.base_hlp_vault.hlp_supply,
+                MarketAsset::Quote => market.quote_hlp_vault.hlp_supply,
+            };
+            for k in 0..30_u64 {
+                market.withdraw_single_sided(target, supply / 37 + k % 3).unwrap();
+                let vault = match target {
+                    MarketAsset::Base => market.base_hlp_vault,
+                    MarketAsset::Quote => market.quote_hlp_vault,
+                };
+                assert_eq!(vault.hlp_live_reserve(target.opposite()), vault.debt_principal);
+            }
+        }
+        swap(&mut market.clone(), MarketAsset::Base, 1_000, 3).unwrap();
+        swap(&mut market.clone(), MarketAsset::Quote, 1_000, 3).unwrap();
+        market.clone().deposit_single_sided(MarketAsset::Base, 10_000, 1).unwrap();
+    }
+}

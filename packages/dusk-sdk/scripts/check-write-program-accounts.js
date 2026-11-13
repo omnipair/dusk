@@ -192,6 +192,41 @@ test("positive-weight previews append feeds after caller accounts and transactio
   assert.equal(native.instructions[0].keys.at(-1).pubkey.toBase58(), key(24).toBase58());
 });
 
+test("transaction helpers and generic builds over oracle-reading instructions carry the feed and budget", async () => {
+  const state = await program.account.market.fetch();
+  for (const lambdaBps of [2500, 0]) {
+    const client = new anchor.Program(IDL, provider);
+    client.account.market.fetch = async () => ({ ...state, oracle: { policy: policy(lambdaBps) } });
+    const writer = new DuskWrite(client);
+    const lending = { market, owner, positionId, assetMint: baseMint, ownerAssetAccount: key(6) };
+    const srlp = { market, owner, baseMint, quoteMint, srlpMint: key(7),
+      ownerBaseAccount: key(8), ownerQuoteAccount: key(9), ownerSrlpAccount: key(10) };
+    const transactions = await Promise.all([
+      writer.depositCollateralTransaction({ ...lending, depositAmount: 100n }),
+      writer.withdrawCollateralTransaction({ ...lending, withdrawAmount: 1n, minAssetAmountOut: 0n, minLiquidationCfBps: 0 }),
+      writer.repayTransaction({ market, owner, positionId, debtAssetMint: baseMint, collateralAssetMint: quoteMint,
+        ownerDebtAccount: key(11), repayAmount: 10n }),
+      writer.addLiquidityTransaction({ ...srlp, baseDepositAmount: 100n, quoteDepositAmount: 100n, minSrlpAmount: 0n }),
+      writer.removeLiquidityTransaction({ ...srlp, srlpAmount: 1n, minBaseAmountOut: 0n, minQuoteAmountOut: 0n }),
+    ]);
+    for (const tx of transactions) {
+      const action = tx.instructions.at(-1);
+      assert.ok(action.programId.equals(client.programId));
+      assert.equal(action.keys.some(meta => meta.pubkey.equals(key(21))), lambdaBps > 0);
+      // A positive weight needs the heap frame and unit limit ahead of the action.
+      assert.deepEqual(tx.instructions.slice(0, -1).map(ix => ix.data[0]), lambdaBps > 0 ? [1, 2] : []);
+      if (lambdaBps > 0) {
+        assert.equal(tx.instructions[0].data.readUInt32LE(1), 256 * 1024);
+        assert.equal(tx.instructions[1].data.readUInt32LE(1), 1_400_000);
+      }
+    }
+    // compound_junior_seed binds the current oracle, so the generic builder
+    // must append its feed like every other oracle-reading instruction.
+    const seed = await writer.instruction("compoundJuniorSeed", undefined, { accounts: { market, juniorMint: key(26) } });
+    assert.equal(seed.keys.some(meta => meta.pubkey.equals(key(21))), lambdaBps > 0);
+  }
+});
+
 test("hLP liquidity actions preserve a caller-supplied oracle policy", async () => {
   const client = new anchor.Program(IDL, provider);
   const writer = new DuskWrite(client);

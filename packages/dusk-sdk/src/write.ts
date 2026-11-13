@@ -342,6 +342,20 @@ export class DuskWrite {
     return this.uncheckedBuilder(name, args, await this.withOraclePolicy(name, options)).rpc();
   }
 
+  /**
+   * One built instruction as a transaction, led by the compute budget the
+   * market's positive oracle weight requires. A bare instruction cannot carry
+   * that budget, so every transaction helper over an oracle-reading
+   * instruction adds it here.
+   */
+  private async oracleBudgetedTransaction(
+    market: AddressLike,
+    instruction: TransactionInstruction
+  ): Promise<Transaction> {
+    const state = await this.fetchMarketAccount(address(market)) as { oracle?: { policy: OraclePolicyInput } };
+    return new Transaction().add(...oracleComputeBudgetInstructions(state.oracle?.policy), instruction);
+  }
+
   private async withOraclePolicy(
     name: DuskInstructionName,
     options: UncheckedBuildOptions = {}
@@ -1510,9 +1524,7 @@ export class DuskWrite {
   async depositCollateralTransaction(
     params: DepositCollateralParams
   ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.depositCollateralInstruction(params)
-    );
+    return this.oracleBudgetedTransaction(params.market, await this.depositCollateralInstruction(params));
   }
 
   /**
@@ -1560,9 +1572,7 @@ export class DuskWrite {
   async withdrawCollateralTransaction(
     params: WithdrawCollateralParams
   ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.withdrawCollateralInstruction(params)
-    );
+    return this.oracleBudgetedTransaction(params.market, await this.withdrawCollateralInstruction(params));
   }
 
   /**
@@ -1618,7 +1628,7 @@ export class DuskWrite {
   }
 
   async repayTransaction(params: RepayParams): Promise<Transaction> {
-    return new Transaction().add(await this.repayInstruction(params));
+    return this.oracleBudgetedTransaction(params.market, await this.repayInstruction(params));
   }
 
   /**
@@ -1655,7 +1665,7 @@ export class DuskWrite {
   async addLiquidityTransaction(
     params: AddLiquidityParams
   ): Promise<Transaction> {
-    return new Transaction().add(await this.addLiquidityInstruction(params));
+    return this.oracleBudgetedTransaction(params.market, await this.addLiquidityInstruction(params));
   }
 
   /**
@@ -1687,7 +1697,7 @@ export class DuskWrite {
   async removeLiquidityTransaction(
     params: RemoveLiquidityParams
   ): Promise<Transaction> {
-    return new Transaction().add(await this.removeLiquidityInstruction(params));
+    return this.oracleBudgetedTransaction(params.market, await this.removeLiquidityInstruction(params));
   }
 
   /**
@@ -1707,7 +1717,7 @@ export class DuskWrite {
   }
 
   async addToLeverageTransaction(params: AddToLeverageParams): Promise<Transaction> {
-    return new Transaction().add(await this.addToLeverageInstruction(params));
+    return this.oracleBudgetedTransaction(params.market, await this.addToLeverageInstruction(params));
   }
 
   private async fundLeverageInstruction(
@@ -1753,9 +1763,7 @@ export class DuskWrite {
   async increaseLeverageTransaction(
     params: IncreaseLeverageParams
   ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.increaseLeverageInstruction(params)
-    );
+    return this.oracleBudgetedTransaction(params.market, await this.increaseLeverageInstruction(params));
   }
 
   /** Sell collateral to repay debt without closing the position. */
@@ -1805,9 +1813,7 @@ export class DuskWrite {
   async decreaseLeverageTransaction(
     params: DecreaseLeverageParams
   ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.decreaseLeverageInstruction(params)
-    );
+    return this.oracleBudgetedTransaction(params.market, await this.decreaseLeverageInstruction(params));
   }
 
   /** Repay anyone’s leverage debt from `owner`’s tokens; collateral stays with the position owner. */
@@ -1853,15 +1859,13 @@ export class DuskWrite {
   }
 
   async repayLeverageTransaction(params: LeverageMarginParams): Promise<Transaction> {
-    return new Transaction().add(await this.repayLeverageInstruction(params));
+    return this.oracleBudgetedTransaction(params.market, await this.repayLeverageInstruction(params));
   }
 
   async addLeverageMarginTransaction(
     params: LeverageMarginParams
   ): Promise<Transaction> {
-    return new Transaction().add(
-      await this.repayLeverageInstruction(params)
-    );
+    return this.oracleBudgetedTransaction(params.market, await this.repayLeverageInstruction(params));
   }
 
   /**
@@ -1927,7 +1931,7 @@ export class DuskWrite {
   async closeLeverageTransaction(
     params: CloseLeverageParams
   ): Promise<Transaction> {
-    return new Transaction().add(await this.closeLeverageInstruction(params));
+    return this.oracleBudgetedTransaction(params.market, await this.closeLeverageInstruction(params));
   }
 
   /**
@@ -2381,6 +2385,7 @@ const ORACLE_READ_INSTRUCTIONS = new Set<string>([
   "openLiquidityGates",
   "removeLiquidity",
   "fundInterest",
+  "compoundJuniorSeed",
   "harvest",
   "swap",
   "previewHlpFlash",
