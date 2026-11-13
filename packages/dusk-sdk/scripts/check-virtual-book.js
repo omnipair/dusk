@@ -214,6 +214,33 @@ for (const kind of ["state", "epoch", "slot spread", "old slot", "start price"])
     if (kind === "start price") second.quotes[0].preview.startPriceNad = new BN(1);
     assert.throws(() => combineVirtualBookBatches(h.snapshot, 10, 1, [first, second]), /changed/);
   });
+test("combining decoded batches accepts identical clocks", () => {
+  const h = setup();
+  const first = h.decode(), second = h.decode();
+  const combined = combineVirtualBookBatches(h.snapshot, 10, 1, [first, second]);
+  assert.equal(combined.quotes.bids.length, first.quotes.length + second.quotes.length);
+  assert.equal(combined.quotes.asks.length, 0);
+});
+for (const kind of ["slot", "Unix timestamp"])
+  test(`combining decoded batches rejects ${kind} changes within the same epoch`, () => {
+    const h = setup(), response = h.response();
+    const clock = Buffer.from(response.value.accounts[4].data[0], "base64");
+    if (kind === "slot") {
+      response.context.slot++;
+      clock.writeBigUInt64LE(BigInt(response.context.slot), 0);
+    } else {
+      clock.writeBigInt64LE(clock.readBigInt64LE(32) + 1n, 32);
+    }
+    response.value.accounts[4].data[0] = clock.toString("base64");
+    const first = h.decode(), second = h.decode(response);
+    assert.equal(second.epoch, first.epoch);
+    assert.ok(second.slot - first.slot <= 1);
+    assert.equal(
+      second.quotes[0].preview.startPriceNad.toString(),
+      first.quotes[0].preview.startPriceNad.toString()
+    );
+    assert.throws(() => combineVirtualBookBatches(h.snapshot, 10, 1, [first, second]), /changed/);
+  });
 function quote(input, output, surcharge, outputTransferFee = 0n) {
   return {
     slot,
