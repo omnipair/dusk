@@ -164,11 +164,10 @@ export function decodeDuskVirtualBookBatch(
     quotes,
     slot,
     epoch,
-    // Include the source account bytes: a read-only preview does not persist
-    // its report in the market account. Different feeds cannot be combined
-    // into one apparent depth snapshot even when market bytes are unchanged.
+    // Include every source account, including Clock: previews use its slot and
+    // timestamp for fees and interest without persisting those changes. Equal
+    // market bytes alone do not make batches one coherent depth snapshot.
     state: infos
-      .filter((_, index) => index !== 4)
       .map((info) => `${info.owner}:${info.data.toString("base64")}`)
       .join("|"),
   };
