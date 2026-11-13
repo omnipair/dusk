@@ -12,6 +12,9 @@ use crate::{
     state::{Market, MarketAsset},
 };
 
+// Position of asset_in_mint in the Anchor Swap account list.
+const SWAP_INPUT_MINT_INDEX: usize = 3;
+
 pub(crate) fn enforce_launch_same_transaction_guard(
     market: &Market,
     market_key: Pubkey,
@@ -70,18 +73,34 @@ pub(crate) fn enforce_launch_same_transaction_guard(
     );
 
     if via_cpi {
-        // At this depth, earlier calls under the same router are siblings.
+        let protected_input_mint = market.side(asset_in).asset_mint;
+        // Only earlier protected spot buys count among sibling swaps.
+        // Keep the same classification for other price-moving actions.
         for index in 0.. {
             let Some(sibling) = get_processed_sibling_instruction(index) else {
                 break;
             };
-            require!(!is_action(&sibling), ErrorCode::LaunchRateLimitSplitTransaction);
+            let prior_action = if sibling.data.starts_with(crate::instruction::Swap::DISCRIMINATOR) {
+                sibling.program_id == crate::ID
+                    && sibling.accounts.first().is_some_and(|meta| meta.pubkey == market_key)
+                    && sibling
+                        .accounts
+                        .get(SWAP_INPUT_MINT_INDEX)
+                        .is_some_and(|meta| meta.pubkey == protected_input_mint)
+            } else {
+                is_action(&sibling)
+            };
+            require!(!prior_action, ErrorCode::LaunchRateLimitSplitTransaction);
         }
     }
 
-    // A different top-level router instruction can hide its own CPI.
-    // For a routed buy, reject other external instructions that can write
-    // this market, in addition to the classified Dusk actions.
+    // Writable flags are transaction-wide. Another top-level instruction
+    // also needs the reserve vaults and Instructions sysvar to invoke Swap.
+    let writable_swap_accounts = [
+        market_key,
+        market.base_side.reserve_vault,
+        market.quote_side.reserve_vault,
+    ];
     for index in 0.. {
         let Ok(instruction) = load_instruction_at_checked(index, instructions_sysvar) else {
             break;
@@ -89,10 +108,16 @@ pub(crate) fn enforce_launch_same_transaction_guard(
         if index != current_index {
             let other_router = via_cpi
                 && instruction.program_id != crate::ID
+                && writable_swap_accounts.iter().all(|key| {
+                    instruction
+                        .accounts
+                        .iter()
+                        .any(|meta| meta.pubkey == *key && meta.is_writable)
+                })
                 && instruction
                     .accounts
                     .iter()
-                    .any(|meta| meta.pubkey == market_key && meta.is_writable);
+                    .any(|meta| meta.pubkey == INSTRUCTIONS_SYSVAR_ID);
             require!(
                 !is_action(&instruction) && !other_router,
                 ErrorCode::LaunchRateLimitSplitTransaction
