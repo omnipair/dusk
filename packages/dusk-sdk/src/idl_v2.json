@@ -2376,6 +2376,134 @@
       "args": []
     },
     {
+      "name": "configure_protocol_auction",
+      "discriminator": [
+        169,
+        178,
+        239,
+        169,
+        228,
+        103,
+        127,
+        127
+      ],
+      "accounts": [
+        {
+          "name": "authority_signer",
+          "signer": true
+        },
+        {
+          "name": "futarchy_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "event_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "ConfigureProtocolAuctionArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "configure_referral_partner",
       "discriminator": [
         36,
@@ -9662,9 +9790,6 @@
           "writable": true
         },
         {
-          "name": "reference_market"
-        },
-        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -10417,134 +10542,6 @@
           "type": {
             "defined": {
               "name": "UpdateProtocolAuctionRecipientsArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "update_protocol_auction_route",
-      "discriminator": [
-        37,
-        160,
-        194,
-        28,
-        53,
-        78,
-        43,
-        119
-      ],
-      "accounts": [
-        {
-          "name": "authority_signer",
-          "signer": true
-        },
-        {
-          "name": "futarchy_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  117,
-                  116,
-                  97,
-                  114,
-                  99,
-                  104,
-                  121,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "Market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "Market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "event_authority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "UpdateProtocolAuctionRouteArgs"
             }
           }
         }
@@ -12200,6 +12197,19 @@
       ]
     },
     {
+      "name": "ProtocolAuctionConfigured",
+      "discriminator": [
+        114,
+        47,
+        219,
+        227,
+        0,
+        0,
+        171,
+        52
+      ]
+    },
+    {
       "name": "ProtocolAuctionRecipientsUpdated",
       "discriminator": [
         174,
@@ -12210,19 +12220,6 @@
         241,
         5,
         120
-      ]
-    },
-    {
-      "name": "ProtocolAuctionRouteUpdated",
-      "discriminator": [
-        146,
-        136,
-        94,
-        87,
-        36,
-        147,
-        221,
-        192
       ]
     },
     {
@@ -12764,8 +12761,8 @@
     },
     {
       "code": 6068,
-      "name": "StaleAuctionReference",
-      "msg": "Protocol auction reference price is stale"
+      "name": "InvalidAuctionClock",
+      "msg": "Protocol auction slot precedes its last update"
     },
     {
       "code": 6069,
@@ -14639,6 +14636,56 @@
       }
     },
     {
+      "name": "ConfigureProtocolAuctionArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lane",
+            "type": {
+              "defined": {
+                "name": "ProtocolAuctionLane"
+              }
+            }
+          },
+          {
+            "name": "source",
+            "type": {
+              "defined": {
+                "name": "ProtocolRevenueSource"
+              }
+            }
+          },
+          {
+            "name": "sold_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "accepted_mint",
+            "docs": [
+              "None uses the lane's current default; an explicit mint configures this",
+              "curve independently. Stored reserves always retain their payment mint."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "params",
+            "docs": [
+              "Sets both virtual reserves and the streaming rate, restarting this",
+              "curve at the current slot. Actual fee inventory is unaffected."
+            ],
+            "type": {
+              "defined": {
+                "name": "ProtocolAuctionParams"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "ConfigureReferralPartnerArgs",
       "type": {
         "kind": "struct",
@@ -15457,51 +15504,34 @@
             "type": "u64"
           },
           {
-            "name": "fee_auction_reference_market",
-            "docs": [
-              "Governance-approved reference market for fee-lane auctions. A default",
-              "key permits only the sold market itself when it directly pairs the sold",
-              "and accepted mints."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "buyback_auction_reference_market",
-            "docs": [
-              "Governance-approved reference market for buyback-lane auctions. A",
-              "default key has the same direct-market-only meaning as above."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "fee_swap_auction_epoch",
+            "name": "fee_swap_auction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionEpoch"
+                "name": "ProtocolAuctionState"
               }
             }
           },
           {
-            "name": "fee_interest_auction_epoch",
+            "name": "fee_interest_auction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionEpoch"
+                "name": "ProtocolAuctionState"
               }
             }
           },
           {
-            "name": "buyback_swap_auction_epoch",
+            "name": "buyback_swap_auction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionEpoch"
+                "name": "ProtocolAuctionState"
               }
             }
           },
           {
-            "name": "buyback_interest_auction_epoch",
+            "name": "buyback_interest_auction",
             "type": {
               "defined": {
-                "name": "ProtocolAuctionEpoch"
+                "name": "ProtocolAuctionState"
               }
             }
           }
@@ -20970,6 +21000,10 @@
         "fields": [
           {
             "name": "accepted_mint",
+            "docs": [
+              "Default payment mint for newly configured curves. Each curve stores its",
+              "own mint; changing this default never reinterprets existing reserves."
+            ],
             "type": "pubkey"
           },
           {
@@ -20977,14 +21011,6 @@
             "type": {
               "defined": {
                 "name": "ProtocolAuctionRecipients"
-              }
-            }
-          },
-          {
-            "name": "params",
-            "type": {
-              "defined": {
-                "name": "ProtocolAuctionParams"
               }
             }
           }
@@ -21009,22 +21035,6 @@
             "type": "pubkey"
           },
           {
-            "name": "start_multiplier_bps",
-            "type": "u16"
-          },
-          {
-            "name": "floor_multiplier_bps",
-            "type": "u16"
-          },
-          {
-            "name": "duration_slots",
-            "type": "u64"
-          },
-          {
-            "name": "max_reference_age_slots",
-            "type": "u64"
-          },
-          {
             "name": "signer",
             "type": "pubkey"
           }
@@ -21032,22 +21042,57 @@
       }
     },
     {
-      "name": "ProtocolAuctionEpoch",
+      "name": "ProtocolAuctionConfigured",
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "lane",
+            "type": "u8"
+          },
+          {
+            "name": "source",
+            "type": "u8"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "sold_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "accepted_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "virtual_sold_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "virtual_payment_reserve",
+            "type": "u64"
+          },
+          {
+            "name": "sold_rate_per_day",
+            "type": "u64"
+          },
           {
             "name": "start_slot",
             "type": "u64"
           },
           {
-            "name": "tracked_inventory",
-            "docs": [
-              "Liability remaining immediately after the preceding fill. A larger",
-              "current liability proves that new inventory arrived and starts a new",
-              "epoch instead of inheriting an old floor price."
-            ],
-            "type": "u64"
+            "name": "signer",
+            "type": "pubkey"
           }
         ]
       }
@@ -21072,19 +21117,25 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "start_multiplier_bps",
-            "type": "u16"
-          },
-          {
-            "name": "floor_multiplier_bps",
-            "type": "u16"
-          },
-          {
-            "name": "duration_slots",
+            "name": "virtual_sold_reserve",
+            "docs": [
+              "Initial virtual inventory in raw sold-token atoms, independent of custody."
+            ],
             "type": "u64"
           },
           {
-            "name": "max_reference_age_slots",
+            "name": "virtual_payment_reserve",
+            "docs": [
+              "Initial virtual payment reserve in raw accepted-token atoms."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "sold_rate_per_day",
+            "docs": [
+              "Virtual sold-token atoms streamed per nominal protocol day. Zero stops",
+              "streaming while preserving constant-product sales at the configured depth."
+            ],
             "type": "u64"
           }
         ]
@@ -21151,59 +21202,12 @@
       }
     },
     {
-      "name": "ProtocolAuctionRouteUpdated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "lane",
-            "type": "u8"
-          },
-          {
-            "name": "side",
-            "type": "u8"
-          },
-          {
-            "name": "sold_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "accepted_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "reference_market",
-            "docs": [
-              "`Pubkey::default()` restores the direct-market-only policy."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "signer",
-            "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
       "name": "ProtocolAuctionSettled",
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "reference_market",
             "type": "pubkey"
           },
           {
@@ -21235,6 +21239,10 @@
             "type": "u64"
           },
           {
+            "name": "sold_net_amount",
+            "type": "u64"
+          },
+          {
             "name": "payment_amount",
             "type": "u64"
           },
@@ -21247,12 +21255,12 @@
             "type": "u64"
           },
           {
-            "name": "reference_price_nad",
-            "type": "u64"
+            "name": "virtual_sold_reserve",
+            "type": "u128"
           },
           {
-            "name": "auction_price_nad",
-            "type": "u64"
+            "name": "virtual_payment_reserve",
+            "type": "u128"
           },
           {
             "name": "remaining_fee_liability",
@@ -21309,6 +21317,48 @@
           {
             "name": "signer",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolAuctionState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "accepted_mint",
+            "docs": [
+              "A configured curve binds raw payment reserves to this specific mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "virtual_sold_reserve",
+            "type": "u128"
+          },
+          {
+            "name": "virtual_payment_reserve",
+            "type": "u128"
+          },
+          {
+            "name": "sold_rate_per_day",
+            "type": "u64"
+          },
+          {
+            "name": "last_update_slot",
+            "docs": [
+              "Initialized by governance, then advanced only by successful settlements.",
+              "Fee arrivals and exhaustion of actual inventory never restart this clock."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "stream_remainder",
+            "docs": [
+              "Fractional streamed atoms, with a denominator of nominal slots per day."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -23011,18 +23061,11 @@
           },
           {
             "name": "accepted_mint",
+            "docs": [
+              "Default for newly configured auctions; existing curves retain their mint."
+            ],
             "type": {
               "option": "pubkey"
-            }
-          },
-          {
-            "name": "params",
-            "type": {
-              "option": {
-                "defined": {
-                  "name": "ProtocolAuctionParams"
-                }
-              }
             }
           }
         ]
@@ -23064,34 +23107,6 @@
             "type": {
               "option": "u16"
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "UpdateProtocolAuctionRouteArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "lane",
-            "type": {
-              "defined": {
-                "name": "ProtocolAuctionLane"
-              }
-            }
-          },
-          {
-            "name": "sold_mint",
-            "type": "pubkey"
-          },
-          {
-            "name": "reference_market",
-            "docs": [
-              "A governance-approved market key. The default key removes the approval",
-              "and permits settlement only from the sold market's own direct pair."
-            ],
-            "type": "pubkey"
           }
         ]
       }
@@ -23597,7 +23612,7 @@
         "Aggregate virtual reserves use u128; physical token amounts remain u64."
       ],
       "type": "u8",
-      "value": "15"
+      "value": "16"
     },
     {
       "name": "MARKET_RESERVE_VAULT_SEED_PREFIX",

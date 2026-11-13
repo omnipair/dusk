@@ -1,3 +1,4 @@
+import { quoteProtocolAuction } from "../packages/dusk-sdk/src/protocol-auctions.js";
 import { oracleComputeBudgetInstructions, type OraclePolicyInput } from "../packages/dusk-sdk/src/oracle.js";
 import assert from "node:assert/strict";
 import { createHash } from "crypto";
@@ -384,16 +385,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       treasury_bps: 10_000,
       staking_vault_bps: 0,
     };
-    const auctionParams = {
-      start_multiplier_bps: 12_000,
-      floor_multiplier_bps: 8_000,
-      duration_slots: new BN(432_000),
-      max_reference_age_slots: new BN(21_600),
-    };
     const auctionConfig = {
       accepted_mint: NATIVE_MINT,
       recipients: auctionRecipients,
-      params: auctionParams,
     };
     const data = await accountCoder.encode("FutarchyAuthority", {
       version: 1,
@@ -6107,7 +6101,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .updateProtocolAuctionConfig({
         lane: { fee: {} },
         acceptedMint: fixture.quoteMint,
-        params: null,
       })
       .accounts({
         authoritySigner: payer.publicKey,
@@ -6120,22 +6113,36 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(updateAuctionConfigTx, [payer]);
     trackV2Instruction("updateProtocolAuctionConfig", this.test?.title);
 
-    const updateAuctionRouteTx = await program.methods
-      .updateProtocolAuctionRoute({
-        lane: { fee: {} },
-        soldMint: fixture.baseMint,
-        referenceMarket: PublicKey.default,
-      })
-      .accounts({
-        authoritySigner: payer.publicKey,
-        futarchyAuthority,
-        market: fixture.market,
-        eventAuthority: eventAuthority(),
-        program: DUSK_PROGRAM_ID,
-      })
-      .transaction();
-    await connection.sendTransaction(updateAuctionRouteTx, [payer]);
-    trackV2Instruction("updateProtocolAuctionRoute", this.test?.title);
+    const auctionArgs = {
+      lane: { fee: {} }, source: { swap: {} }, soldMint: fixture.baseMint,
+      acceptedMint: null,
+      params: {
+        virtualSoldReserve: new BN(1_000_000),
+        virtualPaymentReserve: new BN(2_000_000),
+        soldRatePerDay: new BN(1_000_000),
+      },
+    };
+    const auctionAccounts = {
+      authoritySigner: payer.publicKey, futarchyAuthority, market: fixture.market,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    };
+    const outsider = Keypair.generate();
+    svm.airdrop(outsider.publicKey, BigInt(LAMPORTS_PER_SOL));
+    const unauthorized = await program.methods.configureProtocolAuction(auctionArgs)
+      .accounts({ ...auctionAccounts, authoritySigner: outsider.publicKey }).transaction();
+    const unconfiguredMarket = Buffer.from(svm.getAccount(fixture.market)!.data);
+    let authorityError: unknown;
+    try { await connection.sendTransaction(unauthorized, [payer, outsider]); } catch (error) { authorityError = error; }
+    expect(String(authorityError)).to.include("InvalidFutarchyAuthority");
+    expect(Buffer.from(svm.getAccount(fixture.market)!.data)).to.deep.equal(unconfiguredMarket);
+    const configureAuctionTx = await program.methods.configureProtocolAuction(auctionArgs)
+      .accounts(auctionAccounts).transaction();
+    await connection.sendTransaction(configureAuctionTx, [payer]);
+    trackV2Instruction("configureProtocolAuction", this.test?.title);
+    const readMarket = () => accountCoder.decode("Market", Buffer.from(svm.getAccount(fixture.market)!.data)) as any;
+    const configured = readMarket().base_side.fees.fee_swap_auction;
+    expect(configured.last_update_slot.toString()).to.equal(svm.getClock().slot.toString());
+    expect(readMarket().base_side.fees.swap_protocol_fee_liability.toNumber()).to.equal(0);
 
     const updateAuctionRecipientsTx = await program.methods
       .updateProtocolAuctionRecipients({
@@ -6175,7 +6182,23 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await connection.sendTransaction(updateRevenueTx, [payer]);
     trackV2Instruction("updateProtocolRevenue", this.test?.title);
 
+    const auctionClock = svm.getClock();
+    auctionClock.slot += BigInt(86_400_000 / Number(idl.constants.find(({ name }: { name: string }) => name === "TARGET_MS_PER_SLOT")!.value));
+    auctionClock.unixTimestamp += 86_400n;
+    svm.setClock(auctionClock);
+    svm.expireBlockhash();
     await swapBaseForQuote(fixture);
+    expect(readMarket().base_side.fees.fee_swap_auction).to.deep.equal(configured);
+    const sdkQuote = quoteProtocolAuction({
+      auction: {
+        virtualSoldReserve: configured.virtual_sold_reserve,
+        virtualPaymentReserve: configured.virtual_payment_reserve,
+        soldRatePerDay: configured.sold_rate_per_day,
+        lastUpdateSlot: configured.last_update_slot,
+        streamRemainder: configured.stream_remainder,
+      },
+      soldNetAmount: 3n, currentSlot: svm.getClock().slot,
+    });
 
     const settleTx = await program.methods
       .settleProtocolAuction({
@@ -6195,18 +6218,42 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         bidderReceiveAccount: fixture.ownerBaseAccount,
         treasuryPaymentAccount: treasuryAccounts.quoteAccount,
         stakingVaultPaymentAccount: stakingAccounts.quoteAccount,
-        referenceMarket: fixture.market,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),
         program: DUSK_PROGRAM_ID,
       })
       .transaction();
+    // Rejected price limits must leave custody and the persisted clock intact.
+    const failureSnapshot = Buffer.from(svm.getAccount(fixture.market)!.data);
+    const rejected = await program.methods.settleProtocolAuction({
+      lane: { fee: {} }, source: { swap: {} },
+      soldAmount: new BN(3), maxPaymentAmount: new BN(1),
+    }).accounts({
+      bidder: payer.publicKey, market: fixture.market, futarchyAuthority,
+      soldMint: fixture.baseMint, acceptedMint: fixture.quoteMint,
+      soldVault: fixture.baseReserveVault, bidderPaymentAccount: fixture.ownerQuoteAccount,
+      bidderReceiveAccount: fixture.ownerBaseAccount,
+      treasuryPaymentAccount: treasuryAccounts.quoteAccount,
+      stakingVaultPaymentAccount: stakingAccounts.quoteAccount,
+      tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction();
+    let rejectedError: unknown;
+    try { await connection.sendTransaction(rejected, [payer]); } catch (error) { rejectedError = error; }
+    expect(String(rejectedError)).to.include("InsufficientAuctionPayment");
+    expect(Buffer.from(svm.getAccount(fixture.market)!.data)).to.deep.equal(failureSnapshot);
+    expect((await getAccount(connection as any, treasuryAccounts.quoteAccount)).amount).to.equal(0n);
     await connection.sendTransaction(settleTx, [payer]);
     trackV2Instruction("settleProtocolAuction", this.test?.title);
 
     const treasuryQuoteBalance = await getAccount(connection as any, treasuryAccounts.quoteAccount);
-    expect(treasuryQuoteBalance.amount > 0n).to.equal(true);
+    expect(treasuryQuoteBalance.amount).to.equal(sdkQuote.paymentAmount);
+    expect(treasuryQuoteBalance.amount).to.equal(2n); // Continuous curve aged before its first fill.
+    const settledCurve = readMarket().base_side.fees.fee_swap_auction;
+    expect(settledCurve.last_update_slot.toString()).to.equal(svm.getClock().slot.toString());
+    expect(settledCurve.virtual_sold_reserve.toString()).to.equal(sdkQuote.nextState.virtualSoldReserve.toString());
+    expect(settledCurve.virtual_payment_reserve.toString()).to.equal(sdkQuote.nextState.virtualPaymentReserve.toString());
     const marketAccount = svm.getAccount(fixture.market);
     expect(marketAccount).to.not.equal(null);
     const decoded = accountCoder.decode("Market", Buffer.from(marketAccount!.data)) as any;
@@ -6218,11 +6265,15 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         BigInt(decoded.base_side.fees.swap_fee_custody_balance.toString())
     );
 
+    // Fresh fees after an empty auction retain its current curve and clock.
+    await swapBaseForQuote(fixture, [], 1_001, 1);
+    expect(readMarket().base_side.fees.swap_protocol_fee_liability.toNumber()).to.be.greaterThan(0);
+    expect(readMarket().base_side.fees.fee_swap_auction).to.deep.equal(settledCurve);
+
     const updateInterestAuctionConfigTx = await program.methods
       .updateProtocolAuctionConfig({
         lane: { fee: {} },
         acceptedMint: fixture.baseMint,
-        params: null,
       })
       .accounts({
         authoritySigner: payer.publicKey,
@@ -6350,6 +6401,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       beforeInterestSettlement.quote_side.fees.swap_fee_custody_balance.toString()
     );
 
+    const configureInterestTx = await program.methods.configureProtocolAuction({
+      lane: { fee: {} }, source: { interest: {} }, soldMint: fixture.quoteMint,
+      acceptedMint: fixture.baseMint,
+      params: { virtualSoldReserve: new BN(10_000_000), virtualPaymentReserve: new BN(10_000_000), soldRatePerDay: new BN(0) },
+    }).accounts({ authoritySigner: payer.publicKey, futarchyAuthority, market: fixture.market,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).transaction();
+    await connection.sendTransaction(configureInterestTx, [payer]);
+    // A lane default change and the interest curve leave the swap curve untouched.
+    expect(readMarket().base_side.fees.fee_swap_auction).to.deep.equal(settledCurve);
+    expect(readMarket().base_side.fees.fee_swap_auction.accepted_mint.equals(fixture.quoteMint)).to.equal(true);
+
     const settleInterestTx = await program.methods
       .settleProtocolAuction({
         lane: { fee: {} },
@@ -6368,7 +6430,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         bidderReceiveAccount: fixture.ownerQuoteAccount,
         treasuryPaymentAccount: treasuryAccounts.baseAccount,
         stakingVaultPaymentAccount: stakingAccounts.baseAccount,
-        referenceMarket: fixture.market,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
         eventAuthority: eventAuthority(),

@@ -112,17 +112,17 @@ may retain cached labels until they refresh their token metadata.
 
 ## Publishing the SDK
 
-A merge to `main` publishes `@omnipair/dusk-sdk` once its version is deployed,
-so deploy first, then merge. Deploy the programs the branch changes with the
-commands above, then merge the pull request that sets the new version in
-`packages/dusk-sdk/package.json`. `yarn v2:deploy-devnet` and
+A merge to `main` publishes `@omnipair/dusk-sdk` once its shipped IDLs match the
+deployment. Deployment is not required before merging; a merge can wait for a
+coordinated deployment and its publish run can be re-run afterwards. Set a new
+version in `packages/dusk-sdk/package.json`. `yarn v2:deploy-devnet` and
 `yarn v2:deploy-leverage-delegate-devnet` run `scripts/v2/deploy_program.sh`.
 It stops before deploying when the program keypair is not the keypair of the
 program the IDL names, then uploads the IDL from the same build through
 `scripts/v2/upload_idl.sh`. That script upgrades the program's IDL account, or
 creates it for a program deployed to a new ID, and stops when `ANCHOR_WALLET`
 is not the account's authority. A program deployed any other way, a custom
-deploy script included, needs `upload_idl.sh` before the merge, run from the
+deploy script included, needs `upload_idl.sh` before publishing, run from the
 checkout that was deployed:
 
 ```bash
@@ -130,13 +130,12 @@ scripts/v2/upload_idl.sh target/idl/dusk.json
 scripts/v2/upload_idl.sh target/idl/leverage_delegate.json
 ```
 
-A pull request that touches the package runs the `publish-sdk` check. It fails
-while the IDLs the package ships differ from the cluster, so merge it only once
-the check passes. After deploying, re-run the failed check:
+A pull request that touches the package runs the `publish-sdk` version and build
+checks without comparing its IDLs to the cluster. The regular CI build still
+checks that the committed SDK interfaces match the program sources:
 
 ```bash
 gh pr checks <pr-number> --repo omnipair/dusk
-gh run rerun <run-id> --failed --repo omnipair/dusk
 ```
 
 The merge starts `.github/workflows/publish-sdk.yaml`. It
@@ -147,8 +146,9 @@ version describes mainnet and becomes `latest`. npm never takes a version twice,
 so a change to the package needs a new version, and a merge that keeps a
 published version publishes nothing.
 
-The check compares IDLs only. A program change that keeps the IDLs passes it
-whether or not it is deployed, so deploy such a change before merging it.
+The publishing check compares IDLs only. A program change that keeps the IDLs
+passes it whether or not it is deployed, so coordinate deployment before
+publishing a package for that change.
 
 A merge that lands before its deployment publishes nothing and leaves a warning
 on its `publish-sdk` run. Once the deployment is live, re-run that run:

@@ -197,8 +197,8 @@ pub enum ErrorCode {
     #[msg("Invalid protocol auction config")]
     InvalidAuctionConfig,
 
-    #[msg("Protocol auction reference price is stale")]
-    StaleAuctionReference,
+    #[msg("Protocol auction slot precedes its last update")]
+    InvalidAuctionClock,
 
     #[msg("Protocol auction payment is insufficient")]
     InsufficientAuctionPayment,

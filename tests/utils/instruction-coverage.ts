@@ -124,7 +124,7 @@ const DUSK_INSTRUCTIONS = [
   "updateRevenueRecipients",
   "updateProtocolAuctionConfig",
   "updateProtocolAuctionRecipients",
-  "updateProtocolAuctionRoute",
+  "configureProtocolAuction",
   "setGlobalReduceOnly",
   "configureReferralPartner",
   "initializeReferralAccrual",

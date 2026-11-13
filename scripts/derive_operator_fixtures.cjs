@@ -69,10 +69,18 @@ function encode(data) {
   market.config.irm.lower_utilization_bps=7_500;
   market.config.irm.upper_utilization_bps=old.config.irm.borrow_utilization_limit_bps;
   restate(market,MARKET_AMOUNTS,amountFactor(market));
-  const body=Buffer.alloc(32_768);
-  const size=newCoder.accountLayouts.get('Market').layout.encode(market,body);
-  return Buffer.concat([newCoder.accountDiscriminator('Market'),body.subarray(0,size)]);
+  return encodeAccount('Market',market);
 }
+function encodeAccount(name,value) {
+  const body=Buffer.alloc(32_768);
+  const size=newCoder.accountLayouts.get(name).layout.encode(value,body);
+  return Buffer.concat([newCoder.accountDiscriminator(name),body.subarray(0,size)]);
+}
+const oldAuthority=oldCoder.decode('FutarchyAuthority',original('programs/dusk/src/tests/fixtures/vob-authority-20260929.bin'));
+const authority=encodeAccount('FutarchyAuthority',adapt(oldAuthority,{defined:{name:'FutarchyAuthority'}}));
+const authorityTarget=`programs/dusk/src/tests/fixtures/vob-authority-layout${layout}.bin`;
+writeFileSync(authorityTarget,authority);
+process.stdout.write(`${authorityTarget} ${createHash('sha256').update(authority).digest('hex')}\n`);
 for(const name of ['hlp-entry','vob-market','hlp-entry-funding']) {
   const target=`programs/dusk/src/tests/fixtures/${name}-layout${layout}.bin`;
   const data=encode(original(`programs/dusk/src/tests/fixtures/${name}-layout13.bin`));
@@ -102,7 +110,7 @@ batch.market=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedM
 batch.programId=nextProgram;
 batch.result.value.returnData.programId=nextProgram;
 batch.derivedFrom=`layout-13 regression fixture at ${predecessor}`;
-batch.schemaAdaptation=`Layout ${layout}: independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
+batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
 const batchTarget=`packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout${layout}.json`;
 writeFileSync(batchTarget,JSON.stringify(batch,null,2)+'\n');
 process.stdout.write(`${batchTarget}\n`);

@@ -91,8 +91,8 @@ fn metadata_market() -> MetadataMarketFixture {
     market
         .initialize(
             srlp_mint,
-            base_side,
-            quote_side,
+            Box::new(base_side),
+            Box::new(quote_side),
             valid_config(),
             Pubkey::new_unique(),
             Pubkey::new_unique(),

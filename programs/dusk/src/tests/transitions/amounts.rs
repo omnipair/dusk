@@ -124,23 +124,3 @@ proptest! {
         }
     }
 }
-
-#[test]
-fn high_decimal_auction_payment_rounds_up_and_cannot_be_free() {
-    use crate::transitions::revenue::quote_protocol_auction_settlement;
-    for (sold, accepted, price, expected) in [(12, 12, NAD, 1), (12, 6, NAD, 1), (6, 12, NAD, 1_000_000), (18, 18, 1, 1), (255, 255, NAD, 1)] {
-        let quote = quote_protocol_auction_settlement(1, sold, accepted, price, 10_000, 10_000, 0, 100, 0).unwrap();
-        assert_eq!(quote.payment_amount, expected);
-    }
-}
-
-#[test]
-fn auction_rejects_a_discounted_price_that_rounds_to_zero() {
-    use crate::transitions::revenue::quote_protocol_auction_settlement;
-    // A positive reference does not guarantee a positive discounted price.
-    // At expiry, 1 NAD atom * 50% rounds to zero and must not sell custody free.
-    for decimals in [6, 12, 18] {
-        let result = quote_protocol_auction_settlement(1_000, decimals, decimals, 1, 10_000, 5_000, 100, 100, 0);
-        assert!(matches!(result, Err(anchor_lang::error::Error::AnchorError(error)) if error.error_name == "InvalidSettlementPrice"));
-    }
-}

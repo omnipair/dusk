@@ -65,8 +65,7 @@ type DuskAccountTypes = [
   TypeNamed<"marketSide">,
   TypeNamed<"proposalMetadataV1">,
   TypeNamed<"protocolAuctionConfig">,
-  TypeNamed<"protocolAuctionEpoch">,
-  TypeNamed<"protocolAuctionParams">,
+  TypeNamed<"protocolAuctionState">,
   TypeNamed<"protocolAuctionRecipients">,
   TypeNamed<"protocolAuctionSplit">,
   TypeNamed<"referralAccrual">,
@@ -149,7 +148,7 @@ type DuskEventTypes = [
   TypeNamed<"proposalMetadataV1">,
   TypeNamed<"protocolAuctionConfigUpdated">,
   TypeNamed<"protocolAuctionRecipientsUpdated">,
-  TypeNamed<"protocolAuctionRouteUpdated">,
+  TypeNamed<"protocolAuctionConfigured">,
   TypeNamed<"protocolAuctionSettled">,
   TypeNamed<"protocolAuctionSplitUpdated">,
   TypeNamed<"referralBound">,
@@ -243,6 +242,8 @@ export type LeveragePositionOpened = IdlTypes<DuskEventIdl>["leveragePositionOpe
 export type LeveragePositionUpdated = IdlTypes<DuskEventIdl>["leveragePositionUpdated"];
 export type LeveragePositionClosed = IdlTypes<DuskEventIdl>["leveragePositionClosed"];
 export type LeveragePositionLiquidated = IdlTypes<DuskEventIdl>["leveragePositionLiquidated"];
+export type ProtocolAuctionState = IdlTypes<DuskAccountIdl>["protocolAuctionState"];
+export type ProtocolAuctionConfigured = IdlTypes<DuskEventIdl>["protocolAuctionConfigured"];
 export type ProtocolAuctionSettled = IdlTypes<DuskEventIdl>["protocolAuctionSettled"];
 export type ReferralBound = IdlTypes<DuskEventIdl>["referralBound"];
 export type ReferralPartnerConfigured = IdlTypes<DuskEventIdl>["referralPartnerConfigured"];

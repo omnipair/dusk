@@ -81,13 +81,12 @@ fn auction_liabilities_settle_by_lane() {
         ..Fees::default()
     };
 
-    fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 125, 10)
+    fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 125)
         .unwrap();
     fees.settle_protocol_auction_liability(
         ProtocolAuctionLane::Buyback,
         ProtocolRevenueSource::Interest,
         50,
-        20,
     )
         .unwrap();
 
@@ -101,123 +100,40 @@ fn auction_liabilities_settle_by_lane() {
 }
 
 #[test]
-fn protocol_auction_epoch_isolated_by_market_lane_and_source() {
-    let mut first_market = Fees {
-        swap_fee_custody_balance: 200,
-        interest_vault_balance: 100,
-        swap_protocol_fee_liability: 100,
-        interest_protocol_fee_liability: 50,
-        swap_buyback_fee_liability: 100,
-        interest_buyback_fee_liability: 50,
-        ..Fees::default()
+fn auction_curves_are_isolated_and_inventory_changes_do_not_restart_the_clock() {
+    let curve = ProtocolAuctionState {
+        accepted_mint: Pubkey::new_unique(),
+        virtual_sold_reserve: 1_000,
+        virtual_payment_reserve: 2_000,
+        sold_rate_per_day: 100,
+        last_update_slot: 0, // Slot zero is a valid configured start.
+        stream_remainder: 1,
     };
-    let second_market = first_market;
-
-    let first_epoch = first_market.protocol_auction_epoch(
-        ProtocolAuctionLane::Fee,
-        ProtocolRevenueSource::Swap,
-        10,
-    );
-    first_market
-        .settle_protocol_auction_liability(
-            ProtocolAuctionLane::Fee,
-            ProtocolRevenueSource::Swap,
-            1,
-            first_epoch.start_slot,
-        )
-        .unwrap();
-
-    assert_eq!(first_market.fee_swap_auction_epoch.start_slot, 10);
-    assert_eq!(first_market.fee_swap_auction_epoch.tracked_inventory, 99);
-    assert_eq!(first_market.fee_interest_auction_epoch, ProtocolAuctionEpoch::default());
-    assert_eq!(first_market.buyback_swap_auction_epoch, ProtocolAuctionEpoch::default());
-    assert_eq!(second_market.fee_swap_auction_epoch, ProtocolAuctionEpoch::default());
-}
-
-#[test]
-fn partial_fill_preserves_epoch_but_new_inventory_starts_a_new_one() {
-    let mut fees = Fees {
-        swap_fee_custody_balance: 100,
-        swap_protocol_fee_liability: 100,
-        ..Fees::default()
-    };
-    let initial = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 10);
-    fees.settle_protocol_auction_liability(
-        ProtocolAuctionLane::Fee,
-        ProtocolRevenueSource::Swap,
-        99,
-        initial.start_slot,
-    )
-    .unwrap();
-
-    let old_inventory = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1_000);
-    assert_eq!(old_inventory.start_slot, 10);
-    assert_eq!(old_inventory.tracked_inventory, 1);
-
-    fees.swap_protocol_fee_liability = 101;
-    fees.swap_fee_custody_balance = 101;
-    let replenished = fees.protocol_auction_epoch(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1_000);
-    assert_eq!(replenished.start_slot, 1_000);
-    assert_eq!(replenished.tracked_inventory, 101);
-}
-
-#[test]
-fn exhausting_inventory_clears_only_its_epoch() {
-    let mut fees = Fees {
-        swap_fee_custody_balance: 2,
-        swap_protocol_fee_liability: 1,
-        swap_buyback_fee_liability: 1,
-        fee_swap_auction_epoch: ProtocolAuctionEpoch {
-            start_slot: 10,
-            tracked_inventory: 1,
-        },
-        buyback_swap_auction_epoch: ProtocolAuctionEpoch {
-            start_slot: 20,
-            tracked_inventory: 1,
-        },
-        ..Fees::default()
-    };
-
-    fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1, 10)
-        .unwrap();
-
-    assert_eq!(fees.fee_swap_auction_epoch, ProtocolAuctionEpoch::default());
-    assert_eq!(
-        fees.buyback_swap_auction_epoch,
-        ProtocolAuctionEpoch {
-            start_slot: 20,
-            tracked_inventory: 1,
+    for lane in [ProtocolAuctionLane::Fee, ProtocolAuctionLane::Buyback] {
+        for source in [ProtocolRevenueSource::Swap, ProtocolRevenueSource::Interest] {
+            let mut fees = Fees {
+                swap_fee_custody_balance: 1,
+                interest_vault_balance: 1,
+                swap_protocol_fee_liability: 1,
+                interest_protocol_fee_liability: 1,
+                ..Fees::default()
+            };
+            *fees.protocol_auction_mut(lane, source) = curve;
+            let other_market = Fees::default();
+            for other_lane in [ProtocolAuctionLane::Fee, ProtocolAuctionLane::Buyback] {
+                for other_source in [ProtocolRevenueSource::Swap, ProtocolRevenueSource::Interest] {
+                    let expected = if lane == other_lane && source == other_source { curve } else { ProtocolAuctionState::default() };
+                    assert_eq!(fees.protocol_auction(other_lane, other_source), expected);
+                    assert_eq!(other_market.protocol_auction(other_lane, other_source), ProtocolAuctionState::default());
+                }
+            }
+            // Emptying custody and subsequent new fees preserve virtual state.
+            fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1).unwrap();
+            fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Interest, 1).unwrap();
+            fees.interest_vault_balance = 100;
+            fees.credit_protocol_interest_revenue(100, ProtocolAuctionSplit::default(), 0).unwrap();
+            assert_eq!(fees.protocol_auction(lane, source), curve);
+            fees.assert_backed().unwrap();
         }
-    );
-}
-
-#[test]
-fn governance_route_is_per_lane_and_resets_only_that_lanes_epochs() {
-    let fee_route = Pubkey::new_unique();
-    let buyback_route = Pubkey::new_unique();
-    let mut fees = Fees {
-        fee_swap_auction_epoch: ProtocolAuctionEpoch {
-            start_slot: 10,
-            tracked_inventory: 1,
-        },
-        buyback_interest_auction_epoch: ProtocolAuctionEpoch {
-            start_slot: 20,
-            tracked_inventory: 2,
-        },
-        ..Fees::default()
-    };
-
-    fees.set_protocol_auction_reference_market(ProtocolAuctionLane::Fee, fee_route);
-    fees.set_protocol_auction_reference_market(ProtocolAuctionLane::Buyback, buyback_route);
-
-    assert_eq!(
-        fees.protocol_auction_reference_market(ProtocolAuctionLane::Fee),
-        fee_route
-    );
-    assert_eq!(
-        fees.protocol_auction_reference_market(ProtocolAuctionLane::Buyback),
-        buyback_route
-    );
-    assert_eq!(fees.fee_swap_auction_epoch, ProtocolAuctionEpoch::default());
-    assert_eq!(fees.buyback_interest_auction_epoch, ProtocolAuctionEpoch::default());
+    }
 }

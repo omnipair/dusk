@@ -1,60 +1,58 @@
 use anchor_lang::prelude::*;
 
-use crate::{
-    constants::*,
-    errors::ErrorCode,
-    math::{mul_div_ceil_u128, rescale_amount},
-    state::*,
-};
+use crate::{constants::*, errors::ErrorCode, math::mul_div_ceil_u128, state::*};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ProtocolAuctionSettlementQuote {
-    pub auction_price_nad: u64,
+    pub next_state: ProtocolAuctionState,
     pub payment_amount: u64,
     pub treasury_amount: u64,
     pub staking_vault_amount: u64,
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn quote_protocol_auction_settlement(
+    state: ProtocolAuctionState,
     sold_amount: u64,
-    sold_decimals: u8,
-    accepted_decimals: u8,
-    reference_price_nad: u64,
-    start_multiplier_bps: u16,
-    floor_multiplier_bps: u16,
-    elapsed_slots: u64,
-    duration_slots: u64,
+    current_slot: u64,
     staking_vault_bps: u16,
 ) -> Result<ProtocolAuctionSettlementQuote> {
-    require!(reference_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-    let start_price = (reference_price_nad as u128)
-        .checked_mul(start_multiplier_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+    require!(sold_amount > 0, ErrorCode::AmountZero);
+    require_keys_neq!(state.accepted_mint, Pubkey::default(), ErrorCode::InvalidAuctionConfig);
+    require!(
+        state.virtual_sold_reserve > 0 && state.virtual_payment_reserve > 0,
+        ErrorCode::InvalidAuctionConfig
+    );
+    let elapsed_slots = current_slot
+        .checked_sub(state.last_update_slot)
+        .ok_or(ErrorCode::InvalidAuctionClock)?;
+    let slots_per_day = MS_PER_DAY / TARGET_MS_PER_SLOT;
+    require!(state.stream_remainder < slots_per_day, ErrorCode::InvalidAuctionConfig);
+    let streamed = (state.sold_rate_per_day as u128)
+        .checked_mul(elapsed_slots as u128)
+        .and_then(|value| value.checked_add(state.stream_remainder as u128))
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let floor_price = (reference_price_nad as u128)
-        .checked_mul(floor_multiplier_bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
+    let virtual_sold = state
+        .virtual_sold_reserve
+        .checked_add(streamed / slots_per_day as u128)
         .ok_or(ErrorCode::MarketMathOverflow)?;
-    let decay = start_price
-        .checked_sub(floor_price)
-        .ok_or(ErrorCode::MarketMathOverflow)?
-        .checked_mul(elapsed_slots.min(duration_slots) as u128)
-        .and_then(|value| value.checked_div(duration_slots as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    let auction_price_nad = u64::try_from(start_price.checked_sub(decay).ok_or(ErrorCode::MarketMathOverflow)?)
+    // Inverse's streaming virtual inventory preserves x*y. Round the payment
+    // reserve up so finite token precision never permits a free purchase.
+    let virtual_payment = mul_div_ceil_u128(state.virtual_payment_reserve, state.virtual_sold_reserve, virtual_sold)?;
+    let remaining_sold = virtual_sold
+        .checked_sub(sold_amount as u128)
+        .ok_or(ErrorCode::InsufficientAmount)?;
+    require!(remaining_sold > 0, ErrorCode::InsufficientAmount);
+    let payment_amount = u64::try_from(mul_div_ceil_u128(virtual_payment, sold_amount as u128, remaining_sold)?)
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
-    require!(auction_price_nad > 0, ErrorCode::InvalidSettlementPrice);
-    let amount_decimals = NAD_DECIMALS.max(sold_decimals).max(accepted_decimals);
-    let sold_scaled = rescale_amount(sold_amount as u128, sold_decimals, amount_decimals, false)?;
-    let payment_scaled = mul_div_ceil_u128(sold_scaled, auction_price_nad as u128, NAD as u128)?;
-    let payment_amount = u64::try_from(rescale_amount(
-        payment_scaled,
-        amount_decimals,
-        accepted_decimals,
-        true,
-    )?)
-    .map_err(|_| ErrorCode::MarketMathOverflow)?;
+    let next_state = ProtocolAuctionState {
+        virtual_sold_reserve: remaining_sold,
+        virtual_payment_reserve: virtual_payment
+            .checked_add(payment_amount as u128)
+            .ok_or(ErrorCode::MarketMathOverflow)?,
+        last_update_slot: current_slot,
+        stream_remainder: (streamed % slots_per_day as u128) as u64,
+        ..state
+    };
 
     require_gte!(BPS_DENOMINATOR, staking_vault_bps, ErrorCode::InvalidDistribution);
     let staking_vault_amount = u64::try_from(
@@ -69,7 +67,7 @@ pub(crate) fn quote_protocol_auction_settlement(
         .ok_or(ErrorCode::MarketMathOverflow)?;
 
     Ok(ProtocolAuctionSettlementQuote {
-        auction_price_nad,
+        next_state,
         payment_amount,
         treasury_amount,
         staking_vault_amount,
@@ -100,54 +98,25 @@ impl Fees {
         Ok(())
     }
 
-    pub fn protocol_auction_reference_market(&self, lane: ProtocolAuctionLane) -> Pubkey {
-        match lane {
-            ProtocolAuctionLane::Fee => self.fee_auction_reference_market,
-            ProtocolAuctionLane::Buyback => self.buyback_auction_reference_market,
+    pub fn protocol_auction(&self, lane: ProtocolAuctionLane, source: ProtocolRevenueSource) -> ProtocolAuctionState {
+        match (lane, source) {
+            (ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap) => self.fee_swap_auction,
+            (ProtocolAuctionLane::Fee, ProtocolRevenueSource::Interest) => self.fee_interest_auction,
+            (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Swap) => self.buyback_swap_auction,
+            (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Interest) => self.buyback_interest_auction,
         }
     }
 
-    pub fn set_protocol_auction_reference_market(&mut self, lane: ProtocolAuctionLane, reference_market: Pubkey) {
-        match lane {
-            ProtocolAuctionLane::Fee => self.fee_auction_reference_market = reference_market,
-            ProtocolAuctionLane::Buyback => self.buyback_auction_reference_market = reference_market,
-        }
-        self.reset_protocol_auction_epochs(lane);
-    }
-
-    pub fn protocol_auction_epoch(
-        &self,
+    pub fn protocol_auction_mut(
+        &mut self,
         lane: ProtocolAuctionLane,
         source: ProtocolRevenueSource,
-        current_slot: u64,
-    ) -> ProtocolAuctionEpoch {
-        let liability = self.protocol_auction_liability(lane, source);
-        let stored = match (lane, source) {
-            (ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap) => self.fee_swap_auction_epoch,
-            (ProtocolAuctionLane::Fee, ProtocolRevenueSource::Interest) => self.fee_interest_auction_epoch,
-            (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Swap) => self.buyback_swap_auction_epoch,
-            (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Interest) => self.buyback_interest_auction_epoch,
-        };
-        if stored.start_slot == 0 || liability > stored.tracked_inventory {
-            ProtocolAuctionEpoch {
-                start_slot: current_slot,
-                tracked_inventory: liability,
-            }
-        } else {
-            stored
-        }
-    }
-
-    pub fn reset_protocol_auction_epochs(&mut self, lane: ProtocolAuctionLane) {
-        match lane {
-            ProtocolAuctionLane::Fee => {
-                self.fee_swap_auction_epoch = ProtocolAuctionEpoch::default();
-                self.fee_interest_auction_epoch = ProtocolAuctionEpoch::default();
-            }
-            ProtocolAuctionLane::Buyback => {
-                self.buyback_swap_auction_epoch = ProtocolAuctionEpoch::default();
-                self.buyback_interest_auction_epoch = ProtocolAuctionEpoch::default();
-            }
+    ) -> &mut ProtocolAuctionState {
+        match (lane, source) {
+            (ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap) => &mut self.fee_swap_auction,
+            (ProtocolAuctionLane::Fee, ProtocolRevenueSource::Interest) => &mut self.fee_interest_auction,
+            (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Swap) => &mut self.buyback_swap_auction,
+            (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Interest) => &mut self.buyback_interest_auction,
         }
     }
 
@@ -193,7 +162,6 @@ impl Fees {
         lane: ProtocolAuctionLane,
         source: ProtocolRevenueSource,
         amount: u64,
-        epoch_start_slot: u64,
     ) -> Result<()> {
         require!(amount > 0, ErrorCode::AmountZero);
         let liability = match (lane, source) {
@@ -215,23 +183,6 @@ impl Fees {
                     .interest_vault_balance
                     .checked_sub(amount)
                     .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
-        }
-        let remaining = self.protocol_auction_liability(lane, source);
-        let next_epoch = if remaining == 0 {
-            ProtocolAuctionEpoch::default()
-        } else {
-            ProtocolAuctionEpoch {
-                start_slot: epoch_start_slot,
-                tracked_inventory: remaining,
-            }
-        };
-        match (lane, source) {
-            (ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap) => self.fee_swap_auction_epoch = next_epoch,
-            (ProtocolAuctionLane::Fee, ProtocolRevenueSource::Interest) => self.fee_interest_auction_epoch = next_epoch,
-            (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Swap) => self.buyback_swap_auction_epoch = next_epoch,
-            (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Interest) => {
-                self.buyback_interest_auction_epoch = next_epoch
             }
         }
         Ok(())
