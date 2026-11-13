@@ -11532,7 +11532,8 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await send(first); trackV2Instruction("announceOperatorChange", this.test?.title);
     const sealed = await operator.proposal(first.proposal);
     expect(await operator.verifyDigest(sealed)).to.equal(true);
-    expect(sealed.executeAfterSlot.sub(sealed.announcedAtSlot).toString()).to.equal("4752000");
+    const noticeSlots = process.env.DUSK_EXPECT_SHORT_NOTICE === "1" ? "3750" : "4752000";
+    expect(sealed.executeAfterSlot.sub(sealed.announcedAtSlot).toString()).to.equal(noticeSlots);
     expect((await getAccount(connection as any, f.ownerSrlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(balance);
     operatorAtSlot(sealed.announcedAtSlot.addn(100));
     const second = await operator.announce({market: f.market, payer: owner, operator: owner, metadata,
@@ -11772,7 +11773,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const tranches=new DuskTranches(sdkProgram);
     const maintenance=await tranches.prepareDrainedIncomeBooks({market:f.market,payer:owner});
     for(const transaction of maintenance.transactions)await send({transaction});
-    const second=await protectionBorrow(f);
+    const second=await protectionBorrow(f, 50_000, 25_000);
+    // Let the borrow accrue before announcing so both notice schedules collect interest.
+    operatorAtSlot(svm.getClock().slot + 10n * 432_000n);
     const bob=Keypair.generate();await connection.requestAirdrop(bob.publicKey,LAMPORTS_PER_SOL);
     const transfer=await operator.announce({market:f.market,payer:owner,operator:owner,metadata,nextOperator:bob.publicKey});
     await send(transfer);operatorAtSlot((await operator.proposal(transfer.proposal)).executeAfterSlot);
