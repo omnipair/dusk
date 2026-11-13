@@ -90,33 +90,19 @@ impl ProtocolAuctionSplit {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub struct ProtocolAuctionParams {
-    pub start_multiplier_bps: u16,
-    pub floor_multiplier_bps: u16,
-    pub duration_slots: u64,
-    pub max_reference_age_slots: u64,
+    /// Initial virtual inventory in raw sold-token atoms, independent of custody.
+    pub virtual_sold_reserve: u64,
+    /// Initial virtual payment reserve in raw accepted-token atoms.
+    pub virtual_payment_reserve: u64,
+    /// Virtual sold-token atoms streamed per nominal protocol day. Zero stops
+    /// streaming while preserving constant-product sales at the configured depth.
+    pub sold_rate_per_day: u64,
 }
 
 impl ProtocolAuctionParams {
-    pub fn default_epoch() -> Self {
-        Self {
-            start_multiplier_bps: 12_000,
-            floor_multiplier_bps: 8_000,
-            // A nominal day; reference freshness below remains a slot count.
-            duration_slots: MS_PER_DAY / TARGET_MS_PER_SLOT,
-            max_reference_age_slots: 21_600,
-        }
-    }
-
     pub fn validate(&self) -> Result<()> {
-        require!(self.start_multiplier_bps > 0, ErrorCode::InvalidAuctionConfig);
-        require!(self.floor_multiplier_bps > 0, ErrorCode::InvalidAuctionConfig);
-        require_gte!(
-            self.start_multiplier_bps,
-            self.floor_multiplier_bps,
-            ErrorCode::InvalidAuctionConfig
-        );
-        require!(self.duration_slots > 0, ErrorCode::InvalidAuctionConfig);
-        require!(self.max_reference_age_slots > 0, ErrorCode::InvalidAuctionConfig);
+        require!(self.virtual_sold_reserve > 0, ErrorCode::InvalidAuctionConfig);
+        require!(self.virtual_payment_reserve > 0, ErrorCode::InvalidAuctionConfig);
         Ok(())
     }
 }
@@ -146,26 +132,24 @@ impl ProtocolAuctionRecipients {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, AnchorSerialize, AnchorDeserialize, InitSpace)]
 pub struct ProtocolAuctionConfig {
+    /// Default payment mint for newly configured curves. Each curve stores its
+    /// own mint; changing this default never reinterprets existing reserves.
     pub accepted_mint: Pubkey,
     pub recipients: ProtocolAuctionRecipients,
-    pub params: ProtocolAuctionParams,
 }
 
 impl ProtocolAuctionConfig {
     pub fn initialize(accepted_mint: Pubkey, treasury: Pubkey, staking_vault: Pubkey) -> Result<Self> {
-        let params = ProtocolAuctionParams::default_epoch();
-        params.validate()?;
         Ok(Self {
             accepted_mint,
             recipients: ProtocolAuctionRecipients::treasury_only(treasury, staking_vault),
-            params,
         })
     }
 
     pub fn validate(&self) -> Result<()> {
         require_keys_neq!(self.accepted_mint, Pubkey::default(), ErrorCode::InvalidMint);
         require!(self.recipients.is_valid(), ErrorCode::InvalidDistribution);
-        self.params.validate()
+        Ok(())
     }
 }
 

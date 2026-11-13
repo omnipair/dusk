@@ -273,10 +273,6 @@ pub struct ProtocolAuctionConfigUpdated {
     pub authority: Pubkey,
     pub lane: u8,
     pub accepted_mint: Pubkey,
-    pub start_multiplier_bps: u16,
-    pub floor_multiplier_bps: u16,
-    pub duration_slots: u64,
-    pub max_reference_age_slots: u64,
     pub signer: Pubkey,
 }
 
@@ -292,15 +288,18 @@ pub struct ProtocolAuctionRecipientsUpdated {
 }
 
 #[event]
-pub struct ProtocolAuctionRouteUpdated {
+pub struct ProtocolAuctionConfigured {
     pub authority: Pubkey,
     pub market: Pubkey,
     pub lane: u8,
+    pub source: u8,
     pub side: u8,
     pub sold_mint: Pubkey,
     pub accepted_mint: Pubkey,
-    /// `Pubkey::default()` restores the direct-market-only policy.
-    pub reference_market: Pubkey,
+    pub virtual_sold_reserve: u64,
+    pub virtual_payment_reserve: u64,
+    pub sold_rate_per_day: u64,
+    pub start_slot: u64,
     pub signer: Pubkey,
 }
 
@@ -382,7 +381,6 @@ pub struct ReferralBound {
 #[event]
 pub struct ProtocolAuctionSettled {
     pub market: Pubkey,
-    pub reference_market: Pubkey,
     pub lane: u8,
     pub source: u8,
     pub side: u8,
@@ -390,11 +388,12 @@ pub struct ProtocolAuctionSettled {
     pub sold_mint: Pubkey,
     pub accepted_mint: Pubkey,
     pub sold_amount: u64,
+    pub sold_net_amount: u64,
     pub payment_amount: u64,
     pub treasury_amount: u64,
     pub staking_vault_amount: u64,
-    pub reference_price_nad: u64,
-    pub auction_price_nad: u64,
+    pub virtual_sold_reserve: u128,
+    pub virtual_payment_reserve: u128,
     pub remaining_fee_liability: u64,
     pub remaining_buyback_liability: u64,
     pub metadata: MarketEventMetadata,

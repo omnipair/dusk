@@ -3,15 +3,18 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{BPS_DENOMINATOR, FUTARCHY_AUTHORITY_SEED_PREFIX, MARKET_V2_SEED_PREFIX},
     errors::ErrorCode,
-    events::{ProtocolAuctionConfigUpdated, ProtocolAuctionRecipientsUpdated, ProtocolAuctionRouteUpdated},
-    state::{FutarchyAuthority, Market, ProtocolAuctionLane, ProtocolAuctionParams},
+    events::{ProtocolAuctionConfigUpdated, ProtocolAuctionConfigured, ProtocolAuctionRecipientsUpdated},
+    state::{
+        FutarchyAuthority, Market, ProtocolAuctionLane, ProtocolAuctionParams, ProtocolAuctionState,
+        ProtocolRevenueSource,
+    },
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct UpdateProtocolAuctionConfigArgs {
     pub lane: ProtocolAuctionLane,
+    /// Default for newly configured auctions; existing curves retain their mint.
     pub accepted_mint: Option<Pubkey>,
-    pub params: Option<ProtocolAuctionParams>,
 }
 
 #[event_cpi]
@@ -47,23 +50,13 @@ impl<'info> UpdateProtocolAuctionConfig<'info> {
             require_keys_neq!(accepted_mint, Pubkey::default(), ErrorCode::InvalidMint);
             auction.accepted_mint = accepted_mint;
         }
-        if let Some(params) = args.params {
-            params.validate()?;
-            auction.params = params;
-        }
-
         auction.validate()?;
         let accepted_mint = auction.accepted_mint;
-        let params = auction.params;
 
         emit_cpi!(ProtocolAuctionConfigUpdated {
             authority,
             lane: lane.code(),
             accepted_mint,
-            start_multiplier_bps: params.start_multiplier_bps,
-            floor_multiplier_bps: params.floor_multiplier_bps,
-            duration_slots: params.duration_slots,
-            max_reference_age_slots: params.max_reference_age_slots,
             signer,
         });
 
@@ -142,17 +135,21 @@ impl<'info> UpdateProtocolAuctionRecipients<'info> {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct UpdateProtocolAuctionRouteArgs {
+pub struct ConfigureProtocolAuctionArgs {
     pub lane: ProtocolAuctionLane,
+    pub source: ProtocolRevenueSource,
     pub sold_mint: Pubkey,
-    /// A governance-approved market key. The default key removes the approval
-    /// and permits settlement only from the sold market's own direct pair.
-    pub reference_market: Pubkey,
+    /// None uses the lane's current default; an explicit mint configures this
+    /// curve independently. Stored reserves always retain their payment mint.
+    pub accepted_mint: Option<Pubkey>,
+    /// Sets both virtual reserves and the streaming rate, restarting this
+    /// curve at the current slot. Actual fee inventory is unaffected.
+    pub params: ProtocolAuctionParams,
 }
 
 #[event_cpi]
 #[derive(Accounts)]
-pub struct UpdateProtocolAuctionRoute<'info> {
+pub struct ConfigureProtocolAuction<'info> {
     #[account(
         address = futarchy_authority.authority @ ErrorCode::InvalidFutarchyAuthority
     )]
@@ -178,9 +175,9 @@ pub struct UpdateProtocolAuctionRoute<'info> {
     pub market: Box<Account<'info, Market>>,
 }
 
-impl UpdateProtocolAuctionRoute<'_> {
-    pub fn handle_update(ctx: Context<Self>, args: UpdateProtocolAuctionRouteArgs) -> Result<()> {
-        let UpdateProtocolAuctionRoute {
+impl ConfigureProtocolAuction<'_> {
+    pub fn handle_configure(ctx: Context<Self>, args: ConfigureProtocolAuctionArgs) -> Result<()> {
+        let ConfigureProtocolAuction {
             authority_signer,
             futarchy_authority,
             market,
@@ -189,20 +186,37 @@ impl UpdateProtocolAuctionRoute<'_> {
 
         futarchy_authority.validate()?;
         market.assert_started()?;
+        args.params.validate()?;
+        let accepted_mint = args
+            .accepted_mint
+            .unwrap_or(futarchy_authority.auction_config(args.lane).accepted_mint);
+        require_keys_neq!(accepted_mint, Pubkey::default(), ErrorCode::InvalidMint);
+        let current_slot = Clock::get()?.slot;
         let sold_side = market.asset_for_mint(args.sold_mint)?;
-        market
+        *market
             .side_mut(sold_side)
             .fees
-            .set_protocol_auction_reference_market(args.lane, args.reference_market);
+            .protocol_auction_mut(args.lane, args.source) = ProtocolAuctionState {
+            accepted_mint,
+            virtual_sold_reserve: args.params.virtual_sold_reserve as u128,
+            virtual_payment_reserve: args.params.virtual_payment_reserve as u128,
+            sold_rate_per_day: args.params.sold_rate_per_day,
+            last_update_slot: current_slot,
+            stream_remainder: 0,
+        };
 
-        emit_cpi!(ProtocolAuctionRouteUpdated {
+        emit_cpi!(ProtocolAuctionConfigured {
             authority: futarchy_authority.key(),
             market: market.key(),
             lane: args.lane.code(),
+            source: args.source.code(),
             side: sold_side.code(),
             sold_mint: args.sold_mint,
-            accepted_mint: futarchy_authority.auction_config(args.lane).accepted_mint,
-            reference_market: args.reference_market,
+            accepted_mint,
+            virtual_sold_reserve: args.params.virtual_sold_reserve,
+            virtual_payment_reserve: args.params.virtual_payment_reserve,
+            sold_rate_per_day: args.params.sold_rate_per_day,
+            start_slot: current_slot,
             signer: authority_signer.key(),
         });
 

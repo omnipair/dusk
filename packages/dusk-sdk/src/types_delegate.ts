@@ -3698,51 +3698,34 @@ export type LeverageDelegate = {
             "type": "u64"
           },
           {
-            "name": "feeAuctionReferenceMarket",
-            "docs": [
-              "Governance-approved reference market for fee-lane auctions. A default",
-              "key permits only the sold market itself when it directly pairs the sold",
-              "and accepted mints."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "buybackAuctionReferenceMarket",
-            "docs": [
-              "Governance-approved reference market for buyback-lane auctions. A",
-              "default key has the same direct-market-only meaning as above."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "feeSwapAuctionEpoch",
+            "name": "feeSwapAuction",
             "type": {
               "defined": {
-                "name": "protocolAuctionEpoch"
+                "name": "protocolAuctionState"
               }
             }
           },
           {
-            "name": "feeInterestAuctionEpoch",
+            "name": "feeInterestAuction",
             "type": {
               "defined": {
-                "name": "protocolAuctionEpoch"
+                "name": "protocolAuctionState"
               }
             }
           },
           {
-            "name": "buybackSwapAuctionEpoch",
+            "name": "buybackSwapAuction",
             "type": {
               "defined": {
-                "name": "protocolAuctionEpoch"
+                "name": "protocolAuctionState"
               }
             }
           },
           {
-            "name": "buybackInterestAuctionEpoch",
+            "name": "buybackInterestAuction",
             "type": {
               "defined": {
-                "name": "protocolAuctionEpoch"
+                "name": "protocolAuctionState"
               }
             }
           }
@@ -5565,6 +5548,10 @@ export type LeverageDelegate = {
         "fields": [
           {
             "name": "acceptedMint",
+            "docs": [
+              "Default payment mint for newly configured curves. Each curve stores its",
+              "own mint; changing this default never reinterprets existing reserves."
+            ],
             "type": "pubkey"
           },
           {
@@ -5574,59 +5561,6 @@ export type LeverageDelegate = {
                 "name": "protocolAuctionRecipients"
               }
             }
-          },
-          {
-            "name": "params",
-            "type": {
-              "defined": {
-                "name": "protocolAuctionParams"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "protocolAuctionEpoch",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "startSlot",
-            "type": "u64"
-          },
-          {
-            "name": "trackedInventory",
-            "docs": [
-              "Liability remaining immediately after the preceding fill. A larger",
-              "current liability proves that new inventory arrived and starts a new",
-              "epoch instead of inheriting an old floor price."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "protocolAuctionParams",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "startMultiplierBps",
-            "type": "u16"
-          },
-          {
-            "name": "floorMultiplierBps",
-            "type": "u16"
-          },
-          {
-            "name": "durationSlots",
-            "type": "u64"
-          },
-          {
-            "name": "maxReferenceAgeSlots",
-            "type": "u64"
           }
         ]
       }
@@ -5667,6 +5601,48 @@ export type LeverageDelegate = {
           {
             "name": "buybackAuctionBps",
             "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "protocolAuctionState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "acceptedMint",
+            "docs": [
+              "A configured curve binds raw payment reserves to this specific mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "virtualSoldReserve",
+            "type": "u128"
+          },
+          {
+            "name": "virtualPaymentReserve",
+            "type": "u128"
+          },
+          {
+            "name": "soldRatePerDay",
+            "type": "u64"
+          },
+          {
+            "name": "lastUpdateSlot",
+            "docs": [
+              "Initialized by governance, then advanced only by successful settlements.",
+              "Fee arrivals and exhaustion of actual inventory never restart this clock."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "streamRemainder",
+            "docs": [
+              "Fractional streamed atoms, with a denominator of nominal slots per day."
+            ],
+            "type": "u64"
           }
         ]
       }

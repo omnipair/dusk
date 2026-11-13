@@ -1012,7 +1012,7 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
             irm: IrmConfig::default(), ..MarketConfig::default()
          };
          let mut market = Market::current_layout();
-         market.initialize(Pubkey::new_unique(), side(base_decimals), side(quote_decimals), config, Pubkey::new_unique(), Pubkey::new_unique(), [0;32], Pubkey::new_unique(), 60 * NAD, 0, 2_500, 255).unwrap();
+         market.initialize(Pubkey::new_unique(), Box::new(side(base_decimals)), Box::new(side(quote_decimals)), config, Pubkey::new_unique(), Pubkey::new_unique(), [0;32], Pubkey::new_unique(), 60 * NAD, 0, 2_500, 255).unwrap();
          // Configuration admits a concentrated curve only with the minimum
          // base fee. Remove it after initialization so fee income cannot mask
          // a round trip funded by frozen-hLP reconstruction.

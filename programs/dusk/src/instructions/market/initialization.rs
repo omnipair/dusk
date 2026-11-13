@@ -383,7 +383,7 @@ impl<'info> InitializeMarket<'info> {
             ],
         )?;
 
-        let base_side = MarketSide {
+        let base_side = Box::new(MarketSide {
             asset_mint: base_mint,
             asset_decimals: ctx.accounts.base_mint.decimals,
             hlp_mint: base_hlp_mint,
@@ -391,8 +391,8 @@ impl<'info> InitializeMarket<'info> {
             collateral_vault: base_collateral_vault,
             interest_vault: ctx.accounts.base_interest_vault.key(),
             ..MarketSide::default()
-        };
-        let quote_side = MarketSide {
+        });
+        let quote_side = Box::new(MarketSide {
             asset_mint: quote_mint,
             asset_decimals: ctx.accounts.quote_mint.decimals,
             hlp_mint: quote_hlp_mint,
@@ -400,7 +400,7 @@ impl<'info> InitializeMarket<'info> {
             collateral_vault: quote_collateral_vault,
             interest_vault: ctx.accounts.quote_interest_vault.key(),
             ..MarketSide::default()
-        };
+        });
         let base_hlp_srlp_vault = derive_hlp_srlp_vault_address(market_key, base_hlp_mint, srlp_mint).0;
         let quote_hlp_srlp_vault = derive_hlp_srlp_vault_address(market_key, quote_hlp_mint, srlp_mint).0;
 

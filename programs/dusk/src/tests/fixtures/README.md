@@ -28,14 +28,20 @@ using the new IDL:
   schema and restates its retention and ordinary-reserve quantities the same
   way.
 
+The current layout initializes the four independent continuous fee-auction
+curves per side as unconfigured. Lane defaults and recipients are preserved in
+`vob-authority-layout16.bin`; the superseded linear-auction parameters are
+omitted. Tests use that derived authority, while the raw capture remains intact.
+
 Historical reserve, debt, price and observation inputs otherwise remain
 unchanged. These are test-data conversions, not deployed-account migrations.
 
 | Derived fixture | SHA-256 |
 |---|---|
-| `hlp-entry-layout15.bin` | `9f1becfef00b2b90e68e3a69903512fe071f99f7a8175bb7cfa667a4996c0f47` |
-| `vob-market-layout15.bin` | `ac5395115c84db6b60237dfdd5c03d9b773095e541303fe5f9aa3e5f5fe85486` |
-| `hlp-entry-funding-layout15.bin` | `9972078b970c6f521f0b710485a1cf486403b4b4cfaf9fc24be7864a69c5cd05` |
+| `vob-authority-layout16.bin` | `8352c0d9a885030d976a7384fbded2d6ebf63ef92839c54d667b8f8e45a96a2a` |
+| `hlp-entry-layout16.bin` | `6b424f64806fd2b43059770942d5ca8963e7594859f5d9cb8f0aca4ce4077b54` |
+| `vob-market-layout16.bin` | `5bcadea66cbda94c42d6042fd8d8df378310e1cb28a79b097675fb4180f98154` |
+| `hlp-entry-funding-layout16.bin` | `b9b75e5bea1afcb9041a04fa45fbb64fb3fcc147e199c769f2984b59036cfdf2` |
 
 ## Indexed-funding hLP entry snapshot
 
@@ -44,6 +50,6 @@ unchanged. These are test-data conversions, not deployed-account migrations.
 519889239 after the November 2026 operator release. It includes the account
 discriminator and contains no wallet keys. The base vault is empty; the quote
 vault has nine hLP tokens and accrued funding that requires settlement. Tests
-use the derived `hlp-entry-funding-layout15.bin`, accrue that exact slot and
+use the derived `hlp-entry-funding-layout16.bin`, accrue that exact slot and
 exercise both first and repeat deposits, coupon ownership, share-value
 protection and the post-entry hedge.

@@ -2382,6 +2382,134 @@ export type Dusk = {
       "args": []
     },
     {
+      "name": "configureProtocolAuction",
+      "discriminator": [
+        169,
+        178,
+        239,
+        169,
+        228,
+        103,
+        127,
+        127
+      ],
+      "accounts": [
+        {
+          "name": "authoritySigner",
+          "signer": true
+        },
+        {
+          "name": "futarchyAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  117,
+                  116,
+                  97,
+                  114,
+                  99,
+                  104,
+                  121,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  95,
+                  118,
+                  50
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.base_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.quote_side.asset_mint",
+                "account": "market"
+              },
+              {
+                "kind": "account",
+                "path": "market.params_hash",
+                "account": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "eventAuthority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  95,
+                  95,
+                  101,
+                  118,
+                  101,
+                  110,
+                  116,
+                  95,
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "program"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "configureProtocolAuctionArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "configureReferralPartner",
       "discriminator": [
         36,
@@ -9668,9 +9796,6 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "referenceMarket"
-        },
-        {
           "name": "tokenProgram",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -10423,134 +10548,6 @@ export type Dusk = {
           "type": {
             "defined": {
               "name": "updateProtocolAuctionRecipientsArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "updateProtocolAuctionRoute",
-      "discriminator": [
-        37,
-        160,
-        194,
-        28,
-        53,
-        78,
-        43,
-        119
-      ],
-      "accounts": [
-        {
-          "name": "authoritySigner",
-          "signer": true
-        },
-        {
-          "name": "futarchyAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  102,
-                  117,
-                  116,
-                  97,
-                  114,
-                  99,
-                  104,
-                  121,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "market",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "eventAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "updateProtocolAuctionRouteArgs"
             }
           }
         }
@@ -12206,6 +12203,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "protocolAuctionConfigured",
+      "discriminator": [
+        114,
+        47,
+        219,
+        227,
+        0,
+        0,
+        171,
+        52
+      ]
+    },
+    {
       "name": "protocolAuctionRecipientsUpdated",
       "discriminator": [
         174,
@@ -12216,19 +12226,6 @@ export type Dusk = {
         241,
         5,
         120
-      ]
-    },
-    {
-      "name": "protocolAuctionRouteUpdated",
-      "discriminator": [
-        146,
-        136,
-        94,
-        87,
-        36,
-        147,
-        221,
-        192
       ]
     },
     {
@@ -12770,8 +12767,8 @@ export type Dusk = {
     },
     {
       "code": 6068,
-      "name": "staleAuctionReference",
-      "msg": "Protocol auction reference price is stale"
+      "name": "invalidAuctionClock",
+      "msg": "Protocol auction slot precedes its last update"
     },
     {
       "code": 6069,
@@ -14645,6 +14642,56 @@ export type Dusk = {
       }
     },
     {
+      "name": "configureProtocolAuctionArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "lane",
+            "type": {
+              "defined": {
+                "name": "protocolAuctionLane"
+              }
+            }
+          },
+          {
+            "name": "source",
+            "type": {
+              "defined": {
+                "name": "protocolRevenueSource"
+              }
+            }
+          },
+          {
+            "name": "soldMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "acceptedMint",
+            "docs": [
+              "None uses the lane's current default; an explicit mint configures this",
+              "curve independently. Stored reserves always retain their payment mint."
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "params",
+            "docs": [
+              "Sets both virtual reserves and the streaming rate, restarting this",
+              "curve at the current slot. Actual fee inventory is unaffected."
+            ],
+            "type": {
+              "defined": {
+                "name": "protocolAuctionParams"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "configureReferralPartnerArgs",
       "type": {
         "kind": "struct",
@@ -15463,51 +15510,34 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "feeAuctionReferenceMarket",
-            "docs": [
-              "Governance-approved reference market for fee-lane auctions. A default",
-              "key permits only the sold market itself when it directly pairs the sold",
-              "and accepted mints."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "buybackAuctionReferenceMarket",
-            "docs": [
-              "Governance-approved reference market for buyback-lane auctions. A",
-              "default key has the same direct-market-only meaning as above."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "feeSwapAuctionEpoch",
+            "name": "feeSwapAuction",
             "type": {
               "defined": {
-                "name": "protocolAuctionEpoch"
+                "name": "protocolAuctionState"
               }
             }
           },
           {
-            "name": "feeInterestAuctionEpoch",
+            "name": "feeInterestAuction",
             "type": {
               "defined": {
-                "name": "protocolAuctionEpoch"
+                "name": "protocolAuctionState"
               }
             }
           },
           {
-            "name": "buybackSwapAuctionEpoch",
+            "name": "buybackSwapAuction",
             "type": {
               "defined": {
-                "name": "protocolAuctionEpoch"
+                "name": "protocolAuctionState"
               }
             }
           },
           {
-            "name": "buybackInterestAuctionEpoch",
+            "name": "buybackInterestAuction",
             "type": {
               "defined": {
-                "name": "protocolAuctionEpoch"
+                "name": "protocolAuctionState"
               }
             }
           }
@@ -20976,6 +21006,10 @@ export type Dusk = {
         "fields": [
           {
             "name": "acceptedMint",
+            "docs": [
+              "Default payment mint for newly configured curves. Each curve stores its",
+              "own mint; changing this default never reinterprets existing reserves."
+            ],
             "type": "pubkey"
           },
           {
@@ -20983,14 +21017,6 @@ export type Dusk = {
             "type": {
               "defined": {
                 "name": "protocolAuctionRecipients"
-              }
-            }
-          },
-          {
-            "name": "params",
-            "type": {
-              "defined": {
-                "name": "protocolAuctionParams"
               }
             }
           }
@@ -21015,22 +21041,6 @@ export type Dusk = {
             "type": "pubkey"
           },
           {
-            "name": "startMultiplierBps",
-            "type": "u16"
-          },
-          {
-            "name": "floorMultiplierBps",
-            "type": "u16"
-          },
-          {
-            "name": "durationSlots",
-            "type": "u64"
-          },
-          {
-            "name": "maxReferenceAgeSlots",
-            "type": "u64"
-          },
-          {
             "name": "signer",
             "type": "pubkey"
           }
@@ -21038,22 +21048,57 @@ export type Dusk = {
       }
     },
     {
-      "name": "protocolAuctionEpoch",
+      "name": "protocolAuctionConfigured",
       "type": {
         "kind": "struct",
         "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "lane",
+            "type": "u8"
+          },
+          {
+            "name": "source",
+            "type": "u8"
+          },
+          {
+            "name": "side",
+            "type": "u8"
+          },
+          {
+            "name": "soldMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "acceptedMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "virtualSoldReserve",
+            "type": "u64"
+          },
+          {
+            "name": "virtualPaymentReserve",
+            "type": "u64"
+          },
+          {
+            "name": "soldRatePerDay",
+            "type": "u64"
+          },
           {
             "name": "startSlot",
             "type": "u64"
           },
           {
-            "name": "trackedInventory",
-            "docs": [
-              "Liability remaining immediately after the preceding fill. A larger",
-              "current liability proves that new inventory arrived and starts a new",
-              "epoch instead of inheriting an old floor price."
-            ],
-            "type": "u64"
+            "name": "signer",
+            "type": "pubkey"
           }
         ]
       }
@@ -21078,19 +21123,25 @@ export type Dusk = {
         "kind": "struct",
         "fields": [
           {
-            "name": "startMultiplierBps",
-            "type": "u16"
-          },
-          {
-            "name": "floorMultiplierBps",
-            "type": "u16"
-          },
-          {
-            "name": "durationSlots",
+            "name": "virtualSoldReserve",
+            "docs": [
+              "Initial virtual inventory in raw sold-token atoms, independent of custody."
+            ],
             "type": "u64"
           },
           {
-            "name": "maxReferenceAgeSlots",
+            "name": "virtualPaymentReserve",
+            "docs": [
+              "Initial virtual payment reserve in raw accepted-token atoms."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "soldRatePerDay",
+            "docs": [
+              "Virtual sold-token atoms streamed per nominal protocol day. Zero stops",
+              "streaming while preserving constant-product sales at the configured depth."
+            ],
             "type": "u64"
           }
         ]
@@ -21157,59 +21208,12 @@ export type Dusk = {
       }
     },
     {
-      "name": "protocolAuctionRouteUpdated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "authority",
-            "type": "pubkey"
-          },
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "lane",
-            "type": "u8"
-          },
-          {
-            "name": "side",
-            "type": "u8"
-          },
-          {
-            "name": "soldMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "acceptedMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "referenceMarket",
-            "docs": [
-              "`Pubkey::default()` restores the direct-market-only policy."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "signer",
-            "type": "pubkey"
-          }
-        ]
-      }
-    },
-    {
       "name": "protocolAuctionSettled",
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "referenceMarket",
             "type": "pubkey"
           },
           {
@@ -21241,6 +21245,10 @@ export type Dusk = {
             "type": "u64"
           },
           {
+            "name": "soldNetAmount",
+            "type": "u64"
+          },
+          {
             "name": "paymentAmount",
             "type": "u64"
           },
@@ -21253,12 +21261,12 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "referencePriceNad",
-            "type": "u64"
+            "name": "virtualSoldReserve",
+            "type": "u128"
           },
           {
-            "name": "auctionPriceNad",
-            "type": "u64"
+            "name": "virtualPaymentReserve",
+            "type": "u128"
           },
           {
             "name": "remainingFeeLiability",
@@ -21315,6 +21323,48 @@ export type Dusk = {
           {
             "name": "signer",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "protocolAuctionState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "acceptedMint",
+            "docs": [
+              "A configured curve binds raw payment reserves to this specific mint."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "virtualSoldReserve",
+            "type": "u128"
+          },
+          {
+            "name": "virtualPaymentReserve",
+            "type": "u128"
+          },
+          {
+            "name": "soldRatePerDay",
+            "type": "u64"
+          },
+          {
+            "name": "lastUpdateSlot",
+            "docs": [
+              "Initialized by governance, then advanced only by successful settlements.",
+              "Fee arrivals and exhaustion of actual inventory never restart this clock."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "streamRemainder",
+            "docs": [
+              "Fractional streamed atoms, with a denominator of nominal slots per day."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -23017,18 +23067,11 @@ export type Dusk = {
           },
           {
             "name": "acceptedMint",
+            "docs": [
+              "Default for newly configured auctions; existing curves retain their mint."
+            ],
             "type": {
               "option": "pubkey"
-            }
-          },
-          {
-            "name": "params",
-            "type": {
-              "option": {
-                "defined": {
-                  "name": "protocolAuctionParams"
-                }
-              }
             }
           }
         ]
@@ -23070,34 +23113,6 @@ export type Dusk = {
             "type": {
               "option": "u16"
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "updateProtocolAuctionRouteArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "lane",
-            "type": {
-              "defined": {
-                "name": "protocolAuctionLane"
-              }
-            }
-          },
-          {
-            "name": "soldMint",
-            "type": "pubkey"
-          },
-          {
-            "name": "referenceMarket",
-            "docs": [
-              "A governance-approved market key. The default key removes the approval",
-              "and permits settlement only from the sold market's own direct pair."
-            ],
-            "type": "pubkey"
           }
         ]
       }
@@ -23603,7 +23618,7 @@ export type Dusk = {
         "Aggregate virtual reserves use u128; physical token amounts remain u64."
       ],
       "type": "u8",
-      "value": "15"
+      "value": "16"
     },
     {
       "name": "marketReserveVaultSeedPrefix",
