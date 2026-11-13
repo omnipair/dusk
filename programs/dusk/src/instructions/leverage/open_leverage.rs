@@ -119,6 +119,7 @@ impl<'info> OpenLeverage<'info> {
             debt_asset,
             unix_timestamp,
             &self.instructions_sysvar.to_account_info(),
+            false,
         )?;
         validate_leverage_mints(&self.market, debt_asset, &self.debt_mint, &self.collateral_mint)?;
         let (expected_collateral_vault, _) =

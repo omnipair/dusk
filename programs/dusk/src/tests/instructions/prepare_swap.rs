@@ -37,7 +37,7 @@ fn run_guard(
     let key = INSTRUCTIONS_SYSVAR_ID;
     let owner = sysvar::id();
     let account = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false, 0);
-    enforce_launch_same_transaction_guard(market, market_key, MarketAsset::Quote, unix_timestamp, &account)
+    enforce_launch_same_transaction_guard(market, market_key, MarketAsset::Quote, unix_timestamp, &account, false)
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn launch_guard_allows_one_market_action_and_rejects_same_transaction_splits() {
 }
 
 #[test]
-fn launch_guard_rejects_aggregator_cpi_but_is_inert_after_expiry() {
+fn launch_guard_rejects_cpi_for_top_level_only_actions_and_is_inert_after_expiry() {
     let market = guarded_market();
     let market_key = Pubkey::new_unique();
     let aggregator = Pubkey::new_unique();
