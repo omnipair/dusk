@@ -34,7 +34,8 @@ impl<'info> UpdateLeverageOrder<'info> {
     pub fn handle_update(ctx: Context<Self>, args: UpdateLeverageOrderArgs) -> Result<()> {
         validate_order_kind(args.kind)?;
         require!(
-            args.trigger_closeout_price_nad > 0
+            args.trigger_price_nad > 0
+                && args.min_owner_payout > 0
                 && args.close_bps > 0
                 && args.close_bps <= BPS_DENOMINATOR,
             LeverageDelegateError::InvalidOrder
@@ -42,8 +43,9 @@ impl<'info> UpdateLeverageOrder<'info> {
         let order = &mut ctx.accounts.order;
         order.open_curve_revision = ctx.accounts.leverage_position.open_curve_revision;
         order.kind = args.kind;
-        order.trigger_closeout_price_nad = args.trigger_closeout_price_nad;
+        order.trigger_price_nad = args.trigger_price_nad;
         order.close_bps = args.close_bps;
+        order.min_owner_payout = args.min_owner_payout;
         reset_staged_settlement(order);
         Ok(())
     }

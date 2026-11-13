@@ -4,18 +4,24 @@ use super::*;
 pub struct CreateLeverageOrderArgs {
     pub order_id: u64,
     pub kind: u8,
-    pub trigger_closeout_price_nad: u64,
+    /// Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD.
+    pub trigger_price_nad: u64,
     /// Portion of the current position closed when triggered. `10_000` is a
     /// full close; smaller values realize one proportional slice.
     pub close_bps: u16,
+    /// Positive minimum owner credit in debt-token atoms after debt and all fees.
+    pub min_owner_payout: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct UpdateLeverageOrderArgs {
     pub order_id: u64,
     pub kind: u8,
-    pub trigger_closeout_price_nad: u64,
+    /// Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD.
+    pub trigger_price_nad: u64,
     pub close_bps: u16,
+    /// Positive minimum owner credit in debt-token atoms after debt and all fees.
+    pub min_owner_payout: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -29,7 +35,6 @@ pub struct ExecuteOrderArgs {
 }
 
 pub(super) fn reset_staged_settlement(order: &mut LeverageOrder) {
-    order.staged_margin = 0;
     order.staged_collateral_amount = 0;
     order.staged_remaining_collateral_amount = 0;
     order.staged_remaining_debt_shares = 0;

@@ -82,7 +82,7 @@ async function main() {
     const signature = await send([
       await orders.createOrderInstruction({
         closeBps, kind, market, orderId: base + BigInt(kind === "takeProfit" ? 1 : 2),
-        owner, positionId, triggerCloseoutPriceNad: triggerNad.toString(),
+        owner, positionId, minOwnerPayout: 1n, triggerPriceNad: triggerNad.toString(),
       }),
     ]);
     console.log(`${label.padEnd(24)} ${signature}`);

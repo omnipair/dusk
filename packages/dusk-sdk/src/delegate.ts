@@ -35,8 +35,7 @@ export function calculateOrderProtocolFee(executedValue: RawAmount): bigint {
   return (value * ORDER_PROTOCOL_FEE_BPS + 9_999n) / 10_000n;
 }
 
-/** Whole debt tokens per whole collateral token, scaled by 1e9, as the
- * delegate compares TP/SL thresholds. Mirrors its checked u128 arithmetic. */
+/** Average execution price in whole debt tokens per whole collateral token, scaled by 1e9. */
 export function calculateLeverageCloseoutPrice(value: RawAmount, collateral: RawAmount,
   debtDecimals: number, collateralDecimals: number): bigint {
   const output = BigInt(integerBN(value, "closeoutValue").toString());
@@ -148,10 +147,12 @@ export interface CreateLeverageOrderParams {
   positionId: AddressLike;
   orderId: bigint | number | string;
   kind: LeverageOrderKind;
-  /** Whole debt tokens per whole collateral token, scaled by 1e9. */
-  triggerCloseoutPriceNad: bigint | number | string;
+  /** Symmetric EMA threshold in whole debt tokens per collateral token, scaled by 1e9. */
+  triggerPriceNad: bigint | number | string;
   /** How much of the position to close, in basis points. */
   closeBps: number;
+  /** Positive minimum net payout in raw debt-token units, after debt and fees. */
+  minOwnerPayout: RawAmount;
   leveragePosition?: AddressLike;
   order?: AddressLike;
   remainingAccounts?: AccountMeta[];
@@ -324,8 +325,9 @@ export class DuskLeverageOrders {
     const args = normalizeInstructionArgs(this.program.idl, "createLeverageOrder", {
       orderId: params.orderId,
       kind: leverageOrderKindValue(params.kind),
-      triggerCloseoutPriceNad: params.triggerCloseoutPriceNad,
+      triggerPriceNad: params.triggerPriceNad,
       closeBps: params.closeBps,
+      minOwnerPayout: params.minOwnerPayout,
     } satisfies LeverageDelegateInstructionArgs<"createLeverageOrder">);
 
     const leveragePosition = address(

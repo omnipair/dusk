@@ -13160,7 +13160,7 @@
     {
       "code": 6147,
       "name": "CurveTailShareBelowMinimum",
-      "msg": "Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or widen the core or fade"
+      "msg": "Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or narrow the core or fade"
     },
     {
       "code": 6148,
@@ -14451,7 +14451,10 @@
             "type": "u64"
           },
           {
-            "name": "full_output",
+            "name": "reserved",
+            "docs": [
+              "Reserved to preserve the position account layout."
+            ],
             "type": "u64"
           }
         ]

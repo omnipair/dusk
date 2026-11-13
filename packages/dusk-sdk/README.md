@@ -382,6 +382,12 @@ instruction through the same generic path as `dusk.write`:
 `orders.method(...)`, `orders.builder(...)`, `orders.instruction(...)`,
 `orders.transaction(...)` and `orders.rpc(...)`.
 
+For leverage TP/SL, set `triggerPriceNad` to the symmetric EMA threshold in
+whole debt tokens per collateral token, scaled by 1e9. Set `minOwnerPayout`
+to the minimum net credit in raw debt-token units after repayment and fees.
+The selected slice still fills on the live AMM. An owner-signed
+`updateLeverageOrder` can revise both limits.
+
 ```typescript
 const ix = await dusk.orders.instruction(
   "createLeverageEntryOrder",

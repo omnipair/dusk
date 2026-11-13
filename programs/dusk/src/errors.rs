@@ -425,7 +425,7 @@ pub enum ErrorCode {
     OracleReplay,
     #[msg("Launch-only settings are immutable after the market starts")]
     LaunchSettingsImmutable,
-    #[msg("Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or widen the core or fade")]
+    #[msg("Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or narrow the core or fade")]
     CurveTailShareBelowMinimum,
     #[msg("Concentrated curves require a base swap fee of at least 1 bps")]
     ConcentratedSwapFeeBelowMinimum,

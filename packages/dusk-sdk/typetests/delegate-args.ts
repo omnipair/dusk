@@ -112,7 +112,7 @@ export async function genericPath(): Promise<void> {
   // The other delegate calls dusk-webapp builds fit the same path.
   const hlpOrder: LeverageDelegateDefinedInput<"createHlpOrderArgs"> = { orderId: 1n, kind: 1, hlpAmount: 1n, triggerNad: 1n, minTargetAmountOut: 1n };
   await orders.instruction("createHlpOrder", hlpOrder, { accounts: { market: key, targetHlpMint: key, baseMint: key, quoteMint: key, ownerHlpAccount: key, custodyHlpAccount: key, baseYieldAccount: key, quoteYieldAccount: key } });
-  await orders.instruction("updateLeverageOrder", { orderId: 1n, kind: 2, triggerCloseoutPriceNad: 1n, closeBps: 10_000 }, { accounts: { market: key, leveragePosition: key } });
+  await orders.instruction("updateLeverageOrder", { orderId: 1n, kind: 2, minOwnerPayout: 1n, triggerPriceNad: 1n, closeBps: 10_000 }, { accounts: { market: key, leveragePosition: key } });
   await orders.instruction("cancelHlpOrder", { orderId: 1n }, { accounts: { order: key, targetHlpMint: key, custodyHlpAccount: key, ownerHlpAccount: key } });
   await orders.instruction("cancelLeverageEntryOrder", { orderId: 1n, minOwnerRefundOut: 0n }, { accounts: cancelEntryAccounts });
   // @ts-expect-error the refund floor is required
@@ -152,10 +152,10 @@ export async function genericPath(): Promise<void> {
 }
 
 export async function typedBuilders(): Promise<void> {
-  await orders.createOrderInstruction({ market: key, owner: key, positionId: key, orderId: 1n, kind: "takeProfit", triggerCloseoutPriceNad: "1", closeBps: 10_000 });
+  await orders.createOrderInstruction({ market: key, owner: key, positionId: key, orderId: 1n, kind: "takeProfit", minOwnerPayout: 1n, triggerPriceNad: "1", closeBps: 10_000 });
   await orders.cancelOrderInstruction({ owner: key, orderId: 1, order: key });
   // @ts-expect-error the kind is "takeProfit" or "stopLoss"
-  await orders.createOrderInstruction({ market: key, owner: key, positionId: key, orderId: 1n, kind: "takeprofit", triggerCloseoutPriceNad: 1n, closeBps: 10_000 });
+  await orders.createOrderInstruction({ market: key, owner: key, positionId: key, orderId: 1n, kind: "takeprofit", minOwnerPayout: 1n, triggerPriceNad: 1n, closeBps: 10_000 });
   // @ts-expect-error the trigger is required
   await orders.createOrderInstruction({ market: key, owner: key, positionId: key, orderId: 1n, kind: "stopLoss", closeBps: 10_000 });
 

@@ -468,16 +468,6 @@ impl<'info> CloseLeverage<'info> {
         let (expected_residual, expected_payout) = if matches!(mode, CloseMode::Delegate) {
             let prepared = prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?;
             let close_quote = prepared.leverage_quote();
-            let full_output = if is_full_close {
-                close_quote.amount_out
-            } else {
-                ctx.accounts.market.leverage_protection_closeout_value_with_fee(
-                    &ctx.accounts.leverage_position,
-                    current_slot,
-                    current_unix_timestamp,
-                    leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
-                )?
-            };
             require!(
                 ctx.accounts.leverage_position.close_approval == Default::default(),
                 ErrorCode::InvalidLeverageDelegation
@@ -487,7 +477,7 @@ impl<'info> CloseLeverage<'info> {
                 close_bps,
                 collateral_credit: expected_collateral_reserve_credit,
                 selected_output: close_quote.amount_out,
-                full_output,
+                reserved: 0,
             };
             approved_swap = Some(prepared);
             require_gte!(close_quote.amount_out, debt_amount, ErrorCode::InsufficientAmount);

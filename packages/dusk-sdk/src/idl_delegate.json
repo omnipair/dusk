@@ -181,8 +181,7 @@
         {
           "name": "collateral_mint",
           "docs": [
-            "Collateral mint is needed to reproduce the exact net reserve credit for",
-            "Token-2022 transfer-fee assets before approving a partial close."
+            "Used to verify the exact net reserve credit for Token-2022 collateral."
           ]
         },
         {
@@ -283,8 +282,7 @@
         {
           "name": "collateral_mint",
           "docs": [
-            "Collateral mint is needed to reproduce the exact net reserve credit for",
-            "Token-2022 transfer-fee assets before approving a partial close."
+            "Used to verify the exact net reserve credit for Token-2022 collateral."
           ]
         },
         {
@@ -2556,6 +2554,11 @@
       "code": 6005,
       "name": "InvalidMarketVersion",
       "msg": "Unsupported Dusk market version"
+    },
+    {
+      "code": 6006,
+      "name": "MinimumPayoutNotMet",
+      "msg": "Net close payout is below the owner's minimum"
     }
   ],
   "types": [
@@ -3026,7 +3029,10 @@
             "type": "u64"
           },
           {
-            "name": "full_output",
+            "name": "reserved",
+            "docs": [
+              "Reserved to preserve the position account layout."
+            ],
             "type": "u64"
           }
         ]
@@ -3269,7 +3275,10 @@
             "type": "u8"
           },
           {
-            "name": "trigger_closeout_price_nad",
+            "name": "trigger_price_nad",
+            "docs": [
+              "Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD."
+            ],
             "type": "u64"
           },
           {
@@ -3279,6 +3288,13 @@
               "full close; smaller values realize one proportional slice."
             ],
             "type": "u16"
+          },
+          {
+            "name": "min_owner_payout",
+            "docs": [
+              "Positive minimum owner credit in debt-token atoms after debt and all fees."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -4441,7 +4457,10 @@
             "type": "u8"
           },
           {
-            "name": "trigger_closeout_price_nad",
+            "name": "trigger_price_nad",
+            "docs": [
+              "Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD."
+            ],
             "type": "u64"
           },
           {
@@ -4449,7 +4468,11 @@
             "type": "u16"
           },
           {
-            "name": "staged_margin",
+            "name": "min_owner_payout",
+            "docs": [
+              "Minimum owner credit in debt-token atoms. Zero marks an order awaiting",
+              "owner reauthorization. This occupies the former staged margin field."
+            ],
             "type": "u64"
           },
           {
@@ -6155,12 +6178,22 @@
             "type": "u8"
           },
           {
-            "name": "trigger_closeout_price_nad",
+            "name": "trigger_price_nad",
+            "docs": [
+              "Symmetric EMA threshold in whole debt tokens per collateral token, scaled by NAD."
+            ],
             "type": "u64"
           },
           {
             "name": "close_bps",
             "type": "u16"
+          },
+          {
+            "name": "min_owner_payout",
+            "docs": [
+              "Positive minimum owner credit in debt-token atoms after debt and all fees."
+            ],
+            "type": "u64"
           }
         ]
       }
