@@ -538,22 +538,8 @@ impl HlpTerminalWaterfallPlan {
         market.retire_hlp_receivables(self.target_asset)?;
         market.sync_income_receivable(borrowed_asset, true, 0)?;
         market.clear_frozen_hlp(self.target_asset);
-        if interest_paid > 0 {
-            // Closing ownership and writing off principal remain real changes.
-            // Isolate only the funding cash payment in the pricing ledger.
-            let mut reserves = market.curve_reserves_nad()?;
-            let paid =
-                market.normalize_amount(u128::from(interest_paid), market.side(borrowed_asset).asset_decimals)?;
-            let reserve = if borrowed_asset == MarketAsset::Base {
-                &mut reserves.base
-            } else {
-                &mut reserves.quote
-            };
-            *reserve = reserve.checked_add(paid).ok_or(ErrorCode::ReserveOverflow)?;
-            let point = market.frozen_adjusted_ordinary(&market.hlp_curve_basis_from_reserves_nad(reserves)?)?;
-            market.preserve_hlp_pricing_point(point)?;
-        }
         market.absorb_funded_credit_loss(borrowed_asset, socialized_loss)?;
+        market.exclude_hlp_funding_payment_from_pricing(borrowed_asset, interest_paid)?;
         market.rebase_concentrated_curve_after_terminal_hlp_loss()?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;

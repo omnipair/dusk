@@ -1511,6 +1511,26 @@ impl Market {
         Ok(())
     }
 
+    // Called after terminal ownership and loss accounting. Exclude only the
+    // funding payout; collateral recovery and principal losses remain real
+    // changes to inventory. The translation creates no redeemable claim.
+    #[inline(never)]
+    pub(crate) fn exclude_hlp_funding_payment_from_pricing(&mut self, asset: MarketAsset, paid: u64) -> Result<()> {
+        if paid == 0 {
+            return Ok(());
+        }
+        let mut reserves = self.curve_reserves_nad()?;
+        let paid = self.normalize_amount(u128::from(paid), self.side(asset).asset_decimals)?;
+        let reserve = if asset == MarketAsset::Base {
+            &mut reserves.base
+        } else {
+            &mut reserves.quote
+        };
+        *reserve = reserve.checked_add(paid).ok_or(ErrorCode::ReserveOverflow)?;
+        let point = self.frozen_adjusted_ordinary(&self.hlp_curve_basis_from_reserves_nad(reserves)?)?;
+        self.preserve_hlp_pricing_point(point)
+    }
+
     pub(crate) fn current_concentrated_curve_geometry(&self) -> Result<Option<ConcentratedCurveGeometry>> {
         let parameters = self.config.amm.concentrated_curve_parameters()?;
         if !self.amm.initialized {

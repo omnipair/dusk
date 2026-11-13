@@ -125,6 +125,8 @@ Regressions cover exact payment-only point/cache/price equality on both tails,
 both vaults settling once with unchanged full NAV, partial and full hLP exits,
 ordinary LP mint/burn with active and closed vaults, and repeated fee-free
 round trips. Idle update observations equal the first swap's starting price.
+Native and flash terminal closes share the same funding-only pricing
+adjustment; collateral recovery and principal losses still change inventory.
 
 ## Validation and compute cost
 

@@ -139,6 +139,7 @@ impl Market {
         self.absorb_funded_credit_loss(borrowed, loss.principal_written_off)?;
         require!(self.hlp_frozen(target), ErrorCode::BrokenInvariant);
         self.clear_frozen_hlp(target);
+        self.exclude_hlp_funding_payment_from_pricing(borrowed, loss.interest_paid)?;
         self.rebase_concentrated_curve_after_terminal_hlp_loss()?;
         // A second vault may also be insolvent. Closing this cohort must not
         // require rehedging that other cohort first; its debt and full-value
