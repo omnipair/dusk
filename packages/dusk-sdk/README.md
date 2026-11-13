@@ -37,7 +37,7 @@ creation and the treasury creation charge.
 Guided creation has no independent opening price: omit `bootstrapPriceNad` or
 pass zero. The SDK and program reject a nonzero value when λ is positive.
 Add and remove liquidity first apply a due, funded recenter on concentrated
-markets, which costs about as much as a recentering swap (about 323k compute
+markets, which costs about as much as a recentering swap (about 327k compute
 units measured). `addLiquidityTransaction` and `removeLiquidityTransaction`
 lead with a `LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT` compute limit there; raw
 instruction callers should size the limit by simulation. New shares are priced

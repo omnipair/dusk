@@ -2458,7 +2458,7 @@ export interface WithdrawRepaidLeverageParams {
 
 // Kept in step with the on-chain instruction binding boundary.
 /** Compute limit for an add or remove that first applies a due recenter on
- * a concentrated market: 322,568 CU measured on the finished binary, plus
+ * a concentrated market: 327,068 CU measured on the finished binary, plus
  * margin. */
 export const LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT = 400_000;
 
