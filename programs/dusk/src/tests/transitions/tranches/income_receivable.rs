@@ -277,6 +277,9 @@ fn rolls_need_half_the_units_repaid_or_a_book_near_its_limits() {
     let mut drained = book(1_000, 0);
     drained.paid_per_unit_q64 = Q64;
     assert!(!drained.may_roll());
+    let mut exhausted_run = drained.clone();
+    exhausted_run.growth[0].units_q64 = u128::MAX / 2;
+    assert!(exhausted_run.may_roll());
     drained.impaired = true;
     assert!(drained.may_roll());
     // Near a fixed-width limit, a small repayment is enough to recover.

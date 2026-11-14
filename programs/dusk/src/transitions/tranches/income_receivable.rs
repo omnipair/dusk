@@ -158,8 +158,10 @@ impl IncomeReceivableBook {
     /// repaid, or a book close to its numeric limits. The second arm keeps
     /// recovery possible after a small repayment followed by a large accrual.
     pub fn may_roll(&self) -> bool {
-        if self.unpaid == 0 && self.units != 0 && self.can_advance_in_place() {
-            // The next issuance advances this epoch without an archive.
+        if self.unpaid == 0 && self.units != 0 && self.can_advance_in_place() && !self.near_capacity() {
+            // The next issuance advances this epoch without an archive. Lane
+            // growth stays cumulative across a run, so a run near its limits
+            // still needs an archived roll to restart it.
             return false;
         }
         self.units > self.unpaid && (self.unpaid <= self.units / 2 || self.near_capacity())
