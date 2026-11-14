@@ -1589,6 +1589,30 @@ impl Market {
         self.frozen_adjusted_ordinary(&self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?)
     }
 
+    /// An unfrozen hLP vault owes funding beyond its principal, which a
+    /// transition will pay and may translate the pricing point for.
+    pub(crate) fn hlp_funding_accrued(&self) -> Result<bool> {
+        for (target, vault, index) in [
+            (
+                MarketAsset::Base,
+                &self.base_hlp_vault,
+                self.debt.quote_borrow_index_nad,
+            ),
+            (
+                MarketAsset::Quote,
+                &self.quote_hlp_vault,
+                self.debt.base_borrow_index_nad,
+            ),
+        ] {
+            if !self.hlp_frozen(target)
+                && Debt::shares_to_debt(vault.debt_shares, index)? > u128::from(vault.debt_principal)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub(crate) fn ordinary_inventory_point_nad(&self) -> Result<ConcentratedCurvePoint> {
         self.frozen_adjusted_inventory(&self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?)
     }
@@ -1606,18 +1630,23 @@ impl Market {
         Ok(())
     }
 
-    /// A loss that removes most of an axis's inventory must not leave the
-    /// unpriced remainder larger than what is left: cap the unpriced share of
-    /// each axis at half its inventory before the curve is rebuilt. The loss
-    /// already moves the price, so this only bounds how far.
+    /// A loss that leaves less inventory on an axis than its unpriced
+    /// remainder would make that priced coordinate zero or negative, and the
+    /// curve could not be rebuilt. Only then is the remainder cut to half the
+    /// remaining inventory. Any other remainder, however large, is left as it
+    /// is: changing it would move spot by more than the loss.
     pub(crate) fn bound_unpriced_funding_inventory(&mut self) -> Result<()> {
         if self.amm.hlp_funding_base_pricing_offset_nad == 0 && self.amm.hlp_funding_quote_pricing_offset_nad == 0 {
             return Ok(());
         }
         let inventory = self.ordinary_inventory_point_nad()?;
         let bound = |offset: i128, reserve: u128| -> Result<i128> {
+            let reserve_signed = i128::try_from(reserve).map_err(|_| ErrorCode::MarketMathOverflow)?;
+            if reserve_signed.checked_add(offset).is_some_and(|priced| priced > 0) {
+                return Ok(offset);
+            }
             let floor = i128::try_from(reserve / 2).map_err(|_| ErrorCode::MarketMathOverflow)?;
-            Ok(offset.max(-floor))
+            Ok(-floor)
         };
         self.amm.hlp_funding_base_pricing_offset_nad =
             bound(self.amm.hlp_funding_base_pricing_offset_nad, inventory.base_reserve)?;
@@ -2276,9 +2305,17 @@ impl Market {
             return Ok(());
         }
         if state.uses_book_hedge() || self.oracle.policy.lambda_bps > 0 {
+            // The oracle solver certifies the spot-preserving endpoint. When a
+            // funding translation is present, consume may scale that point into
+            // inventory, so the cache is built at the plan's persisted point.
+            let translated = state.base_pricing_offset_nad != 0
+                || state.quote_pricing_offset_nad != 0
+                || self.amm.hlp_funding_base_pricing_offset_nad != 0
+                || self.amm.hlp_funding_quote_pricing_offset_nad != 0
+                || self.hlp_funding_accrued()?;
             let point = match certified_point {
-                Some(point) => point,
-                None => super::liquidity::prepare_concentrated_hlp_transition(self, &state, quote, asset_in)?
+                Some(point) if !translated => point,
+                _ => super::liquidity::prepare_concentrated_hlp_transition(self, &state, quote, asset_in)?
                     .final_ordinary_point_nad(self)?,
             };
             let (cache, geometry) = prepare_concentrated_cache_and_geometry_at_point(

@@ -267,12 +267,15 @@ fn funding_payment_alone_preserves_the_price_within_inventory() {
             );
             let (base, quote) = payment.consume(&mut market).unwrap();
             assert!(base.interest_paid > 0 || quote.interest_paid > 0);
-            // Installing the plan can floor the inventory by a few atoms, which
-            // scales the point once more along the same ray.
+            // Installing the plan can move the inventory by a few atoms, which
+            // rescales the point along the same ray (same spot).
             let priced = market.ordinary_curve_point_nad().unwrap();
-            for (priced, planned) in [(priced.base_reserve, planned.base_reserve), (priced.quote_reserve, planned.quote_reserve)] {
-                assert!(priced <= planned && planned - priced <= planned / 1_000_000_000, "vaults={vaults} above={above}");
-            }
+            let cross = |a: crate::transitions::amm::ConcentratedCurvePoint, b: crate::transitions::amm::ConcentratedCurvePoint| {
+                crate::math::mul_div_u128(a.base_reserve, b.quote_reserve, 1 << 40).unwrap()
+            };
+            let (left, right) = (cross(priced, planned), cross(planned, priced));
+            assert!(left.abs_diff(right) <= left / 1_000_000_000 + 1, "vaults={vaults} above={above}");
+            assert!(priced.base_reserve.abs_diff(planned.base_reserve) <= planned.base_reserve / 1_000_000_000 + 1);
             let inventory = market.ordinary_inventory_point_nad().unwrap();
             assert!(priced.base_reserve <= inventory.base_reserve && priced.quote_reserve <= inventory.quote_reserve);
             assert!(market.amm.hlp_funding_base_pricing_offset_nad <= 0);
@@ -856,21 +859,113 @@ fn funding_payment_does_not_stall_the_shared_index() {
 }
 
 /// A loss can leave less inventory on an axis than its unpriced funding
-/// remainder. The loss rebase caps the unpriced share at half the inventory
-/// instead of failing to price the curve.
+/// remainder. Only then does the loss rebase cut the remainder (to half the
+/// inventory) instead of failing to price the curve; a large but still
+/// smaller remainder is left alone so spot does not jump.
 #[test]
-fn loss_rebase_bounds_the_unpriced_funding_remainder() {
+fn loss_rebase_bounds_only_an_unpriceable_funding_remainder() {
     let mut market = funding_tail_market(1, true);
     let inventory = market.ordinary_inventory_point_nad().unwrap();
-    let deep = |reserve: u128| -i128::try_from(reserve - reserve / 10).unwrap();
-    market.amm.hlp_funding_base_pricing_offset_nad = deep(inventory.base_reserve);
+    let signed = |value: u128| i128::try_from(value).unwrap();
+    let large = -signed(inventory.base_reserve - inventory.base_reserve / 10);
+    market.amm.hlp_funding_base_pricing_offset_nad = large;
     market.amm.hlp_funding_quote_pricing_offset_nad = -1;
     market.bound_unpriced_funding_inventory().unwrap();
-    assert_eq!(
-        market.amm.hlp_funding_base_pricing_offset_nad,
-        -i128::try_from(inventory.base_reserve / 2).unwrap()
-    );
+    assert_eq!(market.amm.hlp_funding_base_pricing_offset_nad, large);
+    assert_eq!(market.amm.hlp_funding_quote_pricing_offset_nad, -1);
+    market.amm.hlp_funding_base_pricing_offset_nad = -signed(inventory.base_reserve) - 5;
+    market.bound_unpriced_funding_inventory().unwrap();
+    assert_eq!(market.amm.hlp_funding_base_pricing_offset_nad, -signed(inventory.base_reserve / 2));
     assert_eq!(market.amm.hlp_funding_quote_pricing_offset_nad, -1);
     let priced = market.ordinary_curve_point_nad().unwrap();
     assert!(priced.base_reserve >= inventory.base_reserve / 2);
+}
+
+fn bind_oracle_curve(market: &mut Market, lambda: u16, reference: u64) {
+    market.oracle.policy = crate::state::OraclePolicy {
+        lambda_bps: lambda,
+        adjustment_cap_nad: 2 * NAD,
+        ..crate::state::OraclePolicy::default()
+    };
+    market.oracle.runtime = crate::state::RuntimePricing::bind(
+        market.oracle.policy,
+        crate::state::OracleObservation { price_nad: reference, ..crate::state::OracleObservation::default() },
+    );
+    market.checkpoint_oracle_risk_depth().unwrap();
+}
+
+fn prepay_funding(market: &mut Market, slot: u64) -> u64 {
+    use crate::transitions::liquidity::prepare_concentrated_hlp_transition_from_end;
+    let state = market.integrated_curve_state_nad().unwrap();
+    let plan = prepare_concentrated_hlp_transition_from_end(market, state, false, true, 0, 0).unwrap();
+    let (base, quote) = plan.consume(market).unwrap();
+    market.finalize_amm_transition_and_observe_risk(slot).unwrap();
+    base.interest_paid + quote.interest_paid
+}
+
+/// On an oracle curve, a swap that also settles accrued hLP funding is priced
+/// exactly as if the funding had been paid beforehand: the trader never pays
+/// for the depth the payment removes, and small swaps still execute.
+#[test]
+fn oracle_swap_paying_funding_matches_a_prepaid_market() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    for shape in [Shape::Cpmm, Shape::Moderate, Shape::TailFloor] {
+        for lambda in [2_500_u16, 5_000] {
+            for days in [1_u64, 7] {
+                let mut market = seeded_market(PAIRS[1], 1_000_000.0, shape).unwrap();
+                let deposit = reserve_raw(&market, MarketAsset::Base) / 20;
+                market.deposit_single_sided(MarketAsset::Base, deposit, 1).unwrap();
+                let spot = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+                bind_oracle_curve(&mut market, lambda, spot);
+                let slot = 2 + days * slots_per_day;
+                market.update_at_slot(slot).unwrap();
+                let mut prepaid = market.clone();
+                assert!(prepay_funding(&mut prepaid, slot) > 0);
+                for (asset_in, amount) in [(MarketAsset::Quote, 5_000_001_u64), (MarketAsset::Quote, 500_000_001), (MarketAsset::Base, 20_000_001)] {
+                    let label = format!("{shape:?} lambda={lambda} days={days} {asset_in:?} {amount}");
+                    let (in_swap, paid, _) = swap_booking_funding(&mut market.clone(), asset_in, amount, slot)
+                        .unwrap_or_else(|e| panic!("{label}: {e:?}"));
+                    assert!(paid > 0, "{label}");
+                    let (expected, _, _) = swap_booking_funding(&mut prepaid.clone(), asset_in, amount, slot).unwrap();
+                    assert!(in_swap.abs_diff(expected) <= expected / 10_000 + 2, "{label}: {in_swap} vs {expected}");
+                }
+                for collateral in [10_000_000_u64, 1_000_000_000] {
+                    let accrued = market.leverage_swap_output_at_time(MarketAsset::Base, collateral, slot, 0).unwrap();
+                    let settled = prepaid.leverage_swap_output_at_time(MarketAsset::Base, collateral, slot, 0).unwrap();
+                    assert!(accrued.abs_diff(settled) <= settled / 10_000 + 2, "{shape:?} {lambda} {days} {collateral}: {accrued} vs {settled}");
+                }
+            }
+        }
+    }
+}
+
+/// A loss checkpoint with no loss leaves spot where it was, even when trading
+/// has left the priced coordinate smaller than the unpriced funding remainder.
+#[test]
+fn zero_loss_checkpoint_never_moves_spot_through_the_funding_remainder() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let mut market = funding_market_with_shape(1, true, curve_parameters(Shape::TailFloor));
+    let mut slot = 2;
+    for _ in 0..30 {
+        slot += slots_per_day;
+        market.update_at_slot(slot).unwrap();
+        swap_booking_funding(&mut market, MarketAsset::Quote, 1_000, slot).unwrap();
+    }
+    let mut largest = 0.0_f64;
+    for push in [0_u64, 5, 10, 20] {
+        let mut market = market.clone();
+        if push > 0 {
+            let amount = reserve_raw(&market, MarketAsset::Quote) / 100 * push;
+            swap_booking_funding(&mut market, MarketAsset::Quote, amount, slot).unwrap();
+        }
+        let inventory = market.ordinary_inventory_point_nad().unwrap();
+        let priced = market.ordinary_curve_point_nad().unwrap();
+        largest = largest.max((inventory.base_reserve - priced.base_reserve) as f64 / inventory.base_reserve as f64);
+        let before = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+        market.finalize_amm_socialized_loss_and_observe_risk(slot).unwrap();
+        let after = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+        assert!(after.abs_diff(before) <= before / 1_000_000_000 + 2, "push={push}: {before} -> {after}");
+    }
+    // The scenario does reach a remainder above half the base inventory.
+    assert!(largest > 0.5, "largest unpriced share {largest}");
 }

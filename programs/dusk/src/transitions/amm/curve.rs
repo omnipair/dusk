@@ -1246,11 +1246,15 @@ impl ConcentratedCurvePoint {
     }
 
     /// The largest point on this point's price ray that the inventory can
-    /// back on both axes. Every curve shape is homogeneous in its reserves at
-    /// a fixed center, so scaling keeps the spot price and lowers only depth.
-    /// The scaled coordinate rounds down, never above the inventory.
+    /// back on both axes, scaled down or up. Every curve shape is homogeneous
+    /// in its reserves at a fixed center, so scaling keeps the spot price and
+    /// changes only depth; scaling up re-prices an unpriced remainder once
+    /// both axes hold one. The scaled coordinate rounds down, never above the
+    /// inventory.
     pub(crate) fn within_inventory(self, inventory: Self) -> Result<Self> {
-        if self.base_reserve <= inventory.base_reserve && self.quote_reserve <= inventory.quote_reserve {
+        if self.base_reserve == inventory.base_reserve && self.quote_reserve <= inventory.quote_reserve
+            || self.quote_reserve == inventory.quote_reserve && self.base_reserve <= inventory.base_reserve
+        {
             return Ok(self);
         }
         require!(

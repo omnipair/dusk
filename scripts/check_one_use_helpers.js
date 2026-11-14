@@ -477,6 +477,9 @@ const acceptedOneUseHelpers = new Map([
   [
     "programs/dusk/src/transitions/amm/mod.rs",
     new Set([
+      // Reads both hLP vaults' indexed debt; kept out of the quote
+      // finalization frame, which sits near the SBF stack-frame limit.
+      "hlp_funding_accrued",
       // Complete swaps now have one caller for these AMM-owned ledger/observation kernels.
       // These freeze a complete book/curve quote and isolate temporary geometry
       // so neither routine's caller exceeds the SBF stack-frame limit.
@@ -561,6 +564,9 @@ const acceptedOneUseHelpers = new Map([
       // The swap reads whether the plan pays funding before consuming it; the
       // paid amounts stay private to the plan.
       "pays_funding",
+      // The oracle solver prices a trade at the plan's private, unscaled
+      // spot-preserving point.
+      "trade_pricing_point_nad",
       "hlp_valuation_from_values",
       "signed_value_difference",
     ]),

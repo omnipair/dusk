@@ -77,7 +77,9 @@ impl Market {
             end.base_hlp_quote_debt = endpoint.base_hlp_quote_debt;
             end.quote_hlp_base_debt = endpoint.quote_hlp_base_debt;
             let plan = prepare_concentrated_hlp_transition_from_end(self, end, false, false, 0, 0)?;
-            let point = plan.final_ordinary_point_nad(self)?;
+            // Price the trade at the spot-preserving point; consume scales it
+            // into inventory, as the native quote does.
+            let point = plan.trade_pricing_point_nad(self)?;
             if cash.base_hlp_quote_carry == 0 && cash.quote_hlp_base_carry == 0 {
                 return Ok((end, point));
             }

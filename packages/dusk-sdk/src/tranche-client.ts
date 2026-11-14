@@ -8,7 +8,7 @@ import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js
 import { oracleComputeBudgetInstructions, oracleReadAccounts } from "./oracle.js";
 import { DuskWrite } from "./write.js";
 import { assertCurrentMarketLayout } from "./market-layout.js";
-import { DRAINED_UNIT_VALUE_Q64 } from "./income-receivable.js";
+import { DRAINED_UNIT_VALUE_Q64, incomeBookNearCapacity } from "./income-receivable.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 import type { Market } from "./type-aliases.js";
 
@@ -145,7 +145,8 @@ export class DuskTranches {
       const book = state.income.books[bookIndex];
       // A loss-free drained book advances in place on its next issuance and
       // cannot be rolled; only an impaired or short-paid one needs an archive.
-      const advancesInPlace = !book.impaired && BigInt(book.paidPerUnitQ64.toString()) >= DRAINED_UNIT_VALUE_Q64;
+      const advancesInPlace = !book.impaired && BigInt(book.paidPerUnitQ64.toString()) >= DRAINED_UNIT_VALUE_Q64
+        && !incomeBookNearCapacity(book);
       if (!book.units.isZero() && book.unpaid.isZero() && !advancesInPlace) {
         transactions.push((await this.rollIncome({ ...params, bookIndex })).transaction);
       }

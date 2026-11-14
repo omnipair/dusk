@@ -49,6 +49,15 @@ const ZERO_GROWTH: IncomeGrowthInput = { unitsQ64: 0n, weightedPaidQ128: [0n, 0n
 /** Per-unit value of a fully repaid, loss-free epoch advanced in place (Q64). */
 export const DRAINED_UNIT_VALUE_Q64 = (1n << 64n) - (1n << 32n);
 
+/** Pure copy of IncomeReceivableBook::near_capacity: within a factor of two of
+ * a fixed-width limit, where `roll_income_epoch` accepts any book. */
+export function incomeBookNearCapacity(book: IncomeBookInput): boolean {
+  const HALF_U64 = U64 / 2n, HALF_U128 = U128 / 2n;
+  return value(book.units, U64) >= HALF_U64 || value(book.unpaid, U64) >= HALF_U64
+    || value(book.paidPerUnitQ64) >= HALF_U128
+    || book.growth.some(lane => value(lane.unitsQ64) >= HALF_U128 || value(lane.weightedPaidQ128[3]!, U64) >= HALF_U64);
+}
+
 function runStartEpoch(book: IncomeBookInput): bigint {
   return book.runStartEpoch === undefined ? value(book.epoch, U64) : value(book.runStartEpoch, U64);
 }
