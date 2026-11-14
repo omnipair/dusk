@@ -271,10 +271,22 @@ impl<'info> DepositSingleSided<'info> {
 
         // Apply hLP accounting and checkpoint the immutable post-deposit curve.
         let current_slot = Clock::get()?.slot;
-        let receipt = ctx
-            .accounts
+        let mut receipt =
+            ctx.accounts
+                .market
+                .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
+        // Reserve cash also pays the transfer fee on any funding the entry
+        // settled. The final AMM transition below rebuilds the curve.
+        let fees = crate::instructions::leverage::settlement::interest_transfer_fees(
+            &ctx.accounts.market,
+            &ctx.accounts.base_mint.to_account_info(),
+            &ctx.accounts.quote_mint.to_account_info(),
+            Clock::get()?.epoch,
+        )?;
+        let [base_rebalance, quote_rebalance] = &mut receipt.rebalances;
+        ctx.accounts
             .market
-            .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
+            .pay_hlp_funding_transfer_fees([base_rebalance, quote_rebalance], fees, None)?;
         crate::instructions::leverage::settlement::settle_inline_hlp_accounts(
             &mut ctx.accounts.market,
             &ctx.accounts.futarchy_authority,

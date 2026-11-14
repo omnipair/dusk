@@ -21,11 +21,14 @@ use crate::{
 /// carries a pending fee during its final notice epoch. Existing positions can
 /// therefore become liquidatable before activation. The issuer can reschedule
 /// or cancel a change, so execution must read the mint and recheck health.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LeverageCollateralFee {
     effective: Option<TransferFee>,
     pending: Option<TransferFee>,
 }
+
+// `TransferFee` holds only integers, so its equality is total.
+impl Eq for LeverageCollateralFee {}
 
 impl LeverageCollateralFee {
     pub fn new(effective: Option<TransferFee>) -> Self {
@@ -72,6 +75,22 @@ impl LeverageCollateralFee {
             ErrorCode::BrokenInvariant
         );
         Ok(gross)
+    }
+
+    /// The schedule transfers are charged now.
+    pub fn effective(self) -> Option<TransferFee> {
+        self.effective
+    }
+
+    /// Fee to add under the currently effective schedule so a transfer of
+    /// `net` plus the fee delivers at least `net`. Reserve-funded and
+    /// borrower-funded interest transfers into income custody add exactly
+    /// this amount.
+    pub fn inverse_fee(self, net: u64) -> Result<u64> {
+        match self.effective {
+            Some(fee) if net > 0 => crate::token::transfer_inverse_fee(&fee, net),
+            _ => Ok(0),
+        }
     }
 
     /// Largest carried fee rate. Market-wide health contributions are stored

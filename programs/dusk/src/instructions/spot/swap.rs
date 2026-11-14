@@ -25,6 +25,7 @@ use crate::instructions::accounts::{
     QUOTE_INTEREST_VAULT_INDEX,
 };
 use crate::instructions::enforce_launch_same_transaction_guard;
+use crate::instructions::leverage::settlement::interest_transfer_fees;
 use crate::instructions::liquidity::record_inline_hlp_interest_credit;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -196,6 +197,16 @@ impl<'info> Swap<'info> {
             protocol_fee_bps,
         }
         .prepare(&mut ctx.accounts.market)?;
+        let (base_mint, quote_mint) = match asset_in {
+            MarketAsset::Base => (&ctx.accounts.asset_in_mint, &ctx.accounts.asset_out_mint),
+            MarketAsset::Quote => (&ctx.accounts.asset_out_mint, &ctx.accounts.asset_in_mint),
+        };
+        prepared.set_interest_transfer_fees(&interest_transfer_fees(
+            &ctx.accounts.market,
+            &base_mint.to_account_info(),
+            &quote_mint.to_account_info(),
+            current_epoch,
+        )?);
         let finalized = prepared.finalize_state(
             &mut ctx.accounts.market,
             current_slot,
@@ -232,7 +243,10 @@ impl<'info> Swap<'info> {
             } else {
                 0
             },
-            quote_rebalance.interest_paid,
+            quote_rebalance
+                .interest_paid
+                .checked_add(quote_rebalance.interest_transfer_fee)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
         )?;
         let quote_projected = projected_reserve_vault_balance(
             quote_vault_before,
@@ -246,7 +260,10 @@ impl<'info> Swap<'info> {
             } else {
                 0
             },
-            base_rebalance.interest_paid,
+            base_rebalance
+                .interest_paid
+                .checked_add(base_rebalance.interest_transfer_fee)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
         )?;
         require_reserve_custody(base_projected, &ctx.accounts.market.base_side)?;
         require_reserve_custody(quote_projected, &ctx.accounts.market.quote_side)?;
@@ -441,6 +458,8 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
                 ctx.accounts.asset_out_mint.decimals,
             )
         };
+        // The finalized swap already debited reserve cash for the transfer
+        // fee, when it could, so custody receives the full funding payment.
         transfer_checked_with_remaining_accounts_and_instruction(
             event_instruction,
             ctx.accounts.market.to_account_info(),
@@ -448,12 +467,20 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
             interest_vault.clone(),
             mint,
             token_program,
-            receipt.interest_paid,
+            receipt
+                .interest_paid
+                .checked_add(receipt.interest_transfer_fee)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
             decimals,
             &signer_seeds,
             accounts.hook_accounts(ctx.remaining_accounts),
         )?;
-        let interest_vault_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
+        let measured_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
+        let credit = ctx
+            .accounts
+            .market
+            .quote_interest_revenue_credit(borrowed_asset, true, measured_credit)?;
+        let interest_vault_credit = credit.credited();
         crate::instructions::accounting::emit_interest_paid_with_instruction(
             &ctx.accounts.market,
             borrowed_asset,
@@ -462,10 +489,7 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
             crate::state::ReferralInterestQuote::with_protocol_revenue(
                 receipt.interest_paid,
                 interest_vault_credit,
-                ctx.accounts
-                    .market
-                    .quote_interest_revenue_credit(borrowed_asset, true, interest_vault_credit)?
-                    .protocol,
+                credit.protocol,
                 None,
             )?,
             0,

@@ -48,6 +48,10 @@ pub struct HlpRebalanceReceipt {
     pub srlp_burn_amount: u64,
     pub debt_delta: i128,
     pub interest_paid: u64,
+    /// Token-2022 fee reserve cash paid on top of `interest_paid`, so income
+    /// custody receives the full payment. Zero for a fee-free asset, or when
+    /// executable cash could not cover it (custody is then credited net).
+    pub interest_transfer_fee: u64,
     pub nav_nad: u128,
     pub(crate) tracking_start_nav_nad: i128,
     pub(crate) tracking_loss_budget_nad: u128,
@@ -76,6 +80,7 @@ impl Default for HlpRebalanceReceipt {
             srlp_burn_amount: 0,
             debt_delta: 0,
             interest_paid: 0,
+            interest_transfer_fee: 0,
             nav_nad: 0,
             tracking_start_nav_nad: 0,
             tracking_loss_budget_nad: 0,
@@ -163,6 +168,7 @@ fn concentrated_hlp_receipt(
         srlp_burn_amount: start_srlp_shares.saturating_sub(end_srlp_shares),
         debt_delta: signed_u64_delta(end_debt, start_debt)?,
         interest_paid,
+        interest_transfer_fee: 0,
         nav_nad,
         tracking_start_nav_nad: i128::try_from(nav_nad).map_err(|_| ErrorCode::MarketMathOverflow)?,
         tracking_loss_budget_nad: 0,

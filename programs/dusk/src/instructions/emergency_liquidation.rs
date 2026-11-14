@@ -131,6 +131,17 @@ impl<'info> EmergencyLiquidation<'info> {
             )?,
             _ => return err!(ErrorCode::InvalidLiquidationSession),
         };
+        if let Some(swap) = prepared.swap.as_mut() {
+            swap.set_interest_transfer_fees(
+                &crate::instructions::leverage::settlement::leverage_interest_transfer_fees(
+                    &a.market,
+                    asset,
+                    &a.debt_mint,
+                    &a.collateral_mint,
+                    clock.epoch,
+                )?,
+            );
+        }
         let q = prepared.quote;
         require_gte!(q.reward_credit, args.min_reward_credit, ErrorCode::SlippageExceeded);
         require_gte!(q.swap_output, args.min_swap_output, ErrorCode::SlippageExceeded);
@@ -270,6 +281,7 @@ impl<'info> EmergencyLiquidation<'info> {
             a.referral_partner.as_deref(),
             a.referral_accrual.as_deref_mut(),
             q.loss.interest_paid,
+            None,
             eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),

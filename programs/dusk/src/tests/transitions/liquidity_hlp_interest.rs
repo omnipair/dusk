@@ -722,7 +722,21 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
             let ordinary_after = market.base_side.shares.srlp_supply - market.base_hlp_vault.srlp_shares - market.quote_hlp_vault.srlp_shares;
             assert_eq!(ordinary_before, ordinary_after);
 
-            assert!(ordinary_value(&market).abs_diff(ordinary_nav_before) < fixture_atoms_nad(&market, 100),
+            // Reserve cash paid the transfer fee on the funding this settlement
+            // moved into income custody: a real reserve cost every srLP holder
+            // bears pro rata, never a hedge recapitalization.
+            let transfer_fee_share = |m: &Market, shares: u64, target: MarketAsset| -> u128 {
+                [receipt.base_rebalance, receipt.quote_rebalance].iter().map(|r| {
+                    let share = srlp_live_underlying_amount_from_values(
+                        u128::from(r.interest_transfer_fee), m.base_side.shares.srlp_supply, shares).unwrap();
+                    asset_value_in_target_nad_with_prices(m, prices, r.target_asset.opposite(), share, target).unwrap()
+                }).sum()
+            };
+            if fee_bps == 0 {
+                assert_eq!(receipt.base_rebalance.interest_transfer_fee + receipt.quote_rebalance.interest_transfer_fee, 0);
+            }
+            let ordinary_fee = transfer_fee_share(&market, ordinary_after, MarketAsset::Quote);
+            assert!((ordinary_value(&market) + ordinary_fee).abs_diff(ordinary_nav_before) < fixture_atoms_nad(&market, 100),
                 "ordinary LPs funded hLP recapitalization: amp={amplification} unpaid={unpaid_tokens} funding={funding_bps} diff={}",
                 ordinary_value(&market) as i128 - (ordinary_nav_before) as i128);
             for target in [MarketAsset::Base, MarketAsset::Quote] {
@@ -741,6 +755,8 @@ fn new_hlp_interest_pays_hedge_gap_before_publishing_yield() {
                         receipt.reserve_debit[t][i] - receipt.reserve_credit[t][i], target).unwrap();
                 }
                 let expected = nav_before[t] - fee_value - retained_fee_value;
+                let vault_shares = if t == 0 { market.base_hlp_vault.srlp_shares } else { market.quote_hlp_vault.srlp_shares };
+                let fixed_mark_nav = fixed_mark_nav + transfer_fee_share(&market, vault_shares, target);
                 assert!((fixed_mark_nav + yield_value).abs_diff(expected) < fixture_atoms_nad(&market, 100),
                     "value changed amp={amplification} asset={interest_asset:?} target={target:?} unpaid={unpaid_tokens}: before_net={expected} after_plus_yield={} difference={}", fixed_mark_nav+yield_value, (fixed_mark_nav+yield_value).abs_diff(expected));
 

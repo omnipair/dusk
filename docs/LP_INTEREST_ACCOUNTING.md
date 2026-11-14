@@ -263,10 +263,28 @@ their book. The shared borrow index therefore keeps accruing, and no archive
 or keeper is involved. Lane growth stays cumulative across such a drain run, so
 a holder that last checkpointed anywhere in the run collects each skipped
 epoch from growth alone, at the run's unit value: the lowest final paid index
-of any epoch in the run, less a 2^-32 margin for paid-index flooring. A
-transfer-fee shortfall lowers an epoch's paid index and so the run's value; a
-holder is never paid more than custody received. An epoch with a writeoff is
-impaired and still needs an archived roll before it can issue again.
+of any epoch in the run, less a 2^-32 margin for paid-index flooring. A holder
+is never paid more than custody received.
+
+Every interest transfer into income custody is grossed up by the asset's
+Token-2022 transfer fee, so custody receives the full interest and a routine
+epoch drains at face value. A borrower's direct repayment (`repay`,
+`add_leverage_margin`) pays that fee on top of the repayment; its debt
+reduction is unchanged. Internal moves (hLP funding paid during swaps, entries,
+exits, flash and terminal settlement; `fund_interest`; leverage and
+liquidation settlement interest) debit reserve cash and live reserve for the
+fee: a real cost to LP reserves, never to the income book. Like the funding
+payment it accompanies, the fee is excluded from pricing, so spot does not
+move and depth falls instead. If reserve cash cannot cover the fee, the
+operation (a swap included) still succeeds and the transfer credits net. SPL
+fee arithmetic makes the grossed-up transfer deliver exactly the interest; if
+one ever delivered more than the settlement budget, collection would credit
+exactly the budget and leave the excess in the vault, unrecorded.
+
+An epoch credited less than its pending interest (a fee changed after the
+gross-up was priced, a fee reserve cash could not pay, a terminal caller
+bounty) or with a writeoff is impaired and needs an archived roll before it
+can issue again, rather than lowering the run's value in place.
 
 Known limitation: issuance rounds units down, so after partial repayments a
 unit's paid-plus-unpaid value can drift above face value while an epoch holds

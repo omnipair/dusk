@@ -262,6 +262,7 @@ fn prepared_leverage_swap(
             .unwrap();
     Box::new(crate::transitions::amm::PreparedSwap {
         inventory_settlement: None,
+        interest_transfer_fees: Default::default(),
         concentrated_transition: Some(Box::new(concentrated_transition)),
         post_fee_curve_cache,
         quoted_slot: swap.quoted_slot,

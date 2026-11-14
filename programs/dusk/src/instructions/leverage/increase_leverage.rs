@@ -16,8 +16,9 @@ use crate::{
 };
 
 use super::settlement::{
-    leverage_collateral_admission_fee, leverage_collateral_credit, leverage_swap_fee_credit, prepare_leverage_swap,
-    settle_inline_leverage_hlp, validate_leverage_mints, validate_leverage_reserve_accounts,
+    leverage_collateral_admission_fee, leverage_collateral_credit, leverage_interest_transfer_fees,
+    leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp, validate_leverage_mints,
+    validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
@@ -206,6 +207,13 @@ impl<'info> IncreaseLeverage<'info> {
                 amount: args.debt_amount,
             }
         };
+        let transfer_fees = leverage_interest_transfer_fees(
+            &ctx.accounts.market,
+            debt_asset,
+            &ctx.accounts.debt_mint,
+            &ctx.accounts.collateral_mint,
+            current_epoch,
+        )?;
         let prepared_swap = prepare_leverage_swap(
             &mut ctx.accounts.market,
             SwapRequest {
@@ -216,6 +224,7 @@ impl<'info> IncreaseLeverage<'info> {
                 protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
             },
             cash_policy,
+            transfer_fees,
         )?;
         let swap = prepared_swap.leverage_quote();
         let interest_eligibility = prepared_swap.interest_eligibility;
