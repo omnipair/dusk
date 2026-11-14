@@ -69,6 +69,9 @@ function encode(data) {
   market.config.irm.lower_utilization_bps=7_500;
   market.config.irm.upper_utilization_bps=old.config.irm.borrow_utilization_limit_bps;
   restate(market,MARKET_AMOUNTS,amountFactor(market));
+  // Every captured income epoch began at genesis or an archived roll, so no
+  // drain run spans it and growth restarted at zero.
+  for(const book of market.income.books)book.run_start_epoch=book.epoch;
   return encodeAccount('Market',market);
 }
 function encodeAccount(name,value) {
@@ -110,7 +113,7 @@ batch.market=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedM
 batch.programId=nextProgram;
 batch.result.value.returnData.programId=nextProgram;
 batch.derivedFrom=`layout-13 regression fixture at ${predecessor}`;
-batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. The two persistent hLP funding pricing offsets start at zero. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
+batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. The two persistent hLP funding pricing offsets start at zero, and each income book starts a new drain run at its current epoch. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
 const batchTarget=`packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout${layout}.json`;
 writeFileSync(batchTarget,JSON.stringify(batch,null,2)+'\n');
 process.stdout.write(`${batchTarget}\n`);

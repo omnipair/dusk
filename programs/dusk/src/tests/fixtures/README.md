@@ -30,21 +30,22 @@ using the new IDL:
 
 The current layout initializes the four independent continuous fee-auction
 curves per side as unconfigured. Lane defaults and recipients are preserved in
-`vob-authority-layout17.bin`; the superseded linear-auction parameters are
+`vob-authority-layout18.bin`; the superseded linear-auction parameters are
 omitted. Tests use that derived authority, while the raw capture remains intact.
 
 The two hLP funding pricing offsets start at zero; historical payments are
-not inferred. Funding settlement in the replay records the separation.
+not inferred. Each income book starts a new drain run at its captured epoch,
+because every captured epoch began at genesis or an archived roll. Funding settlement in the replay records the separation.
 
 Historical reserve, debt, price and observation inputs otherwise remain
 unchanged. These are test-data conversions, not deployed-account migrations.
 
 | Derived fixture | SHA-256 |
 |---|---|
-| `vob-authority-layout17.bin` | `8352c0d9a885030d976a7384fbded2d6ebf63ef92839c54d667b8f8e45a96a2a` |
-| `hlp-entry-layout17.bin` | `32856fd972860ce9fb6baad24a4a28ac92131e5061dd0e4c33eeba479c6bc90c` |
-| `vob-market-layout17.bin` | `eff2ab7c82bd2a6113d6cdadd5d53b7961fe1e759128296d5d7833eb26674783` |
-| `hlp-entry-funding-layout17.bin` | `93ade709043e765279450069353f2148e62a3eaaceea399feefb1b90b8da229a` |
+| `vob-authority-layout18.bin` | `8352c0d9a885030d976a7384fbded2d6ebf63ef92839c54d667b8f8e45a96a2a` |
+| `hlp-entry-layout18.bin` | `e87f474524151f33d4faf2549013d70abe0e1864aeef8bcc606c26300cd9ff71` |
+| `vob-market-layout18.bin` | `79c178bd0bba71b76d8bb86a78e384c30d51ce4bb31fcdf8534ba6799d4c0dd0` |
+| `hlp-entry-funding-layout18.bin` | `86317ffc0125638d2f8b8ddf779355d20b08e08bd15af2903705d41b2381bd38` |
 
 ## Indexed-funding hLP entry snapshot
 
@@ -53,6 +54,6 @@ unchanged. These are test-data conversions, not deployed-account migrations.
 519889239 after the November 2026 operator release. It includes the account
 discriminator and contains no wallet keys. The base vault is empty; the quote
 vault has nine hLP tokens and accrued funding that requires settlement. Tests
-use the derived `hlp-entry-funding-layout17.bin`, accrue that exact slot and
+use the derived `hlp-entry-funding-layout18.bin`, accrue that exact slot and
 exercise both first and repeat deposits, coupon ownership, share-value
 protection and the post-entry hedge.

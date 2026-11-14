@@ -255,14 +255,31 @@ denominations retain the existing permissionless archive/roll path after
 settlement. The index resets only when every public and hLP debt share on that
 asset has been extinguished; historical income claims are retained.
 
+A book whose receivable is fully repaid without loss (every unit paid at
+least 1.0 per unit, up to a 2^-32 margin) advances to its next epoch in place
+when it next issues. Repaying all due interest is routine: every swap that pays
+hLP funding, and a `fund_interest` that funds the whole public coupon, drain
+their book. The shared borrow index therefore keeps accruing, and no archive
+or keeper is involved. Lane growth stays cumulative across such a drain run, so
+a holder that last checkpointed anywhere in the run collects each skipped
+epoch at that unit value from growth alone: its old units are owed the rest of
+their value, and units issued since are valued from cumulative growth. The
+result never exceeds the cash credited; issuance rounds units down, so a
+loss-free epoch's paid index reaches 1.0, and the margin covers paid-index
+flooring. A drained epoch that took a writeoff or a custody shortfall is
+impaired and still needs an archived roll before it can issue again.
+
 `roll_income_epoch` archives a book only once at least half of its units are
 repaid, or once any of its counters (units, unpaid, paid per unit, or a lane's
-growth) reaches half its numeric range. Holders carry their units across
-archived epochs in bounded catch-up batches, so rolling a barely repaid book
-would let anyone fragment that catch-up into many epochs without freeing
-capacity. Rolling needs no keeper: anyone may call it, the SDK's
-`prepareDrainedIncomeBooks` rolls fully drained books as market maintenance,
-and holders run `prepareHolderIncome` before a transfer, exit or claim.
+growth) reaches half its numeric range; it refuses a drained book that can
+advance in place. An archived roll starts a new drain run. Holders carry
+their units across archived epochs in bounded catch-up batches, so rolling a
+barely repaid book would let anyone fragment that catch-up into many epochs
+without freeing capacity. Rolling needs no keeper: anyone may call it, the
+SDK's `prepareDrainedIncomeBooks` rolls impaired drained books as market
+maintenance, and holders run `prepareHolderIncome` before a transfer, exit or
+claim. Catch-up passes only the archived epochs: the archive that ended a run
+carries that run's start, so the SDK walks back from the live book's run.
 
 ## Interest fees and cash advances
 

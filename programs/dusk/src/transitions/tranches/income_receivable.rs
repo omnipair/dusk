@@ -23,6 +23,13 @@ use wide::U256;
 
 const Q64: u128 = 1_u128 << 64;
 
+/// Per-unit value credited to a unit of a drained epoch that is advanced in
+/// place, in Q64. A loss-free epoch issues every unit at no more than its
+/// share of the pool (issuance rounds down), so its paid index reaches at
+/// least 1.0 minus the paid-index flooring. The margin keeps catch-up value at
+/// or below the cash actually credited.
+const DRAINED_UNIT_VALUE_Q64: u128 = Q64 - (1_u128 << 32);
+
 impl anchor_lang::Space for Box<IncomeReceivableBook> {
     const INIT_SPACE: usize = IncomeReceivableBook::INIT_SPACE;
 }
@@ -30,7 +37,9 @@ impl anchor_lang::Space for Box<IncomeReceivableBook> {
 impl IncomeReceivableBook {
     /// Each lane receives an explicit gross allocation and has its own LP
     /// denominator. Allocations must conserve the newly accrued receivable.
-    /// A drained or numerically exhausted epoch must be archived and rolled
+    /// A loss-free epoch whose receivable is fully repaid advances in place
+    /// before issuing; holders catch up across it without archived history.
+    /// An impaired or numerically exhausted epoch must be archived and rolled
     /// before issuing more units; old ownership is never silently reset.
     pub fn issue(&mut self, allocations: [(u64, u64); 4]) -> Result<[u64; 4]> {
         let (next, assigned) = self
@@ -48,13 +57,27 @@ impl IncomeReceivableBook {
             return Ok(Some((self.clone(), [0; 4])));
         }
         if self.unpaid == 0 && self.units != 0 {
-            return Ok(None);
+            if !self.can_advance_in_place() {
+                return Ok(None);
+            }
+            // Start the next epoch of this drain run without an archive.
+            // Growth stays cumulative so holders value the skipped epochs.
+            let next = Self {
+                epoch: self.epoch.checked_add(1).ok_or(ErrorCode::MarketMathOverflow)?,
+                growth: self.growth,
+                run_start_epoch: self.run_start_epoch,
+                epoch_start_growth: self.growth,
+                ..Self::default()
+            };
+            return next.project_issue(allocations);
         }
-        // u64 factors have a full product and ceil addition which fit u128.
+        // Rounding down never issues a unit above its share of the pool, so a
+        // loss-free epoch keeps paid plus unpaid value per unit at or above
+        // 1.0, which in-place advancement relies on. u64 factors fit u128.
         let issued = if self.units == 0 {
             amount as u128
         } else {
-            (amount as u128 * self.units as u128).div_ceil(self.unpaid as u128)
+            amount as u128 * self.units as u128 / self.unpaid as u128
         };
         let Ok(issued) = u64::try_from(issued) else {
             return Ok(None);
@@ -95,7 +118,8 @@ impl IncomeReceivableBook {
 
     /// Remove paid and canceled gross receivables, then allocate only measured
     /// net cash. A writeoff has zero cash. Protocol deductions and transfer fees
-    /// never become holder liabilities.
+    /// never become holder liabilities. The market marks the epoch impaired
+    /// when the measured cash falls short of the gross removed.
     pub fn settle(&mut self, gross_removed: u64, net_cash: u64) -> Result<()> {
         require_gte!(self.unpaid, gross_removed, ErrorCode::BrokenInvariant);
         require_gte!(gross_removed, net_cash, ErrorCode::UnbackedFeeLiability);
@@ -134,7 +158,22 @@ impl IncomeReceivableBook {
     /// repaid, or a book close to its numeric limits. The second arm keeps
     /// recovery possible after a small repayment followed by a large accrual.
     pub fn may_roll(&self) -> bool {
+        if self.unpaid == 0 && self.units != 0 && self.can_advance_in_place() {
+            // The next issuance advances this epoch without an archive.
+            return false;
+        }
         self.units > self.unpaid && (self.unpaid <= self.units / 2 || self.near_capacity())
+    }
+
+    /// A fully repaid, loss-free epoch whose paid index reached the drained
+    /// unit value. Its holders are owed exactly that value per unit, so they
+    /// can catch up from cumulative lane growth alone.
+    pub fn can_advance_in_place(&self) -> bool {
+        self.unpaid == 0 && !self.impaired && self.paid_per_unit_q64 >= DRAINED_UNIT_VALUE_Q64
+    }
+
+    pub(crate) fn mark_impaired(&mut self) {
+        self.impaired = true;
     }
 
     /// Within a factor of two of a fixed-width limit that would make further
@@ -161,6 +200,7 @@ impl IncomeReceivableBook {
             epoch,
             unpaid: old.unpaid,
             units: old.unpaid,
+            run_start_epoch: epoch,
             ..Self::default()
         };
         Ok(old)
@@ -225,6 +265,7 @@ impl IncomeReceivableClaim {
         lane: usize,
         end: IncomeExposureEnd,
     ) -> Result<()> {
+        self.catch_up_drained(balance, book, lane, end)?;
         if !end.ended || book.epoch < end.epoch {
             return self.checkpoint(balance, book, lane);
         }
@@ -243,6 +284,7 @@ impl IncomeReceivableClaim {
         lane: usize,
         end: IncomeExposureEnd,
     ) -> Result<()> {
+        self.catch_up_drained(balance, book, lane, end)?;
         if !end.ended || book.epoch < end.epoch {
             return self.advance_epoch(balance, book, lane);
         }
@@ -254,7 +296,85 @@ impl IncomeReceivableClaim {
         self.advance_epoch(balance, &closed, lane)
     }
 
+    /// Value epochs of the current drain run that ended after this claim's
+    /// checkpoint. Each was fully repaid without loss, so every unit in it
+    /// received at least `DRAINED_UNIT_VALUE_Q64` per unit, and no unit
+    /// carried over. Units held at the checkpoint are owed the rest of that
+    /// value; units issued since are valued from cumulative lane growth up to
+    /// the current epoch's start (or the exposure end, if earlier). This is
+    /// at most the cash credited, and needs no archived epoch.
+    fn catch_up_drained(
+        &mut self,
+        balance: u64,
+        book: &IncomeReceivableBook,
+        lane: usize,
+        end: IncomeExposureEnd,
+    ) -> Result<()> {
+        if self.epoch == book.epoch {
+            return Ok(());
+        }
+        require!(
+            self.epoch < book.epoch && self.epoch >= book.run_start_epoch,
+            ErrorCode::IncomeHistoryRequired
+        );
+        let start = *book.epoch_start_growth.get(lane).ok_or(ErrorCode::InvalidArgument)?;
+        let stop = if end.ended && end.epoch < book.epoch {
+            (end.epoch >= self.epoch).then_some(end.growth)
+        } else {
+            Some(start)
+        }
+        .filter(|stop| stop.units_q64 >= self.growth_checkpoint.units_q64);
+        let drained_value = |growth: &ReceivableGrowth| {
+            (U256::from(growth.units_q64) * U256::from(DRAINED_UNIT_VALUE_Q64))
+                .overflowing_sub(U256(growth.weighted_paid_q128))
+                .0
+        };
+        // Sign-magnitude Q128 sums. A term is slightly negative only when a
+        // unit was issued after the paid index passed the drained unit value;
+        // a net negative total pays nothing.
+        let mut owed = U256::from(self.paid_fraction_q128);
+        let mut excess = U256::zero();
+        if let Some(stop) = stop {
+            // Two's-complement difference of cumulative values; the true
+            // magnitude is far below 2^255.
+            let per_share = drained_value(&stop)
+                .overflowing_sub(drained_value(&self.growth_checkpoint))
+                .0;
+            if per_share.bit(255) {
+                let magnitude = (!per_share).overflowing_add(U256::one()).0;
+                excess = excess.saturating_add(magnitude.saturating_mul(U256::from(balance)));
+            } else {
+                owed = per_share
+                    .checked_mul(U256::from(balance))
+                    .and_then(|value| value.checked_add(owed))
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+            }
+        }
+        let held = U256::from(self.units_q64);
+        if self.paid_checkpoint_q64 <= DRAINED_UNIT_VALUE_Q64 {
+            owed = owed
+                .checked_add(held * U256::from(DRAINED_UNIT_VALUE_Q64 - self.paid_checkpoint_q64))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+        } else {
+            excess = excess.saturating_add(held * U256::from(self.paid_checkpoint_q64 - DRAINED_UNIT_VALUE_Q64));
+        }
+        let cash_scaled = owed.saturating_sub(excess);
+        let whole = cash_scaled >> 128;
+        require!(whole <= U256::from(u64::MAX), ErrorCode::MarketMathOverflow);
+        self.claimable = self
+            .claimable
+            .checked_add(whole.as_u64())
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.paid_fraction_q128 = cash_scaled.low_u128();
+        self.epoch = book.epoch;
+        self.units_q64 = 0;
+        self.paid_checkpoint_q64 = 0;
+        self.growth_checkpoint = start;
+        Ok(())
+    }
+
     pub fn checkpoint(&mut self, balance: u64, book: &IncomeReceivableBook, lane: usize) -> Result<()> {
+        self.catch_up_drained(balance, book, lane, IncomeExposureEnd::default())?;
         require_eq!(self.epoch, book.epoch, ErrorCode::IncomeHistoryRequired);
         let growth = book.growth.get(lane).ok_or(ErrorCode::InvalidArgument)?;
         if *growth == self.growth_checkpoint && book.paid_per_unit_q64 == self.paid_checkpoint_q64 {

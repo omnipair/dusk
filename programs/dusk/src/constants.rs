@@ -147,8 +147,10 @@ pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// decimals and sets independent lower/upper utilization rate targets.
 /// Aggregate virtual reserves use u128; physical token amounts remain u64.
 /// Separate hLP funding offsets preserve pricing principal through payment.
+/// Income books record their drain run so a fully repaid epoch advances in
+/// place without an archive.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 17;
+pub const MARKET_LAYOUT_VERSION: u8 = 18;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

@@ -685,3 +685,34 @@ fn saturated_interest_does_not_block_an_otherwise_cash_backed_lp_exit() {
     assert_eq!(*market.income.get().unwrap().books[0], before);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
 }
+
+/// A permissionless `fund_interest` that funds the whole public coupon fully
+/// repays the public income book. Accrual continues exactly as without it.
+#[test]
+fn full_fund_interest_does_not_stall_accrual() {
+    let mut market = numeric_limit_market();
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    market.operator.interest_share_bps = 2_000;
+    let s1 = slots_for_ms(crate::constants::MS_PER_DAY);
+    accrue_side::<false>(&mut market, MarketAsset::Base, s1, rate_input(Some(0))).unwrap();
+    let index1 = market.debt.base_borrow_index_nad;
+    let mut control = market.clone();
+    let (_, credit) = market.fund_public_interest(MarketAsset::Base, u64::MAX, 0).unwrap();
+    market
+        .record_receivable_income_credit(MarketAsset::Base, false, credit, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+        .unwrap();
+    let epoch = {
+        let book = &market.income.get().unwrap().books[0];
+        assert_eq!(book.unpaid, 0);
+        assert!(book.can_advance_in_place());
+        assert!(!book.may_roll());
+        book.epoch
+    };
+    let s2 = s1 + slots_for_ms(10 * crate::constants::MS_PER_DAY);
+    accrue_side::<false>(&mut market, MarketAsset::Base, s2, rate_input(Some(0))).unwrap();
+    accrue_side::<false>(&mut control, MarketAsset::Base, s2, rate_input(Some(0))).unwrap();
+    assert!(control.debt.base_borrow_index_nad > index1);
+    assert_eq!(market.debt.base_borrow_index_nad, control.debt.base_borrow_index_nad);
+    assert_eq!(market.income.get().unwrap().books[0].epoch, epoch + 1);
+}

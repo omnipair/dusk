@@ -310,6 +310,10 @@ impl Market {
         }
         require_gte!(removed, payable, ErrorCode::BrokenInvariant);
         let i = asset.code() as usize + if funding { 2 } else { 0 };
+        if payable < removed {
+            // A writeoff: units in this epoch are owed less than face value.
+            self.income.get_mut()?.books[i].mark_impaired();
+        }
         self.income.get_mut()?.books[i].settle(removed, 0)?;
         self.income.get_mut()?.pending[i] = self.income.get()?.pending[i]
             .checked_add(payable)
@@ -320,6 +324,9 @@ impl Market {
     pub fn collect_income_receivable(&mut self, asset: MarketAsset, funding: bool, cash: u64) -> Result<()> {
         let i = asset.code() as usize + if funding { 2 } else { 0 };
         require_gte!(self.income.get()?.pending[i], cash, ErrorCode::UnbackedFeeLiability);
+        if cash < self.income.get()?.pending[i] {
+            self.income.get_mut()?.books[i].mark_impaired();
+        }
         self.income.get_mut()?.books[i].credit_cash(cash)?;
         self.income.get_mut()?.pending[i] = 0;
         Ok(())

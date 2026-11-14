@@ -19,8 +19,19 @@ pub struct IncomeReceivableBook {
     pub units: u64,
     pub paid_per_unit_q64: u128,
     pub paid_remainder: u64,
-    /// Ordinary senior, junior, base hLP, quote hLP.
+    /// Ordinary senior, junior, base hLP, quote hLP. Growth is cumulative
+    /// across the epochs of one drain run and resets only at an archived roll.
     pub growth: [ReceivableGrowth; 4],
+    /// First epoch of the current drain run. Every epoch from here up to the
+    /// current one ended fully repaid without loss and was advanced in place,
+    /// so holders catch up across them without archived history.
+    pub run_start_epoch: u64,
+    /// Lane growth when the current epoch started; equal to `growth` at the
+    /// last in-place advance.
+    pub epoch_start_growth: [ReceivableGrowth; 4],
+    /// A writeoff or custody shortfall in this epoch. Such an epoch cannot be
+    /// advanced in place; it needs an archived roll.
+    pub impaired: bool,
 }
 
 /// Immutable closing state of one unpaid-income denomination. Holders use it

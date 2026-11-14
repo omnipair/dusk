@@ -57,14 +57,150 @@ fn alternating_repayment_and_issuance_can_roll_without_reviving_drained_units() 
     let old_units = book.units;
     assert!(old_units > 0);
     book.settle(book.unpaid, book.unpaid).unwrap();
-    let before = book.clone();
-    assert!(book.issue([(1, 1), (0, 0), (0, 0), (0, 0)]).is_err());
-    assert_eq!(book, before);
-    let old = book.roll().unwrap();
-    holder.advance_epoch(1, &old, 0).unwrap();
+    // A loss-free drained epoch advances in place instead of reviving its
+    // units; the holder needs no archive to collect it.
+    let epoch = book.epoch;
+    assert!(!book.may_roll());
+    book.issue([(1, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
+    assert_eq!(book.epoch, epoch + 1);
+    assert_eq!((book.units, book.unpaid), (1, 1));
+    holder.checkpoint(0, &book, 0).unwrap();
     assert_eq!(holder.units_q64, 0);
     assert!(holder.claimable <= 25_600);
     assert!(holder.claimable >= 25_599);
+}
+
+#[test]
+fn impaired_drained_epoch_still_needs_an_archived_roll() {
+    let mut book = IncomeReceivableBook::default();
+    let mut holder = IncomeReceivableClaim::default();
+    book.issue([(100, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
+    holder.checkpoint(1, &book, 0).unwrap();
+    // A custody shortfall, which the market records as an impairment.
+    book.settle(100, 60).unwrap();
+    book.mark_impaired();
+    let before = book.clone();
+    assert!(!book.can_advance_in_place());
+    assert!(book.issue([(1, 1), (0, 0), (0, 0), (0, 0)]).is_err());
+    assert_eq!(book, before);
+    assert!(book.may_roll());
+    let old = book.roll().unwrap();
+    holder.advance_epoch(1, &old, 0).unwrap();
+    assert!(holder.claimable.abs_diff(60) <= 1);
+    book.issue([(10, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
+    holder.checkpoint(1, &book, 0).unwrap();
+}
+
+/// Mirrors an hLP funding book: every accrual is followed by a payment of
+/// everything due. Holders that never checkpoint, checkpoint often, change
+/// balance, or stop exposure all collect what the epochs paid them, and the
+/// total never exceeds the cash credited.
+#[test]
+fn drained_epochs_advance_in_place_and_holders_catch_up_exactly() {
+    let mut book = IncomeReceivableBook::default();
+    let mut often = IncomeReceivableClaim::default();
+    let mut idle = IncomeReceivableClaim::default();
+    let mut junior = IncomeReceivableClaim::default();
+    let mut ended = IncomeReceivableClaim::default();
+    let (mut often_balance, idle_balance, junior_balance, ended_balance) = (60_u64, 40_u64, 10_u64, 5_u64);
+    let mut end = IncomeExposureEnd::default();
+    let (mut senior_cash, mut junior_cash) = (0_u128, 0_u128);
+    let (mut idle_expected, mut junior_expected, mut ended_expected) = (0_u128, 0_u128, 0_u128);
+    for cycle in 0..120_u64 {
+        let senior = 1_000 + cycle * 37 % 501;
+        let junior_gross = 100 + cycle * 13 % 97;
+        let senior_supply = often_balance + idle_balance;
+        let junior_supply = junior_balance + if end.ended { 0 } else { ended_balance };
+        book.issue([(senior, senior_supply), (junior_gross, junior_supply), (0, 0), (0, 0)]).unwrap();
+        if cycle % 3 == 0 {
+            // A partial repayment first, then the rest: still loss-free.
+            let part = book.unpaid / 3;
+            book.settle(part, part).unwrap();
+            book.issue([(senior / 2, senior_supply), (0, junior_supply), (0, 0), (0, 0)]).unwrap();
+            senior_cash += u128::from(senior / 2);
+            idle_expected += u128::from(senior / 2) * u128::from(idle_balance) / u128::from(senior_supply);
+        }
+        let unpaid = book.unpaid;
+        book.settle(unpaid, unpaid).unwrap();
+        senior_cash += u128::from(senior);
+        junior_cash += u128::from(junior_gross);
+        idle_expected += u128::from(senior) * u128::from(idle_balance) / u128::from(senior_supply);
+        junior_expected += u128::from(junior_gross) * u128::from(junior_balance) / u128::from(junior_supply);
+        if !end.ended {
+            ended_expected += u128::from(junior_gross) * u128::from(ended_balance) / u128::from(junior_supply);
+        }
+        if cycle % 5 == 0 {
+            often.checkpoint(often_balance, &book, 0).unwrap();
+        }
+        if cycle == 60 {
+            // Balance change: checkpoint at the old balance first.
+            often.checkpoint(often_balance, &book, 0).unwrap();
+            often_balance = 30;
+        }
+        if cycle == 80 {
+            end = IncomeExposureEnd { ended: true, epoch: book.epoch, growth: book.growth[1] };
+        }
+    }
+    assert!(book.epoch >= 119);
+    assert_eq!(book.run_start_epoch, 0);
+    // The last epoch is drained but not yet advanced.
+    book.issue([(1, often_balance + idle_balance), (0, 1), (0, 0), (0, 0)]).unwrap();
+    often.checkpoint(often_balance, &book, 0).unwrap();
+    idle.checkpoint(idle_balance, &book, 0).unwrap();
+    junior.checkpoint(junior_balance, &book, 1).unwrap();
+    ended.checkpoint_exposure(ended_balance, &book, 1, end).unwrap();
+    for claim in [&often, &idle, &junior, &ended] {
+        assert_eq!(claim.epoch, book.epoch);
+    }
+    // Only the final one-atom issuance remains as units.
+    assert!(often.units_q64 + idle.units_q64 <= Q64);
+    let senior_paid = u128::from(often.claimable) + u128::from(idle.claimable);
+    let junior_paid = u128::from(junior.claimable) + u128::from(ended.claimable);
+    // Never more than the cash credited. What stays behind is rounding dust
+    // of at most an atom per issuance: issuance rounds units down, and an
+    // epoch's paid index above the drained unit value is not distributed.
+    assert!(senior_paid <= senior_cash && senior_paid + 160 >= senior_cash, "{senior_paid} vs {senior_cash}");
+    assert!(junior_paid <= junior_cash && junior_paid + 160 >= junior_cash, "{junior_paid} vs {junior_cash}");
+    // Per-holder shares match pro-rata exposure up to per-cycle flooring.
+    assert!(u128::from(idle.claimable).abs_diff(idle_expected) <= 200, "{} vs {idle_expected}", idle.claimable);
+    assert!(u128::from(junior.claimable).abs_diff(junior_expected) <= 200);
+    assert!(u128::from(ended.claimable).abs_diff(ended_expected) <= 200);
+}
+
+#[test]
+fn drained_run_then_archived_roll_keeps_lagging_holders_whole() {
+    let mut book = IncomeReceivableBook::default();
+    let mut lagging = IncomeReceivableClaim::default();
+    let mut current = IncomeReceivableClaim::default();
+    lagging.checkpoint(1, &book, 0).unwrap();
+    current.checkpoint(1, &book, 0).unwrap();
+    let mut cash = 0_u64;
+    for _ in 0..10 {
+        book.issue([(1_000, 2), (0, 0), (0, 0), (0, 0)]).unwrap();
+        book.settle(1_000, 1_000).unwrap();
+        cash += 1_000;
+    }
+    // An impaired epoch ends the run and is archived.
+    book.issue([(1_000, 2), (0, 0), (0, 0), (0, 0)]).unwrap();
+    book.settle(400, 400).unwrap();
+    book.settle(100, 0).unwrap();
+    book.mark_impaired();
+    cash += 400;
+    assert!(book.may_roll());
+    let archived = book.roll().unwrap();
+    assert_eq!(book.run_start_epoch, book.epoch);
+    current.advance_epoch(1, &archived, 0).unwrap();
+    // The lagging holder cannot skip the archive.
+    assert!(lagging.clone().checkpoint(1, &book, 0).is_err());
+    lagging.advance_epoch(1, &archived, 0).unwrap();
+    assert_eq!(lagging, current);
+    let carried = book.unpaid;
+    book.settle(carried, carried).unwrap();
+    cash += carried;
+    lagging.checkpoint(1, &book, 0).unwrap();
+    current.checkpoint(1, &book, 0).unwrap();
+    let paid = lagging.claimable + current.claimable;
+    assert!(paid <= cash && paid + 2 >= cash, "{paid} vs {cash}");
 }
 
 #[test]
@@ -128,14 +264,21 @@ fn rolls_need_half_the_units_repaid_or_a_book_near_its_limits() {
         unpaid,
         ..IncomeReceivableBook::default()
     };
-    // Nothing settled, or one atom repaid: a griefer cannot force a roll.
+    // Nothing settled, or one atom repaid: no roll.
     assert!(!book(0, 0).may_roll());
     assert!(!book(1_000, 1_000).may_roll());
     assert!(!book(1_000, 999).may_roll());
     assert!(!book(1_000, 501).may_roll());
-    // Half repaid, or fully drained (the SDK's maintenance roll).
+    // Half repaid, or drained below the in-place drained unit value.
     assert!(book(1_000, 500).may_roll());
     assert!(book(1_000, 0).may_roll());
+    // A loss-free drained epoch advances in place; rolling it would only add
+    // an archive every holder must catch up through.
+    let mut drained = book(1_000, 0);
+    drained.paid_per_unit_q64 = Q64;
+    assert!(!drained.may_roll());
+    drained.impaired = true;
+    assert!(drained.may_roll());
     // Near a fixed-width limit, a small repayment is enough to recover.
     assert!(book(u64::MAX / 2 + 2, u64::MAX / 2 + 1).may_roll());
     let mut index = book(1_000, 999);
