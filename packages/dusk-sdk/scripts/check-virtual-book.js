@@ -221,26 +221,121 @@ test("combining decoded batches accepts identical clocks", () => {
   assert.equal(combined.quotes.bids.length, first.quotes.length + second.quotes.length);
   assert.equal(combined.quotes.asks.length, 0);
 });
-for (const kind of ["slot", "Unix timestamp"])
-  test(`combining decoded batches rejects ${kind} changes within the same epoch`, () => {
-    const h = setup(), response = h.response();
-    const clock = Buffer.from(response.value.accounts[4].data[0], "base64");
-    if (kind === "slot") {
-      response.context.slot++;
-      clock.writeBigUInt64LE(BigInt(response.context.slot), 0);
-    } else {
-      clock.writeBigInt64LE(clock.readBigInt64LE(32) + 1n, 32);
-    }
-    response.value.accounts[4].data[0] = clock.toString("base64");
-    const first = h.decode(), second = h.decode(response);
-    assert.equal(second.epoch, first.epoch);
-    assert.ok(second.slot - first.slot <= 1);
-    assert.equal(
-      second.quotes[0].preview.startPriceNad.toString(),
-      first.quotes[0].preview.startPriceNad.toString()
-    );
-    assert.throws(() => combineVirtualBookBatches(h.snapshot, 10, 1, [first, second]), /changed/);
+// The same saved batch observed on a later confirmed bank: only Clock moves.
+function laterClock(h, { slots = 0, seconds = 0, epochs = 0 } = {}) {
+  const response = h.response();
+  const clock = Buffer.from(response.value.accounts[4].data[0], "base64");
+  response.context.slot += slots;
+  clock.writeBigUInt64LE(BigInt(response.context.slot), 0);
+  clock.writeBigUInt64LE(clock.readBigUInt64LE(16) + BigInt(epochs), 16);
+  clock.writeBigInt64LE(clock.readBigInt64LE(32) + BigInt(seconds), 32);
+  response.value.accounts[4].data[0] = clock.toString("base64");
+  return h.decode(response);
+}
+const setQuotes = (batch, field, value) =>
+  batch.quotes.forEach((row) => (row.preview[field] = new BN(value)));
+const combine = (h, batches) => combineVirtualBookBatches(h.snapshot, 10, 1, batches);
+test("combining accepts batches whose Clocks differ by up to eight slots", () => {
+  const h = setup();
+  const first = h.decode();
+  for (const slots of [1, 4, 8]) {
+    const combined = combine(h, [first, laterClock(h, { slots, seconds: Math.ceil(slots / 2) })]);
+    assert.equal(combined.firstQuoteSlot, slot);
+    assert.equal(combined.slot, slot + slots);
+    assert.equal(combined.quotes.bids.length, 2 * first.quotes.length);
+  }
+  // Order does not matter: the newest bank may answer first.
+  assert.equal(combine(h, [laterClock(h, { slots: 3, seconds: 1 }), first]).firstQuoteSlot, slot);
+});
+test("combining refuses Clocks more than eight slots apart", () => {
+  const h = setup();
+  assert.throws(() => combine(h, [h.decode(), laterClock(h, { slots: 9, seconds: 4 })]), /changed/);
+});
+for (const [index, name] of ["market", "base mint", "quote mint", "futarchy authority"].entries())
+  test(`combining refuses any ${name} byte difference, even across Clocks`, () => {
+    const h = setup(),
+      response = h.response();
+    const data = Buffer.from(response.value.accounts[index].data[0], "base64");
+    if (index === 0) {
+      // A state-only market field that the identity checks do not read.
+      const coder = h.dusk.program.coder.accounts;
+      const market = coder.decode("market", data);
+      market.amm.volatilityAccumulatorNad = market.amm.volatilityAccumulatorNad.addn(1);
+      coder.accountLayouts.get("market").layout.encode(market, data, 8);
+    } else data[data.length - 1] ^= 1;
+    response.value.accounts[index].data[0] = data.toString("base64");
+    const changed = h.decode(response);
+    assert.notEqual(changed.state, h.decode().state);
+    assert.throws(() => combine(h, [h.decode(), changed]), /changed/);
+    assert.throws(() => combine(h, [laterClock(h, { slots: 1 }), changed]), /changed/);
   });
+test("combining refuses an epoch change within the slot spread", () => {
+  const h = setup();
+  const next = laterClock(h, { slots: 1, epochs: 1 });
+  assert.equal(next.epoch, h.decode().epoch + 1n);
+  assert.throws(() => combine(h, [h.decode(), next]), /changed/);
+});
+test("combining refuses moved Clocks during a concentration ramp", () => {
+  const h = setup();
+  const first = h.decode();
+  first.market.amm.concentrationRamp.active = true;
+  assert.doesNotThrow(() => combine(h, [first, h.decode()]));
+  assert.throws(() => combine(h, [first, laterClock(h, { slots: 1 })]), /changed/);
+});
+test("combining refuses moved timestamps inside a launch fee or size window", () => {
+  const h = setup();
+  const timestamp = h.decode().unixTimestamp;
+  for (const window of [
+    { launchFeeDecayMode: 1, launchFeeDurationSeconds: new BN(1) },
+    { launchMarketPriceStepBps: 100, launchFeeDurationSeconds: new BN(1) },
+    { launchRateLimitAsset: 1, launchRateLimitDurationSeconds: new BN(1) },
+  ]) {
+    const first = h.decode();
+    Object.assign(first.market.config.amm, window);
+    // The window ends one second after the saved timestamp.
+    first.market.config.startTime = new BN(timestamp.toString());
+    assert.throws(() => combine(h, [first, laterClock(h, { slots: 2, seconds: 1 })]), /changed/);
+    // Launch fees read only the timestamp, so slot-only moves still combine.
+    assert.doesNotThrow(() => combine(h, [first, laterClock(h, { slots: 2 })]));
+    first.market.config.startTime = new BN((timestamp - 1n).toString());
+    assert.doesNotThrow(() => combine(h, [first, laterClock(h, { slots: 2, seconds: 1 })]));
+  }
+});
+test("combining bounds Clock-driven start price drift at one part per million", () => {
+  const h = setup();
+  const first = h.decode();
+  const start = BigInt(first.quotes[0].preview.startPriceNad.toString());
+  const tolerance = start / 1_000_000n;
+  assert.ok(tolerance > 0n);
+  const later = laterClock(h, { slots: 2, seconds: 1 });
+  setQuotes(later, "startPriceNad", (start + tolerance).toString());
+  assert.equal(combine(h, [first, later]).mid, Number(start) / 1e9);
+  setQuotes(later, "startPriceNad", (start + tolerance + 1n).toString());
+  assert.throws(() => combine(h, [first, later]), /price changed/);
+});
+test("combining refuses a recentre between batches", () => {
+  const h = setup();
+  const later = laterClock(h, { slots: 1 });
+  setQuotes(later, "centerPriceNad", "1000000001");
+  assert.throws(() => combine(h, [h.decode(), later]), /price changed/);
+});
+test("combining bounds volatility surcharge drift at one part per million", () => {
+  const h = setup();
+  const first = h.decode(),
+    later = laterClock(h, { slots: 3, seconds: 1 });
+  // A 0.1% surcharge at volatility 1e8 tolerates a 1e5 decay: 1e-3 * 1e-3.
+  setQuotes(first, "volatilityFeeRateNad", "1000000");
+  setQuotes(first, "decayedVolatilityNad", "100000000");
+  setQuotes(later, "volatilityFeeRateNad", "999000");
+  setQuotes(later, "decayedVolatilityNad", "99900000");
+  assert.doesNotThrow(() => combine(h, [first, later]));
+  setQuotes(later, "decayedVolatilityNad", "99899999");
+  assert.throws(() => combine(h, [first, later]), /price changed/);
+  // Without a surcharge, decayed volatility has no price effect.
+  setQuotes(first, "volatilityFeeRateNad", "0");
+  setQuotes(later, "volatilityFeeRateNad", "0");
+  assert.doesNotThrow(() => combine(h, [first, later]));
+});
 function quote(input, output, surcharge, outputTransferFee = 0n) {
   return {
     slot,
