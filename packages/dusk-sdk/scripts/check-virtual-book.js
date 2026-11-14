@@ -321,6 +321,7 @@ function curve(concentrated = false) {
     amm: {
       ordinaryBaseReserveNad: new BN(point.base.toString()),
       ordinaryQuoteReserveNad: new BN(point.quote.toString()),
+      centerPriceNad: new BN(1_000_000_000),
     },
     base: { cashReserve: new BN(1_000_000_000) },
     quote: { cashReserve: new BN("1000000000000") },
@@ -330,8 +331,8 @@ function curve(concentrated = false) {
 test("curve matches analytical CPMM and concentration across range boundaries", () => {
   const plain = projectDuskVirtualBookCurve(curve(), 100, 50),
     concentrated = projectDuskVirtualBookCurve(curve(true), 100, 50);
-  close(plain.asks[5].total, 100 - 100 / Math.sqrt(1.06), 1e-5);
-  close(plain.bids[5].averagePrice, Math.sqrt(0.94), 1e-5);
+  close(plain.asks[5].total, 100 - 100 / Math.sqrt(1.01 ** 6), 1e-5);
+  close(plain.bids[5].averagePrice, Math.sqrt(1.01 ** -6), 1e-5);
   close(concentrated.asks[0].size / plain.asks[0].size, 10, 1e-4);
   close(concentrated.asks[49].size, plain.asks[49].size, 1e-7);
   close(concentrated.bids[49].size, plain.bids[49].size, 1e-7);
@@ -387,16 +388,73 @@ test("CPMM samples current reserves after accumulated rounding changes the cache
   close(value.mid, quote / base);
   assert.equal(value.bids.length, 12);
   assert.equal(value.asks.length, 12);
+  // Rows end on the grid through the centre (1 here), not at steps from the
+  // mid, so each ratio is a grid price over the mid.
+  const k = Math.log(quote / base) / Math.log(1.001);
+  const ask = (i) => 1.001 ** (Math.floor(k + 0.1) + 1 + i) / (quote / base);
+  const bid = (i) => 1.001 ** (Math.ceil(k - 0.1) - 1 - i) / (quote / base);
   for (const [i, row] of value.asks.entries()) {
-    close(row.total, base * (1 - 1 / Math.sqrt(1 + .001 * (i + 1))), 2e-6);
-    close(row.quoteTotal, quote * (Math.sqrt(1 + .001 * (i + 1)) - 1), 2e-6);
+    close(row.total, base * (1 - 1 / Math.sqrt(ask(i))), 2e-6);
+    close(row.quoteTotal, quote * (Math.sqrt(ask(i)) - 1), 2e-6);
   }
   for (const [i, row] of value.bids.entries()) {
-    close(row.total, base * (1 / Math.sqrt(1 - .001 * (i + 1)) - 1), 2e-6);
-    close(row.quoteTotal, quote * (1 - Math.sqrt(1 - .001 * (i + 1))), 2e-6);
+    close(row.total, base * (1 / Math.sqrt(bid(i)) - 1), 2e-6);
+    close(row.quoteTotal, quote * (1 - Math.sqrt(bid(i))), 2e-6);
   }
+  assert.ok(value.asks[0].size < value.asks[1].size * 0.9, "top ask is a partial band");
   snapshot.account.amm.concentratedCurveCache.tailLiquidity = new BN("900000000000000");
   assert.deepEqual(projectDuskVirtualBookCurve(snapshot, 10), value);
+});
+
+/** The concentrated fixture after a trade that ends at `ratio` times the
+ * starting price: same cache and centre, reserves moved along the curve. */
+function traded(ratio) {
+  const UNIT = 1_000_000_000_000n;
+  const layers = [
+    { liquidity: 450n * UNIT, lower: 950_000_000n, upper: 1_050_000_000n },
+    { liquidity: 450n * UNIT, lower: 800_000_000n, upper: 1_200_000_000n },
+  ];
+  const end = virtualCurvePoint(100n * UNIT, layers, BigInt(Math.round(Math.sqrt(ratio) * 1e9)));
+  const snapshot = curve(true);
+  snapshot.preview.amm.ordinaryBaseReserveNad = new BN(end.base.toString());
+  snapshot.preview.amm.ordinaryQuoteReserveNad = new BN(end.quote.toString());
+  return snapshot;
+}
+test("a trade inside the top band trims that row and leaves every deeper row in place", () => {
+  const before = projectDuskVirtualBookCurve(curve(true), 10);
+  // A sell 40% of the way through the first 10 bps bid band.
+  const after = projectDuskVirtualBookCurve(traded(1.001 ** -0.4), 10);
+  const sold = after.bids[0].total - before.bids[0].total;
+  assert.ok(after.mid < before.mid * (1 - 3e-4), "the trade moved the price");
+  assert.ok(after.mid > before.bids[0].price, "the trade stayed inside the top band");
+  assert.ok(sold < 0 && -sold < before.bids[0].size);
+  close(after.bids[0].price, before.bids[0].price, 1e-12);
+  for (let i = 1; i < before.bids.length; i++) {
+    close(after.bids[i].price, before.bids[i].price, 1e-12);
+    close(after.bids[i].size, before.bids[i].size, 1e-9);
+    close(after.bids[i].quoteSize, before.bids[i].quoteSize, 1e-9);
+  }
+  // The band the sell crossed reopens as a partial ask above it.
+  close(after.asks[0].price, before.mid, 1e-9);
+  for (let i = 0; i < before.asks.length - 1; i++) {
+    close(after.asks[i + 1].price, before.asks[i].price, 1e-12);
+    close(after.asks[i + 1].size, before.asks[i].size, 1e-9);
+  }
+});
+test("a price just inside a grid line folds the sliver into the next row", () => {
+  const book = projectDuskVirtualBookCurve(traded(1.001 ** 0.05), 10);
+  close(book.bids[0].price, 1.001 ** -1, 1e-9);
+  close(book.bids[1].price, 1.001 ** -2, 1e-9);
+  close(book.asks[0].price, 1.001, 1e-9);
+});
+test("a centre move rebuilds every row on the new grid", () => {
+  const snapshot = curve(true);
+  snapshot.preview.amm.centerPriceNad = new BN(1_000_500_000);
+  const book = projectDuskVirtualBookCurve(snapshot, 10);
+  for (const [i, row] of book.bids.entries()) close(row.price, 1.0005 * 1.001 ** (-1 - i), 1e-9);
+  for (const [i, row] of book.asks.entries()) close(row.price, 1.0005 * 1.001 ** i, 1e-9);
+  snapshot.preview.amm.centerPriceNad = new BN(0);
+  assert.throws(() => projectDuskVirtualBookCurve(snapshot, 10), /centre/);
 });
 
 test("full curve sampling batches both directions and retains original observation age", async (t) => {

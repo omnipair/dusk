@@ -25,6 +25,9 @@ export interface VirtualBookView {
 }
 
 const NAD = 1_000_000_000n;
+/** A top band narrower than this share of one grid step merges into the next
+ * row, so a price resting just inside a grid line never draws a sliver. */
+const MIN_TOP_BAND = 0.1;
 const n = (value: { toString(): string }) => BigInt(value.toString());
 type Layer = { liquidity: bigint; lower: bigint; upper: bigint };
 
@@ -124,7 +127,18 @@ export function projectDuskVirtualBookCurve(
   if (difference > quote / 100_000n + 100n)
     throw new Error("Depth curve does not match the current reserves");
   const mid = (Number(hi) / 1e9) ** 2;
+  // Nominal row width at the mid. Rows themselves follow the grid below.
   const step = (mid * groupingBps) / 10_000;
+  // Rows are bands of a fixed geometric price grid through the sticky
+  // centre, centre * (1 + grouping)^k. A trade inside the top band only trims
+  // that row: every deeper row keeps its boundaries until the centre moves.
+  const centre = Number(preview.amm.centerPriceNad.toString()) / 1e9;
+  if (!(centre > 0) || !Number.isFinite(centre)) throw new Error("Invalid depth centre");
+  const ratio = 1 + groupingBps / 10_000;
+  const position = Math.log(mid / centre) / Math.log(ratio);
+  const firstAsk = Math.floor(position + MIN_TOP_BAND) + 1;
+  const firstBid = Math.ceil(position - MIN_TOP_BAND) - 1;
+  const gridPrice = (k: number) => centre * ratio ** k;
   const cashBase =
     Number(preview.base.cashReserve.toString()) / 10 ** account.baseSide.assetDecimals;
   const cashQuote =
@@ -141,8 +155,8 @@ export function projectDuskVirtualBookCurve(
     let previousBase = 0,
       previousQuote = 0;
     for (let i = 1; i <= count; i++) {
-      let price = mid + direction * step * i;
-      if (!(price > 0)) break;
+      let price = gridPrice(direction === 1 ? firstAsk + i - 1 : firstBid - i + 1);
+      if (!(price > 0) || !Number.isFinite(price)) break;
       let targetSqrt = BigInt(Math.max(1, Math.floor(Math.sqrt(price) * 1e9)));
       const exceedsCash = (s: bigint) => {
         const p = point(s);
