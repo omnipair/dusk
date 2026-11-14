@@ -147,7 +147,7 @@ impl<'info> AddLiquidity<'info> {
         Ok(())
     }
 
-    crate::instructions::accounts::market_update_and_validate!(AddLiquidityArgs);
+    crate::instructions::accounts::market_update_and_validate!(AddLiquidityArgs, liquidity_change);
 
     fn transfers(&self, args: &AddLiquidityArgs) -> Result<AddLiquidityTransfers> {
         // Preview against the maximum credits available after transfer fees.

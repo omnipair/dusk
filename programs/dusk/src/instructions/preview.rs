@@ -645,7 +645,7 @@ impl<'info> PreviewAddLiquidity<'info> {
         require_supported_asset_mint(&ctx.accounts.base_mint)?;
         require_supported_asset_mint(&ctx.accounts.quote_mint)?;
 
-        ctx.accounts.market.update()?;
+        ctx.accounts.market.update_for_liquidity_change()?;
         let market: &Market = &ctx.accounts.market;
         require_keys_eq!(
             market.base_side.asset_mint,
@@ -1175,11 +1175,13 @@ fn preview_hlp_funding_limit(
         return Ok((HlpDepositStatus::ReduceOnly, 0));
     }
     market.accrue_interest_to_slot(clock.slot)?;
-    reconcile_live_hlp_supply(market, target, live_supply)?;
+    reconcile_live_hlp_supply(market, target, live_supply, false)?;
     if market.base_side.reserves.live_reserve == 0 || market.quote_side.reserves.live_reserve == 0 {
         return Ok((HlpDepositStatus::NoLiquidity, 0));
     }
-    market.advance_amm_clock(clock.slot)?;
+    // Entry applies a due, funded recenter first; preview the same state.
+    market.prepare_amm_for_swap(clock.slot)?;
+    market.advance_one_amm_controller_target(clock.slot)?;
     market.freeze_negative_hlp_vaults()?;
     if market.hlp_frozen(target) {
         return Ok((HlpDepositStatus::Frozen, 0));

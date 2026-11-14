@@ -156,3 +156,28 @@ fn verified_restriction_preserves_only_unused_exercise_time() {
         19_900
     );
 }
+
+#[test]
+fn wiped_generation_keeps_queued_receipts_until_it_is_archived() {
+    // Later generations start without permanent seed receipts, and requests
+    // below 200 receipts pay no seed fee, so one holder can queue everything.
+    let (_, config) = setup();
+    let mut capital = TrancheCapital {
+        generation: 1,
+        ..TrancheCapital::default()
+    };
+    capital.enter(100, 500_000).unwrap();
+    let mut ticket = JuniorExitTicket::default();
+    assert_eq!(ticket.request(&mut capital, &config, 100, 0).unwrap(), 0);
+    assert_eq!(capital.queued_receipts, capital.junior_receipt_supply);
+    let mut total = 500_000;
+    assert!(capital.absorb_loss(500_000, 50_000, &mut total).unwrap().junior_wiped);
+
+    // Converting the worthless ticket would empty the wiped generation, which
+    // could then never be archived; its receipts wait for the rollover.
+    let before = capital;
+    assert!(ticket.convert(&mut capital, ticket.ready_at, 0, false).is_err());
+    assert_eq!(capital, before);
+    assert_eq!(capital.retire_wiped_generation().unwrap().junior_receipt_supply, 100);
+    assert_eq!(capital.generation, 2);
+}

@@ -648,3 +648,56 @@ fn cash_constrained_both_hlp_vaults_retain_unpaid_funding_and_nav() {
         }
     }
 }
+
+#[test]
+fn retained_surcharge_entry_pricing_holds_with_paid_funding_offsets() {
+    use crate::transitions::liquidity::prepare_concentrated_hlp_transition_from_end;
+    for above in [false, true] {
+        let mut market = funding_tail_market(3, above);
+        let slot = 2 + crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+        market.update_at_slot(slot).unwrap();
+        // Paid funding moves the pricing offsets off zero without moving the point.
+        let state = market.integrated_curve_state_nad().unwrap();
+        let payment = prepare_concentrated_hlp_transition_from_end(&market, state, false, true, 0, 0).unwrap();
+        payment.consume(&mut market).unwrap();
+        assert_ne!(
+            (market.amm.hlp_funding_base_pricing_offset_nad, market.amm.hlp_funding_quote_pricing_offset_nad),
+            (0, 0),
+            "above={above}"
+        );
+        for asset in [MarketAsset::Base, MarketAsset::Quote] {
+            let bucket = market.curve_reserve(asset).unwrap() / 100;
+            market.credit_protected_recenter_reserve(asset, bucket).unwrap();
+        }
+        let price = u128::from(market.current_concentrated_spot_price_nad().unwrap().unwrap());
+        let value = |market: &Market, base: u64, quote: u64| {
+            market.normalize_amount(u128::from(base), market.base_side.asset_decimals).unwrap() * price / NAD as u128
+                + market.normalize_amount(u128::from(quote), market.quote_side.asset_decimals).unwrap()
+        };
+        // Holders of record own the curve reserves and the undeployed bucket.
+        let per_share = |market: &Market| {
+            let base = market.curve_reserve(MarketAsset::Base).unwrap() + market.base_side.reserves.protected_recenter_reserve;
+            let quote = market.curve_reserve(MarketAsset::Quote).unwrap() + market.quote_side.reserves.protected_recenter_reserve;
+            value(market, base, quote) * NAD as u128 / u128::from(market.base_side.shares.srlp_supply)
+        };
+        let (base_in, quote_in) = (market.curve_reserve(MarketAsset::Base).unwrap(), market.curve_reserve(MarketAsset::Quote).unwrap());
+
+        // An entry and an immediate exit around a bucket cannot gain.
+        let mut round_trip = market.clone();
+        let entry = round_trip.add_liquidity(base_in, quote_in).unwrap();
+        let exit = round_trip.remove_liquidity(entry.srlp_amount).unwrap();
+        let paid = value(&round_trip, entry.base_reserve_credit, entry.quote_reserve_credit);
+        let received = value(&round_trip, exit.base_amount_out, exit.quote_amount_out);
+        assert!(received <= paid, "above={above} paid={paid} received={received}");
+
+        // An entry ahead of the deployment pays for its slice of the bucket,
+        // so it does not dilute the holders of record.
+        let before = per_share(&market);
+        market.add_liquidity(base_in, quote_in).unwrap();
+        market.finalize_amm_transition_and_observe_risk(slot).unwrap();
+        let after = per_share(&market);
+        assert!(after >= before, "above={above} before={before} after={after}");
+        assert!(after - before <= before / 1_000_000_000 + 4, "above={above} before={before} after={after}");
+        market.assert_market_invariants().unwrap();
+    }
+}

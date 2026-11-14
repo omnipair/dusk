@@ -98,10 +98,10 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
             ctx.accounts.order.executor_bounty,
             clock.epoch,
         )?;
-        let expected_escrow = ctx
-            .accounts
-            .order
-            .margin_amount
+        // A transfer-fee increase since creation comes out of the owner's
+        // margin; the executor's net bounty is fixed.
+        let margin_amount = ctx.accounts.order.execution_margin(bounty_debit)?;
+        let expected_escrow = margin_amount
             .checked_add(bounty_debit)
             .ok_or(LeverageDelegateError::MathOverflow)?;
         require_gte!(
@@ -183,7 +183,7 @@ impl<'info> ExecuteLeverageEntryOrder<'info> {
             OpenLeverageArgs {
                 position_id: ctx.accounts.order.position_id,
                 debt_asset: ctx.accounts.order.debt_asset,
-                margin_amount: ctx.accounts.order.margin_amount,
+                margin_amount,
                 multiplier_bps: ctx.accounts.order.multiplier_bps,
                 min_collateral_out: ctx.accounts.order.min_collateral_out,
                 referrer: ctx.accounts.order.referrer,

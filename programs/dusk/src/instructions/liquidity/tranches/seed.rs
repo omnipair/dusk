@@ -109,6 +109,8 @@ impl<'info> CompoundJuniorSeed<'info> {
             ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
         market.reconcile_junior_receipts(ctx.accounts.junior_mint.supply)?;
+        // Swap-fee allocation carries forward whenever srLP supply is
+        // positive, so no unallocated fee needs flushing before compounding.
         let receipt = market.compound_junior_seed()?;
         market.finalize_amm_transition_and_observe_risk(Clock::get()?.slot)?;
         market.assert_market_invariants()?;

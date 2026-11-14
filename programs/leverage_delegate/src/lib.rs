@@ -130,6 +130,13 @@ pub mod leverage_delegate {
     ) -> Result<()> {
         ExecuteProtectionOrder::handle(ctx, args)
     }
+    /// Close a cancelled order whose LP custody is empty and whose yield
+    /// accounts have nothing left to claim. Rent returns to the sponsor.
+    pub fn close_protection_order<'info>(
+        ctx: Context<'_, '_, '_, 'info, CloseProtectionOrder<'info>>,
+    ) -> Result<()> {
+        CloseProtectionOrder::handle(ctx)
+    }
     /// Current liquidation-relative health for an order's target, after interest accrual.
     /// This preview does not mutate market or position state.
     pub fn preview_protection_order(ctx: Context<PreviewProtectionOrder>) -> Result<u64> {

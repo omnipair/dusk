@@ -644,6 +644,43 @@ fn terminal_flash_closes_principal_loss_and_unpaid_interest_without_external_cov
 }
 
 #[test]
+fn partial_flash_payment_covers_the_released_collateral() {
+    let fee = LeverageCollateralFee::default();
+    let mut checked = 0;
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        for funding_bps in [300, 600, 1_200, 2_400] {
+            let market = market_for_flash(4, target, funding_bps);
+            let Ok(quote) = market.quote_hlp_flash_recovery(target, fee, fee) else {
+                continue;
+            };
+            if quote.full {
+                continue;
+            }
+            let risk = market.current_risk().unwrap();
+            let reference = u128::from(match target {
+                MarketAsset::Base => risk.base_price_ema_nad,
+                MarketAsset::Quote => risk.quote_price_ema_nad,
+            });
+            let released_nad = market
+                .normalize_amount(u128::from(quote.collateral_credit), market.side(target).asset_decimals)
+                .unwrap();
+            let owed_nad = crate::math::mul_div_ceil_u128(
+                crate::math::mul_div_ceil_u128(released_nad, reference, u128::from(NAD)).unwrap(),
+                u128::from(BPS_DENOMINATOR - quote.discount_bps),
+                u128::from(BPS_DENOMINATOR),
+            )
+            .unwrap();
+            let owed = market
+                .denormalize_amount_ceil(owed_nad, market.side(target.opposite()).asset_decimals)
+                .unwrap();
+            assert!(owed <= quote.reserve_credit, "{target:?} {funding_bps}: {owed} > {}", quote.reserve_credit);
+            checked += 1;
+        }
+    }
+    assert!(checked > 0);
+}
+
+#[test]
 fn terminal_paths_exclude_paid_funding_from_pricing() {
     for flash in [false, true] {
         for amplification in [1, 4, 10] {

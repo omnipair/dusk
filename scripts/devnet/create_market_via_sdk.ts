@@ -41,7 +41,6 @@ import {
   createHookedLpMintInstructions,
   defaultMarketLaunchConfig,
   deriveMarketAddress,
-  deriveMarketParamsHash,
   lpMintRent,
   oracleComputeBudgetInstructions,
   marketLpTokenNaming,
@@ -147,11 +146,11 @@ async function main() {
   console.log(`label          ${label}`);
   console.log(`team treasury  ${teamTreasury.toBase58()}`);
 
-  const paramsHash = await deriveMarketParamsHash({
-    namespace: "dusk-final-devnet",
-    label,
-    baseMint,
-    quoteMint,
+  // The market address is bound to its creator and creation arguments.
+  const paramsHash = await dusk.write.marketParamsHashFor({
+    payer: owner,
+    config: defaultMarketLaunchConfig(),
+    oracle: initialOracle,
   });
 
   const rent = await lpMintRent(connection);
@@ -159,7 +158,7 @@ async function main() {
   console.log(`market         ${market.toBase58()}`);
 
   if (await connection.getAccountInfo(market, "confirmed")) {
-    throw new Error(`market ${market.toBase58()} already exists; choose another LABEL`);
+    throw new Error(`market ${market.toBase58()} already exists: this creator already made a market with this configuration for the pair`);
   }
 
   // Every LP mint is owned by the market that does not exist yet. That is

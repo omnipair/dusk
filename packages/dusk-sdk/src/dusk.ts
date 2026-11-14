@@ -68,7 +68,8 @@ export class Dusk {
       createLeverageDelegateProgram({
         provider: this.program.provider as AnchorProvider,
         programId: options.leverageDelegateProgramId,
-      })
+      }),
+      this.program.programId
     );
   }
 }

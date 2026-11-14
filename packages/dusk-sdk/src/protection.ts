@@ -29,6 +29,7 @@ type MethodAccounts<T extends keyof LeverageDelegateProgram["methods"]> =
 type CreateAccounts = Omit<MethodAccounts<"createProtectionOrder">,
   "order" | "duskEventAuthority" | "duskProgram" | "token2022Program" | "systemProgram"> & { owner: PublicKey };
 type ManageAccounts = Omit<MethodAccounts<"fundProtectionOrder">, "token2022Program">;
+type CloseAccounts = Omit<MethodAccounts<"closeProtectionOrder">, "tokenProgram" | "token2022Program">;
 type ExecuteAccounts = Omit<MethodAccounts<"executeProtectionOrder">,
   "duskEventAuthority" | "duskProgram" | "tokenProgram" | "token2022Program">;
 type CreateArgs = IdlTypes<LeverageDelegate>["createProtectionOrderArgs"];
@@ -45,9 +46,12 @@ export type CreateProtectionOrderParams = {
  * require buildLpTransferHookAccountMetas. The sponsor remains yield recipient.
  * Execution needs a keeper token balance to advance repayment; LP redemption
  * reimburses that balance atomically. Insufficient redemption liquidity reverts.
+ * Cancellation refunds the LP; after harvesting the order's yield, closing it
+ * returns the rent of the order and its custody accounts.
  */
 export class DuskProtectionOrders {
-  constructor(readonly program: LeverageDelegateProgram) {}
+  /** `duskProgramId` is the Dusk deployment the orders protect positions on. */
+  constructor(readonly program: LeverageDelegateProgram, readonly duskProgramId: PublicKey = DUSK_PROGRAM_ID) {}
 
   // The same checks as the generic builders: a missing, misspelled or wrongly
   // typed field or an undeclared account throws `DuskInstructionInputError`
@@ -61,7 +65,7 @@ export class DuskProtectionOrders {
   }
 
   private async oracleAccounts(market: PublicKey, remaining: AccountMeta[]) {
-    const dusk = createDuskProgram({ connection: this.program.provider.connection });
+    const dusk = createDuskProgram({ connection: this.program.provider.connection, programId: this.duskProgramId });
     const state = assertCurrentMarketLayout(await dusk.account.market.fetch(market));
     const accounts = [...remaining];
     for (const meta of oracleReadAccounts(state.oracle.policy)) {
@@ -76,7 +80,7 @@ export class DuskProtectionOrders {
     const callerAccounts = this.checkedAccounts<CreateAccounts>("createProtectionOrder", accounts);
     const order = deriveProtectionOrderAddress(callerAccounts.owner, args.orderId.toString(), this.program.programId)[0];
     return this.program.methods.createProtectionOrder(args).accountsStrict({ ...callerAccounts, order,
-      duskProgram: DUSK_PROGRAM_ID, duskEventAuthority: deriveEventAuthorityAddress()[0],
+      duskProgram: this.duskProgramId, duskEventAuthority: deriveEventAuthorityAddress(this.duskProgramId)[0],
       token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
     }).remainingAccounts(remainingAccounts).instruction();
   }
@@ -101,6 +105,18 @@ export class DuskProtectionOrders {
       .remainingAccounts(remainingAccounts).instruction();
   }
 
+  /** Close a cancelled order and return its rent to the sponsor. The LP custody
+   * must be empty and both yield accounts harvested. Pass the order's asset
+   * custody accounts to close them too, or null; a custody account holding a
+   * balance needs the sponsor's token account for that mint, which receives it.
+   */
+  async closeInstruction(accounts: CloseAccounts, remainingAccounts: AccountMeta[] = []) {
+    const checked = this.checkedAccounts<MethodAccounts<"closeProtectionOrder">>("closeProtectionOrder",
+      { ...accounts, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID });
+    return this.program.methods.closeProtectionOrder().accountsStrict(checked)
+      .remainingAccounts(remainingAccounts).instruction();
+  }
+
   /** LP redemptions may need an address lookup table and a larger heap frame.
    * Simulate the complete transaction with the current native market state.
    * LP proceeds must cover payment, the full keeper reward, and the additional
@@ -110,10 +126,10 @@ export class DuskProtectionOrders {
     accounts: ExecuteAccounts, remainingAccounts: AccountMeta[] = []) {
     const args = this.checkedArgs<ExecuteArgs>("executeProtectionOrder", params);
     const checked = this.checkedAccounts<MethodAccounts<"executeProtectionOrder">>("executeProtectionOrder", {
-      ...accounts, duskProgram: DUSK_PROGRAM_ID, duskEventAuthority: deriveEventAuthorityAddress()[0],
+      ...accounts, duskProgram: this.duskProgramId, duskEventAuthority: deriveEventAuthorityAddress(this.duskProgramId)[0],
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
     });
-    const write = new DuskWrite(createDuskProgram({ connection: this.program.provider.connection }));
+    const write = new DuskWrite(createDuskProgram({ connection: this.program.provider.connection, programId: this.duskProgramId }));
     const order = await this.program.account.protectionOrder.fetch(checked.order);
     const prefix = order.action === PROTECTION_ACTION.borrowCollateral
       ? [] : await write.hlpRemainingAccounts(new PublicKey(checked.market));

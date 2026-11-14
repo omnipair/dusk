@@ -329,3 +329,55 @@ test("the swap and referred composites fill in the market from their options", a
   );
   assert.ok(accountKey(leverage.actionInstruction, "open_leverage", "market").equals(market));
 });
+
+test("referred open leverage puts the active-hLP prefix first, once", async () => {
+  const inactive = program.account.market.fetch;
+  const state = await inactive();
+  program.account.market.fetch = async () => ({
+    ...state,
+    baseHlpVault: { ...state.baseHlpVault, hlpSupply: new BN(100) },
+  });
+  try {
+    const params = { positionId: key(41), debtAsset: "base", marginAmount: 10n, multiplierBps: 20_000n, minCollateralOut: 1n };
+    const accounts = {
+      owner,
+      payer: owner,
+      futarchyAuthority: key(35),
+      leveragePosition: key(42),
+      debtMint: baseMint,
+      collateralMint: quoteMint,
+      debtReserveVault: key(17),
+      collateralReserveVault: key(18),
+      leverageCollateralVault: key(43),
+      ownerDebtAccount: key(44),
+    };
+    const referral = { payer: owner, referrer: key(34), market, debtMint: baseMint, accounts };
+    const prefix = await write.hlpRemainingAccounts(market);
+    assert.equal(prefix.length, 9);
+    const fixed = IDL.instructions.find((ix) => ix.name === "open_leverage").accounts.length;
+    const suffix = (build) => build.actionInstruction.keys.slice(fixed);
+
+    // The ordinary builder and the referred composite end in the same prefix.
+    const referred = await write.referredOpenLeverage(params, referral);
+    assert.deepEqual(suffix(referred), prefix);
+
+    // A caller's own accounts follow the prefix in their original order.
+    const extra = { pubkey: key(60), isSigner: false, isWritable: false };
+    const appended = await write.referredOpenLeverage(params, { ...referral, remainingAccounts: [extra] });
+    assert.deepEqual(suffix(appended), [...prefix, extra]);
+
+    // A caller who already supplied the prefix does not receive it twice.
+    const explicit = await write.referredOpenLeverage(params, { ...referral, remainingAccounts: [...prefix, extra] });
+    assert.deepEqual(suffix(explicit), [...prefix, extra]);
+
+    // Borrowing does not settle the market, so its accounts are unchanged.
+    const borrow = await write.referredBorrow(
+      { borrowAmount: 10n, minDebtAmountOut: 9n },
+      { payer: owner, referrer: key(34), market, debtMint: baseMint, accounts: borrowAccounts, remainingAccounts: [extra] }
+    );
+    const borrowFixed = IDL.instructions.find((ix) => ix.name === "borrow").accounts.length;
+    assert.deepEqual(borrow.actionInstruction.keys.slice(borrowFixed), [extra]);
+  } finally {
+    program.account.market.fetch = inactive;
+  }
+});

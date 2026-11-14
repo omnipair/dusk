@@ -255,6 +255,15 @@ denominations retain the existing permissionless archive/roll path after
 settlement. The index resets only when every public and hLP debt share on that
 asset has been extinguished; historical income claims are retained.
 
+`roll_income_epoch` archives a book only once at least half of its units are
+repaid, or once any of its counters (units, unpaid, paid per unit, or a lane's
+growth) reaches half its numeric range. Holders carry their units across
+archived epochs in bounded catch-up batches, so rolling a barely repaid book
+would let anyone fragment that catch-up into many epochs without freeing
+capacity. Rolling needs no keeper: anyone may call it, the SDK's
+`prepareDrainedIncomeBooks` rolls fully drained books as market maintenance,
+and holders run `prepareHolderIncome` before a transfer, exit or claim.
+
 ## Interest fees and cash advances
 
 Base borrower interest is split between LPs and the operator. The operator's

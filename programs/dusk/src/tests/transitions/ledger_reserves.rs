@@ -120,6 +120,54 @@ fn v1_style_reserve_for_liquidity(reserve: u128, srlp_supply: u64, srlp_amount: 
 }
 
 #[test]
+fn dust_compounded_swaps_cannot_floor_away_junior_reserve_shares() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+    let mut market = empty_market();
+    market.config.swap_fee_bps = 30;
+    market.config.amm.compounding_fee_bps = 10_000;
+    market.tranche_policy.junior_income_share_bps = 2_000;
+    market.add_liquidity(1_000_000, 2_000_000).unwrap();
+    let seed = market.tranches.junior_reserve_shares;
+    assert_eq!(seed, 1_414);
+    // Each swap compounds a fee of about one atom. Junior's share of most of
+    // them rounds to zero; flooring its share count used to strip one whole
+    // reserve share per swap and reached zero after 1,766 swaps.
+    for i in 0..2_000_u64 {
+        let asset = if i % 2 == 0 { MarketAsset::Base } else { MarketAsset::Quote };
+        let before = market.tranches.junior_reserve_shares;
+        let mut prepared = SwapRequest {
+            current_slot: 2 + i,
+            current_unix_timestamp: 0,
+            asset_in: asset,
+            reserve_credit: 400,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut market)
+        .unwrap();
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &prepared.leverage_quote(),
+            prepared.quote.fee.claimable_fee_debit,
+        )
+        .unwrap();
+        prepared
+            .apply(
+                &mut market,
+                SwapCashPolicy::Spot,
+                credit,
+                2 + i,
+                0,
+                crate::state::ProtocolAuctionSplit::default(),
+                None,
+            )
+            .unwrap();
+        market.assert_market_invariants().unwrap();
+        assert!(market.tranches.junior_reserve_shares >= before);
+    }
+    assert!(market.tranches.junior_reserve_shares >= seed);
+    assert_eq!(market.tranches.junior_receipt_supply, seed);
+}
+
+#[test]
 fn add_liquidity_mints_locked_minimum_liquidity() {
     let mut market = empty_market();
 

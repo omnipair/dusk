@@ -925,6 +925,23 @@ pub struct HlpOpened {
     pub quote_live_reserve: u128,
 }
 
+/// A complete direct burn left an hLP side with value but no receipts; anyone
+/// unwound it through `withdraw_single_sided` for the whole stored supply. The
+/// vault's debt was repaid from its srLP backing and the released target-asset
+/// value was booked as protocol revenue.
+#[event]
+pub struct OrphanedHlpClosed {
+    pub market: Pubkey,
+    pub caller: Pubkey,
+    /// `0` for base hLP and `1` for quote hLP.
+    pub asset_side: u8,
+    pub hlp_amount: u64,
+    pub srlp_amount: u64,
+    pub protocol_revenue: u64,
+    pub debt_repaid: u64,
+    pub interest_paid: u64,
+}
+
 #[event]
 pub struct HlpClosed {
     pub market: Pubkey,

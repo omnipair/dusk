@@ -1,4 +1,4 @@
-import { fetchTransferFeeNotices } from "./transfer-fees.js";
+import { fetchTransferFeeNotices, type MintTransferFeeNotice } from "./transfer-fees.js";
 import type { Program } from "@coral-xyz/anchor";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, SYSVAR_INSTRUCTIONS_PUBKEY, type AccountMeta, type TransactionInstruction } from "@solana/web3.js";
@@ -11,7 +11,7 @@ import { previewReturnDataBytes } from "./preview.js";
 import { integerBN, type IntegerLike } from "./parameters.js";
 import { tokenProgramForMint } from "./referral.js";
 import { deriveFutarchyAuthorityAddress, deriveLeverageCollateralVaultAddress, deriveReferralAccrualAddress } from "./constants.js";
-import { deriveLiquidationPaymentAddress, deriveLiquidationSessionAddress } from "./liquidation.js";
+import { deriveLiquidationPaymentAddress, deriveLiquidationSessionAddress, grossLiquidationPayment } from "./liquidation.js";
 
 export type { FlashLiquidationQuote, FlashAmmLiquidationQuote, EmergencyLiquidationQuote };
 
@@ -36,8 +36,9 @@ export interface FlashLiquidationParams extends LiquidationPositionParams {
   /** Dusk execution sells the received collateral in the paired settle and
    * nets debt principal internally. External settlement requires route payment. */
   settlement?: "external" | "duskAmm";
-  /** Override when the route changes which hLP accounts settlement requires.
-   * Supply the complete ordered remaining-account list for the final state. */
+  /** Defaults to the canonical hLP prefix for either venue, empty while no
+   * hLP is active. Override when the route changes which hLP accounts
+   * settlement requires; supply the complete ordered list for the final state. */
   settleRemainingAccounts?: readonly AccountMeta[];
   /** Builds the collateral sale, inventory payment, or mixed route. The
    * resulting instructions run after begin and before the exact paired settle.
@@ -54,8 +55,19 @@ export interface FlashLiquidationRouteContext {
   debtMint: PublicKey;
   debtTokenProgram: PublicKey;
   collateralTokenProgram: PublicKey;
-  /** Route must deliver at least this net spendable amount into repaymentVault. */
+  /** Route must deliver at least this net spendable amount into repaymentVault.
+   * Settlement measures the vault's balance increase, so a fee-bearing debt
+   * mint's inbound transfer fee comes out of whatever the route sends. */
   requiredPaymentCredit: bigint;
+  /** The transfer into repaymentVault that credits `requiredPaymentCredit`
+   * under the debt mint's transfer fee at `paymentTransferFee.epoch`. Equal to
+   * `requiredPaymentCredit` for a mint without a fee and for `duskAmm`
+   * settlement. It does not cover a fee that activates later: rebuild the plan
+   * if the epoch changes before execution. */
+  requiredPaymentGross: bigint;
+  /** The debt mint's fee schedule `requiredPaymentGross` was computed from;
+   * null for a legacy SPL mint and for `duskAmm` settlement. */
+  paymentTransferFee: MintTransferFeeNotice | null;
   quote: FlashLiquidationQuote;
 }
 
@@ -257,10 +269,19 @@ export class DuskLiquidations {
       if (!seen.has(account.toBase58())) prefix.push(createAssociatedTokenAccountIdempotentInstruction(buyer, account, owner, mint, token));
       seen.add(account.toBase58());
     }
+    const requiredPaymentCredit = internal ? 0n : BigInt(quote.payment.toString());
+    // Only a Token-2022 debt mint can charge the route's inbound transfer.
+    const paymentTransferFee = internal || debtTokenProgram.equals(TOKEN_PROGRAM_ID) ? null
+      : (await fetchTransferFeeNotices(this.program.provider.connection, [r.debtSide.assetMint])).mints[0];
+    const fee = paymentTransferFee?.effective;
     const context: FlashLiquidationRouteContext = {
       session, repaymentVault, buyerCollateralAccount, buyerDebtAccount, debtTokenProgram, collateralTokenProgram,
       collateralMint: r.collateralSide.assetMint, debtMint: r.debtSide.assetMint,
-      requiredPaymentCredit: internal ? 0n : BigInt(quote.payment.toString()), quote,
+      requiredPaymentCredit,
+      requiredPaymentGross: fee
+        ? grossLiquidationPayment(requiredPaymentCredit, { basisPoints: fee.transferFeeBasisPoints, maximumFee: fee.maximumFee })
+        : requiredPaymentCredit,
+      paymentTransferFee, quote,
     };
     const route = params.route ? [...await params.route(context)] : [];
     const beginIndex = prefix.length;
@@ -285,10 +306,12 @@ export class DuskLiquidations {
       minBuyerCredit: integerBN(internal ? params.minBuyerCredit ?? BigInt(ammQuote!.buyerCredit.toString()) : 0n, "minBuyerCredit"),
       full: params.full ?? false, settleIndex,
     }, { accounts: { ...common, systemProgram: SystemProgram.programId } });
+    // Both venues can settle fresh public interest into an active hLP, which
+    // reads the canonical prefix. It is empty while no hLP is active.
     const settle = await this.write.instruction("settleFlashLiquidation", [], {
       accounts: { ...common, collateralReserveVault: internal ? r.collateralSide.reserveVault : null },
       remainingAccounts: params.settleRemainingAccounts ? [...params.settleRemainingAccounts]
-        : internal ? await this.write.hlpRemainingAccounts(r.market, r.state) : [],
+        : await this.write.hlpRemainingAccounts(r.market, r.state),
     });
     return { ...context, ammQuote, beginIndex, settleIndex, instructions: [...prefix, begin, ...route, settle], beginInstruction: begin, settleInstruction: settle };
   }

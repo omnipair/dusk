@@ -258,6 +258,23 @@ impl Market {
             base_reserve_credit > 0 && quote_reserve_credit > 0,
             ErrorCode::AmountZero
         );
+        // Retained surcharge awaiting a recenter belongs to the holders of
+        // record, and exits exclude it until a recenter deploys it into the
+        // curve reserves. The credits above buy curve reserves only, so the
+        // new shares are valued including the bucket: an entrant pays for
+        // its slice on entry and recovers it when the bucket is deployed.
+        let srlp_amount = match self.protected_recenter_value(MarketAsset::Quote, true)? {
+            Some((reserve_value, bucket_value)) if self.base_side.shares.srlp_supply > 0 => {
+                let total_value = reserve_value
+                    .checked_add(bucket_value)
+                    .ok_or(ErrorCode::MarketMathOverflow)?;
+                let shares = u64::try_from(mul_div_u128(u128::from(srlp_amount), reserve_value, total_value)?)
+                    .map_err(|_| ErrorCode::MarketMathOverflow)?;
+                require!(shares > 0, ErrorCode::SlippageExceeded);
+                shares
+            }
+            _ => srlp_amount,
+        };
 
         let internal_mint_amount = if self.base_side.shares.srlp_supply == 0 {
             srlp_amount
@@ -349,6 +366,66 @@ impl Market {
             quote_amount_out,
             srlp_supply: self.base_side.shares.srlp_supply,
         })
+    }
+
+    /// Retained recenter surcharge and the curve reserve value that new LP
+    /// ownership is priced against, both in `numeraire` units at the
+    /// executable price. An srLP entry buys both reserve sides; an hLP entry
+    /// buys srLP with target-side backing alone and borrows the other side.
+    /// Reserve value rounds down and bucket value up, so callers price new
+    /// ownership in the pool's favour. `None` while nothing is retained.
+    pub(crate) fn protected_recenter_value(
+        &self,
+        numeraire: MarketAsset,
+        both_sides: bool,
+    ) -> Result<Option<(u128, u128)>> {
+        let base_bucket = self.base_side.reserves.protected_recenter_reserve;
+        let quote_bucket = self.quote_side.reserves.protected_recenter_reserve;
+        if base_bucket == 0 && quote_bucket == 0 {
+            return Ok(None);
+        }
+        let reserves = self.curve_reserves_nad()?;
+        require!(
+            reserves.base > 0 && reserves.quote > 0,
+            ErrorCode::InsufficientLiquidity
+        );
+        let price = match self.current_concentrated_spot_price_nad()? {
+            Some(price) => u128::from(price),
+            None => mul_div_u128(reserves.quote, u128::from(NAD), reserves.base)?,
+        };
+        require!(price > 0, ErrorCode::InvalidSettlementPrice);
+        let base_bucket = self.normalize_amount(u128::from(base_bucket), self.base_side.asset_decimals)?;
+        let quote_bucket = self.normalize_amount(u128::from(quote_bucket), self.quote_side.asset_decimals)?;
+        // Converts the other asset into numeraire units.
+        let (own_reserve, other_reserve, own_bucket, other_bucket, numerator, denominator) = match numeraire {
+            MarketAsset::Base => (
+                reserves.base,
+                reserves.quote,
+                base_bucket,
+                quote_bucket,
+                u128::from(NAD),
+                price,
+            ),
+            MarketAsset::Quote => (
+                reserves.quote,
+                reserves.base,
+                quote_bucket,
+                base_bucket,
+                price,
+                u128::from(NAD),
+            ),
+        };
+        let reserve_value = if both_sides {
+            own_reserve
+                .checked_add(mul_div_u128(other_reserve, numerator, denominator)?)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        } else {
+            own_reserve
+        };
+        let bucket_value = own_bucket
+            .checked_add(mul_div_ceil_u128(other_bucket, numerator, denominator)?)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(Some((reserve_value, bucket_value)))
     }
 
     pub(crate) fn srlp_for_deposit(

@@ -342,7 +342,7 @@ fn canonical_extra_meta_schema_contains_both_asset_streams() {
         }),
         ..Market::current_layout()
     };
-    let metas = canonical_lp_transfer_hook_metas(market, &state, lp_mint).unwrap();
+    let metas = canonical_lp_transfer_hook_metas(market, &state, crate::state::YieldTokenKind::Srlp).unwrap();
     assert_eq!(metas.len(), 10);
     assert_eq!(metas[0].address_config, market.to_bytes());
     assert!(bool::from(metas[0].is_writable));
@@ -383,7 +383,7 @@ fn hlp_hook_always_resolves_its_mint_specific_cohort() {
         }),
         ..Market::current_layout()
     };
-    let metas = canonical_lp_transfer_hook_metas(market, &state, hlp_mint).unwrap();
+    let metas = canonical_lp_transfer_hook_metas(market, &state, crate::state::YieldTokenKind::Hlp).unwrap();
     assert_eq!(metas.len(), 11);
     assert_eq!(metas[10].discriminator, 1);
     assert!(!bool::from(metas[10].is_writable));
@@ -442,4 +442,62 @@ fn transfer_checkpoint_rejects_readonly_yield_accounts_before_deserializing() {
         .unwrap_err(),
         error!(ErrorCode::InvalidYieldAccount)
     );
+}
+
+#[test]
+fn retired_junior_mint_resolves_through_its_retired_cohort() {
+    use crate::instructions::liquidity::lp_hook_token_kind;
+    use crate::state::JuniorCohort;
+    let market_key = Pubkey::new_unique();
+    let retired_mint = Pubkey::new_unique();
+    let state = Market {
+        oracle: Default::default(),
+        srlp_mint: Pubkey::new_unique(),
+        junior_mint: Pubkey::new_unique(),
+        base_side: Box::new(crate::state::MarketSide {
+            asset_mint: Pubkey::new_unique(),
+            hlp_mint: Pubkey::new_unique(),
+            ..Default::default()
+        }),
+        quote_side: Box::new(crate::state::MarketSide {
+            asset_mint: Pubkey::new_unique(),
+            hlp_mint: Pubkey::new_unique(),
+            ..Default::default()
+        }),
+        ..Market::current_layout()
+    };
+    let cohort_account = |retired: bool, mint: Pubkey| -> (Pubkey, Vec<u8>) {
+        let (key, bump) =
+            Pubkey::find_program_address(&[b"junior_cohort", market_key.as_ref(), mint.as_ref()], &crate::ID);
+        let cohort = JuniorCohort {
+            market: market_key,
+            mint,
+            generation: 0,
+            retired,
+            bump,
+            ..JuniorCohort::default()
+        };
+        let mut data = Vec::new();
+        cohort.try_serialize(&mut data).unwrap();
+        (key, data)
+    };
+    let resolve = |key: Pubkey, mut data: Vec<u8>, owner: Pubkey| {
+        let mut lamports = 1;
+        let info = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false, 0);
+        lp_hook_token_kind(market_key, &state, retired_mint, &[info])
+    };
+
+    let (key, data) = cohort_account(true, retired_mint);
+    assert!(resolve(key, data.clone(), crate::ID).unwrap() == YieldTokenKind::Junior);
+    // No cohort, a live cohort, another mint's cohort or a foreign owner: rejected.
+    assert!(lp_hook_token_kind(market_key, &state, retired_mint, &[]).is_err());
+    let (live_key, live_data) = cohort_account(false, retired_mint);
+    assert!(resolve(live_key, live_data, crate::ID).is_err());
+    let (other_key, other_data) = cohort_account(true, Pubkey::new_unique());
+    assert!(resolve(other_key, other_data, crate::ID).is_err());
+    assert!(resolve(key, data, Pubkey::new_unique()).is_err());
+    // Current mints keep their kinds without a cohort.
+    assert!(lp_hook_token_kind(market_key, &state, state.srlp_mint, &[]).unwrap() == YieldTokenKind::Srlp);
+    assert!(lp_hook_token_kind(market_key, &state, state.junior_mint, &[]).unwrap() == YieldTokenKind::Junior);
+    assert!(lp_hook_token_kind(market_key, &state, state.base_side.hlp_mint, &[]).unwrap() == YieldTokenKind::Hlp);
 }

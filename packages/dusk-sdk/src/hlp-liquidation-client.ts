@@ -27,14 +27,13 @@ export interface HlpFlashRouteContext {
    * its incoming transfer; this already includes the vault-to-reserve fee. */
   requiredPaymentCredit: bigint;
 }
-export interface HlpFlashParams extends HlpRecoveryParams {
+interface HlpFlashBaseParams extends HlpRecoveryParams {
   buyer: AddressLike;
   /** Explicit opt-in to closing an insolvent vault's entire backing. */
   allowFull?: boolean;
   maxPayment?: IntegerLike;
   maxCollateralDebit?: IntegerLike;
   minCollateralCredit?: IntegerLike;
-  maxSocializedLoss?: IntegerLike;
   prefixInstructions?: readonly TransactionInstruction[];
   settleRemainingAccounts?: readonly AccountMeta[];
   route: (context: HlpFlashRouteContext) => Promise<readonly TransactionInstruction[]> | readonly TransactionInstruction[];
@@ -43,15 +42,35 @@ export interface HlpFlashParams extends HlpRecoveryParams {
   exit?: HlpRecoveryExit;
 }
 
+/**
+ * Bounds the principal a full (terminal) settlement writes off; a partial
+ * rescue writes off none. There is no default. Pass `maxSocializedLoss`, or
+ * pass the reviewed `quote` from `preview` to cap the loss at that quote's
+ * write-off: zero for a partial quote, otherwise the vault's debt principal
+ * (read when the plan is built) less the quote's recovery,
+ * `borrowedClaim + reserveCredit`. A passed `quote` also replaces the
+ * builder's own preview, so the payment and collateral bounds and the route
+ * context come from it.
+ */
+export type HlpFlashLossBound =
+  | { maxSocializedLoss: IntegerLike; quote?: HlpFlashQuote }
+  | { maxSocializedLoss?: undefined; quote: HlpFlashQuote };
+
+export type HlpFlashParams = HlpFlashBaseParams & HlpFlashLossBound;
+
 export interface HlpRecoveryExit {
   hlpAmount: IntegerLike;
-  minTargetAmountOut?: IntegerLike;
+  /** Floor on the target asset the holder receives. Required: positive after a
+   * solvent (partial) rescue; zero only after a full flash or native terminal
+   * close, whose receipt burn pays no principal. */
+  minTargetAmountOut: IntegerLike;
   options: HlpLiquidityBuildOptions<"withdrawSingleSided">;
 }
 
 export interface HlpNativeCloseAndExitParams extends HlpRecoveryParams {
   exit: HlpRecoveryExit;
-  maxSocializedLoss?: IntegerLike;
+  /** Required cap on the principal the native close writes off. */
+  maxSocializedLoss: IntegerLike;
   minCallerBountyOut?: IntegerLike;
   closeRemainingAccounts?: readonly AccountMeta[];
 }
@@ -98,14 +117,21 @@ export class DuskHlpLiquidations {
     return (r.state.amm.frozenHlpMask & (r.target === 0 ? 1 : 2)) !== 0;
   }
 
-  private async exitInstruction(r: Awaited<ReturnType<DuskHlpLiquidations["resolve"]>>, exit: HlpRecoveryExit) {
+  /** `terminal` exits follow a close that pays no principal; any other exit
+   * needs a positive payout floor. */
+  private async exitInstruction(r: Awaited<ReturnType<DuskHlpLiquidations["resolve"]>>, exit: HlpRecoveryExit, terminal: boolean) {
     if (!address(exit.options.market).equals(r.market)) throw new Error("Exit market differs from liquidation market");
     if (!address(exit.options.targetHlpMint).equals(r.collateral.hlpMint)) throw new Error("Exit hLP mint differs from liquidation target");
     if (!address(exit.options.baseMint).equals(r.state.baseSide.assetMint) ||
         !address(exit.options.quoteMint).equals(r.state.quoteSide.assetMint)) throw new Error("Exit asset mints differ from market");
+    if (exit.minTargetAmountOut === undefined) throw new Error("exit.minTargetAmountOut is required");
+    const minTargetAmountOut = integerBN(exit.minTargetAmountOut, "minTargetAmountOut");
+    if (!terminal && minTargetAmountOut.isZero()) {
+      throw new Error("A solvent rescue's exit pays the holder; set a positive exit.minTargetAmountOut");
+    }
     const built = await this.write.withdrawSingleSided({
       hlpAmount: integerBN(exit.hlpAmount, "hlpAmount").toString(),
-      minTargetAmountOut: integerBN(exit.minTargetAmountOut ?? 0, "minTargetAmountOut").toString(),
+      minTargetAmountOut: minTargetAmountOut.toString(),
     }, exit.options);
     return built;
   }
@@ -113,17 +139,20 @@ export class DuskHlpLiquidations {
   /** One signed transaction: permissionless native junior/senior loss close,
    * then the holder burns receipts. Eligibility uses current-slot symmetric
    * EMA health; native recovery uses EMA price, smoothed depth, concentration,
-   * and the configured fee schedule. The receipt burn pays zero principal. */
+   * and the configured fee schedule. The receipt burn pays zero principal.
+   * `maxSocializedLoss` is required. */
   async buildNativeCloseAndExit(params: HlpNativeCloseAndExitParams) {
+    if (params.maxSocializedLoss === undefined) throw new Error("maxSocializedLoss is required");
+    const maxSocializedLoss = integerBN(params.maxSocializedLoss, "maxSocializedLoss");
     const r = await this.resolve(params);
-    const exit = await this.exitInstruction(r, params.exit);
+    const exit = await this.exitInstruction(r, params.exit, true);
     const caller = address(params.exit.options.owner);
     const debtTokenProgram = await tokenProgramForMint(this.program.provider.connection, r.debt.assetMint);
     const callerBountyAccount = getAssociatedTokenAddressSync(r.debt.assetMint, caller, true, debtTokenProgram);
     const targetVault = r.target === 0 ? r.state.baseHlpVault : r.state.quoteHlpVault;
     const close = await this.write.instruction("closeInsolventHlp", {
       targetAsset: r.target,
-      maxSocializedLoss: integerBN(params.maxSocializedLoss ?? 0xffffffffffffffffn, "maxSocializedLoss"),
+      maxSocializedLoss,
       minCallerBountyOut: integerBN(params.minCallerBountyOut ?? 0, "minCallerBountyOut"),
     }, { accounts: {
       market: r.market, futarchyAuthority: r.futarchyAuthority, caller,
@@ -139,15 +168,23 @@ export class DuskHlpLiquidations {
     return { closeInstruction: close, exitInstruction: exit.actionInstruction, instructions };
   }
 
+  /** `maxSocializedLoss` or a reviewed `quote` is required; see `HlpFlashLossBound`. */
   async buildFlash(params: HlpFlashParams) {
     if (typeof params.route !== "function") throw new Error("An explicit payment route is required");
+    if (params.maxSocializedLoss === undefined && !params.quote) {
+      throw new Error("maxSocializedLoss is required; pass it or the reviewed preview quote");
+    }
     const r = await this.resolve(params), buyer = address(params.buyer);
     const [quote, collateralTokenProgram, debtTokenProgram] = await Promise.all([
-      this.preview(params), tokenProgramForMint(this.program.provider.connection, r.collateral.assetMint),
+      params.quote ?? this.preview(params), tokenProgramForMint(this.program.provider.connection, r.collateral.assetMint),
       tokenProgramForMint(this.program.provider.connection, r.debt.assetMint),
     ]);
+    if (params.quote && params.quote.targetAsset !== r.target) throw new Error("Quote is for the other hLP vault");
     if (quote.full && !params.allowFull) throw new Error("This vault needs full recovery; set allowFull explicitly");
-    const exit = params.exit ? await this.exitInstruction(r, params.exit) : undefined;
+    const maxSocializedLoss = params.maxSocializedLoss !== undefined
+      ? integerBN(params.maxSocializedLoss, "maxSocializedLoss")
+      : integerBN(quotedPrincipalLoss(quote, r.target === 0 ? r.state.baseHlpVault : r.state.quoteHlpVault), "maxSocializedLoss");
+    const exit = params.exit ? await this.exitInstruction(r, params.exit, quote.full) : undefined;
     const [session] = PublicKey.findProgramAddressSync([Buffer.from("hlp-flash-session"), r.market.toBuffer(), Buffer.from([r.target])], this.program.programId);
     const [repaymentVault] = PublicKey.findProgramAddressSync([Buffer.from("hlp-flash-payment"), session.toBuffer()], this.program.programId);
     const buyerCollateralAccount = getAssociatedTokenAddressSync(r.collateral.assetMint, buyer, true, collateralTokenProgram);
@@ -178,7 +215,7 @@ export class DuskHlpLiquidations {
       maxPayment: integerBN(params.maxPayment ?? BigInt(quote.payment.toString()), "maxPayment"),
       maxCollateralDebit: integerBN(params.maxCollateralDebit ?? BigInt(quote.collateralDebit.toString()), "maxCollateralDebit"),
       minCollateralCredit: integerBN(params.minCollateralCredit ?? BigInt(quote.collateralCredit.toString()), "minCollateralCredit"),
-      maxSocializedLoss: integerBN(params.maxSocializedLoss ?? 0xffffffffffffffffn, "maxSocializedLoss"), settleIndex,
+      maxSocializedLoss, settleIndex,
     }, { accounts: { ...common, systemProgram: SystemProgram.programId } });
     const settle = await this.write.instruction("settleHlpFlash", [], { accounts: common,
       remainingAccounts: params.settleRemainingAccounts ? [...params.settleRemainingAccounts] : await this.write.hlpRemainingAccounts(r.market, r.state) });
@@ -186,4 +223,14 @@ export class DuskHlpLiquidations {
       exitInstruction: exit?.actionInstruction,
       instructions: [...prefix, begin, ...route, settle, ...(exit ? [exit.actionInstruction] : [])] };
   }
+}
+
+/** Principal a full settlement of `quote` writes off. The program measures the
+ * recovery against min(debt principal, debt), so the debt principal alone is
+ * the larger bound. A partial rescue writes off none. */
+function quotedPrincipalLoss(quote: HlpFlashQuote, vault: { debtPrincipal: { toString(): string } }): bigint {
+  if (!quote.full) return 0n;
+  const recovery = BigInt(quote.borrowedClaim.toString()) + BigInt(quote.reserveCredit.toString());
+  const principal = BigInt(vault.debtPrincipal.toString());
+  return principal > recovery ? principal - recovery : 0n;
 }

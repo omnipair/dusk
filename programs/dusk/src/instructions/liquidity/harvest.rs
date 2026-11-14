@@ -153,7 +153,7 @@ impl<'info> Harvest<'info> {
         )
     }
 
-    crate::instructions::accounts::market_update_and_validate!(HarvestArgs);
+    crate::instructions::accounts::market_update_and_validate!(HarvestArgs, price_free);
 
     pub fn handle_harvest(ctx: Context<'_, '_, '_, 'info, Self>, args: HarvestArgs) -> Result<()> {
         let market_key = ctx.accounts.market.key();

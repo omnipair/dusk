@@ -121,6 +121,7 @@ type DuskEventTypes = [
   TypeNamed<"hlpRebalanced">,
   TypeNamed<"hlpRetiredReceiptBurned">,
   TypeNamed<"hlpTerminalLiquidated">,
+  TypeNamed<"orphanedHlpClosed">,
   TypeNamed<"riskRateConfig">,
   TypeNamed<"riskRateUpdate">,
   TypeNamed<"leverageDelegationUpdated">,
@@ -218,6 +219,7 @@ export type HlpCohortRotated = IdlTypes<DuskEventIdl>["hlpCohortRotated"];
 export type HlpOpened = IdlTypes<DuskEventIdl>["hlpOpened"];
 export type HlpRebalanced = IdlTypes<DuskEventIdl>["hlpRebalanced"];
 export type HlpRetiredReceiptBurned = IdlTypes<DuskEventIdl>["hlpRetiredReceiptBurned"];
+export type OrphanedHlpClosed = IdlTypes<DuskEventIdl>["orphanedHlpClosed"];
 export type LiquidationAuctionCancelled = IdlTypes<DuskEventIdl>["liquidationAuctionCancelled"];
 export type LiquidationAuctionStarted = IdlTypes<DuskEventIdl>["liquidationAuctionStarted"];
 export type LiquidityAdded = IdlTypes<DuskEventIdl>["liquidityAdded"];

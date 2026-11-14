@@ -271,7 +271,12 @@ pub mod dusk {
     }
 
     pub fn harvest<'info>(ctx: Context<'_, '_, '_, 'info, Harvest<'info>>, args: HarvestArgs) -> Result<()> {
-        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        // Harvest pays income that has already accrued and prices nothing,
+        // so an oracle outage must not hold it. A supplied feed still refreshes
+        // the market as before.
+        ctx.accounts
+            .market
+            .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
         ctx.accounts.update_and_validate(&args)?;
         Harvest::handle_harvest(ctx, args)
     }
@@ -284,7 +289,7 @@ pub mod dusk {
         InitializeYieldAccounts::handle_initialize(ctx, args)
     }
 
-    #[access_control(ctx.accounts.validate())]
+    #[access_control(ctx.accounts.validate(ctx.remaining_accounts))]
     pub fn initialize_lp_transfer_hook<'info>(
         ctx: Context<'_, '_, '_, 'info, InitializeLpTransferHook<'info>>,
     ) -> Result<()> {
@@ -657,7 +662,20 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, WithdrawSingleSided<'info>>,
         args: WithdrawSingleSidedArgs,
     ) -> Result<()> {
-        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        // Burning receipts of a terminally closed vault moves no reserves and
+        // prices nothing, so it reads the oracle only when one is supplied.
+        let terminal = ctx
+            .accounts
+            .market
+            .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())
+            .is_ok_and(|asset| ctx.accounts.market.hlp_terminally_closed(asset));
+        if terminal {
+            ctx.accounts
+                .market
+                .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
+        } else {
+            ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
+        }
         ctx.accounts.update_and_validate(&args)?;
         WithdrawSingleSided::handle_withdraw(ctx, args)
     }

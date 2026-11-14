@@ -8,7 +8,7 @@ import {
 } from "@solana/web3.js";
 
 import { address, type AddressLike } from "./address.js";
-import { deriveLeveragePositionAddress } from "./constants.js";
+import { deriveLeveragePositionAddress, DUSK_PROGRAM_ID } from "./constants.js";
 import DELEGATE_IDL from "./idl_delegate.js";
 import {
   DuskInstructionInputError,
@@ -240,7 +240,8 @@ export interface CancelLeverageOrderParams {
  * instead of reaching the program as zero.
  */
 export class DuskLeverageOrders {
-  constructor(readonly program: LeverageDelegateProgram) {}
+  /** `duskProgramId` is the Dusk deployment whose leverage positions the orders act on. */
+  constructor(readonly program: LeverageDelegateProgram, readonly duskProgramId: PublicKey = DUSK_PROGRAM_ID) {}
 
   /**
    * Anchor's method builder for one delegate instruction, with `args` checked
@@ -332,7 +333,7 @@ export class DuskLeverageOrders {
 
     const leveragePosition = address(
       params.leveragePosition ??
-        deriveLeveragePositionAddress(market, owner, address(params.positionId), address(params.namespaceAuthority ?? params.owner))[0]
+        deriveLeveragePositionAddress(market, owner, address(params.positionId), address(params.namespaceAuthority ?? params.owner), this.duskProgramId)[0]
     );
     const order = address(
       params.order ??
@@ -402,7 +403,8 @@ export class DuskLeverageOrders {
             address(params.market),
             address(params.owner),
             address(params.positionId),
-            address(params.namespaceAuthority ?? params.owner)
+            address(params.namespaceAuthority ?? params.owner),
+            this.duskProgramId
           )[0];
         })();
     return deriveLeverageOrderAddress(

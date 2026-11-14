@@ -136,8 +136,12 @@ impl Market {
             collateral_debit > 0 && collateral_debit <= available,
             ErrorCode::InsufficientAmount
         );
+        // A full sale clears the live collateral. The argument is the amount
+        // the caller priced and only a floor, so collateral credited to the
+        // position first cannot make the fallback revert; min_swap_output and
+        // min_reward_credit bound the outcome.
+        let collateral_debit = if full { available } else { collateral_debit };
         if full {
-            require_eq!(collateral_debit, available, ErrorCode::LiquidationRepayTooLarge);
             require!(
                 health_before.debt >= health_before.collateral_value
                     // Full AMM fallback depends on whether a smaller AMM sale

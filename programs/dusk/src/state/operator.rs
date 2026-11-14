@@ -12,8 +12,10 @@ pub const OPERATOR_POLICY_VERSION: u64 = 2;
 pub const OPERATOR_NOTICE_SLOTS: u64 = JUNIOR_MAX_NOTICE_SLOTS + MS_PER_DAY / TARGET_MS_PER_SLOT;
 #[constant]
 pub const OPERATOR_EXECUTION_WINDOW_SLOTS: u64 = 7 * MS_PER_DAY / TARGET_MS_PER_SLOT;
+/// The operator may retain up to all interest left after the protocol markup;
+/// LPs keep swap fees. An increase waits the full operator notice.
 #[constant]
-pub const MAX_OPERATOR_INTEREST_SHARE_BPS: u16 = 5_000;
+pub const MAX_OPERATOR_INTEREST_SHARE_BPS: u16 = BPS_DENOMINATOR;
 
 /// Number of configurable parameter families, and of `Market::parameter_revisions`.
 pub const PARAMETER_FAMILY_COUNT: usize = 7;

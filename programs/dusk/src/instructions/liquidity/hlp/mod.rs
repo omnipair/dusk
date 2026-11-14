@@ -81,21 +81,32 @@ pub(crate) fn validate_hlp_yield_account_pda(
 /// Reconcile a partial direct Token-2022 hLP burn before the next hLP entry or
 /// exit. Historical nested srLP growth is published against the old stored
 /// denominator first; only future growth and principal pricing use the smaller
-/// live supply. A complete direct burn is intentionally fail-closed because no
-/// holder remains who can authorize the vault's normal final exit.
+/// live supply.
+///
+/// After a complete direct burn no receipt remains to authorize the vault's
+/// final exit. A terminally closed vault holds no value, so its stored supply
+/// simply follows the mint to zero. A live vault is unwound only by the
+/// orphan close (`withdraw_single_sided` for the whole stored supply, signed
+/// by anyone), which keeps the stored supply for that exit; every other entry
+/// and exit rejects until then.
 pub(crate) fn reconcile_live_hlp_supply(
     market: &mut Market,
     target_asset: MarketAsset,
     live_mint_supply: u64,
+    orphan_close: bool,
 ) -> Result<()> {
     market.checkpoint_hlp_yield_from_srlp(target_asset)?;
+    let terminal = market.hlp_terminally_closed(target_asset);
     let stored_supply = match target_asset {
         MarketAsset::Base => &mut market.base_hlp_vault.hlp_supply,
         MarketAsset::Quote => &mut market.quote_hlp_vault.hlp_supply,
     };
     require_gte!(*stored_supply, live_mint_supply, ErrorCode::InvalidHlpMintSupply);
-    if *stored_supply > 0 {
-        require!(live_mint_supply > 0, ErrorCode::InvalidHlpMintSupply);
+    if *stored_supply > 0 && live_mint_supply == 0 {
+        require!(terminal || orphan_close, ErrorCode::InvalidHlpMintSupply);
+        if orphan_close {
+            return Ok(());
+        }
     }
     if live_mint_supply < *stored_supply {
         *stored_supply = live_mint_supply;

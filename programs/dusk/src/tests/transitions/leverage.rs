@@ -1329,9 +1329,119 @@ fn partial_close_leverage_pays_equity_and_keeps_the_remainder_open() {
     );
     assert!(receipt.remaining_debt_amount > 0);
     assert!(receipt.remaining_closeout_value > receipt.remaining_debt_amount);
+    // The sold half's opening metadata is released with its collateral.
+    let held = |opening: u64| {
+        u64::try_from(
+            u128::from(opening) * u128::from(position.collateral_amount)
+                / u128::from(position_before.collateral_amount),
+        )
+        .unwrap()
+    };
+    assert_eq!(position.margin_amount, held(position_before.margin_amount));
+    assert_eq!(position.open_notional, held(position_before.open_notional));
+    assert!(position.margin_amount < position_before.margin_amount);
     position.require_open().unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     market.assert_virtual_reserve_invariant(MarketAsset::Quote).unwrap();
+}
+
+/// A delegated full close pays its executor 5% of `margin_amount`, capped by
+/// the residual. After a 95% partial close that basis must be the margin of
+/// the 5% still held, not the whole opening margin.
+#[test]
+fn full_close_executor_incentive_uses_margin_still_held_after_partial_close() {
+    let mut market = test_market(1_000_000, 1_000_000);
+    let mut position = empty_position();
+    let open_quote = market.quote_leverage_swap(MarketAsset::Base, 2_000, 1).unwrap();
+    market
+        .open_leverage(
+            &mut position,
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::default(),
+            0,
+            MarketAsset::Base,
+            1_000,
+            20_000,
+            open_quote.amount_out,
+            prepared_leverage_swap(
+                &market,
+                open_quote,
+                SwapCashPolicy::Borrow {
+                    asset: MarketAsset::Base,
+                    amount: 1_000,
+                },
+            ),
+            full_fee_credit(&open_quote),
+            0,
+            1,
+            255,
+            0,
+            ProtocolAuctionSplit::default(),
+            LeverageCollateralFee::default(),
+        )
+        .unwrap();
+    let opening_margin = position.margin_amount;
+    let slice = market.leverage_close_slice(&position, 9_500).unwrap();
+    let close_quote = market
+        .quote_leverage_swap(MarketAsset::Quote, slice.collateral_amount, 2)
+        .unwrap();
+    let prepared_close = prepared_leverage_swap(
+        &market,
+        close_quote,
+        SwapCashPolicy::Close {
+            debt_asset: MarketAsset::Base,
+            debt_shares: position.debt_shares,
+            debt_principal: position.debt_principal,
+            shares_to_burn: slice.debt_shares,
+        },
+    );
+    let receipt = market
+        .partial_close_leverage(
+            &mut position,
+            9_500,
+            0,
+            prepared_close,
+            full_fee_credit(&close_quote),
+            0,
+            ProtocolAuctionSplit::default(),
+            2,
+            0,
+            LeverageCollateralFee::default(),
+        )
+        .unwrap();
+    assert!(
+        position.margin_amount <= opening_margin / 20 + 1,
+        "opening {opening_margin}, held {}",
+        position.margin_amount
+    );
+
+    let mint_key = Pubkey::new_unique();
+    let token_program = anchor_spl::token::Token::id();
+    let mut lamports = 0;
+    let mut data = [];
+    let mint = AccountInfo::new(&mint_key, false, false, &mut lamports, &mut data, &token_program, false, 0);
+    let residual = receipt.remaining_closeout_value - receipt.remaining_debt_amount;
+    let held = crate::instructions::quote_delegated_close_payout(
+        &mint,
+        residual,
+        receipt.remaining_closeout_value,
+        position.margin_amount,
+        0,
+    )
+    .unwrap();
+    let stale = crate::instructions::quote_delegated_close_payout(
+        &mint,
+        residual,
+        receipt.remaining_closeout_value,
+        opening_margin,
+        0,
+    )
+    .unwrap();
+    assert!(held.executor_debit <= (position.margin_amount * 5).div_ceil(100));
+    assert!(held.owner_credit > stale.owner_credit, "held={held:?} stale={stale:?}");
 }
 
 #[test]

@@ -335,14 +335,11 @@ pub(crate) fn apply_concentrated_hlp_recovery(
     require_eq!(supply, market.quote_side.shares.srlp_supply, ErrorCode::BrokenInvariant);
     require!(supply > 0, ErrorCode::SupplyUnderflow);
 
-    let opposite_reserve = market.side(asset_in).reserves.live_reserve;
-    let canonical_opposite_claim = u64::try_from(
-        opposite_reserve
-            .checked_mul(vault.srlp_shares as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?
-            / supply as u128,
-    )
-    .map_err(|_| ErrorCode::MarketMathOverflow)?;
+    // The same claim definition as the vault's debt endpoint: its funded srLP
+    // share of the curve reserve plus its own unpaid receivable. A live/supply
+    // share counts unrealized interest owned by others and dilutes with
+    // unrelated liquidity changes, which showed a false funding gap.
+    let canonical_opposite_claim = hlp_full_underlying_amount(market, target_asset, asset_in)?;
     let actual_debt = u64::try_from(Debt::shares_to_debt(
         vault.debt_shares,
         match target_asset {
@@ -364,14 +361,29 @@ pub(crate) fn apply_concentrated_hlp_recovery(
     // Gross hLP yield is already a holder liability in the current ledger.
     // Until the net-yield checkpoint is introduced, none of it may be spent
     // here; the recovery bonus is therefore funded solely by hLP equity.
+    // Convert the matched input at the executable marginal price at the start
+    // of the swap. On a concentrated curve the reserve ratio is not the price;
+    // off centre it overstated the target paid per unit of input. The
+    // opposite-side equivalent rounds up, so the bonus never rounds up.
+    let (target_per_opposite_num, target_per_opposite_den) = match market.current_concentrated_spot_price_nad()? {
+        Some(price) if price > 0 && target_reserve > 0 => {
+            let opposite_nad = match target_asset {
+                MarketAsset::Base => mul_div_ceil_u128(target_reserve_nad, price as u128, NAD as u128)?,
+                MarketAsset::Quote => mul_div_ceil_u128(target_reserve_nad, NAD as u128, price as u128)?,
+            };
+            let opposite = market.denormalize_amount_ceil(opposite_nad, market.side(asset_in).asset_decimals)?;
+            (target_reserve, opposite)
+        }
+        _ => (target_reserve, ordinary_opposite_reserve),
+    };
     let recovery = quote_hlp_recovery(
         actual_debt,
         canonical_opposite_claim,
         0,
         quote.fee.amount_in_for_quote,
         target_equity,
-        target_reserve,
-        ordinary_opposite_reserve,
+        target_per_opposite_num,
+        target_per_opposite_den,
     )?;
     let bonus_output = recovery.bonus_output;
     quote.recovery = HlpRecoveryBreakdown {
@@ -1444,14 +1456,36 @@ impl Market {
         let nav_before = hlp_share_nav_nad_with_prices(market, target_asset, pre_prices)?;
         checkpoint_hlp_yield_from_srlp(market, MarketAsset::Base)?;
         checkpoint_hlp_yield_from_srlp(market, MarketAsset::Quote)?;
+        // The vault's new srLP is minted against curve reserves, which exclude
+        // retained surcharge awaiting a recenter. That bucket belongs to the
+        // holders of record, so the entry pays the slice its new srLP will
+        // claim into the bucket, which returns it pro rata when deployed. The
+        // backing buys only the target side, so the slice is
+        // bucket / (target reserve + bucket) of the deposit.
+        let bucket_premium = match market.protected_recenter_value(target_asset, false)? {
+            Some((reserve_value, bucket_value)) => u64::try_from(mul_div_ceil_u128(
+                u128::from(deposit_amount),
+                bucket_value,
+                reserve_value
+                    .checked_add(bucket_value)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+            )?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?,
+            None => 0,
+        };
+        let backing_amount = deposit_amount
+            .checked_sub(bucket_premium)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(backing_amount > 0, ErrorCode::AmountZero);
         let mut end = market.integrated_curve_state_nad()?;
-        let value = market.normalize_amount(deposit_amount as u128, market.side(target_asset).asset_decimals)?;
+        let value = market.normalize_amount(backing_amount as u128, market.side(target_asset).asset_decimals)?;
         let equity = match target_asset {
             MarketAsset::Base => &mut end.base_hlp_equity,
             MarketAsset::Quote => &mut end.quote_hlp_equity,
         };
         *equity = equity.checked_add(value).ok_or(ErrorCode::MarketMathOverflow)?;
-        market.side_mut(target_asset).credit_reserve(deposit_amount, true)?;
+        market.side_mut(target_asset).credit_reserve(backing_amount, true)?;
+        market.credit_protected_recenter_reserve(target_asset, bucket_premium)?;
         let transition = prepare_concentrated_hlp_transition_from_end(market, end, false, true, 0, 0)?;
         let principal_before = [
             market.quote_hlp_vault.debt_principal,
@@ -1489,6 +1523,10 @@ impl Market {
         }
         let nav_after = hlp_share_nav_nad_with_prices(market, target_asset, pre_prices)?;
         let hlp_amount = if supply_before == 0 {
+            // Receipts backed by zero value would price every later entry
+            // against zero NAV and reject it. A dust deposit whose ownership
+            // rounds away must not become the vault's first cohort.
+            require!(nav_after > 0, ErrorCode::AmountZero);
             deposit_amount
         } else {
             let delta = nav_after
@@ -1708,17 +1746,22 @@ impl Market {
                 )?;
                 let base_hlp_live_debit =
                     proportional(market.base_hlp_vault.base_hlp_live_reserve, hlp_amount, supply)?;
-                let quote_hlp_live_debit =
-                    proportional(market.base_hlp_vault.quote_hlp_live_reserve, hlp_amount, supply)?;
                 let base_out =
                     settled_close_target_amount(market, MarketAsset::Base, base_out, quote_redeemed, debt_repaid)?;
                 for asset in [MarketAsset::Base, MarketAsset::Quote] {
                     market.capitalize_hlp_receivable(MarketAsset::Base, asset, hlp_amount, supply)?;
                 }
                 release_hlp_backing_inventory(market, MarketAsset::Base, hlp_amount, supply)?;
+                let principal_before = market.base_hlp_vault.debt_principal;
                 let debt_clearance = market
                     .base_hlp_vault
                     .clear_debt_repay(quote_debt_shares, market.debt.quote_borrow_index_nad)?;
+                let quote_hlp_live_debit = borrowed_hlp_live_debit(
+                    market.base_hlp_vault.quote_hlp_live_reserve,
+                    principal_before,
+                    market.base_hlp_vault.debt_principal,
+                    hlp_amount == supply,
+                );
                 let interest_paid = debt_clearance.interest_paid;
                 market.base_side.debit_reserve(base_out, true)?;
                 debit_hlp_live_reserve(market, MarketAsset::Base, MarketAsset::Base, base_hlp_live_debit)?;
@@ -1785,8 +1828,6 @@ impl Market {
                     base_debt_shares,
                     market.debt.base_borrow_index_nad,
                 )?;
-                let base_hlp_live_debit =
-                    proportional(market.quote_hlp_vault.base_hlp_live_reserve, hlp_amount, supply)?;
                 let quote_hlp_live_debit =
                     proportional(market.quote_hlp_vault.quote_hlp_live_reserve, hlp_amount, supply)?;
                 let quote_out =
@@ -1795,9 +1836,16 @@ impl Market {
                     market.capitalize_hlp_receivable(MarketAsset::Quote, asset, hlp_amount, supply)?;
                 }
                 release_hlp_backing_inventory(market, MarketAsset::Quote, hlp_amount, supply)?;
+                let principal_before = market.quote_hlp_vault.debt_principal;
                 let debt_clearance = market
                     .quote_hlp_vault
                     .clear_debt_repay(base_debt_shares, market.debt.base_borrow_index_nad)?;
+                let base_hlp_live_debit = borrowed_hlp_live_debit(
+                    market.quote_hlp_vault.base_hlp_live_reserve,
+                    principal_before,
+                    market.quote_hlp_vault.debt_principal,
+                    hlp_amount == supply,
+                );
                 let interest_paid = debt_clearance.interest_paid;
                 market.quote_side.debit_reserve(quote_out, true)?;
                 debit_hlp_live_reserve(market, MarketAsset::Quote, MarketAsset::Quote, quote_hlp_live_debit)?;
@@ -1903,6 +1951,19 @@ fn debit_cash_for_hlp_interest(market: &mut Market, asset: MarketAsset, interest
     Ok(())
 }
 
+/// The borrowed-side hLP live reserve is the vault's funded debt principal:
+/// every hLP transition stores one value into both. An exit debits it by the
+/// principal it actually repaid (all of it on a full exit). Independently
+/// floored proportional shares drift apart by an atom or two per exit, and a
+/// few consecutive exits pushed the next swap past the live-reserve identity.
+fn borrowed_hlp_live_debit(live: u64, principal_before: u64, principal_after: u64, full_exit: bool) -> u64 {
+    if full_exit {
+        live
+    } else {
+        principal_before.saturating_sub(principal_after).min(live)
+    }
+}
+
 fn debit_hlp_live_reserve(
     market: &mut Market,
     target_asset: MarketAsset,
@@ -1956,6 +2017,14 @@ fn settled_close_target_amount(
     let geometry = market
         .current_concentrated_curve_geometry()?
         .ok_or(ErrorCode::BrokenInvariant)?;
+    // On a positive-weight market the executable price is the oracle-bounded
+    // mark, not the native curve's. The native quote keeps its price impact;
+    // the bounded mark caps it in the pool's favour, so an exit never converts
+    // its imbalance at a better price than either one.
+    let bounds = match market.bounded_curve()? {
+        Some(curve) => Some(curve.price_bounds_nad(start)?),
+        None => None,
+    };
     let borrowed_asset = target_asset.opposite();
     if borrowed_redeemed > debt_repaid {
         let surplus_borrowed = borrowed_redeemed
@@ -1968,8 +2037,17 @@ fn settled_close_target_amount(
             MarketAsset::Quote => ConcentratedCurveDirection::QuoteToBase,
         };
         let quote = geometry.quote_exact_in(start, surplus_nad, direction)?;
+        let mut target_nad = quote.amount_out;
+        if let Some((low, high)) = bounds {
+            // Selling the surplus: the bound that yields less target.
+            let bounded = match borrowed_asset {
+                MarketAsset::Base => mul_div_u128(surplus_nad, low as u128, NAD as u128)?,
+                MarketAsset::Quote => mul_div_u128(surplus_nad, NAD as u128, high as u128)?,
+            };
+            target_nad = target_nad.min(bounded);
+        }
         let target_from_surplus =
-            market.denormalize_amount_floor(quote.amount_out, market.side(target_asset).asset_decimals)?;
+            market.denormalize_amount_floor(target_nad, market.side(target_asset).asset_decimals)?;
         return target_redeemed
             .checked_add(target_from_surplus)
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into());
@@ -1985,7 +2063,16 @@ fn settled_close_target_amount(
         MarketAsset::Quote => ConcentratedCurveDirection::QuoteToBase,
     };
     let quote = geometry.quote_exact_out(start, shortfall_nad, direction)?;
-    let target_retained = market.denormalize_amount_ceil(quote.amount_in, market.side(target_asset).asset_decimals)?;
+    let mut target_nad = quote.amount_in;
+    if let Some((low, high)) = bounds {
+        // Covering the shortfall: the bound that retains more target.
+        let bounded = match target_asset {
+            MarketAsset::Base => mul_div_ceil_u128(shortfall_nad, NAD as u128, low as u128)?,
+            MarketAsset::Quote => mul_div_ceil_u128(shortfall_nad, high as u128, NAD as u128)?,
+        };
+        target_nad = target_nad.max(bounded);
+    }
+    let target_retained = market.denormalize_amount_ceil(target_nad, market.side(target_asset).asset_decimals)?;
     require_gte!(target_redeemed, target_retained, ErrorCode::HlpSettlementUnavailable);
     target_redeemed
         .checked_sub(target_retained)

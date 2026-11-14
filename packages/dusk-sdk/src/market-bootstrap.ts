@@ -30,18 +30,73 @@ import {
   type TransactionInstruction,
 } from "@solana/web3.js";
 
+import type { Coder } from "@coral-xyz/anchor";
+
 import { address, type AddressLike } from "./address.js";
 import { sha256 } from "./hash.js";
+import { integerBN, type IntegerLike } from "./parameters.js";
 
 /** Every LP mint a market needs, in the order `initialize_market` takes them. */
 export const MARKET_LP_MINT_KINDS = ["srlp", "baseHlp", "quoteHlp"] as const;
 
 export type MarketLpMintKind = (typeof MARKET_LP_MINT_KINDS)[number];
 
+/** Domain tag of the `params_hash` that `initialize_market` requires. */
+export const MARKET_PARAMS_HASH_DOMAIN = "dusk:market-params:v1";
+
 /**
- * A market's identity is its parameter hash, so two markets over the same pair
- * are distinct only if their hashes are. The namespace keeps deployments from
- * colliding: the same label and pair on devnet and mainnet hash differently.
+ * The `params_hash` that `initialize_market` requires, and so the market
+ * address: SHA-256 over the domain tag, the creator (the payer, who becomes
+ * operator and initial liquidity authority), and the Borsh encoding of the
+ * config, operator interest share, oracle policy, bootstrap price and launch
+ * fee offset. LP metadata is cosmetic and not hashed. Binding the creator and
+ * configuration stops anyone else from creating a market at the address a
+ * creator prepared LP mints for.
+ *
+ * `coder` is a Dusk program's coder (`program.coder`). `config` and `oracle`
+ * take the same shape as the `initializeMarket` instruction arguments.
+ */
+export async function marketParamsHash(
+  coder: Coder,
+  params: {
+    creator: AddressLike;
+    config: unknown;
+    operatorInterestShareBps: number;
+    oracle: unknown | null;
+    bootstrapPriceNad: IntegerLike;
+    launchFeeProgressOffset: number;
+  }
+): Promise<Uint8Array> {
+  const u16 = (value: number, label: string) => {
+    if (!Number.isInteger(value) || value < 0 || value > 0xffff) throw new Error(`${label} must be a u16`);
+    const bytes = Buffer.alloc(2);
+    bytes.writeUInt16LE(value);
+    return bytes;
+  };
+  const oracle =
+    params.oracle == null
+      ? Buffer.from([0])
+      : Buffer.concat([Buffer.from([1]), coder.types.encode("oraclePolicy", params.oracle)]);
+  return sha256(
+    Buffer.concat([
+      Buffer.from(MARKET_PARAMS_HASH_DOMAIN),
+      address(params.creator).toBuffer(),
+      coder.types.encode("marketConfig", params.config),
+      u16(params.operatorInterestShareBps, "operatorInterestShareBps"),
+      oracle,
+      integerBN(params.bootstrapPriceNad, "bootstrapPriceNad").toArrayLike(Buffer, "le", 8),
+      u16(params.launchFeeProgressOffset, "launchFeeProgressOffset"),
+    ])
+  );
+}
+
+/**
+ * The label hash of markets created before `initialize_market` bound the
+ * hash to its creator and configuration. It finds those existing markets;
+ * new markets use `marketParamsHash`, and the program rejects this value for
+ * them with `InvalidParamsHash`.
+ *
+ * @deprecated Use `marketParamsHash` for new markets.
  */
 export async function deriveMarketParamsHash(params: {
   namespace: string;

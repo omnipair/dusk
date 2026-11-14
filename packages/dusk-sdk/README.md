@@ -36,6 +36,14 @@ creation and the treasury creation charge.
 
 Guided creation has no independent opening price: omit `bootstrapPriceNad` or
 pass zero. The SDK and program reject a nonzero value when λ is positive.
+Add and remove liquidity first apply a due, funded recenter on concentrated
+markets, which costs about as much as a recentering swap (about 327k compute
+units measured). `addLiquidityTransaction` and `removeLiquidityTransaction`
+lead with a `LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT` compute limit there; raw
+instruction callers should size the limit by simulation. New shares are priced
+including any retained recenter surcharge the controller could not yet deploy,
+and `previewAddLiquidity` returns the same amount.
+
 `addLiquidityInstruction` takes two maximum gross spends. On the first guided
 deposit the validated execution-time report sets their usable ratio; base is
 rounded down and quote up to token atoms, and unused tokens stay in the owner's
@@ -61,6 +69,17 @@ bytes. The launch scripts accept optional `DUSK_ORACLE_POLICY_JSON` using
 `OraclePolicyInput` field names (base58 addresses, 32-byte feed-ID arrays and
 string values for large integers); omission selects native pricing. They resolve
 the stored policy's feeds and compute budget when seeding liquidity.
+
+The market address seed `paramsHash` is bound to the creator (the payer) and
+the economic creation arguments: `initialize_market` rejects any value other
+than SHA-256 over `dusk:market-params:v1`, the payer, and the Borsh-encoded
+config, operator interest share, oracle policy, bootstrap price and launch fee
+offset. `initializeMarketInstruction` derives it, and a supplied `paramsHash`
+must match. To create LP mints for the market address first, call
+`dusk.write.marketParamsHashFor({ payer, config, oracle, ... })`, or
+`marketParamsHash(program.coder, ...)` with Anchor-shaped arguments.
+`deriveMarketParamsHash` (the label hash) only finds markets created before
+this binding.
 
 Raw Anchor callers must include `oracle: null` or a serialized policy. The
 `initializeMarket` argument layout now starts with `paramsHash`, followed by
@@ -177,8 +196,9 @@ const plan = await dusk.liquidations.buildFlash({
   ...position, buyer, maxRepayment: 1_000_000n,
   route: async (ctx) => {
     // Return instructions that sell collateral or pay from buyer inventory.
-    // Deliver ctx.requiredPaymentCredit NET into ctx.repaymentVault.
-    // grossLiquidationPayment() handles the incoming token transfer fee.
+    // Settlement needs ctx.requiredPaymentCredit NET in ctx.repaymentVault;
+    // transferring ctx.requiredPaymentGross credits that much after the debt
+    // mint's current transfer fee.
     return buildPaymentRoute(ctx);
   },
 });
@@ -186,13 +206,25 @@ const plan = await dusk.liquidations.buildFlash({
 // with the necessary address lookup tables, then simulate, sign and submit.
 ```
 
+Settlement compares the repayment vault's balance increase with
+`quote.payment`, so a Token-2022 debt mint's inbound transfer fee comes out of
+whatever the route sends. The route context and the returned plan carry
+`requiredPaymentGross`, the transfer that credits `requiredPaymentCredit` under
+the fee in effect at `paymentTransferFee.epoch`. It equals
+`requiredPaymentCredit` for a mint without a transfer fee and is zero for
+`duskAmm` settlement. A fee announced for a later epoch is not included:
+rebuild the plan if the epoch changes before execution. Settlement refunds any
+excess to the buyer, less the refund's own transfer fee.
+
 `settlement: "duskAmm"` instead sells the flashed collateral in the paired settle,
 with debt principal netted internally and no escrow-payment instruction. The
 buyer must retain the flashed collateral until settle. Its return transfer can
 incur another collateral token fee. Settlement rejects an AMM quote that cannot
 fund the fixed obligation; it never silently debits the owner's wallet.
-If the route changes active hLP accounts, pass the complete final-state account
-list through `settleRemainingAccounts`; the default resolves the current market.
+Either venue settles fresh public interest into an active hLP, so the settle
+instruction defaults to the current market's hLP accounts (none while no hLP is
+active). If the route changes active hLP accounts, pass the complete final-state
+account list through `settleRemainingAccounts`.
 
 `previewEmergency()` and `buildEmergency()` accept `collateralDebit` and `full`.
 
@@ -234,8 +266,8 @@ invalidates the bound settle index. Helpers include ATA setup, a 256 KiB heap,
 a 1.4M compute-unit limit and required hLP accounts. A compute-unit limit supplied
 in the prefix overrides the default; set the priority price there as needed.
 The session closes at settle. Its payment token account persists for reuse,
-including withheld Token-2022 fees; preexisting token donations do not count as
-payment and are not refunded to the next buyer.
+including withheld Token-2022 fees. Preexisting token donations do not count as
+payment; settlement refunds the account's whole balance to the buyer.
 
 The 0.5%–5% ramp sets a maximum buyer discount. Partial quotes choose the highest
 whole-basis-point discount within that range that improves health after the
@@ -308,6 +340,15 @@ The client is intentionally split by source of truth:
 - `dusk.write`: Anchor instruction, transaction, and RPC builders.
 - `dusk.get`: PDA helpers, direct RPC account fetches, and typed simulation previews.
 - `dusk.fetch`: historical/indexed HTTP API methods.
+
+For a deployment other than `DUSK_PROGRAM_ID`, pass `programId` (and
+`leverageDelegateProgramId` for its delegate build). Every builder and reader
+derives Dusk PDAs under its own program's ID, `dusk.get.pda` included, and
+`dusk.orders` acts on that deployment's leverage positions. Standalone
+`DuskLeverageOrders` and `DuskProtectionOrders` take the Dusk program ID as
+their second constructor argument. The exported `derive*Address` helpers and
+the module-level `pda` default to `DUSK_PROGRAM_ID`; pass the program ID as
+their last argument for another deployment.
 
 ## Write Instructions
 
@@ -420,7 +461,10 @@ sending a zero fee deposit. Anchor fills in PDAs whose seeds it can compute,
 the signer and fixed program accounts; transfer-hook and oracle accounts go in
 `remainingAccounts`. A new order's PDA comes from the arguments, but an
 existing order's is seeded by its own data, so every instruction that acts on
-one takes `order`. `DuskProtectionOrders` checks its inputs the same way.
+one takes `order`. `DuskProtectionOrders` checks its inputs the same way. Its
+`closeInstruction` closes a cancelled protection order whose yield has been
+harvested and returns the rent of the order and its custody accounts to the
+sponsor.
 
 Both programs' aliases apply IDL-generic types that accept any Anchor IDL
 type, such as `DuskIdl` or `LeverageDelegateIdl`:
@@ -629,7 +673,8 @@ const { transaction, referralPartner, referralAccrual } =
   );
 ```
 
-`referredOpenLeverage(...)` provides the equivalent leverage-opening flow.
+`referredOpenLeverage(...)` provides the equivalent leverage-opening flow and,
+like `buildOpenLeverageInstruction`, puts the hLP accounts first while an hLP is active.
 Existing borrow debt sides and leverage positions retain their bound partner on
 later debt increases. The program snapshots the partner share, capped by the
 current runtime maximum, when the binding is created. Deactivation or later
@@ -784,7 +829,12 @@ const program = createDuskProgram({ provider });
 ```
 
 `DUSK_PROGRAM_ID` is exported for integrations that prefer an explicit program
-name over the generic `PROGRAM_ID` constant.
+name over the generic `PROGRAM_ID` constant. Each `derive*Address` helper
+takes an optional trailing `programId` that defaults to it, such as
+`deriveMarketReserveVaultAddress(market, mint, program.programId)`.
+`deriveLeveragePositionAddress` takes `namespaceAuthority` before the program
+ID; pass the owner there for an owner-funded position. `duskPdas(programId)`
+returns the `pda` helper set bound to another deployment.
 
 ### TypeScript and the IDL size
 
@@ -1010,6 +1060,15 @@ hLP need not have a literal 2x gross-value/equity ratio.
 protocol escrow, LP transfer debit and measured-fee-adjusted LP credit. Pass
 amounts as `bigint` and the current `TransferFeeNotice`; pending transfer fees
 are reported separately by that notice and do not replace the effective fee.
+It follows both branches of `fund_interest`. After the side's junior income is
+initialized (`juniorInitialized`, default true), the frozen escrow is the
+advance's share of the synchronized fee book, `unpaidFeeInterest`. Before then
+the program splits the advance at the current
+`FutarchyAuthority.revenueShare.interestBps`, which the quote takes as
+`protocolInterestBps`. Reserve cash that backs hLP
+funding interest is never advanced: pass `hlpFundingInterest(market, asset)`,
+the opposite vault's indexed funding debt less its principal, as
+`hlpFundingInterest`.
 `allocateRepaidInterest` splits measured repayment custody credit between
 fresh LP/protocol revenue and the already-frozen protocol portion. Already
 funded LP interest must be excluded from `freshGrossInterest`.
@@ -1063,6 +1122,7 @@ const quote = await dusk.hlpLiquidations.preview({ market, targetAsset: "base" }
 const plan = await dusk.hlpLiquidations.buildFlash({
   market, targetAsset: "base", buyer,
   allowFull: false, // explicit opt-in is required for an insolvent full closure
+  quote, // the reviewed quote bounds payment, collateral and principal write-off
   route: async ({ buyerCollateralAccount, repaymentVault, requiredPaymentCredit,
                   collateralMint, debtMint, collateralTokenProgram, debtTokenProgram }) => {
     // Return an external route, a Dusk swap, or explicit inventory payment.
@@ -1078,8 +1138,14 @@ const plan = await dusk.hlpLiquidations.buildFlash({
 
 The helpers never sign, submit, or silently top up from the keeper's wallet.
 The quote is current-bank only. `maxPayment`, collateral limits and
-principal-loss caps protect the submitted plan against state drift. Prefix
-instructions must be supplied through `prefixInstructions` before building.
+principal-loss caps protect the submitted plan against state drift. Neither
+builder defaults the principal-loss cap. `buildFlash` takes `maxSocializedLoss`,
+or the reviewed `quote`, which then also supplies the payment and collateral
+bounds in place of a new preview. A quote caps the write-off at its own: zero
+for a partial rescue, otherwise the vault's debt principal less
+`borrowedClaim + reserveCredit`. `buildNativeCloseAndExit` requires
+`maxSocializedLoss`. Prefix instructions must be supplied through
+`prefixInstructions` before building.
 An affected hLP cohort cannot mint/redeem between begin and settle; swaps and
 independent market operations remain composable subject to cash and accounting
 checks. The SDK's complete-plan simulator preserves bound instruction indices.
@@ -1098,12 +1164,14 @@ recovery is then valued on the EMA-price, smoothed-depth concentrated reference
 curve with the configured fees; it does not use live spot reserves.
 
 An eligible holder can build `hlpLiquidations.buildNativeCloseAndExit({ market,
-targetAsset, exit: { hlpAmount, options } })`. The helper places the permissionless
-native close before `withdrawSingleSided` in one transaction; `options` are the
+targetAsset, maxSocializedLoss, exit: { hlpAmount, minTargetAmountOut: 0n, options } })`.
+The helper places the permissionless native close before `withdrawSingleSided`
+in one transaction; `options` are the
 normal hLP withdrawal accounts and the owner signs. It burns the closed vault's
 receipts for zero principal payout. The flash builder also accepts `exit`,
-appending an owner-signed withdrawal after settlement. For a solvent rescue,
-set `exit.minTargetAmountOut` to protect the holder's payout. A terminal quote
+appending an owner-signed withdrawal after settlement. `exit.minTargetAmountOut`
+is required: a solvent rescue's exit must set a positive floor, and zero is
+accepted only after a full flash or native terminal close. A terminal quote
 still requires `allowFull` and pays zero principal. A vault with only a
 transient spot deficit must recover or receive funded rescue before its holders
 can withdraw. Once its executable value recovers, a frozen vault can quote a
@@ -1179,7 +1247,9 @@ The SDK exposes bounded maintenance transactions; none are submitted implicitly:
 1. Before issuing income into a fully collected book, call
    `prepareDrainedIncomeBooks({ market, payer })` and submit its transactions.
    For `IncomeEpochNeedsRollover` on a partially paid book, use `rollIncome` for
-   the affected book. The payer funds its immutable archive account.
+   the affected book. The payer funds its immutable archive account. A book
+   rolls only once at least half its units are repaid or a counter reaches
+   half its numeric range (`incomeBookMayRoll`); anyone may roll it.
 2. For an existing srLP/jrLP holder, call
    `prepareHolderIncome({ market, owner, kind: "senior" | "junior" })`.
    Submit its transactions and repeat while `hasMore` is true. Each instruction

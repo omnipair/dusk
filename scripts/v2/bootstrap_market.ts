@@ -34,7 +34,7 @@ import {
 import idl from "../../target/idl/dusk.json" with { type: "json" };
 import { marketCreationOracleFromEnv, sendAtomicMarketCreation } from "../utils/market-creation.ts";
 import { oracleComputeBudgetInstructions, oracleReadAccounts } from "../../packages/dusk-sdk/dist/oracle.js";
-import { marketLpTokenNaming } from "../../packages/dusk-sdk/dist/index.js";
+import { marketLpTokenNaming, marketParamsHash } from "../../packages/dusk-sdk/dist/index.js";
 import { readTokenMetadata } from "../lp-metadata/logos.ts";
 import { publishLpMetadata } from "../lp-metadata/publish.ts";
 import { pinataConfigFromEnv } from "../lp-metadata/pinata.ts";
@@ -61,7 +61,21 @@ async function main() {
   );
   const baseDecimals = await mintDecimals(provider.connection, baseMint);
   const quoteDecimals = await mintDecimals(provider.connection, quoteMint);
-  const paramsHash = paramsHashForMarket(marketLabel, baseMint, quoteMint);
+  const creation = {
+    config: defaultMarketConfig(),
+    operatorInterestShareBps: Number(duskEnv("OPERATOR_INTEREST_SHARE_BPS", "0")),
+    oracle: initialOracle,
+    bootstrapPriceNad: new anchor.BN(duskEnv("BOOTSTRAP_PRICE_NAD", "0")),
+    launchFeeProgressOffset: Number(duskEnv("LAUNCH_FEE_PROGRESS_OFFSET", "0")),
+  };
+  // A market created before params-hash binding is resumed through its label
+  // hash (or DUSK_MARKET_PARAMS_HASH). A new market's address is bound to the
+  // payer and creation arguments.
+  const labelHash = paramsHashForMarket(marketLabel, baseMint, quoteMint);
+  const labelMarket = deriveMarketAddresses({ programId: program.programId, baseMint, quoteMint, paramsHash: labelHash });
+  const paramsHash = (await provider.connection.getAccountInfo(labelMarket.market, "confirmed"))
+    ? labelHash
+    : Buffer.from(await marketParamsHash(program.coder, { creator: payer.publicKey, ...creation }));
   const addresses = deriveMarketAddresses({
     programId: program.programId,
     baseMint,
@@ -147,12 +161,8 @@ async function main() {
     console.log(`Initializing Dusk srLP/hLP market ${market.toBase58()}`);
     const instruction = await program.methods
       .initializeMarket({
-        config: defaultMarketConfig(),
-        operatorInterestShareBps: Number(duskEnv("OPERATOR_INTEREST_SHARE_BPS", "0")),
-        oracle: initialOracle,
+        ...creation,
         paramsHash: [...paramsHash],
-        bootstrapPriceNad: new anchor.BN(duskEnv("BOOTSTRAP_PRICE_NAD", "0")),
-        launchFeeProgressOffset: Number(duskEnv("LAUNCH_FEE_PROGRESS_OFFSET", "0")),
         srlpMetadata: { ...naming.srlp, uri: metadata.srlp.uri },
         baseHlpMetadata: { ...naming.baseHlp, uri: metadata.baseHlp.uri },
         quoteHlpMetadata: { ...naming.quoteHlp, uri: metadata.quoteHlp.uri },

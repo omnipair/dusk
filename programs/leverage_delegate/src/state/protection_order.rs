@@ -27,3 +27,24 @@ pub struct ProtectionOrder {
     pub expires_at: i64,
     pub bump: u8,
 }
+
+impl ProtectionOrder {
+    /// Whether an execution that moved health from `before` to `after` may
+    /// settle. Health must improve and reach the target, except that an
+    /// execution spending a whole per-execution allowance only has to improve
+    /// it: the maximum payment, or the most LP the order may burn now. In a
+    /// large price move one capped payment cannot restore the target, and
+    /// refusing it would leave the funded position to liquidation.
+    /// `remaining_lp` must still be the budget from before this execution.
+    pub fn accepts_health(
+        &self,
+        before: u64,
+        after: u64,
+        lp_amount: u64,
+        payment_amount: u64,
+    ) -> bool {
+        let spends_cap = payment_amount == self.max_payment_per_execution
+            || lp_amount == self.max_lp_per_execution.min(self.remaining_lp);
+        after > before && (after >= self.target_health_bps || spends_cap)
+    }
+}

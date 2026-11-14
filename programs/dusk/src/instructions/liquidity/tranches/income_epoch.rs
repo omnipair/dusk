@@ -51,10 +51,11 @@ impl RollIncomeEpoch<'_> {
             .get_mut(args.book_index as usize)
             .ok_or(ErrorCode::InvalidArgument)?;
         require_eq!(book.epoch, args.epoch, ErrorCode::InvalidArgument);
-        // A roll requires actual settlement activity. Requiring a fixed
-        // percentage decay could prevent recovery from unit overflow after
-        // a smaller repayment followed by a large new accrual.
-        require!(book.units > book.unpaid, ErrorCode::InvalidArgument);
+        // Rolling forces every holder through income catch-up, so it needs
+        // real progress: half of the epoch's units repaid, or a book close to
+        // its numeric limits (recovery from unit overflow after a small
+        // repayment followed by a large accrual stays possible).
+        require!(book.may_roll(), ErrorCode::InvalidArgument);
         ctx.accounts.income_epoch.book = book.roll()?;
         let balance = if ctx.accounts.market.tranches.junior_reserve_shares == 0 {
             1

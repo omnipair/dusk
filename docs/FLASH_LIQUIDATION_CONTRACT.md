@@ -143,6 +143,18 @@ that an instruction or policy remains unimplemented describe the earlier baselin
 The old runtime auction APIs are now removed. Historical auction state and native
 replay routines remain for comparison, without public instruction entrypoints.
 
+Payment is measured as the repayment vault's balance above its balance at
+Begin, so tokens that reached the vault outside a session never count as
+payment. Every settle route (direct, Dusk AMM and hLP flash) then returns the
+vault's whole remaining balance to the buyer's refund account, including such
+tokens, so nothing stays stranded in the persistent vault.
+
+Settlement recomputes the debt, fee and owner-surplus split on current state
+rather than pinning aggregate debt shares at Begin. Begin and settle sit in one
+transaction that the liquidator builds; another position's borrow or repay
+placed between them can move rounding atoms among those three, while the
+buyer's payment bound and the released collateral stay fixed.
+
 ## Native execution and integration gates (historical baseline)
 
 The [concentrated/hLP comparison](calibration/CONCENTRATED_CUSHION_RESULTS.md)

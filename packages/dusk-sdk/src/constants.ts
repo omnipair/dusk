@@ -91,10 +91,13 @@ export function deriveFutarchyAuthorityAddress(programId: PublicKey = DUSK_PROGR
 }
 
 /** Derive the protocol-wide referral partner for a referrer authority. */
-export function deriveReferralPartnerAddress(authority: PublicKey): [PublicKey, number] {
+export function deriveReferralPartnerAddress(
+  authority: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
+): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.REFERRAL_PARTNER, authority.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -177,11 +180,12 @@ export function deriveTokenMetadataAddress(mint: PublicKey): [PublicKey, number]
  */
 export function deriveMarketReserveVaultAddress(
   market: PublicKey,
-  reserveMint: PublicKey
+  reserveMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_RESERVE_VAULT, market.toBuffer(), reserveMint.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -202,11 +206,12 @@ export function deriveLeverageCollateralVaultAddress(
 
 export function deriveMarketCollateralVaultAddress(
   market: PublicKey,
-  collateralMint: PublicKey
+  collateralMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -215,11 +220,12 @@ export function deriveMarketCollateralVaultAddress(
  */
 export function deriveMarketInterestVaultAddress(
   market: PublicKey,
-  interestMint: PublicKey
+  interestMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_INTEREST_VAULT, market.toBuffer(), interestMint.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -229,11 +235,12 @@ export function deriveMarketInterestVaultAddress(
 export function deriveBorrowPositionAddress(
   market: PublicKey,
   owner: PublicKey,
-  positionId: PublicKey
+  positionId: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.BORROW_POSITION, market.toBuffer(), owner.toBuffer(), positionId.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -242,19 +249,23 @@ export function deriveBorrowPositionAddress(
  */
 /** Delegation is keyed by the position it delegates, not by the owner. */
 export function deriveLeverageDelegationAddress(
-  leveragePosition: PublicKey
+  leveragePosition: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.LEVERAGE_DELEGATION, leveragePosition.toBuffer()],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
+/** `namespaceAuthority` defaults to the position owner; pass it explicitly
+ * (or `undefined`) before `programId` for another deployment. */
 export function deriveLeveragePositionAddress(
   market: PublicKey,
   positionOwner: PublicKey,
   positionId: PublicKey,
-  namespaceAuthority: PublicKey = positionOwner
+  namespaceAuthority: PublicKey = positionOwner,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
@@ -264,7 +275,7 @@ export function deriveLeveragePositionAddress(
       namespaceAuthority.toBuffer(),
       positionId.toBuffer(),
     ],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -657,7 +668,8 @@ export function buildLpTransferHookAccountMetas({
 export function deriveHlpSrlpVaultAddress(
   market: PublicKey,
   targetHlpMint: PublicKey,
-  srlpMint: PublicKey
+  srlpMint: PublicKey,
+  programId: PublicKey = DUSK_PROGRAM_ID
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [
@@ -666,7 +678,7 @@ export function deriveHlpSrlpVaultAddress(
       targetHlpMint.toBuffer(),
       srlpMint.toBuffer(),
     ],
-    DUSK_PROGRAM_ID
+    programId
   );
 }
 
@@ -700,7 +712,7 @@ export const OPERATOR_PENDING_LIMIT = 1;
 export const JUNIOR_MAX_NOTICE_SLOTS = 4_320_000;
 export const OPERATOR_NOTICE_SLOTS = 4_752_000;
 export const OPERATOR_EXECUTION_WINDOW_SLOTS = 3_024_000;
-export const MAX_OPERATOR_INTEREST_SHARE_BPS = 5_000;
+export const MAX_OPERATOR_INTEREST_SHARE_BPS = 10_000;
 export function deriveOperatorProposalAddress(market: PublicKey, nonce: U64SeedLike, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("operator_change"), market.toBuffer(), u64Seed(nonce, "nonce")], programId);
 }

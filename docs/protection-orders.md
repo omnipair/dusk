@@ -10,7 +10,7 @@ For leverage, `repay_leverage` (and the existing `add_leverage_margin`) is a deb
 
 `preview_protection_order` returns the current health as a u64, using the same refreshed accounting as execution; it does not change state.
 
-The leverage-delegate program provides `create_protection_order`, `fund_protection_order`, `execute_protection_order`, and `cancel_protection_order`. One order covers one existing position, one debt side, and one action:
+The leverage-delegate program provides `create_protection_order`, `fund_protection_order`, `execute_protection_order`, `cancel_protection_order`, and `close_protection_order`. One order covers one existing position, one debt side, and one action:
 
 | Action | Keeper supplies | Result |
 | --- | --- | --- |
@@ -20,11 +20,13 @@ The leverage-delegate program provides `create_protection_order`, `fund_protecti
 
 The sponsor may differ from the borrower. The order binds the market, position address, and position owner. It explicitly authorizes **recurring protection, including later borrowing and reopening at that address by the same owner**, until expiry, cancellation, or budget exhaustion. It does not authorize a new owner at that address. Sponsors should use a separate order and budget for each beneficiary and choose an expiry accordingly.
 
-The sponsor escrows srLP or hLP from the protected market. hLP must target the payment asset. The order includes the total funded LP budget, maximum LP burn and payment per execution, trigger and target health, keeper reward in basis points, and `min_payment_per_lp_nad`. That last limit is a minimum ratio of actual gross payment to LP burned, multiplied by 1e9, using the raw units of both tokens. It prevents excessive redemption or poor execution relative to the payment made. It must be nonzero. Keeper rewards are rounded down and capped by the sponsor's chosen fee (at most 10%).
+The sponsor escrows srLP or hLP from the protected market. hLP must target the payment asset, and the order keeps the hLP mint it escrowed. Once `rotate_hlp_cohort` retires that mint, execution fails with `HlpCohortRetired` before any funds move; cancellation still refunds the retired LP. The order includes the total funded LP budget, maximum LP burn and payment per execution, trigger and target health, keeper reward in basis points, and `min_payment_per_lp_nad`. That last limit is a minimum ratio of actual gross payment to LP burned, multiplied by 1e9, using the raw units of both tokens. It prevents excessive redemption or poor execution relative to the payment made. It must be nonzero. Keeper rewards are rounded down and capped by the sponsor's chosen fee (at most 10%).
 
 LP transfers need the native Dusk transfer-hook accounts and an initialized LP transfer-hook validation account. Initialize the order's LP custody token account and both yield accounts before creating the order. The custody token account must have no external delegate or close authority; use a newly created associated token account. Create and fund transfer only the authorized amount. Unsolicited extra LP does not increase the executable budget; cancellation refunds the entire custody balance.
 
 Both yield accounts designate the sponsor as recipient. Escrowed LP retains normal yield accrual. The sponsor can harvest via the existing `harvest` instruction using the order as LP owner and the sponsor as caller/recipient. Cancellation returns remaining LP and leaves the order and yield accounts available for claiming earned yield.
+
+After harvesting, the sponsor can call `close_protection_order` on a cancelled order. It requires an empty LP custody account and no accrued yield on either yield account; repeating cancellation refunds LP transferred into custody later. It closes the order, its LP custody account, and any asset custody accounts the sponsor passes, sending a remaining asset balance to the sponsor's token account first, and returns all rent to the sponsor. Dusk keeps the yield accounts, which still name the sponsor as recipient.
 
 ## Atomic keeper execution
 
@@ -33,7 +35,7 @@ Both yield accounts designate the sponsor as recipient. Escrowed LP retains norm
 3. Redeem the authorized LP through native Dusk withdrawal. All existing market-health, reserve, and hLP solvency checks remain active.
 4. Reimburse the keeper's debit plus the authorized proportional reward, and pay the additional 10 bps protocol fee from sponsor redemption proceeds. Account for transfer fees and verify both credits. Redemption must cover both payments within the sponsor's existing LP limits.
 5. Return unused redemption proceeds to the sponsor. For srLP, this includes the other asset; no swap or external route is used.
-6. Reload the market and position and require final health to exceed its starting value and reach the sponsor's target. Deduct the LP burned from the budget.
+6. Reload the market and position and require final health to exceed its starting value. It must also reach the sponsor's target, unless the execution spends a whole per-execution allowance: a payment of `max_payment_per_execution`, or an LP burn equal to the lesser of `max_lp_per_execution` and the remaining budget. In a large price move one capped execution may not restore the target; it still settles when it improves health, and keepers can repeat it while the trigger holds. Deduct the LP burned from the budget.
 
 All steps are one instruction. Failure, including unavailable withdrawal liquidity, a competing cancellation/liquidation, a changed target, or inadequate final health, rolls back repayment, redemption, reward, and protocol fee. The keeper needs working capital to advance the payment. The SDK supplies typed instruction builders; callers must simulate the complete transaction, include required transfer-hook accounts, and use address lookup tables or a requested heap frame when needed.
 
@@ -50,13 +52,21 @@ A keeper can submit the close once the trigger is met. Dusk sells the selected s
 
 Standing orders created before this change require an owner-signed update to choose an EMA threshold and payout minimum. The owner can also cancel them to reclaim rent.
 
+## Leverage entry orders
+
+`deposit_amount` funds the margin and the executor's net bounty. The order records the measured deposit credit and the margin left after the bounty's gross debit at creation. Execution recomputes that debit at the current epoch: a Token-2022 fee increase comes out of the margin, never the executor's net bounty, and a decrease leaves the margin at its recorded amount. Dusk then moves the margin into its reserve, a second transfer with its own fee. The margin Dusk records for the opened position must reach `min_margin_amount`; otherwise execution fails and the owner can still cancel.
+
+## hLP stop orders
+
+Execution measures the hLP withdrawal as the increase in the order's target-asset custody balance. A balance the account held before, such as a donation, neither blocks execution nor counts as proceeds; the owner receives it when the account closes. Once `rotate_hlp_cohort` retires the order's hLP mint, execution fails with `HlpCohortRetired` before any funds move; the owner can still cancel.
+
 ## Protocol order fee
 
 Built-in voluntary order execution assesses a hard-coded **10 bps (0.10%)** protocol service fee. This is an additional owner/sponsor expense; it does not reduce the pool LPs' revenue allocation or the executor's existing incentive. Leverage entry and hLP stop execution pay up to the assessed fee from funds remaining after the promised keeper credit and owner's net minimum, so a service fee alone cannot strand an otherwise valid exit. Native liquidations, hLP rescue, direct repayments/collateral donations, order creation/cancellation, funding, and yield harvesting do not incur this service fee. Ordinary native trading/interest fees still apply.
 
 | Order | Fee value, denominated in the payment token | Owner/sponsor funding |
 | --- | --- | --- |
-| Leverage entry | Actual opened margin plus borrowed principal | `protocol_fee_deposit_amount` is an additional gross deposit into the funding vault, separate from `deposit_amount`. Execution preserves the recorded margin and net executor bounty, pays the fee from available surplus, then refunds any remainder. `min_owner_refund_out` bounds the actual refund credit. |
+| Leverage entry | Actual opened margin plus borrowed principal | `protocol_fee_deposit_amount` is an additional gross deposit into the funding vault, separate from `deposit_amount`. Execution preserves the net executor bounty and forwards the margin described under Leverage entry orders, pays the fee from available surplus, then refunds any remainder. `min_owner_refund_out` bounds the actual refund credit. |
 | Leverage take-profit / stop-loss | Executed collateral-sale output before debt repayment | Owner's close proceeds pay the fee in addition to the unchanged executor incentive. An insufficient residual reverts; native liquidation remains available. |
 | hLP stop-loss / stop-rate | Actual withdrawal proceeds before executor incentive | The executor receives the stated incentive net of transfer fees. Owner's withdrawal proceeds pay the fee only after the keeper credit and owner's net minimum are reserved. |
 | Borrow/leverage protection | Actual net repayment or collateral donation, excluding token transfer fees | Sponsor LP redemption covers the payment, full keeper reimbursement/reward, and fee. Insufficient output or LP budget reverts atomically. |

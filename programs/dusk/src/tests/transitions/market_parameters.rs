@@ -2225,3 +2225,63 @@ fn controller_market(base_cash: u64, quote_cash: u64) -> Market {
     market.config.swap_fee_bps = MIN_CONCENTRATED_SWAP_FEE_BPS;
     market
 }
+
+#[test]
+fn same_slot_borrow_and_repay_loops_do_not_exhaust_the_daily_limit() {
+    let debt_asset = MarketAsset::Quote;
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    let mut position = borrow_position_for_debt(debt_asset, 600_000);
+    let limit = market
+        .daily_limit_for_side(debt_asset, market.config.max_daily_borrow_bps)
+        .unwrap();
+    let amount = limit / 2;
+    assert!(amount > 0);
+    // Gross accounting filled the bucket after two loops and refused the third.
+    for _ in 0..10 {
+        market.borrow(&mut position, debt_asset, amount, 0, 0).unwrap();
+        let credit = market
+            .fixed_repayment_for_max(&position, debt_asset, amount * 2)
+            .unwrap()
+            .cash_repaid;
+        market.repay(&mut position, debt_asset, credit).unwrap();
+        assert_eq!(market.side(debt_asset).daily_borrow_bucket.borrowed_bucket, 0);
+    }
+    market.borrow(&mut position, debt_asset, limit, 0, 0).unwrap();
+    assert!(market.borrow(&mut position, debt_asset, 1, 0, 0).is_err());
+    market.assert_market_invariants().unwrap();
+}
+
+#[test]
+fn collateral_withdrawal_cannot_cross_the_market_health_floor() {
+    let debt_asset = MarketAsset::Quote;
+    let mut market = invariant_market(1_000_000, 1_000_000);
+    let mut position = borrow_position_for_debt(debt_asset, 200_000);
+    market.borrow(&mut position, debt_asset, 80_000, 0, 0).unwrap();
+    let health = |m: &Market| m.market_health().unwrap().quote_debt_health_bps;
+    let before = health(&market);
+    // The position's contribution is capped, so only a withdrawal below the
+    // cap lowers market health; find the first one the position can make.
+    let (withdrawal, after) = (1..=150_u64)
+        .map(|i| i * 1_000)
+        .find_map(|withdrawal| {
+            let mut trial = market.clone();
+            trial
+                .withdraw_collateral(&mut position.clone(), MarketAsset::Base, withdrawal, 0)
+                .ok()?;
+            let after = health(&trial);
+            (after < before).then_some((withdrawal, after))
+        })
+        .expect("a permitted withdrawal lowers market health");
+    let withdraw_at = |floor: u64| {
+        let mut market = market.clone();
+        market.config.borrow_market_health_floor_bps = u16::try_from(floor).unwrap();
+        market.withdraw_collateral(&mut position.clone(), MarketAsset::Base, withdrawal, 0)
+    };
+    // From at or above the floor to below it: refused.
+    assert!(withdraw_at(before).is_err());
+    assert!(withdraw_at((before + after) / 2 + 1).is_err());
+    // Health stays at or above the floor: allowed.
+    assert!(withdraw_at(after).is_ok());
+    // Already below the floor: surplus collateral is not trapped.
+    assert!(withdraw_at(before + 1).is_ok());
+}

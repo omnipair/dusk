@@ -147,6 +147,17 @@ impl Market {
             }
         }
         let (collateral_debit, collateral_credit) = collateral_at(low)?;
+        // Released collateral rounds up so even a one-atom payment can unfreeze
+        // a vault. The payer covers that rounding: the credit rises to the
+        // discounted value of the collateral actually released. A larger
+        // payment only improves the affordability the discount search proved.
+        let released_nad = self.normalize_amount(u128::from(collateral_credit), self.side(target).asset_decimals)?;
+        let owed_nad = mul_div_ceil_u128(
+            mul_div_ceil_u128(released_nad, reference, u128::from(NAD))?,
+            u128::from(BPS_DENOMINATOR - low),
+            u128::from(BPS_DENOMINATOR),
+        )?;
+        let credit = credit.max(self.denormalize_amount_ceil(owed_nad, self.side(borrowed).asset_decimals)?);
         require_gte!(
             self.side(target).reserves.cash_reserve,
             collateral_debit,

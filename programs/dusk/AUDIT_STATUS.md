@@ -1,5 +1,17 @@
 # Dusk audit status
 
+**2026-11-14:** A five-model review of `bfb1b92d`, followed by a per-model
+Nemesis loop, produced findings OR-001–OR-008 and NX-01–NX-45. Every validated
+finding is fixed in PR #107 with regressions. The product decisions it needed
+are: repaid principal frees daily borrow capacity; a fully burned hLP side is
+recoverable, with its released value booked as protocol revenue; the market
+address hash binds the creator and configuration; a collateral withdrawal from
+a position with debt cannot take market health across the floor; an income
+book rolls once half repaid or near its numeric limits; new LP ownership is
+priced including the retained recenter bucket, after an opportunistic
+recenter; and capped protection executions need only improve health.
+Informational findings are documented at their code sites.
+
 **2026-10-24:** #45 contains source fixes for the later model review's seven
 verified findings, including the hLP solvency/receivable mismatch. Final
 adversarial and economic review of the expanded hLP recovery surface remains a
@@ -90,7 +102,7 @@ reusable governance balance interfaces above.
 | Endogenous pricing | Dusk deliberately has no external oracle. EMA, controller, underwriting, and auction references are internal observations, not fair-price guarantees. |
 | Liquidation capital and loss | Bidders or floor settlers provide debt assets externally. Residual insolvency can reach insurance and LP socialization; isolated-leverage residual principal follows its documented socialization path. |
 | LP exit liquidity | Withdrawals remain cash-gated while assets are borrowed. The 80% governance execution guard is not a guarantee that every LP can exit. |
-| Direct token burns and custody | Direct srLP burns are irreversible donations. A full direct hLP burn is deliberately fail-closed. SPL-multisig-owned LP custody is unsupported. |
+| Direct token burns and custody | Direct srLP burns are irreversible donations. After a full direct hLP burn, anyone can unwind the side with an orphan close; the released value is protocol revenue. SPL-multisig-owned LP custody is unsupported. |
 | Fractional yield | Aggregate liabilities are exact, while unrelated holder accounts can each retain bounded sub-atom Q64 remainders rather than assigning them to another owner. |
 | hLP funding-yield timing | hLP funding interest bears the full indexed cost and, after measured transfer credit and protocol splitting, is indexed only to non-hLP srLP present at the operation snapshot. Both hLP vaults are ineligible. A dedicated carry isolates this source from public interest and is cleared when only `MIN_LIQUIDITY` remains outside hLP. This is payment-time rather than accrual-time ownership, so ordinary srLP entering before settlement participates and ordinary srLP exiting beforehand forfeits participation. Permanently burned `MIN_LIQUIDITY` is the zero-holder sink; its backed allocation is unclaimable and cannot pass to a later depositor. Automatic deleverage sources the cost from the payer's burn legs, with exact target-side conversion for a borrowed-leg shortfall, rather than an additional shared-live debit. |
 | Auction governance | Governance-approved route quality and retroactive terms for unsettled protocol-auction inventory are trust boundaries. Invalid routes fail closed. |

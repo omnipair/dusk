@@ -397,7 +397,10 @@ impl<'info> SettleHlpFlash<'info> {
             eligibility,
             ctx.accounts.event_authority.to_account_info(),
         )?;
-        let refund = received - q.payment;
+        // Return the whole balance. Tokens that reached the vault outside a
+        // session never count as payment and have no other way out.
+        ctx.accounts.repayment_vault.reload()?;
+        let refund = ctx.accounts.repayment_vault.amount;
         if refund > 0 {
             transfer_checked_with_remaining_accounts(
                 session.to_account_info(),

@@ -84,6 +84,10 @@ impl<'info> ConvertTranche<'info> {
         )?;
         a.market.reconcile_junior_receipts(a.junior_mint.supply)?;
         a.market.checkpoint_junior_seed()?;
+        // No fee flush is needed first: swap-fee allocation carries forward
+        // whenever srLP supply is positive. Conversion reclassifies existing
+        // srLP between the senior and junior lanes and mints none, so the
+        // retained recenter surcharge needs no entry pricing here either.
         if a.exit.owner == Pubkey::default() {
             a.exit.owner = owner;
             a.exit.market = market_key;

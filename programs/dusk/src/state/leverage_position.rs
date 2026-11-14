@@ -36,8 +36,10 @@ pub struct LeveragePosition {
     pub debt_asset: u8,
     pub collateral_amount: u64,
     pub margin_terms: LeverageMarginTerms,
-    /// Entry equity valued in debt-token atoms.
+    /// Entry equity valued in debt-token atoms, for the collateral still held.
+    /// A partial close releases the sold share in proportion to collateral.
     pub margin_amount: u64,
+    /// Entry notional for the collateral still held, released like `margin_amount`.
     pub open_notional: u64,
     pub debt_principal: u128,
     pub debt_shares: u128,

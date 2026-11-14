@@ -41,6 +41,18 @@ macro_rules! market_update_and_validate {
             self.validate(args)
         }
     };
+    ($args:ty, liquidity_change) => {
+        pub fn update_and_validate(&mut self, args: &$args) -> Result<()> {
+            crate::instructions::accounting::accrue_market_interest(
+                &mut self.market,
+                Clock::get()?.slot,
+                self.event_authority.to_account_info(),
+                self.futarchy_authority.revenue_share.interest_bps,
+            )?;
+            self.market.update_for_liquidity_change()?;
+            self.validate(args)
+        }
+    };
     ($args:ty) => {
         pub fn update_and_validate(&mut self, args: &$args) -> Result<()> {
             crate::instructions::accounting::accrue_market_interest(

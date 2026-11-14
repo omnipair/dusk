@@ -4117,7 +4117,7 @@ fn prepare_hlp_entry_market(
     market.assert_started_at(clock.unix_timestamp)?;
     require!(!global_reduce_only && !market.reduce_only, ErrorCode::ReduceOnlyMode);
     market.accrue_interest_to_slot(clock.slot)?;
-    reconcile_live_hlp_supply(market, target_asset, live_hlp_mint_supply)?;
+    reconcile_live_hlp_supply(market, target_asset, live_hlp_mint_supply, false)?;
     if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {
         market.advance_amm_clock(clock.slot)?;
         market.checkpoint_hlp_vaults()?;
@@ -4206,7 +4206,7 @@ fn prepare_hlp_withdraw_market(
     market.assert_current_version()?;
     market.assert_started_at(clock.unix_timestamp)?;
     market.accrue_interest_to_slot(clock.slot)?;
-    reconcile_live_hlp_supply(market, target_asset, live_hlp_mint_supply)?;
+    reconcile_live_hlp_supply(market, target_asset, live_hlp_mint_supply, false)?;
     if market.hlp_terminally_closed(target_asset) {
         market.advance_amm_clock(clock.slot)?;
     } else if market.base_side.reserves.live_reserve > 0 && market.quote_side.reserves.live_reserve > 0 {

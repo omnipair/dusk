@@ -264,12 +264,9 @@ pub(super) fn settle_with_amm<'info>(
         ctx.accounts.event_authority.to_account_info(),
         clock.slot,
     )?;
-    let refund = ctx
-        .accounts
-        .repayment_vault
-        .amount
-        .checked_sub(session.payment_balance_before)
-        .ok_or(ErrorCode::BrokenInvariant)?;
+    // The AMM sale repaid the debt from reserves; return the whole payment
+    // vault, including tokens that reached it outside a session.
+    let refund = ctx.accounts.repayment_vault.amount;
     if refund > 0 {
         transfer_checked_with_remaining_accounts(
             session.to_account_info(),

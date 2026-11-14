@@ -128,6 +128,29 @@ impl IncomeReceivableBook {
         Ok(())
     }
 
+    /// Whether `roll_income_epoch` may archive this book. A roll makes every
+    /// srLP and junior holder run income catch-up before their next balance
+    /// change, so it needs real progress: at least half of the epoch's units
+    /// repaid, or a book close to its numeric limits. The second arm keeps
+    /// recovery possible after a small repayment followed by a large accrual.
+    pub fn may_roll(&self) -> bool {
+        self.units > self.unpaid && (self.unpaid <= self.units / 2 || self.near_capacity())
+    }
+
+    /// Within a factor of two of a fixed-width limit that would make further
+    /// issuance or cash credit fail with `IncomeEpochNeedsRollover`.
+    pub fn near_capacity(&self) -> bool {
+        const HALF_U64: u64 = u64::MAX / 2;
+        const HALF_U128: u128 = u128::MAX / 2;
+        self.units >= HALF_U64
+            || self.unpaid >= HALF_U64
+            || self.paid_per_unit_q64 >= HALF_U128
+            || self
+                .growth
+                .iter()
+                .any(|lane| lane.units_q64 >= HALF_U128 || lane.weighted_paid_q128[3] >= HALF_U64)
+    }
+
     /// The instruction persists the returned epoch under its immutable PDA.
     /// Holder catch-up traverses archived epochs in bounded batches; repayment
     /// never scans LP ownership history.

@@ -12190,6 +12190,19 @@ export type Dusk = {
       ]
     },
     {
+      "name": "orphanedHlpClosed",
+      "discriminator": [
+        127,
+        88,
+        17,
+        121,
+        183,
+        111,
+        237,
+        157
+      ]
+    },
+    {
       "name": "protocolAuctionConfigUpdated",
       "discriminator": [
         178,
@@ -14752,10 +14765,11 @@ export type Dusk = {
           {
             "name": "borrowedBucket",
             "docs": [
-              "Gross principal lent out through the public borrow path. Internal hLP",
-              "funding and isolated leverage do not consume this capacity. This is a",
-              "24-hour leaky/token bucket, not an exact trailing-window sum: it permits",
-              "a full burst after idle and then refills at the configured daily rate."
+              "Principal lent out through the public borrow path, net of principal",
+              "repaid through the public repay path. Internal hLP funding and isolated",
+              "leverage do not consume this capacity. This is a 24-hour leaky/token",
+              "bucket, not an exact trailing-window sum: it permits a full burst after",
+              "idle and then refills at the configured daily rate."
             ],
             "type": "u64"
           },
@@ -15128,6 +15142,11 @@ export type Dusk = {
           },
           {
             "name": "collateralDebit",
+            "docs": [
+              "Collateral the caller priced. A partial sale debits exactly this",
+              "amount; a full sale debits all live collateral, which must be at least",
+              "this amount."
+            ],
             "type": "u64"
           },
           {
@@ -17743,12 +17762,16 @@ export type Dusk = {
           {
             "name": "marginAmount",
             "docs": [
-              "Entry equity valued in debt-token atoms."
+              "Entry equity valued in debt-token atoms, for the collateral still held.",
+              "A partial close releases the sold share in proportion to collateral."
             ],
             "type": "u64"
           },
           {
             "name": "openNotional",
+            "docs": [
+              "Entry notional for the collateral still held, released like `margin_amount`."
+            ],
             "type": "u64"
           },
           {
@@ -18412,6 +18435,11 @@ export type Dusk = {
           },
           {
             "name": "closed",
+            "docs": [
+              "Economic closure: no collateral and no debt shares remain. The",
+              "position account stays open until its owner withdraws through",
+              "`withdraw_all_collateral` or `withdraw_repaid_leverage`."
+            ],
             "type": "bool"
           }
         ]
@@ -20516,6 +20544,55 @@ export type Dusk = {
                 "name": "runtimePricing"
               }
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "orphanedHlpClosed",
+      "docs": [
+        "A complete direct burn left an hLP side with value but no receipts; anyone",
+        "unwound it through `withdraw_single_sided` for the whole stored supply. The",
+        "vault's debt was repaid from its srLP backing and the released target-asset",
+        "value was booked as protocol revenue."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "caller",
+            "type": "pubkey"
+          },
+          {
+            "name": "assetSide",
+            "docs": [
+              "`0` for base hLP and `1` for quote hLP."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "hlpAmount",
+            "type": "u64"
+          },
+          {
+            "name": "srlpAmount",
+            "type": "u64"
+          },
+          {
+            "name": "protocolRevenue",
+            "type": "u64"
+          },
+          {
+            "name": "debtRepaid",
+            "type": "u64"
+          },
+          {
+            "name": "interestPaid",
+            "type": "u64"
           }
         ]
       }
@@ -23635,6 +23712,14 @@ export type Dusk = {
       "value": "17"
     },
     {
+      "name": "marketParamsHashDomain",
+      "docs": [
+        "Domain tag of the market parameters hash, the third market-address seed."
+      ],
+      "type": "bytes",
+      "value": "[100, 117, 115, 107, 58, 109, 97, 114, 107, 101, 116, 45, 112, 97, 114, 97, 109, 115, 58, 118, 49]"
+    },
+    {
       "name": "marketReserveVaultSeedPrefix",
       "type": "bytes",
       "value": "[109, 97, 114, 107, 101, 116, 95, 114, 101, 115, 101, 114, 118, 101]"
@@ -23661,8 +23746,12 @@ export type Dusk = {
     },
     {
       "name": "maxOperatorInterestShareBps",
+      "docs": [
+        "The operator may retain up to all interest left after the protocol markup;",
+        "LPs keep swap fees. An increase waits the full operator notice."
+      ],
       "type": "u16",
-      "value": "5000"
+      "value": "10000"
     },
     {
       "name": "maxParameterFeeBps",

@@ -1,7 +1,7 @@
 import type { Program } from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, SystemProgram, Transaction, type AccountMeta, type PublicKey } from "@solana/web3.js";
 import { address, type AddressLike } from "./address.js";
-import { deriveOperatorProposalAddress, deriveOperatorRevenueAddress, OPERATOR_POLICY_VERSION } from "./constants.js";
+import { deriveOperatorProposalAddress, deriveOperatorRevenueAddress, MAX_OPERATOR_INTEREST_SHARE_BPS, OPERATOR_POLICY_VERSION } from "./constants.js";
 import { sha256 } from "./hash.js";
 import {
   anchorParameterUpdate, assertProposalMetadata, canonicalParameterUpdates, integerBN,
@@ -58,8 +58,8 @@ export class DuskOperator {
     if (!updates.length && params.nextOperator === undefined && params.nextManager === undefined && params.revenueRecipient === undefined && params.interestShareBps === undefined) {
       throw new Error("an operator bundle must change at least one setting");
     }
-    if (params.interestShareBps !== undefined && (!Number.isInteger(params.interestShareBps) || params.interestShareBps < 0 || params.interestShareBps > 5_000)) {
-      throw new Error("operator interest share must be 0–5000 bps");
+    if (params.interestShareBps !== undefined && (!Number.isInteger(params.interestShareBps) || params.interestShareBps < 0 || params.interestShareBps > MAX_OPERATOR_INTEREST_SHARE_BPS)) {
+      throw new Error(`operator interest share must be 0–${MAX_OPERATOR_INTEREST_SHARE_BPS} bps`);
     }
     const market = address(params.market);
     const state = await this.market(market);

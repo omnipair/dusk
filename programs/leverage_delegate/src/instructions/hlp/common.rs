@@ -16,6 +16,15 @@ pub struct HlpOrderIdArgs {
     pub order_id: u64,
 }
 
+/// The market side whose current hLP mint is `mint`. `rotate_hlp_cohort`
+/// retires a terminally closed side's mint, and Dusk no longer redeems an
+/// order's stored mint through that side; only cancellation remains.
+pub(crate) fn current_hlp_asset(market: &Market, mint: Pubkey) -> Result<MarketAsset> {
+    market
+        .asset_for_hlp_mint(mint)
+        .map_err(|_| error!(LeverageDelegateError::HlpCohortRetired))
+}
+
 #[inline(never)]
 pub(super) fn withdraw_hlp_order_position<'info>(
     accounts: &ExecuteHlpOrder<'info>,

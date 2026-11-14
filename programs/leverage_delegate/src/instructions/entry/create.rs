@@ -146,7 +146,9 @@ impl<'info> CreateLeverageEntryOrder<'info> {
         order.collateral_mint = ctx.accounts.collateral_mint.key();
         order.order_id = args.order_id;
         order.debt_asset = args.debt_asset;
+        order.deposit_credit = credited;
         order.margin_amount = margin_amount;
+        order.min_margin_amount = args.min_margin_amount;
         order.executor_bounty = args.executor_bounty;
         order.multiplier_bps = args.multiplier_bps;
         order.limit_price_nad = args.limit_price_nad;

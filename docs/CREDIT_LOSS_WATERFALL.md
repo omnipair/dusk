@@ -21,6 +21,12 @@ full protocol-defined notice and pays the fee on its full amount. There is no
 in-place addition or renewal. Capital remains loss-bearing and earns junior
 income until conversion. Senior and hLP withdrawals do not gain this fee.
 
+Queued requests of a fully wiped generation are not converted. Their receipts
+stay in supply until `initialize_junior` archives the generation, and
+`burn_retired_junior` then burns them; their retired income claims are kept.
+Converting them earlier could empty a wiped generation's supply, after which it
+could no longer be archived and new junior capital would join it.
+
 Borrower and leverage liquidations charge a fixed **300 bps** of net debt repaid, capped by recovered
 surplus so the charge cannot create additional bad debt. The existing protocol
 share is deducted once; all remaining underwriting revenue goes to junior.

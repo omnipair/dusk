@@ -462,6 +462,239 @@ fn concentrated_center_move_deploys_locked_bucket_only_when_it_preserves_srlp_pr
 }
 
 #[test]
+fn funded_recenter_with_a_frozen_vault_caches_the_quoted_point() {
+    let mut config = AmmConfig {
+        adjustment_step_nad: NAD / 100,
+        ..AmmConfig::default()
+    };
+    config
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
+        })
+        .unwrap();
+    let mut market = market_with_liquidity(config);
+    market.ensure_amm_initialized(10).unwrap();
+    market.deposit_single_sided(MarketAsset::Base, 20_000 * NAD, 1).unwrap();
+    market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+    market.freeze_negative_hlp_vaults().unwrap();
+    assert_eq!(market.amm.frozen_hlp_mask, 1);
+    // A trade after the freeze moves the frozen vault's claim away from its
+    // frozen exposure. Indexed funding alone no longer moves the pricing point.
+    {
+        use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+        market.risk.base_price_ema_nad = NAD;
+        market.risk.quote_price_ema_nad = NAD;
+        let mut prepared = SwapRequest {
+            current_slot: 10,
+            current_unix_timestamp: 0,
+            asset_in: MarketAsset::Quote,
+            reserve_credit: 1_000 * NAD,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut market)
+        .unwrap();
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &prepared.leverage_quote(),
+            prepared.quote.fee.claimable_fee_debit,
+        )
+        .unwrap();
+        prepared
+            .apply(&mut market, SwapCashPolicy::Spot, credit, 10, 0, ProtocolAuctionSplit::default(), None)
+            .unwrap();
+    }
+    let unadjusted = market
+        .hlp_curve_basis_from_reserves_nad(market.curve_reserves_nad().unwrap())
+        .unwrap()
+        .ordinary;
+    assert_ne!(market.ordinary_curve_point_nad().unwrap(), unadjusted);
+
+    market.amm.price_ema_nad = 2 * NAD;
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        market
+            .credit_protected_recenter_reserve(asset, 100_000 * NAD)
+            .unwrap();
+    }
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
+    assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+    // Quotes evaluate the frozen-adjusted point, so the admitted cache must
+    // pass through it.
+    let ordinary = market.ordinary_curve_point_nad().unwrap();
+    assert_eq!(
+        market.amm.concentrated_curve_cache,
+        crate::transitions::amm::prepare_concentrated_cache_at_point(
+            ordinary.base_reserve,
+            ordinary.quote_reserve,
+            market.current_curve_center_price_nad().unwrap(),
+            market.config.amm.concentrated_curve_parameters().unwrap(),
+        )
+        .unwrap()
+    );
+}
+
+fn retained_surcharge_market(base_bucket: u64, quote_bucket: u64) -> Market {
+    let mut config = AmmConfig::default();
+    config
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
+        })
+        .unwrap();
+    let mut market = market_with_liquidity(config);
+    market.ensure_amm_initialized(10).unwrap();
+    market
+        .credit_protected_recenter_reserve(MarketAsset::Base, base_bucket)
+        .unwrap();
+    market
+        .credit_protected_recenter_reserve(MarketAsset::Quote, quote_bucket)
+        .unwrap();
+    market
+}
+
+fn deploy_retained_surcharge(market: &mut Market, slot: u64) {
+    market.release_protected_recenter_reserves().unwrap();
+    market.finalize_amm_transition_and_observe_risk(slot).unwrap();
+}
+
+#[test]
+fn srlp_entry_buys_its_slice_of_retained_surcharge() {
+    let reserve = 1_000_000 * NAD;
+    for (base_bucket, quote_bucket) in [(10_000 * NAD, 10_000 * NAD), (25_000 * NAD, 0), (0, 40_000 * NAD)] {
+        for k in [1_u64, 10, 100] {
+            let mut market = retained_surcharge_market(base_bucket, quote_bucket);
+            let price = u128::from(market.current_concentrated_spot_price_nad().unwrap().unwrap());
+            let value = |base: u64, quote: u64| u128::from(base) * price / NAD as u128 + u128::from(quote);
+            let reserves = |market: &Market| {
+                value(
+                    market.curve_reserve(MarketAsset::Base).unwrap(),
+                    market.curve_reserve(MarketAsset::Quote).unwrap(),
+                )
+            };
+            let mut alone = market.clone();
+            deploy_retained_surcharge(&mut alone, 11);
+            let held = reserves(&alone);
+
+            // An entry and an immediate exit around a bucket cannot gain.
+            let mut round_trip = market.clone();
+            let entry = round_trip.add_liquidity(k * reserve, k * reserve).unwrap();
+            let exit = round_trip.remove_liquidity(entry.srlp_amount).unwrap();
+            assert!(
+                value(exit.base_amount_out, exit.quote_amount_out)
+                    <= value(entry.base_reserve_credit, entry.quote_reserve_credit),
+                "k={k}"
+            );
+
+            // An entry ahead of the deployment recovers what it paid and no
+            // more; the holders of record keep the whole bucket.
+            let entry = market.add_liquidity(k * reserve, k * reserve).unwrap();
+            market.finalize_amm_transition_and_observe_risk(10).unwrap();
+            deploy_retained_surcharge(&mut market, 11);
+            let exit = market.remove_liquidity(entry.srlp_amount).unwrap();
+            let paid = value(entry.base_reserve_credit, entry.quote_reserve_credit);
+            let received = value(exit.base_amount_out, exit.quote_amount_out);
+            assert!(received <= paid, "k={k} paid={paid} received={received}");
+            assert!(paid - received <= paid / 1_000_000_000 + 4, "k={k} paid={paid} received={received}");
+            assert!(reserves(&market) >= held, "k={k}");
+            market.assert_market_invariants().unwrap();
+        }
+    }
+}
+
+#[test]
+fn srlp_entry_ahead_of_a_funded_controller_recenter_gains_nothing() {
+    let reserve = 1_000_000 * NAD;
+    let mut config = AmmConfig {
+        adjustment_step_nad: NAD / 100,
+        ..AmmConfig::default()
+    };
+    config
+        .set_concentrated_curve_parameters(ConcentratedCurveParameters {
+            peak_amplification_nad: 4 * NAD,
+            core_half_width_bps: 100,
+            fade_width_bps: 400,
+        })
+        .unwrap();
+    let mut market = market_with_liquidity(config);
+    market.ensure_amm_initialized(10).unwrap();
+    market.amm.price_ema_nad = 2 * NAD;
+    let protected = 200_000 * NAD;
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        market.credit_protected_recenter_reserve(asset, protected).unwrap();
+    }
+    let price = u128::from(market.current_concentrated_spot_price_nad().unwrap().unwrap());
+    let value = |base: u64, quote: u64| u128::from(base) * price / NAD as u128 + u128::from(quote);
+    let reserves = |market: &Market| {
+        value(
+            market.curve_reserve(MarketAsset::Base).unwrap(),
+            market.curve_reserve(MarketAsset::Quote).unwrap(),
+        )
+    };
+    let mut alone = market.clone();
+    assert!(alone.advance_one_amm_controller_target(11).unwrap());
+    let held = reserves(&alone);
+
+    let entry = market.add_liquidity(reserve, reserve).unwrap();
+    market.finalize_amm_transition_and_observe_risk(10).unwrap();
+    // The swap controller path deploys the bucket in a later slot.
+    assert!(market.advance_one_amm_controller_target(11).unwrap());
+    assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+    let exit = market.remove_liquidity(entry.srlp_amount).unwrap();
+    let paid = value(entry.base_reserve_credit, entry.quote_reserve_credit);
+    let received = value(exit.base_amount_out, exit.quote_amount_out);
+    assert!(received <= paid, "paid={paid} received={received}");
+    assert!(paid - received <= paid / 1_000_000_000 + 4, "paid={paid} received={received}");
+    assert!(reserves(&market) >= held);
+}
+
+#[test]
+fn hlp_entry_pays_for_retained_surcharge_its_srlp_will_claim() {
+    let deposit = 200_000 * NAD;
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        for (base_bucket, quote_bucket) in [(20_000 * NAD, 20_000 * NAD), (0, 40_000 * NAD)] {
+            let market = retained_surcharge_market(base_bucket, quote_bucket);
+            let (reserve_value, bucket_value) = market.protected_recenter_value(target, false).unwrap().unwrap();
+            let capture = mul_div_u128(u128::from(deposit), bucket_value, reserve_value).unwrap();
+
+            // The same entry after the bucket reached its holders.
+            let mut deployed_first = market.clone();
+            deploy_retained_surcharge(&mut deployed_first, 11);
+            let entry = deployed_first.deposit_single_sided(target, deposit, 1).unwrap();
+            let control = deployed_first
+                .withdraw_single_sided(target, entry.hlp_amount)
+                .unwrap()
+                .target_amount_out;
+
+            let mut market = market;
+            let entry = market.deposit_single_sided(target, deposit, 1).unwrap();
+            assert!(
+                market.side(target).reserves.protected_recenter_reserve
+                    > match target {
+                        MarketAsset::Base => base_bucket,
+                        MarketAsset::Quote => quote_bucket,
+                    }
+            );
+            deploy_retained_surcharge(&mut market, 11);
+            let received = market
+                .withdraw_single_sided(target, entry.hlp_amount)
+                .unwrap()
+                .target_amount_out;
+            // Without the entry payment the vault's new srLP would capture
+            // about `capture` of the bucket. The payment is made in the
+            // target asset, so a one-sided bucket costs the entry slightly
+            // more than its slice once deployed; it never gains.
+            assert!(u128::from(received) <= u128::from(control), "{target:?} {received} > {control}");
+            assert!(
+                u128::from(received) + capture / 50 >= u128::from(control),
+                "{target:?} {received} vs {control}"
+            );
+            market.assert_market_invariants().unwrap();
+        }
+    }
+}
+
+#[test]
 fn concentrated_proportional_liquidity_scales_and_restores_both_tranches() {
     let mut config = AmmConfig::default();
     config
