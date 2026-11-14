@@ -66,6 +66,13 @@ impl Market {
         )
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
         let owned = (claim.units_q64 >> 64) as u64;
+        // When `needed` reaches into the claim's fractional unit, convert the
+        // whole claim (1/1), which takes that fraction too.
+        let (units, owned) = if units > owned && claim.units_q64.div_ceil(1 << 64) >= units as u128 {
+            (1, 1)
+        } else {
+            (units, owned)
+        };
         require_gte!(owned, units, ErrorCode::BrokenInvariant);
         let value = self.quote_hlp_receivable_conversion(target, target, units, owned)?;
         require_gte!(value, needed, ErrorCode::BrokenInvariant);
@@ -436,13 +443,20 @@ impl Market {
             let book = &self.income.get()?.books[i];
             let claim = &mut holder.income[source];
             if !holder.income_initialized {
+                // A new holder owns nothing yet, so it starts at the lane's
+                // current point (its closed growth, if the exposure ended in
+                // this epoch). Starting at zero growth would put its
+                // checkpoint at the drain run's start, before payments the
+                // current epoch's paid index no longer reflects.
+                let end = if junior { ends[i] } else { IncomeExposureEnd::default() };
                 claim.epoch = book.epoch;
-                claim.checkpoint_exposure(
-                    0,
-                    book,
-                    lane,
-                    if junior { ends[i] } else { IncomeExposureEnd::default() },
-                )?;
+                claim.units_q64 = 0;
+                claim.paid_checkpoint_q64 = book.paid_per_unit_q64;
+                claim.growth_checkpoint = if end.ended && end.epoch == book.epoch {
+                    end.growth
+                } else {
+                    *book.growth.get(lane).ok_or(ErrorCode::InvalidArgument)?
+                };
             } else {
                 claim.checkpoint_exposure(
                     balance,

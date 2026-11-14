@@ -260,14 +260,22 @@ next epoch in place when it next issues. Repaying all due interest is
 routine: every swap that pays hLP funding, and a `fund_interest` that funds the
 whole public coupon, drain their book. The shared borrow index therefore keeps
 accruing, and no archive or keeper is involved. Book units carry 64 fractional
-bits, so issuance never drifts a unit's paid-plus-unpaid value away from one
-atom of face value, and a fully repaid epoch has paid every unit that value
-(less paid-index rounding). Lane growth stays cumulative across such a drain
-run, and the book records each ordinary lane's units when the current epoch
-began. A holder that last checkpointed anywhere in the run is valued in one
-step: units issued before the current epoch at face value less a 2^-32 margin,
-units issued since at the live paid index. A holder is never paid more than
-custody received.
+bits, so issuance never lets a unit's paid-plus-unpaid value fall below one
+atom of face value. Each cash credit carries its rounding remainder into the
+next, so a fully repaid epoch's paid index ends within a few 2^-64 of face.
+Lane growth stays cumulative across such a drain run, and the book records
+each ordinary lane's units when the current epoch began. A holder that last
+checkpointed anywhere in the run is valued in one step: units issued before
+the current epoch at face value less 2^-56, units issued since at the live
+paid index. The margin costs holders under 256 atoms per epoch even at the
+2^64 unit limit, however cheaply units were issued. A holder is never paid
+more than custody received. A new holder starts at the lane's current point.
+
+`fund_interest` never leaves the public book a dust remainder: a cap that
+would leave the book's unpaid value below 2^-16 atom per unit is lowered so
+that at least that much stays unfunded. Units issued into a nearly repaid book are nearly free, so
+repeated near-full fundings would otherwise multiply the unit count until
+issuance no longer fits and accrual stalls until a roll.
 
 Every interest transfer into income custody is grossed up by the asset's
 Token-2022 transfer fee, so custody receives the full interest and a routine

@@ -48,9 +48,10 @@ function weighted(growth: IncomeGrowthInput): bigint {
 
 const ZERO_GROWTH: IncomeGrowthInput = { unitsQ64: 0n, weightedPaidQ128: [0n, 0n, 0n, 0n] };
 /** Per-unit value (Q64) paid at catch-up across an epoch advanced in place:
- * face value less a 2^-32 rounding margin. A drained epoch advances in place
- * only once its paid index reaches it. */
-export const DRAINED_UNIT_VALUE_Q64 = (1n << 64n) - (1n << 32n);
+ * face value less 2^-56. The paid-index remainder carry keeps a drained
+ * epoch's index within a few 2^-64 of face; an epoch advances in place only
+ * once its paid index reaches this value. */
+export const DRAINED_UNIT_VALUE_Q64 = (1n << 64n) - (1n << 8n);
 
 /** Pure copy of IncomeReceivableBook::near_capacity: within a factor of two of
  * a fixed-width limit, where `roll_income_epoch` accepts any book. */
@@ -180,12 +181,15 @@ export function projectHolderIncome(input: {
   incomeArchiveRequests(holder, books, asset);
   if (holder.tokenKind === 1) return 0n;
   if (![0, 2].includes(holder.tokenKind) || holder.income.length !== 2 || books.length !== 4) throw new Error("Invalid income holder");
+  // A holder without yield accounts starts at the lane's current point and
+  // owns nothing yet.
+  if (!holder.incomeInitialized) return 0n;
   const lane = holder.tokenKind === 2 ? 1 : 0;
-  const balance = holder.incomeInitialized ? value(value(input.walletBalance, U64) + value(holder.escrowBalance, U64), U64) : 0n;
+  const balance = value(value(input.walletBalance, U64) + value(holder.escrowBalance, U64), U64);
   let amount = 0n;
   for (let source = 0; source < 2; source++) {
     const bookIndex = asset + source * 2, book = books[bookIndex]!;
-    let claim: IncomeClaimInput = { ...holder.income[source]!, epoch: holder.incomeInitialized ? holder.income[source]!.epoch : book.epoch };
+    let claim: IncomeClaimInput = holder.income[source]!;
     const end = lane === 1 ? input.ends?.[bookIndex] : undefined;
     while (value(claim.epoch, U64) < incomeRunStartEpoch(book)) {
       const archived = coveringArchive(input.archives, bookIndex, value(claim.epoch, U64))?.book;

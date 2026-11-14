@@ -22,6 +22,11 @@ pub struct IncomeReceivableBook {
     pub units_q64: u128,
     /// Cash per whole unit (Q64), rounded down at each credit.
     pub paid_per_unit_q64: u128,
+    /// Cash (Q64 atoms) that the last credit's rounding left undistributed.
+    /// It joins the next credit, so rounding never accumulates: a loss-free
+    /// drained epoch's paid index ends within a few 2^-64 of face value.
+    /// Packed into the book's alignment padding, so it adds no heap.
+    pub paid_remainder_q64: u64,
     /// Ordinary senior, junior, base hLP, quote hLP. Growth is cumulative
     /// across the epochs of one drain run and resets only at an archived roll.
     pub growth: [ReceivableGrowth; 4],

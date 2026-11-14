@@ -241,12 +241,19 @@ impl Market {
             ))
             .ok_or(ErrorCode::BrokenInvariant)?;
         let side = self.side_mut(asset);
-        let gross = u64::try_from(
-            unfunded
-                .min(u128::from(max_gross))
-                .min(u128::from(side.reserves.cash_reserve)),
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let mut gross = unfunded
+            .min(u128::from(max_gross))
+            .min(u128::from(side.reserves.cash_reserve));
+        if gross < unfunded && self.side(asset).fees.junior.initialized {
+            // Never leave the income book a dust remainder. Accrual issues
+            // units at the book's unit value, so a remainder priced below
+            // 2^-16 per unit multiplies the unit count with each round and
+            // can exhaust the unit range. Fund the whole coupon or leave at
+            // least that floor unfunded.
+            let floor = self.income.get()?.books[asset.code() as usize].units_q64 >> 80;
+            gross = gross.min(unfunded.saturating_sub(floor));
+        }
+        let gross = u64::try_from(gross).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let fee = if self.side(asset).fees.junior.initialized {
             let i = asset.code() as usize;
             let fee_unpaid = self.income.get()?.revenue[i]

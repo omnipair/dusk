@@ -365,3 +365,159 @@ fn partially_repaid_epoch_does_not_cancel_a_runs_income() {
     }
 }
 
+
+/// Units issued after an epoch was repaid down to one atom are nearly free
+/// (unit price one atom over all outstanding units), so the epoch's unit
+/// count can approach 2^64 while its cash stays small. Catch-up values every
+/// unit of an in-place-advanced epoch at the drained unit value; with the
+/// paid-index remainder carry that value is within 2^-56 of face, so a
+/// lagging holder forgoes at most N * 2^-56 atoms however cheap the units.
+#[test]
+fn cheap_unit_epoch_keeps_lagging_run_income() {
+    let lanes = |amount: u64| [(amount, 2_u64), (0, 0), (0, 0), (0, 0)];
+    for (rounds, accrual) in [(0_u32, 0_u64), (1, 1_000), (2, 1_000), (3, 1_000), (3, 20_000)] {
+        let mut book = IncomeReceivableBook::default();
+        let mut lagging = IncomeReceivableClaim::default();
+        let mut eager = IncomeReceivableClaim::default();
+        lagging.checkpoint(1, &book, 0).unwrap();
+        eager.checkpoint(1, &book, 0).unwrap();
+        let mut cash = 0_u128;
+        for _ in 0..5 {
+            book.issue(lanes(1_000_000)).unwrap();
+            eager.checkpoint(1, &book, 0).unwrap();
+            let unpaid = book.unpaid;
+            book.settle(unpaid, unpaid).unwrap();
+            cash += u128::from(unpaid);
+        }
+        book.issue(lanes(1_000_000)).unwrap();
+        eager.checkpoint(1, &book, 0).unwrap();
+        for _ in 0..rounds {
+            let part = book.unpaid - 1;
+            book.settle(part, part).unwrap();
+            cash += u128::from(part);
+            book.issue(lanes(accrual)).unwrap();
+            eager.checkpoint(1, &book, 0).unwrap();
+        }
+        let unpaid = book.unpaid;
+        book.settle(unpaid, unpaid).unwrap();
+        cash += u128::from(unpaid);
+        assert!(book.can_advance_in_place() && !book.may_roll());
+        let units = book.units_q64 >> 64;
+        let mut rolled_book = book.clone();
+        let archived = rolled_book.roll().unwrap();
+        let mut rolled = lagging;
+        rolled.advance_epoch(1, &archived, 0).unwrap();
+        book.issue(lanes(1)).unwrap();
+        lagging.checkpoint(1, &book, 0).unwrap();
+        eager.checkpoint(1, &book, 0).unwrap();
+        let fair = cash / 2;
+        assert!(u128::from(lagging.claimable) + u128::from(eager.claimable) <= cash);
+        assert!(u128::from(rolled.claimable) + 2 >= fair, "{rounds} x {accrual}");
+        let bound = (units >> 57) + 2;
+        assert!(
+            u128::from(lagging.claimable) + bound >= fair,
+            "{rounds} x {accrual}: {} vs fair {fair}, units {units}",
+            lagging.claimable
+        );
+    }
+}
+
+/// The fused catch-up equals the two-step catch-up it replaced (value to the
+/// epoch start at the drained unit value, floored at zero, then an ordinary
+/// checkpoint from the start) whenever the drained part is non-negative, and
+/// never pays more. The start weighted index is snapshotted at each in-place
+/// advance for the reference.
+#[test]
+fn fused_catch_up_matches_two_step_catch_up() {
+    const V: u128 = DRAINED_UNIT_VALUE_Q64;
+    let two_step = |claim: &IncomeReceivableClaim, book: &IncomeReceivableBook, start: ReceivableGrowth, balance: u64| {
+        let mut owed = U256::from(claim.paid_fraction_q128);
+        let mut excess = U256::zero();
+        let drained = (U256::from(start.units_q64) * U256::from(V))
+            .overflowing_sub(U256(start.weighted_paid_q128))
+            .0
+            .overflowing_sub(U256::from(claim.growth_checkpoint.units_q64) * U256::from(V))
+            .0
+            .overflowing_add(U256(claim.growth_checkpoint.weighted_paid_q128))
+            .0;
+        if drained.bit(255) {
+            excess += (!drained).overflowing_add(U256::one()).0 * U256::from(balance);
+        } else {
+            owed += drained * U256::from(balance);
+        }
+        if claim.paid_checkpoint_q64 <= V {
+            owed += U256::from(claim.units_q64) * U256::from(V - claim.paid_checkpoint_q64);
+        } else {
+            excess += U256::from(claim.units_q64) * U256::from(claim.paid_checkpoint_q64 - V);
+        }
+        let first = owed.saturating_sub(excess);
+        let mut claimable = claim.claimable + (first >> 128).as_u64();
+        let current = book.growth[0];
+        let live = U256::from(current.units_q64 - start.units_q64) * U256::from(book.paid_per_unit_q64)
+            - (U256(current.weighted_paid_q128) - U256(start.weighted_paid_q128));
+        let second = live * U256::from(balance) + U256::from(first.low_u128());
+        claimable += (second >> 128).as_u64();
+        (claimable, second.low_u128())
+    };
+    let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = |m: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % m
+    };
+    let mut equal = 0;
+    for _ in 0..300 {
+        let mut book = IncomeReceivableBook::default();
+        let mut claim = IncomeReceivableClaim::default();
+        let balance = 1 + next(50);
+        claim.checkpoint(balance, &book, 0).unwrap();
+        let mut start = ReceivableGrowth::default();
+        let epochs = 1 + next(5);
+        for e in 0..epochs {
+            for _ in 0..1 + next(6) {
+                if book.unpaid == 0 && book.units_q64 != 0 {
+                    start = book.growth[0];
+                }
+                book.issue([(1 + next(5_000), 100), (0, 0), (0, 0), (0, 0)]).unwrap();
+                if e == 0 && next(3) == 0 {
+                    claim.checkpoint(balance, &book, 0).unwrap();
+                }
+                let part = next(book.unpaid + 1);
+                book.settle(part, part).unwrap();
+            }
+            if e + 1 < epochs {
+                let rest = book.unpaid;
+                book.settle(rest, rest).unwrap();
+            }
+        }
+        if claim.epoch == book.epoch {
+            continue;
+        }
+        let expected = two_step(&claim, &book, start, balance);
+        let mut fused = claim;
+        fused.checkpoint(balance, &book, 0).unwrap();
+        let got = (fused.claimable, fused.paid_fraction_q128);
+        assert!(got <= expected, "{got:?} > {expected:?}");
+        equal += usize::from(got == expected);
+    }
+    assert!(equal > 0);
+}
+
+/// The paid-index remainder carry distributes every credited atom: after a
+/// loss-free epoch drains, the index is within a few 2^-64 of face value
+/// even after many uneven credits.
+#[test]
+fn paid_remainder_keeps_a_drained_index_at_face() {
+    let mut book = IncomeReceivableBook::default();
+    book.issue([(1_000_003, 7), (0, 0), (0, 0), (0, 0)]).unwrap();
+    for _ in 0..1_000 {
+        let part = 997.min(book.unpaid);
+        book.settle(part, part).unwrap();
+        book.issue([(13, 7), (0, 0), (0, 0), (0, 0)]).unwrap();
+    }
+    let rest = book.unpaid;
+    book.settle(rest, rest).unwrap();
+    assert!(book.paid_per_unit_q64 <= Q64 + 64 && book.paid_per_unit_q64 + 64 >= Q64, "{}", book.paid_per_unit_q64);
+    assert!(book.can_advance_in_place());
+}

@@ -24,10 +24,14 @@ use wide::U256;
 const Q64: u128 = 1_u128 << 64;
 
 /// Per-unit value (Q64) paid to holders that catch up across a drained
-/// epoch advanced in place: one atom of face value less a 2^-32 margin for
-/// paid-index rounding. Fractional issuance keeps a loss-free epoch's final
-/// paid index at face value, and an epoch that ends below this is archived.
-const DRAINED_UNIT_VALUE_Q64: u128 = Q64 - (Q64 >> 32);
+/// epoch advanced in place: one atom of face value less 2^-56. Fractional
+/// issuance never lets a loss-free unit's paid-plus-unpaid value fall below
+/// face, and the paid-index remainder carry keeps rounding from accumulating,
+/// so a drained epoch's paid index ends within a few 2^-64 of face. Holders
+/// therefore forgo at most 2^-56 per unit, under 256 atoms per epoch even at
+/// the 2^64 unit limit, however cheaply units were issued. An epoch that ends
+/// below this is archived.
+const DRAINED_UNIT_VALUE_Q64: u128 = Q64 - (Q64 >> 56);
 
 impl anchor_lang::Space for Box<IncomeReceivableBook> {
     const INIT_SPACE: usize = IncomeReceivableBook::INIT_SPACE;
@@ -139,12 +143,18 @@ impl IncomeReceivableBook {
             return Ok(());
         }
         require!(self.units_q64 > 0, ErrorCode::BrokenInvariant);
-        // Cash per whole unit: net_cash * 2^128 / units_q64, rounded down.
-        let per_unit = mul_div_u128((net_cash as u128) << 64, Q64, self.units_q64)?;
-        let next_paid = self
-            .paid_per_unit_q64
-            .checked_add(per_unit)
+        // Cash per whole unit: (net_cash + carried remainder) * 2^128 /
+        // units_q64, rounded down. The remainder is under one 2^-64 atom per
+        // whole unit and is carried at Q64 precision into the next credit.
+        let scaled = (U256::from(net_cash) << 128) + (U256::from(self.paid_remainder_q64) << 64);
+        let units = U256::from(self.units_q64);
+        let (per_unit, remainder) = scaled.div_mod(units);
+        let next_paid = (per_unit <= U256::from(u128::MAX))
+            .then(|| self.paid_per_unit_q64.checked_add(per_unit.as_u128()))
+            .flatten()
             .ok_or(ErrorCode::IncomeEpochNeedsRollover)?;
+        // remainder < units_q64 < 2^128, so remainder >> 64 fits in u64.
+        self.paid_remainder_q64 = (remainder >> 64).as_u64();
         self.paid_per_unit_q64 = next_paid;
         Ok(())
     }
@@ -226,7 +236,7 @@ impl IncomeReceivableClaim {
     /// Retire a portion of this owner's receivable in exchange for funded
     /// principal. The caller must provide that backing and record the matching
     /// public-interest advance; this operation itself creates no cash credit.
-    /// Whole book units are used so rounding cannot dilute the other owners.
+    /// The value is rounded down, so the other owners are never diluted.
     pub(crate) fn redeem_unpaid_units(
         &mut self,
         book: &mut IncomeReceivableBook,
@@ -243,7 +253,14 @@ impl IncomeReceivableClaim {
         if numerator == 0 || self.units_q64 == 0 || book.unpaid == 0 {
             return Ok(0);
         }
-        let units = mul_div_u128(self.units_q64, numerator as u128, denominator as u128)? >> 64 << 64;
+        // A partial conversion takes whole units; the whole claim takes its
+        // fractional unit too. The value is rounded down either way, so the
+        // remaining owners' unit value never falls.
+        let units = if numerator == denominator {
+            self.units_q64
+        } else {
+            mul_div_u128(self.units_q64, numerator as u128, denominator as u128)? >> 64 << 64
+        };
         require_gte!(book.units_q64, units, ErrorCode::BrokenInvariant);
         let value = u64::try_from(mul_div_u128(units, book.unpaid as u128, book.units_q64)?)
             .map_err(|_| ErrorCode::MarketMathOverflow)?;
@@ -417,10 +434,16 @@ impl IncomeReceivableClaim {
         let weighted = U256(growth.weighted_paid_q128)
             .checked_sub(U256(self.growth_checkpoint.weighted_paid_q128))
             .ok_or(ErrorCode::BrokenInvariant)?;
-        let new_unit_income = U256::from(delta)
-            .checked_mul(U256::from(book.paid_per_unit_q64))
-            .and_then(|v| v.checked_sub(weighted))
-            .ok_or(ErrorCode::BrokenInvariant)?;
+        // A zero balance earns nothing from new units; skip the subtraction
+        // so a defensive check cannot block a holder that owns none.
+        let new_unit_income = if balance == 0 {
+            U256::zero()
+        } else {
+            U256::from(delta)
+                .checked_mul(U256::from(book.paid_per_unit_q64))
+                .and_then(|v| v.checked_sub(weighted))
+                .ok_or(ErrorCode::BrokenInvariant)?
+        };
         let old_unit_income = U256::from(self.units_q64)
             .checked_mul(U256::from(
                 book.paid_per_unit_q64

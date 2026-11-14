@@ -4267,6 +4267,16 @@ export type LeverageDelegate = {
             "type": "u128"
           },
           {
+            "name": "paidRemainderQ64",
+            "docs": [
+              "Cash (Q64 atoms) that the last credit's rounding left undistributed.",
+              "It joins the next credit, so rounding never accumulates: a loss-free",
+              "drained epoch's paid index ends within a few 2^-64 of face value.",
+              "Packed into the book's alignment padding, so it adds no heap."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "growth",
             "docs": [
               "Ordinary senior, junior, base hLP, quote hLP. Growth is cumulative",

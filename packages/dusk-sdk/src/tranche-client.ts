@@ -132,20 +132,20 @@ export class DuskTranches {
     return { transactions, hasMore };
   }
 
-  /** Archive impaired drained books (a writeoff or custody shortfall) before
-   * another operation issues income. A loss-free drained book advances in
+  /** Archive books that block income issuance: impaired drained books (a
+   * writeoff or custody shortfall) and books near their numeric limits, where
+   * accrual is clipped without an error. A loss-free drained book advances in
    * place and needs no transaction. This is market-wide maintenance, separate
-   * from catching up individual holders. A numerically exhausted, partially
-   * paid book can be rolled explicitly with rollIncome after
-   * IncomeEpochNeedsRollover. The payer funds archival rent. */
+   * from catching up individual holders. The payer funds archival rent. */
   async prepareDrainedIncomeBooks(params: { market: AddressLike; payer: AddressLike }) {
     const state = await this.marketState(address(params.market));
     const transactions: Transaction[] = [];
     for (let bookIndex = 0; bookIndex < 4; bookIndex++) {
       const book = state.income.books[bookIndex];
       // A loss-free drained book advances in place on its next issuance and
-      // cannot be rolled; only an impaired or short-paid one needs an archive.
-      if (!book.unitsQ64.isZero() && book.unpaid.isZero() && incomeBookMayRoll(book)) {
+      // cannot be rolled; an impaired or short-paid one needs an archive, as
+      // does any book near its numeric limits.
+      if (!book.unitsQ64.isZero() && (book.unpaid.isZero() || incomeBookNearCapacity(book)) && incomeBookMayRoll(book)) {
         transactions.push((await this.rollIncome({ ...params, bookIndex })).transaction);
       }
     }

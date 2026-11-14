@@ -337,7 +337,7 @@ test("junior hook setup names the junior cohort, which a retired generation reso
 test("an income book rolls once half repaid or near its numeric limits", () => {
   const BN = anchor.BN;
   const book = (units, unpaid, extra = {}) => ({
-    unitsQ64: new BN(units).shln(64), unpaid: new BN(unpaid), paidPerUnitQ64: new BN(0), impaired: false, runLength: 0,
+    unitsQ64: new BN(units).shln(64), unpaid: new BN(unpaid), paidPerUnitQ64: new BN(0), paidRemainderQ64: new BN(0), impaired: false, runLength: 0,
     growth: Array.from({ length: 4 }, () => ({ unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, 0].map(v => new BN(v)) })),
     ...extra,
   });

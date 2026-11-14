@@ -919,3 +919,160 @@ fn fee_token_repayment_pays_the_interest_transfer_fee_on_top() {
     }
 }
 
+
+fn drain_run_market() -> Market {
+    let mut market = numeric_limit_market();
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    market
+}
+
+fn fund_base_interest(market: &mut Market, max_gross: u64) -> u64 {
+    let (_, lp) = market.fund_public_interest(MarketAsset::Base, max_gross, 0).unwrap();
+    market
+        .record_receivable_income_credit(MarketAsset::Base, false, lp, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+        .unwrap();
+    lp
+}
+
+fn unfunded_base_interest(market: &Market) -> u64 {
+    let unpaid = market.public_unpaid_interest(MarketAsset::Base).unwrap();
+    (unpaid - u128::from(market.base_side.fees.public_interest_advance.outstanding_gross)) as u64
+}
+
+fn base_srlp_holder(market: &Market) -> crate::state::YieldAccount {
+    crate::state::YieldAccount {
+        token_kind: crate::state::YieldTokenKind::Srlp.code(),
+        asset_mint: market.base_side.asset_mint,
+        ..Default::default()
+    }
+}
+
+/// A new yield account starts at the lane's current point. Lane growth is
+/// cumulative over a drain run while each epoch's paid index restarts at
+/// zero, so starting at zero growth would put the checkpoint at the run's
+/// start and fail; the new holder must initialize at any point of the epoch.
+#[test]
+fn new_yield_account_initializes_during_a_drain_run() {
+    let day = slots_for_ms(crate::constants::MS_PER_DAY);
+    let mut market = drain_run_market();
+    accrue_side::<false>(&mut market, MarketAsset::Base, day, rate_input(Some(0))).unwrap();
+    let half = unfunded_base_interest(&market) / 2;
+    fund_base_interest(&mut market, half);
+    accrue_side::<false>(&mut market, MarketAsset::Base, 2 * day, rate_input(Some(0))).unwrap();
+    fund_base_interest(&mut market, u64::MAX);
+    accrue_side::<false>(&mut market, MarketAsset::Base, 3 * day, rate_input(Some(0))).unwrap();
+    let book = market.income.get().unwrap().books[0].clone();
+    assert_eq!((book.epoch, book.run_length, book.paid_per_unit_q64), (1, 1, 0));
+    let mut fresh = base_srlp_holder(&market);
+    market.checkpoint_holder_income(&mut fresh, 0, None).unwrap();
+    assert!(fresh.income_initialized);
+    assert_eq!(fresh.income[0].growth_checkpoint, book.growth[0]);
+    // It owns nothing issued before it joined.
+    fund_base_interest(&mut market, u64::MAX);
+    market.checkpoint_holder_income(&mut fresh, 1_000, None).unwrap();
+    assert_eq!(fresh.accrued_interest_amount, 0);
+}
+
+/// `fund_interest` never leaves the public book a dust remainder, so repeated
+/// "fund all but one atom" calls neither make units nearly free nor cost a
+/// lagging holder its run income.
+#[test]
+fn dust_fund_interest_cannot_strand_lagging_run_income() {
+    let day = slots_for_ms(crate::constants::MS_PER_DAY);
+    let run = |attack: bool| {
+        let mut market = drain_run_market();
+        market.tranche_policy.junior_income_share_bps = 0;
+        let mut holder = base_srlp_holder(&market);
+        market.checkpoint_holder_income(&mut holder, 0, None).unwrap();
+        let balance = market
+            .tranches
+            .senior_reserve_shares(market.base_side.shares.srlp_supply)
+            .unwrap();
+        for d in 1..=4 {
+            accrue_side::<false>(&mut market, MarketAsset::Base, d * day, rate_input(Some(0))).unwrap();
+            fund_base_interest(&mut market, u64::MAX);
+        }
+        let mut slot = 4 * day;
+        for _ in 0..6 {
+            for _ in 0..4 {
+                slot += 1;
+                accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+                if attack {
+                    let leave_one = unfunded_base_interest(&market) - 1;
+                    fund_base_interest(&mut market, leave_one);
+                    let book = &market.income.get().unwrap().books[0];
+                    assert!(book.unpaid as u128 >= (book.units_q64 >> 80) / 2, "dust remainder");
+                }
+            }
+            fund_base_interest(&mut market, u64::MAX);
+            slot += 1;
+            accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+        }
+        market.checkpoint_holder_income(&mut holder, balance, None).unwrap();
+        holder.accrued_interest_amount
+    };
+    let control = run(false);
+    let attacked = run(true);
+    assert!(control > 10_000_000_000);
+    assert!(attacked + control / 1_000_000 >= control, "{attacked} vs {control}");
+}
+
+/// Repeated near-full `fund_interest` calls cannot exhaust the public book's
+/// unit range, so the shared borrow index keeps accruing.
+#[test]
+fn dust_fund_interest_cannot_stall_the_shared_index() {
+    let day = slots_for_ms(crate::constants::MS_PER_DAY);
+    let hour = day / 24;
+    let mut market = drain_run_market();
+    accrue_side::<false>(&mut market, MarketAsset::Base, day, rate_input(Some(0))).unwrap();
+    let mut control = market.clone();
+    let mut slot = day;
+    for _ in 0..12 {
+        let leave_one = unfunded_base_interest(&market) - 1;
+        fund_base_interest(&mut market, leave_one);
+        slot += 1;
+        accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+        accrue_side::<false>(&mut control, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+    }
+    let book = &market.income.get().unwrap().books[0];
+    assert!(!book.near_capacity());
+    let (index, control_index) = (market.debt.base_borrow_index_nad, control.debt.base_borrow_index_nad);
+    slot += 6 * hour;
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+    accrue_side::<false>(&mut control, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+    let growth = market.debt.base_borrow_index_nad - index;
+    let control_growth = control.debt.base_borrow_index_nad - control_index;
+    assert!(growth * 100 >= control_growth * 99, "{growth} vs {control_growth}");
+}
+
+/// The hLP capitalization quote converts the whole claim, fraction included,
+/// when the coupon it must cover reaches into the claim's fractional unit.
+#[test]
+fn hlp_capitalization_quote_takes_a_fractional_claim() {
+    let day = slots_for_ms(crate::constants::MS_PER_DAY);
+    let mut trials = 0;
+    for fraction_bps in [1_000_u64, 2_500, 3_333, 5_000, 6_667, 7_777, 9_000] {
+        let mut market = drain_run_market();
+        market.base_hlp_vault.srlp_shares = 300_000_000_000;
+        accrue_side::<false>(&mut market, MarketAsset::Base, day, rate_input(Some(0))).unwrap();
+        let part = unfunded_base_interest(&market) * fraction_bps / 10_000;
+        fund_base_interest(&mut market, part);
+        accrue_side::<false>(&mut market, MarketAsset::Base, 2 * day, rate_input(Some(0))).unwrap();
+        for extra in 0..20_u64 {
+            accrue_side::<false>(&mut market, MarketAsset::Base, 2 * day + 1 + extra, rate_input(Some(0))).unwrap();
+            let claim = market.income.get().unwrap().hlp[0][0];
+            let coupon = market.hlp_unpaid_income(MarketAsset::Base, MarketAsset::Base).unwrap();
+            if coupon == 0 || claim.units_q64 % (1_u128 << 64) == 0 {
+                continue;
+            }
+            trials += 1;
+            let (units, owned, value) = market.quote_hlp_capitalization_for_value(MarketAsset::Base, coupon).unwrap();
+            assert!(value >= coupon && units <= owned);
+            let mut executed = market.clone();
+            let actual = executed.capitalize_hlp_receivable(MarketAsset::Base, MarketAsset::Base, units, owned).unwrap();
+            assert_eq!(actual, value);
+        }
+    }
+    assert!(trials > 0);
+}
