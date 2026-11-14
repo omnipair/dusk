@@ -521,6 +521,9 @@ const acceptedOneUseHelpers = new Map([
   [
     "programs/dusk/src/transitions/lending/mod.rs",
     new Set([
+      // The instruction supplies Clock; native regressions exercise the same
+      // complete update at explicit idle slots without global syscall mocks.
+      "update_at_slot",
       "repay_with_finalization_and_fee",
       // The runtime reference-price path and analysis liquidation path share
       // one pessimistic curve reconstruction and its conservative rounding.

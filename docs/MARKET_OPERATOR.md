@@ -92,12 +92,17 @@ available. This is a fixed representation policy, not an operator-selected APR c
 ## Geometry and exit protection
 
 Scheduling a concentration ramp does not immediately change geometry. Each
-attempted step must preserve funded reserve value, market health and spot
-price within fixed-point rounding, compared both with the preceding shape and
-the announced starting shape at current reserves and center. Rejected steps
+attempted step must preserve funded reserve value and market health. The
+announced shape may gradually reprice unchanged inventory, as in CryptoSwap;
+center movement remains under the separate funded center controller. Widths
+and amplification interpolate toward the target. If a linear intermediate
+amplification would violate the minimum tail share, it is capped at the
+maximum admitted by those widths; valid linear steps are unchanged. Rejected steps
 leave the current curve usable. A scheduled candidate is attempted at most once per slot, including rejected attempts; a later slot may retry against current inventory. Withdrawals and repayments do not depend on
 successfully advancing the ramp. Zero↔nonzero widths can be announced; CPMM is
-a valid target.
+a valid target. The schedule survives the last external LP exit and subsequent
+AMM reinitialization. When admitted at or after the end slot, it installs the
+exact announced target and becomes inactive.
 
 The timelock gives notice, not guaranteed immediate cash. Senior and hLP exits
 still need available liquidity; junior exits also require their normal notice

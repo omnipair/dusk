@@ -107,6 +107,10 @@ pub(crate) struct ConcentratedHlpTransition {
     expected_quote_debt_shares: u128,
     expected_base_debt_principal: u64,
     expected_quote_debt_principal: u64,
+    expected_base_pricing_offset_nad: i128,
+    expected_quote_pricing_offset_nad: i128,
+    final_base_pricing_offset_nad: i128,
+    final_quote_pricing_offset_nad: i128,
     final_srlp_supply: u64,
     final_base_srlp_shares: u64,
     final_quote_srlp_shares: u64,
@@ -547,6 +551,7 @@ impl HlpTerminalWaterfallPlan {
         market.sync_income_receivable(borrowed_asset, true, 0)?;
         market.clear_frozen_hlp(self.target_asset);
         market.absorb_funded_credit_loss(borrowed_asset, socialized_loss)?;
+        market.exclude_hlp_funding_payment_from_pricing(borrowed_asset, interest_paid)?;
         market.rebase_concentrated_curve_after_terminal_hlp_loss()?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
@@ -751,7 +756,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         } else {
             market.denormalize_amount_floor(endpoint.total_quote, market.quote_side.asset_decimals)?
         };
-        return Ok(ConcentratedHlpTransition {
+        let transition = ConcentratedHlpTransition {
             frozen_hlp_mask: 0,
             hlp_capitalized: [[0; 3]; 2],
             junior_compound: None,
@@ -764,6 +769,10 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
             expected_quote_debt_shares: 0,
             expected_base_debt_principal: 0,
             expected_quote_debt_principal: 0,
+            expected_base_pricing_offset_nad: market.amm.hlp_funding_base_pricing_offset_nad,
+            expected_quote_pricing_offset_nad: market.amm.hlp_funding_quote_pricing_offset_nad,
+            final_base_pricing_offset_nad: end.base_pricing_offset_nad,
+            final_quote_pricing_offset_nad: end.quote_pricing_offset_nad,
             final_srlp_supply: start_supply,
             final_base_srlp_shares: 0,
             final_quote_srlp_shares: 0,
@@ -781,7 +790,16 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
             quote_interest_paid: 0,
             base_receipt: concentrated_hlp_receipt(MarketAsset::Base, 0, 0, 0, 0, 0, 0, start_supply)?,
             quote_receipt: concentrated_hlp_receipt(MarketAsset::Quote, 0, 0, 0, 0, 0, 0, start_supply)?,
-        });
+        };
+        return if end.base_pricing_offset_nad != 0 || end.quote_pricing_offset_nad != 0 {
+            transition.with_pricing_point(
+                market,
+                end.reconstructed_curve_point()?
+                    .ok_or(ErrorCode::InsufficientLiquidity)?,
+            )
+        } else {
+            Ok(transition)
+        };
     }
     let ordinary_supply = start_supply
         .checked_sub(market.base_hlp_vault.srlp_shares)
@@ -1050,7 +1068,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         start_supply,
     )?;
 
-    Ok(ConcentratedHlpTransition {
+    let transition = ConcentratedHlpTransition {
         frozen_hlp_mask: frozen_mask,
         hlp_capitalized: end.hlp_capitalized,
         junior_compound: end.junior_compound,
@@ -1063,6 +1081,10 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         expected_quote_debt_shares: market.quote_hlp_vault.debt_shares,
         expected_base_debt_principal: market.base_hlp_vault.debt_principal,
         expected_quote_debt_principal: market.quote_hlp_vault.debt_principal,
+        expected_base_pricing_offset_nad: market.amm.hlp_funding_base_pricing_offset_nad,
+        expected_quote_pricing_offset_nad: market.amm.hlp_funding_quote_pricing_offset_nad,
+        final_base_pricing_offset_nad: end.base_pricing_offset_nad,
+        final_quote_pricing_offset_nad: end.quote_pricing_offset_nad,
         final_srlp_supply: ownership.total_srlp_supply,
         final_base_srlp_shares: ownership.base_hlp_srlp_shares,
         final_quote_srlp_shares: ownership.quote_hlp_srlp_shares,
@@ -1080,10 +1102,43 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         quote_interest_paid,
         base_receipt,
         quote_receipt,
-    })
+    };
+    if base_interest_paid > 0
+        || quote_interest_paid > 0
+        || end.base_pricing_offset_nad != 0
+        || end.quote_pricing_offset_nad != 0
+    {
+        transition.with_pricing_point(
+            market,
+            end.reconstructed_curve_point()?
+                .ok_or(ErrorCode::InsufficientLiquidity)?,
+        )
+    } else {
+        Ok(transition)
+    }
 }
 
 impl ConcentratedHlpTransition {
+    fn with_pricing_point(
+        mut self,
+        market: &Market,
+        point: crate::transitions::amm::ConcentratedCurvePoint,
+    ) -> Result<Self> {
+        let actual = self.final_ordinary_point_nad(market)?;
+        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
+        self.final_base_pricing_offset_nad = self
+            .final_base_pricing_offset_nad
+            .checked_add(signed(point.base_reserve)?)
+            .and_then(|value| value.checked_sub(signed(actual.base_reserve).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.final_quote_pricing_offset_nad = self
+            .final_quote_pricing_offset_nad
+            .checked_add(signed(point.quote_reserve)?)
+            .and_then(|value| value.checked_sub(signed(actual.quote_reserve).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(self)
+    }
+
     pub(crate) fn final_ordinary_point_nad(
         &self,
         market: &Market,
@@ -1103,10 +1158,17 @@ impl ConcentratedHlpTransition {
             self.final_srlp_supply,
             self.final_base_srlp_shares,
             self.final_quote_srlp_shares,
-            market.normalize_amount(u128::from(self.final_base_debt), market.quote_side.asset_decimals)?,
-            market.normalize_amount(u128::from(self.final_quote_debt), market.base_side.asset_decimals)?,
+            market.normalize_amount(u128::from(self.final_base_hlp_live), market.quote_side.asset_decimals)?,
+            market.normalize_amount(u128::from(self.final_quote_hlp_live), market.base_side.asset_decimals)?,
         )?;
-        market.frozen_adjusted_ordinary(&basis)
+        market.frozen_adjusted_ordinary(&basis)?.shifted(
+            self.final_base_pricing_offset_nad
+                .checked_sub(market.amm.hlp_funding_base_pricing_offset_nad)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            self.final_quote_pricing_offset_nad
+                .checked_sub(market.amm.hlp_funding_quote_pricing_offset_nad)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        )
     }
 
     pub(crate) fn debt_deltas(&self) -> (i128, i128) {
@@ -1129,6 +1191,25 @@ impl ConcentratedHlpTransition {
     }
 
     pub(crate) fn consume(&self, market: &mut Market) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
+        let pricing_point = if self.base_interest_paid > 0
+            || self.quote_interest_paid > 0
+            || self.final_base_pricing_offset_nad != 0
+            || self.final_quote_pricing_offset_nad != 0
+        {
+            Some(self.final_ordinary_point_nad(market)?)
+        } else {
+            None
+        };
+        require_eq!(
+            self.expected_base_pricing_offset_nad,
+            market.amm.hlp_funding_base_pricing_offset_nad,
+            ErrorCode::BrokenInvariant
+        );
+        require_eq!(
+            self.expected_quote_pricing_offset_nad,
+            market.amm.hlp_funding_quote_pricing_offset_nad,
+            ErrorCode::BrokenInvariant
+        );
         require_eq!(
             market.amm.frozen_hlp_mask,
             self.frozen_hlp_mask,
@@ -1299,6 +1380,8 @@ impl ConcentratedHlpTransition {
         market.base_side.shares.srlp_supply = self.final_srlp_supply;
         market.quote_side.shares.srlp_supply = self.final_srlp_supply;
         market.base_hlp_vault.srlp_shares = self.final_base_srlp_shares;
+        market.amm.hlp_funding_base_pricing_offset_nad = self.final_base_pricing_offset_nad;
+        market.amm.hlp_funding_quote_pricing_offset_nad = self.final_quote_pricing_offset_nad;
         market.quote_hlp_vault.srlp_shares = self.final_quote_srlp_shares;
         market.base_hlp_vault.debt_shares = self.final_base_debt_shares;
         market.quote_hlp_vault.debt_shares = self.final_quote_debt_shares;
@@ -1314,6 +1397,9 @@ impl ConcentratedHlpTransition {
         market.quote_hlp_vault.quote_hlp_live_reserve = 0;
         market.base_side.reserves.live_reserve = identity_base_live;
         market.quote_side.reserves.live_reserve = identity_quote_live;
+        if let Some(point) = pricing_point {
+            market.preserve_hlp_pricing_point(point)?;
+        }
         if self.frozen_hlp_mask & 1 == 0 {
             market.base_hlp_vault.last_nav_nad = self.base_receipt.nav_nad;
             market.base_hlp_vault.residual_exposure = 0;
@@ -1637,6 +1723,7 @@ impl Market {
         // not trap the owner after an ordinary trade moves the market; the
         // owner's token minimum and post-state cash/health checks still bind.
         checkpoint_hlp_yield_from_srlp(market, target_asset)?;
+        let pricing_point_before = market.ordinary_curve_point_nad()?;
         let mut final_price_nad = None;
         let receipt = match target_asset {
             MarketAsset::Base => {
@@ -1686,6 +1773,9 @@ impl Market {
                 market.base_hlp_vault.debit_srlp(srlp_amount)?;
                 debit_cash_for_hlp_interest(market, MarketAsset::Quote, interest_paid)?;
                 market.base_hlp_vault.burn_hlp(hlp_amount)?;
+                if interest_paid > 0 {
+                    market.preserve_hlp_pricing_point(pricing_point_before)?;
+                }
                 if market.base_hlp_vault.hlp_supply == 0 {
                     require_eq!(
                         market.base_side.reserves.base_hlp_backing_inventory,
@@ -1767,6 +1857,9 @@ impl Market {
                 market.quote_hlp_vault.debit_srlp(srlp_amount)?;
                 debit_cash_for_hlp_interest(market, MarketAsset::Base, interest_paid)?;
                 market.quote_hlp_vault.burn_hlp(hlp_amount)?;
+                if interest_paid > 0 {
+                    market.preserve_hlp_pricing_point(pricing_point_before)?;
+                }
                 if market.quote_hlp_vault.hlp_supply == 0 {
                     require_eq!(
                         market.base_side.reserves.quote_hlp_backing_inventory,

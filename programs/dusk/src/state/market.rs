@@ -366,6 +366,11 @@ pub struct AmmState {
     /// Concentrated CPMM-tail/band geometry. CPMM is represented by zero
     /// concentrated liquidity in this same cache.
     pub concentrated_curve_cache: ConcentratedCurveCache,
+    /// Pricing-only translations between the ordinary ownership books and
+    /// trading coordinates. Funding payments settle cash and liabilities;
+    /// these non-redeemable offsets keep them outside trading principal.
+    pub hlp_funding_base_pricing_offset_nad: i128,
+    pub hlp_funding_quote_pricing_offset_nad: i128,
     pub center_price_nad: u64,
     pub price_ema_nad: u64,
     pub last_trade_price_nad: u64,
@@ -420,6 +425,8 @@ impl Default for AmmState {
             initialized: false,
             concentration_ramp: Default::default(),
             concentrated_curve_cache: ConcentratedCurveCache::default(),
+            hlp_funding_base_pricing_offset_nad: 0,
+            hlp_funding_quote_pricing_offset_nad: 0,
             center_price_nad: 0,
             price_ema_nad: 0,
             last_trade_price_nad: 0,

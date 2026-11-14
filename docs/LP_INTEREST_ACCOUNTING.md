@@ -97,6 +97,37 @@ The SDK `get.previewHlpDepositCapacity` helper uses the native full-value
 admission and funding ceiling. `Ready` is a current funding/hedge status, not a
 promise that every smaller deposit passes amount-specific rounding checks.
 
+## hLP funding and pricing inventory
+
+The ordinary pricing point is reconstructed from recorded hLP reserve backing,
+not from the indexed funding liability. Accrued funding changes neither cash
+nor those recorded reserve legs. Idle accrual therefore leaves the pricing
+point and its cached geometry unchanged, including outside concentrated bands.
+
+The full indexed liability remains in NAV, solvency, funding-income and hedge
+calculations. The integrated settlement values each vault's funding residual
+at the funded curve mark and uses separate ownership offsets to reconcile the
+entire liability with actual inventory. Accrued interest is not additional
+principal or executable liquidity. Frozen vaults keep their liabilities.
+
+Payment records the cash moved to interest custody and settles the liability
+already charged to the paying vault's NAV at accrual. Persistent, signed hLP
+funding offsets bridge the resulting ownership books to the unchanged pricing
+point. They are virtual trading coordinates, never redeemable assets or cash.
+Both vaults settle through one endpoint, preserve their full pre-payment NAV
+at the same mark within raw-atom rounding, and retain their complete hedge.
+Funding accrual and payment alone leave both pricing coordinates and the
+cached concentration geometry unchanged. Ordinary LP mint/burn scales this
+separation with ordinary ownership; an hLP close does not discard it. Cash
+availability, full indexed debt, and principal-loss accounting remain binding.
+
+Regressions cover exact payment-only point/cache/price equality on both tails,
+both vaults settling once with unchanged full NAV, partial and full hLP exits,
+ordinary LP mint/burn with active and closed vaults, and repeated fee-free
+round trips. Idle update observations equal the first swap's starting price.
+Native and flash terminal closes share the same funding-only pricing
+adjustment; collateral recovery and principal losses still change inventory.
+
 ## Validation and compute cost
 
 The complete local CI sequence passes for this accounting correction: 513

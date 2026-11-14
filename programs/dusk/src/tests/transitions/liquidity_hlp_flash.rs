@@ -679,3 +679,68 @@ fn partial_flash_payment_covers_the_released_collateral() {
     }
     assert!(checked > 0);
 }
+
+#[test]
+fn terminal_paths_exclude_paid_funding_from_pricing() {
+    for flash in [false, true] {
+        for amplification in [1, 4, 10] {
+            for target in [MarketAsset::Base, MarketAsset::Quote] {
+                let mut market = market_for_flash(amplification, target, 15_000);
+                let offsets_before = (
+                    market.amm.hlp_funding_base_pricing_offset_nad,
+                    market.amm.hlp_funding_quote_pricing_offset_nad,
+                );
+                let interest_paid = if flash {
+                    let fee = LeverageCollateralFee::default();
+                    let quote = market.quote_hlp_flash_recovery(target, fee, fee).unwrap();
+                    assert!(quote.full);
+                    market.begin_hlp_flash_recovery(quote).unwrap();
+                    let receipt = market
+                        .settle_terminal_hlp_flash(quote, fee, u64::MAX, 1)
+                        .unwrap();
+                    assert_eq!(receipt.loss.principal_written_off, 0);
+                    receipt.loss.interest_paid
+                } else {
+                    let plan = market
+                        .prepare_terminal_hlp_waterfall(target, 1, 0, 0)
+                        .unwrap();
+                    let receipt = plan.consume(&mut market, u64::MAX).unwrap();
+                    assert_eq!(receipt.socialized_loss, 0);
+                    receipt.interest_paid
+                };
+                assert!(interest_paid > 0);
+                let point = market.ordinary_curve_point_nad().unwrap();
+                // Preserve every other terminal cash flow and ownership change.
+                // Only the paid funding bill is excluded from trading principal.
+                let mut without_payment = market.clone();
+                without_payment.amm.hlp_funding_base_pricing_offset_nad = offsets_before.0;
+                without_payment.amm.hlp_funding_quote_pricing_offset_nad = offsets_before.1;
+                let borrowed = target.opposite();
+                let mut reserves = without_payment.curve_reserves_nad().unwrap();
+                let paid = market
+                    .normalize_amount(
+                        u128::from(interest_paid),
+                        market.side(borrowed).asset_decimals,
+                    )
+                    .unwrap();
+                if borrowed == MarketAsset::Base {
+                    reserves.base += paid;
+                } else {
+                    reserves.quote += paid;
+                }
+                let expected = without_payment
+                    .frozen_adjusted_ordinary(
+                        &without_payment
+                            .hlp_curve_basis_from_reserves_nad(reserves)
+                            .unwrap(),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    point, expected,
+                    "flash={flash} amp={amplification} target={target:?}"
+                );
+                market.assert_market_invariants().unwrap();
+            }
+        }
+    }
+}

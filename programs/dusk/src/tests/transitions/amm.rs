@@ -480,8 +480,30 @@ fn funded_recenter_with_a_frozen_vault_caches_the_quoted_point() {
     market.debt.quote_borrow_index_nad = 3 * NAD as u128;
     market.freeze_negative_hlp_vaults().unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 1);
-    // The frozen vault's indexed debt keeps growing after the freeze.
-    market.debt.quote_borrow_index_nad = 4 * NAD as u128;
+    // A trade after the freeze moves the frozen vault's claim away from its
+    // frozen exposure. Indexed funding alone no longer moves the pricing point.
+    {
+        use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+        market.risk.base_price_ema_nad = NAD;
+        market.risk.quote_price_ema_nad = NAD;
+        let mut prepared = SwapRequest {
+            current_slot: 10,
+            current_unix_timestamp: 0,
+            asset_in: MarketAsset::Quote,
+            reserve_credit: 1_000 * NAD,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut market)
+        .unwrap();
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &prepared.leverage_quote(),
+            prepared.quote.fee.claimable_fee_debit,
+        )
+        .unwrap();
+        prepared
+            .apply(&mut market, SwapCashPolicy::Spot, credit, 10, 0, ProtocolAuctionSplit::default(), None)
+            .unwrap();
+    }
     let unadjusted = market
         .hlp_curve_basis_from_reserves_nad(market.curve_reserves_nad().unwrap())
         .unwrap()

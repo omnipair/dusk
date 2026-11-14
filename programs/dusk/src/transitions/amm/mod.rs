@@ -163,6 +163,9 @@ impl Market {
         let curve_depth_per_share_nad = self.curve_depth_per_share_nad(curve_depth_nad)?;
         let launch_reference_price_nad = self.amm.launch_reference_price_nad;
         let launch_fee_progress_offset = self.amm.launch_fee_progress_offset;
+        let concentration_ramp = self.amm.concentration_ramp;
+        let base_pricing_offset = self.amm.hlp_funding_base_pricing_offset_nad;
+        let quote_pricing_offset = self.amm.hlp_funding_quote_pricing_offset_nad;
         let mut state = AmmState::initialize(
             &self.config.amm,
             center_price_nad,
@@ -171,6 +174,9 @@ impl Market {
         )?;
         state.launch_reference_price_nad = launch_reference_price_nad;
         state.launch_fee_progress_offset = launch_fee_progress_offset;
+        state.concentration_ramp = concentration_ramp;
+        state.hlp_funding_base_pricing_offset_nad = base_pricing_offset;
+        state.hlp_funding_quote_pricing_offset_nad = quote_pricing_offset;
         state.concentrated_curve_cache = concentrated_curve_cache;
         state.refresh_retention_target(curve_depth_per_share_nad, 0)?;
         *self.amm = state;
@@ -349,6 +355,8 @@ impl Market {
             );
             self.amm.concentrated_curve_cache = Default::default();
             self.amm.initialized = false;
+            self.amm.hlp_funding_base_pricing_offset_nad = 0;
+            self.amm.hlp_funding_quote_pricing_offset_nad = 0;
             self.amm.curve_depth_per_share_nad = 0;
             self.amm.protected_floor_per_share_nad = 0;
             self.amm.retention_required_nad = 0;
@@ -629,14 +637,11 @@ impl Market {
     }
 
     /// Reconstruct an operator-selected shape at unchanged inventory. The
-    /// caller checks common-price LP backing and executable-price continuity.
+    /// caller checks common-price LP backing. An announced shape ramp may
+    /// reprice unchanged inventory; the center controller remains independent.
     /// Depth is a shape-dependent coordinate: rebase its protection floor at
     /// the same ratio, rounding toward less spendable profit.
-    pub(crate) fn apply_concentrated_curve_parameter_update(
-        &mut self,
-        current_slot: u64,
-        reference_prices: [u64; 2],
-    ) -> Result<()> {
+    pub(crate) fn apply_concentrated_curve_parameter_update(&mut self, current_slot: u64) -> Result<()> {
         let parameters = self.config.amm.concentrated_curve_parameters()?;
         let ordinary = self.ordinary_curve_point_nad()?;
         let cache = prepare_concentrated_cache_at_point(
@@ -649,15 +654,6 @@ impl Market {
         let price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
-        // Reject repricing before expensive risk/retention work. The ramp's
-        // outer snapshot restores the candidate cache on every rejected step.
-        for reference in reference_prices {
-            let difference = reference.abs_diff(price_nad) as u128;
-            require!(
-                difference <= 1 && difference * 1_000_000 <= reference as u128,
-                ErrorCode::OperatorPolicyExceeded
-            );
-        }
         let curve_depth_nad = cache
             .tail_liquidity
             .checked_add(cache.concentrated_liquidity)
@@ -736,6 +732,9 @@ pub(crate) struct CurveReservesNad {
 type IntegratedCurveMark = Option<(ConcentratedCurveGeometry, u128)>;
 
 pub(crate) struct HlpCurveBasis {
+    // Pricing decomposes recorded reserve backing, not indexed liabilities.
+    // Unpaid funding is valued separately when constructing the full-NAV
+    // settlement state; it never changes this point merely as time passes.
     pub(crate) ordinary: ConcentratedCurvePoint,
     base_hlp_base_claim: u128,
     quote_hlp_quote_claim: u128,
@@ -743,8 +742,8 @@ pub(crate) struct HlpCurveBasis {
     quote_opposite_net: i128,
     base_hlp_equity: i128,
     quote_hlp_equity: i128,
-    base_hlp_quote_debt: u128,
-    quote_hlp_base_debt: u128,
+    base_hlp_quote_backing: u128,
+    quote_hlp_base_backing: u128,
 }
 
 impl HlpCurveBasis {
@@ -753,11 +752,12 @@ impl HlpCurveBasis {
         supply: u64,
         base_srlp_shares: u64,
         quote_srlp_shares: u64,
-        base_hlp_quote_debt: u128,
-        quote_hlp_base_debt: u128,
+        base_hlp_quote_backing: u128,
+        quote_hlp_base_backing: u128,
     ) -> Result<Self> {
         require!(supply > 0, ErrorCode::SupplyUnderflow);
-        if base_srlp_shares == 0 && quote_srlp_shares == 0 && base_hlp_quote_debt == 0 && quote_hlp_base_debt == 0 {
+        if base_srlp_shares == 0 && quote_srlp_shares == 0 && base_hlp_quote_backing == 0 && quote_hlp_base_backing == 0
+        {
             // With no hLP claims or debt, all executable inventory is ordinary.
             // Retain the signed-domain and nonzero checks of the general path.
             i128::try_from(reserves.base).map_err(|_| ErrorCode::MarketMathOverflow)?;
@@ -777,28 +777,26 @@ impl HlpCurveBasis {
                 quote_opposite_net: 0,
                 base_hlp_equity: 0,
                 quote_hlp_equity: 0,
-                base_hlp_quote_debt: 0,
-                quote_hlp_base_debt: 0,
+                base_hlp_quote_backing: 0,
+                quote_hlp_base_backing: 0,
             });
         }
         let base_hlp_base_claim = mul_div_u128(reserves.base, base_srlp_shares as u128, supply as u128)?;
         let base_hlp_quote_claim = mul_div_u128(reserves.quote, base_srlp_shares as u128, supply as u128)?;
         let quote_hlp_base_claim = mul_div_u128(reserves.base, quote_srlp_shares as u128, supply as u128)?;
         let quote_hlp_quote_claim = mul_div_u128(reserves.quote, quote_srlp_shares as u128, supply as u128)?;
-        // Preserve each vault's actual point-in-time NAV while reconstructing
-        // the zero-opposite-exposure endpoint. This is deliberately derived
-        // from current claims and indexed debt rather than `last_nav_nad`,
-        // which is only a settlement checkpoint and may be stale after a
-        // price move or interest accrual.
-        let base_opposite_net = if base_hlp_quote_claim >= base_hlp_quote_debt {
-            i128::try_from(base_hlp_quote_claim - base_hlp_quote_debt).map_err(|_| ErrorCode::MarketMathOverflow)?
+        // Reconstruct the funded ownership allocation from current claims and
+        // the recorded synthetic reserve legs. Indexed funding interest is
+        // a separate liability, not inventory added to either curve axis.
+        let base_opposite_net = if base_hlp_quote_claim >= base_hlp_quote_backing {
+            i128::try_from(base_hlp_quote_claim - base_hlp_quote_backing).map_err(|_| ErrorCode::MarketMathOverflow)?
         } else {
-            -i128::try_from(base_hlp_quote_debt - base_hlp_quote_claim).map_err(|_| ErrorCode::MarketMathOverflow)?
+            -i128::try_from(base_hlp_quote_backing - base_hlp_quote_claim).map_err(|_| ErrorCode::MarketMathOverflow)?
         };
-        let quote_opposite_net = if quote_hlp_base_claim >= quote_hlp_base_debt {
-            i128::try_from(quote_hlp_base_claim - quote_hlp_base_debt).map_err(|_| ErrorCode::MarketMathOverflow)?
+        let quote_opposite_net = if quote_hlp_base_claim >= quote_hlp_base_backing {
+            i128::try_from(quote_hlp_base_claim - quote_hlp_base_backing).map_err(|_| ErrorCode::MarketMathOverflow)?
         } else {
-            -i128::try_from(quote_hlp_base_debt - quote_hlp_base_claim).map_err(|_| ErrorCode::MarketMathOverflow)?
+            -i128::try_from(quote_hlp_base_backing - quote_hlp_base_claim).map_err(|_| ErrorCode::MarketMathOverflow)?
         };
         let base_opposite_value = if base_opposite_net >= 0 {
             i128::try_from(mul_div_u128(base_opposite_net as u128, reserves.base, reserves.quote)?)
@@ -833,11 +831,11 @@ impl HlpCurveBasis {
         let as_signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
         let ordinary_base = as_signed(reserves.base)?
             .checked_sub(base_hlp_equity)
-            .and_then(|value| value.checked_sub(as_signed(quote_hlp_base_debt).ok()?))
+            .and_then(|value| value.checked_sub(as_signed(quote_hlp_base_backing).ok()?))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let ordinary_quote = as_signed(reserves.quote)?
             .checked_sub(quote_hlp_equity)
-            .and_then(|value| value.checked_sub(as_signed(base_hlp_quote_debt).ok()?))
+            .and_then(|value| value.checked_sub(as_signed(base_hlp_quote_backing).ok()?))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require!(
             ordinary_base > 0 && ordinary_quote > 0,
@@ -854,8 +852,8 @@ impl HlpCurveBasis {
             quote_opposite_net,
             base_hlp_equity,
             quote_hlp_equity,
-            base_hlp_quote_debt,
-            quote_hlp_base_debt,
+            base_hlp_quote_backing,
+            quote_hlp_base_backing,
         })
     }
 }
@@ -912,7 +910,7 @@ impl Market {
                     .amm
                     .frozen_base_vault_quote_offset_nad
                     .checked_sub(
-                        i128::try_from(basis.base_hlp_quote_debt)
+                        i128::try_from(basis.base_hlp_quote_backing)
                             .map_err(|_| ErrorCode::MarketMathOverflow)?
                             .checked_sub(i128::try_from(base_live).map_err(|_| ErrorCode::MarketMathOverflow)?)
                             .ok_or(ErrorCode::MarketMathOverflow)?,
@@ -934,7 +932,7 @@ impl Market {
                     .amm
                     .frozen_quote_vault_base_offset_nad
                     .checked_sub(
-                        i128::try_from(basis.quote_hlp_base_debt)
+                        i128::try_from(basis.quote_hlp_base_backing)
                             .map_err(|_| ErrorCode::MarketMathOverflow)?
                             .checked_sub(i128::try_from(quote_live).map_err(|_| ErrorCode::MarketMathOverflow)?)
                             .ok_or(ErrorCode::MarketMathOverflow)?,
@@ -948,7 +946,10 @@ impl Market {
 
     pub(crate) fn frozen_adjusted_ordinary(&self, basis: &HlpCurveBasis) -> Result<ConcentratedCurvePoint> {
         if self.amm.frozen_hlp_mask == 0 {
-            return Ok(basis.ordinary);
+            return basis.ordinary.shifted(
+                self.amm.hlp_funding_base_pricing_offset_nad,
+                self.amm.hlp_funding_quote_pricing_offset_nad,
+            );
         }
         let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
         let (frozen_base_offset, frozen_quote_offset) = self.frozen_curve_offsets()?;
@@ -968,7 +969,7 @@ impl Market {
             })
             .and_then(|value| {
                 value.checked_add(if self.hlp_frozen(MarketAsset::Quote) {
-                    signed(basis.quote_hlp_base_debt)
+                    signed(basis.quote_hlp_base_backing)
                         .ok()?
                         .checked_sub(signed(quote_live).ok()?)?
                 } else {
@@ -984,7 +985,7 @@ impl Market {
             })
             .and_then(|value| {
                 value.checked_add(if self.hlp_frozen(MarketAsset::Base) {
-                    signed(basis.base_hlp_quote_debt)
+                    signed(basis.base_hlp_quote_backing)
                         .ok()?
                         .checked_sub(signed(base_live).ok()?)?
                 } else {
@@ -999,10 +1000,14 @@ impl Market {
             .checked_add(quote_adjustment)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
-        Ok(ConcentratedCurvePoint {
+        ConcentratedCurvePoint {
             base_reserve: base as u128,
             quote_reserve: quote as u128,
-        })
+        }
+        .shifted(
+            self.amm.hlp_funding_base_pricing_offset_nad,
+            self.amm.hlp_funding_quote_pricing_offset_nad,
+        )
     }
 
     /// Freeze a negative-value vault's hedge without changing the current
@@ -1150,13 +1155,27 @@ impl Market {
                 )?,
             )
         };
+        let ordinary = ConcentratedCurvePoint {
+            base_reserve: reserves.base,
+            quote_reserve: reserves.quote,
+        }
+        .shifted(
+            self.amm.hlp_funding_base_pricing_offset_nad,
+            self.amm.hlp_funding_quote_pricing_offset_nad,
+        )?;
         let state = IntegratedCurveState {
-            ordinary_base: reserves.base,
-            ordinary_quote: reserves.quote,
+            ordinary_base: ordinary.base_reserve,
+            ordinary_quote: ordinary.quote_reserve,
             ordinary_base_book_offset: i128::try_from(if receivable_hedge { 0 } else { base_interest })
-                .map_err(|_| ErrorCode::MarketMathOverflow)?,
+                .map_err(|_| ErrorCode::MarketMathOverflow)?
+                .checked_sub(self.amm.hlp_funding_base_pricing_offset_nad)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
             ordinary_quote_book_offset: i128::try_from(if receivable_hedge { 0 } else { quote_interest })
-                .map_err(|_| ErrorCode::MarketMathOverflow)?,
+                .map_err(|_| ErrorCode::MarketMathOverflow)?
+                .checked_sub(self.amm.hlp_funding_quote_pricing_offset_nad)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+            base_pricing_offset_nad: self.amm.hlp_funding_base_pricing_offset_nad,
+            quote_pricing_offset_nad: self.amm.hlp_funding_quote_pricing_offset_nad,
             base_unpaid_interest: if receivable_hedge { 0 } else { base_interest },
             receivable_hedge,
             quote_unpaid_interest: if receivable_hedge { 0 } else { quote_interest },
@@ -1182,14 +1201,20 @@ impl Market {
             quote_hlp_quote_claim,
             base_opposite_net,
             quote_opposite_net,
-            base_hlp_equity,
-            quote_hlp_equity,
-            base_hlp_quote_debt,
-            quote_hlp_base_debt,
+            base_hlp_quote_backing,
+            quote_hlp_base_backing,
             ..
         } = basis;
         let supply = self.base_side.shares.srlp_supply;
         let as_signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
+        let base_hlp_quote_debt = self.normalize_amount(
+            Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?,
+            self.quote_side.asset_decimals,
+        )?;
+        let quote_hlp_base_debt = self.normalize_amount(
+            Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)?,
+            self.base_side.asset_decimals,
+        )?;
         let base_interest = self.normalize_amount(
             self.unrealized_interest(MarketAsset::Base)?,
             self.base_side.asset_decimals,
@@ -1222,6 +1247,9 @@ impl Market {
             })
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let base_opposite_book_net = base_opposite_net
+            .checked_add(as_signed(base_hlp_quote_backing)?)
+            .and_then(|value| value.checked_sub(as_signed(base_hlp_quote_debt).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?
             .checked_add(as_signed(if receivable_hedge {
                 hlp_unpaid[0][1]
             } else {
@@ -1236,6 +1264,9 @@ impl Market {
             })
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let quote_opposite_book_net = quote_opposite_net
+            .checked_add(as_signed(quote_hlp_base_backing)?)
+            .and_then(|value| value.checked_sub(as_signed(quote_hlp_base_debt).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?
             .checked_add(as_signed(if receivable_hedge {
                 hlp_unpaid[1][0]
             } else {
@@ -1273,12 +1304,6 @@ impl Market {
                 && (full_quote_equity >= 0 || self.hlp_frozen(MarketAsset::Quote)),
             ErrorCode::HlpSettlementUnavailable
         );
-        let base_equity_adjustment = full_base_equity
-            .checked_sub(base_hlp_equity)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let quote_equity_adjustment = full_quote_equity
-            .checked_sub(quote_hlp_equity)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
         let active_base_equity = if self.hlp_frozen(MarketAsset::Base) {
             0
         } else {
@@ -1289,11 +1314,7 @@ impl Market {
         } else {
             full_quote_equity as u128
         };
-        let base_book_offset = if self.amm.frozen_hlp_mask == 0 {
-            as_signed(base_interest)?
-                .checked_sub(base_equity_adjustment)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-        } else {
+        let base_book_offset = {
             as_signed(reserves.base)?
                 .checked_add(as_signed(base_interest)?)
                 .and_then(|value| value.checked_sub(as_signed(ordinary.base_reserve).ok()?))
@@ -1314,11 +1335,7 @@ impl Market {
                 })
                 .ok_or(ErrorCode::MarketMathOverflow)?
         };
-        let quote_book_offset = if self.amm.frozen_hlp_mask == 0 {
-            as_signed(quote_interest)?
-                .checked_sub(quote_equity_adjustment)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-        } else {
+        let quote_book_offset = {
             as_signed(reserves.quote)?
                 .checked_add(as_signed(quote_interest)?)
                 .and_then(|value| value.checked_sub(as_signed(ordinary.quote_reserve).ok()?))
@@ -1340,7 +1357,9 @@ impl Market {
                 .ok_or(ErrorCode::MarketMathOverflow)?
         };
         let mut state = IntegratedCurveState {
-            op_carry_cover: Default::default(),
+            funding_carry_cover: Default::default(),
+            base_pricing_offset_nad: self.amm.hlp_funding_base_pricing_offset_nad,
+            quote_pricing_offset_nad: self.amm.hlp_funding_quote_pricing_offset_nad,
             ordinary_base: ordinary.base_reserve,
             ordinary_quote: ordinary.quote_reserve,
             base_hlp_equity: active_base_equity,
@@ -1429,6 +1448,21 @@ impl Market {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         }
         state.book_ordinary()?;
+        let has_funding = (!self.hlp_frozen(MarketAsset::Base)
+            && base_hlp_quote_debt
+                > self.normalize_amount(
+                    u128::from(self.base_hlp_vault.debt_principal),
+                    self.quote_side.asset_decimals,
+                )?)
+            || (!self.hlp_frozen(MarketAsset::Quote)
+                && quote_hlp_base_debt
+                    > self.normalize_amount(
+                        u128::from(self.quote_hlp_vault.debt_principal),
+                        self.base_side.asset_decimals,
+                    )?);
+        if has_funding || state.base_pricing_offset_nad != 0 || state.quote_pricing_offset_nad != 0 {
+            state.anchor_pricing_point()?;
+        }
         Ok((state, mark))
     }
 
@@ -1438,12 +1472,12 @@ impl Market {
             self.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
-        let base_hlp_quote_debt = self.normalize_amount(
-            Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?,
+        let base_hlp_quote_backing = self.normalize_amount(
+            u128::from(self.base_hlp_vault.hlp_live_reserve(MarketAsset::Quote)),
             self.quote_side.asset_decimals,
         )?;
-        let quote_hlp_base_debt = self.normalize_amount(
-            Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)?,
+        let quote_hlp_base_backing = self.normalize_amount(
+            u128::from(self.quote_hlp_vault.hlp_live_reserve(MarketAsset::Base)),
             self.base_side.asset_decimals,
         )?;
 
@@ -1452,13 +1486,51 @@ impl Market {
             self.base_side.shares.srlp_supply,
             self.base_hlp_vault.srlp_shares,
             self.quote_hlp_vault.srlp_shares,
-            base_hlp_quote_debt,
-            quote_hlp_base_debt,
+            base_hlp_quote_backing,
+            quote_hlp_base_backing,
         )
     }
 
     pub(crate) fn ordinary_curve_point_nad(&self) -> Result<ConcentratedCurvePoint> {
         self.frozen_adjusted_ordinary(&self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?)
+    }
+
+    pub(crate) fn preserve_hlp_pricing_point(&mut self, point: ConcentratedCurvePoint) -> Result<()> {
+        let actual = self.ordinary_curve_point_nad()?;
+        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
+        self.amm.hlp_funding_base_pricing_offset_nad = self
+            .amm
+            .hlp_funding_base_pricing_offset_nad
+            .checked_add(signed(point.base_reserve)?)
+            .and_then(|value| value.checked_sub(signed(actual.base_reserve).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.amm.hlp_funding_quote_pricing_offset_nad = self
+            .amm
+            .hlp_funding_quote_pricing_offset_nad
+            .checked_add(signed(point.quote_reserve)?)
+            .and_then(|value| value.checked_sub(signed(actual.quote_reserve).ok()?))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok(())
+    }
+
+    // Called after terminal ownership and loss accounting. Exclude only the
+    // funding payout; collateral recovery and principal losses remain real
+    // changes to inventory. The translation creates no redeemable claim.
+    #[inline(never)]
+    pub(crate) fn exclude_hlp_funding_payment_from_pricing(&mut self, asset: MarketAsset, paid: u64) -> Result<()> {
+        if paid == 0 {
+            return Ok(());
+        }
+        let mut reserves = self.curve_reserves_nad()?;
+        let paid = self.normalize_amount(u128::from(paid), self.side(asset).asset_decimals)?;
+        let reserve = if asset == MarketAsset::Base {
+            &mut reserves.base
+        } else {
+            &mut reserves.quote
+        };
+        *reserve = reserve.checked_add(paid).ok_or(ErrorCode::ReserveOverflow)?;
+        let point = self.frozen_adjusted_ordinary(&self.hlp_curve_basis_from_reserves_nad(reserves)?)?;
+        self.preserve_hlp_pricing_point(point)
     }
 
     pub(crate) fn current_concentrated_curve_geometry(&self) -> Result<Option<ConcentratedCurveGeometry>> {
@@ -1568,6 +1640,16 @@ impl Market {
                     u64::try_from(quote_debt.saturating_sub(u128::from(self.quote_hlp_vault.debt_principal)))
                         .map_err(|_| ErrorCode::DebtMathOverflow)?;
             }
+            let funding_mark = match mark {
+                Some((_, price)) => u64::try_from(price).map_err(|_| ErrorCode::MarketMathOverflow)?,
+                None => self
+                    .current_concentrated_spot_price_nad()?
+                    .ok_or(ErrorCode::BrokenInvariant)?,
+            };
+            // Carry retains the entire liability. Its cover is a gross
+            // ownership claim, not a second deduction from net hLP equity.
+            state = state.with_funding_carry_cover(funding_mark)?;
+            state.anchor_pricing_point()?;
         }
         let quote = self
             .evaluate_concentrated_swap_with_mark(
@@ -1613,22 +1695,33 @@ impl Market {
     #[inline(never)]
     fn prepare_book_curve_mark(
         &self,
-        state: IntegratedCurveState,
+        state: &IntegratedCurveState,
         mark: &mut IntegratedCurveMark,
         solver: &mut Option<ConcentratedCurveSolver>,
     ) -> Result<ConcentratedCurvePoint> {
         let point = state
             .reconstructed_curve_point()?
             .ok_or(ErrorCode::InsufficientLiquidity)?;
-        let (cache, geometry) = match self.bounded_curve()? {
-            Some(curve) => curve.native_geometry_at(point)?,
-            None => prepare_concentrated_cache_and_geometry_at_point(
-                solver,
-                point.base_reserve,
-                point.quote_reserve,
-                self.current_curve_center_price_nad()?,
-                self.config.amm.concentrated_curve_parameters()?,
-            )?,
+        let (cache, geometry) = if self.amm.initialized
+            && self.oracle.policy.lambda_bps == 0
+            && point == self.ordinary_curve_point_nad()?
+        {
+            (
+                self.amm.concentrated_curve_cache,
+                self.current_concentrated_curve_geometry()?
+                    .ok_or(ErrorCode::InsufficientLiquidity)?,
+            )
+        } else {
+            match self.bounded_curve()? {
+                Some(curve) => curve.native_geometry_at(point)?,
+                None => prepare_concentrated_cache_and_geometry_at_point(
+                    solver,
+                    point.base_reserve,
+                    point.quote_reserve,
+                    self.current_curve_center_price_nad()?,
+                    self.config.amm.concentrated_curve_parameters()?,
+                )?,
+            }
         };
         let center = cache.center_point_with_geometry(self.current_curve_center_price_nad()?, geometry)?;
         *mark = Some((geometry, self.execution_spot_at(&geometry, point)?));
@@ -1657,7 +1750,7 @@ impl Market {
         // disabled, rebuilding a book-scaled native center has no consumer.
         // Native quotes still need that geometry for execution itself.
         let book_center = if state.uses_book_hedge() && (self.oracle.policy.lambda_bps == 0 || needs_native_center) {
-            Some(self.prepare_book_curve_mark(*state, &mut start_mark, &mut solver)?)
+            Some(self.prepare_book_curve_mark(state, &mut start_mark, &mut solver)?)
         } else {
             None
         };
@@ -2674,6 +2767,8 @@ impl AmmState {
             initialized: true,
             concentration_ramp: Default::default(),
             concentrated_curve_cache: ConcentratedCurveCache::default(),
+            hlp_funding_base_pricing_offset_nad: 0,
+            hlp_funding_quote_pricing_offset_nad: 0,
             center_price_nad: initial_price_nad,
             price_ema_nad: initial_price_nad,
             last_trade_price_nad: initial_price_nad,

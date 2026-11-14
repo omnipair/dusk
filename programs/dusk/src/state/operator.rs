@@ -316,6 +316,9 @@ impl ConcentrationRamp {
         if slot >= self.end_slot {
             return Ok(self.target);
         }
+        if slot <= self.start_slot {
+            return Ok(self.start);
+        }
         let elapsed = slot.saturating_sub(self.start_slot) as u128;
         let duration = (self.end_slot - self.start_slot) as u128;
         let lerp = |a: u64, b: u64| -> u64 {
@@ -327,7 +330,7 @@ impl ConcentrationRamp {
         };
         let amplification = lerp(self.start.peak_amplification_nad, self.target.peak_amplification_nad);
         let cpmm = amplification == NAD;
-        Ok(crate::state::ConcentratedCurveParameters {
+        let mut candidate = crate::state::ConcentratedCurveParameters {
             peak_amplification_nad: amplification,
             core_half_width_bps: if cpmm {
                 0
@@ -343,6 +346,28 @@ impl ConcentrationRamp {
             } else {
                 lerp(self.start.fade_width_bps as u64, self.target.fade_width_bps as u64) as u16
             },
-        })
+        };
+        if !cpmm && candidate.validate(crate::state::MAX_AMM_AMPLIFICATION_NAD).is_err() {
+            // Linear widths/amplification can cross the invalid zero-tail
+            // region even when both announced endpoints are valid. Preserve
+            // linear amplification wherever possible and cap only at the
+            // maximum supported by these intermediate widths and tail floor.
+            candidate.fade_width_bps = candidate.fade_width_bps.min(u16::MAX - candidate.core_half_width_bps);
+            let (core, outer) = candidate.sqrt_widths_nad()?;
+            let inverse_core = crate::math::mul_div_u128(NAD as u128, NAD as u128, core)?;
+            let inverse_width = if candidate.fade_width_bps == 0 {
+                inverse_core
+            } else {
+                (inverse_core + crate::math::mul_div_u128(NAD as u128, NAD as u128, outer)?) / 2
+            };
+            let maximum_concentrated_share = u128::from(NAD - crate::state::MIN_AMM_TAIL_SHARE_NAD);
+            let minimum_inverse_amplification =
+                u128::from(NAD) - crate::math::mul_div_u128(maximum_concentrated_share, inverse_width, NAD as u128)?;
+            let maximum_amplification =
+                crate::math::mul_div_u128(NAD as u128, NAD as u128, minimum_inverse_amplification)?;
+            candidate.peak_amplification_nad = amplification.min(maximum_amplification as u64);
+        }
+        candidate.validate(crate::state::MAX_AMM_AMPLIFICATION_NAD)?;
+        Ok(candidate)
     }
 }
