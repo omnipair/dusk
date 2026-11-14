@@ -112,10 +112,11 @@ pub(crate) struct ConcentratedHlpTransition {
     final_base_pricing_offset_nad: i128,
     final_quote_pricing_offset_nad: i128,
     final_srlp_supply: u64,
-    /// The spot-preserving point before it was scaled into inventory. A trade
-    /// is priced against it, so the trader never pays for the depth a
-    /// funding payment removes; consume persists the scaled point.
-    pricing_target: Option<crate::transitions::amm::ConcentratedCurvePoint>,
+    /// The final point was translated to the end state's spot-preserving
+    /// point and then scaled into inventory. A trade is priced against the
+    /// unscaled point, so the trader never pays for the depth a funding
+    /// payment removes; consume persists the scaled point.
+    pricing_translated: bool,
     final_base_srlp_shares: u64,
     final_quote_srlp_shares: u64,
     final_base_debt_shares: u128,
@@ -778,7 +779,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
             final_base_pricing_offset_nad: end.base_pricing_offset_nad,
             final_quote_pricing_offset_nad: end.quote_pricing_offset_nad,
             final_srlp_supply: start_supply,
-            pricing_target: None,
+            pricing_translated: false,
             final_base_srlp_shares: 0,
             final_quote_srlp_shares: 0,
             final_base_debt_shares: 0,
@@ -1091,7 +1092,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         final_base_pricing_offset_nad: end.base_pricing_offset_nad,
         final_quote_pricing_offset_nad: end.quote_pricing_offset_nad,
         final_srlp_supply: ownership.total_srlp_supply,
-        pricing_target: None,
+        pricing_translated: false,
         final_base_srlp_shares: ownership.base_hlp_srlp_shares,
         final_quote_srlp_shares: ownership.quote_hlp_srlp_shares,
         final_base_debt_shares,
@@ -1144,22 +1145,26 @@ impl ConcentratedHlpTransition {
                 .checked_add_signed(-self.final_quote_pricing_offset_nad)
                 .ok_or(ErrorCode::BrokenInvariant)?,
         };
-        self.pricing_target = Some(point);
+        self.pricing_translated = true;
         let point = point.within_inventory(inventory)?;
         (self.final_base_pricing_offset_nad, self.final_quote_pricing_offset_nad) =
             crate::transitions::amm::pricing_offsets_within(point, inventory)?;
         Ok(self)
     }
 
-    /// The endpoint a trade is priced against: the spot-preserving point,
-    /// before any funding payment scales it into inventory.
+    /// The endpoint a trade is priced against: for the plan built from
+    /// `end`, the spot-preserving point before any funding payment scales it
+    /// into inventory.
     pub(crate) fn trade_pricing_point_nad(
         &self,
         market: &Market,
+        end: IntegratedCurveState,
     ) -> Result<crate::transitions::amm::ConcentratedCurvePoint> {
-        match self.pricing_target {
-            Some(point) => Ok(point),
-            None => self.final_ordinary_point_nad(market),
+        if self.pricing_translated {
+            end.reconstructed_curve_point()?
+                .ok_or_else(|| ErrorCode::InsufficientLiquidity.into())
+        } else {
+            self.final_ordinary_point_nad(market)
         }
     }
 

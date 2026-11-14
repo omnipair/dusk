@@ -70,8 +70,7 @@ function encode(data) {
   market.config.irm.upper_utilization_bps=old.config.irm.borrow_utilization_limit_bps;
   restate(market,MARKET_AMOUNTS,amountFactor(market));
   // Every captured income epoch began at genesis or an archived roll, so no
-  // drain run spans it and growth restarted at zero.
-  for(const book of market.income.books)book.run_start_epoch=book.epoch;
+  // drain run spans it (run_length 0) and growth restarted at zero.
   return encodeAccount('Market',market);
 }
 function encodeAccount(name,value) {

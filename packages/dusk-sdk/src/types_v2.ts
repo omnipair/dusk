@@ -17065,13 +17065,15 @@ export type Dusk = {
             }
           },
           {
-            "name": "runStartEpoch",
+            "name": "runLength",
             "docs": [
-              "First epoch of the current drain run. Every epoch from here up to the",
-              "current one ended fully repaid without loss and was advanced in place,",
-              "so holders catch up across them without archived history."
+              "Epochs of the current drain run before this one. Every epoch from",
+              "`epoch - run_length` up to the current one ended fully repaid without a",
+              "writeoff and was advanced in place, so holders catch up across them",
+              "without archived history. Packed with `impaired` to keep the decoded",
+              "books inside liquidation heap headroom."
             ],
-            "type": "u64"
+            "type": "u32"
           },
           {
             "name": "epochStartGrowth",

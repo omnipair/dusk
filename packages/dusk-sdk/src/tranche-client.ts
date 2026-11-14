@@ -8,7 +8,7 @@ import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js
 import { oracleComputeBudgetInstructions, oracleReadAccounts } from "./oracle.js";
 import { DuskWrite } from "./write.js";
 import { assertCurrentMarketLayout } from "./market-layout.js";
-import { MIN_ADVANCE_PAID_PER_UNIT_Q64, incomeBookNearCapacity } from "./income-receivable.js";
+import { MIN_ADVANCE_PAID_PER_UNIT_Q64, incomeBookNearCapacity, incomeRunStartEpoch } from "./income-receivable.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 import type { Market } from "./type-aliases.js";
 
@@ -93,7 +93,7 @@ export class DuskTranches {
       if (epoch > liveEpoch) throw new Error("Holder income epoch exceeds market epoch");
       // Epochs advanced in place have no archive: pass only the archived
       // epochs that end each earlier run, oldest first, at most 8 per call.
-      const archived = await this.archivedIncomeEpochs(market, bookIndex, epoch, BigInt(liveBook.runStartEpoch.toString()));
+      const archived = await this.archivedIncomeEpochs(market, bookIndex, epoch, incomeRunStartEpoch(liveBook));
       const remainingAccounts: AccountMeta[] = [];
       if (params.kind === "junior" && !lpMint.equals(state.juniorMint)) remainingAccounts.push({ pubkey: deriveJuniorCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false });
       for (const archivedEpoch of archived.slice(0, 8)) remainingAccounts.push({ pubkey: deriveIncomeEpochAddress(market, bookIndex, archivedEpoch, this.program.programId)[0], isSigner: false, isWritable: false });
@@ -111,7 +111,7 @@ export class DuskTranches {
     while (epoch !== undefined && epoch >= from) {
       epochs.push(epoch);
       const archive = await this.program.account.incomeEpoch.fetch(deriveIncomeEpochAddress(market, bookIndex, epoch, this.program.programId)[0]);
-      const runStart = BigInt(archive.book.runStartEpoch.toString());
+      const runStart = incomeRunStartEpoch(archive.book);
       epoch = runStart === 0n ? undefined : runStart - 1n;
     }
     return epochs.reverse();
@@ -146,7 +146,7 @@ export class DuskTranches {
       // A loss-free drained book advances in place on its next issuance and
       // cannot be rolled; only an impaired or short-paid one needs an archive.
       const advancesInPlace = !book.impaired && BigInt(book.paidPerUnitQ64.toString()) >= MIN_ADVANCE_PAID_PER_UNIT_Q64
-        && !incomeBookNearCapacity(book);
+        && book.runLength < 0xffff_ffff && !incomeBookNearCapacity(book);
       if (!book.units.isZero() && book.unpaid.isZero() && !advancesInPlace) {
         transactions.push((await this.rollIncome({ ...params, bookIndex })).transaction);
       }

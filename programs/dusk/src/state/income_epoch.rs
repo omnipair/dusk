@@ -22,10 +22,12 @@ pub struct IncomeReceivableBook {
     /// Ordinary senior, junior, base hLP, quote hLP. Growth is cumulative
     /// across the epochs of one drain run and resets only at an archived roll.
     pub growth: [ReceivableGrowth; 4],
-    /// First epoch of the current drain run. Every epoch from here up to the
-    /// current one ended fully repaid without loss and was advanced in place,
-    /// so holders catch up across them without archived history.
-    pub run_start_epoch: u64,
+    /// Epochs of the current drain run before this one. Every epoch from
+    /// `epoch - run_length` up to the current one ended fully repaid without a
+    /// writeoff and was advanced in place, so holders catch up across them
+    /// without archived history. Packed with `impaired` to keep the decoded
+    /// books inside liquidation heap headroom.
+    pub run_length: u32,
     /// Ordinary senior and junior lane growth when the current epoch started;
     /// equal to `growth` at the last in-place advance. The hLP lanes have one
     /// market-held claim each, checkpointed after every issuance, so that

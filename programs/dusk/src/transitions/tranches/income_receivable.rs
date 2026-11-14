@@ -75,7 +75,7 @@ impl IncomeReceivableBook {
             let next = Self {
                 epoch: self.epoch.checked_add(1).ok_or(ErrorCode::MarketMathOverflow)?,
                 growth: self.growth,
-                run_start_epoch: self.run_start_epoch,
+                run_length: self.run_length + 1,
                 epoch_start_growth: [self.growth[0], self.growth[1]],
                 run_unit_deficit_q64: u64::try_from(UNIT_FACE_Q64 - run_value)
                     .map_err(|_| ErrorCode::BrokenInvariant)?,
@@ -187,7 +187,13 @@ impl IncomeReceivableBook {
     pub fn can_advance_in_place(&self) -> bool {
         self.unpaid == 0
             && !self.impaired
+            && self.run_length < u32::MAX
             && self.paid_per_unit_q64 >= MIN_DRAINED_UNIT_VALUE_Q64 + DRAINED_UNIT_MARGIN_Q64
+    }
+
+    /// First epoch of the current drain run.
+    pub fn run_start_epoch(&self) -> u64 {
+        self.epoch.saturating_sub(u64::from(self.run_length))
     }
 
     /// Per-unit value (Q64) paid at catch-up across this drain run, once the
@@ -220,7 +226,6 @@ impl IncomeReceivableBook {
             epoch,
             unpaid: old.unpaid,
             units: old.unpaid,
-            run_start_epoch: epoch,
             ..Self::default()
         };
         Ok(old)
@@ -334,7 +339,7 @@ impl IncomeReceivableClaim {
             return Ok(());
         }
         require!(
-            self.epoch < book.epoch && self.epoch >= book.run_start_epoch,
+            self.epoch < book.epoch && self.epoch >= book.run_start_epoch(),
             ErrorCode::IncomeHistoryRequired
         );
         require!(lane < 4, ErrorCode::InvalidArgument);

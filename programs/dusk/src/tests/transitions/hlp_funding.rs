@@ -851,7 +851,7 @@ fn funding_payment_does_not_stall_the_shared_index() {
         assert_eq!(market.debt.quote_borrow_index_nad - i1, c2 - c1);
         let book = &market.income.get().unwrap().books[3];
         assert_eq!(book.epoch, epoch + 1);
-        assert_eq!(book.run_start_epoch, 0);
+        assert_eq!(book.run_start_epoch(), 0);
         assert!(book.unpaid > 0);
         // The seed claim caught up across the drained epoch on issuance.
         assert_eq!(market.income.get().unwrap().seed[3].epoch, book.epoch);

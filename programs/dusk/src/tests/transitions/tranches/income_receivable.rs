@@ -142,7 +142,7 @@ fn drained_epochs_advance_in_place_and_holders_catch_up_exactly() {
         }
     }
     assert!(book.epoch >= 119);
-    assert_eq!(book.run_start_epoch, 0);
+    assert_eq!(book.run_start_epoch(), 0);
     // The last epoch is drained but not yet advanced.
     book.issue([(1, often_balance + idle_balance), (0, 1), (0, 0), (0, 0)]).unwrap();
     often.checkpoint(often_balance, &book, 0).unwrap();
@@ -188,7 +188,7 @@ fn drained_run_then_archived_roll_keeps_lagging_holders_whole() {
     cash += 400;
     assert!(book.may_roll());
     let archived = book.roll().unwrap();
-    assert_eq!(book.run_start_epoch, book.epoch);
+    assert_eq!(book.run_start_epoch(), book.epoch);
     current.advance_epoch(1, &archived, 0).unwrap();
     // The lagging holder cannot skip the archive.
     assert!(lagging.clone().checkpoint(1, &book, 0).is_err());

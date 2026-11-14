@@ -22,8 +22,8 @@ export interface IncomeClaimInput {
 export interface IncomeBookInput {
   epoch: IntegerLike; unpaid: IntegerLike; units: IntegerLike;
   paidPerUnitQ64: IntegerLike; growth: readonly IncomeGrowthInput[];
-  /** First epoch of the book's drain run; absent means the run starts at `epoch`. */
-  runStartEpoch?: IntegerLike;
+  /** Epochs of the book's drain run before `epoch`; absent means zero. */
+  runLength?: IntegerLike;
   /** Ordinary senior and junior growth when `epoch` began; absent means zero.
    * hLP lanes use their single claim's checkpoint, which lags one epoch. */
   epochStartGrowth?: readonly IncomeGrowthInput[];
@@ -68,8 +68,11 @@ export function incomeBookNearCapacity(book: IncomeBookInput): boolean {
     || book.growth.some(lane => value(lane.unitsQ64) >= HALF_U128 || value(lane.weightedPaidQ128[3]!, U64) >= HALF_U64);
 }
 
-function runStartEpoch(book: IncomeBookInput): bigint {
-  return book.runStartEpoch === undefined ? value(book.epoch, U64) : value(book.runStartEpoch, U64);
+/** First epoch of the book's drain run. */
+export function incomeRunStartEpoch(book: IncomeBookInput): bigint {
+  const epoch = value(book.epoch, U64);
+  const length = book.runLength === undefined ? 0n : value(book.runLength, U64);
+  return length > epoch ? 0n : epoch - length;
 }
 
 /** Pure copy of IncomeReceivableClaim::catch_up_drained: value the epochs of
@@ -77,7 +80,7 @@ function runStartEpoch(book: IncomeBookInput): bigint {
 function catchUpDrained(claim: IncomeClaimInput, book: IncomeBookInput, balanceInput: IntegerLike, lane: number, end?: IncomeEndInput): IncomeClaimInput {
   const claimEpoch = value(claim.epoch, U64), epoch = value(book.epoch, U64);
   if (claimEpoch === epoch) return claim;
-  if (claimEpoch > epoch || claimEpoch < runStartEpoch(book)) throw new Error("IncomeHistoryRequired");
+  if (claimEpoch > epoch || claimEpoch < incomeRunStartEpoch(book)) throw new Error("IncomeHistoryRequired");
   let start: IncomeGrowthInput;
   if (lane < 2) start = book.epochStartGrowth?.[lane] ?? ZERO_GROWTH;
   else {
@@ -141,7 +144,7 @@ export function incomeArchiveRequests(holder: IncomeHolderInput, books: readonly
     const bookIndex = asset + source * 2;
     const first = value(holder.income[source]!.epoch, U64), current = value(books[bookIndex]!.epoch, U64);
     if (first > current) throw new Error("IncomeHistoryRequired");
-    const runStart = runStartEpoch(books[bookIndex]!);
+    const runStart = incomeRunStartEpoch(books[bookIndex]!);
     if (first < runStart) requests.push({ bookIndex, epoch: runStart - 1n, holderEpoch: first });
   }
   return requests;
@@ -177,7 +180,7 @@ export function projectHolderIncome(input: {
     const bookIndex = asset + source * 2, book = books[bookIndex]!;
     let claim: IncomeClaimInput = { ...holder.income[source]!, epoch: holder.incomeInitialized ? holder.income[source]!.epoch : book.epoch };
     const end = lane === 1 ? input.ends?.[bookIndex] : undefined;
-    while (value(claim.epoch, U64) < runStartEpoch(book)) {
+    while (value(claim.epoch, U64) < incomeRunStartEpoch(book)) {
       const archived = coveringArchive(input.archives, bookIndex, value(claim.epoch, U64))?.book;
       if (!archived) throw new Error("IncomeHistoryRequired");
       const projected = projectIncomeClaim({ claim, book: archived, balance, lane, end });
@@ -220,7 +223,7 @@ export async function readIncomeArchives(input: {
       if (!decoded.market.equals(market) || decoded.bookIndex !== request.bookIndex || decoded.bump !== derived[1] ||
         String(decoded.book.epoch) !== epoch.toString()) throw new Error("Invalid income archive");
       result.set(`${request.bookIndex}:${epoch}`, decoded.book);
-      const runStart = runStartEpoch(decoded.book);
+      const runStart = incomeRunStartEpoch(decoded.book);
       epoch = runStart === 0n ? undefined : runStart - 1n;
     }
   }
