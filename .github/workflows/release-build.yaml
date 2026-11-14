@@ -89,13 +89,18 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cargo/bin/solana-verify
-          key: solana-verify-${{ runner.os }}-${{ runner.arch }}-0.4.11
+          key: solana-verify-linux-0.4.11-2b0cf244902cf932
       - name: Install verifier
         if: steps.verifier-cache.outputs.cache-hit != 'true'
-        run: cargo install solana-verify --version 0.4.11 --locked
+        run: |
+          curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+            https://github.com/solana-foundation/solana-verifiable-build/releases/download/v0.4.11/solana-verify-linux \
+            --output "$HOME/.cargo/bin/solana-verify"
+          chmod 755 "$HOME/.cargo/bin/solana-verify"
       - name: Verify build tools
         run: |
           test "$(anchor --version)" = "anchor-cli $ANCHOR_VERSION"
+          echo "2b0cf244902cf9324396db05fa38ea14c5ace3e05e57739b06be4f6e6c10b437  $HOME/.cargo/bin/solana-verify" | sha256sum --check
           test "$(solana-verify --version)" = "solana-verify 0.4.11"
       - name: Install dependencies
         run: yarn install --frozen-lockfile
