@@ -5852,9 +5852,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const bookIndex = debtIsBase ? 0 : 1;
         const beforeBook = funded.income.books[bookIndex];
         const afterBook = repaid.income.books[bookIndex];
-        // Cash per whole unit: net cash * 2^128 / units_q64, rounded down.
+        // Cash per whole unit: (net cash + carried remainder) * 2^128 /
+        // units_q64, rounded down; the remainder is held in Q64 atoms.
+        const scaled = ((credit - feeCash) << 128n) + (raw(beforeBook.paid_remainder_q64) << 64n);
         expect(raw(afterBook.paid_per_unit_q64) - raw(beforeBook.paid_per_unit_q64))
-          .to.equal(((credit - feeCash) << 128n) / raw(beforeBook.units_q64));
+          .to.equal(scaled / raw(beforeBook.units_q64));
+        expect(raw(afterBook.paid_remainder_q64)).to.equal((scaled % raw(beforeBook.units_q64)) >> 64n);
         expect(raw(repaidSide.fees.interest_growth_index_q64)).to.equal(raw(side.fees.interest_growth_index_q64));
         for (const value of Object.values(repaidSide.fees.public_interest_advance)) expect(raw(value)).to.equal(0n);
         expect(raw(repaid.debt[`fixed_${interestAsset}_shares`])).to.equal(0n);
