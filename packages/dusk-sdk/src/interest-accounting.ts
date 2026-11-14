@@ -56,8 +56,9 @@ export function hlpFundingInterest(
  * Once the side's junior income is initialized, the frozen protocol and
  * operator share is the historical unpaid fee book's share of the advance; no
  * current fee rate is used. Before that, the program splits the advance at the
- * current protocol interest rate. Reserve cash owed as hLP funding interest is
- * not advanced. Protocol and operator fees remain unpaid until borrower cash
+ * current protocol interest rate. Reserve cash owed as hLP funding interest,
+ * and the transfer fee reserve cash pays on top of it when that funding is
+ * settled, is not advanced. Protocol and operator fees remain unpaid until borrower cash
  * arrives. Inputs must describe the same checkpointed market state.
  *
  * Reserve cash also pays the effective Token-2022 fee on the LP transfer, so
@@ -89,7 +90,8 @@ export function quoteInterestAdvanceAmounts(input: {
   for (const value of [advanced, escrow, reserveCash, maxGross, fundingInterest]) amount(value);
   if (advanced > unpaid || escrow > advanced) throw new RangeError("Inconsistent unpaid interest/advance");
   const available = unpaid - advanced;
-  const spendableCash = reserveCash > fundingInterest ? reserveCash - fundingInterest : 0n;
+  const owed = fundingInterest + transferInverseFee(fundingInterest, input.transferFee);
+  const spendableCash = reserveCash > owed ? reserveCash - owed : 0n;
   // Keep the fee inside spendable cash: anything up to what that cash would
   // deliver through one transfer can be grossed up within it.
   const advanceableCash = transferFeeCredit(spendableCash, input.transferFee, "effective");

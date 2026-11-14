@@ -189,6 +189,18 @@ impl<'info> Swap<'info> {
             ctx.accounts.event_authority.to_account_info(),
             ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
+        // Reserve cash pays the transfer fee on hLP funding the swap moves
+        // into income custody; the carry decision includes it.
+        let (base_mint, quote_mint) = match asset_in {
+            MarketAsset::Base => (&ctx.accounts.asset_in_mint, &ctx.accounts.asset_out_mint),
+            MarketAsset::Quote => (&ctx.accounts.asset_out_mint, &ctx.accounts.asset_in_mint),
+        };
+        let transfer_fees = interest_transfer_fees(
+            &ctx.accounts.market,
+            &base_mint.to_account_info(),
+            &quote_mint.to_account_info(),
+            current_epoch,
+        )?;
         let mut prepared = SwapRequest {
             current_slot,
             current_unix_timestamp,
@@ -196,17 +208,7 @@ impl<'info> Swap<'info> {
             reserve_credit,
             protocol_fee_bps,
         }
-        .prepare(&mut ctx.accounts.market)?;
-        let (base_mint, quote_mint) = match asset_in {
-            MarketAsset::Base => (&ctx.accounts.asset_in_mint, &ctx.accounts.asset_out_mint),
-            MarketAsset::Quote => (&ctx.accounts.asset_out_mint, &ctx.accounts.asset_in_mint),
-        };
-        prepared.set_interest_transfer_fees(&interest_transfer_fees(
-            &ctx.accounts.market,
-            &base_mint.to_account_info(),
-            &quote_mint.to_account_info(),
-            current_epoch,
-        )?);
+        .prepare(&mut ctx.accounts.market, &transfer_fees)?;
         let finalized = prepared.finalize_state(
             &mut ctx.accounts.market,
             current_slot,
@@ -459,7 +461,8 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
             )
         };
         // The finalized swap already debited reserve cash for the transfer
-        // fee, when it could, so custody receives the full funding payment.
+        // fee (its carry decision counted it), so custody receives the full
+        // funding payment.
         transfer_checked_with_remaining_accounts_and_instruction(
             event_instruction,
             ctx.accounts.market.to_account_info(),

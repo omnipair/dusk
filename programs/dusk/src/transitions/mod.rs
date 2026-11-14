@@ -34,3 +34,4 @@ mod curve_ramp;
 mod operator_revenue;
 pub use crate::state::InterestRevenueBook;
 pub(crate) use operator_revenue::InterestRevenueCredit;
+pub(crate) use tranches::FundingFeePayment;

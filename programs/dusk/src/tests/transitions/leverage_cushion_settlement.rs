@@ -27,7 +27,7 @@ pub(super) fn sale(market: &Market, asset: MarketAsset, amount: u64, slot: u64) 
         reserve_credit: amount,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut trial)?;
+    .prepare(&mut trial, &Default::default())?;
     let output = prepared.quote.amount_out;
     prepared.finalize_state(&mut trial, slot, 0, ProtocolAuctionSplit::default())?;
     Ok((trial, output))

@@ -72,7 +72,7 @@ fn settle_and_check(market: &mut Market, asset: MarketAsset, slot: u64) {
         },
         protocol_fee_bps: 2_000,
     }
-    .prepare(market)
+    .prepare(market, &Default::default())
     .unwrap();
     let quote = prepared.quote;
     let before = market.clone();

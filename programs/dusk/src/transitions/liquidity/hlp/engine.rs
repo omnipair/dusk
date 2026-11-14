@@ -49,8 +49,9 @@ pub struct HlpRebalanceReceipt {
     pub debt_delta: i128,
     pub interest_paid: u64,
     /// Token-2022 fee reserve cash paid on top of `interest_paid`, so income
-    /// custody receives the full payment. Zero for a fee-free asset, or when
-    /// executable cash could not cover it (custody is then credited net).
+    /// custody receives the full payment. Zero for a fee-free asset, or in
+    /// a swap's safety net (`FundingFeePayment::IfCashAllows`) when cash could
+    /// not cover it; custody is then credited net.
     pub interest_transfer_fee: u64,
     pub nav_nad: u128,
     pub(crate) tracking_start_nav_nad: i128,
@@ -462,7 +463,14 @@ impl HlpTerminalWaterfallPlan {
         self.target_asset
     }
 
-    pub(crate) fn consume(self, market: &mut Market, max_socialized_loss: u64) -> Result<HlpTerminalWaterfallReceipt> {
+    /// `borrowed_fee` is the borrowed asset's effective transfer fee, which
+    /// reserve cash pays on top of the funding moved into income custody.
+    pub(crate) fn consume(
+        self,
+        market: &mut Market,
+        max_socialized_loss: u64,
+        borrowed_fee: crate::transitions::LeverageCollateralFee,
+    ) -> Result<HlpTerminalWaterfallReceipt> {
         let inventory_before = market.ordinary_inventory_point_nad()?;
         require_eq!(
             market.curve_revision,
@@ -515,7 +523,10 @@ impl HlpTerminalWaterfallPlan {
         );
         let borrowed_asset = self.target_asset.opposite();
         let cash = market.side(borrowed_asset).reserves.cash_reserve;
-        let interest_paid = loss.interest_paid.min(cash);
+        // Pay only funding whose transfer fee cash can also cover: anything
+        // up to what `cash` delivers through one transfer grosses up within
+        // it. The rest is canceled with the cash-limited part.
+        let interest_paid = loss.interest_paid.min(borrowed_fee.unwind_credit(cash)?);
         loss.interest_canceled = loss
             .interest_canceled
             .checked_add(loss.interest_paid - interest_paid)
@@ -1216,19 +1227,29 @@ impl ConcentratedHlpTransition {
         (self.base_receipt.debt_delta, self.quote_receipt.debt_delta)
     }
 
-    pub(crate) fn interest_cash_floors(&self, asset_in: MarketAsset, amount_out: u64) -> SwapCashFloors {
+    /// Reserve cash each side needs to pay this plan's funding, the transfer
+    /// fee reserve cash pays on top of it under `fees` (base, quote), and
+    /// `amount_out` on the output side. A payment that cannot also cover its
+    /// fee is carried (or the operation refused) rather than credited net.
+    pub(crate) fn interest_cash_floors(
+        &self,
+        asset_in: MarketAsset,
+        amount_out: u64,
+        fees: &[crate::transitions::LeverageCollateralFee; 2],
+    ) -> Result<SwapCashFloors> {
         let mut floors = SwapCashFloors::default();
-        floors.set(
-            MarketAsset::Base,
-            self.quote_interest_paid
-                .saturating_add(if asset_in == MarketAsset::Quote { amount_out } else { 0 }),
-        );
-        floors.set(
-            MarketAsset::Quote,
-            self.base_interest_paid
-                .saturating_add(if asset_in == MarketAsset::Base { amount_out } else { 0 }),
-        );
-        floors
+        for (asset, paid) in [
+            (MarketAsset::Base, self.quote_interest_paid),
+            (MarketAsset::Quote, self.base_interest_paid),
+        ] {
+            let out = if asset_in == asset.opposite() { amount_out } else { 0 };
+            floors.set(
+                asset,
+                paid.saturating_add(fees[asset.code() as usize].inverse_fee(paid)?)
+                    .saturating_add(out),
+            );
+        }
+        Ok(floors)
     }
 
     pub(crate) fn consume(&self, market: &mut Market) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {

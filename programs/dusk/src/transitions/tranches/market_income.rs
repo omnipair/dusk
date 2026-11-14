@@ -331,9 +331,11 @@ impl Market {
         let i = asset.code() as usize + if funding { 2 } else { 0 };
         require_gte!(self.income.get()?.pending[i], cash, ErrorCode::UnbackedFeeLiability);
         // Interest transfers into custody are grossed up by the Token-2022
-        // fee, so a routine collection credits the full pending amount. Cash
-        // can still fall short: a transfer fee raised or scheduled after the
-        // gross-up was priced, reserve cash too low to pay the fee, or a
+        // fee and every pay-or-carry decision counts that fee, so a routine
+        // collection credits the full pending amount. Cash can still fall
+        // short: a transfer fee raised or scheduled after the gross-up was
+        // priced, a swap's settlement rebuilt after a loss leaving less cash
+        // than its plan counted (`FundingFeePayment::IfCashAllows`), or a
         // terminal caller bounty. Such an epoch was paid below face value;
         // marking it impaired sends it through an archived roll instead of an
         // in-place advance.
@@ -353,12 +355,12 @@ impl Market {
     /// excluded from pricing, so spot does not move and depth falls instead;
     /// the caller refreshes the curve cache before the instruction ends.
     ///
-    /// When executable cash cannot cover the fee, nothing is debited and zero
-    /// is returned. The transfer then credits custody net of the fee and
-    /// `collect_income_receivable` marks the book impaired. A swap never
-    /// reverts for want of the fee.
+    /// Every pay-or-carry decision counts the fee with the payment it
+    /// accompanies, so cash covers it here; a shortfall fails like a payment
+    /// cash cannot cover (`CashReserveUnderflow`) rather than credit custody
+    /// net and impair the book.
     pub(crate) fn pay_interest_transfer_fee(&mut self, asset: MarketAsset, fee: u64) -> Result<u64> {
-        if fee == 0 || self.side(asset).reserves.cash_reserve < fee {
+        if fee == 0 {
             return Ok(0);
         }
         let priced = if self.amm.initialized {
@@ -391,15 +393,12 @@ impl Market {
 
     /// After an hLP plan paid funding from reserve cash, pay each payment's
     /// transfer fee and record it on the receipt whose custody transfer the
-    /// instruction settles. Returns whether any fee was paid. Without
-    /// `settled_slot` the caller refreshes the curve cache afterwards; with
-    /// it, the operation's AMM transition is already final and the fee is
-    /// paid by `pay_settled_interest_transfer_fee`.
+    /// instruction settles. Returns whether any fee was paid.
     pub(crate) fn pay_hlp_funding_transfer_fees(
         &mut self,
         receipts: [&mut crate::transitions::HlpRebalanceReceipt; 2],
         fees: [crate::transitions::LeverageCollateralFee; 2],
-        settled_slot: Option<u64>,
+        payment: FundingFeePayment,
     ) -> Result<bool> {
         let mut paid = false;
         for receipt in receipts {
@@ -409,14 +408,31 @@ impl Market {
             require_eq!(receipt.interest_transfer_fee, 0, ErrorCode::BrokenInvariant);
             let asset = receipt.target_asset.opposite();
             let fee = fees[asset.code() as usize].inverse_fee(receipt.interest_paid)?;
-            receipt.interest_transfer_fee = match settled_slot {
-                Some(slot) => self.pay_settled_interest_transfer_fee(asset, fee, slot)?,
-                None => self.pay_interest_transfer_fee(asset, fee)?,
+            receipt.interest_transfer_fee = match payment {
+                FundingFeePayment::Settled { slot } => self.pay_settled_interest_transfer_fee(asset, fee, slot)?,
+                FundingFeePayment::Required => self.pay_interest_transfer_fee(asset, fee)?,
+                FundingFeePayment::IfCashAllows if self.side(asset).reserves.cash_reserve < fee => 0,
+                FundingFeePayment::IfCashAllows => self.pay_interest_transfer_fee(asset, fee)?,
             };
             paid |= receipt.interest_transfer_fee > 0;
         }
         Ok(paid)
     }
+}
+
+/// How an hLP plan's funding transfer fees are paid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FundingFeePayment {
+    /// The plan's cash requirement included the fee; the caller refreshes
+    /// the curve cache afterwards.
+    Required,
+    /// As `Required`, after the operation's AMM transition was final.
+    Settled { slot: u64 },
+    /// A swap applying its prepared plan. The carry decision already counted
+    /// the fee, so cash covers it; should a settlement rebuilt after a loss
+    /// still leave less, the transfer credits net (the book is impaired and
+    /// rolls) rather than revert the swap.
+    IfCashAllows,
 }
 
 impl Market {

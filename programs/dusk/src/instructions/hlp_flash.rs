@@ -370,8 +370,11 @@ impl<'info> SettleHlpFlash<'info> {
             &quote_mint,
             clock.epoch,
         )?;
-        a.market
-            .pay_hlp_funding_transfer_fees([&mut base, &mut quote], fees, Some(clock.slot))?;
+        a.market.pay_hlp_funding_transfer_fees(
+            [&mut base, &mut quote],
+            fees,
+            crate::transitions::FundingFeePayment::Settled { slot: clock.slot },
+        )?;
         if terminal.surplus_debit > 0 {
             let index = if target == MarketAsset::Base { 4 } else { 3 };
             let interest = &ctx.remaining_accounts[index];

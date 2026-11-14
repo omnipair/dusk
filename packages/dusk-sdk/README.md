@@ -1076,9 +1076,10 @@ advance's share of the synchronized fee book, `unpaidFeeInterest`. Before then
 the program splits the advance at the current
 `FutarchyAuthority.revenueShare.interestBps`, which the quote takes as
 `protocolInterestBps`. Reserve cash that backs hLP
-funding interest is never advanced: pass `hlpFundingInterest(market, asset)`,
-the opposite vault's indexed funding debt less its principal, as
-`hlpFundingInterest`.
+funding interest, and the transfer fee reserve cash pays on top of it when
+that funding is settled, is never advanced: pass
+`hlpFundingInterest(market, asset)`, the opposite vault's indexed funding debt
+less its principal, as `hlpFundingInterest`.
 `allocateRepaidInterest` splits measured repayment custody credit between
 fresh LP/protocol revenue and the already-frozen protocol portion. Already
 funded LP interest must be excluded from `freshGrossInterest`. Interest

@@ -130,7 +130,7 @@ fn full_value_hlp_swap_rehedges_without_losing_unpaid_interest() {
                         reserve_credit: amount_in,
                         protocol_fee_bps: 0,
                     }
-                    .prepare(&mut market)
+                    .prepare(&mut market, &Default::default())
                     .unwrap();
                     let amm_quote = prepared.quote;
                     let quote = prepared.leverage_quote();
@@ -461,7 +461,7 @@ fn full_value_recovery_bonus_reports_the_settled_price() {
             asset_in: target.opposite(),
             reserve_credit: 10_000 * UNIT,
             protocol_fee_bps: 0,
-        }.prepare(&mut market).unwrap();
+        }.prepare(&mut market, &Default::default()).unwrap();
         let quote = prepared.quote;
         assert!(quote.recovery.bonus_output > 0);
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -528,7 +528,7 @@ fn accrued_interest_rehedging_does_not_pay_a_same_slot_round_trip() {
                         asset_in: input,
                         reserve_credit: amount,
                         protocol_fee_bps: 0,
-                    }.prepare(&mut market).unwrap();
+                    }.prepare(&mut market, &Default::default()).unwrap();
                     amount = prepared.quote.amount_out;
                     let quote = prepared.leverage_quote();
                     let credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -991,7 +991,7 @@ fn frozen_hlp_reconstruction_cannot_fund_repeated_round_trips() {
             asset_in: asset,
             reserve_credit: input,
             protocol_fee_bps: 0,
-        }.prepare(m)?;
+        }.prepare(m, &Default::default())?;
         let out = prepared.quote.amount_out;
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
             &prepared.leverage_quote(), prepared.quote.fee.claimable_fee_debit,
@@ -1124,7 +1124,7 @@ fn recovery_bonus_is_priced_at_the_executable_mark() {
             reserve_credit: 10_000 * UNIT,
             protocol_fee_bps: 0,
         }
-        .prepare(&mut market.clone())
+        .prepare(&mut market.clone(), &Default::default())
         .unwrap();
         let recovery = prepared.quote.recovery;
         assert!(recovery.bonus_output > 0, "{target:?}: the vault must be under-funded");

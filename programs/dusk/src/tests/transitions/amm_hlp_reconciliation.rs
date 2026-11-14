@@ -117,7 +117,7 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
                     reserve_credit: 100 * CALIBRATION_UNIT,
                     protocol_fee_bps: 0,
                 }
-                .prepare(&mut market)
+                .prepare(&mut market, &Default::default())
                 .unwrap();
                 let state = market.integrated_curve_state_nad().unwrap();
                 let reserves = market.curve_reserves_nad().unwrap();
@@ -195,7 +195,7 @@ fn native_hlp_still_rejects_unexplained_reserve_changes() {
         reserve_credit: 100 * CALIBRATION_UNIT,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut market)
+    .prepare(&mut market, &Default::default())
     .unwrap();
     market.base_side.reserves.live_reserve += 4;
     let error = prepared

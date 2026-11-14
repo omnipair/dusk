@@ -64,8 +64,7 @@ pub(crate) fn prepare_leverage_swap(
     interest_transfer_fees: [LeverageCollateralFee; 2],
 ) -> Result<PreparedLeverageSwap> {
     let current_slot = request.current_slot;
-    let mut prepared = request.prepare_with_cash_policy(market, cash_policy)?;
-    prepared.set_interest_transfer_fees(&interest_transfer_fees);
+    let prepared = request.prepare_with_cash_policy(market, cash_policy, &interest_transfer_fees)?;
     market.observe_current_risk(current_slot)?;
     Ok(prepared)
 }
@@ -270,7 +269,7 @@ pub(crate) fn settle_inline_hlp_accounts<'info>(
             token_2022_program.to_account_info()
         };
         // The transition that produced this receipt debited reserve cash for
-        // the transfer fee, when it could, so custody receives the full payment.
+        // the transfer fee, so custody receives the full payment.
         transfer_checked_with_remaining_accounts(
             market.to_account_info(),
             reserve_vault,
@@ -718,7 +717,9 @@ pub fn record_leverage_interest<'info>(
     // Gross up the transfer by the Token-2022 fee so custody receives the
     // full interest. A direct repayment's borrower already paid the fee into
     // the reserve vault (`borrower_transfer_fee`); otherwise reserve cash
-    // pays it as an LP cost, or the transfer stays net if cash cannot.
+    // pays it as an LP cost. The repayment just credited reserve cash with
+    // its principal; settlement that cannot also pay the fee is refused
+    // like a payment cash cannot cover, never credited net.
     let transfer_fee = if transfer_gross == 0 {
         require_eq!(borrower_transfer_fee.unwrap_or(0), 0, ErrorCode::BrokenInvariant);
         0

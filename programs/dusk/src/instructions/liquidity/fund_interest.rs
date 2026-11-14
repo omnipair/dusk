@@ -146,13 +146,16 @@ impl<'info> FundInterest<'info> {
             )?)
             .map_err(|_| ErrorCode::DebtMathOverflow)?
             .saturating_sub(funding_vault.debt_principal);
-            // Reserve cash already owed as funding interest is not free to advance.
+            // Reserve cash already owed as funding interest, and the transfer
+            // fee it pays on top when that funding is settled, is not free to
+            // advance.
             let available = a
                 .market
                 .side(asset)
                 .reserves
                 .cash_reserve
-                .saturating_sub(funding_interest);
+                .saturating_sub(funding_interest)
+                .saturating_sub(transfer_fees[i].inverse_fee(funding_interest)?);
             // Reserve cash also pays the Token-2022 fee on the LP transfer, so
             // custody receives the full advance; the fee stays within the
             // advanceable cash.
