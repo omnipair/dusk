@@ -619,7 +619,7 @@ fn exhausted_income_unit_capacity_pauses_accrual_and_keeps_repayments_available(
     let end = slot + slots_for_ms(crate::constants::MS_PER_DAY);
     accrue_side::<false>(&mut market, MarketAsset::Base, end, rate_input(Some(0))).unwrap();
     let books = market.income.get().unwrap();
-    assert!(books.books[0].units > u64::MAX - 2_000_000_000_000);
+    assert!(books.books[0].units_q64 > ((u64::MAX - 2_000_000_000_000) as u128) << 64);
     assert_eq!(books.books[0].unpaid, books.revenue[0].gross_unpaid);
     assert!(market.debt.fixed_base_debt().unwrap() >= remaining_before);
     assert!(market.debt.fixed_base_debt().unwrap() < u64::MAX as u128);
@@ -716,29 +716,3 @@ fn full_fund_interest_does_not_stall_accrual() {
     assert_eq!(market.debt.base_borrow_index_nad, control.debt.base_borrow_index_nad);
     assert_eq!(market.income.get().unwrap().books[0].epoch, epoch + 1);
 }
-
-/// The same with a transfer fee on the funded coupon: custody receives less
-/// than the coupon, and accrual still continues.
-#[test]
-fn fee_token_fund_interest_does_not_stall_accrual() {
-    for fee_bps in [0_u64, 1, 25] {
-        let mut market = numeric_limit_market();
-        market.base_side.fees.junior.initialized = true;
-        market.quote_side.fees.junior.initialized = true;
-        market.operator.interest_share_bps = 2_000;
-        let s1 = slots_for_ms(crate::constants::MS_PER_DAY);
-        accrue_side::<false>(&mut market, MarketAsset::Base, s1, rate_input(Some(0))).unwrap();
-        let mut control = market.clone();
-        let (_, lp_gross) = market.fund_public_interest(MarketAsset::Base, u64::MAX, 0).unwrap();
-        let credit = lp_gross - (lp_gross * fee_bps).div_ceil(10_000);
-        market
-            .record_receivable_income_credit(MarketAsset::Base, false, credit, 0, crate::state::ProtocolAuctionSplit::default(), 0)
-            .unwrap();
-        assert!(market.income.get().unwrap().books[0].can_advance_in_place(), "fee_bps={fee_bps}");
-        let s2 = s1 + slots_for_ms(10 * crate::constants::MS_PER_DAY);
-        accrue_side::<false>(&mut market, MarketAsset::Base, s2, rate_input(Some(0))).unwrap();
-        accrue_side::<false>(&mut control, MarketAsset::Base, s2, rate_input(Some(0))).unwrap();
-        assert_eq!(market.debt.base_borrow_index_nad, control.debt.base_borrow_index_nad, "fee_bps={fee_bps}");
-    }
-}
-

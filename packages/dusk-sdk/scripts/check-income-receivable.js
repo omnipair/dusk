@@ -6,7 +6,7 @@ const Q=1n<<64n;
 const zero=()=>({unitsQ64:0n,weightedPaidQ128:[0n,0n,0n,0n]});
 const growth=(units,paid=0n)=>({unitsQ64:units,weightedPaidQ128:[units*paid& (Q-1n),units*paid>>64n& (Q-1n),units*paid>>128n& (Q-1n),units*paid>>192n]});
 const claim=(overrides={})=>({epoch:0n,unitsQ64:0n,paidCheckpointQ64:0n,growthCheckpoint:zero(),paidFractionQ128:0n,claimable:0n,...overrides});
-const book=(overrides={})=>({epoch:0n,unpaid:0n,units:0n,paidPerUnitQ64:0n,growth:[zero(),zero(),zero(),zero()],...overrides});
+const book=(overrides={})=>({epoch:0n,unpaid:0n,unitsQ64:0n,paidPerUnitQ64:0n,growth:[zero(),zero(),zero(),zero()],...overrides});
 const holder=(first=claim(),overrides={})=>({tokenKind:0,incomeInitialized:true,escrowBalance:0n,income:[first,claim()],...overrides});
 
 test("funded old units stay claimable when their owner's LP balance is zero",()=>{
@@ -31,8 +31,8 @@ test("junior escrow earns income and retired generations stop acquiring replacem
 });
 test("archived denominations carry old ownership and collected cash forward",()=>{
  const h=holder(claim({unitsQ64:10n*Q}));
- const old=book({units:10n,unpaid:5n,paidPerUnitQ64:Q/2n});
- const books=[book({epoch:1n,units:5n,paidPerUnitQ64:Q}),book(),book(),book()];
+ const old=book({unitsQ64:10n*Q,unpaid:5n,paidPerUnitQ64:Q/2n});
+ const books=[book({epoch:1n,unitsQ64:5n*Q,paidPerUnitQ64:Q}),book(),book(),book()];
  assert.deepEqual(incomeArchiveRequests(h,books,0),[{bookIndex:0,epoch:0n,holderEpoch:0n}]);
  assert.throws(()=>projectHolderIncome({holder:h,books,asset:0,walletBalance:0n}),/IncomeHistoryRequired/);
  assert.equal(projectHolderIncome({holder:h,books,asset:0,walletBalance:0n,archives:new Map([["0:0",old]])}),10n);
@@ -60,15 +60,15 @@ test("archive reads authenticate the market, epoch, lane, owner, PDA bump and ba
 
 test("matches the program's transfer, partial-writeoff and retired-epoch vectors",()=>{
  const paid=80n*Q/100n;
- const first=book({units:100n,unpaid:0n,paidPerUnitQ64:paid,growth:[growth(Q),zero(),zero(),zero()]});
+ const first=book({unitsQ64:100n*Q,unpaid:0n,paidPerUnitQ64:paid,growth:[growth(Q),zero(),zero(),zero()]});
  const alice=projectIncomeClaim({claim:claim(),book:book({...first,paidPerUnitQ64:0n}),balance:100n,lane:0});
  const bob=projectIncomeClaim({claim:claim(),book:book({...first,paidPerUnitQ64:0n}),balance:0n,lane:0});
  const settled=projectIncomeClaim({claim:alice,book:first,balance:0n,lane:0});
  assert.equal(settled.claimable,79n);
  assert.ok(settled.paidFractionQ128>0n);
  assert.equal(projectIncomeClaim({claim:bob,book:first,balance:100n,lane:0}).claimable,0n);
- const old=book({units:100n,unpaid:50n,growth:[growth(Q),growth(Q),zero(),zero()]});
- const after=book({epoch:1n,units:50n,paidPerUnitQ64:Q});
+ const old=book({unitsQ64:100n*Q,unpaid:50n,growth:[growth(Q),growth(Q),zero(),zero()]});
+ const after=book({epoch:1n,unitsQ64:50n*Q,paidPerUnitQ64:Q});
  const junior=holder(claim(),{tokenKind:2});
  const ends=Array.from({length:4},()=>({ended:true,epoch:0n,growth:growth(Q)}));
  assert.equal(projectHolderIncome({holder:junior,books:[after,book(),book(),book()],asset:0,walletBalance:20n,ends,archives:new Map([["0:0",old]])}),10n);
@@ -76,7 +76,7 @@ test("matches the program's transfer, partial-writeoff and retired-epoch vectors
 
 test("fully repaid epochs advanced in place are valued from cumulative growth without archives",()=>{
  const start=growth(2n*Q);
- const live=book({epoch:5n,runLength:5n,runUnitDeficitQ64:1n<<32n,epochStartGrowth:[start,zero()],growth:[start,zero(),zero(),zero()]});
+ const live=book({epoch:5n,runLength:5n,epochStartGrowth:[start,zero()],growth:[start,zero(),zero(),zero()]});
  // Held units are owed the rest of the drained unit value; units issued since
  // the checkpoint are valued from growth. Both stay at or below face value.
  const held=projectIncomeClaim({claim:claim({epoch:2n,unitsQ64:10n*Q,paidCheckpointQ64:Q/2n}),book:live,balance:0n,lane:0});
@@ -87,7 +87,7 @@ test("fully repaid epochs advanced in place are valued from cumulative growth wi
  const runFrom3=book({...live,runLength:2n});
  assert.throws(()=>projectIncomeClaim({claim:claim({epoch:2n}),book:runFrom3,balance:1n,lane:0}),/IncomeHistoryRequired/);
  assert.deepEqual(incomeArchiveRequests(holder(claim({epoch:1n})),[runFrom3,book(),book(),book()],0),[{bookIndex:0,epoch:2n,holderEpoch:1n}]);
- const archived=book({epoch:2n,runLength:2n,runUnitDeficitQ64:1n<<32n,units:10n,unpaid:0n,paidPerUnitQ64:Q,epochStartGrowth:[zero(),zero()]});
+ const archived=book({epoch:2n,runLength:2n,unitsQ64:10n*Q,unpaid:0n,paidPerUnitQ64:Q,epochStartGrowth:[zero(),zero()]});
  assert.equal(projectHolderIncome({holder:holder(claim({epoch:1n,unitsQ64:10n*Q})),books:[runFrom3,book(),book(),book()],asset:0,walletBalance:0n,archives:new Map([["0:2",archived]])}),9n);
 });
 

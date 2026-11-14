@@ -53,7 +53,10 @@ const provider = {
   wallet: { publicKey: owner },
 };
 const inactiveHlp = (srlpVault) => ({ srlpVault, hlpSupply: new BN(0), residualExposure: new BN(0) });
-const book = { epoch: new BN(4), units: new BN(10), unpaid: new BN(0) };
+const book = {
+  epoch: new BN(4), unitsQ64: new BN(10).shln(64), unpaid: new BN(0), paidPerUnitQ64: new BN(0), impaired: true, runLength: 0,
+  growth: Array.from({ length: 4 }, () => ({ unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, 0].map(v => new BN(v)) })),
+};
 const marketState = {
   version: MARKET_LAYOUT_VERSION,
   srlpMint,

@@ -337,7 +337,7 @@ test("junior hook setup names the junior cohort, which a retired generation reso
 test("an income book rolls once half repaid or near its numeric limits", () => {
   const BN = anchor.BN;
   const book = (units, unpaid, extra = {}) => ({
-    units: new BN(units), unpaid: new BN(unpaid), paidPerUnitQ64: new BN(0),
+    unitsQ64: new BN(units).shln(64), unpaid: new BN(unpaid), paidPerUnitQ64: new BN(0), impaired: false, runLength: 0,
     growth: Array.from({ length: 4 }, () => ({ unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, 0].map(v => new BN(v)) })),
     ...extra,
   });
@@ -350,4 +350,9 @@ test("an income book rolls once half repaid or near its numeric limits", () => {
   assert.equal(incomeBookMayRoll(book(100, 99, { paidPerUnitQ64: new BN("170141183460469231731687303715884105727") })), true);
   const lane = { unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, "9223372036854775807"].map(v => new BN(v)) };
   assert.equal(incomeBookMayRoll(book(100, 99, { growth: [lane, ...book(1, 1).growth.slice(1)] })), true);
+  // A loss-free drained book advances in place and is not rolled; an
+  // impaired one is.
+  const drained = book(100, 0, { paidPerUnitQ64: new BN(1).shln(64) });
+  assert.equal(incomeBookMayRoll(drained), false);
+  assert.equal(incomeBookMayRoll({ ...drained, impaired: true }), true);
 });

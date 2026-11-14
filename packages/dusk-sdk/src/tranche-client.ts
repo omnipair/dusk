@@ -8,29 +8,29 @@ import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js
 import { oracleComputeBudgetInstructions, oracleReadAccounts } from "./oracle.js";
 import { DuskWrite } from "./write.js";
 import { assertCurrentMarketLayout } from "./market-layout.js";
-import { MIN_ADVANCE_PAID_PER_UNIT_Q64, incomeBookNearCapacity, incomeRunStartEpoch } from "./income-receivable.js";
+import { DRAINED_UNIT_VALUE_Q64, incomeBookNearCapacity, incomeRunStartEpoch } from "./income-receivable.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 import type { Market } from "./type-aliases.js";
 
 type IncomeBook = Market["income"]["books"][number];
 
-/** Whether `value` reaches half of an unsigned `bits`-bit range (Rust's
- * `MAX / 2`, which is 2^(bits−1) − 1). */
-const atHalfRange = (value: BN, bits: number) => value.addn(1).bitLength() >= bits;
 
 /** Mirrors `roll_income_epoch`: a book with settled units rolls once at least
  * half its units are repaid, or once any counter reaches half its range.
  * Rolling earlier would let anyone fragment holders' catch-up into many
  * archived epochs. */
 export function incomeBookMayRoll(book: IncomeBook): boolean {
-  if (book.units.lte(book.unpaid)) return false;
-  if (book.unpaid.lte(book.units.divn(2))) return true;
-  return (
-    atHalfRange(book.units, 64) ||
-    atHalfRange(book.unpaid, 64) ||
-    atHalfRange(book.paidPerUnitQ64, 128) ||
-    book.growth.some((lane) => atHalfRange(lane.unitsQ64, 128) || atHalfRange(lane.weightedPaidQ128[3], 64))
-  );
+  const near = incomeBookNearCapacity(book);
+  if (incomeBookAdvancesInPlace(book) && !near) return false;
+  const unitsQ64 = BigInt(book.unitsQ64.toString()), face = BigInt(book.unpaid.toString()) << 64n;
+  return unitsQ64 > face && (face <= unitsQ64 / 2n || near);
+}
+
+/** Mirrors `can_advance_in_place`: a fully repaid, unimpaired book whose
+ * paid index reached the drained unit value continues without a roll. */
+export function incomeBookAdvancesInPlace(book: IncomeBook): boolean {
+  return !book.unitsQ64.isZero() && book.unpaid.isZero() && !book.impaired && book.runLength < 0xffff_ffff
+    && BigInt(book.paidPerUnitQ64.toString()) >= DRAINED_UNIT_VALUE_Q64;
 }
 
 export type TrancheAction =
@@ -145,9 +145,7 @@ export class DuskTranches {
       const book = state.income.books[bookIndex];
       // A loss-free drained book advances in place on its next issuance and
       // cannot be rolled; only an impaired or short-paid one needs an archive.
-      const advancesInPlace = !book.impaired && BigInt(book.paidPerUnitQ64.toString()) >= MIN_ADVANCE_PAID_PER_UNIT_Q64
-        && book.runLength < 0xffff_ffff && !incomeBookNearCapacity(book);
-      if (!book.units.isZero() && book.unpaid.isZero() && !advancesInPlace) {
+      if (!book.unitsQ64.isZero() && book.unpaid.isZero() && incomeBookMayRoll(book)) {
         transactions.push((await this.rollIncome({ ...params, bookIndex })).transaction);
       }
     }

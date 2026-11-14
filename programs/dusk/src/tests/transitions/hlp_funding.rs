@@ -836,7 +836,7 @@ fn funding_payment_does_not_stall_the_shared_index() {
         let epoch = {
             let book = &market.income.get().unwrap().books[3];
             assert_eq!(book.unpaid, 0);
-            assert!(book.units > 0);
+            assert!(book.units_q64 > 0);
             assert!(book.can_advance_in_place());
             assert!(!book.may_roll());
             book.epoch
@@ -971,70 +971,6 @@ fn zero_loss_checkpoint_never_moves_spot_through_the_funding_remainder() {
     assert!(largest > 0.5, "largest unpriced share {largest}");
 }
 
-/// Swap that books paid funding through an interest vault charging a
-/// Token-2022 transfer fee: custody receives the payment less the fee.
-fn swap_booking_funding_with_fee(market: &mut Market, asset_in: MarketAsset, reserve_credit: u64, slot: u64, fee_bps: u64) -> u64 {
-    let mut prepared = SwapRequest {
-        current_slot: slot,
-        current_unix_timestamp: 0,
-        asset_in,
-        reserve_credit,
-        protocol_fee_bps: 0,
-    }
-    .prepare(market)
-    .unwrap();
-    let finalized = prepared.finalize_state(market, slot, 0, ProtocolAuctionSplit::default()).unwrap();
-    let eligibility = prepared.interest_eligibility;
-    let mut paid = 0;
-    for receipt in [finalized.base_rebalance, finalized.quote_rebalance] {
-        if receipt.interest_paid > 0 {
-            let fee = (receipt.interest_paid * fee_bps).div_ceil(10_000);
-            crate::instructions::record_inline_hlp_interest_credit(
-                market,
-                receipt.target_asset.opposite(),
-                receipt.interest_paid - fee,
-                0,
-                ProtocolAuctionSplit::default(),
-                eligibility,
-            )
-            .unwrap();
-            paid += receipt.interest_paid;
-        }
-    }
-    paid
-}
-
-/// A transfer fee on the borrowed asset short-credits each funding payment.
-/// The drained funding book still advances in place, so the shared index keeps
-/// accruing exactly as without the payment.
-#[test]
-fn fee_token_funding_payment_does_not_stall_the_shared_index() {
-    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
-    for fee_bps in [0_u64, 1, 10] {
-        let mut market = funding_tail_market(1, true);
-        market.base_side.fees.junior.initialized = true;
-        market.quote_side.fees.junior.initialized = true;
-        market.sync_income_receivable(MarketAsset::Base, false, 0).unwrap();
-        market.sync_income_receivable(MarketAsset::Quote, false, 0).unwrap();
-        let mut control = market.clone();
-        let d1 = 2 + slots_per_day;
-        market.update_at_slot(d1).unwrap();
-        assert!(swap_booking_funding_with_fee(&mut market, MarketAsset::Quote, 1_000, d1, fee_bps) > 0);
-        let i1 = market.debt.quote_borrow_index_nad;
-        {
-            let book = &market.income.get().unwrap().books[3];
-            assert_eq!(book.unpaid, 0);
-            assert!(!book.impaired && book.can_advance_in_place() && !book.may_roll(), "fee_bps={fee_bps}");
-        }
-        let d2 = d1 + slots_per_day;
-        market.update_at_slot(d2).unwrap();
-        control.update_at_slot(d1).unwrap();
-        let c1 = control.debt.quote_borrow_index_nad;
-        control.update_at_slot(d2).unwrap();
-        let c2 = control.debt.quote_borrow_index_nad;
-        assert_eq!(market.debt.quote_borrow_index_nad - i1, c2 - c1, "fee_bps={fee_bps}");
-    }
-}
 
 /// A loss on the axis that carries the unpriced funding remainder shrinks the
 /// remainder with the inventory, so spot moves about as it would with no

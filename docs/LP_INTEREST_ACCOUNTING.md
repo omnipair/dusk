@@ -255,26 +255,20 @@ denominations retain the existing permissionless archive/roll path after
 settlement. The index resets only when every public and hLP debt share on that
 asset has been extinguished; historical income claims are retained.
 
-A book whose receivable is fully repaid without a writeoff advances to its
-next epoch in place when it next issues, provided its paid index reached half
-a unit's face value. Repaying all due interest is routine: every swap that pays
-hLP funding, and a `fund_interest` that funds the whole public coupon, drain
-their book. The shared borrow index therefore keeps accruing, and no archive
-or keeper is involved. Lane growth stays cumulative across such a drain run, so
-a holder that last checkpointed anywhere in the run collects each skipped
-epoch from growth alone, at the run's unit value: the lowest final paid index
-of any epoch in the run, less a 2^-32 margin for paid-index flooring. A
-transfer-fee shortfall lowers an epoch's paid index and so the run's value; a
-holder is never paid more than custody received. An epoch with a writeoff is
-impaired and still needs an archived roll before it can issue again.
-
-Known limitation: issuance rounds units down, so after partial repayments a
-unit's paid-plus-unpaid value can drift above face value while an epoch holds
-few units. A holder that catches up across such an epoch is paid the run's
-unit value; the drift stays in income custody, and units issued after the paid
-index passed that value reduce the holder's catch-up. Holders that checkpoint
-within each epoch are unaffected. Exact catch-up needs book units with
-fractional precision.
+A book whose receivable is fully repaid without a shortfall advances to its
+next epoch in place when it next issues. Repaying all due interest is
+routine: every swap that pays hLP funding, and a `fund_interest` that funds the
+whole public coupon, drain their book. The shared borrow index therefore keeps
+accruing, and no archive or keeper is involved. Book units carry 64 fractional
+bits, so issuance never drifts a unit's paid-plus-unpaid value away from one
+atom of face value, and a fully repaid epoch has paid every unit that value
+(less paid-index rounding). Lane growth stays cumulative across such a drain
+run, so a holder that last checkpointed anywhere in the run collects each
+skipped epoch from growth alone at face value less a 2^-32 margin, never more
+than custody received. Interest transfers are grossed up for Token-2022
+transfer fees, so custody receives the full amount; an epoch with a writeoff
+or a short custody credit is impaired and needs an archived roll before it can
+issue again.
 
 `roll_income_epoch` archives a book only once at least half of its units are
 repaid, or once any of its counters (units, unpaid, paid per unit, or a lane's

@@ -60,11 +60,10 @@ impl Market {
         let book = &income.books[i];
         let claim = income.hlp[i][i];
         require!(book.unpaid > 0, ErrorCode::BrokenInvariant);
-        let units = u64::try_from(crate::math::mul_div_ceil_u128(
-            needed as u128,
-            book.units as u128,
-            book.unpaid as u128,
-        )?)
+        // Whole units, rounded up, that carry `needed` of unpaid value.
+        let units = u64::try_from(
+            crate::math::mul_div_ceil_u128(needed as u128, book.units_q64, book.unpaid as u128)?.div_ceil(1 << 64),
+        )
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
         let owned = (claim.units_q64 >> 64) as u64;
         require_gte!(owned, units, ErrorCode::BrokenInvariant);
@@ -324,9 +323,12 @@ impl Market {
     pub fn collect_income_receivable(&mut self, asset: MarketAsset, funding: bool, cash: u64) -> Result<()> {
         let i = asset.code() as usize + if funding { 2 } else { 0 };
         require_gte!(self.income.get()?.pending[i], cash, ErrorCode::UnbackedFeeLiability);
-        // A transfer-fee shortfall lowers this epoch's paid index; a drained
-        // run pays catch-up at its lowest final paid index, so it needs no
-        // archive.
+        if cash < self.income.get()?.pending[i] {
+            // Interest transfers are grossed up for transfer fees, so a short
+            // credit is exceptional; the epoch is then archived, not advanced
+            // in place.
+            self.income.get_mut()?.books[i].impaired = true;
+        }
         self.income.get_mut()?.books[i].credit_cash(cash)?;
         self.income.get_mut()?.pending[i] = 0;
         Ok(())

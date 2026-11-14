@@ -17036,16 +17036,20 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "units",
-            "type": "u64"
-          },
-          {
-            "name": "paidPerUnitQ64",
+            "name": "unitsQ64",
+            "docs": [
+              "Outstanding units with 64 fractional bits. Fractional issuance keeps a",
+              "unit's paid-plus-unpaid value at its face value through an epoch, so a",
+              "drained epoch pays every unit exactly that value."
+            ],
             "type": "u128"
           },
           {
-            "name": "paidRemainder",
-            "type": "u64"
+            "name": "paidPerUnitQ64",
+            "docs": [
+              "Cash per whole unit (Q64), rounded down at each credit."
+            ],
+            "type": "u128"
           },
           {
             "name": "growth",
@@ -17102,15 +17106,6 @@ export type Dusk = {
               "it needs an archived roll."
             ],
             "type": "bool"
-          },
-          {
-            "name": "runUnitDeficitQ64",
-            "docs": [
-              "`Q64` minus the per-unit value paid to holders that catch up across",
-              "this drain run: the lowest paid index any epoch of the run ended at,",
-              "less a rounding margin. Zero until the run's first in-place advance."
-            ],
-            "type": "u64"
           }
         ]
       }

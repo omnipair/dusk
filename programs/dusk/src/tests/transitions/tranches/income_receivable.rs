@@ -54,8 +54,7 @@ fn alternating_repayment_and_issuance_can_roll_without_reviving_drained_units() 
         let old = book.roll().unwrap();
         holder.advance_epoch(1, &old, 0).unwrap();
     }
-    let old_units = book.units;
-    assert!(old_units > 0);
+    assert!(book.units_q64 > 0);
     book.settle(book.unpaid, book.unpaid).unwrap();
     // A loss-free drained epoch advances in place instead of reviving its
     // units; the holder needs no archive to collect it.
@@ -63,7 +62,7 @@ fn alternating_repayment_and_issuance_can_roll_without_reviving_drained_units() 
     assert!(!book.may_roll());
     book.issue([(1, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
     assert_eq!(book.epoch, epoch + 1);
-    assert_eq!((book.units, book.unpaid), (1, 1));
+    assert_eq!((book.units_q64, book.unpaid), (Q64, 1));
     holder.checkpoint(0, &book, 0).unwrap();
     assert_eq!(holder.units_q64, 0);
     assert!(holder.claimable <= 25_600);
@@ -260,7 +259,7 @@ fn targeted_receivable_purchase_preserves_other_owners_and_past_cash() {
 #[test]
 fn rolls_need_half_the_units_repaid_or_a_book_near_its_limits() {
     let book = |units: u64, unpaid: u64| IncomeReceivableBook {
-        units,
+        units_q64: (units as u128) << 64,
         unpaid,
         ..IncomeReceivableBook::default()
     };
@@ -292,28 +291,77 @@ fn rolls_need_half_the_units_repaid_or_a_book_near_its_limits() {
     assert!(lane.may_roll());
 }
 
-/// A transfer-fee shortfall lowers an epoch's paid index but is not a loss
-/// that needs an archive: the run's unit value follows the lowest final paid
-/// index, and holders are paid no more than custody received.
+/// Partial repayments between small accruals no longer drift a unit's value:
+/// fractional issuance keeps it at face value, so an in-place advance pays a
+/// holder what an archived roll pays, less at most rounding.
 #[test]
-fn fee_shortfall_epochs_advance_in_place_at_the_lowest_paid_index() {
-    let mut book = IncomeReceivableBook::default();
-    let mut lagging = IncomeReceivableClaim::default();
-    lagging.checkpoint(1, &book, 0).unwrap();
-    let mut cash = 0_u64;
-    for fee_bps in [10_u64, 7, 12, 10] {
-        book.issue([(1_000_000, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
-        let unpaid = book.unpaid;
-        let net = unpaid - (unpaid * fee_bps).div_ceil(10_000);
-        book.settle(unpaid, net).unwrap();
-        cash += net;
-        assert!(book.can_advance_in_place());
+fn in_place_advance_pays_what_an_archived_roll_pays_after_partial_repayments() {
+    for (accrual, repay) in [(3_u64, 1_u64), (7, 3), (13, 5), (1_000, 333)] {
+        let run = |advance: bool| -> (u128, u128) {
+            let mut book = IncomeReceivableBook::default();
+            let mut holder = IncomeReceivableClaim::default();
+            holder.checkpoint(1, &book, 0).unwrap();
+            let mut cash = 0_u128;
+            for _ in 0..2_000 {
+                book.issue([(accrual, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
+                let part = repay.min(book.unpaid);
+                book.settle(part, part).unwrap();
+                cash += u128::from(part);
+            }
+            let rest = book.unpaid;
+            book.settle(rest, rest).unwrap();
+            cash += u128::from(rest);
+            if advance {
+                assert!(book.can_advance_in_place());
+                book.issue([(1, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
+                holder.checkpoint(1, &book, 0).unwrap();
+            } else {
+                let old = book.roll().unwrap();
+                holder.advance_epoch(1, &old, 0).unwrap();
+            }
+            (u128::from(holder.claimable), cash)
+        };
+        let (in_place, cash) = run(true);
+        let (rolled, _) = run(false);
+        assert!(in_place <= cash && rolled <= cash);
+        assert!(in_place + 2 >= rolled, "accrual={accrual} repay={repay}: in place {in_place} vs rolled {rolled} of {cash}");
     }
-    book.issue([(1, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
-    let value = book.run_unit_value_q64().unwrap();
-    // The 12 bps epoch sets the run's value.
-    assert!(value <= Q64 - Q64 * 12 / 10_000 && value + (1 << 33) >= Q64 - Q64 * 12 / 10_000);
-    lagging.checkpoint(1, &book, 0).unwrap();
-    assert!(lagging.claimable <= cash);
-    assert!(lagging.claimable + 1_000 >= cash, "{} of {cash}", lagging.claimable);
 }
+
+/// One epoch of small accruals and 1-atom repayments (a cheap griefing
+/// pattern) does not cancel a lagging holder's income from the run.
+#[test]
+fn partially_repaid_epoch_does_not_cancel_a_runs_income() {
+    for (small, cycles) in [(1_268_u64, 1_000_u32), (100, 1_000), (13, 2_000)] {
+        let mut book = IncomeReceivableBook::default();
+        let mut lagging = IncomeReceivableClaim::default();
+        let mut eager = IncomeReceivableClaim::default();
+        lagging.checkpoint(1, &book, 0).unwrap();
+        eager.checkpoint(1, &book, 0).unwrap();
+        let mut cash = 0_u128;
+        for _ in 0..5 {
+            book.issue([(1_000_000, 2), (0, 0), (0, 0), (0, 0)]).unwrap();
+            let unpaid = book.unpaid;
+            book.settle(unpaid, unpaid).unwrap();
+            cash += u128::from(unpaid);
+            eager.checkpoint(1, &book, 0).unwrap();
+        }
+        for _ in 0..cycles {
+            book.issue([(small, 2), (0, 0), (0, 0), (0, 0)]).unwrap();
+            book.settle(1, 1).unwrap();
+            cash += 1;
+        }
+        book.issue([(1_000_000, 2), (0, 0), (0, 0), (0, 0)]).unwrap();
+        let unpaid = book.unpaid;
+        book.settle(unpaid, unpaid).unwrap();
+        cash += u128::from(unpaid);
+        eager.checkpoint(1, &book, 0).unwrap();
+        book.issue([(1, 2), (0, 0), (0, 0), (0, 0)]).unwrap();
+        lagging.checkpoint(1, &book, 0).unwrap();
+        eager.checkpoint(1, &book, 0).unwrap();
+        let fair = cash / 2;
+        assert!(u128::from(lagging.claimable) + u128::from(eager.claimable) <= cash);
+        assert!(u128::from(lagging.claimable) + 8 >= fair, "small={small}: lagging {} of fair {fair}", lagging.claimable);
+    }
+}
+
