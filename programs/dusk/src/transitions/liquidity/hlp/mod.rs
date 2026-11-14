@@ -101,6 +101,10 @@ impl HlpVault {
     }
 
     pub fn clear_debt_repay(&mut self, shares_burned: u128, borrow_index_nad: u128) -> Result<DebtClearance> {
+        if self.debt_shares == 0 && shares_burned == 0 {
+            // A vault with no debt exits without repaying anything.
+            return Ok(DebtClearance::default());
+        }
         require!(shares_burned > 0, ErrorCode::DebtShareDivisionOverflow);
         require_gte!(self.debt_shares, shares_burned, ErrorCode::DebtShareMathOverflow);
         let total_debt = Debt::shares_to_debt(self.debt_shares, borrow_index_nad)?;

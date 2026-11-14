@@ -1663,11 +1663,7 @@ impl Market {
             vault.hlp_supply,
             self.debt.borrow_index(borrowed_asset),
         )?;
-        let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
-            vault.debt_shares,
-            debt_shares,
-            self.debt.borrow_index(borrowed_asset),
-        )?;
+        let debt_repaid = hlp_exit_debt_repaid(vault.debt_shares, debt_shares, self.debt.borrow_index(borrowed_asset))?;
         settled_close_target_amount(self, target_asset, target_redeemed, borrowed_redeemed, debt_repaid)
     }
 
@@ -1739,7 +1735,7 @@ impl Market {
                 let base_out = hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Base, hlp_amount)?;
                 let quote_redeemed =
                     hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Quote, hlp_amount)?;
-                let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
+                let debt_repaid = hlp_exit_debt_repaid(
                     market.base_hlp_vault.debt_shares,
                     quote_debt_shares,
                     market.debt.quote_borrow_index_nad,
@@ -1823,7 +1819,7 @@ impl Market {
                 let quote_out = hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Quote, hlp_amount)?;
                 let base_redeemed =
                     hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Base, hlp_amount)?;
-                let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
+                let debt_repaid = hlp_exit_debt_repaid(
                     market.quote_hlp_vault.debt_shares,
                     base_debt_shares,
                     market.debt.base_borrow_index_nad,
@@ -2732,6 +2728,18 @@ fn hlp_exit_debt_shares(debt_shares: u128, hlp_amount: u64, hlp_supply: u64, bor
         .ok_or(ErrorCode::DebtShareMathOverflow)?;
     let max_remaining = (limit - 1) / borrow_index_nad;
     Ok(floored.max(debt_shares.saturating_sub(max_remaining)))
+}
+
+/// Borrowed-asset debt an hLP exit repays. A vault whose borrowed claim
+/// rounds below one atom owns srLP with no debt: a dust first cohort, or the
+/// holders left after a partial exit took the last debt atom. Its exits burn
+/// no debt shares and repay nothing. Rejecting that zero burn would leave the
+/// vault with no exit and no orphan close.
+fn hlp_exit_debt_repaid(vault_debt_shares: u128, shares_burned: u128, borrow_index_nad: u128) -> Result<u64> {
+    if vault_debt_shares == 0 {
+        return Ok(0);
+    }
+    Debt::aggregate_debt_reduction_for_shares(vault_debt_shares, shares_burned, borrow_index_nad)
 }
 
 #[cfg(test)]
