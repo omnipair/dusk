@@ -2,6 +2,14 @@
 
 Updated: 2026-10-17. Runtime: `5a9abcb342aa3b1afa284b3a9613c4fa0afdebb0`.
 
+Asset-policy update, 2026-11-15: the owner approved matching v1 by permitting
+issuer freeze authorities on otherwise-supported underlying assets, including
+USDC. Findings #287243 and the freeze-authority portion of #287573 are accepted
+issuer risk under that policy, superseding their freeze-rejection dispositions
+below. An issuer can freeze a vault and block custody exits or liquidation.
+LP receipt mints still reject freeze authorities; underlying extension checks
+and token-program enforcement of frozen accounts remain in place.
+
 The original export contains **169 reports: 134 labeled Invalid and 35 labeled
 Unreviewed**. Those were source labels, not 35 established vulnerabilities.
 The prior review traced the 35 unresolved subjects; this closeout reconciles the
