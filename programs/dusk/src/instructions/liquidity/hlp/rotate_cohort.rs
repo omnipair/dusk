@@ -12,7 +12,7 @@ use crate::{
         accounts::{derive_hlp_srlp_vault_address, validate_lp_mint},
         market::{create_lp_metadata, require_vanity_suffix, validate_lp_metadata_args, InitializeLpMetadataArgs},
     },
-    state::{HlpCohort, HlpVault, Market, MarketAsset},
+    state::{HlpCohort, Market, MarketAsset},
 };
 
 use super::reconcile_live_hlp_supply;
@@ -96,42 +96,18 @@ impl<'info> RotateHlpCohort<'info> {
                 new_mint,
             )?,
         }
-        reconcile_live_hlp_supply(market, target_asset, ctx.accounts.old_hlp_mint.supply, false)?;
-        // An old mint with no live receipts is accepted once nothing is
-        // outstanding (a complete direct burn of a terminally closed vault).
-        let outstanding = match target_asset {
+        // Reconciling a complete direct burn of a terminal cohort zeroes its
+        // stored supply, so read the supply on record first.
+        let recorded_supply = match target_asset {
             MarketAsset::Base => market.base_hlp_vault.hlp_supply,
             MarketAsset::Quote => market.quote_hlp_vault.hlp_supply,
         };
-        require!(
-            ctx.accounts.old_hlp_mint.supply > 0 || outstanding == 0,
-            ErrorCode::InvalidHlpMintSupply
-        );
-        require!(
-            market.hlp_terminally_closed(target_asset),
-            ErrorCode::HlpSettlementUnavailable
-        );
-        let retired_vault = match target_asset {
-            MarketAsset::Base => market.base_hlp_vault,
-            MarketAsset::Quote => market.quote_hlp_vault,
-        };
-        require!(
-            retired_vault.flash_collateral_debit == 0,
-            ErrorCode::LiquidationSessionActive
-        );
+        reconcile_live_hlp_supply(market, target_asset, ctx.accounts.old_hlp_mint.supply, false)?;
         let new_srlp_vault = derive_hlp_srlp_vault_address(market_key, new_mint, market.srlp_mint).0;
-
+        let retired_vault = market.retire_hlp_cohort(target_asset, recorded_supply, new_srlp_vault)?;
+        market.side_mut(target_asset).hlp_mint = new_mint;
         ctx.accounts.old_cohort.final_vault = retired_vault;
         ctx.accounts.old_cohort.retired = true;
-        let fresh_vault = HlpVault {
-            srlp_vault: new_srlp_vault,
-            ..HlpVault::default()
-        };
-        match target_asset {
-            MarketAsset::Base => market.base_hlp_vault = fresh_vault,
-            MarketAsset::Quote => market.quote_hlp_vault = fresh_vault,
-        }
-        market.side_mut(target_asset).hlp_mint = new_mint;
 
         create_lp_metadata(
             market,

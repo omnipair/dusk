@@ -312,6 +312,40 @@ impl Market {
         }
     }
 
+    /// Retire the target side's hLP cohort for a fresh receipt mint and
+    /// return the retired vault for its cohort record. `recorded_supply` is
+    /// the vault's hLP supply before a direct burn was reconciled.
+    ///
+    /// Only a cohort with receipts on record retires: live ones, or a
+    /// terminally closed vault whose holders burned theirs directly. A side
+    /// that never minted, or whose last holder exited, already takes a fresh
+    /// first deposit on its current mint; rotating it would only hand the
+    /// side's receipt mint to whoever calls.
+    pub fn retire_hlp_cohort(
+        &mut self,
+        target_asset: MarketAsset,
+        recorded_supply: u64,
+        srlp_vault: Pubkey,
+    ) -> Result<HlpVault> {
+        require!(recorded_supply > 0, ErrorCode::InvalidHlpMintSupply);
+        require!(
+            self.hlp_terminally_closed(target_asset),
+            ErrorCode::HlpSettlementUnavailable
+        );
+        let vault = match target_asset {
+            MarketAsset::Base => &mut self.base_hlp_vault,
+            MarketAsset::Quote => &mut self.quote_hlp_vault,
+        };
+        require!(vault.flash_collateral_debit == 0, ErrorCode::LiquidationSessionActive);
+        Ok(core::mem::replace(
+            vault,
+            HlpVault {
+                srlp_vault,
+                ..HlpVault::default()
+            },
+        ))
+    }
+
     pub fn drain_hlp_unallocated_yield(
         &mut self,
         hlp_asset: MarketAsset,
