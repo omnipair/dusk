@@ -26,7 +26,7 @@ fn cmp_trade(m: &Market, a: MarketAsset, gross: u64, f: LeverageCollateralFee) -
         reserve_credit: f.unwind_credit(gross)?,
         protocol_fee_bps: 2000,
     }
-    .prepare(&mut t)?;
+    .prepare(&mut t, &Default::default())?;
     let out = f.unwind_credit(s.quote.amount_out)?;
     s.finalize_state(&mut t, audit_slot(), 2000, ProtocolAuctionSplit::default())?;
     t.assert_market_invariants()?;

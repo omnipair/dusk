@@ -301,7 +301,7 @@ fn pure_preview_and_commit_match_the_native_swap_pipeline_exactly() {
         reserve_credit: request.reserve_credit,
         protocol_fee_bps: request.protocol_fee_bps,
     }
-    .prepare(&mut native)
+    .prepare(&mut native, &Default::default())
     .unwrap();
     let native_quote = prepared.quote;
     let native_fee_supply = prepared.fee_eligible_srlp_supply;

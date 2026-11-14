@@ -284,9 +284,11 @@ impl<'info> DepositSingleSided<'info> {
             Clock::get()?.epoch,
         )?;
         let [base_rebalance, quote_rebalance] = &mut receipt.rebalances;
-        ctx.accounts
-            .market
-            .pay_hlp_funding_transfer_fees([base_rebalance, quote_rebalance], fees, None)?;
+        ctx.accounts.market.pay_hlp_funding_transfer_fees(
+            [base_rebalance, quote_rebalance],
+            fees,
+            crate::transitions::FundingFeePayment::Required,
+        )?;
         crate::instructions::leverage::settlement::settle_inline_hlp_accounts(
             &mut ctx.accounts.market,
             &ctx.accounts.futarchy_authority,

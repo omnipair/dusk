@@ -77,6 +77,14 @@ impl LeverageCollateralFee {
         Ok(gross)
     }
 
+    /// A position's debt and collateral schedules as (base, quote).
+    pub fn by_asset(debt_asset: MarketAsset, debt: Self, collateral: Self) -> [Self; 2] {
+        match debt_asset {
+            MarketAsset::Base => [debt, collateral],
+            MarketAsset::Quote => [collateral, debt],
+        }
+    }
+
     /// The schedule transfers are charged now.
     pub fn effective(self) -> Option<TransferFee> {
         self.effective
@@ -1107,7 +1115,11 @@ impl Market {
         // A socialized loss changes the reserve point, not the sticky center
         // or concentration policy. Reconstruct the unique positive concentrated
         // curve through that point in O(1); the following algebraic hLP
-        // transition then restores zero opposite-asset exposure.
+        // transition then restores zero opposite-asset exposure. The unpriced
+        // funding remainder is rescaled by this loss alone (`inventory_before`
+        // is taken just before it). An EMA inventory settlement rescales it
+        // once more in its final checkpoint, from before its trade, so there a
+        // write-off shrinks the remainder twice; see `PreparedSwap::apply`.
         let curve_depth_per_share_nad = self.rebase_concentrated_curve_at_current_ordinary_point(inventory_before)?;
         self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.defer_amm_retention_target()?;

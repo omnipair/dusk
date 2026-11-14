@@ -59,9 +59,11 @@ impl Market {
             .checked_add(quote.reserve_credit)
             .ok_or(ErrorCode::ReserveOverflow)?;
         require_gte!(cash, loss.surplus, ErrorCode::InsufficientLiquidity);
-        // Funding interest is paid from available cash. Cancel the unpaid
-        // remainder; its corresponding backing stays with the pool on close.
-        let cash_interest = loss.interest_paid.min(cash - loss.surplus);
+        // Funding interest is paid from available cash, together with the
+        // transfer fee reserve cash pays on top of it when the instruction
+        // moves it into income custody. Cancel the unpaid remainder; its
+        // corresponding backing stays with the pool on close.
+        let cash_interest = loss.interest_paid.min(debt_fee.unwind_credit(cash - loss.surplus)?);
         loss.interest_canceled = loss
             .interest_canceled
             .checked_add(loss.interest_paid - cash_interest)

@@ -174,7 +174,7 @@ fn swap(market: &mut Market, asset_in: MarketAsset, reserve_credit: u64, slot: u
         reserve_credit,
         protocol_fee_bps: 0,
     }
-    .prepare(market)?;
+    .prepare(market, &Default::default())?;
     prepared.finalize_state(market, slot, 0, ProtocolAuctionSplit::default())?;
     Ok(prepared.quote.amount_out)
 }

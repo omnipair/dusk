@@ -142,7 +142,7 @@ fn dust_compounded_swaps_cannot_floor_away_junior_reserve_shares() {
             reserve_credit: 400,
             protocol_fee_bps: 0,
         }
-        .prepare(&mut market)
+        .prepare(&mut market, &Default::default())
         .unwrap();
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
             &prepared.leverage_quote(),

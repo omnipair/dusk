@@ -740,6 +740,18 @@ impl<'info> PreviewSwap<'info> {
             .exact_asset_in
             .checked_sub(transfer_fee)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        // Execution pays hLP funding transfer fees from reserve cash and
+        // carries funding that cannot also cover its fee; preview the same.
+        let (base_mint, quote_mint) = match asset_in {
+            MarketAsset::Base => (&ctx.accounts.asset_in_mint, &ctx.accounts.asset_out_mint),
+            MarketAsset::Quote => (&ctx.accounts.asset_out_mint, &ctx.accounts.asset_in_mint),
+        };
+        let transfer_fees = crate::instructions::leverage::settlement::interest_transfer_fees(
+            quote_market,
+            &base_mint.to_account_info(),
+            &quote_mint.to_account_info(),
+            clock.epoch,
+        )?;
         let mut prepared = SwapRequest {
             current_slot: slot,
             current_unix_timestamp: clock.unix_timestamp,
@@ -747,19 +759,7 @@ impl<'info> PreviewSwap<'info> {
             reserve_credit,
             protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
         }
-        .prepare(quote_market)?;
-        // Execution pays hLP funding transfer fees from reserve cash; preview
-        // the same post-swap reserves and curve.
-        let (base_mint, quote_mint) = match asset_in {
-            MarketAsset::Base => (&ctx.accounts.asset_in_mint, &ctx.accounts.asset_out_mint),
-            MarketAsset::Quote => (&ctx.accounts.asset_out_mint, &ctx.accounts.asset_in_mint),
-        };
-        prepared.set_interest_transfer_fees(&crate::instructions::leverage::settlement::interest_transfer_fees(
-            quote_market,
-            &base_mint.to_account_info(),
-            &quote_mint.to_account_info(),
-            clock.epoch,
-        )?);
+        .prepare(quote_market, &transfer_fees)?;
         let quote = prepared.quote;
         let output_transfer_fee = get_transfer_fee_for_epoch(
             &ctx.accounts.asset_out_mint.to_account_info(),
@@ -1129,12 +1129,19 @@ impl<'info> PreviewHlpDepositCapacity<'info> {
         };
         validate_lp_mint(&accounts.target_hlp_mint, market_key, target_mint.decimals)?;
         let clock = Clock::get()?;
+        let transfer_fees = crate::instructions::leverage::settlement::interest_transfer_fees(
+            &accounts.market,
+            &accounts.base_mint.to_account_info(),
+            &accounts.quote_mint.to_account_info(),
+            clock.epoch,
+        )?;
         let (mut status, mut funding_limit_net, min_first_deposit_net) = preview_hlp_funding_limit(
             &mut accounts.market,
             target,
             accounts.target_hlp_mint.supply,
             accounts.futarchy_authority.global_reduce_only,
             &clock,
+            &transfer_fees,
         )?;
         let funding_limit_gross = if funding_limit_net == 0 {
             0
@@ -1201,6 +1208,7 @@ fn preview_hlp_funding_limit(
     live_supply: u64,
     global_reduce_only: bool,
     clock: &Clock,
+    interest_transfer_fees: &[crate::transitions::LeverageCollateralFee; 2],
 ) -> Result<(HlpDepositStatus, u64, u64)> {
     market.assert_current_version()?;
     market.require_hlp_flash_idle(target)?;
@@ -1226,9 +1234,15 @@ fn preview_hlp_funding_limit(
     if market.side(target.opposite()).reserves.cash_reserve == 0 {
         return Ok((HlpDepositStatus::NoFundingCapacity, 0, 0));
     }
-    // Entry settles the existing hedge atomically. Preview the same endpoint
-    // before classifying readiness and calculating the remaining cash budget.
-    prepare_concentrated_hlp_transition_at_current_state(market)?.consume(market)?;
+    // Entry settles the existing hedge atomically and reserve cash pays the
+    // transfer fee on the funding it settles. Preview the same endpoint and
+    // cash before classifying readiness and calculating the remaining budget.
+    let (mut base, mut quote) = prepare_concentrated_hlp_transition_at_current_state(market)?.consume(market)?;
+    market.pay_hlp_funding_transfer_fees(
+        [&mut base, &mut quote],
+        *interest_transfer_fees,
+        crate::transitions::FundingFeePayment::Required,
+    )?;
     market.checkpoint_hlp_vaults()?;
     let prices = current_hlp_curve_prices(market)?;
     let entry = current_hlp_entry_state_with_prices(market, target, prices)?;

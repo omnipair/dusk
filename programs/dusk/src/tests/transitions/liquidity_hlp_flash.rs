@@ -43,7 +43,7 @@ fn terminal_hlp_native_recovery_uses_ema_price_smoothed_depth_and_fees() {
             reserve_credit: amount,
             protocol_fee_bps: 0,
         }
-        .prepare(market)
+        .prepare(market, &Default::default())
         .unwrap();
         let output = prepared.quote.amount_out;
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -280,7 +280,7 @@ fn terminal_flash_composes_with_same_market_swap() {
                 reserve_credit: 1_000_000_000,
                 protocol_fee_bps: 0,
             }
-            .prepare(&mut market)
+            .prepare(&mut market, &Default::default())
             .unwrap();
             let credit = LeverageSwapFeeCredit::from_total_actual_credit(
                 &swap.leverage_quote(),
@@ -337,7 +337,7 @@ fn solvent_recovery_of_frozen_vault_must_repay_debt_and_unfreeze() {
     assert_eq!(market.amm.frozen_hlp_mask, 1);
     let mut trade = SwapRequest { current_slot: 2, current_unix_timestamp: 0,
         asset_in: MarketAsset::Quote, reserve_credit: if amp == 1 { 300_000_000_000 } else { 500_000_000_000 }, protocol_fee_bps: 0 }
-        .prepare(&mut market).unwrap();
+        .prepare(&mut market, &Default::default()).unwrap();
     let credit = LeverageSwapFeeCredit::from_total_actual_credit(&trade.leverage_quote(),
         trade.quote.fee.claimable_fee_debit).unwrap();
     trade.apply(&mut market, SwapCashPolicy::Spot, credit, 2, 0,
@@ -387,7 +387,7 @@ fn flash_receivables_compose_with_same_market_swaps_and_independent_recovery() {
         m.begin_hlp_flash_recovery(b).unwrap();
         let mut swap = SwapRequest { current_slot: 1, current_unix_timestamp: 0,
             asset_in: MarketAsset::Base, reserve_credit: 1_000_000_000, protocol_fee_bps: 0,
-        }.prepare(&mut m).unwrap();
+        }.prepare(&mut m, &Default::default()).unwrap();
         assert_eq!(swap.quote.recovery.bonus_output, 0, "no second incentive for an active flash recovery");
         let quote = swap.leverage_quote();
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(&quote, swap.quote.fee.claimable_fee_debit).unwrap();
@@ -438,7 +438,7 @@ fn spot_swap_carries_hlp_interest_when_cash_only_covers_trader_output() {
                 reserve_credit: 900_000_000,
                 protocol_fee_bps: 0,
             }
-            .prepare(&mut market)
+            .prepare(&mut market, &Default::default())
             .unwrap_or_else(|e| panic!("amp={amp} target={target:?} prepare: {e}"));
             let quote = swap.leverage_quote();
             let credit = LeverageSwapFeeCredit::from_total_actual_credit(&quote, swap.quote.fee.claimable_fee_debit).unwrap();
@@ -481,7 +481,7 @@ fn spot_swap_carries_hlp_interest_when_cash_only_covers_trader_output() {
                 reserve_credit: trader_output,
                 protocol_fee_bps: 0,
             }
-            .prepare(&mut reversed).unwrap();
+            .prepare(&mut reversed, &Default::default()).unwrap();
             let reverse_user_output = reverse.quote.amount_out;
             let reverse_quote = reverse.leverage_quote();
             let reverse_credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -502,7 +502,7 @@ fn spot_swap_carries_hlp_interest_when_cash_only_covers_trader_output() {
                 reserve_credit: 1_000_000_000,
                 protocol_fee_bps: 0,
             }
-            .prepare(&mut market)
+            .prepare(&mut market, &Default::default())
             .unwrap_or_else(|e| panic!("amp={amp} target={target:?} replenish prepare: {e}"));
             let replenish_quote = replenish.leverage_quote();
             let replenish_credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -529,7 +529,7 @@ fn spot_swap_carries_hlp_interest_when_cash_only_covers_trader_output() {
                 reserve_credit: 100_000_000,
                 protocol_fee_bps: 0,
             }
-            .prepare(&mut market)
+            .prepare(&mut market, &Default::default())
             .unwrap_or_else(|e| panic!("amp={amp} target={target:?} settle prepare: {e}"));
             let settle_quote = settle.leverage_quote();
             let settle_credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -584,7 +584,7 @@ fn cash_constrained_swap_carries_both_hlp_funding_liabilities() {
             reserve_credit: 900_000_000,
             protocol_fee_bps: 0,
         }
-        .prepare(&mut market).unwrap();
+        .prepare(&mut market, &Default::default()).unwrap();
         let quote = swap.leverage_quote();
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(&quote, swap.quote.fee.claimable_fee_debit).unwrap();
         let result = swap.apply(&mut market, SwapCashPolicy::Spot, credit, 1, 0,
@@ -705,7 +705,7 @@ fn terminal_paths_exclude_paid_funding_from_pricing() {
                     let plan = market
                         .prepare_terminal_hlp_waterfall(target, 1, 0, 0)
                         .unwrap();
-                    let receipt = plan.consume(&mut market, u64::MAX).unwrap();
+                    let receipt = plan.consume(&mut market, u64::MAX, Default::default()).unwrap();
                     assert_eq!(receipt.socialized_loss, 0);
                     receipt.interest_paid
                 };
@@ -746,6 +746,51 @@ fn terminal_paths_exclude_paid_funding_from_pricing() {
                 );
                 market.assert_market_invariants().unwrap();
             }
+        }
+    }
+}
+
+/// Both terminal paths pay only funding whose Token-2022 transfer fee reserve
+/// cash can also cover; the rest is canceled with the cash-limited part, so
+/// the fee is always payable and custody is never credited net of it.
+#[test]
+fn terminal_paths_leave_cash_for_the_funding_transfer_fee() {
+    let schedule = |maximum_fee: u64| {
+        LeverageCollateralFee::new(Some(spl_token_2022::extension::transfer_fee::TransferFee {
+            epoch: 0.into(),
+            transfer_fee_basis_points: 10_000.into(),
+            maximum_fee: maximum_fee.into(),
+        }))
+    };
+    for flash in [false, true] {
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            let mut market = market_for_flash(1, target, 15_000);
+            let borrowed = target.opposite();
+            let cash = market.side(borrowed).reserves.cash_reserve;
+            let (paid, fee) = if flash {
+                // A 100% fee capped at all prior cash: only the payment's own
+                // net cash can fund the interest.
+                let fee = schedule(cash);
+                let none = LeverageCollateralFee::default();
+                let quote = market.quote_hlp_flash_recovery(target, none, none).unwrap();
+                market.begin_hlp_flash_recovery(quote).unwrap();
+                let receipt = market.settle_terminal_hlp_flash(quote, fee, u64::MAX, 1).unwrap();
+                (receipt.loss.interest_paid, fee)
+            } else {
+                // A 100% fee capped one atom above the cash the unconstrained
+                // waterfall leaves: one atom of funding must be canceled.
+                let plan = market.prepare_terminal_hlp_waterfall(target, 1, 0, 0).unwrap();
+                let uncapped = plan.consume(&mut market.clone(), u64::MAX, Default::default()).unwrap();
+                let fee = schedule(cash - uncapped.interest_paid + 1);
+                let receipt = plan.consume(&mut market, u64::MAX, fee).unwrap();
+                assert_eq!(receipt.interest_paid, uncapped.interest_paid - 1, "target={target:?}");
+                assert_eq!(receipt.interest_canceled, uncapped.interest_canceled + 1, "target={target:?}");
+                (receipt.interest_paid, fee)
+            };
+            assert!(paid > 0, "flash={flash} target={target:?}");
+            // The fee the instruction then pays on the transfer fits the cash.
+            assert!(market.side(borrowed).reserves.cash_reserve >= fee.inverse_fee(paid).unwrap());
+            market.assert_market_invariants().unwrap();
         }
     }
 }

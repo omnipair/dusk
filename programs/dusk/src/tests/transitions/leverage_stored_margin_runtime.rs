@@ -12,6 +12,7 @@ fn runtime_open(market: &mut Market, debt_asset: MarketAsset, margin: u64, slot:
             asset: debt_asset,
             amount: margin,
         },
+        &Default::default(),
     )
     .unwrap();
     let quote = prepared.leverage_quote();
@@ -96,6 +97,7 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                             debt_principal: first.debt_principal,
                             shares_to_burn: slice.debt_shares,
                         },
+                        &Default::default(),
                     )
                     .unwrap();
                     let quote = prepared.leverage_quote();

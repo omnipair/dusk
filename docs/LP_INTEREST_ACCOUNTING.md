@@ -278,16 +278,27 @@ exits, flash and terminal settlement; `fund_interest`; leverage and
 liquidation settlement interest) debit reserve cash and live reserve for the
 fee: a real cost to LP reserves, never to the income book. Like the funding
 payment it accompanies, the fee is excluded from pricing, so spot does not
-move and depth falls instead. If reserve cash cannot cover the fee, the
-operation (a swap included) still succeeds and the transfer credits net. SPL
-fee arithmetic makes the grossed-up transfer deliver exactly the interest; if
-one ever delivered more than the settlement budget, collection would credit
+move and depth falls instead.
+
+The fee is part of every pay-or-carry decision for the payment it
+accompanies, so cash never pays the interest without its fee. A spot swap
+carries hLP funding on the vault's debt when cash cannot cover the funding,
+its fee and the trader's output (the swap still executes); leverage swaps and
+liquidation settlements refuse, as they do for funding cash cannot cover; the
+terminal waterfall and flash terminal pay only funding whose fee cash also
+covers and cancel the rest; hLP entry, exit and harvest, leverage settlement
+interest and `fund_interest` require the fee with the payment (`fund_interest`
+also keeps back the fee on funding the reserve owes). The only remaining net
+credit is a swap's own safety net: a settlement rebuilt after a loss inside
+the swap that leaves less cash than its prepared plan counted. SPL fee
+arithmetic makes the grossed-up transfer deliver exactly the interest; if one
+ever delivered more than the settlement budget, collection would credit
 exactly the budget and leave the excess in the vault, unrecorded.
 
 An epoch credited less than its pending interest (a fee changed after the
-gross-up was priced, a fee reserve cash could not pay, a terminal caller
-bounty) or with a writeoff is impaired and needs an archived roll before it
-can issue again, instead of an in-place advance.
+gross-up was priced, the swap safety net above, a terminal caller bounty) or
+with a writeoff is impaired and needs an archived roll before it can issue
+again, instead of an in-place advance.
 
 `roll_income_epoch` archives a book only once at least half of its units are
 repaid, or once any of its counters (units, unpaid, paid per unit, or a lane's

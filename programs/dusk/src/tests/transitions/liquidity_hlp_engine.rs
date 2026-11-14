@@ -294,7 +294,7 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
                     reserve_credit: amount_in,
                     protocol_fee_bps: 0,
                 }
-                .prepare(&mut market)
+                .prepare(&mut market, &Default::default())
                 .unwrap();
                 let quote = swap.leverage_quote();
                 let first_out = quote.amount_out;
@@ -325,7 +325,7 @@ fn h_lp_exit_survives_stale_reference_after_concentrated_swap() {
                     reserve_credit: first_out,
                     protocol_fee_bps: 0,
                 }
-                .prepare(&mut market)
+                .prepare(&mut market, &Default::default())
                 .unwrap();
                 let reverse_quote = reverse.leverage_quote();
                 let reverse_credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -564,7 +564,7 @@ fn captured_vob_bids_survive_fractional_output_rounding() {
             reserve_credit: amount,
             protocol_fee_bps: authority.revenue_share.swap_bps,
         }
-        .prepare(&mut before)
+        .prepare(&mut before, &Default::default())
         .unwrap();
         let transition = prepared.concentrated_transition.as_ref().unwrap();
         assert_eq!(transition.base_output_rounding_carry, 0, "bid {amount}");
@@ -588,7 +588,7 @@ fn captured_vob_bid_rejects_unexplained_reserve_drift() {
         reserve_credit: 1_082_025,
         protocol_fee_bps: authority.revenue_share.swap_bps,
     }
-    .prepare(&mut market)
+    .prepare(&mut market, &Default::default())
     .unwrap();
     // The certified carry is one atom. An additional four unexplained atoms
     // must still fail the original three-atom reconciliation bound.
@@ -638,7 +638,7 @@ fn captured_vob_asks_certify_only_base_output_rounding() {
             reserve_credit: amount,
             protocol_fee_bps: authority.revenue_share.swap_bps,
         }
-        .prepare(&mut before)
+        .prepare(&mut before, &Default::default())
         .unwrap();
         let transition = prepared.concentrated_transition.as_ref().unwrap();
         assert_eq!(transition.quote_output_rounding_carry, 0, "ask {amount}");
@@ -690,7 +690,7 @@ fn consecutive_partial_hlp_exits_keep_live_reserve_on_funded_debt() {
             reserve_credit: amount,
             protocol_fee_bps: 0,
         }
-        .prepare(market)?;
+        .prepare(market, &Default::default())?;
         let quote = prepared.leverage_quote();
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(&quote, prepared.quote.fee.claimable_fee_debit)?;
         prepared

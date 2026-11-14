@@ -167,7 +167,7 @@ fn permissionless_seed_compound_rejects_a_same_slot_price_sandwich() {
         reserve_credit: 500_000 * UNIT,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut attacked)
+    .prepare(&mut attacked, &Default::default())
     .unwrap();
     let quote_received = first.quote.amount_out;
     first
@@ -284,8 +284,8 @@ fn native_compounding_allocates_half_to_each_tranche_including_empty_seed() {
                     compounded.config.amm.compounding_fee_bps = 10_000;
                     let request = SwapRequest { current_slot: 1, current_unix_timestamp: 0,
                         asset_in: asset, reserve_credit: 10_000 * UNIT, protocol_fee_bps: 0 };
-                    let mut plain = request.prepare(&mut baseline).unwrap();
-                    let mut compound = request.prepare(&mut compounded).unwrap();
+                    let mut plain = request.prepare(&mut baseline, &Default::default()).unwrap();
+                    let mut compound = request.prepare(&mut compounded, &Default::default()).unwrap();
                     let fee = compound.quote.fee.compounded_fee_debit;
                     let mark = compound.quote.end_price_nad;
                     assert_eq!(plain.quote.amount_out, compound.quote.amount_out);

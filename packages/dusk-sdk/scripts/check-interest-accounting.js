@@ -79,6 +79,10 @@ test("advance pays the effective mint fee, not its announced future fee", () => 
   // coupon, binds it and the advance plus fee (998) stays within cash.
   assert.deepEqual(quoteInterestAdvanceAmounts({ unpaidPublicInterest: 1_000n, outstandingGrossAdvance: 0n, reserveCash: 1_000n, maxGross: 1_000n, unpaidFeeInterest: 200n, outstandingRevenueEscrow: 0n, transferFee }),
     { grossAdvance: 990n, revenueEscrow: 198n, lpVaultDebit: 800n, lpVaultCredit: 792n, transferFee: 8n });
+  // Funding owed from the same cash also keeps its own transfer fee:
+  // 2000 - 300 - inverse_fee(300) = 1696 spendable, delivering 1679.
+  assert.equal(quoteInterestAdvanceAmounts({ unpaidPublicInterest: 5_000n, outstandingGrossAdvance: 0n, reserveCash: 2_000n,
+    maxGross: 5_000n, unpaidFeeInterest: 0n, outstandingRevenueEscrow: 0n, transferFee, hlpFundingInterest: 300n }).grossAdvance, 1_679n);
   // With spare cash the advance is unchanged and custody still receives it in full.
   assert.deepEqual(quoteInterestAdvanceAmounts({ unpaidPublicInterest: 1_000n, outstandingGrossAdvance: 0n, reserveCash: 2_000n, maxGross: 1_000n, unpaidFeeInterest: 200n, outstandingRevenueEscrow: 0n, transferFee }),
     { grossAdvance: 1_000n, revenueEscrow: 200n, lpVaultDebit: 809n, lpVaultCredit: 800n, transferFee: 9n });

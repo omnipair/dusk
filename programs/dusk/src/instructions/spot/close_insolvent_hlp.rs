@@ -14,10 +14,10 @@ use crate::{
             require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
             validate_lp_mint, validate_owner_asset_account,
         },
-        record_hlp_interest_credit, validate_hlp_authority_pdas,
+        leverage_collateral_fee, record_hlp_interest_credit, validate_hlp_authority_pdas,
     },
     state::{FutarchyAuthority, Market, MarketAsset},
-    token::{get_transfer_inverse_fee, token_burn, transfer_checked_with_remaining_accounts},
+    token::{token_burn, transfer_checked_with_remaining_accounts},
     transitions::HlpYieldEligibility,
 };
 
@@ -145,7 +145,8 @@ impl<'info> CloseInsolventHlp<'info> {
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        let receipt = plan.consume(&mut ctx.accounts.market, args.max_socialized_loss)?;
+        let borrowed_fee = leverage_collateral_fee(&ctx.accounts.borrowed_mint, Clock::get()?.epoch)?;
+        let receipt = plan.consume(&mut ctx.accounts.market, args.max_socialized_loss, borrowed_fee)?;
         // consume already rebased the curve for its loss.
         let inventory_after_consume = ctx.accounts.market.ordinary_inventory_point_nad()?;
 
@@ -201,15 +202,14 @@ impl<'info> CloseInsolventHlp<'info> {
         let mut actual_interest_credit = 0;
         if interest_for_yield > 0 {
             // Reserve cash also pays the Token-2022 fee, so custody receives
-            // the whole transferred interest. The socialized-loss transition
-            // below rebuilds the curve after this debit. The bounty still
-            // leaves the funding book short, so it rolls before reissuing.
-            let transfer_fee =
-                get_transfer_inverse_fee(&ctx.accounts.borrowed_mint.to_account_info(), interest_for_yield)?;
+            // the whole transferred interest; the waterfall paid only funding
+            // whose fee cash covers. The socialized-loss transition below
+            // rebuilds the curve after this debit. The bounty still leaves the
+            // funding book short, so it rolls before reissuing.
             let transfer_fee = ctx
                 .accounts
                 .market
-                .pay_interest_transfer_fee(borrowed_asset, transfer_fee)?;
+                .pay_interest_transfer_fee(borrowed_asset, borrowed_fee.inverse_fee(interest_for_yield)?)?;
             transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.borrowed_reserve_vault.to_account_info(),

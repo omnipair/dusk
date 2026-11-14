@@ -301,8 +301,10 @@ impl<'info> WithdrawSingleSided<'info> {
                 &ctx.accounts.token_2022_program,
             )?;
             // Reserve cash also pays the Token-2022 fee, so custody receives
-            // the full funding payment. The exit's final AMM transition below
-            // rebuilds the curve after this debit.
+            // the full funding payment; an exit whose cash cannot also cover
+            // the fee is refused, as one that cannot cover the funding is. The
+            // exit's final AMM transition below rebuilds the curve after this
+            // debit.
             let transfer_fee = get_transfer_inverse_fee(&borrowed_mint, receipt.interest_paid)?;
             let transfer_fee = ctx
                 .accounts

@@ -10,7 +10,7 @@ fn cmp_trade(m: &Market, a: MarketAsset, gross: u64, f: LeverageCollateralFee) -
         reserve_credit: f.unwind_credit(gross)?,
         protocol_fee_bps: 2000,
     }
-    .prepare(&mut t)?;
+    .prepare(&mut t, &Default::default())?;
     let out = f.unwind_credit(s.quote.amount_out)?;
     s.finalize_state(&mut t, 2, 2000, ProtocolAuctionSplit::default())?;
     t.assert_market_invariants()?;
@@ -484,7 +484,7 @@ fn cmp_current_candidate(
                         reserve_credit: credit,
                         protocol_fee_bps: 2000,
                     })
-                    .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote)
+                    .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote, &Default::default())
                     {
                         Ok(s) => s,
                         Err(_) => continue,

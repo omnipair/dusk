@@ -24,6 +24,7 @@ mod tranche_income;
 mod income_receivable;
 
 mod market_income;
+pub(crate) use market_income::FundingFeePayment;
 mod seed;
 
 mod lazy_income;

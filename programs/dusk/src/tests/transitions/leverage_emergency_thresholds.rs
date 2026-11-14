@@ -56,6 +56,7 @@ fn open_current(market: &mut Market, case: Case, fee: LeverageCollateralFee) -> 
             asset: case.debt_asset,
             amount: margin,
         },
+        &Default::default(),
     )?;
     let quote = prepared.leverage_quote();
     let mut position = empty_position();
@@ -108,6 +109,7 @@ fn quote_sale(
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
         },
+        &Default::default(),
     )?;
     Ok((trial, prepared))
 }
