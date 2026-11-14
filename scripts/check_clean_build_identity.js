@@ -8,7 +8,7 @@ import { prepareBuild } from "./prepare_build.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const scripts = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).scripts;
-for (const command of ["build:litesvm", "v2:build-devnet", "v2:build-leverage-delegate-devnet", "v2:build-faucet-devnet"]) {
+for (const command of ["build:litesvm", "build:litesvm:fixtures", "v2:build-devnet", "v2:build-leverage-delegate-devnet", "v2:build-faucet-devnet"]) {
   assert.ok(scripts[command].startsWith("node scripts/prepare_build.js && "), `${command} must prepare the devnet workspace before Anchor`);
 }
 const workspace = mkdtempSync(join(tmpdir(), "dusk-build-identity-"));

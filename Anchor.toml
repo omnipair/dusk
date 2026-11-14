@@ -11,6 +11,10 @@ faucet = "EMmV9HKeQndxFd4duqp65rUSjikVWCPakBH1UjJJ32dz"
 dusk = "9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH"
 leverage_delegate = "5yeZJw1bNer5jq4GVNa7ifsgnM7ivxXQLCK6ro8EJ3Ue"
 
+[programs.mainnet]
+dusk = "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj"
+leverage_delegate = "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ"
+
 [registry]
 url = "https://api.apr.dev"
 
@@ -23,4 +27,4 @@ members = ["programs/dusk", "programs/leverage_delegate", "programs/faucet"]
 
 [scripts]
 build-devnet = "node scripts/prepare_build.js && anchor build -p dusk -- --arch v0"
-build-mainnet = "node scripts/prepare_build.js && anchor build -p dusk -- --features \"production\""
+build-mainnet = "node scripts/release/build.mjs"

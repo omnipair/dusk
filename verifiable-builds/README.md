@@ -1,32 +1,19 @@
-# Verifiable Builds
+# Verifiable mainnet builds
 
-This directory is reserved for generated Omnipair V2 (Dusk) build artifacts.
+Use the [mainnet release workflow and local signing instructions](../scripts/release/README.md).
 
-Expected generated files:
+`release-build.yaml` creates an immutable bundle for both Dusk and leverage
+delegate, including both IDLs, both TypeScript interfaces and a source/build/hash
+manifest. It runs LiteSVM against those exact production executables. It never
+creates a commit, deploys, uploads an IDL, or publishes npm.
 
-- `dusk.so`
-- `dusk.json`
-- `dusk.ts`
+The bundle is under `target/mainnet-release` after a local reproducible build or
+a download of the successful workflow artifact. `yarn release:build` requires
+Docker and uses the pinned builder image. `yarn release:local plan` previews the
+local encrypted-volume deployment. On-chain bytecode and IDL verification
+requires an explicit mainnet RPC; deployment and public verification metadata
+attestation additionally require explicit `--execute` and local signing.
 
-## Verify Dusk
-
-```bash
-cargo install solana-verify
-
-COMMIT_SHA=<COMMIT_SHA>
-RELEASE_TAG=<RELEASE_TAG>
-
-solana-verify verify-from-repo \
-  --skip-prompt \
-  --base-image solanafoundation/anchor:v0.31.1 \
-  --program-id 5EuU8artxWthfER6GTUY52TfL1aRsQH2TH8DsdGCa8cJ \
-  https://github.com/omnipair/dusk \
-  --commit-hash "$COMMIT_SHA" \
-  --library-name dusk \
-  -u mainnet-beta \
-  -- --features production \
-     --config "env.GIT_REV=\"$COMMIT_SHA\"" \
-     --config "env.GIT_RELEASE=\"$RELEASE_TAG\""
-```
-
-Release artifacts are produced by the Dusk release workflow.
+Stable SDK publishing checks both on-chain executables against the tested
+release bundle as well as both on-chain IDLs. Keep production artifacts outside
+the source tree; this directory contains documentation only.

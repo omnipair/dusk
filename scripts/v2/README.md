@@ -147,9 +147,11 @@ version describes mainnet and becomes `latest`. npm never takes a version twice,
 so a change to the package needs a new version, and a merge that keeps a
 published version publishes nothing.
 
-The publishing check compares IDLs only. A program change that keeps the IDLs
-passes it whether or not it is deployed, so coordinate deployment before
-publishing a package for that change.
+For devnet prereleases the publishing check compares IDLs only, so coordinate
+deployment before publishing a program change that keeps its interface. Stable
+mainnet publishing additionally downloads the successful exact-commit release
+bundle and matches both deployed executables, IDLs and authorities. See the
+[mainnet release instructions](../release/README.md).
 
 A merge that lands before its deployment publishes nothing and leaves a warning
 on its `publish-sdk` run. Once the deployment is live, re-run that run:
