@@ -127,8 +127,8 @@ local signing step **while the deployer still has upgrade authority**:
 ```bash
 node scripts/release/local.mjs attest target/mainnet-release
 node scripts/release/local.mjs attest target/mainnet-release --execute
-solana-verify remote get-status DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj
-solana-verify remote get-status DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ
+solana-verify remote get-status --program-id DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj
+solana-verify remote get-status --program-id DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ
 ```
 
 Attestation first verifies the deployed bytes, then signs the build metadata
