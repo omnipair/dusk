@@ -214,6 +214,12 @@ impl PreparedSwap {
         let prepared_transition = self.concentrated_transition.take().ok_or(ErrorCode::BrokenInvariant)?;
         self.inventory_settlement = None;
         let prepared_cache = self.post_fee_curve_cache.take();
+        // An inventory settlement rebuilds the curve as a loss; the unpriced
+        // funding remainder scales with the inventory it started from.
+        let inventory_before = inventory
+            .is_some()
+            .then(|| market.ordinary_inventory_point_nad())
+            .transpose()?;
         let fee_asset = MarketAsset::try_from_code(quote.fee.fee_asset)?;
         let lifecycle = if cash_policy == SwapCashPolicy::Spot || lending.is_some() {
             let (side_in, side_out) = market.swap_sides_mut(quote.asset_in);
@@ -301,7 +307,10 @@ impl PreparedSwap {
             // Reference pricing can change real invariant depth even without
             // a recorded write-off. Consume protection on loss; an apparent
             // gain cannot manufacture a spendable recenter buffer.
-            market.checkpoint_amm_socialized_loss_raw(current_slot)?;
+            market.checkpoint_amm_socialized_loss_raw(
+                current_slot,
+                inventory_before.ok_or(ErrorCode::BrokenInvariant)?,
+            )?;
         } else if prepared_cache.is_some() {
             let cache = if socialized_loss {
                 None
@@ -317,12 +326,21 @@ impl PreparedSwap {
         }
         // Fixed-debt clearance can still change reserves after the AMM/hLP leg.
         // Observe the complete operation once, including that final change.
+        let before_liquidation = lending
+            .is_some()
+            .then(|| market.ordinary_inventory_point_nad())
+            .transpose()?;
         let liquidation = lending
             .map(|settlement| settlement.apply(market, quote.amount_out))
             .transpose()?;
         let final_price_nad = if let Some(receipt) = liquidation {
             if receipt.liquidation.socialized_loss > 0 {
-                market.checkpoint_amm_socialized_loss_raw(current_slot)?.0
+                market
+                    .checkpoint_amm_socialized_loss_raw(
+                        current_slot,
+                        before_liquidation.ok_or(ErrorCode::BrokenInvariant)?,
+                    )?
+                    .0
             } else {
                 market.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
                 market

@@ -1020,7 +1020,11 @@ impl Market {
         Ok(transition)
     }
 
-    fn rebase_concentrated_curve_at_current_ordinary_point(&mut self) -> Result<u128> {
+    fn rebase_concentrated_curve_at_current_ordinary_point(
+        &mut self,
+        before: crate::transitions::amm::ConcentratedCurvePoint,
+    ) -> Result<u128> {
+        self.rescale_unpriced_funding_inventory(before)?;
         self.bound_unpriced_funding_inventory()?;
         let ordinary = self.ordinary_curve_point_nad()?;
         let parameters = self.config.amm.concentrated_curve_parameters()?;
@@ -1039,8 +1043,12 @@ impl Market {
         self.curve_depth_per_share_nad(curve_depth_nad)
     }
 
-    pub(crate) fn rebase_concentrated_curve_after_terminal_hlp_loss(&mut self) -> Result<()> {
-        let curve_depth_per_share_nad = self.rebase_concentrated_curve_at_current_ordinary_point()?;
+    /// `before` is the ordinary inventory before the terminal loss.
+    pub(crate) fn rebase_concentrated_curve_after_terminal_hlp_loss(
+        &mut self,
+        before: crate::transitions::amm::ConcentratedCurvePoint,
+    ) -> Result<()> {
+        let curve_depth_per_share_nad = self.rebase_concentrated_curve_at_current_ordinary_point(before)?;
         self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()
@@ -1062,6 +1070,7 @@ impl Market {
             .ok_or(ErrorCode::BrokenInvariant)?;
         let start_prices = hlp_curve_prices_from_base_price_nad(start_price as u128)?;
         let (base_before, quote_before) = current_hlp_signed_navs_with_prices(self, start_prices)?;
+        let inventory_before = self.ordinary_inventory_point_nad()?;
 
         let post_loss_live_reserve = self
             .side(debt_asset)
@@ -1080,7 +1089,7 @@ impl Market {
         // or concentration policy. Reconstruct the unique positive concentrated
         // curve through that point in O(1); the following algebraic hLP
         // transition then restores zero opposite-asset exposure.
-        let curve_depth_per_share_nad = self.rebase_concentrated_curve_at_current_ordinary_point()?;
+        let curve_depth_per_share_nad = self.rebase_concentrated_curve_at_current_ordinary_point(inventory_before)?;
         self.amm.checkpoint_recenter_or_loss(curve_depth_per_share_nad);
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;

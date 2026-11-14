@@ -146,6 +146,8 @@ impl<'info> CloseInsolventHlp<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let receipt = plan.consume(&mut ctx.accounts.market, args.max_socialized_loss)?;
+        // consume already rebased the curve for its loss.
+        let inventory_after_consume = ctx.accounts.market.ordinary_inventory_point_nad()?;
 
         if receipt.srlp_burn_amount > 0 {
             token_burn(
@@ -244,7 +246,7 @@ impl<'info> CloseInsolventHlp<'info> {
         )?;
         ctx.accounts
             .market
-            .finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
+            .finalize_amm_socialized_loss_and_observe_risk(current_slot, inventory_after_consume)?;
         // This is the terminal recovery path for an already-insolvent hLP.
         // A changed fee on either market mint can leave global health below
         // the floor; requiring that floor here would strand the debt instead

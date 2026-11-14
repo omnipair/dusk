@@ -962,7 +962,8 @@ fn zero_loss_checkpoint_never_moves_spot_through_the_funding_remainder() {
         let priced = market.ordinary_curve_point_nad().unwrap();
         largest = largest.max((inventory.base_reserve - priced.base_reserve) as f64 / inventory.base_reserve as f64);
         let before = market.current_concentrated_spot_price_nad().unwrap().unwrap();
-        market.finalize_amm_socialized_loss_and_observe_risk(slot).unwrap();
+        let inventory = market.ordinary_inventory_point_nad().unwrap();
+        market.finalize_amm_socialized_loss_and_observe_risk(slot, inventory).unwrap();
         let after = market.current_concentrated_spot_price_nad().unwrap().unwrap();
         assert!(after.abs_diff(before) <= before / 1_000_000_000 + 2, "push={push}: {before} -> {after}");
     }
@@ -1032,6 +1033,41 @@ fn fee_token_funding_payment_does_not_stall_the_shared_index() {
         control.update_at_slot(d2).unwrap();
         let c2 = control.debt.quote_borrow_index_nad;
         assert_eq!(market.debt.quote_borrow_index_nad - i1, c2 - c1, "fee_bps={fee_bps}");
+    }
+}
+
+/// A loss on the axis that carries the unpriced funding remainder shrinks the
+/// remainder with the inventory, so spot moves about as it would with no
+/// remainder instead of by the loss's share of the priced coordinate.
+#[test]
+fn loss_shrinks_the_unpriced_funding_remainder_pro_rata() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let mut market = funding_market_with_shape(1, true, curve_parameters(Shape::TailFloor));
+    let mut slot = 2;
+    for _ in 0..90 {
+        slot += slots_per_day;
+        market.update_at_slot(slot).unwrap();
+        swap_booking_funding(&mut market, MarketAsset::Quote, 1_000, slot).unwrap();
+    }
+    let inventory = market.ordinary_inventory_point_nad().unwrap();
+    let priced = market.ordinary_curve_point_nad().unwrap();
+    assert!((inventory.base_reserve - priced.base_reserve) * 2 > inventory.base_reserve);
+    let base_atom_nad = market.normalize_amount(1, market.base_side.asset_decimals).unwrap();
+    for pct_of_priced in [10_u128, 50, 90, 99] {
+        let loss = u64::try_from(priced.base_reserve * pct_of_priced / 100 / base_atom_nad).unwrap();
+        let mut with_loss = market.clone();
+        let before = with_loss.ordinary_inventory_point_nad().unwrap();
+        with_loss.base_side.debit_reserve(loss, true).unwrap();
+        let after = with_loss.ordinary_inventory_point_nad().unwrap();
+        with_loss.finalize_amm_socialized_loss_and_observe_risk(slot, before).unwrap();
+        // The remainder's share of base inventory is unchanged by the loss.
+        let remainder = |m: &Market| {
+            let priced = m.ordinary_curve_point_nad().unwrap();
+            let inventory = m.ordinary_inventory_point_nad().unwrap();
+            (inventory.base_reserve - priced.base_reserve) as f64 / inventory.base_reserve as f64
+        };
+        assert!((remainder(&with_loss) - remainder(&market)).abs() < 1e-6, "{pct_of_priced}%");
+        assert!(after.base_reserve < before.base_reserve);
     }
 }
 

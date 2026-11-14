@@ -262,7 +262,14 @@ impl Market {
     /// Socialized-loss checkpoint for concentrated curve state. Accrued unpaid interest has already
     /// been removed from curve reserves, so only actual executable-liquidity
     /// loss consumes protected profit.
-    pub(crate) fn checkpoint_amm_socialized_loss_raw(&mut self, current_slot: u64) -> Result<(u64, u128)> {
+    /// `before` is the ordinary inventory before the loss; the unpriced
+    /// funding remainder shrinks in proportion to it.
+    pub(crate) fn checkpoint_amm_socialized_loss_raw(
+        &mut self,
+        current_slot: u64,
+        before: ConcentratedCurvePoint,
+    ) -> Result<(u64, u128)> {
+        self.rescale_unpriced_funding_inventory(before)?;
         self.refresh_concentrated_curve_cache(current_slot, true)
     }
 
@@ -270,11 +277,15 @@ impl Market {
     /// used inside multi-leg leverage settlement, this is a complete public
     /// transition: retention state, revision, empty-market state, and risk all
     /// advance together.
-    pub(crate) fn finalize_amm_socialized_loss_and_observe_risk(&mut self, current_slot: u64) -> Result<()> {
+    pub(crate) fn finalize_amm_socialized_loss_and_observe_risk(
+        &mut self,
+        current_slot: u64,
+        before: ConcentratedCurvePoint,
+    ) -> Result<()> {
         if self.base_side.shares.srlp_supply == MIN_LIQUIDITY {
             return self.finalize_amm_transition_and_observe_risk(current_slot);
         }
-        let (price_nad, curve_depth_nad) = self.checkpoint_amm_socialized_loss_raw(current_slot)?;
+        let (price_nad, curve_depth_nad) = self.checkpoint_amm_socialized_loss_raw(current_slot, before)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
         self.observe_risk_from_concentrated_curve(price_nad, curve_depth_nad, current_slot)?;
@@ -1627,6 +1638,35 @@ impl Market {
         let (base, quote) = pricing_offsets_within(point, inventory)?;
         self.amm.hlp_funding_base_pricing_offset_nad = base;
         self.amm.hlp_funding_quote_pricing_offset_nad = quote;
+        Ok(())
+    }
+
+    /// A loss takes inventory from the priced point and the unpriced funding
+    /// remainder alike: scale each axis's remainder by that axis's inventory
+    /// after the loss over `before`, as srLP flows do, so spot moves by the
+    /// loss's share of inventory rather than of the priced coordinate.
+    pub(crate) fn rescale_unpriced_funding_inventory(&mut self, before: ConcentratedCurvePoint) -> Result<()> {
+        if self.amm.hlp_funding_base_pricing_offset_nad == 0 && self.amm.hlp_funding_quote_pricing_offset_nad == 0 {
+            return Ok(());
+        }
+        let after = self.ordinary_inventory_point_nad()?;
+        let scale = |offset: i128, after: u128, before: u128| -> Result<i128> {
+            if offset == 0 || before == 0 || after >= before {
+                return Ok(offset);
+            }
+            let magnitude = mul_div_u128(offset.unsigned_abs(), after, before)?;
+            Ok(-i128::try_from(magnitude).map_err(|_| ErrorCode::MarketMathOverflow)?)
+        };
+        self.amm.hlp_funding_base_pricing_offset_nad = scale(
+            self.amm.hlp_funding_base_pricing_offset_nad,
+            after.base_reserve,
+            before.base_reserve,
+        )?;
+        self.amm.hlp_funding_quote_pricing_offset_nad = scale(
+            self.amm.hlp_funding_quote_pricing_offset_nad,
+            after.quote_reserve,
+            before.quote_reserve,
+        )?;
         Ok(())
     }
 

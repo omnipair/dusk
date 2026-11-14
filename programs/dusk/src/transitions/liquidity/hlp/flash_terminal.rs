@@ -22,6 +22,7 @@ impl Market {
         slot: u64,
     ) -> Result<HlpFlashTerminalSettlement> {
         require!(quote.full, ErrorCode::InvalidLiquidationSession);
+        let inventory_before = self.ordinary_inventory_point_nad()?;
         let target = MarketAsset::try_from_code(quote.target_asset)?;
         let borrowed = target.opposite();
         let vault = match target {
@@ -140,7 +141,7 @@ impl Market {
         require!(self.hlp_frozen(target), ErrorCode::BrokenInvariant);
         self.clear_frozen_hlp(target);
         self.exclude_hlp_funding_payment_from_pricing(borrowed, loss.interest_paid)?;
-        self.rebase_concentrated_curve_after_terminal_hlp_loss()?;
+        self.rebase_concentrated_curve_after_terminal_hlp_loss(inventory_before)?;
         // A second vault may also be insolvent. Closing this cohort must not
         // require rehedging that other cohort first; its debt and full-value
         // backing remain explicit and can be recovered independently.

@@ -610,11 +610,12 @@ fn terminal_flash_closes_principal_loss_and_unpaid_interest_without_external_cov
                 if principal_loss {
                     // Model an existing pooled principal writeoff, which has
                     // already reduced both asset claims without returning cash.
+                    let inventory = m.ordinary_inventory_point_nad().unwrap();
                     for asset in [MarketAsset::Base, MarketAsset::Quote] {
                         m.side_mut(asset).reserves.cash_reserve -= 800_000_000_000;
                         m.side_mut(asset).reserves.live_reserve -= 800_000_000_000;
                     }
-                    m.rebase_concentrated_curve_after_terminal_hlp_loss().unwrap();
+                    m.rebase_concentrated_curve_after_terminal_hlp_loss(inventory).unwrap();
                 }
                 let fee = LeverageCollateralFee::default();
                 let q = m.quote_hlp_flash_recovery(target, fee, fee).unwrap();

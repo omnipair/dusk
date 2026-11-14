@@ -219,9 +219,10 @@ fn cmp_v1_inventory(
     };
     // Hypothetical inventory exchange: cancel receivable, receive collateral.
     // Native ledger kernel ensures no fictional debt-token cash is introduced.
+    let inventory = t.ordinary_inventory_point_nad()?;
     t.apply_leverage_lifecycle_transition(policy, collateral, credit, a.debt, a.debt)?;
     t.apply_liquidation_position(&mut Mut::Leverage(&mut q), debt, a, seized, full)?;
-    t.finalize_amm_socialized_loss_and_observe_risk(2)?;
+    t.finalize_amm_socialized_loss_and_observe_risk(2, inventory)?;
     t.assert_market_invariants()?;
     let after = t.flash_liquidation_health(&Ref::Leverage(&q), debt, f)?;
     let improves = full || health.improves(after)?;

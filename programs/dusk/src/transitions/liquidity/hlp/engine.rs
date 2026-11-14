@@ -457,6 +457,7 @@ impl HlpTerminalWaterfallPlan {
     }
 
     pub(crate) fn consume(self, market: &mut Market, max_socialized_loss: u64) -> Result<HlpTerminalWaterfallReceipt> {
+        let inventory_before = market.ordinary_inventory_point_nad()?;
         require_eq!(
             market.curve_revision,
             self.expected_curve_revision,
@@ -557,7 +558,7 @@ impl HlpTerminalWaterfallPlan {
         market.clear_frozen_hlp(self.target_asset);
         market.absorb_funded_credit_loss(borrowed_asset, socialized_loss)?;
         market.exclude_hlp_funding_payment_from_pricing(borrowed_asset, interest_paid)?;
-        market.rebase_concentrated_curve_after_terminal_hlp_loss()?;
+        market.rebase_concentrated_curve_after_terminal_hlp_loss(inventory_before)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
         Ok(HlpTerminalWaterfallReceipt {

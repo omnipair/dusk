@@ -116,7 +116,8 @@ impl Market {
             self.apply_leverage_socialized_loss(debt_asset, lifecycle, current_slot)?;
             let transition = prepare_concentrated_hlp_transition_at_current_state(self)?;
             let (base_hlp_rebalance, quote_hlp_rebalance) = transition.consume(self)?;
-            self.finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
+            let inventory = self.ordinary_inventory_point_nad()?;
+            self.finalize_amm_socialized_loss_and_observe_risk(current_slot, inventory)?;
             self.assert_market_invariants()?;
 
             position.debt_shares = lifecycle.position_debt_shares;
