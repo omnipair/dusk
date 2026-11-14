@@ -163,6 +163,7 @@ impl Market {
         self.base_side.shares.mint(internal_mint_amount)?;
         self.quote_side.shares.mint(internal_mint_amount)?;
         self.scale_hlp_pricing_offsets(supply_before)?;
+        self.scale_frozen_hlp_carve_out(supply_before)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 
@@ -337,6 +338,7 @@ impl Market {
         self.base_side.shares.burn(srlp_amount)?;
         self.quote_side.shares.burn(srlp_amount)?;
         self.scale_hlp_pricing_offsets(supply_before)?;
+        self.scale_frozen_hlp_carve_out(supply_before)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 

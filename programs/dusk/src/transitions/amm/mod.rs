@@ -887,6 +887,85 @@ impl Market {
         }
     }
 
+    /// A frozen vault is priced as a carve-out fixed at freeze, while its
+    /// pro-rata srLP claim keeps following reserves. The gap
+    /// `claim - carve-out` is a translation of the priced point that belongs
+    /// to ordinary srLP, like the funding pricing offsets. A pro-rata srLP
+    /// add or remove leaves the vault's claim unchanged and scales ordinary
+    /// inventory by `after / before` ordinary units, so the gap is scaled by
+    /// the same ratio; the priced point then scales as a whole and spot is
+    /// unchanged. Called after the reserve and supply mutation.
+    pub(crate) fn scale_frozen_hlp_carve_out(&mut self, supply_before: u64) -> Result<()> {
+        if self.amm.frozen_hlp_mask == 0 {
+            return Ok(());
+        }
+        let hlp = self
+            .base_hlp_vault
+            .srlp_shares
+            .checked_add(self.quote_hlp_vault.srlp_shares)
+            .ok_or(ErrorCode::SupplyOverflow)?;
+        let supply = self.base_side.shares.srlp_supply;
+        let before = supply_before.checked_sub(hlp).ok_or(ErrorCode::SupplyUnderflow)?;
+        let after = supply.checked_sub(hlp).ok_or(ErrorCode::SupplyUnderflow)?;
+        require!(before > 0 && supply > 0, ErrorCode::SupplyUnderflow);
+        if after == before {
+            return Ok(());
+        }
+        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
+        // offset += gap * (after - before) / before, rounding the magnitude down.
+        let shift = |offset: i128, claim: u128, live: u128| -> Result<i128> {
+            let gap = signed(claim)?
+                .checked_add(offset)
+                .and_then(|value| value.checked_sub(signed(live).ok()?))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let delta = signed(mul_div_u128(
+                gap.unsigned_abs(),
+                u128::from(after.abs_diff(before)),
+                u128::from(before),
+            )?)?;
+            let delta = if (gap < 0) == (after < before) { delta } else { -delta };
+            offset
+                .checked_add(delta)
+                .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+        };
+        let reserves = self.curve_reserves_nad()?;
+        if self.hlp_frozen(MarketAsset::Base) {
+            let shares = u128::from(self.base_hlp_vault.srlp_shares);
+            let live = self.normalize_amount(
+                u128::from(self.base_hlp_vault.hlp_live_reserve(MarketAsset::Quote)),
+                self.quote_side.asset_decimals,
+            )?;
+            self.amm.frozen_base_vault_base_offset_nad = shift(
+                self.amm.frozen_base_vault_base_offset_nad,
+                mul_div_u128(reserves.base, shares, u128::from(supply))?,
+                0,
+            )?;
+            self.amm.frozen_base_vault_quote_offset_nad = shift(
+                self.amm.frozen_base_vault_quote_offset_nad,
+                mul_div_u128(reserves.quote, shares, u128::from(supply))?,
+                live,
+            )?;
+        }
+        if self.hlp_frozen(MarketAsset::Quote) {
+            let shares = u128::from(self.quote_hlp_vault.srlp_shares);
+            let live = self.normalize_amount(
+                u128::from(self.quote_hlp_vault.hlp_live_reserve(MarketAsset::Base)),
+                self.base_side.asset_decimals,
+            )?;
+            self.amm.frozen_quote_vault_base_offset_nad = shift(
+                self.amm.frozen_quote_vault_base_offset_nad,
+                mul_div_u128(reserves.base, shares, u128::from(supply))?,
+                live,
+            )?;
+            self.amm.frozen_quote_vault_quote_offset_nad = shift(
+                self.amm.frozen_quote_vault_quote_offset_nad,
+                mul_div_u128(reserves.quote, shares, u128::from(supply))?,
+                0,
+            )?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn hlp_frozen(&self, target: MarketAsset) -> bool {
         self.amm.frozen_hlp_mask & if target == MarketAsset::Base { 1 } else { 2 } != 0
     }
