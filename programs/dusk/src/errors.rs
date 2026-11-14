@@ -429,4 +429,6 @@ pub enum ErrorCode {
     CurveTailShareBelowMinimum,
     #[msg("Concentrated curves require a base swap fee of at least 1 bps")]
     ConcentratedSwapFeeBelowMinimum,
+    #[msg("A first hLP deposit must borrow at least one atom of the opposite asset; see min_first_deposit_net in the hLP deposit capacity preview")]
+    HlpFirstDepositTooSmall,
 }

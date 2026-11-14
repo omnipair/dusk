@@ -1049,6 +1049,13 @@ transaction with your own budget, use `setupInstructions` and `actionInstruction
 instead. Low-level instruction builders must supply the settlement prefix
 themselves, before token-hook and oracle accounts.
 
+The first deposit into a side with no receipts must borrow at least one atom
+of the opposite asset, or it fails `HlpFirstDepositTooSmall`. On such a side the
+preview also reports `minFirstDepositNet` and `minFirstDepositGross`: two
+opposite atoms' worth at the reserve ratio behind the funding ceiling, after the
+recenter-bucket premium. Both are zero once the side has receipts. The exact
+boundary can be lower, so simulate the deposit for amounts below the quote.
+
 `Ready` and the capacity ceiling do not guarantee execution for every amount.
 Simulate the completed deposit transaction to check rounding, cash custody,
 transfer fees and slippage. Under concentration, an opposite-token-neutral

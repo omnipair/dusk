@@ -1523,9 +1523,16 @@ impl Market {
         }
         let nav_after = hlp_share_nav_nad_with_prices(market, target_asset, pre_prices)?;
         let hlp_amount = if supply_before == 0 {
-            // Receipts backed by zero value would price every later entry
-            // against zero NAV and reject it. A dust deposit whose ownership
-            // rounds away must not become the vault's first cohort.
+            // The first cohort must borrow. One whose borrowed claim rounds
+            // below a debt atom owns srLP without a hedge, and a dust cohort
+            // costs its depositor most of the deposit. Receipts backed by
+            // zero value would also price every later entry against zero NAV
+            // and reject it.
+            let first_debt_shares = match target_asset {
+                MarketAsset::Base => market.base_hlp_vault.debt_shares,
+                MarketAsset::Quote => market.quote_hlp_vault.debt_shares,
+            };
+            require!(first_debt_shares > 0, ErrorCode::HlpFirstDepositTooSmall);
             require!(nav_after > 0, ErrorCode::AmountZero);
             deposit_amount
         } else {

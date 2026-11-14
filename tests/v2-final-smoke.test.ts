@@ -2396,8 +2396,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_side.shares.srlp_supply.toNumber()).to.equal(141_421);
   });
 
-  it("rejects a first hLP deposit whose ownership would round to no value", async function () {
-    // One base atom buys far less than one srLP share in this pool.
+  it("rejects a first hLP deposit that would not borrow one opposite atom", async function () {
+    // One base atom buys far less than one srLP share in this pool, and about
+    // a million base atoms back one quote atom of debt.
     const f = await addBalancedLiquidity(331, marketConfig(), {
       baseDeposit: 1_000_000_000_000n,
       quoteDeposit: 1_000_000n,
@@ -2410,17 +2411,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .base_hlp_vault.hlp_supply.toString());
     let error: unknown;
     try { await openBaseHedge(f, 1, ownerBaseHlpAccount); } catch (e) { error = e; }
-    expect(String(error)).to.include("AmountZero");
+    expect(String(error)).to.include("HlpFirstDepositTooSmall");
     expect(hlpSupply()).to.equal(0n);
     expect((await getAccount(connection as any, ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
 
-    // A deposit that carries value opens the vault, and later entries still price against it.
+    // A deposit that borrows opens the vault, and later entries still price against it.
+    svm.expireBlockhash();
+    await openBaseHedge(f, 2_000_000, ownerBaseHlpAccount);
+    expect(hlpSupply()).to.equal(2_000_000n);
     svm.expireBlockhash();
     await openBaseHedge(f, 1_000_000, ownerBaseHlpAccount);
-    expect(hlpSupply()).to.equal(1_000_000n);
-    svm.expireBlockhash();
-    await openBaseHedge(f, 1_000_000, ownerBaseHlpAccount);
-    expect(hlpSupply() > 1_000_000n).to.equal(true);
+    expect(hlpSupply() > 2_000_000n).to.equal(true);
     trackV2Instruction("depositSingleSided", this.test?.title);
   });
 
@@ -3620,6 +3621,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(preview.status).to.have.property("ready");
       expect(preview.fundingLimitGross.toString()).to.equal(preview.fundingLimitNet.toString());
       expect(preview.fundingLimitNet.toNumber()).to.be.greaterThan(0);
+      // Neither side has a cohort yet, so each quotes a first deposit that borrows.
+      expect(preview.minFirstDepositGross.toString()).to.equal(preview.minFirstDepositNet.toString());
+      expect(preview.minFirstDepositNet.toNumber()).to.be.greaterThan(0);
+      expect(preview.minFirstDepositNet.lte(preview.fundingLimitNet)).to.equal(true);
       await connection.sendTransaction(tx, [payer]);
       expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(before)).to.equal(true);
     }
