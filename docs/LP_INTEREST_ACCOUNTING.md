@@ -255,19 +255,26 @@ denominations retain the existing permissionless archive/roll path after
 settlement. The index resets only when every public and hLP debt share on that
 asset has been extinguished; historical income claims are retained.
 
-A book whose receivable is fully repaid without loss (every unit paid at
-least 1.0 per unit, up to a 2^-32 margin) advances to its next epoch in place
-when it next issues. Repaying all due interest is routine: every swap that pays
+A book whose receivable is fully repaid without a writeoff advances to its
+next epoch in place when it next issues, provided its paid index reached half
+a unit's face value. Repaying all due interest is routine: every swap that pays
 hLP funding, and a `fund_interest` that funds the whole public coupon, drain
 their book. The shared borrow index therefore keeps accruing, and no archive
 or keeper is involved. Lane growth stays cumulative across such a drain run, so
 a holder that last checkpointed anywhere in the run collects each skipped
-epoch at that unit value from growth alone: its old units are owed the rest of
-their value, and units issued since are valued from cumulative growth. The
-result never exceeds the cash credited; issuance rounds units down, so a
-loss-free epoch's paid index reaches 1.0, and the margin covers paid-index
-flooring. A drained epoch that took a writeoff or a custody shortfall is
+epoch from growth alone, at the run's unit value: the lowest final paid index
+of any epoch in the run, less a 2^-32 margin for paid-index flooring. A
+transfer-fee shortfall lowers an epoch's paid index and so the run's value; a
+holder is never paid more than custody received. An epoch with a writeoff is
 impaired and still needs an archived roll before it can issue again.
+
+Known limitation: issuance rounds units down, so after partial repayments a
+unit's paid-plus-unpaid value can drift above face value while an epoch holds
+few units. A holder that catches up across such an epoch is paid the run's
+unit value; the drift stays in income custody, and units issued after the paid
+index passed that value reduce the holder's catch-up. Holders that checkpoint
+within each epoch are unaffected. Exact catch-up needs book units with
+fractional precision.
 
 `roll_income_epoch` archives a book only once at least half of its units are
 repaid, or once any of its counters (units, unpaid, paid per unit, or a lane's
@@ -276,7 +283,7 @@ advance in place. An archived roll starts a new drain run. Holders carry
 their units across archived epochs in bounded catch-up batches, so rolling a
 barely repaid book would let anyone fragment that catch-up into many epochs
 without freeing capacity. Rolling needs no keeper: anyone may call it, the
-SDK's `prepareDrainedIncomeBooks` rolls impaired drained books as market
+SDK's `prepareDrainedIncomeBooks` rolls impaired or exhausted drained books as market
 maintenance, and holders run `prepareHolderIncome` before a transfer, exit or
 claim. Catch-up passes only the archived epochs: the archive that ended a run
 carries that run's start, so the SDK walks back from the live book's run.

@@ -32,9 +32,13 @@ pub struct IncomeReceivableBook {
     /// claim's own checkpoint is its lane's starting growth. Two lanes, not
     /// four, keep the decoded income books inside liquidation heap headroom.
     pub epoch_start_growth: [ReceivableGrowth; 2],
-    /// A writeoff or custody shortfall in this epoch. Such an epoch cannot be
-    /// advanced in place; it needs an archived roll.
+    /// A writeoff in this epoch. Such an epoch cannot be advanced in place;
+    /// it needs an archived roll.
     pub impaired: bool,
+    /// `Q64` minus the per-unit value paid to holders that catch up across
+    /// this drain run: the lowest paid index any epoch of the run ended at,
+    /// less a rounding margin. Zero until the run's first in-place advance.
+    pub run_unit_deficit_q64: u64,
 }
 
 /// Immutable closing state of one unpaid-income denomination. Holders use it

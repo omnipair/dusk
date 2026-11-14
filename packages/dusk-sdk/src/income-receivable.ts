@@ -28,6 +28,9 @@ export interface IncomeBookInput {
    * hLP lanes use their single claim's checkpoint, which lags one epoch. */
   epochStartGrowth?: readonly IncomeGrowthInput[];
   impaired?: boolean;
+  /** Face value minus the run's catch-up unit value (Q64); zero before the
+   * run's first in-place advance. */
+  runUnitDeficitQ64?: IntegerLike;
 }
 export interface IncomeEndInput { ended: boolean; epoch: IntegerLike; growth: IncomeGrowthInput }
 export interface IncomeHolderInput {
@@ -46,8 +49,15 @@ function weighted(growth: IncomeGrowthInput): bigint {
 }
 
 const ZERO_GROWTH: IncomeGrowthInput = { unitsQ64: 0n, weightedPaidQ128: [0n, 0n, 0n, 0n] };
-/** Per-unit value of a fully repaid, loss-free epoch advanced in place (Q64). */
-export const DRAINED_UNIT_VALUE_Q64 = (1n << 64n) - (1n << 32n);
+/** A drained epoch can advance in place once its paid index reaches this
+ * (half the unit's face value plus the catch-up rounding margin), in Q64. */
+export const MIN_ADVANCE_PAID_PER_UNIT_Q64 = (1n << 63n) + (1n << 32n);
+
+/** The per-unit value (Q64) paid at catch-up across the book's drain run. */
+export function runUnitValueQ64(book: IncomeBookInput): bigint | undefined {
+  const deficit = book.runUnitDeficitQ64 === undefined ? 0n : value(book.runUnitDeficitQ64, U64);
+  return deficit === 0n ? undefined : (1n << 64n) - deficit;
+}
 
 /** Pure copy of IncomeReceivableBook::near_capacity: within a factor of two of
  * a fixed-width limit, where `roll_income_epoch` accepts any book. */
@@ -78,10 +88,12 @@ function catchUpDrained(claim: IncomeClaimInput, book: IncomeBookInput, balanceI
   const endEpoch = ended ? value(end!.epoch, U64) : 0n;
   let stop: IncomeGrowthInput | undefined = ended && endEpoch < epoch ? (endEpoch >= claimEpoch ? end!.growth : undefined) : start;
   if (stop && value(stop.unitsQ64) < value(claim.growthCheckpoint.unitsQ64)) stop = undefined;
-  const drained = (growth: IncomeGrowthInput) => value(growth.unitsQ64) * DRAINED_UNIT_VALUE_Q64 - weighted(growth);
+  const unitValue = runUnitValueQ64(book);
+  if (unitValue === undefined) throw new Error("Invalid income book");
+  const drained = (growth: IncomeGrowthInput) => value(growth.unitsQ64) * unitValue - weighted(growth);
   let owed = value(claim.paidFractionQ128);
   if (stop) owed += (drained(stop) - drained(claim.growthCheckpoint)) * value(balanceInput, U64);
-  owed += value(claim.unitsQ64) * (DRAINED_UNIT_VALUE_Q64 - value(claim.paidCheckpointQ64));
+  owed += value(claim.unitsQ64) * (unitValue - value(claim.paidCheckpointQ64));
   const cash = owed < 0n ? 0n : owed;
   if (cash > U256) throw new Error("Income value overflow");
   return { epoch, unitsQ64: 0n, paidCheckpointQ64: 0n, growthCheckpoint: start, paidFractionQ128: cash & U128,

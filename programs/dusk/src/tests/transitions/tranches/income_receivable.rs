@@ -78,7 +78,7 @@ fn impaired_drained_epoch_still_needs_an_archived_roll() {
     holder.checkpoint(1, &book, 0).unwrap();
     // A custody shortfall, which the market records as an impairment.
     book.settle(100, 60).unwrap();
-    book.mark_impaired();
+    book.impaired = true;
     let before = book.clone();
     assert!(!book.can_advance_in_place());
     assert!(book.issue([(1, 1), (0, 0), (0, 0), (0, 0)]).is_err());
@@ -184,7 +184,7 @@ fn drained_run_then_archived_roll_keeps_lagging_holders_whole() {
     book.issue([(1_000, 2), (0, 0), (0, 0), (0, 0)]).unwrap();
     book.settle(400, 400).unwrap();
     book.settle(100, 0).unwrap();
-    book.mark_impaired();
+    book.impaired = true;
     cash += 400;
     assert!(book.may_roll());
     let archived = book.roll().unwrap();
@@ -290,4 +290,30 @@ fn rolls_need_half_the_units_repaid_or_a_book_near_its_limits() {
     let mut lane = book(1_000, 999);
     lane.growth[1].units_q64 = u128::MAX / 2;
     assert!(lane.may_roll());
+}
+
+/// A transfer-fee shortfall lowers an epoch's paid index but is not a loss
+/// that needs an archive: the run's unit value follows the lowest final paid
+/// index, and holders are paid no more than custody received.
+#[test]
+fn fee_shortfall_epochs_advance_in_place_at_the_lowest_paid_index() {
+    let mut book = IncomeReceivableBook::default();
+    let mut lagging = IncomeReceivableClaim::default();
+    lagging.checkpoint(1, &book, 0).unwrap();
+    let mut cash = 0_u64;
+    for fee_bps in [10_u64, 7, 12, 10] {
+        book.issue([(1_000_000, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
+        let unpaid = book.unpaid;
+        let net = unpaid - (unpaid * fee_bps).div_ceil(10_000);
+        book.settle(unpaid, net).unwrap();
+        cash += net;
+        assert!(book.can_advance_in_place());
+    }
+    book.issue([(1, 1), (0, 0), (0, 0), (0, 0)]).unwrap();
+    let value = book.run_unit_value_q64().unwrap();
+    // The 12 bps epoch sets the run's value.
+    assert!(value <= Q64 - Q64 * 12 / 10_000 && value + (1 << 33) >= Q64 - Q64 * 12 / 10_000);
+    lagging.checkpoint(1, &book, 0).unwrap();
+    assert!(lagging.claimable <= cash);
+    assert!(lagging.claimable + 1_000 >= cash, "{} of {cash}", lagging.claimable);
 }

@@ -43,9 +43,9 @@ unchanged. These are test-data conversions, not deployed-account migrations.
 | Derived fixture | SHA-256 |
 |---|---|
 | `vob-authority-layout18.bin` | `8352c0d9a885030d976a7384fbded2d6ebf63ef92839c54d667b8f8e45a96a2a` |
-| `hlp-entry-layout18.bin` | `3d60d2909a98bfd726823c1886349c4b50f253af747d335180821c78fc0869f6` |
-| `vob-market-layout18.bin` | `2dc6f92528f0814a3e0de3f24e768aa1f5d697ec1aa1a0d5ea4ac256b8d530e5` |
-| `hlp-entry-funding-layout18.bin` | `301be253cd3ac6f52cd5cca4f05ce43dcf46e49c80de93ebe77924c43e3935e4` |
+| `hlp-entry-layout18.bin` | `b30e6336443b9c4396d25df0ee8e46b4c3650aa2a4c85b7d383a81b84233ed35` |
+| `vob-market-layout18.bin` | `990b8ff3ce8d17eaac386c6bcda343c4912190ba3a90e2ea6dbca4e86f9e17f0` |
+| `hlp-entry-funding-layout18.bin` | `737909d1531582bbe56b362054685d386efb2d714d525ad7a556ee310e898283` |
 
 ## Indexed-funding hLP entry snapshot
 

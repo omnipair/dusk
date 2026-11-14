@@ -76,7 +76,7 @@ test("matches the program's transfer, partial-writeoff and retired-epoch vectors
 
 test("fully repaid epochs advanced in place are valued from cumulative growth without archives",()=>{
  const start=growth(2n*Q);
- const live=book({epoch:5n,runStartEpoch:0n,epochStartGrowth:[start,zero()],growth:[start,zero(),zero(),zero()]});
+ const live=book({epoch:5n,runStartEpoch:0n,runUnitDeficitQ64:1n<<32n,epochStartGrowth:[start,zero()],growth:[start,zero(),zero(),zero()]});
  // Held units are owed the rest of the drained unit value; units issued since
  // the checkpoint are valued from growth. Both stay at or below face value.
  const held=projectIncomeClaim({claim:claim({epoch:2n,unitsQ64:10n*Q,paidCheckpointQ64:Q/2n}),book:live,balance:0n,lane:0});
@@ -87,7 +87,7 @@ test("fully repaid epochs advanced in place are valued from cumulative growth wi
  const runFrom3=book({...live,runStartEpoch:3n});
  assert.throws(()=>projectIncomeClaim({claim:claim({epoch:2n}),book:runFrom3,balance:1n,lane:0}),/IncomeHistoryRequired/);
  assert.deepEqual(incomeArchiveRequests(holder(claim({epoch:1n})),[runFrom3,book(),book(),book()],0),[{bookIndex:0,epoch:2n,holderEpoch:1n}]);
- const archived=book({epoch:2n,runStartEpoch:0n,units:10n,unpaid:0n,paidPerUnitQ64:Q,epochStartGrowth:[zero(),zero()]});
+ const archived=book({epoch:2n,runStartEpoch:0n,runUnitDeficitQ64:1n<<32n,units:10n,unpaid:0n,paidPerUnitQ64:Q,epochStartGrowth:[zero(),zero()]});
  assert.equal(projectHolderIncome({holder:holder(claim({epoch:1n,unitsQ64:10n*Q})),books:[runFrom3,book(),book(),book()],asset:0,walletBalance:0n,archives:new Map([["0:2",archived]])}),9n);
 });
 

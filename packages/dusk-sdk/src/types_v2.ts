@@ -17096,10 +17096,19 @@ export type Dusk = {
           {
             "name": "impaired",
             "docs": [
-              "A writeoff or custody shortfall in this epoch. Such an epoch cannot be",
-              "advanced in place; it needs an archived roll."
+              "A writeoff in this epoch. Such an epoch cannot be advanced in place;",
+              "it needs an archived roll."
             ],
             "type": "bool"
+          },
+          {
+            "name": "runUnitDeficitQ64",
+            "docs": [
+              "`Q64` minus the per-unit value paid to holders that catch up across",
+              "this drain run: the lowest paid index any epoch of the run ended at,",
+              "less a rounding margin. Zero until the run's first in-place advance."
+            ],
+            "type": "u64"
           }
         ]
       }
