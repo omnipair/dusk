@@ -50,6 +50,7 @@ import {
   deriveYieldTransferHookValidationAddress,
   deriveHlpCohortAddress,
   deriveReferralPartnerAddress,
+  MAX_OPERATOR_INTEREST_SHARE_BPS,
   yieldTokenKindArg,
   type YieldTokenKind,
 } from "./constants.js";
@@ -986,7 +987,7 @@ export class DuskWrite {
      * market address. */
     paramsHash?: Uint8Array | Buffer | number[];
     config: MarketLaunchConfig;
-    /** Share of base interest retained by the operator, 0–5000 bps. */
+    /** Share of base interest retained by the operator, 0–10000 bps. */
     operatorInterestShareBps?: number;
     /** Installed atomically at creation. Omit or pass null for native pricing.
      * Guided first liquidity derives its ratio from the validated current feed. */
@@ -1001,7 +1002,7 @@ export class DuskWrite {
     };
   }): Promise<TransactionInstruction> {
     const operatorShare=params.operatorInterestShareBps??0;
-    if(!Number.isInteger(operatorShare)||operatorShare<0||operatorShare>5_000)throw new Error("operatorInterestShareBps must be 0–5000");
+    if(!Number.isInteger(operatorShare)||operatorShare<0||operatorShare>MAX_OPERATOR_INTEREST_SHARE_BPS)throw new Error(`operatorInterestShareBps must be 0–${MAX_OPERATOR_INTEREST_SHARE_BPS}`);
     const baseMint = address(params.baseMint);
     const quoteMint = address(params.quoteMint);
     const oracle = params.oracle == null ? null : oraclePolicy(params.oracle);

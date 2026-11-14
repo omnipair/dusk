@@ -470,6 +470,56 @@ fn saturation_books_matching_lp_and_fee_receivables_without_inventing_cash() {
 }
 
 #[test]
+fn a_full_operator_share_books_no_lp_interest_through_advance_and_repayment() {
+    let mut market = numeric_limit_market();
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    market.protocol_interest_markup_bps = 2_000;
+    market.operator.interest_share_bps = crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS;
+    let mut position = BorrowPosition {
+        fixed_base_shares: market.debt.fixed_base_shares,
+        fixed_base_principal: market.debt.fixed_base_principal,
+        auction_debt_asset: u8::MAX,
+        ..BorrowPosition::default()
+    };
+    let slot = slots_for_ms(10 * crate::constants::MS_PER_DAY);
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+    let lp_book = (*market.income.get().unwrap().books[0]).clone();
+    let revenue = *market.income.get().unwrap().revenue[0];
+    assert!(revenue.gross_unpaid > 0);
+    assert_eq!(lp_book.unpaid, 0);
+    assert_eq!(revenue.unpaid_fees().unwrap(), revenue.gross_unpaid);
+    assert!(revenue.operator_unpaid > revenue.protocol_unpaid && revenue.protocol_unpaid > 0);
+
+    // With no LP interest outstanding, an advance escrows fee revenue only.
+    let (gross, lp_credit) = market
+        .fund_public_interest(MarketAsset::Base, revenue.gross_unpaid / 2, 0)
+        .unwrap();
+    assert!(gross > 0 && gross <= revenue.gross_unpaid / 2);
+    assert_eq!(lp_credit, 0);
+    let advance = market.base_side.fees.public_interest_advance;
+    assert_eq!(advance.revenue_escrow, advance.outstanding_gross);
+    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+
+    // Repaying releases escrowed fees and books every paid atom as fee cash.
+    let debt = u64::try_from(position.fixed_base_debt(&market.debt).unwrap()).unwrap();
+    let pay = market.fixed_repayment_for_max(&position, MarketAsset::Base, debt / 2).unwrap();
+    let receipt = market.repay(&mut position, MarketAsset::Base, pay.cash_repaid).unwrap();
+    assert!(receipt.interest_paid > 0);
+    let advance = market.base_side.fees.public_interest_advance;
+    assert!(advance.repayment_credit_pending > 0);
+    assert_eq!(advance.revenue_release_pending, advance.repayment_credit_pending);
+    assert_eq!(advance.revenue_escrow, advance.outstanding_gross);
+    let income = market.income.get().unwrap();
+    assert_eq!(*income.books[0], lp_book);
+    let revenue_after = *income.revenue[0];
+    assert!(revenue_after.gross_unpaid < revenue.gross_unpaid);
+    assert_eq!(revenue_after.unpaid_fees().unwrap(), revenue_after.gross_unpaid);
+    assert_eq!(revenue_after.pending_gross, revenue.gross_unpaid - revenue_after.gross_unpaid);
+    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+}
+
+#[test]
 fn fully_repaid_side_resets_the_index_without_changing_its_live_apr() {
     let mut market = numeric_limit_market();
     market.debt.fixed_base_shares = 0;
@@ -587,7 +637,7 @@ proptest::proptest! {
         principal in 1_u64..u64::MAX / 8,
         cash in 1_u64..u64::MAX / 8,
         markup in 0_u16..=10_000,
-        operator_share in 0_u16..=5_000,
+        operator_share in 0_u16..=crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS,
         days in 60_u64..3_650,
     ) {
         let mut market = numeric_limit_market();

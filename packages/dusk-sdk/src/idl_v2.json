@@ -23726,8 +23726,12 @@
     },
     {
       "name": "MAX_OPERATOR_INTEREST_SHARE_BPS",
+      "docs": [
+        "The operator may retain up to all interest left after the protocol markup;",
+        "LPs keep swap fees. An increase waits the full operator notice."
+      ],
       "type": "u16",
-      "value": "5000"
+      "value": "10000"
     },
     {
       "name": "MAX_PARAMETER_FEE_BPS",

@@ -237,7 +237,7 @@ const operatorState={authority:keys[0],manager:PublicKey.default,pendingAuthor:P
 program.account.market.fetch=async()=>({ version: MARKET_LAYOUT_VERSION,operator:operatorState});
 const client=new DuskOperator(program);
 const announced=await client.announce({market:keys[1],payer:keys[0],operator:keys[7],metadata:verifiedMetadata,
-  updates:canonical,nextManager:keys[6],revenueRecipient:keys[9],interestShareBps:5_000});
+  updates:canonical,nextManager:keys[6],revenueRecipient:keys[9],interestShareBps:10_000});
 assert(announced.proposal.equals(deriveOperatorProposalAddress(keys[1],9,program.programId)[0]));
 const decoded=program.coder.instruction.decode(announced.instruction.data);
 assert.equal(decoded.name,"announceOperatorChange");
@@ -247,7 +247,7 @@ assert(decoded.data.args.nextManager.equals(keys[6]));
 assert(announced.instruction.keys.some(meta=>meta.pubkey.equals(keys[0])&&meta.isSigner));
 assert(announced.instruction.keys.some(meta=>meta.pubkey.equals(keys[7])&&meta.isSigner));
 await assert.rejects(()=>client.announce({market:keys[1],payer:keys[0],operator:keys[0],metadata:verifiedMetadata}),/at least/);
-await assert.rejects(()=>client.announce({market:keys[1],payer:keys[0],operator:keys[0],metadata:verifiedMetadata,interestShareBps:5_001}),/0–5000/);
+await assert.rejects(()=>client.announce({market:keys[1],payer:keys[0],operator:keys[0],metadata:verifiedMetadata,interestShareBps:10_001}),/0–10000/);
 const lookupTable=new AddressLookupTableAccount({key:keys[8],state:{deactivationSlot:0xffff_ffff_ffff_ffffn,lastExtendedSlot:0,
   lastExtendedSlotStartIndex:0,authority:keys[0],addresses:announced.instruction.keys.filter(meta=>!meta.isSigner).map(meta=>meta.pubkey)}});
 const versioned=operatorChangeV0Transaction({payer:keys[0],recentBlockhash:keys[9].toBase58(),proposalInstruction:announced.instruction,lookupTables:[lookupTable]});

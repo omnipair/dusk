@@ -17,6 +17,23 @@ fn base_interest_operator_share_and_added_protocol_markup_conserve_cash() {
 }
 
 #[test]
+fn a_full_operator_share_takes_all_interest_left_after_the_markup() {
+    let share = crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS;
+    assert_eq!(share, BPS_DENOMINATOR);
+    let mut book = InterestRevenueBook::default();
+    book.synchronize(120, 0, 2_000, share).unwrap();
+    assert_eq!((book.protocol_unpaid, book.operator_unpaid), (20, 100));
+    assert_eq!(book.unpaid_fees().unwrap(), book.gross_unpaid);
+    assert_eq!(pay(&mut book, 60, 60, 2_000, share), (60, 10));
+    assert_eq!(book.operator_claimable, 50);
+    assert_eq!(pay(&mut book, 0, 60, 2_000, share), (60, 10));
+    assert_eq!(book.operator_claimable, 100);
+    let before = book;
+    assert!(book.synchronize(120, 0, 2_000, share + 1).is_err());
+    assert_eq!(book, before);
+}
+
+#[test]
 fn recipient_handoff_preserves_collected_cash_and_transfers_future_collections() {
     let mut book = InterestRevenueBook::default();
     book.synchronize(120, 0, 2_000, 3_000).unwrap();
@@ -74,7 +91,7 @@ fn transfer_fee_cash_is_measured_and_never_creates_unbacked_revenue() {
 proptest::proptest! {
     #[test]
     fn all_collected_fee_claims_are_cash_backed(
-        steps in proptest::collection::vec((0_u8..3, 1_u16..10_000, 0_u16..10_001, 0_u16..5_001), 1..80)
+        steps in proptest::collection::vec((0_u8..3, 1_u16..10_000, 0_u16..10_001, 0_u16..=crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS), 1..80)
     ) {
         let mut book=InterestRevenueBook::default();
         let mut collected=0_u64;
@@ -101,7 +118,7 @@ proptest::proptest! {
 proptest::proptest! {
     #[test]
     fn mixed_advances_repayments_defaults_and_fee_changes_preserve_lp_budgets(
-        steps in proptest::collection::vec((0_u8..5, 1_u16..10_000, 0_u16..10_001, 0_u16..5_001), 1..100)
+        steps in proptest::collection::vec((0_u8..5, 1_u16..10_000, 0_u16..10_001, 0_u16..=crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS), 1..100)
     ) {
         let mut fees=InterestRevenueBook::default();
         let mut advance=crate::state::PublicInterestAdvance::default();

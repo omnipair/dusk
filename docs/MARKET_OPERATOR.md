@@ -108,7 +108,8 @@ announced bundle.
 
 ## Revenue and global protocol settings
 
-The operator receives 0–5000bps of base interest and no swap revenue. The
+The operator receives 0–10000bps of base interest and no swap revenue. At
+10000bps LPs earn no interest and keep their swap fees. The
 FutarchyAuthority signer controls the separate global interest markup. This
 signer can be the team or program governance; it is independent of each pool
 operator. Markets cache that global value internally, with no pool-specific

@@ -23732,8 +23732,12 @@ export type Dusk = {
     },
     {
       "name": "maxOperatorInterestShareBps",
+      "docs": [
+        "The operator may retain up to all interest left after the protocol markup;",
+        "LPs keep swap fees. An increase waits the full operator notice."
+      ],
       "type": "u16",
-      "value": "5000"
+      "value": "10000"
     },
     {
       "name": "maxParameterFeeBps",

@@ -82,6 +82,7 @@ import {
   deriveYieldTransferHookValidationAddress,
   deriveHlpCohortAddress,
   deriveTokenMetadataAddress,
+  deriveOperatorProposalAddress,
   TOKEN_METADATA_PROGRAM_ID,
 } from "../packages/dusk-sdk/src/constants.js";
 import {
@@ -12367,6 +12368,49 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     let error:unknown;
     try{await operator.claim({market:f.market,revenueEpoch:0,assetMint:f.quoteMint,payer:owner});}catch(e){error=e;}
     expect(String(error)).to.include("no collected operator cash");
+  });
+
+  it("lets the operator take all interest left after the markup at a 10000 bps share", async function () {
+    const {f, operator, owner, metadata, send} = await operatorFixture(256);
+    // The program rejects a share above 100% even when a caller skips the SDK check.
+    const state = await operator.market(f.market);
+    const [overCapProposal] = deriveOperatorProposalAddress(f.market, state.operator.nextNonce, DUSK_PROGRAM_ID);
+    const overCap = await operator.write.instruction("announceOperatorChange", {
+      nonce: state.operator.nextNonce, expectedEpoch: state.operator.epoch, updates: [], nextOperator: null,
+      nextManager: null, revenueRecipient: null, interestShareBps: 10_001, metadata,
+    }, {accounts: {payer: owner, operator: owner, market: f.market, proposal: overCapProposal, systemProgram: SystemProgram.programId}});
+    let error: unknown;
+    try { await send({transaction: new Transaction().add(overCap)}); } catch (e) { error = e; }
+    expect(String(error)).to.include("OperatorPolicyExceeded");
+    let sdkError: unknown;
+    try { await operator.announce({market: f.market, payer: owner, operator: owner, metadata, interestShareBps: 10_001}); } catch (e) { sdkError = e; }
+    expect(String(sdkError)).to.include("must be 0–10000 bps");
+
+    const share = await operator.announce({market: f.market, payer: owner, operator: owner, metadata, interestShareBps: 10_000});
+    await send(share); operatorAtSlot((await operator.proposal(share.proposal)).executeAfterSlot);
+    await send(await operator.execute({market: f.market, proposal: share.proposal}));
+    expect((await operator.market(f.market)).operator.interestShareBps).to.equal(10_000);
+
+    const {borrowPosition} = await protectionBorrow(f);
+    operatorAtSlot(svm.getClock().slot + 10n * 432_000n);
+    const lpBefore = (await operator.market(f.market)).income.books[1]!;
+    await send({transaction: await program.methods.repay({repayAmount: new BN(100_000)}).accounts({
+      market: f.market, futarchyAuthority, owner, debtAssetMint: f.quoteMint, collateralAssetMint: f.baseMint,
+      reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault, ownerDebtAccount: f.ownerQuoteAccount, borrowPosition,
+      referralPartner: null, referralAccrual: null, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+    }).transaction()});
+    const after = await operator.market(f.market);
+    // LPs receive no interest; every collected atom past the markup is operator cash.
+    const lp = after.income.books[1]!;
+    expect(lp.unpaid.toString()).to.equal("0");
+    expect(lp.paidPerUnitQ64.toString()).to.equal(lpBefore.paidPerUnitQ64.toString());
+    const operatorCash = BigInt(after.income.revenue[1]!.operatorClaimable.toString());
+    expect(operatorCash > 0n).to.equal(true);
+    const claim = await operator.claim({market: f.market, assetMint: f.quoteMint, payer: owner});
+    const before = (await getAccount(connection as any, claim.recipientAssetAccount)).amount;
+    await send(claim);
+    expect((await getAccount(connection as any, claim.recipientAssetAccount)).amount - before).to.equal(operatorCash);
   });
 
   it("checkpoints numerically saturated mixed debt and permits repayment without reviving skipped interest", async function () {

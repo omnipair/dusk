@@ -712,7 +712,7 @@ export const OPERATOR_PENDING_LIMIT = 1;
 export const JUNIOR_MAX_NOTICE_SLOTS = 4_320_000;
 export const OPERATOR_NOTICE_SLOTS = 4_752_000;
 export const OPERATOR_EXECUTION_WINDOW_SLOTS = 3_024_000;
-export const MAX_OPERATOR_INTEREST_SHARE_BPS = 5_000;
+export const MAX_OPERATOR_INTEREST_SHARE_BPS = 10_000;
 export function deriveOperatorProposalAddress(market: PublicKey, nonce: U64SeedLike, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("operator_change"), market.toBuffer(), u64Seed(nonce, "nonce")], programId);
 }
