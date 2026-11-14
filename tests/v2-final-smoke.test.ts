@@ -1579,6 +1579,30 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return connection.sendTransactionMeasured(tx, [payer]);
   }
 
+  // Dynamic surcharge is retained only while a center move is pending. Let the
+  // AMM price EMA catch up with the last trade and open a new slot, so the
+  // next operation values a center move toward that off-center price.
+  function letPriceEmaFollowLastTrade(
+    fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>
+  ) {
+    const account = svm.getAccount(fixture.market);
+    expect(account).to.not.equal(null);
+    const market = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
+    expect(market.amm.last_trade_price_nad.eq(market.amm.center_price_nad)).to.equal(false);
+    market.amm.price_ema_nad = market.amm.last_trade_price_nad;
+    // Market exceeds Anchor's generic encoder buffer; use its generated layout.
+    const body = Buffer.alloc(account!.data.length - 8);
+    const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market, body);
+    const data = Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"),
+      body.subarray(0, length),
+    ]);
+    expect(data.length).to.equal(account!.data.length);
+    svm.setAccount(fixture.market, { ...account!, data: new Uint8Array(data) });
+    svm.warpToSlot(svm.getClock().slot + 1n);
+    svm.expireBlockhash();
+  }
+
   function currentConcentrationDeltaNad(
     fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>
   ) {
@@ -4898,19 +4922,32 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       quoteMint: 500_000_000,
     });
 
-    // A centered pool has no recenter impairment yet. The first outward swap
-    // creates an off-center state whose next permitted center step needs a
-    // protected budget, so retention turns on for the following quote.
-    await swapBaseForQuote(fixture, [], 5_000_000, 1);
+    // A centered pool has no pending center move, so the first outward swap
+    // distributes its surcharge. Once the EMA follows the off-center price,
+    // the next permitted center step needs a protected budget: the arming
+    // swap values that unfunded move and retention turns on for the quotes
+    // that follow in the same slot.
+    const firstSwap = await swapBaseForQuote(fixture, [], 5_000_000, 1);
     trackV2Instruction("swap", this.test?.title);
-    const afterFirstSwap = svm.getAccount(fixture.market);
-    expect(afterFirstSwap).to.not.equal(null);
-    const firstDecoded = accountCoder.decode(
+    const firstEvent = cpiEvent(firstSwap.transaction, "swapExecuted");
+    expect(firstEvent.divergenceFee.gt(new BN(0))).to.equal(true);
+    expect(firstEvent.retainedFee.toString()).to.equal("0");
+    letPriceEmaFollowLastTrade(fixture);
+    await swapBaseForQuote(fixture, [], 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+    // The measured swap below repeats these bytes in the same slot.
+    svm.expireBlockhash();
+    const afterArmingSwap = svm.getAccount(fixture.market);
+    expect(afterArmingSwap).to.not.equal(null);
+    const armedDecoded = accountCoder.decode(
       "Market",
-      Buffer.from(afterFirstSwap!.data)
+      Buffer.from(afterArmingSwap!.data)
     ) as any;
-    expect(firstDecoded.amm.retain_dynamic_surcharge).to.equal(true);
-    const custodyBefore = firstDecoded.base_side.fees.swap_fee_custody_balance;
+    expect(armedDecoded.amm.retain_dynamic_surcharge).to.equal(true);
+    expect(armedDecoded.amm.deferred_controller_target.kind).to.equal(2);
+    expect(armedDecoded.amm.retention_required_nad.gt(new BN(0))).to.equal(true);
+    const custodyBefore = armedDecoded.base_side.fees.swap_fee_custody_balance;
+    const bucketBefore = armedDecoded.base_side.reserves.protected_recenter_reserve;
 
     const preview = decodePreviewSwapReturnData(
       await simulateReturnData(
@@ -4961,7 +4998,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         BigInt(decoded.base_side.reserves.protected_recenter_reserve.toString())
     );
     expect(
-      decoded.base_side.reserves.protected_recenter_reserve.toString()
+      decoded.base_side.reserves.protected_recenter_reserve.sub(bucketBefore).toString()
     ).to.equal(preview.retainedSurcharge.toString());
     expect(decoded.amm.curve_depth_per_share_nad.toString()).to.equal(
       decoded.amm.protected_floor_per_share_nad.toString()
@@ -5132,6 +5169,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       Buffer.from(afterFirst!.data)
     ) as any;
     expect(decodedAfterFirst.amm.retain_dynamic_surcharge).to.equal(true);
+    // The first swap left the price far off center. With the EMA following
+    // it, the next quote values a pending center move and retains for it.
+    letPriceEmaFollowLastTrade(retained);
 
     const retainedPreview = decodePreviewSwapReturnData(
       await simulateReturnData(
@@ -5230,6 +5270,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(armedAccount).to.not.equal(null);
     const armed = accountCoder.decode("Market", Buffer.from(armedAccount!.data)) as any;
     expect(armed.amm.retain_dynamic_surcharge).to.equal(true);
+    // Retention needs a pending center move: the EMA follows the off-center
+    // price, so the extreme quote values a move and retains for it.
+    letPriceEmaFollowLastTrade(retained);
 
     const retainedPreview = decodePreviewSwapReturnData(
       await simulateReturnData(
@@ -5304,6 +5347,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(armedAccount).to.not.equal(null);
     const armed = accountCoder.decode("Market", Buffer.from(armedAccount!.data)) as any;
     expect(armed.amm.retain_dynamic_surcharge).to.equal(true);
+    // Keep the rejected quote on the retention route: with the EMA following
+    // the off-center price, it values a pending center move first.
+    letPriceEmaFollowLastTrade(fixture);
 
     const marketBefore = svm.getAccount(fixture.market);
     expect(marketBefore).to.not.equal(null);
@@ -5484,8 +5530,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const hLpAccounts = hlpSwapAccounts(fixture);
     await swapBaseForQuote(fixture, hLpAccounts, 35_000_001, 1);
-    // The first outward swap arms retention. The second pays the surcharge
-    // into the custody-backed, non-quoteable Base bucket.
+    // The first outward swap moves the price off center. Once the EMA follows
+    // it, the second swap values a center move the empty bucket cannot fund
+    // and pays its surcharge into the custody-backed, non-quoteable Base
+    // bucket.
+    letPriceEmaFollowLastTrade(fixture);
     await swapBaseForQuote(fixture, hLpAccounts, 35_000_000, 1);
     const accountBefore = svm.getAccount(fixture.market);
     expect(accountBefore).to.not.equal(null);
@@ -5500,6 +5549,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(
       funded.base_side.reserves.protected_recenter_reserve.gt(new BN(0))
     ).to.equal(true);
+    expect(funded.amm.deferred_controller_target.kind).to.equal(2);
     funded.amm.price_ema_nad = funded.amm.last_trade_price_nad;
     funded.amm.retention_target_stale = true;
     const marketLayout = (accountCoder as any).accountLayouts.get("Market");
@@ -5514,8 +5564,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       ...accountBefore!,
       data: new Uint8Array(fundedData),
     });
+    // The next slot is the first in which the controller may value the
+    // pending move again.
     const recenterSlot = BigInt(
-      funded.amm.last_adjustment_slot.add(new BN(1)).toString()
+      funded.amm.last_observation_slot.add(new BN(1)).toString()
     );
     svm.warpToSlot(recenterSlot);
 
