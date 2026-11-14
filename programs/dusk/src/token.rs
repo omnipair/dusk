@@ -14,7 +14,7 @@ use anchor_spl::{
     token_interface::{initialize_account3, InitializeAccount3, Mint},
 };
 use spl_token_2022::extension::{
-    transfer_fee::{TransferFeeConfig, MAX_FEE_BASIS_POINTS},
+    transfer_fee::{TransferFee, TransferFeeConfig, MAX_FEE_BASIS_POINTS},
     transfer_hook, BaseStateWithExtensions, ExtensionType, StateWithExtensions,
 };
 
@@ -277,18 +277,39 @@ pub fn get_transfer_inverse_fee_for_epoch(mint_info: &AccountInfo, post_fee_amou
     let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
 
     let fee = if let Ok(transfer_fee_config) = mint.get_extension::<TransferFeeConfig>() {
-        let transfer_fee = transfer_fee_config.get_epoch_fee(epoch);
-        if u16::from(transfer_fee.transfer_fee_basis_points) == MAX_FEE_BASIS_POINTS {
-            u64::from(transfer_fee.maximum_fee)
-        } else {
-            transfer_fee_config
-                .calculate_inverse_epoch_fee(epoch, post_fee_amount)
-                .ok_or(ErrorCode::MarketMathOverflow)?
-        }
+        transfer_inverse_fee(transfer_fee_config.get_epoch_fee(epoch), post_fee_amount)?
     } else {
         0
     };
     Ok(fee)
+}
+
+/// The transfer fee schedule a mint charges at `epoch`, if any. Reads the
+/// extension directly, without listing the mint's extension types, so it
+/// leaves nothing on the bump heap. Kept out of line so the mint decode does
+/// not join large instruction frames.
+#[inline(never)]
+pub fn get_epoch_transfer_fee(mint_info: &AccountInfo, epoch: u64) -> Result<Option<TransferFee>> {
+    if *mint_info.owner == Token::id() {
+        return Ok(None);
+    }
+    let mint_data = mint_info.try_borrow_data()?;
+    let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
+    Ok(mint
+        .get_extension::<TransferFeeConfig>()
+        .ok()
+        .map(|config| *config.get_epoch_fee(epoch)))
+}
+
+/// Fee to add to `post_fee_amount` so the recipient of a transfer charged
+/// `transfer_fee` receives at least `post_fee_amount`.
+pub fn transfer_inverse_fee(transfer_fee: &TransferFee, post_fee_amount: u64) -> Result<u64> {
+    if u16::from(transfer_fee.transfer_fee_basis_points) == MAX_FEE_BASIS_POINTS {
+        return Ok(u64::from(transfer_fee.maximum_fee));
+    }
+    transfer_fee
+        .calculate_inverse_fee(post_fee_amount)
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 /// Calculate the fee for input amount

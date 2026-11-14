@@ -138,6 +138,7 @@ impl SwapRequest {
             post_fee_curve_cache: None,
             // Real funding cash floors only; apply reconstructs after settlement.
             concentrated_transition: Some(Box::new(prepare_concentrated_hlp_transition_at_current_state(market)?)),
+            interest_transfer_fees: Default::default(),
             inventory_settlement: Some(InventorySettlement {
                 curve_revision: market.curve_revision,
                 actual_start_price_nad: market

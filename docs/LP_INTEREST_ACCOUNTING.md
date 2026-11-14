@@ -263,12 +263,31 @@ accruing, and no archive or keeper is involved. Book units carry 64 fractional
 bits, so issuance never drifts a unit's paid-plus-unpaid value away from one
 atom of face value, and a fully repaid epoch has paid every unit that value
 (less paid-index rounding). Lane growth stays cumulative across such a drain
-run, so a holder that last checkpointed anywhere in the run collects each
-skipped epoch from growth alone at face value less a 2^-32 margin, never more
-than custody received. Interest transfers are grossed up for Token-2022
-transfer fees, so custody receives the full amount; an epoch with a writeoff
-or a short custody credit is impaired and needs an archived roll before it can
-issue again.
+run, and the book records each ordinary lane's units when the current epoch
+began. A holder that last checkpointed anywhere in the run is valued in one
+step: units issued before the current epoch at face value less a 2^-32 margin,
+units issued since at the live paid index. A holder is never paid more than
+custody received.
+
+Every interest transfer into income custody is grossed up by the asset's
+Token-2022 transfer fee, so custody receives the full interest and a routine
+epoch drains at face value. A borrower's direct repayment (`repay`,
+`add_leverage_margin`) pays that fee on top of the repayment; its debt
+reduction is unchanged. Internal moves (hLP funding paid during swaps, entries,
+exits, flash and terminal settlement; `fund_interest`; leverage and
+liquidation settlement interest) debit reserve cash and live reserve for the
+fee: a real cost to LP reserves, never to the income book. Like the funding
+payment it accompanies, the fee is excluded from pricing, so spot does not
+move and depth falls instead. If reserve cash cannot cover the fee, the
+operation (a swap included) still succeeds and the transfer credits net. SPL
+fee arithmetic makes the grossed-up transfer deliver exactly the interest; if
+one ever delivered more than the settlement budget, collection would credit
+exactly the budget and leave the excess in the vault, unrecorded.
+
+An epoch credited less than its pending interest (a fee changed after the
+gross-up was priced, a fee reserve cash could not pay, a terminal caller
+bounty) or with a writeoff is impaired and needs an archived roll before it
+can issue again, instead of an in-place advance.
 
 `roll_income_epoch` archives a book only once at least half of its units are
 repaid, or once any of its counters (units, unpaid, paid per unit, or a lane's

@@ -355,7 +355,23 @@ impl<'info> SettleHlpFlash<'info> {
                 ..Default::default()
             }
         };
-        let (base, quote) = (terminal.base, terminal.quote);
+        let (mut base, mut quote) = (terminal.base, terminal.quote);
+        // Reserve cash also pays the transfer fee on funding the settlement
+        // paid, so income custody receives it in full. The settlement already
+        // finalized its AMM transition; the fee payment refreshes the curve.
+        let (base_mint, quote_mint) = if target == MarketAsset::Base {
+            (a.target_mint.to_account_info(), a.borrowed_mint.to_account_info())
+        } else {
+            (a.borrowed_mint.to_account_info(), a.target_mint.to_account_info())
+        };
+        let fees = crate::instructions::leverage::settlement::interest_transfer_fees(
+            &a.market,
+            &base_mint,
+            &quote_mint,
+            clock.epoch,
+        )?;
+        a.market
+            .pay_hlp_funding_transfer_fees([&mut base, &mut quote], fees, Some(clock.slot))?;
         if terminal.surplus_debit > 0 {
             let index = if target == MarketAsset::Base { 4 } else { 3 };
             let interest = &ctx.remaining_accounts[index];

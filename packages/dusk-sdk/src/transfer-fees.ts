@@ -54,6 +54,24 @@ export function transferFeeCredit(gross: bigint, notice: TransferFeeNotice, valu
   return credit;
 }
 
+/** Fee to add to `postFeeAmount` under the effective schedule so a transfer
+ * of the sum delivers at least `postFeeAmount`: SPL `calculate_inverse_fee`,
+ * with a 100% rate charging its maximum fee. The program grosses up interest
+ * moved into income custody by exactly this amount.
+ */
+export function transferInverseFee(postFeeAmount: bigint, notice: TransferFeeNotice): bigint {
+  u64(postFeeAmount);
+  const fee = notice.effective;
+  if (!fee || postFeeAmount === 0n || fee.transferFeeBasisPoints === 0) return 0n;
+  if (fee.transferFeeBasisPoints === 10_000) return fee.maximumFee;
+  const numerator = postFeeAmount * 10_000n;
+  const denominator = 10_000n - BigInt(fee.transferFeeBasisPoints);
+  const raw = (numerator + denominator - 1n) / denominator;
+  const preFeeAmount = raw - postFeeAmount >= fee.maximumFee ? postFeeAmount + fee.maximumFee : raw;
+  u64(preFeeAmount);
+  return calculateFee(fee, preFeeAmount);
+}
+
 export interface MintTransferFeeNotice extends TransferFeeNotice {
   mint: string;
   tokenProgram: string;

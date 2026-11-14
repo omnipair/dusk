@@ -1007,3 +1007,147 @@ fn loss_shrinks_the_unpriced_funding_remainder_pro_rata() {
     }
 }
 
+
+fn transfer_fee_schedule(bps: u16, maximum_fee: u64) -> (spl_token_2022::extension::transfer_fee::TransferFee, crate::transitions::LeverageCollateralFee) {
+    let fee = spl_token_2022::extension::transfer_fee::TransferFee {
+        epoch: 0.into(),
+        transfer_fee_basis_points: bps.into(),
+        maximum_fee: maximum_fee.into(),
+    };
+    (fee, crate::transitions::LeverageCollateralFee::new(Some(fee)))
+}
+
+/// What a grossed-up funding payment through a Token-2022 interest vault
+/// looked like: the receipt's payment and the fee reserve cash paid on top.
+#[derive(Clone, Copy, Debug, Default)]
+struct FeeFundingPayment {
+    interest: u64,
+    transfer_fee: u64,
+    custody_credit: u64,
+}
+
+/// A swap that pays hLP funding as the swap instruction does with a
+/// transfer-fee borrowed asset: reserve cash pays the fee on top of each
+/// payment, and custody is credited what the grossed-up transfer delivers.
+fn swap_booking_funding_with_fee(
+    market: &mut Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    slot: u64,
+    fee: (spl_token_2022::extension::transfer_fee::TransferFee, crate::transitions::LeverageCollateralFee),
+) -> FeeFundingPayment {
+    let mut prepared = SwapRequest {
+        current_slot: slot,
+        current_unix_timestamp: 0,
+        asset_in,
+        reserve_credit,
+        protocol_fee_bps: 0,
+    }
+    .prepare(market)
+    .unwrap();
+    prepared.set_interest_transfer_fees(&[fee.1; 2]);
+    let finalized = prepared.finalize_state(market, slot, 0, ProtocolAuctionSplit::default()).unwrap();
+    let eligibility = prepared.interest_eligibility;
+    let mut payment = FeeFundingPayment::default();
+    for receipt in [finalized.base_rebalance, finalized.quote_rebalance] {
+        if receipt.interest_paid > 0 {
+            let sent = receipt.interest_paid + receipt.interest_transfer_fee;
+            let credit = sent - fee.0.calculate_fee(sent).unwrap();
+            crate::instructions::record_inline_hlp_interest_credit(
+                market,
+                receipt.target_asset.opposite(),
+                credit,
+                0,
+                ProtocolAuctionSplit::default(),
+                eligibility,
+            )
+            .unwrap();
+            payment.interest += receipt.interest_paid;
+            payment.transfer_fee += receipt.interest_transfer_fee;
+            payment.custody_credit += credit;
+        }
+    }
+    market.assert_market_invariants().unwrap();
+    payment
+}
+
+fn fee_funding_market() -> Market {
+    let mut market = funding_tail_market(1, true);
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    market.sync_income_receivable(MarketAsset::Base, false, 0).unwrap();
+    market.sync_income_receivable(MarketAsset::Quote, false, 0).unwrap();
+    market
+}
+
+/// A transfer fee on the borrowed asset no longer short-credits a funding
+/// payment: reserve cash pays the fee on top, custody receives the whole
+/// payment, the drained funding book advances in place at face value, and the
+/// shared index keeps accruing exactly as without the payment.
+#[test]
+fn fee_token_funding_payment_does_not_stall_the_shared_index() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let d1 = 2 + slots_per_day;
+    let mut fee_free = fee_funding_market();
+    fee_free.update_at_slot(d1).unwrap();
+    let free_payment = swap_booking_funding_with_fee(&mut fee_free, MarketAsset::Quote, 1_000, d1, transfer_fee_schedule(0, 0));
+    assert!(free_payment.interest > 0 && free_payment.transfer_fee == 0);
+    for (bps, maximum_fee) in [(1_u16, u64::MAX), (10, u64::MAX), (50, u64::MAX), (500, 3)] {
+        let fee = transfer_fee_schedule(bps, maximum_fee);
+        let mut market = fee_funding_market();
+        let mut control = market.clone();
+        market.update_at_slot(d1).unwrap();
+        let payment = swap_booking_funding_with_fee(&mut market, MarketAsset::Quote, 1_000, d1, fee);
+        assert_eq!(payment.interest, free_payment.interest, "bps={bps}");
+        assert_eq!(payment.transfer_fee, fee.1.inverse_fee(payment.interest).unwrap(), "bps={bps}");
+        assert!(payment.transfer_fee > 0 && payment.custody_credit >= payment.interest, "bps={bps}");
+        // The fee is a reserve cost (borrowed quote side), not an income-book cost.
+        assert_eq!(
+            market.quote_side.reserves.cash_reserve + payment.transfer_fee,
+            fee_free.quote_side.reserves.cash_reserve,
+            "bps={bps}"
+        );
+        assert_eq!(market.income.get().unwrap().books[3], fee_free.income.get().unwrap().books[3], "bps={bps}");
+        let i1 = market.debt.quote_borrow_index_nad;
+        let epoch = {
+            let book = &market.income.get().unwrap().books[3];
+            assert_eq!(book.unpaid, 0);
+            assert!(book.paid_per_unit_q64 >= 1 << 64, "bps={bps}");
+            assert!(!book.impaired && book.can_advance_in_place() && !book.may_roll(), "bps={bps}");
+            book.epoch
+        };
+        let d2 = d1 + slots_per_day;
+        market.update_at_slot(d2).unwrap();
+        control.update_at_slot(d1).unwrap();
+        let c1 = control.debt.quote_borrow_index_nad;
+        control.update_at_slot(d2).unwrap();
+        let c2 = control.debt.quote_borrow_index_nad;
+        assert_eq!(market.debt.quote_borrow_index_nad - i1, c2 - c1, "bps={bps}");
+        let book = &market.income.get().unwrap().books[3];
+        assert_eq!(book.epoch, epoch + 1, "bps={bps}");
+        // Advanced in place: the drained epoch joined the run without an archive.
+        assert!(book.run_length >= 1, "bps={bps}");
+    }
+}
+
+/// When reserve cash cannot pay the fee, the swap still executes. The
+/// transfer then credits net, collection marks the epoch impaired, and the
+/// book takes an archived roll rather than advancing in place below face.
+#[test]
+fn fee_token_funding_payment_falls_back_when_reserve_cannot_pay_the_fee() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let d1 = 2 + slots_per_day;
+    let mut market = fee_funding_market();
+    market.update_at_slot(d1).unwrap();
+    // A 100% fee capped above all reserve cash: no executable cash can pay it.
+    let fee = transfer_fee_schedule(10_000, u64::MAX);
+    let cash = market.quote_side.reserves.cash_reserve;
+    let payment = swap_booking_funding_with_fee(&mut market, MarketAsset::Quote, 1_000, d1, fee);
+    assert!(payment.interest > 0);
+    assert_eq!(payment.transfer_fee, 0);
+    assert_eq!(payment.custody_credit, 0);
+    assert!(market.quote_side.reserves.cash_reserve < cash);
+    let book = &market.income.get().unwrap().books[3];
+    assert_eq!(book.unpaid, 0);
+    assert!(book.impaired && !book.can_advance_in_place() && book.may_roll());
+}

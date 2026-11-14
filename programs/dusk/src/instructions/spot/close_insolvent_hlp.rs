@@ -17,7 +17,7 @@ use crate::{
         record_hlp_interest_credit, validate_hlp_authority_pdas,
     },
     state::{FutarchyAuthority, Market, MarketAsset},
-    token::{token_burn, transfer_checked_with_remaining_accounts},
+    token::{get_transfer_inverse_fee, token_burn, transfer_checked_with_remaining_accounts},
     transitions::HlpYieldEligibility,
 };
 
@@ -200,20 +200,37 @@ impl<'info> CloseInsolventHlp<'info> {
         let interest_before = ctx.accounts.borrowed_interest_vault.amount;
         let mut actual_interest_credit = 0;
         if interest_for_yield > 0 {
+            // Reserve cash also pays the Token-2022 fee, so custody receives
+            // the whole transferred interest. The socialized-loss transition
+            // below rebuilds the curve after this debit. The bounty still
+            // leaves the funding book short, so it rolls before reissuing.
+            let transfer_fee =
+                get_transfer_inverse_fee(&ctx.accounts.borrowed_mint.to_account_info(), interest_for_yield)?;
+            let transfer_fee = ctx
+                .accounts
+                .market
+                .pay_interest_transfer_fee(borrowed_asset, transfer_fee)?;
             transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 ctx.accounts.borrowed_reserve_vault.to_account_info(),
                 ctx.accounts.borrowed_interest_vault.to_account_info(),
                 ctx.accounts.borrowed_mint.to_account_info(),
                 borrowed_token_program,
-                interest_for_yield,
+                interest_for_yield
+                    .checked_add(transfer_fee)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
                 ctx.accounts.borrowed_mint.decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
                 ctx.remaining_accounts,
             )?;
             ctx.accounts.borrowed_interest_vault.reload()?;
             ctx.accounts.borrowed_reserve_vault.reload()?;
-            actual_interest_credit = token_account_credit(interest_before, &ctx.accounts.borrowed_interest_vault)?;
+            let measured_credit = token_account_credit(interest_before, &ctx.accounts.borrowed_interest_vault)?;
+            actual_interest_credit = ctx
+                .accounts
+                .market
+                .quote_interest_revenue_credit(borrowed_asset, true, measured_credit)?
+                .credited();
         }
         let protocol_interest_revenue = ctx
             .accounts

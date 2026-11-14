@@ -142,6 +142,13 @@ pub(crate) struct InterestRevenueCredit {
     pub protocol: u64,
     pub available_fee_custody: u64,
 }
+impl InterestRevenueCredit {
+    /// Custody credit recorded for the LP and fee books; any measured credit
+    /// above the settlement budget is excluded.
+    pub fn credited(&self) -> u64 {
+        self.lp + self.fee
+    }
+}
 #[cfg(test)]
 mod tests {
     include!("../tests/transitions/operator_revenue.rs");

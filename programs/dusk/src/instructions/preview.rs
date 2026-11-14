@@ -748,6 +748,18 @@ impl<'info> PreviewSwap<'info> {
             protocol_fee_bps: ctx.accounts.futarchy_authority.revenue_share.swap_bps,
         }
         .prepare(quote_market)?;
+        // Execution pays hLP funding transfer fees from reserve cash; preview
+        // the same post-swap reserves and curve.
+        let (base_mint, quote_mint) = match asset_in {
+            MarketAsset::Base => (&ctx.accounts.asset_in_mint, &ctx.accounts.asset_out_mint),
+            MarketAsset::Quote => (&ctx.accounts.asset_out_mint, &ctx.accounts.asset_in_mint),
+        };
+        prepared.set_interest_transfer_fees(&crate::instructions::leverage::settlement::interest_transfer_fees(
+            quote_market,
+            &base_mint.to_account_info(),
+            &quote_mint.to_account_info(),
+            clock.epoch,
+        )?);
         let quote = prepared.quote;
         let output_transfer_fee = get_transfer_fee_for_epoch(
             &ctx.accounts.asset_out_mint.to_account_info(),

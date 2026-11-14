@@ -19,8 +19,8 @@ use crate::{
 
 use super::settlement::{
     leverage_collateral_admission_fee, leverage_collateral_credit, leverage_collateral_vault_pda,
-    leverage_position_pda, leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp,
-    validate_leverage_futarchy_pda, validate_leverage_market_pda, validate_leverage_mints,
+    leverage_interest_transfer_fees, leverage_position_pda, leverage_swap_fee_credit, prepare_leverage_swap,
+    settle_inline_leverage_hlp, validate_leverage_futarchy_pda, validate_leverage_market_pda, validate_leverage_mints,
     validate_leverage_reserve_accounts, validate_owner_debt_account,
 };
 use crate::instructions::accounts::{require_reserve_custody, token_program_for_mint, HlpSwapAccountLayout};
@@ -293,7 +293,14 @@ impl<'info> OpenLeverage<'info> {
             asset: debt_asset,
             amount: debt_amount,
         };
-        let prepared_swap = prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?;
+        let transfer_fees = leverage_interest_transfer_fees(
+            &ctx.accounts.market,
+            debt_asset,
+            &ctx.accounts.debt_mint,
+            &ctx.accounts.collateral_mint,
+            current_epoch,
+        )?;
+        let prepared_swap = prepare_leverage_swap(&mut ctx.accounts.market, request, policy, transfer_fees)?;
 
         let interest_eligibility = prepared_swap.interest_eligibility;
         let collateral_credit = leverage_collateral_credit(

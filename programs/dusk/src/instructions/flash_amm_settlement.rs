@@ -134,6 +134,15 @@ pub(super) fn settle_with_amm<'info>(
         repayment,
     };
     swap.bind_liquidation(&a.market, policy)?;
+    swap.set_interest_transfer_fees(
+        &crate::instructions::leverage::settlement::leverage_interest_transfer_fees(
+            &a.market,
+            asset,
+            &a.debt_mint,
+            &a.collateral_mint,
+            clock.epoch,
+        )?,
+    );
     let swap_quote = swap.leverage_quote();
     let swap_fee = LeverageSwapFeeCredit::from_total_actual_credit(&swap_quote, swap.quote.fee.claimable_fee_debit)?;
     let eligibility = swap.interest_eligibility;
@@ -248,6 +257,7 @@ pub(super) fn settle_with_amm<'info>(
         a.referral_partner.as_deref(),
         a.referral_accrual.as_deref_mut(),
         loss.interest_paid,
+        None,
         eligibility,
         ctx.remaining_accounts,
         ctx.accounts.event_authority.to_account_info(),

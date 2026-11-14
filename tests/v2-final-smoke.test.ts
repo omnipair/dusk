@@ -109,6 +109,7 @@ import { marketParamsHash } from "../packages/dusk-sdk/src/market-bootstrap.js";
 import { marketCreationLookupTablePlan, marketCreationV0Transaction, operatorChangeV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
 import { grossLiquidationPayment } from "../packages/dusk-sdk/src/liquidation.js";
+import { transferFeeNotice, transferInverseFee } from "../packages/dusk-sdk/src/transfer-fees.js";
 import { honorHeapFrameRequests, LiteSVMConnection } from "./utils/litesvm-connection.js";
 import { Metadata } from "@metaplex-foundation/mpl-token-metadata";
 import {
@@ -5820,12 +5821,29 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const fresh = interest - advanced;
         const transferGross = fresh + frozenProtocol;
         const feeConfig = getTransferFeeConfig(await getMint(connection as any, debtMint, undefined, assetProgram));
-        const fee = feeConfig ? calculateEpochFee(feeConfig, svm.getClock().epoch, transferGross) : 0n;
-        const credit = transferGross - fee;
+        const epochFee = feeConfig && (svm.getClock().epoch >= feeConfig.newerTransferFee.epoch
+          ? feeConfig.newerTransferFee : feeConfig.olderTransferFee);
+        // The borrower pays the Token-2022 fee on the interest the reserve
+        // moves into income custody, on top of principal and interest, so
+        // custody receives the whole interest transfer.
+        const interestFee = epochFee ? transferInverseFee(transferGross, transferFeeNotice({
+          olderTransferFee: epochFee, newerTransferFee: epochFee }, svm.getClock().epoch)) : 0n;
+        expect(interestFee > 0n).to.equal(feeTokens);
+        const repayEvent = cpiEvent(repay, "marketDebtUpdated");
+        const reserveCredit = raw(repayEvent.cashCredit) + interestFee;
+        const repayFee = epochFee ? calculateEpochFee(feeConfig!, svm.getClock().epoch, raw(repayEvent.cashDebit)) : 0n;
+        expect(raw(repayEvent.cashDebit) - repayFee).to.equal(reserveCredit);
+        // Custody is credited the whole interest transfer, never a net amount.
+        const interestPaid = cpiEvents(repay).filter((event) => event.name === "borrowInterestPaid"
+          && "credit" in event.data.source).map((event) => event.data);
+        expect(interestPaid).to.have.length(1);
+        expect(raw(interestPaid[0].interestVaultCredit)).to.equal(transferGross);
+        const credit = transferGross;
         const feeCash = credit * frozenFeeGross / transferGross;
         const custodyAfter = await tokensWithWithheld(reserveVault) + await tokensWithWithheld(interestVault);
         const walletAfter = (await getAccount(connection as any, debtWallet, undefined, assetProgram)).amount;
         expect(custodyAfter - custodyBefore).to.equal(walletBefore - walletAfter);
+        expect(walletBefore - walletAfter).to.equal(raw(repayEvent.cashDebit));
         const protocolCash = raw(repaidSide.fees.interest_protocol_fee_liability) - raw(side.fees.interest_protocol_fee_liability);
         expect(feeCash - protocolCash >= 0n && feeCash - protocolCash <= 1n).to.equal(true);
         expect(raw(repaid.protocol_interest_markup_bps)).to.equal(6_000n);
@@ -7115,9 +7133,20 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const after = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
       for (const side of ["base", "quote"]) {
         const v = after[`${side}_hlp_vault`], other = side === "base" ? "quote" : "base";
-        const claim = raw(after[`${other}_side`].reserves.live_reserve) * raw(v.srlp_shares) / raw(after.base_side.shares.srlp_supply);
+        const supply = raw(after.base_side.shares.srlp_supply);
+        const claim = raw(after[`${other}_side`].reserves.live_reserve) * raw(v.srlp_shares) / supply;
         const debt = (raw(v.debt_shares) * raw(after.debt[`${other}_borrow_index_nad`]) + 999_999_999n) / 1_000_000_000n;
-        if (mode !== "full") expect((debt > claim ? debt - claim : claim - debt) <= 2n).to.equal(true);
+        // Reserve cash paid the transfer fee on the vault's funding payment
+        // after the hedge was solved; the vault bears its srLP share of it.
+        const funding = raw(e.fundingInterestPaid[side === "base" ? 0 : 1]);
+        const schedule = getTransferFeeConfig(await getMint(connection as any, other === "base" ? f.baseMint : f.quoteMint, undefined, tokenProgram));
+        const epochFee = schedule && (svm.getClock().epoch >= schedule.newerTransferFee.epoch ? schedule.newerTransferFee : schedule.olderTransferFee);
+        const transferFee = epochFee && funding > 0n
+          ? transferInverseFee(funding, transferFeeNotice({ olderTransferFee: epochFee, newerTransferFee: epochFee }, svm.getClock().epoch))
+          : 0n;
+        const feeShare = (transferFee * raw(v.srlp_shares) + supply - 1n) / supply;
+        if (mode !== "full") expect((debt > claim ? debt - claim : claim - debt) <= 2n + feeShare,
+          `fees=${fees} amp=${amp} target=${target} mode=${mode} side=${side} debt=${debt} claim=${claim} fee=${transferFee}`).to.equal(true);
         if (mode === "full" && side === target) {
           expect(raw(e[`${side}HlpSrlpBurned`]) > 0n).to.equal(true);
           expect(raw(v.srlp_shares)).to.equal(0n); expect(raw(v.debt_shares)).to.equal(0n);
