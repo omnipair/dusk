@@ -22,6 +22,11 @@ export interface IncomeClaimInput {
 export interface IncomeBookInput {
   epoch: IntegerLike; unpaid: IntegerLike; units: IntegerLike;
   paidPerUnitQ64: IntegerLike; growth: readonly IncomeGrowthInput[];
+  /** First epoch of the book's drain run; absent means the run starts at `epoch`. */
+  runStartEpoch?: IntegerLike;
+  /** Cumulative lane growth when `epoch` began; absent means zero. */
+  epochStartGrowth?: readonly IncomeGrowthInput[];
+  impaired?: boolean;
 }
 export interface IncomeEndInput { ended: boolean; epoch: IntegerLike; growth: IncomeGrowthInput }
 export interface IncomeHolderInput {
@@ -39,16 +44,45 @@ function weighted(growth: IncomeGrowthInput): bigint {
   return growth.weightedPaidQ128.reduce<bigint>((sum, limb, i) => sum + (value(limb, U64) << BigInt(i * 64)), 0n);
 }
 
+const ZERO_GROWTH: IncomeGrowthInput = { unitsQ64: 0n, weightedPaidQ128: [0n, 0n, 0n, 0n] };
+/** Per-unit value of a fully repaid, loss-free epoch advanced in place (Q64). */
+export const DRAINED_UNIT_VALUE_Q64 = (1n << 64n) - (1n << 32n);
+
+function runStartEpoch(book: IncomeBookInput): bigint {
+  return book.runStartEpoch === undefined ? value(book.epoch, U64) : value(book.runStartEpoch, U64);
+}
+
+/** Pure copy of IncomeReceivableClaim::catch_up_drained: value the epochs of
+ * the book's drain run that ended after the claim's checkpoint. */
+function catchUpDrained(claim: IncomeClaimInput, book: IncomeBookInput, balanceInput: IntegerLike, lane: number, end?: IncomeEndInput): IncomeClaimInput {
+  const claimEpoch = value(claim.epoch, U64), epoch = value(book.epoch, U64);
+  if (claimEpoch === epoch) return claim;
+  if (claimEpoch > epoch || claimEpoch < runStartEpoch(book)) throw new Error("IncomeHistoryRequired");
+  const start = book.epochStartGrowth?.[lane] ?? ZERO_GROWTH;
+  const ended = end?.ended === true;
+  const endEpoch = ended ? value(end!.epoch, U64) : 0n;
+  let stop: IncomeGrowthInput | undefined = ended && endEpoch < epoch ? (endEpoch >= claimEpoch ? end!.growth : undefined) : start;
+  if (stop && value(stop.unitsQ64) < value(claim.growthCheckpoint.unitsQ64)) stop = undefined;
+  const drained = (growth: IncomeGrowthInput) => value(growth.unitsQ64) * DRAINED_UNIT_VALUE_Q64 - weighted(growth);
+  let owed = value(claim.paidFractionQ128);
+  if (stop) owed += (drained(stop) - drained(claim.growthCheckpoint)) * value(balanceInput, U64);
+  owed += value(claim.unitsQ64) * (DRAINED_UNIT_VALUE_Q64 - value(claim.paidCheckpointQ64));
+  const cash = owed < 0n ? 0n : owed;
+  if (cash > U256) throw new Error("Income value overflow");
+  return { epoch, unitsQ64: 0n, paidCheckpointQ64: 0n, growthCheckpoint: start, paidFractionQ128: cash & U128,
+    claimable: value(value(claim.claimable, U64) + (cash >> 128n), U64) };
+}
+
 /** Pure copy of IncomeReceivableClaim::checkpoint_exposure. Fractional cash
  * stays at Q128 precision; newly issued units cannot earn prior payments. */
 export function projectIncomeClaim(input: {
   claim: IncomeClaimInput; book: IncomeBookInput; balance: IntegerLike; lane: number; end?: IncomeEndInput;
 }): IncomeClaimProjection {
-  const { claim, book, end } = input;
+  const { book, end } = input;
   if (end && typeof end.ended !== "boolean") throw new Error("Invalid income exposure end");
-  const epoch = value(book.epoch, U64);
-  if (value(claim.epoch, U64) !== epoch) throw new Error("IncomeHistoryRequired");
   if (!Number.isInteger(input.lane) || input.lane < 0 || input.lane > 3 || book.growth.length !== 4) throw new Error("Invalid income lane");
+  const epoch = value(book.epoch, U64);
+  const claim = catchUpDrained(input.claim, book, input.balance, input.lane, end);
   const ended = end?.ended === true;
   const endEpoch = ended ? value(end!.epoch, U64) : 0n;
   const growth = ended && epoch === endEpoch ? end!.growth : book.growth[input.lane]!;
@@ -67,20 +101,35 @@ export function projectIncomeClaim(input: {
     paidFractionQ128: scaled & U128, claimable: value(value(claim.claimable, U64) + (scaled >> 128n), U64) };
 }
 
-/** Archived denominations required by the selected asset's two income books. */
-export function incomeArchiveRequests(holder: IncomeHolderInput, books: readonly IncomeBookInput[], asset: 0 | 1, maximumEpochs = 32) {
+/** For each of the selected asset's two income books, the newest archive the
+ * holder needs, if any: the archived epoch that ended the run before the live
+ * book's drain run. Epochs advanced in place have no archive; each archive
+ * records its own run start, so older archives are found by walking back. */
+export function incomeArchiveRequests(holder: IncomeHolderInput, books: readonly IncomeBookInput[], asset: 0 | 1) {
   if (asset !== 0 && asset !== 1) throw new Error("Invalid income asset");
-  if (!Number.isInteger(maximumEpochs) || maximumEpochs < 1 || maximumEpochs > 64) throw new Error("Invalid income history bound");
   if (!holder.incomeInitialized || holder.tokenKind === 1) return [];
   if (![0, 2].includes(holder.tokenKind) || holder.income.length !== 2 || books.length !== 4) throw new Error("Invalid income holder");
-  const requests: { bookIndex: number; epoch: bigint }[] = [];
+  const requests: { bookIndex: number; epoch: bigint; holderEpoch: bigint }[] = [];
   for (let source = 0; source < 2; source++) {
     const bookIndex = asset + source * 2;
     const first = value(holder.income[source]!.epoch, U64), current = value(books[bookIndex]!.epoch, U64);
-    if (first > current || current - first > BigInt(maximumEpochs)) throw new Error("IncomeHistoryRequired");
-    for (let epoch = first; epoch < current; epoch++) requests.push({ bookIndex, epoch });
+    if (first > current) throw new Error("IncomeHistoryRequired");
+    const runStart = runStartEpoch(books[bookIndex]!);
+    if (first < runStart) requests.push({ bookIndex, epoch: runStart - 1n, holderEpoch: first });
   }
   return requests;
+}
+
+/** The archived epoch that covers a claim at `epoch`: the oldest archive at
+ * or after it. */
+function coveringArchive(archives: IncomeArchiveMap | undefined, bookIndex: number, epoch: bigint) {
+  let best: { epoch: bigint; book: IncomeBookInput } | undefined;
+  for (const [key, book] of archives ?? []) {
+    const [index, at] = key.split(":");
+    const archived = BigInt(at!);
+    if (Number(index) === bookIndex && archived >= epoch && (!best || archived < best.epoch)) best = { epoch: archived, book };
+  }
+  return best;
 }
 
 /** Additional funded interest Harvest materializes before ordinary growth.
@@ -101,8 +150,8 @@ export function projectHolderIncome(input: {
     const bookIndex = asset + source * 2, book = books[bookIndex]!;
     let claim: IncomeClaimInput = { ...holder.income[source]!, epoch: holder.incomeInitialized ? holder.income[source]!.epoch : book.epoch };
     const end = lane === 1 ? input.ends?.[bookIndex] : undefined;
-    while (value(claim.epoch, U64) < value(book.epoch, U64)) {
-      const archived = input.archives?.get(`${bookIndex}:${claim.epoch}`);
+    while (value(claim.epoch, U64) < runStartEpoch(book)) {
+      const archived = coveringArchive(input.archives, bookIndex, value(claim.epoch, U64))?.book;
       if (!archived) throw new Error("IncomeHistoryRequired");
       const projected = projectIncomeClaim({ claim, book: archived, balance, lane, end });
       const units = value(archived.units, U64), unpaid = value(archived.unpaid, U64);
@@ -117,29 +166,36 @@ export function projectHolderIncome(input: {
 }
 
 /** Read only immutable, PDA-authenticated archives. Callers pass the bank
- * floor that supplied the holder and current books; no observation is cached. */
+ * floor that supplied the holder and current books; no observation is cached.
+ * Starting from the archive that ended the run before the live book's, each
+ * archive's run start leads to the previous archive until the holder's epoch
+ * is covered. */
 export async function readIncomeArchives(input: {
   dusk: Dusk; market: AddressLike; holder: IncomeHolderInput; books: readonly IncomeBookInput[];
-  asset: 0 | 1; minContextSlot: number;
+  asset: 0 | 1; minContextSlot: number; maximumArchives?: number;
 }): Promise<IncomeArchiveMap> {
   if (!Number.isSafeInteger(input.minContextSlot) || input.minContextSlot < 0) throw new Error("Invalid income archive bank floor");
+  const maximum = input.maximumArchives ?? 64;
+  if (!Number.isInteger(maximum) || maximum < 1) throw new Error("Invalid income history bound");
   const { dusk } = input, program = dusk.program.programId, market = address(input.market);
-  const requests = incomeArchiveRequests(input.holder, input.books, input.asset);
   const result = new Map<string, IncomeBookInput>();
-  for (let offset = 0; offset < requests.length; offset += 100) {
-    const batch = requests.slice(offset, offset + 100).map(request => ({ ...request,
-      derived: deriveIncomeEpochAddress(market, request.bookIndex, request.epoch, program) }));
-    const read = await dusk.program.provider.connection.getMultipleAccountsInfoAndContext(batch.map(row => row.derived[0]),
-      { commitment: "confirmed", minContextSlot: input.minContextSlot });
-    if (read.context.slot < input.minContextSlot || read.value.length !== batch.length) throw new Error("Income archives are stale");
-    batch.forEach((request, index) => {
-      const account = read.value[index];
+  for (const request of incomeArchiveRequests(input.holder, input.books, input.asset)) {
+    let epoch: bigint | undefined = request.epoch;
+    while (epoch !== undefined && epoch >= request.holderEpoch) {
+      if (result.size >= maximum) throw new Error("IncomeHistoryRequired");
+      const derived = deriveIncomeEpochAddress(market, request.bookIndex, epoch, program);
+      const read = await dusk.program.provider.connection.getAccountInfoAndContext(derived[0],
+        { commitment: "confirmed", minContextSlot: input.minContextSlot });
+      if (read.context.slot < input.minContextSlot) throw new Error("Income archives are stale");
+      const account = read.value;
       if (!account || account.executable || !account.owner.equals(program)) throw new Error("IncomeHistoryRequired");
       const decoded = dusk.program.coder.accounts.decode("incomeEpoch", account.data);
-      if (!decoded.market.equals(market) || decoded.bookIndex !== request.bookIndex || decoded.bump !== request.derived[1] ||
-        String(decoded.book.epoch) !== request.epoch.toString()) throw new Error("Invalid income archive");
-      result.set(`${request.bookIndex}:${request.epoch}`, decoded.book);
-    });
+      if (!decoded.market.equals(market) || decoded.bookIndex !== request.bookIndex || decoded.bump !== derived[1] ||
+        String(decoded.book.epoch) !== epoch.toString()) throw new Error("Invalid income archive");
+      result.set(`${request.bookIndex}:${epoch}`, decoded.book);
+      const runStart = runStartEpoch(decoded.book);
+      epoch = runStart === 0n ? undefined : runStart - 1n;
+    }
   }
   return result;
 }

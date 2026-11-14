@@ -17050,7 +17050,8 @@ export type Dusk = {
           {
             "name": "growth",
             "docs": [
-              "Ordinary senior, junior, base hLP, quote hLP."
+              "Ordinary senior, junior, base hLP, quote hLP. Growth is cumulative",
+              "across the epochs of one drain run and resets only at an archived roll."
             ],
             "type": {
               "array": [
@@ -17062,6 +17063,40 @@ export type Dusk = {
                 4
               ]
             }
+          },
+          {
+            "name": "runStartEpoch",
+            "docs": [
+              "First epoch of the current drain run. Every epoch from here up to the",
+              "current one ended fully repaid without loss and was advanced in place,",
+              "so holders catch up across them without archived history."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "epochStartGrowth",
+            "docs": [
+              "Lane growth when the current epoch started; equal to `growth` at the",
+              "last in-place advance."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "receivableGrowth"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "impaired",
+            "docs": [
+              "A writeoff or custody shortfall in this epoch. Such an epoch cannot be",
+              "advanced in place; it needs an archived roll."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -23731,10 +23766,12 @@ export type Dusk = {
         "This layout counts token amounts in at least `MIN_AMOUNT_DECIMALS`",
         "decimals and sets independent lower/upper utilization rate targets.",
         "Aggregate virtual reserves use u128; physical token amounts remain u64.",
-        "Separate hLP funding offsets preserve pricing principal through payment."
+        "Separate hLP funding offsets preserve pricing principal through payment.",
+        "Income books record their drain run so a fully repaid epoch advances in",
+        "place without an archive."
       ],
       "type": "u8",
-      "value": "17"
+      "value": "18"
     },
     {
       "name": "marketParamsHashDomain",

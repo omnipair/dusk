@@ -33,7 +33,7 @@ test("archived denominations carry old ownership and collected cash forward",()=
  const h=holder(claim({unitsQ64:10n*Q}));
  const old=book({units:10n,unpaid:5n,paidPerUnitQ64:Q/2n});
  const books=[book({epoch:1n,units:5n,paidPerUnitQ64:Q}),book(),book(),book()];
- assert.deepEqual(incomeArchiveRequests(h,books,0),[{bookIndex:0,epoch:0n}]);
+ assert.deepEqual(incomeArchiveRequests(h,books,0),[{bookIndex:0,epoch:0n,holderEpoch:0n}]);
  assert.throws(()=>projectHolderIncome({holder:h,books,asset:0,walletBalance:0n}),/IncomeHistoryRequired/);
  assert.equal(projectHolderIncome({holder:h,books,asset:0,walletBalance:0n,archives:new Map([["0:0",old]])}),10n);
 });
@@ -43,13 +43,13 @@ test("uninitialized holders acquire no historical units; regression and overflow
  assert.throws(()=>projectIncomeClaim({claim:claim({growthCheckpoint:growth(2n*Q)}),book:books[0],balance:1n,lane:0}),/regressed/);
  assert.throws(()=>projectIncomeClaim({claim:claim({claimable:Q-1n,unitsQ64:Q}),book:books[0],balance:0n,lane:0}),/overflow/);
  assert.throws(()=>projectIncomeClaim({claim:claim(),book:book({growth:[growth(Q,Q),zero(),zero(),zero()]}),balance:1n,lane:0}),/weighted/);
- assert.throws(()=>incomeArchiveRequests(holder(),[book({epoch:33n}),book(),book(),book()],0),/IncomeHistoryRequired/);
+ assert.throws(()=>incomeArchiveRequests(holder(claim({epoch:2n})),[book({epoch:1n}),book(),book(),book()],0),/IncomeHistoryRequired/);
 });
 test("archive reads authenticate the market, epoch, lane, owner, PDA bump and bank floor",async()=>{
  const market=new PublicKey(new Uint8Array(32).fill(9));const program=new PublicKey(new Uint8Array(32).fill(10));
  const [key,bump]=deriveIncomeEpochAddress(market,0,0n,program);
  const base={market,bookIndex:0,book:book(),bump};let decoded=base;let accountOwner=program;let slot=50;
- const dusk={program:{programId:program,coder:{accounts:{decode:()=>decoded}},provider:{connection:{getMultipleAccountsInfoAndContext:async(keys,options)=>{assert.equal(keys[0].toBase58(),key.toBase58());assert.equal(options.minContextSlot,50);return {context:{slot},value:[{owner:accountOwner,executable:false,data:Buffer.alloc(1)}]}}}}}};
+ const dusk={program:{programId:program,coder:{accounts:{decode:()=>decoded}},provider:{connection:{getAccountInfoAndContext:async(pubkey,options)=>{assert.equal(pubkey.toBase58(),key.toBase58());assert.equal(options.minContextSlot,50);return {context:{slot},value:{owner:accountOwner,executable:false,data:Buffer.alloc(1)}}}}}}};
  const input={dusk,market,holder:holder(),books:[book({epoch:1n}),book(),book(),book()],asset:0,minContextSlot:50};
  assert.equal((await readIncomeArchives(input)).size,1);
  for(const patch of [{market:PublicKey.default},{bookIndex:1},{book:book({epoch:1n})},{bump:bump^1}]){decoded={...base,...patch};await assert.rejects(readIncomeArchives(input),/Invalid income archive/)}
@@ -73,3 +73,21 @@ test("matches the program's transfer, partial-writeoff and retired-epoch vectors
  const ends=Array.from({length:4},()=>({ended:true,epoch:0n,growth:growth(Q)}));
  assert.equal(projectHolderIncome({holder:junior,books:[after,book(),book(),book()],asset:0,walletBalance:20n,ends,archives:new Map([["0:0",old]])}),10n);
 });
+
+test("fully repaid epochs advanced in place are valued from cumulative growth without archives",()=>{
+ const start=growth(2n*Q);
+ const live=book({epoch:5n,runStartEpoch:0n,epochStartGrowth:[start,zero(),zero(),zero()],growth:[start,zero(),zero(),zero()]});
+ // Held units are owed the rest of the drained unit value; units issued since
+ // the checkpoint are valued from growth. Both stay at or below face value.
+ const held=projectIncomeClaim({claim:claim({epoch:2n,unitsQ64:10n*Q,paidCheckpointQ64:Q/2n}),book:live,balance:0n,lane:0});
+ assert.equal(held.epoch,5n);assert.equal(held.unitsQ64,0n);assert.equal(held.claimable,4n);
+ const issued=projectIncomeClaim({claim:claim({epoch:2n}),book:live,balance:3n,lane:0});
+ assert.equal(issued.claimable,5n);assert.deepEqual(issued.growthCheckpoint,start);
+ // A claim older than the run needs the archive that ended the previous run.
+ const runFrom3=book({...live,runStartEpoch:3n});
+ assert.throws(()=>projectIncomeClaim({claim:claim({epoch:2n}),book:runFrom3,balance:1n,lane:0}),/IncomeHistoryRequired/);
+ assert.deepEqual(incomeArchiveRequests(holder(claim({epoch:1n})),[runFrom3,book(),book(),book()],0),[{bookIndex:0,epoch:2n,holderEpoch:1n}]);
+ const archived=book({epoch:2n,runStartEpoch:0n,units:10n,unpaid:0n,paidPerUnitQ64:Q,epochStartGrowth:[zero(),zero(),zero(),zero()]});
+ assert.equal(projectHolderIncome({holder:holder(claim({epoch:1n,unitsQ64:10n*Q})),books:[runFrom3,book(),book(),book()],asset:0,walletBalance:0n,archives:new Map([["0:2",archived]])}),9n);
+});
+

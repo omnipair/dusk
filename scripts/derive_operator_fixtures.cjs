@@ -108,8 +108,14 @@ for (const account of batch.result.value.accounts) {
   if (account.owner===batch.programId) account.owner=nextProgram;
 }
 const adaptedMarket=newCoder.decode('Market',Buffer.from(batch.result.value.accounts[0].data[0],'base64'));
-batch.market=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedMarket.base_side.asset_mint.toBuffer(),
-  adaptedMarket.quote_side.asset_mint.toBuffer(),Buffer.from(adaptedMarket.params_hash)],new PublicKey(nextProgram))[0].toBase58();
+const [marketAddress,marketBump]=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedMarket.base_side.asset_mint.toBuffer(),
+  adaptedMarket.quote_side.asset_mint.toBuffer(),Buffer.from(adaptedMarket.params_hash)],new PublicKey(nextProgram));
+batch.market=marketAddress.toBase58();
+// The stored bump belongs to the market's address under the current program.
+if(adaptedMarket.bump!==marketBump){
+  adaptedMarket.bump=marketBump;
+  batch.result.value.accounts[0].data[0]=encodeAccount('Market',adaptedMarket).toString('base64');
+}
 batch.programId=nextProgram;
 batch.result.value.returnData.programId=nextProgram;
 batch.derivedFrom=`layout-13 regression fixture at ${predecessor}`;

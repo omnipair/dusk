@@ -4265,7 +4265,8 @@ export type LeverageDelegate = {
           {
             "name": "growth",
             "docs": [
-              "Ordinary senior, junior, base hLP, quote hLP."
+              "Ordinary senior, junior, base hLP, quote hLP. Growth is cumulative",
+              "across the epochs of one drain run and resets only at an archived roll."
             ],
             "type": {
               "array": [
@@ -4277,6 +4278,40 @@ export type LeverageDelegate = {
                 4
               ]
             }
+          },
+          {
+            "name": "runStartEpoch",
+            "docs": [
+              "First epoch of the current drain run. Every epoch from here up to the",
+              "current one ended fully repaid without loss and was advanced in place,",
+              "so holders catch up across them without archived history."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "epochStartGrowth",
+            "docs": [
+              "Lane growth when the current epoch started; equal to `growth` at the",
+              "last in-place advance."
+            ],
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "receivableGrowth"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "impaired",
+            "docs": [
+              "A writeoff or custody shortfall in this epoch. Such an epoch cannot be",
+              "advanced in place; it needs an archived roll."
+            ],
+            "type": "bool"
           }
         ]
       }
