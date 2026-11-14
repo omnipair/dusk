@@ -4291,8 +4291,11 @@ export type LeverageDelegate = {
           {
             "name": "epochStartGrowth",
             "docs": [
-              "Lane growth when the current epoch started; equal to `growth` at the",
-              "last in-place advance."
+              "Ordinary senior and junior lane growth when the current epoch started;",
+              "equal to `growth` at the last in-place advance. The hLP lanes have one",
+              "market-held claim each, checkpointed after every issuance, so that",
+              "claim's own checkpoint is its lane's starting growth. Two lanes, not",
+              "four, keep the decoded income books inside liquidation heap headroom."
             ],
             "type": {
               "array": [
@@ -4301,7 +4304,7 @@ export type LeverageDelegate = {
                     "name": "receivableGrowth"
                   }
                 },
-                4
+                2
               ]
             }
           },

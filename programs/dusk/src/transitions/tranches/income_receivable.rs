@@ -66,7 +66,7 @@ impl IncomeReceivableBook {
                 epoch: self.epoch.checked_add(1).ok_or(ErrorCode::MarketMathOverflow)?,
                 growth: self.growth,
                 run_start_epoch: self.run_start_epoch,
-                epoch_start_growth: self.growth,
+                epoch_start_growth: [self.growth[0], self.growth[1]],
                 ..Self::default()
             };
             return next.project_issue(allocations);
@@ -319,7 +319,21 @@ impl IncomeReceivableClaim {
             self.epoch < book.epoch && self.epoch >= book.run_start_epoch,
             ErrorCode::IncomeHistoryRequired
         );
-        let start = *book.epoch_start_growth.get(lane).ok_or(ErrorCode::InvalidArgument)?;
+        require!(lane < 4, ErrorCode::InvalidArgument);
+        let start = match book.epoch_start_growth.get(lane) {
+            Some(start) => *start,
+            None => {
+                // An hLP lane's only claim is checkpointed after every
+                // issuance, and an epoch advances in place only inside an
+                // issuance, so it lags exactly one epoch and its checkpoint
+                // is that epoch's starting growth.
+                require!(
+                    self.epoch.checked_add(1) == Some(book.epoch),
+                    ErrorCode::IncomeHistoryRequired
+                );
+                self.growth_checkpoint
+            }
+        };
         let stop = if end.ended && end.epoch < book.epoch {
             (end.epoch >= self.epoch).then_some(end.growth)
         } else {

@@ -2604,10 +2604,23 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(compounded.tranches.juniorReceiptSupply.eq(compounded.tranches.permanentReceipts)).to.equal(true);
     expect((await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(seniorBefore);
     expect((await getMint(connection as any, compounded.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(0n);
-    // The fully collected epoch is archived without erasing old owners' cash.
+    // A fully collected, loss-free epoch needs no archive: it advances in
+    // place on its next issuance, and old owners keep their cash.
     const maintenance = await tranches.prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey });
-    expect(maintenance.transactions.length).to.equal(2);
-    for (const transaction of maintenance.transactions) await connection.sendTransaction(transaction, [payer]);
+    expect(maintenance.transactions.length).to.equal(0);
+    // An impaired drained epoch (here marked directly) still needs an archive,
+    // and holders carry their cash through it.
+    const account = svm.getAccount(f.market)!;
+    const impaired = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+    impaired.income.books[0].impaired = true;
+    const marketLayout = (accountCoder as any).accountLayouts.get("Market");
+    const encoded = Buffer.alloc(account.data.length - 8), encodedLength = marketLayout.layout.encode(impaired, encoded);
+    svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"), encoded.subarray(0, encodedLength),
+    ])) });
+    const roll = await tranches.prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey });
+    expect(roll.transactions.length).to.equal(1);
+    for (const transaction of roll.transactions) await connection.sendTransaction(transaction, [payer]);
     expect((await tranches.prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey })).transactions.length).to.equal(0);
     trackV2Instruction("rollIncomeEpoch", this.test?.title);
     for (const asset of ["base", "quote"] as const) {
@@ -2616,7 +2629,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       await connection.sendTransaction(new Transaction().add(...prepared.instructions), [payer]);
       const claim = await sdkProgram.account.yieldAccount.fetch(prepared.yieldAccount);
       expect(claim.accruedInterestAmount.gtn(0)).to.equal(true);
-      expect(claim.income[0].epoch.toString()).to.equal("1");
+      expect(claim.income[0].epoch.toString()).to.equal(asset === "base" ? "1" : "0");
     }
     trackV2Instruction("checkpointIncome", this.test?.title);
   });

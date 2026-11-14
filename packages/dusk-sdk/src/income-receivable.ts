@@ -24,7 +24,8 @@ export interface IncomeBookInput {
   paidPerUnitQ64: IntegerLike; growth: readonly IncomeGrowthInput[];
   /** First epoch of the book's drain run; absent means the run starts at `epoch`. */
   runStartEpoch?: IntegerLike;
-  /** Cumulative lane growth when `epoch` began; absent means zero. */
+  /** Ordinary senior and junior growth when `epoch` began; absent means zero.
+   * hLP lanes use their single claim's checkpoint, which lags one epoch. */
   epochStartGrowth?: readonly IncomeGrowthInput[];
   impaired?: boolean;
 }
@@ -58,7 +59,12 @@ function catchUpDrained(claim: IncomeClaimInput, book: IncomeBookInput, balanceI
   const claimEpoch = value(claim.epoch, U64), epoch = value(book.epoch, U64);
   if (claimEpoch === epoch) return claim;
   if (claimEpoch > epoch || claimEpoch < runStartEpoch(book)) throw new Error("IncomeHistoryRequired");
-  const start = book.epochStartGrowth?.[lane] ?? ZERO_GROWTH;
+  let start: IncomeGrowthInput;
+  if (lane < 2) start = book.epochStartGrowth?.[lane] ?? ZERO_GROWTH;
+  else {
+    if (claimEpoch + 1n !== epoch) throw new Error("IncomeHistoryRequired");
+    start = claim.growthCheckpoint;
+  }
   const ended = end?.ended === true;
   const endEpoch = ended ? value(end!.epoch, U64) : 0n;
   let stop: IncomeGrowthInput | undefined = ended && endEpoch < epoch ? (endEpoch >= claimEpoch ? end!.growth : undefined) : start;
