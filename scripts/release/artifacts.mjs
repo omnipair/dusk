@@ -19,7 +19,8 @@ export const SDK_FILES = { dusk: 'idl_v2.json', leverage_delegate: 'idl_delegate
 export function cargoArgs(commit, version) {
   assert.match(commit, /^[a-f0-9]{40}$/);
   assert.match(version, /^\d+\.\d+\.\d+$/);
-  return ['--locked', '--features', 'production', '--config', `env.GIT_REV="${commit}"`, '--config', `env.GIT_RELEASE="v${version}"`];
+  // solana-verify 0.4.11 adds --locked itself; Cargo rejects a second copy.
+  return ['--features', 'production', '--config', `env.GIT_REV="${commit}"`, '--config', `env.GIT_RELEASE="v${version}"`];
 }
 export function assertSourceIdentity() {
   const version = JSON.parse(readFileSync(resolve(ROOT, 'packages/dusk-sdk/package.json'))).version;

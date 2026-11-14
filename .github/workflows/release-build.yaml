@@ -58,7 +58,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.99.1
       - uses: Swatinem/rust-cache@v2
         with:
-          key: mainnet-release-anchor-0.31.1-solana-4.1.0
+          key: anchor-${{ env.ANCHOR_VERSION }}-solana-${{ env.SOLANA_VERSION }}
       - name: Cache Solana CLI
         id: solana-cache
         uses: actions/cache@v5
@@ -106,8 +106,8 @@ jobs:
         run: yarn install --frozen-lockfile
       - name: Check release tooling
         run: node --test scripts/release/release.test.mjs
-      - name: Build smoke fixtures and interfaces
-        run: yarn build:litesvm
+      - name: Build smoke fixtures
+        run: yarn build:litesvm:fixtures
       - name: Build both production programs reproducibly
         run: node scripts/release/build.mjs
       - name: Check build left the reviewed source unchanged

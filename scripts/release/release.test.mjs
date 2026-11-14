@@ -70,6 +70,10 @@ test('fixed identities and event signer agree with the mainnet release', () => {
   assert.ok(readFileSync(resolve(ROOT, 'packages/dusk-sdk/src/constants.ts'), 'utf8').includes(CONFIG.programs.dusk));
   assert.ok(readFileSync(resolve(ROOT, 'packages/dusk-sdk/src/delegate.ts'), 'utf8').includes(CONFIG.programs.leverage_delegate));
 });
+test('additional Cargo arguments leave dependency locking to solana-verify', () => {
+  const combined = ['--locked', ...cargoArgs('a'.repeat(40), '2.27.0')];
+  assert.equal(combined.filter(arg => arg === '--locked').length, 1, 'Cargo rejects duplicate --locked flags');
+});
 test('release manifest rejects modified bytecode, another commit and path substitution', t => {
   const f = fixture(t); f.bundle();
   assert.throws(() => readBundle(f.directory, 'b'.repeat(40)), /commit differs/);

@@ -7,7 +7,7 @@
     "test": "cargo test -p dusk && cargo test -p leverage_delegate && yarn test-litesvm",
     "postinstall": "node scripts/patch_anchor_idl_types.js",
     "typecheck": "tsc --noEmit",
-    "build:litesvm": "node scripts/prepare_build.js && anchor build -p dusk && anchor build -p leverage_delegate && anchor build -p faucet && cargo build-sbf --manifest-path tests/fixtures/referral_transfer_hook/Cargo.toml --sbf-out-dir target/deploy && cargo build-sbf --manifest-path tests/fixtures/token_metadata_fixture/Cargo.toml --sbf-out-dir target/deploy && cargo build-sbf --manifest-path tests/fixtures/devnet_oracle/Cargo.toml --sbf-out-dir target/deploy && cargo build-sbf --manifest-path tests/fixtures/operator_adapter/Cargo.toml --sbf-out-dir target/deploy && node tests/devnet-mock-oracle.mjs",
+    "build:litesvm": "node scripts/prepare_build.js && anchor build -p dusk && anchor build -p leverage_delegate && yarn build:litesvm:fixtures",
     "test:lp-metadata": "node --experimental-strip-types --test scripts/lp-metadata/api.test.ts",
     "test-litesvm": "yarn build:litesvm && yarn test-litesvm:no-build",
     "test-litesvm:no-build": "mocha --require ts-node/register --extensions ts tests/v2-final-smoke.test.ts",
@@ -38,7 +38,8 @@
     "v2:deploy-faucet-devnet": "solana program deploy target/deploy/faucet.so --program-id ${DUSK_FAUCET_PROGRAM_KEYPAIR:-$HOME/.config/omnipair/dusk-devnet/faucet-program-keypair.json} --keypair ${ANCHOR_WALLET:-deployer-keypair.json} --upgrade-authority ${ANCHOR_WALLET:-deployer-keypair.json} --url devnet",
     "release:build": "node scripts/release/build.mjs",
     "release:local": "node scripts/release/local.mjs",
-    "check:release": "node --test scripts/release/release.test.mjs"
+    "check:release": "node --test scripts/release/release.test.mjs",
+    "build:litesvm:fixtures": "node scripts/prepare_build.js && anchor build -p faucet && cargo build-sbf --manifest-path tests/fixtures/referral_transfer_hook/Cargo.toml --sbf-out-dir target/deploy && cargo build-sbf --manifest-path tests/fixtures/token_metadata_fixture/Cargo.toml --sbf-out-dir target/deploy && cargo build-sbf --manifest-path tests/fixtures/devnet_oracle/Cargo.toml --sbf-out-dir target/deploy && cargo build-sbf --manifest-path tests/fixtures/operator_adapter/Cargo.toml --sbf-out-dir target/deploy && node tests/devnet-mock-oracle.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",
