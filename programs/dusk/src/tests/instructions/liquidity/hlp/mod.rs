@@ -364,6 +364,68 @@ fn direct_burn_reconciliation_rejects_external_minting_and_all_burn_zombie() {
     }
 }
 
+/// NM-205: rotation hands the side's receipt mint to the caller, so only a
+/// cohort with receipts on record may retire. An idle side, or one whose last
+/// holder exited, keeps its mint; a terminal cohort retires whether its
+/// receipts are still live or were burned directly.
+#[test]
+fn only_a_cohort_with_receipts_on_record_rotates() {
+    use crate::constants::NAD;
+    // Mirrors `rotate_hlp_cohort`: read the supply on record, reconcile the
+    // live mint supply, then retire. Returns the retired cohort's supply.
+    fn rotate(market: &mut Market, target: MarketAsset, live_supply: u64) -> Result<u64> {
+        let recorded = match target {
+            MarketAsset::Base => market.base_hlp_vault.hlp_supply,
+            MarketAsset::Quote => market.quote_hlp_vault.hlp_supply,
+        };
+        reconcile_live_hlp_supply(market, target, live_supply, false)?;
+        Ok(market.retire_hlp_cohort(target, recorded, Pubkey::new_unique())?.hlp_supply)
+    }
+    let invalid_supply = error!(ErrorCode::InvalidHlpMintSupply);
+    let mut market = Market::current_layout();
+    market.debt.base_borrow_index_nad = NAD as u128;
+    market.debt.quote_borrow_index_nad = NAD as u128;
+    market.add_liquidity(1_000_000, 1_000_000).unwrap();
+    for target in [MarketAsset::Base, MarketAsset::Quote] {
+        // Never minted: terminally closed in form, but nothing to retire.
+        let mut idle = market.clone();
+        assert!(idle.hlp_terminally_closed(target));
+        assert_eq!(rotate(&mut idle, target, 0).unwrap_err(), invalid_supply);
+
+        // The last holder exited normally.
+        let mut exited = market.clone();
+        let receipt = exited.deposit_single_sided(target, 100_000, 1).unwrap();
+        exited.prepare_amm_for_swap(1).unwrap();
+        exited.withdraw_single_sided(target, receipt.hlp_amount).unwrap();
+        assert!(exited.hlp_terminally_closed(target));
+        assert_eq!(rotate(&mut exited, target, 0).unwrap_err(), invalid_supply);
+
+        // A live cohort keeps its receipts until it is terminally closed.
+        let mut live = market.clone();
+        let receipt = live.deposit_single_sided(target, 100_000, 1).unwrap();
+        assert_eq!(
+            rotate(&mut live, target, receipt.hlp_amount).unwrap_err(),
+            error!(ErrorCode::HlpSettlementUnavailable)
+        );
+
+        // Terminally closed with receipts outstanding, live or burned.
+        for live_supply in [3, 0] {
+            let mut terminal = market.clone();
+            match target {
+                MarketAsset::Base => terminal.base_hlp_vault.hlp_supply = 3,
+                MarketAsset::Quote => terminal.quote_hlp_vault.hlp_supply = 3,
+            }
+            assert_eq!(rotate(&mut terminal, target, live_supply).unwrap(), live_supply);
+            let fresh = match target {
+                MarketAsset::Base => terminal.base_hlp_vault,
+                MarketAsset::Quote => terminal.quote_hlp_vault,
+            };
+            assert_eq!(fresh.hlp_supply, 0);
+            assert_ne!(fresh.srlp_vault, Pubkey::default());
+        }
+    }
+}
+
 #[test]
 fn complete_direct_burn_is_recoverable() {
     // A vault with value keeps its stored supply for the orphan close, which

@@ -1679,7 +1679,7 @@ fn gross_limit_includes_transfer_fee_plateaus_and_caps() {
 #[test]
 fn native_preview_uses_full_value_hedge_and_quotes_both_funding_limits() {
     let (mut market, clock) = snapshot();
-    let (status, limit) =
+    let (status, limit, _) =
         preview_hlp_funding_limit(&mut market, MarketAsset::Base, 10_000_000, false, &clock).unwrap();
     assert_eq!(status, HlpDepositStatus::Ready);
     assert!(limit > 0);
@@ -1688,7 +1688,7 @@ fn native_preview_uses_full_value_hedge_and_quotes_both_funding_limits() {
     assert!(receipt.hlp_amount > 0);
     market.assert_hlp_entry_available(MarketAsset::Base).unwrap();
     let (mut market, clock) = snapshot();
-    let (status, limit) = preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock).unwrap();
+    let (status, limit, _) = preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock).unwrap();
     assert_eq!(status, HlpDepositStatus::Ready);
     assert!(limit > 0);
     let target = market.quote_side.reserves.live_reserve as u128;
@@ -1717,7 +1717,7 @@ fn preview_preserves_native_identity_supply_and_market_restrictions() {
     let (mut market, clock) = snapshot();
     assert_eq!(
         preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, true, &clock).unwrap(),
-        (HlpDepositStatus::ReduceOnly, 0)
+        (HlpDepositStatus::ReduceOnly, 0, 0)
     );
     market.reduce_only = true;
     assert_eq!(
@@ -1748,4 +1748,59 @@ fn preview_preserves_native_identity_supply_and_market_restrictions() {
             .0,
         HlpDepositStatus::NoFundingCapacity
     );
+}
+
+/// NM-204: an empty side's capacity preview quotes a first deposit that
+/// borrows the debt atom the deposit requires; a side with receipts quotes
+/// none.
+#[test]
+fn preview_quotes_a_first_deposit_that_borrows() {
+    let debt_shares = |market: &Market, target: MarketAsset| match target {
+        MarketAsset::Base => market.base_hlp_vault.debt_shares,
+        MarketAsset::Quote => market.quote_hlp_vault.debt_shares,
+    };
+    let (mut market, clock) = snapshot();
+    let (status, _, minimum) =
+        preview_hlp_funding_limit(&mut market, MarketAsset::Base, 10_000_000, false, &clock).unwrap();
+    assert_eq!((status, minimum), (HlpDepositStatus::Ready, 0));
+    let (mut market, clock) = snapshot();
+    let (status, _, minimum) = preview_hlp_funding_limit(&mut market, MarketAsset::Quote, 0, false, &clock).unwrap();
+    assert_eq!(status, HlpDepositStatus::Ready);
+    let mut entry = market.clone();
+    entry.deposit_single_sided(MarketAsset::Quote, minimum, 1).unwrap();
+    assert!(debt_shares(&entry, MarketAsset::Quote) > 0);
+
+    for (base, quote) in [
+        (1_000_000_000, 1_000_000),
+        (1_000_000_000_000, 1_000_000),
+        (1_000_000, 1_000_000),
+        (100_000_000, 30_000_000_000),
+        (500_000_000_000, 70_000_000),
+    ] {
+        for target in [MarketAsset::Base, MarketAsset::Quote] {
+            let mut market = Market::current_layout();
+            market.debt.base_borrow_index_nad = NAD as u128;
+            market.debt.quote_borrow_index_nad = NAD as u128;
+            market.add_liquidity(base, quote).unwrap();
+            let (status, limit, minimum) =
+                preview_hlp_funding_limit(&mut market, target, 0, false, &Clock::default()).unwrap();
+            assert_eq!(status, HlpDepositStatus::Ready);
+            assert!(minimum > 0 && minimum <= limit, "{base}/{quote} {target:?}: {minimum} {limit}");
+            let opens = |amount: u64| market.clone().deposit_single_sided(target, amount, 1).is_ok();
+            let mut entry = market.clone();
+            entry.deposit_single_sided(target, minimum, 1).unwrap();
+            assert!(debt_shares(&entry, target) > 0);
+            // The quote stays within about twice the exact boundary.
+            let (mut low, mut high) = (1, minimum);
+            while low < high {
+                let middle = low + (high - low) / 2;
+                if opens(middle) {
+                    high = middle;
+                } else {
+                    low = middle + 1;
+                }
+            }
+            assert!(minimum <= 2 * low + 4, "{base}/{quote} {target:?}: {minimum} vs exact {low}");
+        }
+    }
 }

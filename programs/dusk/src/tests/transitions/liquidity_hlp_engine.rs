@@ -653,7 +653,8 @@ mod interest {
 
 /// A first hLP deposit whose ownership rounds away must not create receipts
 /// backed by zero value. Such receipts price every later entry against zero
-/// NAV, so one dust deposit would close hLP entry on that side.
+/// NAV, so one dust deposit would close hLP entry on that side. It also
+/// borrows nothing, which is the first check it fails.
 #[test]
 fn first_hlp_deposit_must_create_positive_value() {
     let mut market = Market::current_layout();
@@ -663,7 +664,7 @@ fn first_hlp_deposit_must_create_positive_value() {
 
     let mut dust = market.clone();
     let error = dust.deposit_single_sided(MarketAsset::Base, 1, 1).unwrap_err();
-    assert!(error.to_string().contains("AmountZero"), "{error}");
+    assert_eq!(error, error!(ErrorCode::HlpFirstDepositTooSmall));
 
     let first = market.deposit_single_sided(MarketAsset::Base, 1_000_000, 1).unwrap();
     assert_eq!(first.hlp_amount, 1_000_000);
@@ -783,5 +784,75 @@ fn hlp_exit_imbalance_is_capped_by_the_bounded_market_price() {
         let retained = 50_000 - settled_close_target_amount(&market, MarketAsset::Base, 50_000, 0, 10_000).unwrap();
         assert!(retained >= native_retained);
         assert!(u128::from(retained) >= 10_000 * u128::from(NAD) / u128::from(high));
+    }
+}
+
+/// NM-204: a first hLP deposit must borrow at least one atom of the opposite
+/// asset. A vault can still own srLP with no debt once a partial exit takes
+/// its last debt atom. Its holders' exit, its quote and the orphan close after
+/// a complete direct burn must all clear that vault, after which the side
+/// accepts deposits again.
+#[test]
+fn zero_debt_hlp_vault_exits_and_orphan_closes() {
+    use crate::instructions::reconcile_live_hlp_supply;
+    let fresh = |base: u64, quote: u64| {
+        let mut market = Market::current_layout();
+        market.debt.base_borrow_index_nad = NAD as u128;
+        market.debt.quote_borrow_index_nad = NAD as u128;
+        market.add_liquidity(base, quote).unwrap();
+        market
+    };
+    let vault = |market: &Market, target: MarketAsset| match target {
+        MarketAsset::Base => market.base_hlp_vault,
+        MarketAsset::Quote => market.quote_hlp_vault,
+    };
+    // One srLP share claims about 0.03 atoms of the borrowed asset, so the
+    // first cohort needs about one borrowed atom of target: 1,012 atoms.
+    for (base, quote, target) in [
+        (1_000_000_000, 1_000_000, MarketAsset::Base),
+        (1_000_000, 1_000_000_000, MarketAsset::Quote),
+    ] {
+        for amount in [1, 40, 63, 100, 1_000, 1_011] {
+            let error = fresh(base, quote).deposit_single_sided(target, amount, 1).unwrap_err();
+            assert_eq!(error, error!(ErrorCode::HlpFirstDepositTooSmall), "{target:?} {amount}");
+        }
+        let mut smallest = fresh(base, quote);
+        smallest.deposit_single_sided(target, 1_012, 1).unwrap();
+        assert_eq!(vault(&smallest, target).debt_shares, 1);
+
+        // One debt atom: three quarters of the cohort exit and repay it.
+        let mut market = fresh(base, quote);
+        market.deposit_single_sided(target, 2_000, 1).unwrap();
+        market.prepare_amm_for_swap(1).unwrap();
+        assert_eq!(vault(&market, target).debt_shares, 1);
+        let supply = vault(&market, target).hlp_supply;
+        assert_eq!(market.withdraw_single_sided(target, supply * 3 / 4).unwrap().debt_repaid, 1);
+        let left = vault(&market, target);
+        assert!(left.srlp_shares > 0 && left.debt_shares == 0 && left.debt_principal == 0);
+        assert!(!market.hlp_terminally_closed(target));
+
+        let mut exit = market.clone();
+        let quoted = exit.quote_hlp_withdrawal(target, left.hlp_supply).unwrap();
+        let receipt = exit.withdraw_single_sided(target, left.hlp_supply).unwrap();
+        assert_eq!(receipt.target_amount_out, quoted);
+        assert!(quoted > 0);
+        assert_eq!((receipt.debt_repaid, receipt.interest_paid, receipt.hlp_supply), (0, 0, 0));
+        assert!(exit.hlp_terminally_closed(target));
+        exit.assert_market_invariants().unwrap();
+
+        // Every receipt burned directly: entry waits for the orphan close,
+        // which anyone can complete.
+        let mut orphan = market.clone();
+        let error = reconcile_live_hlp_supply(&mut orphan.clone(), target, 0, false).unwrap_err();
+        assert_eq!(error, error!(ErrorCode::InvalidHlpMintSupply));
+        reconcile_live_hlp_supply(&mut orphan, target, 0, true).unwrap();
+        let close = orphan.withdraw_single_sided(target, left.hlp_supply).unwrap();
+        assert_eq!(close.target_amount_out, quoted);
+        assert!(orphan.hlp_terminally_closed(target));
+        reconcile_live_hlp_supply(&mut orphan, target, 0, false).unwrap();
+        let entry = orphan.deposit_single_sided(target, 1_000_000, 1).unwrap();
+        assert_eq!(entry.hlp_amount, 1_000_000);
+        assert!(vault(&orphan, target).debt_shares > 0);
+        orphan.assert_market_invariants().unwrap();
     }
 }
