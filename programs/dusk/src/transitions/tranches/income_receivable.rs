@@ -65,7 +65,7 @@ impl IncomeReceivableBook {
                 epoch: self.epoch.checked_add(1).ok_or(ErrorCode::MarketMathOverflow)?,
                 growth: self.growth,
                 run_length: self.run_length + 1,
-                epoch_start_growth: [self.growth[0], self.growth[1]],
+                epoch_start_units_q64: [self.growth[0].units_q64, self.growth[1].units_q64],
                 ..Self::default()
             };
             return next.project_issue(allocations);
@@ -294,13 +294,16 @@ impl IncomeReceivableClaim {
         self.advance_epoch(balance, &closed, lane)
     }
 
-    /// Value epochs of the current drain run that ended after this claim's
-    /// checkpoint. Each was fully repaid without loss, so every unit in it
-    /// received at least the run's unit value, and no unit
+    /// Bring a claim from an earlier epoch of the current drain run to the
+    /// book's epoch. Each earlier epoch was fully repaid without loss, so
+    /// every unit in it received at least the drained unit value, and no unit
     /// carried over. Units held at the checkpoint are owed the rest of that
-    /// value; units issued since are valued from cumulative lane growth up to
-    /// the current epoch's start (or the exposure end, if earlier). This is
-    /// at most the cash credited, and needs no archived epoch.
+    /// value. Units issued since are valued from cumulative lane growth: at
+    /// the drained unit value up to the current epoch's start, and at the live
+    /// paid index after it. The claim leaves checkpointed at its target
+    /// growth (the exposure end, if that falls in this epoch), so the caller's
+    /// checkpoint adds nothing. This is at most the cash credited, and needs
+    /// no archived epoch.
     fn catch_up_drained(
         &mut self,
         balance: u64,
@@ -315,43 +318,56 @@ impl IncomeReceivableClaim {
             self.epoch < book.epoch && self.epoch >= book.run_start_epoch(),
             ErrorCode::IncomeHistoryRequired
         );
-        require!(lane < 4, ErrorCode::InvalidArgument);
-        let start = match book.epoch_start_growth.get(lane) {
-            Some(start) => *start,
+        let current = *book.growth.get(lane).ok_or(ErrorCode::InvalidArgument)?;
+        let start_units = match book.epoch_start_units_q64.get(lane) {
+            Some(units) => *units,
             None => {
                 // An hLP lane's only claim is checkpointed after every
                 // issuance, and an epoch advances in place only inside an
                 // issuance, so it lags exactly one epoch and its checkpoint
-                // is that epoch's starting growth.
+                // is that epoch's start.
                 require!(
                     self.epoch.checked_add(1) == Some(book.epoch),
                     ErrorCode::IncomeHistoryRequired
                 );
-                self.growth_checkpoint
+                self.growth_checkpoint.units_q64
             }
         };
-        let stop = if end.ended && end.epoch < book.epoch {
-            (end.epoch >= self.epoch).then_some(end.growth)
+        require_gte!(
+            start_units,
+            self.growth_checkpoint.units_q64,
+            ErrorCode::BrokenInvariant
+        );
+        // Exposure that ended in an earlier epoch of the run is valued up to
+        // its end and holds nothing now. Exposure that ends in this epoch is
+        // valued up to its end, which later checkpoints keep as the lane's
+        // closed growth.
+        let (stop, target, held_balance) = if end.ended && end.epoch < book.epoch {
+            ((end.epoch >= self.epoch).then_some(end.growth), current, 0)
+        } else if end.ended && end.epoch == book.epoch {
+            (Some(end.growth), end.growth, balance)
         } else {
-            Some(start)
-        }
-        .filter(|stop| stop.units_q64 >= self.growth_checkpoint.units_q64);
-        let unit_value = DRAINED_UNIT_VALUE_Q64;
-        let drained_value = |growth: &ReceivableGrowth| {
-            (U256::from(growth.units_q64) * U256::from(unit_value))
-                .overflowing_sub(U256(growth.weighted_paid_q128))
-                .0
+            (Some(current), current, balance)
         };
+        let stop = stop.filter(|stop| stop.units_q64 >= self.growth_checkpoint.units_q64);
+        let unit_value = DRAINED_UNIT_VALUE_Q64;
+        let paid = book.paid_per_unit_q64;
         // Sign-magnitude Q128 sums. A term is slightly negative only when a
-        // unit was issued after the paid index passed the drained unit value;
-        // a net negative total pays nothing.
+        // unit was issued after the paid index passed the unit value it is
+        // valued at; a net negative total pays nothing.
         let mut owed = U256::from(self.paid_fraction_q128);
         let mut excess = U256::zero();
+        let mut units_q64 = 0;
         if let Some(stop) = stop {
-            // Two's-complement difference of cumulative values; the true
-            // magnitude is far below 2^255.
-            let per_share = drained_value(&stop)
-                .overflowing_sub(drained_value(&self.growth_checkpoint))
+            let drained_units = stop.units_q64.min(start_units) - self.growth_checkpoint.units_q64;
+            let live_units = stop.units_q64 - stop.units_q64.min(start_units);
+            // Two's-complement sum; the true magnitude is far below 2^255.
+            let per_share = (U256::from(drained_units) * U256::from(unit_value))
+                .overflowing_add(U256::from(live_units) * U256::from(paid))
+                .0
+                .overflowing_sub(U256(stop.weighted_paid_q128))
+                .0
+                .overflowing_add(U256(self.growth_checkpoint.weighted_paid_q128))
                 .0;
             if per_share.bit(255) {
                 let magnitude = (!per_share).overflowing_add(U256::one()).0;
@@ -362,6 +378,7 @@ impl IncomeReceivableClaim {
                     .and_then(|value| value.checked_add(owed))
                     .ok_or(ErrorCode::MarketMathOverflow)?;
             }
+            units_q64 = mul_div_u128(held_balance as u128, live_units, 1)?;
         }
         let held = U256::from(self.units_q64);
         if self.paid_checkpoint_q64 <= unit_value {
@@ -380,9 +397,9 @@ impl IncomeReceivableClaim {
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.paid_fraction_q128 = cash_scaled.low_u128();
         self.epoch = book.epoch;
-        self.units_q64 = 0;
-        self.paid_checkpoint_q64 = 0;
-        self.growth_checkpoint = start;
+        self.units_q64 = units_q64;
+        self.paid_checkpoint_q64 = paid;
+        self.growth_checkpoint = target;
         Ok(())
     }
 

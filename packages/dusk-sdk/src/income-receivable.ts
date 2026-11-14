@@ -24,9 +24,10 @@ export interface IncomeBookInput {
   paidPerUnitQ64: IntegerLike; growth: readonly IncomeGrowthInput[];
   /** Epochs of the book's drain run before `epoch`; absent means zero. */
   runLength?: IntegerLike;
-  /** Ordinary senior and junior growth when `epoch` began; absent means zero.
-   * hLP lanes use their single claim's checkpoint, which lags one epoch. */
-  epochStartGrowth?: readonly IncomeGrowthInput[];
+  /** Ordinary senior and junior growth units when `epoch` began; absent
+   * means zero. hLP lanes use their single claim's checkpoint, which lags one
+   * epoch. */
+  epochStartUnitsQ64?: readonly IntegerLike[];
   impaired?: boolean;
 }
 export interface IncomeEndInput { ended: boolean; epoch: IntegerLike; growth: IncomeGrowthInput }
@@ -67,30 +68,45 @@ export function incomeRunStartEpoch(book: IncomeBookInput): bigint {
   return length > epoch ? 0n : epoch - length;
 }
 
-/** Pure copy of IncomeReceivableClaim::catch_up_drained: value the epochs of
- * the book's drain run that ended after the claim's checkpoint. */
+/** Pure copy of IncomeReceivableClaim::catch_up_drained: bring a claim from
+ * an earlier epoch of the book's drain run to the book's epoch, valuing units
+ * issued before the epoch began at the drained unit value and units issued
+ * since at the live paid index. The claim leaves checkpointed at its target. */
 function catchUpDrained(claim: IncomeClaimInput, book: IncomeBookInput, balanceInput: IntegerLike, lane: number, end?: IncomeEndInput): IncomeClaimInput {
   const claimEpoch = value(claim.epoch, U64), epoch = value(book.epoch, U64);
   if (claimEpoch === epoch) return claim;
   if (claimEpoch > epoch || claimEpoch < incomeRunStartEpoch(book)) throw new Error("IncomeHistoryRequired");
-  let start: IncomeGrowthInput;
-  if (lane < 2) start = book.epochStartGrowth?.[lane] ?? ZERO_GROWTH;
+  const checkpointUnits = value(claim.growthCheckpoint.unitsQ64);
+  let startUnits: bigint;
+  if (lane < 2) startUnits = value(book.epochStartUnitsQ64?.[lane] ?? 0n);
   else {
     if (claimEpoch + 1n !== epoch) throw new Error("IncomeHistoryRequired");
-    start = claim.growthCheckpoint;
+    startUnits = checkpointUnits;
   }
+  if (startUnits < checkpointUnits) throw new Error("Income index regressed");
+  const current = book.growth[lane]!;
+  const balance = value(balanceInput, U64);
   const ended = end?.ended === true;
   const endEpoch = ended ? value(end!.epoch, U64) : 0n;
-  let stop: IncomeGrowthInput | undefined = ended && endEpoch < epoch ? (endEpoch >= claimEpoch ? end!.growth : undefined) : start;
-  if (stop && value(stop.unitsQ64) < value(claim.growthCheckpoint.unitsQ64)) stop = undefined;
+  let stop: IncomeGrowthInput | undefined, target: IncomeGrowthInput, heldBalance: bigint;
+  if (ended && endEpoch < epoch) [stop, target, heldBalance] = [endEpoch >= claimEpoch ? end!.growth : undefined, current, 0n];
+  else if (ended && endEpoch === epoch) [stop, target, heldBalance] = [end!.growth, end!.growth, balance];
+  else [stop, target, heldBalance] = [current, current, balance];
+  if (stop && value(stop.unitsQ64) < checkpointUnits) stop = undefined;
   const unitValue = DRAINED_UNIT_VALUE_Q64;
-  const drained = (growth: IncomeGrowthInput) => value(growth.unitsQ64) * unitValue - weighted(growth);
-  let owed = value(claim.paidFractionQ128);
-  if (stop) owed += (drained(stop) - drained(claim.growthCheckpoint)) * value(balanceInput, U64);
+  const paid = value(book.paidPerUnitQ64);
+  let owed = value(claim.paidFractionQ128), unitsQ64 = 0n;
+  if (stop) {
+    const stopUnits = value(stop.unitsQ64);
+    const drainedEnd = stopUnits < startUnits ? stopUnits : startUnits;
+    const live = stopUnits - drainedEnd;
+    owed += ((drainedEnd - checkpointUnits) * unitValue + live * paid - weighted(stop) + weighted(claim.growthCheckpoint)) * balance;
+    unitsQ64 = value(heldBalance * live);
+  }
   owed += value(claim.unitsQ64) * (unitValue - value(claim.paidCheckpointQ64));
   const cash = owed < 0n ? 0n : owed;
   if (cash > U256) throw new Error("Income value overflow");
-  return { epoch, unitsQ64: 0n, paidCheckpointQ64: 0n, growthCheckpoint: start, paidFractionQ128: cash & U128,
+  return { epoch, unitsQ64, paidCheckpointQ64: paid, growthCheckpoint: target, paidFractionQ128: cash & U128,
     claimable: value(value(claim.claimable, U64) + (cash >> 128n), U64) };
 }
 

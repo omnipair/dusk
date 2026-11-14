@@ -31,12 +31,15 @@ pub struct IncomeReceivableBook {
     /// without archived history. Packed with `impaired` to keep the decoded
     /// books inside liquidation heap headroom.
     pub run_length: u32,
-    /// Ordinary senior and junior lane growth when the current epoch started;
-    /// equal to `growth` at the last in-place advance. The hLP lanes have one
-    /// market-held claim each, checkpointed after every issuance, so that
-    /// claim's own checkpoint is its lane's starting growth. Two lanes, not
-    /// four, keep the decoded income books inside liquidation heap headroom.
-    pub epoch_start_growth: [ReceivableGrowth; 2],
+    /// Ordinary senior and junior lane units when the current epoch started;
+    /// equal to `growth` units at the last in-place advance. Catch-up values
+    /// units issued before this point at the drained unit value and units
+    /// issued after it at the live paid index, so the starting weighted index
+    /// is never needed. The hLP lanes have one market-held claim each,
+    /// checkpointed after every issuance, so that claim's own checkpoint is
+    /// its lane's start. Units alone, for two lanes, keep the decoded income
+    /// books inside liquidation heap headroom.
+    pub epoch_start_units_q64: [u128; 2],
     /// A writeoff in this epoch. Such an epoch cannot be advanced in place;
     /// it needs an archived roll.
     pub impaired: bool,
